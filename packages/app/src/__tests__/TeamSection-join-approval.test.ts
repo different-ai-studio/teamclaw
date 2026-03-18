@@ -1,0 +1,191 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react'
+import * as React from 'react'
+
+// Mock react-i18next
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, fallback?: string | Record<string, unknown>) => {
+      if (typeof fallback === 'string') return fallback
+      if (typeof fallback === 'object' && fallback && 'defaultValue' in fallback) return (fallback as { defaultValue: string }).defaultValue
+      return key
+    },
+  }),
+}))
+
+const mockDeviceInfo = {
+  nodeId: 'joiner-node-id-abcdef123456',
+  platform: 'macos',
+  arch: 'aarch64',
+  hostname: 'joiner-macbook',
+}
+
+let joinDriveError: null | Error = null
+let joinCompleted = false
+const connectedSyncStatus = {
+  connected: true,
+  role: 'member',
+  docTicket: null,
+  namespaceId: 'ns-123',
+  lastSyncAt: null,
+  members: [],
+}
+
+const mockInvoke = vi.fn(async (cmd: string, _args?: Record<string, unknown>) => {
+  if (cmd === 'team_check_git_installed') return { installed: true, version: '2.40.0' }
+  if (cmd === 'get_team_config') return null
+  if (cmd === 'get_device_info') return mockDeviceInfo
+  if (cmd === 'get_p2p_config') return {
+    enabled: true,
+    tickets: [],
+    publishEnabled: false,
+    lastSyncAt: null,
+    ownerNodeId: null,
+    allowedMembers: [],
+  }
+  // Return connected status only after join has completed successfully
+  if (cmd === 'p2p_sync_status') return joinCompleted ? connectedSyncStatus : null
+  if (cmd === 'p2p_reconnect') return null
+  // Return exists: true to trigger the confirmation dialog, which avoids
+  // the stale closure in checkTeamDirAndConfirm's useCallback([]) dependency
+  if (cmd === 'p2p_check_team_dir') return { exists: true, hasMembers: false }
+  if (cmd === 'p2p_join_drive') {
+    if (joinDriveError) throw joinDriveError
+    joinCompleted = true
+    return null
+  }
+  return null
+})
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: mockInvoke,
+}))
+
+// Mock plugin-fs to prevent import errors from team-mode store
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  readTextFile: vi.fn(async () => ''),
+  exists: vi.fn(async () => false),
+}))
+
+beforeEach(() => {
+  joinDriveError = null
+  joinCompleted = false
+  mockInvoke.mockClear()
+  ;(window as unknown as { __TAURI__: unknown }).__TAURI__ = {}
+  ;(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+    invoke: mockInvoke,
+  }
+})
+
+afterEach(() => {
+  cleanup()
+})
+
+describe('TeamSection Join Approval Status', () => {
+  it('shows "Waiting for approval" when join fails with Not authorized', async () => {
+    joinDriveError = new Error('Not authorized: your NodeId is not in the team allowlist')
+    const { TeamSection } = await import('../components/settings/TeamSection')
+
+    await act(async () => {
+      render(React.createElement(TeamSection))
+    })
+
+    // Wait for async init (useEffect) to complete
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50))
+    })
+
+    // Switch to P2P tab
+    await act(async () => {
+      fireEvent.click(screen.getByRole('tab', { name: /p2p/i }))
+    })
+
+    // Enter a ticket and click Join
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ticket/i)).toBeDefined()
+    })
+
+    const ticketInput = screen.getByPlaceholderText(/ticket/i)
+    fireEvent.change(ticketInput, { target: { value: 'test-ticket-abc123' } })
+
+    // Click Join — triggers confirmation dialog (p2p_check_team_dir returns exists: true)
+    const joinBtn = screen.getByRole('button', { name: /^join$/i })
+    await act(async () => {
+      fireEvent.click(joinBtn)
+    })
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50))
+    })
+
+    // Click "Continue" in the confirmation dialog to proceed with join
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /continue/i })).toBeDefined()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    })
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 100))
+    })
+
+    // Should show "Not authorized to join" status (the actual component text)
+    await waitFor(() => {
+      expect(screen.getByText(/not authorized to join/i)).toBeDefined()
+    })
+
+    // Should show the device NodeId so user can share it with owner
+    await waitFor(() => {
+      expect(screen.getAllByText(/joiner-n/).length).toBeGreaterThan(0)
+    })
+  })
+
+  it('shows connected status when join succeeds', async () => {
+    joinDriveError = null
+    const { TeamSection } = await import('../components/settings/TeamSection')
+
+    await act(async () => {
+      render(React.createElement(TeamSection))
+    })
+
+    // Wait for async init to complete
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50))
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('tab', { name: /p2p/i }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ticket/i)).toBeDefined()
+    })
+
+    const ticketInput = screen.getByPlaceholderText(/ticket/i)
+    fireEvent.change(ticketInput, { target: { value: 'test-ticket-abc123' } })
+
+    // Click Join — triggers confirmation dialog
+    const joinBtn = screen.getByRole('button', { name: /^join$/i })
+    await act(async () => {
+      fireEvent.click(joinBtn)
+    })
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50))
+    })
+
+    // Click "Continue" in the confirmation dialog to proceed with join
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /continue/i })).toBeDefined()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    })
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 100))
+    })
+
+    // Should show Team Drive Active (connected state)
+    await waitFor(() => {
+      expect(screen.getByText(/team drive active/i)).toBeDefined()
+    })
+  })
+})

@@ -1,0 +1,68 @@
+/**
+ * TestCredentialsButton - Test credentials/token button with loading state and result display.
+ * Common pattern across all channel settings.
+ */
+import { useTranslation } from 'react-i18next'
+import {
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  X,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+
+export interface TestResult {
+  success: boolean
+  message: string
+}
+
+export function TestCredentialsButton({
+  onTest,
+  isTesting,
+  testResult,
+  onClearResult,
+  disabled,
+  label,
+}: {
+  onTest: () => void
+  isTesting: boolean
+  testResult: TestResult | null
+  onClearResult: () => void
+  disabled?: boolean
+  label?: string
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        onClick={onTest}
+        disabled={isTesting || disabled}
+      >
+        {isTesting ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          label || t('settings.channels.test', 'Test')
+        )}
+      </Button>
+      {testResult && (
+        <div className={cn(
+          "flex items-center gap-2 text-sm mt-2",
+          testResult.success ? "text-emerald-600" : "text-red-600"
+        )}>
+          {testResult.success ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : (
+            <AlertCircle className="h-4 w-4" />
+          )}
+          {testResult.message}
+          <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={onClearResult}>
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+    </>
+  )
+}

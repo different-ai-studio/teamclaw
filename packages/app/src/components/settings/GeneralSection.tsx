@@ -1,0 +1,365 @@
+import * as React from 'react'
+import { useTranslation } from 'react-i18next'
+import i18next from 'i18next'
+import {
+  Settings2,
+  Moon,
+  Sun,
+  Monitor,
+  Languages,
+  Save,
+  Bell,
+  Shield,
+  AlertTriangle,
+  MessageSquareText,
+  Plus,
+  X,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
+import { getPermissionPolicy, setPermissionPolicy, type PermissionPolicy } from '@/lib/permission-policy'
+import { PermissionBatchSection } from './PermissionBatchSection'
+import { useSuggestionsStore } from '@/stores/suggestions'
+
+// Theme helpers
+const THEME_STORAGE_KEY = 'teamclaw-theme'
+
+function applyTheme(theme: string) {
+  const root = document.documentElement
+  if (theme === 'dark') {
+    root.classList.add('dark')
+  } else if (theme === 'light') {
+    root.classList.remove('dark')
+  } else {
+    // system
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    if (prefersDark) {
+      root.classList.add('dark')
+    } else {
+      root.classList.remove('dark')
+    }
+  }
+}
+
+function getStoredTheme(): string {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) || 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+// Apply theme immediately on module load to prevent flash
+applyTheme(getStoredTheme())
+
+export const GeneralSection = React.memo(function GeneralSection() {
+  const { t } = useTranslation()
+  const [theme, setThemeState] = React.useState(getStoredTheme)
+  const [language, setLanguage] = React.useState(() => {
+    const storedLang = localStorage.getItem('teamclaw-language');
+    if (storedLang === 'zh') return 'zh-CN';
+    return storedLang || (navigator.language.startsWith('zh') ? 'zh-CN' : 'en');
+  })
+
+  // Sync language state with i18n instance
+  React.useEffect(() => {
+    const handleLanguageChange = () => {
+      setLanguage(i18next.language);
+    };
+
+    i18next.on('languageChanged', handleLanguageChange);
+    return () => {
+      i18next.off('languageChanged', handleLanguageChange);
+    };
+  }, []);
+  const [autoSave, setAutoSave] = React.useState(true)
+  const [notificationLevel, setNotificationLevelState] = React.useState(() => {
+    try {
+      const stored = localStorage.getItem('teamclaw-notification-level')
+      if (stored === 'all' || stored === 'important' || stored === 'mute') return stored
+    } catch { /* ignore */ }
+    return 'important'
+  })
+  const setNotificationLevel = React.useCallback((level: string) => {
+    setNotificationLevelState(level)
+    try { localStorage.setItem('teamclaw-notification-level', level) } catch { /* ignore */ }
+  }, [])
+  const [permissionPolicy, setPermissionPolicyState] = React.useState<PermissionPolicy>(getPermissionPolicy)
+  const handlePermissionPolicyChange = React.useCallback((value: string) => {
+    const policy = value as PermissionPolicy
+    setPermissionPolicyState(policy)
+    setPermissionPolicy(policy)
+  }, [])
+
+  // Listen to system preference changes when theme is 'system'
+  React.useEffect(() => {
+    if (theme !== 'system') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = () => applyTheme('system')
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [theme])
+
+  const setTheme = React.useCallback((t: string) => {
+    setThemeState(t)
+    try { localStorage.setItem(THEME_STORAGE_KEY, t) } catch { /* ignore */ }
+    applyTheme(t)
+  }, [])
+
+  const themeIcons: Record<string, React.ElementType> = {
+    light: Sun,
+    dark: Moon,
+    system: Monitor,
+  }
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader 
+        icon={Settings2} 
+        title={t('settings.general.title', 'General')} 
+        description={t('settings.general.description', 'Customize your application preferences')}
+        iconColor="text-blue-500"
+      />
+      
+      <SettingCard>
+        <h4 className="font-medium mb-4 flex items-center gap-2">
+          <Monitor className="h-4 w-4 text-muted-foreground" />
+          {t('settings.general.appearance', 'Appearance')}
+        </h4>
+        <div className="grid grid-cols-3 gap-3">
+          {(['light', 'dark', 'system'] as const).map((t) => {
+            const Icon = themeIcons[t]
+            return (
+              <button
+                key={t}
+                onClick={() => setTheme(t)}
+                className={cn(
+                  "flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all",
+                  theme === t 
+                    ? "border-primary bg-primary/5" 
+                    : "border-transparent bg-muted/50 hover:bg-muted"
+                )}
+              >
+                <Icon className={cn("h-5 w-5", theme === t ? "text-primary" : "text-muted-foreground")} />
+                <span className={cn("text-sm capitalize", theme === t ? "font-medium" : "text-muted-foreground")}>
+                  {t}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </SettingCard>
+
+      <SettingCard>
+<div className="space-y-2">
+  <label className="text-sm font-medium flex items-center gap-2">
+    <Languages className="h-4 w-4 text-muted-foreground" />
+    {t('common.language')}
+  </label>
+  <Select 
+    value={language} 
+    onValueChange={(value) => {
+      setLanguage(value);
+      i18next.changeLanguage(value);
+      localStorage.setItem('teamclaw-language', value);
+    }}
+  >
+    <SelectTrigger className="h-11">
+      <SelectValue />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="en">🇺🇸 {t('common.english', 'English')}</SelectItem>
+      <SelectItem value="zh-CN">🇨🇳 {t('common.chinese', '中文')}</SelectItem>
+      <SelectItem value="ja">🇯🇵 {t('common.japanese', '日本語')}</SelectItem>
+    </SelectContent>
+  </Select>
+</div>
+      </SettingCard>
+
+      <SettingCard>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Save className="h-4 w-4 text-muted-foreground" />
+                {t('settings.general.autoSave', 'Auto Save')}
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.general.autoSaveDesc', 'Automatically save your work')}
+              </p>
+            </div>
+            <ToggleSwitch enabled={autoSave} onChange={setAutoSave} />
+          </div>
+          
+          <div className="border-t pt-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Bell className="h-4 w-4 text-muted-foreground" />
+                {t('settings.general.notifications', 'Notifications')}
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.general.notificationsDesc', 'Control when desktop notifications are sent')}
+              </p>
+              <Select value={notificationLevel} onValueChange={setNotificationLevel}>
+                <SelectTrigger className="h-11" data-testid="notification-level-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('settings.general.notifAll', 'All notifications')}</SelectItem>
+                  <SelectItem value="important">{t('settings.general.notifImportant', 'Important only')}</SelectItem>
+                  <SelectItem value="mute">{t('settings.general.notifMute', 'Mute')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Shield className="h-4 w-4 text-muted-foreground" />
+                {t('permission.policy', 'Permission Policy')}
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {t('permission.policyDesc', 'Control how permission requests are handled')}
+              </p>
+              <Select value={permissionPolicy} onValueChange={handlePermissionPolicyChange}>
+                <SelectTrigger className="h-11" data-testid="permission-policy-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ask">{t('permission.policyAsk', 'Ask (prompt each time)')}</SelectItem>
+                  <SelectItem value="batch">{t('permission.policyBatch', 'Batch (request all at once)')}</SelectItem>
+                  <SelectItem value="bypass">{t('permission.policyBypass', 'Bypass (auto-authorize)')}</SelectItem>
+                </SelectContent>
+              </Select>
+              {permissionPolicy === 'bypass' && (
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    {t('permission.bypassWarning', 'All permission requests will be automatically authorized. Only recommended for trusted environments (development, testing, or managed deployments).')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </SettingCard>
+
+      {permissionPolicy === 'batch' && (
+        <PermissionBatchSection />
+      )}
+
+      <ChatSuggestionsCard />
+    </div>
+  )
+})
+
+function ChatSuggestionsCard() {
+  const { t } = useTranslation()
+  const customSuggestions = useSuggestionsStore(s => s.customSuggestions)
+  const addSuggestion = useSuggestionsStore(s => s.addSuggestion)
+  const removeSuggestion = useSuggestionsStore(s => s.removeSuggestion)
+  const [newSuggestion, setNewSuggestion] = React.useState('')
+
+  const handleAdd = React.useCallback(() => {
+    const trimmed = newSuggestion.trim()
+    if (!trimmed) return
+    addSuggestion(trimmed)
+    setNewSuggestion('')
+  }, [newSuggestion, addSuggestion])
+
+  const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleAdd()
+    }
+  }, [handleAdd])
+
+  const builtInSuggestions = [
+    t('chat.suggestions.slide', 'Create a slide'),
+    t('chat.suggestions.poster', 'Create a promotional poster'),
+    t('chat.suggestions.skill', 'Add a new skill'),
+  ]
+
+  return (
+    <SettingCard>
+      <h4 className="font-medium mb-4 flex items-center gap-2">
+        <MessageSquareText className="h-4 w-4 text-muted-foreground" />
+        {t('settings.general.chatSuggestions', 'Chat Suggestions')}
+      </h4>
+      <p className="text-xs text-muted-foreground mb-4">
+        {t('settings.general.chatSuggestionsDesc', 'Custom suggestions shown on the Start a New Chat page')}
+      </p>
+
+      <div className="space-y-3">
+        <div className="text-xs text-muted-foreground font-medium">
+          {t('settings.general.builtInSuggestions', 'Built-in Suggestions')}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {builtInSuggestions.map((s) => (
+            <span
+              key={s}
+              className="inline-flex items-center h-8 px-3 rounded-full border text-xs bg-muted/50 text-muted-foreground"
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+
+        {customSuggestions.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-2">
+            {customSuggestions.map((s, i) => (
+              <span
+                key={`${i}-${s}`}
+                className="inline-flex items-center gap-1 h-8 pl-3 pr-1 rounded-full border text-xs bg-primary/5 border-primary/20"
+              >
+                {s}
+                <button
+                  onClick={() => removeSuggestion(i)}
+                  className="ml-1 p-0.5 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {customSuggestions.length === 0 && (
+          <p className="text-xs text-muted-foreground italic pt-1">
+            {t('settings.general.noCustomSuggestions', 'No custom suggestions yet')}
+          </p>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <Input
+            value={newSuggestion}
+            onChange={(e) => setNewSuggestion(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={t('settings.general.suggestionPlaceholder', 'Enter a suggestion text...')}
+            className="h-9 text-sm"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 shrink-0"
+            onClick={handleAdd}
+            disabled={!newSuggestion.trim()}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {t('settings.general.addSuggestion', 'Add')}
+          </Button>
+        </div>
+      </div>
+    </SettingCard>
+  )
+}

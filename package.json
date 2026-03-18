@@ -1,0 +1,38 @@
+{
+  "name": "teamclaw",
+  "version": "0.2.27",
+  "private": true,
+  "description": "TeamClaw - AI Agent Desktop Platform",
+  "scripts": {
+    "dev": "pnpm --filter @teamclaw/app dev",
+    "build": "pnpm --filter @teamclaw/app build",
+    "preview": "pnpm --filter @teamclaw/app preview",
+    "tauri": "node scripts/tauri-cli.js",
+    "tauri:dev": "sh -c 'unset CI; [ \"$(uname -s)\" = Darwin ] && export CMAKE_OSX_DEPLOYMENT_TARGET=10.15; exec tauri dev \"$@\"' sh",
+    "tauri:build": "sh -c 'unset CI; [ \"$(uname -s)\" = Darwin ] && export CMAKE_OSX_DEPLOYMENT_TARGET=10.15; exec tauri build \"$@\"' sh",
+    "tauri:build:win": "tauri build --bundles nsis -- --no-default-features",
+    "tauri:dev:win": "tauri dev -- --no-default-features",
+    "installer:win": "node scripts/build-windows.js",
+    "lint": "pnpm --filter @teamclaw/app lint",
+    "typecheck": "pnpm --filter @teamclaw/app typecheck",
+    "test": "pnpm test:unit",
+    "test:unit": "pnpm --filter @teamclaw/app test:unit",
+    "test:smoke": "vitest run --config vitest.config.e2e.ts tests/e2e/smoke",
+    "test:e2e": "vitest run --config vitest.config.e2e.ts",
+    "test:e2e:regression": "vitest run --config vitest.config.e2e.ts tests/regression",
+    "test:e2e:performance": "vitest run --config vitest.config.e2e.ts tests/performance",
+    "test:e2e:e2e": "vitest run --config vitest.config.e2e.ts tests/e2e",
+    "test:e2e:functional": "vitest run --config vitest.config.e2e.ts tests/functional",
+    "update-opencode": "node scripts/update-opencode.js",
+    "verify-release": "./scripts/verify-release-build.sh"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.0",
+    "shadcn": "^3.7.0",
+    "vitest": "^2.1.0"
+  },
+  "packageManager": "pnpm@10.30.2",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

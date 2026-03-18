@@ -1,0 +1,138 @@
+pub mod clawhub;
+pub mod cron;
+pub mod deps;
+pub mod stt;
+pub mod env_vars;
+pub mod filewatcher;
+pub mod gateway;
+pub mod git;
+pub mod knowledge;
+pub mod llm_proxy;
+pub mod local_stats;
+pub mod mcp;
+pub mod opencode;
+pub mod spotlight;
+pub mod rag_http_server;
+pub mod skillssh;
+pub mod team;
+pub mod team_webdav;
+#[cfg(feature = "p2p")]
+pub mod team_p2p;
+pub mod p2p_state;
+pub mod updater;
+pub mod webview;
+
+/// Directory name for all TeamClaw local config/data files, created under the workspace root.
+pub const TEAMCLAW_DIR: &str = ".teamclaw";
+
+#[tauri::command]
+pub fn greet(name: &str) -> String {
+    format!("Hello, {}! Welcome to TeamClaw.", name)
+}
+
+/// Reveal a file or folder in the native file manager (Finder on macOS, Explorer on Windows).
+#[tauri::command]
+pub fn show_in_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to reveal in Finder: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to reveal in Explorer: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try xdg-open on the parent directory
+        let parent = std::path::Path::new(&path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        std::process::Command::new("xdg-open")
+            .arg(&parent)
+            .spawn()
+            .map_err(|e| format!("Failed to reveal in file manager: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Open a file with the system default application.
+#[tauri::command]
+pub fn open_with_default_app(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Open a terminal at the given directory path.
+#[tauri::command]
+pub fn open_in_terminal(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-a", "Terminal", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open terminal: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "cmd", "/K", &format!("cd /d {}", path)])
+            .spawn()
+            .map_err(|e| format!("Failed to open terminal: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try common terminal emulators
+        let terminals = ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"];
+        let mut opened = false;
+        for term in &terminals {
+            if std::process::Command::new(term)
+                .current_dir(&path)
+                .spawn()
+                .is_ok()
+            {
+                opened = true;
+                break;
+            }
+        }
+        if !opened {
+            return Err("No terminal emulator found".to_string());
+        }
+    }
+
+    Ok(())
+}

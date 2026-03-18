@@ -1,0 +1,129 @@
+import { describe, it, expect, vi } from 'vitest'
+import { render } from '@testing-library/react'
+
+// Mock everything App depends on
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (k: string, d?: string) => d ?? k, i18n: { language: 'en', changeLanguage: vi.fn() } }),
+}))
+vi.mock('sonner', () => ({ Toaster: () => null }))
+vi.mock('@/lib/utils', () => ({
+  cn: (...a: string[]) => a.join(' '),
+  isTauri: () => false,
+}))
+vi.mock('@/components/SSEProvider', () => ({ SSEProvider: () => null }))
+vi.mock('@/components/FileEditor', () => ({ FileContentViewer: () => null }))
+vi.mock('@/hooks/useTrafficLightSpacer', () => ({ useNeedsTrafficLightSpacer: () => false }))
+vi.mock('@/hooks/useAppInit', () => ({
+  useOpenCodeInit: () => ({ openCodeError: null, setOpenCodeError: vi.fn() }),
+  useChannelGatewayInit: vi.fn(),
+  useGitReposInit: vi.fn(),
+  useExternalLinkHandler: vi.fn(),
+  useTauriBodyClass: vi.fn(),
+  useSetupGuide: () => ({ showSetupGuide: false, dependencies: [], handleRecheck: vi.fn(), handleSetupContinue: vi.fn() }),
+  useTelemetryConsent: () => ({ showConsentDialog: false, setShowConsentDialog: vi.fn() }),
+  useOpenCodePreload: vi.fn(),
+  useLayoutModeShortcut: vi.fn(),
+}))
+vi.mock('@/hooks/useFileEditorState', () => ({
+  usePanelAutoOpen: vi.fn(),
+  useLayoutModePanelSync: vi.fn(),
+  useFileTabSync: vi.fn(),
+  useResizablePanels: () => ({ rightPanelWidth: 300, handleRightPanelResize: vi.fn() }),
+}))
+vi.mock('@/components/app-sidebar', () => ({
+  AppSidebar: () => <div data-testid="sidebar">sidebar</div>,
+  SidebarIconGroup: () => null,
+}))
+vi.mock('@/components/chat/ChatPanel', () => ({ ChatPanel: () => <div>chat</div> }))
+vi.mock('@/components/voice/VoiceInputFloatingButton', () => ({ VoiceInputFloatingButton: () => null }))
+vi.mock('@/components/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
+vi.mock('@/components/updater/UpdateDialog', () => ({ UpdateDialogContainer: () => null }))
+vi.mock('@/components/panel', () => ({
+  RightPanel: () => null,
+  ShortcutsPanel: () => null,
+}))
+vi.mock('@/components/settings', () => ({ Settings: () => <div>settings</div> }))
+vi.mock('@/components/SetupGuide', () => ({ SetupGuide: () => null }))
+vi.mock('@/components/telemetry/TelemetryConsentDialog', () => ({ TelemetryConsentDialog: () => null }))
+vi.mock('@/components/workspace', () => ({ WorkspacePrompt: () => <div>workspace-prompt</div> }))
+vi.mock('@/stores/session', () => ({
+  useSessionStore: vi.fn((sel: (s: any) => any) => {
+    const state = {
+      getActiveSession: () => null, todos: [], sessionDiff: [],
+      createSession: vi.fn(), sessions: [], setActiveSession: vi.fn(),
+      reloadActiveSessionMessages: vi.fn(),
+    }
+    return sel(state)
+  }),
+}))
+vi.mock('@/stores/ui', () => ({
+  useUIStore: Object.assign(
+    vi.fn((sel: (s: any) => any) => {
+      const state = {
+        currentView: 'main', closeSettings: vi.fn(), layoutMode: 'task',
+        fileModeRightTab: 'agent', setFileModeRightTab: vi.fn(),
+        spotlightMode: false, toggleLayoutMode: vi.fn(),
+      }
+      return sel(state)
+    }),
+    { getState: () => ({ spotlightMode: false }) }
+  ),
+}))
+vi.mock('@/stores/workspace', () => ({
+  useWorkspaceStore: vi.fn((sel: (s: any) => any) => {
+    const state = {
+      workspacePath: null, openCodeReady: false, isPanelOpen: false,
+      activeTab: 'tasks', openPanel: vi.fn(), closePanel: vi.fn(),
+      clearWorkspace: vi.fn(), selectedFile: null, fileContent: '',
+      isLoadingFile: false, clearSelection: vi.fn(), selectFile: vi.fn(),
+      setOpenCodeReady: vi.fn(),
+    }
+    return sel(state)
+  }),
+}))
+vi.mock('@/stores/tabs', () => ({
+  useTabsStore: Object.assign(
+    vi.fn((sel: (s: any) => any) => sel({ tabs: [], activeTabId: null })),
+    { getState: () => ({ openTab: vi.fn(), closeTab: vi.fn(), tabs: [], activeTabId: null }) }
+  ),
+  selectActiveTab: (s: any) => null,
+}))
+vi.mock('@/components/tab-bar/TabBar', () => ({ TabBar: () => null }))
+vi.mock('@/components/tab-bar/TabContentRenderer', () => ({ TabContentRenderer: () => null }))
+vi.mock('@/components/tab-bar/WebViewToolbar', () => ({ WebViewToolbar: () => null }))
+vi.mock('@/lib/webview-utils', () => ({ urlToLabel: (u: string) => u }))
+vi.mock('@/lib/opencode/client', () => ({ initOpenCodeClient: vi.fn() }))
+vi.mock('@/lib/opencode/preloader', () => ({ startOpenCode: vi.fn(), clearPreload: vi.fn() }))
+vi.mock('@/components/ui/sidebar', () => ({
+  SidebarInset: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SidebarProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useSidebar: () => ({ state: 'expanded' }),
+}))
+vi.mock('@/components/ui/button', () => ({
+  Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+}))
+vi.mock('@/components/ui/separator', () => ({
+  Separator: () => <hr />,
+}))
+vi.mock('@/components/ui/traffic-lights', () => ({ TrafficLights: () => null }))
+vi.mock('@/components/ui/dropdown-menu', () => ({
+  DropdownMenu: ({ children }: any) => <>{children}</>,
+  DropdownMenuContent: ({ children }: any) => <>{children}</>,
+  DropdownMenuItem: ({ children }: any) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children }: any) => <>{children}</>,
+}))
+
+import App from '../App'
+
+describe('App', () => {
+  it('renders without crashing', () => {
+    const { container } = render(<App />)
+    expect(container).toBeTruthy()
+  })
+
+  it('shows workspace prompt when no workspace is selected', () => {
+    render(<App />)
+    // The WorkspacePrompt mock renders 'workspace-prompt'
+    expect(document.body.textContent).toContain('workspace-prompt')
+  })
+})

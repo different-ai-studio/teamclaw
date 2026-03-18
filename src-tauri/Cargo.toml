@@ -1,0 +1,132 @@
+[package]
+name = "teamclaw"
+version = "0.1.0"
+description = "TeamClaw - AI Agent Desktop Platform"
+authors = ["TeamClaw Team"]
+edition = "2021"
+
+[lib]
+name = "teamclaw_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["p2p"]
+# P2P team sync (iroh); disabled on Windows to avoid wmi/windows-core version conflict.
+p2p = ["dep:iroh", "dep:iroh-blobs", "dep:iroh-docs", "dep:iroh-gossip"]
+stt-whisper = ["dep:whisper-rs"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "unstable", "tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
+reqwest = { version = "0.11", features = ["json", "blocking", "stream"] }
+notify = { version = "6", features = ["macos_fsevent"] }
+notify-debouncer-mini = "0.4"
+notify-debouncer-full = "0.3"
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
+futures = "0.3"
+base64 = "0.22"
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+imap = "2"
+native-tls = "0.2"
+mail-parser = "0.9"
+lettre = { version = "0.11", features = ["native-tls", "smtp-transport"] }
+yup-oauth2 = "12"
+flate2 = "1"
+tar = "0.4"
+minisign-verify = "0.2"
+semver = "1"
+futures-util = "0.3"
+tempfile = "3"
+cron = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.9"
+uuid = { version = "1", features = ["v4"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+regex = "1"
+libsql = "0.9"
+nanoid = "0.4"
+markitdown = "0.1.10"
+cpal = "0.17"
+whisper-rs = { version = "0.15", optional = true }
+
+# RAG dependencies
+anyhow = "1"
+pulldown-cmark = "0.12"
+sha2 = "0.10"
+walkdir = "2"
+tantivy = "0.22"
+tree-sitter = "0.23"
+tree-sitter-rust = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# P2P team sync (optional; enable with p2p feature; off by default on Windows build)
+iroh = { version = "0.96", optional = true }
+iroh-blobs = { version = "0.98", features = ["fs-store"], optional = true }
+iroh-docs = { version = "0.96", optional = true }
+iroh-gossip = { version = "0.96", optional = true }
+filetime = "0.2"
+arboard = "3"
+futures-lite = "2"
+
+# HTTP server for RAG MCP bridge
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }
+gethostname = "1.1.0"
+
+# ClawHub skill registry
+zip = "2"
+urlencoding = "2"
+dirs = "5"
+
+# HTML parsing for skills.sh scraping
+scraper = "0.20"
+md5 = "0.7"
+rayon = "1.10"  # Parallel iterator for recursive skill search
+
+# MCP plugin for AI agent integration (debug only)
+tauri-plugin-mcp = "0.7"
+
+# WebDAV team sync dependencies
+quick-xml = "0.36"
+aes-gcm = "0.10"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+hex = "0.4"
+getrandom = "0.2"
+url = "2"
+log = "0.4"
+
+# Global keyboard event monitoring (double-tap Ctrl for spotlight)
+rdev = "0.5"
+
+# macOS native APIs for traffic light control
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.24"
+objc = "0.2"
+
+[dev-dependencies]
+wiremock = "0.5"
+
+[profile.release]
+# Use unwind so catch_unwind in email.rs and deps (e.g. html2md) work; abort would conflict.
+codegen-units = 1
+lto = "thin"
+opt-level = "s"
+strip = true

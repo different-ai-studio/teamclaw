@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/diffrent-ai-studio/teamclaw/discussions
+    about: Please ask and answer questions here.
+  - name: Documentation
+    url: https://github.com/diffrent-ai-studio/teamclaw#readme
+    about: Check the documentation for more information.

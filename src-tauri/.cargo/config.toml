@@ -1,0 +1,35 @@
+# Cargo build configuration for TeamClaw
+# Optimizes compile time and binary size for each platform
+
+[target.aarch64-apple-darwin]
+# Use Apple's faster linker on Apple Silicon Macs
+# -L /usr/local/lib: so linker finds libvosk.dylib (tauri-plugin-stt / Vosk)
+rustflags = ["-L", "/usr/local/lib", "-C", "link-arg=-Wl,-dead_strip"]
+
+[target.x86_64-apple-darwin]
+# -L /usr/local/lib: so linker finds libvosk.dylib (tauri-plugin-stt / Vosk)
+rustflags = ["-L", "/usr/local/lib", "-C", "link-arg=-Wl,-dead_strip"]
+
+[target.x86_64-unknown-linux-gnu]
+# Use mold linker if available (significantly faster linking)
+# Install: sudo apt install mold
+# Uncomment below if mold is available:
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/OPT:REF", "-C", "link-arg=/OPT:ICF"]
+
+[profile.release]
+# Incremental compilation disabled for release (better optimization)
+incremental = false
+
+[profile.dev]
+# Speed up dev builds
+opt-level = 0
+# Split debuginfo for faster linking on macOS
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+# Optimize dependencies even in dev mode (they rarely change)
+opt-level = 2

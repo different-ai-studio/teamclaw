@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" fill="url(#bg-grad)"/>
+
+  <!-- Bird - sleek, elongated kingfisher -->
+  <g fill="#ffffff" transform="translate(490, 450)">
+    <!-- Body + beak (elongated ~2:1 ratio, pointed beak) -->
+    <path d="
+      M 310 -30
+      Q 240 -65 160 -80
+      Q 80 -92 0 -80
+      Q -70 -65 -120 -35
+      Q -170 0 -175 45
+      Q -170 90 -130 118
+      Q -70 148 10 148
+      Q 80 145 145 115
+      Q 200 80 240 35
+      Q 270 0 310 -30
+      Z"/>
+
+    <!-- Wing - bold sweep -->
+    <path d="
+      M 30 -72
+      Q -50 -130 -140 -180
+      Q -215 -218 -270 -228
+      Q -290 -230 -288 -218
+      Q -270 -195 -225 -165
+      Q -150 -115 -65 -70
+      Q -5 -45 35 -50
+      Z"/>
+
+    <!-- Tail wedge 1 -->
+    <path d="
+      M -145 55
+      L -290 205
+      L -230 175
+      Q -185 140 -160 95
+      Z"/>
+
+    <!-- Tail wedge 2 -->
+    <path d="
+      M -135 90
+      L -265 270
+      L -210 235
+      Q -175 185 -150 130
+      Z"/>
+  </g>
+
+  <!-- Eye -->
+  <circle cx="555" cy="405" r="20" fill="#0f172a"/>
+  <circle cx="561" cy="399" r="6" fill="#3b82f6"/>
+</svg>

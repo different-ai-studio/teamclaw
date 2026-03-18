@@ -1,0 +1,219 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Cancel in-progress release if a new tag is pushed
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # macOS job creates the GitHub Release and uploads macOS artifacts
+  release-macos:
+    permissions:
+      contents: write
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store/v3
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+
+      # Parallel: pnpm install + frontend build, opencode download, certificate import
+      - name: Build all (parallel)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          mkdir -p src-tauri/binaries
+
+          # 1) pnpm install → then frontend build (sequential chain, backgrounded)
+          (
+            set -e
+            pnpm install
+            echo "pnpm install done, building frontend..."
+            pnpm --filter @teamclaw/app build
+            echo "frontend build done"
+          ) > /tmp/frontend.log 2>&1 &
+          PID_FRONTEND=$!
+
+          # 2) Download opencode binary (background)
+          (
+            set -e
+            OPENCODE_VERSION=$(gh release view --repo anomalyco/opencode --json tagName -q '.tagName')
+            echo "Downloading opencode ${OPENCODE_VERSION}..."
+            gh release download "$OPENCODE_VERSION" --repo anomalyco/opencode --pattern "opencode-darwin-arm64.zip" --dir /tmp
+            unzip -o /tmp/opencode-darwin-arm64.zip -d /tmp/opencode-extract
+            mv /tmp/opencode-extract/opencode src-tauri/binaries/opencode-aarch64-apple-darwin
+            chmod +x src-tauri/binaries/opencode-aarch64-apple-darwin
+            xattr -cr src-tauri/binaries/opencode-aarch64-apple-darwin
+            codesign --force --sign - src-tauri/binaries/opencode-aarch64-apple-darwin
+            echo "opencode ${OPENCODE_VERSION} ready"
+          ) > /tmp/opencode.log 2>&1 &
+          PID_OPENCODE=$!
+
+          # 3) Import Apple certificate (background, fast but independent)
+          (
+            if [ -z "$APPLE_CERTIFICATE" ]; then
+              echo "No certificate, using ad-hoc signing."
+              exit 0
+            fi
+            set -e
+            echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+            security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security set-keychain-settings -t 3600 -u build.keychain
+            security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+            CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1)
+            CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+            echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
+            echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+            echo "Certificate imported: $CERT_ID"
+          ) > /tmp/cert.log 2>&1 &
+          PID_CERT=$!
+
+          # Wait for all; dump logs on failure
+          FAILED=0
+          wait $PID_FRONTEND || { echo "::error::Frontend build failed:"; cat /tmp/frontend.log; FAILED=1; }
+          wait $PID_OPENCODE || { echo "::error::opencode download failed:"; cat /tmp/opencode.log; FAILED=1; }
+          wait $PID_CERT     || { echo "::error::Certificate import failed:"; cat /tmp/cert.log; FAILED=1; }
+
+          if [ "$FAILED" -ne 0 ]; then exit 1; fi
+
+          echo "All parallel tasks completed"
+          ls -lh src-tauri/binaries/
+          ls -lh packages/app/dist/ | head -5
+
+      # Skip beforeBuildCommand since frontend is already built above
+      - name: Skip frontend rebuild in tauri build
+        run: |
+          python3 -c "
+          import json
+          with open('src-tauri/tauri.conf.json', 'r') as f:
+              conf = json.load(f)
+          conf['build']['beforeBuildCommand'] = 'echo frontend already built'
+          with open('src-tauri/tauri.conf.json', 'w') as f:
+              json.dump(conf, f, indent=2)
+          "
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATER_GITHUB_TOKEN: ${{ secrets.UPDATER_GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "TeamClaw ${{ github.ref_name }}"
+          releaseBody: "See the assets to download and install TeamClaw."
+          releaseDraft: false
+          prerelease: false
+          args: "--target aarch64-apple-darwin"
+
+  # Windows job uploads artifacts to the same GitHub Release created by macOS job
+  release-windows:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/pnpm/store/v3
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+
+      - name: Install dependencies and build frontend
+        run: |
+          pnpm install
+          pnpm --filter @teamclaw/app build
+
+      - name: Download OpenCode binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          OPENCODE_VERSION=$(gh release view --repo anomalyco/opencode --json tagName -q '.tagName')
+          echo "Downloading opencode ${OPENCODE_VERSION} for Windows..."
+          gh release download "$OPENCODE_VERSION" --repo anomalyco/opencode --pattern "opencode-windows-x64.zip" --dir "$RUNNER_TEMP"
+          unzip -o "$RUNNER_TEMP/opencode-windows-x64.zip" -d "$RUNNER_TEMP/opencode-extract"
+          mv "$RUNNER_TEMP/opencode-extract/opencode.exe" src-tauri/binaries/opencode-x86_64-pc-windows-msvc.exe
+          echo "opencode ${OPENCODE_VERSION} ready"
+          ls -lh src-tauri/binaries/
+
+      # Skip beforeBuildCommand since frontend is already built above
+      - name: Skip frontend rebuild in tauri build
+        shell: python
+        run: |
+          import json
+          with open('src-tauri/tauri.conf.json', 'r') as f:
+              conf = json.load(f)
+          conf['build']['beforeBuildCommand'] = 'echo frontend already built'
+          with open('src-tauri/tauri.conf.json', 'w') as f:
+              json.dump(conf, f, indent=2)
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "TeamClaw ${{ github.ref_name }}"
+          releaseBody: "See the assets to download and install TeamClaw."
+          releaseDraft: false
+          prerelease: false
+          # Windows: NSIS installer, no p2p feature (avoids wmi/windows-core conflicts)
+          args: "--bundles nsis -- --no-default-features"

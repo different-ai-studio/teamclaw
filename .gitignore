@@ -1,0 +1,106 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+target/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.claude/
+.ai
+.agent/
+.cursor/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+config.json
+
+# Tauri
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+!src-tauri/binaries/README.md
+!src-tauri/binaries/download-opencode.sh
+!src-tauri/binaries/build-rag-mcp-server.sh
+!src-tauri/binaries/build-autoui-mcp-server.sh
+src-tauri/.tauri_private_key
+src-tauri/.tauri_private_key.pub
+
+# Testing
+coverage/
+tests/screenshots/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+.Python
+
+# TeamClaw local runtime data (all config/data stored in .teamclaw/ directory)
+.teamclaw/
+
+# Spec workflow config (copy from .spec.example.json)
+.spec.json
+
+# Misc
+*.lock
+!pnpm-lock.yaml
+logs
+playwright-report/
+screenshots/
+test-results/
+playwright-report/
+
+# Worktrees
+.worktrees/
+
+# Tauri MCP plugin (cloned dependency)
+.tauri-plugin-mcp/
+
+# Knowledge
+knowledge/
+
+# Session context (per-workspace, do not commit)
+.claude/session-context/current.md
+
+.workspace/
+
+teamclaw-team/
+
+# Sensitive information
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# IDE settings (keep .vscode/ but not settings.json)
+.vscode/settings.json
+
+# Windows
+Thumbs.db
+
+.opencode
+.opencode/
+docs/superpowers/
+
+# Internal planning documents
+docs/plans/

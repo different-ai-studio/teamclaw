@@ -1,0 +1,248 @@
+import * as React from "react";
+import { useTranslation } from "react-i18next";
+import { Loader2 } from "lucide-react";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { type Message as StoreMessage, useSessionStore, getSessionById } from "@/stores/session";
+import { useStreamingStore } from "@/stores/streaming";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/packages/ai/message";
+import {
+  DynamicUIMessage,
+  extractUITreeFromResponse,
+  parseStreamingUITree,
+} from "@/lib/dynamic-ui";
+import { ToolCallCard } from "./ToolCallCard";
+import { ThinkingBlock } from "./ThinkingBlock";
+import { UserMessageWithMentions } from "./UserMessageWithMentions";
+import { MessageTokenUsage } from "./MessageTokenUsage";
+import { MessageTokenSummary } from "./MessageTokenSummary";
+import { MessageFeedback } from "./MessageFeedback";
+import { MessageStarRating } from "./MessageStarRating";
+import { RetrievedChunksCard } from "./RetrievedChunksCard";
+
+/** Renders a single message with all its parts. Memoized to avoid re-renders when siblings change. */
+export const ChatMessage = React.memo(function ChatMessage({
+  message,
+  basePath,
+  shouldShowThinking = true,
+  showStarRating = false,
+  tokenGroupInfo,
+}: {
+  message: StoreMessage;
+  basePath?: string;
+  shouldShowThinking?: boolean;
+  showStarRating?: boolean;
+  tokenGroupInfo?: {
+    hideTokenUsage: boolean;
+    groupSummary?: { steps: number; totalInput: number; totalOutput: number; totalCost: number };
+  };
+}) {
+  const { t } = useTranslation();
+  const isUser = message.role === "user";
+
+  // Use streaming content for the actively streaming message
+  const streamingMessageId = useStreamingStore(s => s.streamingMessageId);
+  const streamingContent = useStreamingStore(s => s.streamingContent);
+  const streamingUpdateTrigger = useStreamingStore(s => s.streamingUpdateTrigger);
+  const activeSessionId = useSessionStore(s => s.activeSessionId);
+  
+  const isThisMessageStreaming = message.isStreaming && message.id === streamingMessageId;
+  
+  // When streaming, get the latest message data from sessionLookupCache
+  // which includes updated reasoning parts from typewriterTick
+  const latestMessage = React.useMemo(() => {
+    if (!isThisMessageStreaming || !activeSessionId) return message;
+    const session = getSessionById(activeSessionId);
+    if (!session) return message;
+    const latest = session.messages.find(m => m.id === message.id);
+    return latest || message;
+  }, [isThisMessageStreaming, activeSessionId, message, streamingUpdateTrigger]);
+  
+  const textContent = isThisMessageStreaming ? streamingContent : (latestMessage.content || "");
+
+  // Extract reasoning/thinking content from parts — memoized to avoid
+  // re-filtering on every render during streaming.
+  const { reasoningContent, hasReasoning, hasThinking } = React.useMemo(() => {
+    const rParts = latestMessage.parts.filter((p) => p.type === "reasoning");
+    const rContent = rParts.map((p) => p.text || "").filter(Boolean).join("\n");
+    return {
+      reasoningContent: rContent,
+      hasReasoning: rContent.length > 0,
+      hasThinking: latestMessage.parts.some(
+        (p) => p.type === "step-start" || p.type === "step-finish",
+      ),
+    };
+  }, [latestMessage.parts]);
+
+  const hasToolCalls = latestMessage.toolCalls && latestMessage.toolCalls.length > 0;
+
+  const hasActiveToolCalls =
+    latestMessage.toolCalls?.some(
+      (tc) => tc.status === "calling" || tc.status === "waiting",
+    ) ?? false;
+
+  const showThinkingOnly =
+    !isUser &&
+    !textContent &&
+    (hasThinking || hasReasoning) &&
+    latestMessage.isStreaming &&
+    !hasActiveToolCalls &&
+    shouldShowThinking;
+
+  const showLoadingIndicator =
+    !isUser &&
+    !textContent &&
+    !hasThinking &&
+    !hasReasoning &&
+    !hasToolCalls &&
+    latestMessage.isStreaming &&
+    shouldShowThinking;
+
+  // Try to extract UITree from assistant message
+  const uiState = React.useMemo(() => {
+    if (isUser || !textContent)
+      return { tree: null, isComplete: false, elementCount: 0 };
+
+    if (latestMessage.isStreaming) {
+      return parseStreamingUITree(textContent);
+    } else {
+      const tree = extractUITreeFromResponse(textContent);
+      return {
+        tree,
+        isComplete: true,
+        elementCount: tree ? Object.keys(tree.elements).length : 0,
+      };
+    }
+  }, [isUser, latestMessage.isStreaming, textContent]);
+
+  const uiTree = uiState.tree;
+  const isStreamingUI = latestMessage.isStreaming && uiTree !== null;
+
+  // Tool-call-only messages get tighter spacing
+  const isToolCallOnly = !isUser && !textContent && hasToolCalls && !hasReasoning && !showLoadingIndicator;
+
+  return (
+    <div className={isToolCallOnly ? "mb-0.5" : "mb-1.5"} data-testid="chat-message" data-message-role={message.role}>
+      {/* Thinking indicator - MUST be first for assistant messages during streaming */}
+      {showThinkingOnly && !hasReasoning && (
+        <div className="flex items-start gap-2 pl-1 mb-2">
+          <ThinkingBlock
+            content={t("chat.analyzing", "Agent is analyzing and planning...")}
+            isStreaming={true}
+            isOpen={false}
+          />
+        </div>
+      )}
+
+      {/* Loading indicator */}
+      {showLoadingIndicator && (
+        <div className="mt-2">
+          <Message from="assistant" basePath={basePath}>
+            <MessageContent>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm shimmer-text">{t("chat.planningMoves", "Planning next moves")}</span>
+              </div>
+            </MessageContent>
+          </Message>
+        </div>
+      )}
+
+      {/* Reasoning block - always before main content */}
+      {!isUser && hasReasoning && (
+        <div className="mb-0.5">
+          <ThinkingBlock
+            content={reasoningContent}
+            isStreaming={latestMessage.isStreaming && !textContent && !hasToolCalls}
+            isOpen={false}
+          />
+        </div>
+      )}
+
+      {/* User message */}
+      {isUser && (
+        <Message from="user" basePath={basePath}>
+          <MessageContent>
+            <UserMessageWithMentions content={textContent} basePath={basePath} />
+          </MessageContent>
+        </Message>
+      )}
+
+      {/* Retrieved chunks - show for user messages with RAG results */}
+      {isUser && latestMessage.retrievedChunks && latestMessage.retrievedChunks.length > 0 && (
+        <div className="mt-2">
+          <RetrievedChunksCard chunks={latestMessage.retrievedChunks} />
+        </div>
+      )}
+
+      {/* Assistant message - either dynamic UI or text */}
+      {!isUser && textContent && (
+        <>
+          {uiTree ? (
+            <div className="mt-2">
+              <ErrorBoundary scope="Dynamic UI" inline>
+                <DynamicUIMessage tree={uiTree} loading={isStreamingUI} />
+              </ErrorBoundary>
+              {isStreamingUI && (
+                <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  <span>{t("chat.generatingComponents", "Generating... ({{count}} components)", { count: uiState.elementCount })}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Message from="assistant" basePath={basePath}>
+              <MessageContent>
+                <MessageResponse>{textContent}</MessageResponse>
+                {latestMessage.isStreaming && textContent && (
+                  <span className="inline-flex items-center gap-0.5 ml-1.5 align-middle">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-[bounce_1s_ease-in-out_infinite]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-[bounce_1s_ease-in-out_0.2s_infinite]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-[bounce_1s_ease-in-out_0.4s_infinite]" />
+                  </span>
+                )}
+              </MessageContent>
+            </Message>
+          )}
+        </>
+      )}
+
+      {/* Tool calls */}
+      {!isUser && hasToolCalls && (
+        <div className="mt-1 space-y-0.5 pl-1">
+          {latestMessage.toolCalls!.map((toolCall) => (
+            <ToolCallCard key={toolCall.id} toolCall={toolCall} />
+          ))}
+        </div>
+      )}
+
+      {/* Token usage summary + feedback for assistant messages */}
+      {!isUser && !latestMessage.isStreaming && latestMessage.tokens && !tokenGroupInfo?.hideTokenUsage && (
+        <div className="pl-1 group">
+          <div className="flex items-start gap-2">
+            {tokenGroupInfo?.groupSummary ? (
+              <MessageTokenSummary summary={tokenGroupInfo.groupSummary} />
+            ) : (
+              <MessageTokenUsage tokens={latestMessage.tokens} cost={latestMessage.cost} />
+            )}
+            <div className="mt-1">
+              <MessageFeedback
+                sessionId={latestMessage.sessionId}
+                messageId={latestMessage.id}
+              />
+            </div>
+          </div>
+          {showStarRating && (
+            <MessageStarRating
+              sessionId={latestMessage.sessionId}
+              messageId={latestMessage.id}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+});

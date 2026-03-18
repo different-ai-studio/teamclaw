@@ -1,0 +1,660 @@
+import { getOpenCodeClient } from "@/lib/opencode/client";
+import type {
+  MessageCreatedEvent,
+  MessagePartCreatedEvent,
+  MessagePartUpdatedEvent,
+  MessageCompletedEvent,
+} from "@/lib/opencode/types";
+import type {
+  SessionState,
+} from "./session-types";
+import {
+  sessionLookupCache,
+  getSessionById,
+} from "./session-cache";
+import {
+  externalReloadingSessions,
+  clearMessageTimeout,
+} from "./session-internals";
+import {
+  useStreamingStore,
+  appendTextBuffer,
+  appendReasoningBuffer,
+  scheduleTypewriter,
+  hasBufferedContent,
+  flushAllPending,
+} from "@/stores/streaming";
+import { insertMessageSorted } from "@/lib/insert-message-sorted";
+import type { MessagePart, Message } from "./session-types";
+
+type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
+type SessionGet = () => SessionState;
+
+// Track retry counts for message completion deferrals (per messageId)
+const completionRetryCount = new Map<string, number>();
+
+export function createMessageHandlers(set: SessionSet, get: SessionGet) {
+  return {
+    handleMessageCreated: (event: MessageCreatedEvent) => {
+      const { activeSessionId } = get();
+      const { streamingMessageId } = useStreamingStore.getState();
+      if (event.sessionId !== activeSessionId) return;
+
+      if (externalReloadingSessions.has(event.sessionId)) {
+        console.log("[Session] Suppressing handleMessageCreated during external reload");
+        return;
+      }
+
+      // Handle user message: update ID from temp to real, preserve retrievedChunks
+      if (event.role === "user") {
+        set((state) => {
+          const session = getSessionById(event.sessionId);
+          if (!session) return state;
+
+          const tempUserMsg = [...session.messages].reverse().find(
+            (m) => m.role === "user" && m.id.startsWith("temp-user-")
+          );
+
+          if (tempUserMsg) {
+            const newSession = {
+              ...session,
+              messages: session.messages.map((m) =>
+                m.id === tempUserMsg.id
+                  ? {
+                      ...m,
+                      id: event.id,
+                      timestamp: new Date(event.createdAt),
+                    }
+                  : m,
+              ),
+              updatedAt: new Date(),
+            };
+            sessionLookupCache.set(event.sessionId, newSession);
+
+            return {
+              sessions: state.sessions.map((s) =>
+                s.id === event.sessionId ? newSession : s,
+              ),
+            };
+          }
+
+          return state;
+        });
+        return;
+      }
+
+      if (event.role === "assistant") {
+        clearMessageTimeout();
+        const hasPendingMessage =
+          streamingMessageId?.startsWith("pending-assistant-");
+
+        if (hasPendingMessage) {
+          // CRITICAL: Set streaming BEFORE updating session state (same as other branches).
+          // This branch handles replacing "pending-assistant-xxx" with real message ID.
+          // CRITICAL: Preserve existing streamingContent to avoid losing already-revealed text!
+          const currentStreamingContent = useStreamingStore.getState().streamingContent;
+          useStreamingStore.getState().setStreaming(event.id, currentStreamingContent);
+          console.log("[MessageCreated] Set streaming synchronously for pending message:", event.id, "preserving", currentStreamingContent.length, "chars");
+          
+          set((state) => {
+            const session = getSessionById(event.sessionId);
+            if (!session) return state;
+
+            const newSession = {
+              ...session,
+              messages: session.messages.map((m) =>
+                m.id === streamingMessageId
+                  ? {
+                      ...m,
+                      id: event.id,
+                      timestamp: new Date(event.createdAt),
+                    }
+                  : m,
+              ),
+              updatedAt: new Date(),
+            };
+            sessionLookupCache.set(event.sessionId, newSession);
+
+            return {
+              sessions: state.sessions.map((s) =>
+                s.id === event.sessionId ? newSession : s,
+              ),
+            };
+          });
+        } else {
+          const session = getSessionById(event.sessionId);
+          const messageExists = session?.messages.some((m) => m.id === event.id);
+
+          if (messageExists) {
+            console.log("[MessageCreated] Message already exists, resuming streaming:", event.id);
+            const existingMessage = session?.messages.find(m => m.id === event.id);
+            
+            // CRITICAL: Set streaming BEFORE updating session state.
+            // This ensures streamingMessageId is set synchronously before any delta events arrive.
+            useStreamingStore.getState().setStreaming(event.id, existingMessage?.content || "");
+            console.log("[MessageCreated] Set streaming synchronously for existing message:", event.id);
+            
+            // CRITICAL: Restore streaming state when message already exists.
+            // This handles retry scenarios where:
+            // 1. Message was created before retry
+            // 2. Retry caused temporary state interruption
+            // 3. OpenCode resends message.updated after retry succeeds
+            // We restore streaming to ensure subsequent delta events are processed.
+            if (existingMessage && !existingMessage.isStreaming) {
+              console.log("[MessageCreated] Restoring isStreaming flag for:", event.id);
+              set((state) => {
+                const session = getSessionById(event.sessionId);
+                if (!session) return state;
+                
+                const newSession = {
+                  ...session,
+                  messages: session.messages.map((m) =>
+                    m.id === event.id ? { ...m, isStreaming: true } : m
+                  ),
+                  updatedAt: new Date(),
+                };
+                sessionLookupCache.set(event.sessionId, newSession);
+                
+                return {
+                  sessions: state.sessions.map((s) =>
+                    s.id === event.sessionId ? newSession : s
+                  ),
+                };
+              });
+            }
+          } else {
+            console.log("[MessageCreated] Creating new assistant message:", event.id);
+            const newMessage: Message = {
+              id: event.id,
+              sessionId: event.sessionId,
+              role: "assistant",
+              content: "",
+              parts: [],
+              timestamp: new Date(event.createdAt),
+              isStreaming: true,
+            };
+
+            // CRITICAL: Set streaming BEFORE updating session state.
+            // This ensures streamingMessageId is set synchronously before any delta events arrive.
+            // If called inside set(), Zustand batching may delay the update, causing delta events
+            // to see streamingMessageId=null and get ignored.
+            useStreamingStore.getState().setStreaming(event.id);
+            console.log("[MessageCreated] Set streaming synchronously for:", event.id);
+
+            set((state) => {
+              const session = getSessionById(event.sessionId);
+              if (!session) return state;
+
+              const newSession = {
+                ...session,
+                messages: insertMessageSorted(session.messages, newMessage),
+                updatedAt: new Date(),
+              };
+              sessionLookupCache.set(event.sessionId, newSession);
+
+              return {
+                sessions: state.sessions.map((s) =>
+                  s.id === event.sessionId ? newSession : s,
+                ),
+              };
+            });
+          }
+        }
+      }
+    },
+
+    handleMessagePartCreated: (event: MessagePartCreatedEvent) => {
+      const { activeSessionId } = get();
+      let { streamingMessageId, streamingContent } = useStreamingStore.getState();
+      
+      console.log("[PartCreated] Event received:", {
+        messageId: event.messageId,
+        partId: event.partId,
+        type: event.type,
+        contentLength: event.content?.length || event.text?.length || 0,
+        streamingMessageId,
+        activeSessionId,
+        currentStreamingContentLength: streamingContent.length,
+        willProcess: event.messageId === streamingMessageId,
+      });
+      
+      // CRITICAL: Auto-recovery for lost streamingMessageId (same as handleMessagePartUpdated)
+      if (event.messageId !== streamingMessageId && activeSessionId) {
+        const session = getSessionById(activeSessionId);
+        const targetMessage = session?.messages.find(m => m.id === event.messageId);
+        
+        if (targetMessage?.isStreaming) {
+          console.warn("[PartCreated] Auto-recovering lost streamingMessageId:", {
+            eventMessageId: event.messageId,
+            oldStreamingId: streamingMessageId,
+          });
+          useStreamingStore.getState().setStreaming(event.messageId, targetMessage.content || "");
+          streamingMessageId = event.messageId;
+          streamingContent = targetMessage.content || "";
+        } else {
+          console.log("[PartCreated] Ignoring part for non-streaming message:", event.messageId);
+          return;
+        }
+      }
+      
+      if (!activeSessionId) return;
+      if (activeSessionId && externalReloadingSessions.has(activeSessionId)) return;
+
+      clearMessageTimeout();
+
+      set((state) => {
+        const session = getSessionById(activeSessionId);
+        if (!session) return state;
+
+        const msgIndex = session.messages.findIndex((m) => m.id === event.messageId);
+        if (msgIndex === -1) return state;
+
+        const messages = [...session.messages];
+        const msg = { ...messages[msgIndex] };
+
+        const existingPartIndex = msg.parts.findIndex(
+          (p) => p.id === event.partId,
+        );
+
+        const newPart: MessagePart = {
+          id: event.partId,
+          type: event.type as MessagePart["type"],
+          content: event.content,
+          text: event.text || event.content,
+          tool: event.tool,
+          result: event.result,
+        };
+
+        if (existingPartIndex !== -1) {
+          msg.parts = msg.parts.map((p, i) =>
+            i === existingPartIndex ? newPart : p,
+          );
+        } else {
+          msg.parts = [...msg.parts, newPart];
+        }
+
+        if (event.type === "tool_call" && event.tool) {
+          const existingToolCall = msg.toolCalls?.find(
+            (tc) => tc.id === event.tool!.id,
+          );
+          if (!existingToolCall) {
+            msg.toolCalls = [
+              ...(msg.toolCalls || []),
+              {
+                id: event.tool.id,
+                name: event.tool.name,
+                status: "calling",
+                arguments: event.tool.input,
+                startTime: new Date(),
+              },
+            ];
+          }
+        }
+
+        if (event.type === "text" && event.content) {
+          // CRITICAL ARCHITECTURE CHANGE: Do NOT update msg.content during streaming!
+          // 
+          // ROOT CAUSE OF DUPLICATION:
+          // - Text snapshots from OpenCode contain full content
+          // - If we set msg.content = snapshot here, then typewriter continues appending buffer
+          // - Result: msg.content = snapshot + buffer remainder → DUPLICATION
+          // 
+          // CORRECT STRATEGY - Single Source of Truth:
+          // - During streaming: Only streamingContent exists (from delta buffer)
+          // - After completion: Only msg.content exists (from parts)
+          // - NEVER mix the two
+          // 
+          // Therefore: Do NOT touch msg.content here. Only update parts.
+          // Let handleMessageCompleted build the final msg.content from parts.
+          
+          console.log("[PartCreated] Text snapshot received (NOT updating msg.content during streaming):", {
+            snapshotLength: event.content.length,
+            partsCount: msg.parts.length,
+            streamingContentLength: useStreamingStore.getState().streamingContent.length,
+          });
+          
+          // CRITICAL: Trigger scroll after tool completion by incrementing streamingUpdateTrigger
+          // Tool calls can add significant content (tool output, result summaries).
+          // We need to signal MessageList to re-check scroll position.
+          const currentTrigger = useStreamingStore.getState().streamingUpdateTrigger;
+          useStreamingStore.setState({ streamingUpdateTrigger: currentTrigger + 1 });
+          console.log("[PartCreated] Triggered scroll update (trigger:", currentTrigger + 1, ")");
+        }
+
+        messages[msgIndex] = msg;
+        const newSession = { ...session, messages };
+
+        sessionLookupCache.set(activeSessionId, newSession);
+
+        return {
+          sessions: state.sessions.map((s) =>
+            s.id === activeSessionId ? newSession : s,
+          ),
+        };
+      });
+    },
+
+    handleMessagePartUpdated: (event: MessagePartUpdatedEvent) => {
+      const { activeSessionId } = get();
+      let { streamingMessageId } = useStreamingStore.getState();
+      
+      console.log("[PartUpdated] Event received:", {
+        messageId: event.messageId,
+        partId: event.partId,
+        type: event.type,
+        deltaLength: event.delta?.length,
+        streamingMessageId,
+        activeSessionId,
+        willProcess: event.messageId === streamingMessageId,
+      });
+      
+      // CRITICAL: Auto-recovery for lost streamingMessageId
+      // In rapid message succession (e.g., tool call → new message), streamingMessageId
+      // may be cleared prematurely. If we receive delta events for a message that:
+      // 1. Is in the current session
+      // 2. Has isStreaming=true
+      // 3. But streamingMessageId doesn't match
+      // → Restore streaming state automatically
+      if (event.messageId !== streamingMessageId && activeSessionId) {
+        const session = getSessionById(activeSessionId);
+        const targetMessage = session?.messages.find(m => m.id === event.messageId);
+        
+        if (targetMessage?.isStreaming) {
+          console.warn("[PartUpdated] Auto-recovering lost streamingMessageId:", {
+            eventMessageId: event.messageId,
+            oldStreamingId: streamingMessageId,
+          });
+          useStreamingStore.getState().setStreaming(event.messageId, targetMessage.content || "");
+          streamingMessageId = event.messageId; // Update local variable
+        } else {
+          console.log("[PartUpdated] Ignoring delta for non-streaming message:", event.messageId);
+          return;
+        }
+      }
+      
+      if (activeSessionId && externalReloadingSessions.has(activeSessionId)) return;
+
+      clearMessageTimeout();
+
+      if (event.type === "text_delta" && event.delta) {
+        console.log("[PartUpdated] Appending text delta:", event.delta.length, "chars");
+        appendTextBuffer(event.delta);
+        scheduleTypewriter();
+      } else if (event.type === "reasoning_delta" && event.delta) {
+        console.log("[PartUpdated] Appending reasoning delta:", event.delta.length, "chars");
+        appendReasoningBuffer(event.partId, event.delta);
+        scheduleTypewriter();
+      }
+    },
+
+    handleMessageCompleted: (event: MessageCompletedEvent) => {
+      const { streamingMessageId: currentStreamingId } = useStreamingStore.getState();
+      const retryCount = completionRetryCount.get(event.messageId) || 0;
+      
+      console.log("[MessageCompleted] Event received:", {
+        messageId: event.messageId,
+        sessionId: event.sessionId,
+        finalContentPreview: event.finalContent?.slice(0, 80),
+        retryCount,
+        currentStreamingId,
+        isForDifferentMessage: currentStreamingId !== event.messageId,
+      });
+      
+      // CRITICAL: Ignore completion events for non-streaming messages
+      // This prevents stale/duplicate message.completed events (from retries or out-of-order delivery)
+      // from clearing the streaming state of the current active message
+      if (currentStreamingId && currentStreamingId !== event.messageId) {
+        console.warn("[MessageCompleted] Ignoring completion for non-streaming message:", {
+          eventMessageId: event.messageId,
+          currentStreamingId,
+        });
+        return;
+      }
+
+      // Check if buffer has content
+      if (hasBufferedContent()) {
+        // CRITICAL: Allow typewriter to finish naturally to maintain smooth effect until the end
+        // Previously: 3 retries * 50ms = 150ms was too short for large buffers
+        // With CHARS_PER_FRAME=3 at 60fps, that's only ~27 characters revealed
+        // New strategy: 20 retries * 100ms = 2000ms max wait
+        // This handles buffers up to ~360 characters while keeping typewriter effect
+        if (retryCount < 20) {
+          console.log("[MessageCompleted] Buffer has content, deferring 100ms (retry:", retryCount + 1, ")");
+          completionRetryCount.set(event.messageId, retryCount + 1);
+          setTimeout(() => {
+            get().handleMessageCompleted(event);
+          }, 100);
+          return;
+        }
+        
+        // After 2000ms total, force flush to ensure all content is displayed
+        // This should rarely happen, only for extremely long messages
+        console.log("[MessageCompleted] Max deferrals reached (2s), force flushing remaining buffer");
+        const flushedContent = flushAllPending();
+        // Use flushed content if we don't have finalContent from server
+        if (!event.finalContent && flushedContent) {
+          event = { ...event, finalContent: flushedContent };
+        }
+      }
+
+      // Clear retry count for this message
+      completionRetryCount.delete(event.messageId);
+
+      // CRITICAL: Get streaming state AFTER flush to include flushed content
+      const latestStreamingState = useStreamingStore.getState();
+      console.log("[MessageCompleted] Streaming state after flush:", {
+        streamingMessageId: latestStreamingState.streamingMessageId,
+        streamingContentLength: latestStreamingState.streamingContent.length,
+        streamingContentPreview: latestStreamingState.streamingContent.slice(-80),
+      });
+
+      set((state) => {
+        const currentSession = getSessionById(event.sessionId);
+        if (!currentSession) {
+          useStreamingStore.getState().clearStreaming();
+          return {};
+        }
+
+        const msgIndex = currentSession.messages.findIndex((m) => m.id === event.messageId);
+        if (msgIndex === -1) {
+          useStreamingStore.getState().clearStreaming();
+          return {};
+        }
+
+        const messages = [...currentSession.messages];
+        
+        // CRITICAL ARCHITECTURE: Single Source of Truth - Parts
+        // During streaming, we showed streamingContent (from delta buffer).
+        // Now message is complete, build final content ONLY from parts (authoritative source).
+        // This prevents duplication from mixing snapshot content + buffer content.
+        const textPartsContent = messages[msgIndex].parts
+          .filter((p) => p.type === "text" && (p.text || p.content))
+          .map((p) => p.text || p.content || "")
+          .join("");
+        
+        // Fallback: If parts are empty, try event.finalContent or API fetch
+        let finalContent = textPartsContent || event.finalContent || "";
+        
+        console.log("[MessageCompleted] Building final content from parts:", {
+          partsCount: messages[msgIndex].parts.filter(p => p.type === "text").length,
+          finalContentLength: finalContent.length,
+          finalContentPreview: finalContent.slice(0, 100),
+        });
+
+        // If content is still empty after all fallbacks, fetch from API asynchronously
+        if (!finalContent || finalContent.trim() === '') {
+          const client = getOpenCodeClient();
+          client.getMessages(event.sessionId)
+            .then((apiMessages) => {
+              const apiMessage = apiMessages.find((m) => m.info.id === event.messageId);
+              if (apiMessage) {
+                const apiContent = apiMessage.parts
+                  .filter((p) => p.type === 'text' && p.text)
+                  .map((p) => p.text)
+                  .join('');
+
+                if (apiContent && apiContent.trim() !== '') {
+                  set((state) => {
+                    const session = getSessionById(event.sessionId);
+                    if (!session) return {};
+
+                    const msgIndex = session.messages.findIndex((m) => m.id === event.messageId);
+                    if (msgIndex === -1) return {};
+
+                    const messages = [...session.messages];
+                    messages[msgIndex] = {
+                      ...messages[msgIndex],
+                      content: apiContent,
+                    };
+
+                    const newSession = { ...session, messages };
+                    sessionLookupCache.set(event.sessionId, newSession);
+
+                    return {
+                      sessions: state.sessions.map((s) =>
+                        s.id === event.sessionId ? newSession : s,
+                      ),
+                    };
+                  });
+                }
+              }
+            })
+            .catch((error) => {
+              console.error('[Session] Failed to fetch message content from API:', error);
+            });
+        }
+
+        messages[msgIndex] = {
+          ...messages[msgIndex],
+          content: finalContent,
+          isStreaming: false,
+          tokens: event.tokens ?? messages[msgIndex].tokens,
+          cost: event.cost ?? messages[msgIndex].cost,
+          toolCalls: messages[msgIndex].toolCalls?.map((tc) =>
+            tc.status === "calling"
+              ? {
+                  ...tc,
+                  status: "completed" as const,
+                  duration: tc.startTime
+                    ? Date.now() - tc.startTime.getTime()
+                    : tc.duration,
+                }
+              : tc,
+          ),
+        };
+
+        const newSession = { ...currentSession, messages };
+        sessionLookupCache.set(event.sessionId, newSession);
+
+        // CRITICAL: Delay clearStreaming() to allow React to re-render and trigger auto-scroll
+        // When flushAllPending() dumps large buffer content, React needs time to:
+        // 1. Re-render the message with new content
+        // 2. Update DOM (scrollHeight increases)
+        // 3. Trigger scroll useEffect (depends on streamingContentLength)
+        // 
+        // IMPORTANT: Only clear if this message is STILL the streaming message.
+        // In rapid succession scenarios, a new message may have started streaming
+        // within the 100ms delay. We must not clear the new message's streamingMessageId.
+        const completedMessageId = event.messageId;
+        console.log("[MessageCompleted] Scheduling delayed clear for:", completedMessageId, "in 100ms");
+        setTimeout(() => {
+          const { streamingMessageId: currentStreamingId } = useStreamingStore.getState();
+          console.log("[MessageCompleted] Delayed clear callback executing:", {
+            completedMessageId,
+            currentStreamingId,
+            willClear: currentStreamingId === completedMessageId,
+          });
+          if (currentStreamingId === completedMessageId) {
+            console.log("[MessageCompleted] Clearing streaming for:", completedMessageId);
+            useStreamingStore.getState().clearStreaming();
+          } else {
+            console.log("[MessageCompleted] Skipping clear (new message started):", {
+              completedMessageId,
+              currentStreamingId,
+            });
+          }
+        }, 100);
+        
+        return {
+          sessions: state.sessions.map((s) =>
+            s.id === event.sessionId ? newSession : s,
+          ),
+        };
+      });
+
+      // Update local stats: add token usage when message completes
+      if (event.tokens || event.cost) {
+        (async () => {
+          try {
+            const { useWorkspaceStore } = await import('@/stores/workspace');
+            const { useLocalStatsStore } = await import('@/stores/local-stats');
+            const workspacePath = useWorkspaceStore.getState().workspacePath;
+            
+            if (workspacePath) {
+              const tokens = event.tokens 
+                ? (event.tokens.input || 0) + (event.tokens.output || 0) + (event.tokens.reasoning || 0)
+                : 0;
+              const cost = event.cost || 0;
+              
+              if (tokens > 0 || cost > 0) {
+                await useLocalStatsStore.getState().addTokenUsage(workspacePath, tokens, cost);
+                console.log(`[LocalStats] Updated from message completion: ${tokens} tokens, $${cost.toFixed(4)}`);
+              }
+            }
+          } catch (error) {
+            console.error('[LocalStats] Failed to update from message completion:', error);
+          }
+        })();
+      }
+
+      // Process next message in queue after completion
+      setTimeout(() => {
+        const { messageQueue, sendMessage: send } = get();
+        console.log("[MessageCompleted] queue check:", { queueLength: messageQueue.length });
+        if (messageQueue.length > 0) {
+          const nextMessage = messageQueue[0];
+          console.log("[MessageCompleted] processing next:", nextMessage.content.slice(0, 30));
+          set((state) => ({
+            messageQueue: state.messageQueue.slice(1),
+          }));
+          send(nextMessage.content);
+        }
+      }, 300);
+
+      // Memory extraction: analyze completed conversation for memorizable content
+      const memorySessionId = localStorage.getItem('teamclaw-memory-session-id')
+      if (event.sessionId !== memorySessionId) {
+        setTimeout(async () => {
+          try {
+            const { shouldExtractMemory, extractMemories, isExtractionDebounced } = await import('@/lib/memory-extraction')
+            const { useWorkspaceStore } = await import('./workspace')
+            const workspacePath = useWorkspaceStore.getState().workspacePath
+            if (!workspacePath) return
+
+            const { useKnowledgeStore } = await import('./knowledge')
+            const config = useKnowledgeStore.getState().config
+            if (config?.memoryEnabled === false) return
+            if (config?.memoryAutoExtract === false) return
+
+            if (isExtractionDebounced(event.sessionId)) return
+
+            const session = getSessionById(event.sessionId)
+            if (!session) return
+
+            const conversationMessages = session.messages
+              .filter(m => m.role === 'user' || m.role === 'assistant')
+              .filter(m => m.content && m.content.trim())
+              .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+
+            if (shouldExtractMemory(conversationMessages)) {
+              console.log('[Memory] Auto-extracting memories for session:', event.sessionId)
+              extractMemories(conversationMessages, event.sessionId, workspacePath)
+            }
+          } catch (error) {
+            console.error('[Memory] Auto-extraction trigger failed:', error)
+          }
+        }, 2000)
+      }
+    },
+  };
+}
