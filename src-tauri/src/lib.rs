@@ -122,7 +122,11 @@ pub fn run() {
         .plugin({
             #[cfg(debug_assertions)]
             {
-                tauri_plugin_mcp::Builder.build()
+                tauri_plugin_mcp::init_with_config(
+                    tauri_plugin_mcp::PluginConfig::new("TeamClaw".to_string())
+                        .start_socket_server(true)
+                        .socket_path("/tmp/tauri-mcp.sock".into())
+                )
             }
             #[cfg(not(debug_assertions))]
             {
@@ -136,7 +140,12 @@ pub fn run() {
         .manage(rag_state)
         .manage(telemetry::commands::TelemetryState::default())
         .manage(crate::stt::SttState::default())
-        .manage(commands::webview::WebviewManager::default())
+        .manage({
+            let mut wvm = commands::webview::WebviewManager::default();
+            #[cfg(target_os = "macos")]
+            commands::webview::init_shared_config(&mut wvm);
+            wvm
+        })
         .manage(<commands::p2p_state::IrohState>::default())
         .manage(commands::spotlight::SpotlightState::default())
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
@@ -314,6 +323,7 @@ pub fn run() {
             telemetry::commands::telemetry_export_leaderboard,
             telemetry::commands::telemetry_get_team_leaderboard,
             telemetry::commands::telemetry_get_member_aggregated_stats,
+            commands::webview::webview_eval_js,
             commands::webview::webview_create,
             commands::webview::webview_close,
             commands::webview::webview_hide,
