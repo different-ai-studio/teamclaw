@@ -60,7 +60,7 @@ libsql = "0.9"
 nanoid = "0.4"
 markitdown = "0.1.10"
 cpal = "0.17"
-whisper-rs = { version = "0.15", optional = true }
+whisper-rs = { version = "0.16", optional = true }
 
 # RAG dependencies
 anyhow = "1"
