@@ -50,7 +50,7 @@
       "requireLiteralLeadingDot": false
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5MkRBQzQwNjJGMTc2REQKUldUZGR2RmlRS3d0S1FrQ1B4SnpnWThzM1VJNjRTdjUyN3AvRXFFSkR1bFRkUmFVMkhOU2dXSi8K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQzODk5QzIxMUI4RkY3OTkKUldTWjk0OGJJWnlKUTlnZVdEaUsyUGJ4WFpaYmlQZW03NGdlNVdyUlRMNGtKVVBKeTk3NEYwZXAK",
       "endpoints": [
         "https://github.com/diffrent-ai-studio/teamclaw/releases/latest/download/latest.json"
       ]
