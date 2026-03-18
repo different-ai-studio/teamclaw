@@ -104,11 +104,15 @@ export async function runSingleSession(
 
   let msgIndex = 0;
   while (Date.now() < deadline) {
-    await switchSession(sessionId);
-    await runOneInteraction(sessionId, msgIndex++, 'single', config, reporter);
+    try {
+      await switchSession(sessionId);
+      await runOneInteraction(sessionId, msgIndex++, 'single', config, reporter);
+    } catch (err: any) {
+      console.warn(`[stress] single session loop error: ${err.message?.slice(0, 100)}`);
+    }
   }
 
-  await archiveSession(sessionId);
+  try { await archiveSession(sessionId); } catch { /* best-effort cleanup */ }
   console.log(`[stress] Single session scenario done. ${msgIndex} messages sent.`);
 }
 
@@ -132,13 +136,17 @@ export async function runMultiSession(
   while (Date.now() < deadline) {
     for (const sessionId of sessionIds) {
       if (Date.now() >= deadline) break;
-      await switchSession(sessionId);
-      await runOneInteraction(sessionId, msgIndex++, 'multi', config, reporter);
+      try {
+        await switchSession(sessionId);
+        await runOneInteraction(sessionId, msgIndex++, 'multi', config, reporter);
+      } catch (err: any) {
+        console.warn(`[stress] multi session loop error: ${err.message?.slice(0, 100)}`);
+      }
     }
   }
 
   for (const id of sessionIds) {
-    await archiveSession(id);
+    try { await archiveSession(id); } catch { /* best-effort */ }
   }
   console.log(`[stress] Multi session scenario done. ${msgIndex} messages sent.`);
 }
@@ -160,24 +168,28 @@ export async function runMixedMode(
   let msgIndex = 0;
 
   while (Date.now() < deadline) {
-    if (Date.now() - lastNewSessionTime >= config.mixedNewSessionIntervalMs) {
-      const shortId = await createSession();
-      if (shortId) {
-        reporter.trackSessionCreated(shortId);
-        const msgCount = 3 + Math.floor(Math.random() * 3);
-        for (let i = 0; i < msgCount && Date.now() < deadline; i++) {
-          await switchSession(shortId);
-          await runOneInteraction(shortId, msgIndex++, 'mixed', config, reporter);
+    try {
+      if (Date.now() - lastNewSessionTime >= config.mixedNewSessionIntervalMs) {
+        const shortId = await createSession();
+        if (shortId) {
+          reporter.trackSessionCreated(shortId);
+          const msgCount = 3 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < msgCount && Date.now() < deadline; i++) {
+            await switchSession(shortId);
+            await runOneInteraction(shortId, msgIndex++, 'mixed', config, reporter);
+          }
+          try { await archiveSession(shortId); } catch { /* best-effort */ }
+          shortLivedIds.push(shortId);
         }
-        await archiveSession(shortId);
-        shortLivedIds.push(shortId);
+        lastNewSessionTime = Date.now();
       }
-      lastNewSessionTime = Date.now();
-    }
 
-    if (Date.now() < deadline) {
-      await switchSession(persistentId);
-      await runOneInteraction(persistentId, msgIndex++, 'mixed', config, reporter);
+      if (Date.now() < deadline) {
+        await switchSession(persistentId);
+        await runOneInteraction(persistentId, msgIndex++, 'mixed', config, reporter);
+      }
+    } catch (err: any) {
+      console.warn(`[stress] mixed mode loop error: ${err.message?.slice(0, 100)}`);
     }
   }
 
