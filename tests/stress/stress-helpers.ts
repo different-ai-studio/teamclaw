@@ -1,14 +1,45 @@
-import { executeJs, waitForCondition, takeScreenshot, sleep } from '../_utils/tauri-mcp-test-utils';
+import { callIpcCommand, takeScreenshot, sleep } from '../_utils/tauri-mcp-test-utils';
 
 const STORE = 'window.__TEAMCLAW_STORES__';
 
+/**
+ * Execute JS in the main webview via the webview_eval_js IPC command.
+ * This bypasses the broken tauri-plugin-mcp execute_js event system.
+ */
+async function evalJs(code: string): Promise<string> {
+  const result = await callIpcCommand('webview_eval_js', { code });
+  return result;
+}
+
+/**
+ * Poll an evalJs expression until the predicate passes or timeout.
+ */
+async function waitForCondition(
+  jsCode: string,
+  predicate: (result: string) => boolean,
+  timeoutMs: number,
+  intervalMs = 1_000,
+): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const result = await evalJs(jsCode);
+      if (predicate(result)) return result;
+    } catch {
+      // evalJs may fail transiently, keep polling
+    }
+    await sleep(intervalMs);
+  }
+  throw new Error(`Condition not met within ${timeoutMs}ms: ${jsCode}`);
+}
+
 export async function verifyStoreExposed(): Promise<boolean> {
-  const result = await executeJs(`typeof ${STORE}?.session?.getState === 'function'`);
+  const result = await evalJs(`typeof ${STORE}?.session?.getState === 'function'`);
   return result === 'true';
 }
 
 export async function isOpenCodeReady(): Promise<boolean> {
-  const result = await executeJs(
+  const result = await evalJs(
     `${STORE}.session.getState().isConnected === true`
   );
   return result === 'true';
@@ -28,7 +59,7 @@ export async function waitForIdle(timeoutMs = 30_000): Promise<void> {
 
 export async function createSession(): Promise<string | null> {
   const beforeId = await getActiveSessionId();
-  await executeJs(`${STORE}.session.getState().createSession()`);
+  await evalJs(`${STORE}.session.getState().createSession()`);
   let newId: string | null = null;
   for (let i = 0; i < 20; i++) {
     await sleep(500);
@@ -42,7 +73,7 @@ export async function createSession(): Promise<string | null> {
 }
 
 export async function switchSession(sessionId: string): Promise<void> {
-  await executeJs(`${STORE}.session.getState().setActiveSession(${JSON.stringify(sessionId)})`);
+  await evalJs(`${STORE}.session.getState().setActiveSession(${JSON.stringify(sessionId)})`);
   for (let i = 0; i < 10; i++) {
     await sleep(300);
     const current = await getActiveSessionId();
@@ -52,11 +83,11 @@ export async function switchSession(sessionId: string): Promise<void> {
 }
 
 export async function sendMessage(text: string): Promise<void> {
-  await executeJs(`${STORE}.session.getState().sendMessage(${JSON.stringify(text)})`);
+  await evalJs(`${STORE}.session.getState().sendMessage(${JSON.stringify(text)})`);
 }
 
 export async function getMessageCount(sessionId: string): Promise<number> {
-  const result = await executeJs(
+  const result = await evalJs(
     `${STORE}.session.getState().getSessionMessages(${JSON.stringify(sessionId)}).length`
   );
   return parseInt(result) || 0;
@@ -76,7 +107,7 @@ export async function waitForMessageCount(
 }
 
 export async function checkSessionError(): Promise<string | null> {
-  const result = await executeJs(
+  const result = await evalJs(
     `JSON.stringify(${STORE}.session.getState().sessionError)`
   );
   return result && result !== 'null' && result !== 'undefined' ? result : null;
@@ -97,12 +128,12 @@ export async function pollForError(windowMs = 10_000): Promise<string | null> {
 }
 
 export async function archiveSession(sessionId: string): Promise<void> {
-  await executeJs(`${STORE}.session.getState().archiveSession(${JSON.stringify(sessionId)})`);
+  await evalJs(`${STORE}.session.getState().archiveSession(${JSON.stringify(sessionId)})`);
   await sleep(1000);
 }
 
 export async function getActiveSessionId(): Promise<string | null> {
-  const result = await executeJs(
+  const result = await evalJs(
     `${STORE}.session.getState().activeSessionId`
   );
   return result && result !== 'null' && result !== 'undefined' ? result : null;
