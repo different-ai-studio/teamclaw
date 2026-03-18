@@ -11,8 +11,15 @@ pub mod wecom;
 pub mod wecom_config;
 pub mod session;
 pub mod session_queue;
+pub mod pending_question;
 
 pub use config::*;
+pub use pending_question::{
+    PendingQuestionStore, PendingQuestionEntry, QuestionContext,
+    QuestionForwarder, ForwardedQuestion, QuestionInfo, QuestionOption,
+    format_question_message, resolve_answer, extract_question_marker,
+    parse_question_event,
+};
 pub use discord::DiscordGateway;
 pub use email::EmailGateway;
 pub use feishu::FeishuGateway;
@@ -24,7 +31,7 @@ pub use wecom_config::*;
 pub use session::SessionMapping;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::State;
 use serde::Deserialize;
@@ -117,6 +124,8 @@ pub struct GatewayState {
     pub shared_session_mapping: SessionMapping,
     /// Whether the shared session mapping has been initialized with a persistence path
     pub session_initialized: Mutex<bool>,
+    /// Shared store for pending question forwarding
+    pub pending_questions: Arc<PendingQuestionStore>,
 }
 
 impl Default for GatewayState {
@@ -129,6 +138,7 @@ impl Default for GatewayState {
             wecom_gateway: Mutex::new(None),
             shared_session_mapping: SessionMapping::new(),
             session_initialized: Mutex::new(false),
+            pending_questions: Arc::new(PendingQuestionStore::new()),
         }
     }
 }
