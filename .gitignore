@@ -102,3 +102,6 @@ docs/superpowers/
 
 # Internal planning documents
 docs/plans/
+
+# Stress test reports
+tests/stress/reports/
