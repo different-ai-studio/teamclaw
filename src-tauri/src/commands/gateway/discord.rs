@@ -24,6 +24,8 @@ pub struct DiscordHandler {
     /// Permission auto-approver
     #[allow(dead_code)]
     permission_approver: super::PermissionAutoApprover,
+    /// Pending question store for question forwarding
+    pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl DiscordHandler {
@@ -33,6 +35,7 @@ impl DiscordHandler {
         opencode_port: u16,
         status_tx: mpsc::Sender<GatewayStatusResponse>,
         permission_approver: super::PermissionAutoApprover,
+        pending_questions: Arc<super::PendingQuestionStore>,
     ) -> Self {
         Self {
             config,
@@ -42,6 +45,7 @@ impl DiscordHandler {
             bot_user_id: Arc::new(RwLock::new(None)),
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
             permission_approver,
+            pending_questions,
         }
     }
 
@@ -342,8 +346,25 @@ impl DiscordHandler {
         // Send typing indicator
         let typing = msg.channel_id.start_typing(&ctx.http);
 
+        // Build question context for forwarding AI questions to Discord
+        let pending_questions = Arc::clone(&self.pending_questions);
+        let channel_id = msg.channel_id;
+        let http = Arc::clone(&ctx.http);
+        let question_ctx = super::QuestionContext {
+            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
+                let http = Arc::clone(&http);
+                Box::pin(async move {
+                    let text = super::format_question_message(&fq.questions, &fq.question_id);
+                    let sent = channel_id.say(&http, &text).await
+                        .map_err(|e| format!("Failed to send question: {}", e))?;
+                    Ok(sent.id.to_string())
+                })
+            }),
+            store: pending_questions,
+        };
+
         // Send message to OpenCode (with automatic permission approval)
-        let result = self.send_to_opencode(&session_id, &content, images.clone(), model_param.clone()).await;
+        let result = self.send_to_opencode(&session_id, &content, images.clone(), model_param.clone(), Some(question_ctx)).await;
 
         match result {
             Ok(response) => {
@@ -400,11 +421,12 @@ impl DiscordHandler {
     /// images: Vec<(url, mime_type)>
     /// model: Optional (providerID, modelID) to override the model for this request
     async fn send_to_opencode(
-        &self, 
-        session_id: &str, 
+        &self,
+        session_id: &str,
         content: &str,
         images: Vec<(String, String)>,
         model: Option<(String, String)>,
+        question_ctx: Option<super::QuestionContext>,
     ) -> Result<String, String> {
         // Download client for images (short timeout)
         let client = reqwest::Client::builder()
@@ -481,7 +503,7 @@ impl DiscordHandler {
             session_id,
             parts,
             model,
-            None,
+            question_ctx,
         ).await
     }
 
@@ -502,7 +524,18 @@ impl EventHandler for DiscordHandler {
             println!("[Discord] Message {} already processed, skipping", message_id);
             return;
         }
-        
+
+        // Check if this is a reply to a pending question
+        if let Some(ref referenced) = msg.referenced_message {
+            let ref_id = referenced.id.to_string();
+            if let Some(entry) = self.pending_questions.take(&ref_id).await {
+                let answer_text = msg.content.clone();
+                let _ = entry.answer_tx.send(answer_text);
+                println!("[Discord] Question {} answered via reply", entry.question_id);
+                return;
+            }
+        }
+
         let filter_result = self.should_process_message(&msg, &ctx).await;
         println!("[Discord] Filter result: {:?}, guild_id: {:?}, channel_id: {}", 
             filter_result, msg.guild_id, msg.channel_id);
@@ -760,6 +793,8 @@ pub struct DiscordGateway {
     is_running: Arc<RwLock<bool>>,
     /// Permission auto-approver
     permission_approver: super::PermissionAutoApprover,
+    /// Pending question store for question forwarding
+    pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl DiscordGateway {
@@ -772,6 +807,7 @@ impl DiscordGateway {
             status: Arc::new(RwLock::new(GatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
+            pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
 
@@ -839,6 +875,7 @@ impl DiscordGateway {
             self.opencode_port,
             status_tx,
             self.permission_approver.clone(),
+            Arc::clone(&self.pending_questions),
         );
 
         // Build client
@@ -967,6 +1004,7 @@ impl Clone for DiscordGateway {
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),
             permission_approver: self.permission_approver.clone(),
+            pending_questions: Arc::clone(&self.pending_questions),
         }
     }
 }
