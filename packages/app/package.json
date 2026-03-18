@@ -1,6 +1,6 @@
 {
   "name": "@teamclaw/app",
-  "version": "0.2.27",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
