@@ -21,14 +21,24 @@ describe('Chat stress test', () => {
     console.log(`[stress] Config: ${JSON.stringify(config, null, 2)}`);
 
     await launchTeamClawApp();
-    await sleep(10_000);
-    await focusWindow();
-    await sleep(2_000);
+    console.log('[stress] App process spawned, waiting for webview to load...');
 
-    const storeOk = await verifyStoreExposed();
-    if (!storeOk) {
-      throw new Error('__TEAMCLAW_STORES__ not found on window. Is the app running in dev mode?');
+    // Wait for the socket + webview to become ready (retry executeJs with backoff)
+    let storeOk = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await sleep(2_000);
+      try {
+        await focusWindow();
+        storeOk = await verifyStoreExposed();
+        if (storeOk) break;
+      } catch (err: any) {
+        console.log(`[stress] Waiting for webview... attempt ${attempt + 1}/30 (${err.message?.slice(0, 60)})`);
+      }
     }
+    if (!storeOk) {
+      throw new Error('__TEAMCLAW_STORES__ not found on window after 60s. Is the app running in dev mode?');
+    }
+    console.log('[stress] Store exposure verified.');
 
     for (let i = 0; i < 30; i++) {
       if (await isOpenCodeReady()) { ready = true; break; }
