@@ -25,7 +25,7 @@ jobs:
           node-version: lts/*
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Cache pnpm store
         uses: actions/cache@v4
@@ -156,7 +156,7 @@ jobs:
           node-version: lts/*
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Cache pnpm store
         uses: actions/cache@v4
