@@ -103,6 +103,8 @@ pub struct KookGateway {
     bot_user_id: Arc<RwLock<Option<String>>>,
     /// Permission auto-approver
     permission_approver: super::PermissionAutoApprover,
+    /// Pending questions awaiting replies
+    pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl KookGateway {
@@ -119,6 +121,7 @@ impl KookGateway {
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
             bot_user_id: Arc::new(RwLock::new(None)),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
+            pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
 
@@ -694,6 +697,18 @@ impl KookGateway {
             return Ok(());
         }
 
+        // Check if this is a reply to a pending question (KOOK uses extra.quote)
+        if let Some(quote_id) = msg_data.extra.get("quote")
+            .and_then(|q| q.get("rong_id").or_else(|| q.get("id")))
+            .and_then(|id| id.as_str())
+        {
+            if let Some(entry) = self.pending_questions.take(quote_id).await {
+                let _ = entry.answer_tx.send(msg_data.content.clone());
+                println!("[KOOK] Question {} answered via quote reply", entry.question_id);
+                return Ok(());
+            }
+        }
+
         // Filter message
         let filter_result = self.filter_message(&msg_data).await;
         
@@ -881,11 +896,52 @@ impl KookGateway {
             .await
             .and_then(|m| super::parse_model_preference(&m));
 
+        // Build question context for forwarding AI questions to the channel
+        let pending_questions_clone = Arc::clone(&self.pending_questions);
+        let qctx_config = self.config.read().await.clone();
+        let target = if msg.channel_type == "PERSON" {
+            msg.author_id.clone()
+        } else {
+            msg.target_id.clone()
+        };
+        let channel_type = msg.channel_type.clone();
+        let question_ctx = super::QuestionContext {
+            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
+                let token = qctx_config.token.clone();
+                let target = target.clone();
+                let ct = channel_type.clone();
+                Box::pin(async move {
+                    let text = super::format_question_message(&fq.questions, &fq.question_id);
+                    let client = reqwest::Client::new();
+                    let (url, body) = if ct == "PERSON" {
+                        ("https://www.kookapp.cn/api/v3/direct-message/create".to_string(),
+                         serde_json::json!({ "target_id": target, "type": 1, "content": text }))
+                    } else {
+                        ("https://www.kookapp.cn/api/v3/message/create".to_string(),
+                         serde_json::json!({ "target_id": target, "type": 1, "content": text }))
+                    };
+                    let resp = client.post(&url)
+                        .header("Authorization", format!("Bot {}", token))
+                        .json(&body)
+                        .send().await
+                        .map_err(|e| format!("KOOK send failed: {}", e))?;
+                    let json: serde_json::Value = resp.json().await
+                        .map_err(|e| format!("KOOK parse failed: {}", e))?;
+                    json.get("data")
+                        .and_then(|d| d.get("msg_id"))
+                        .and_then(|id| id.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| "No msg_id in KOOK response".to_string())
+                })
+            }),
+            store: pending_questions_clone,
+        };
+
         // Send "Thinking..." card message first
         let thinking_msg_id = self.send_thinking_card(msg).await?;
 
         // Send to OpenCode
-        let response = match self.send_to_opencode(&session_id, &content, model_param.clone()).await {
+        let response = match self.send_to_opencode(&session_id, &content, model_param.clone(), Some(question_ctx)).await {
             Ok(resp) => resp,
             Err(e) => {
                 // Update the thinking message with error
@@ -912,18 +968,19 @@ impl KookGateway {
         session_id: &str,
         message: &str,
         model: Option<(String, String)>,
+        question_ctx: Option<super::QuestionContext>,
     ) -> Result<String, String> {
         println!("[KOOK] Sending message asynchronously with permission auto-approval");
-        
+
         let parts = vec![json!({"type": "text", "text": message})];
-        
+
         // Use async send with permission auto-approval
         super::send_message_async_with_approval(
             self.opencode_port,
             session_id,
             parts,
             model,
-            None,
+            question_ctx,
         ).await
     }
 
@@ -1380,6 +1437,7 @@ impl Clone for KookGateway {
             processed_messages: Arc::clone(&self.processed_messages),
             bot_user_id: Arc::clone(&self.bot_user_id),
             permission_approver: self.permission_approver.clone(),
+            pending_questions: Arc::clone(&self.pending_questions),
         }
     }
 }
