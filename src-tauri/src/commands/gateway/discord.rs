@@ -481,6 +481,7 @@ impl DiscordHandler {
             session_id,
             parts,
             model,
+            None,
         ).await
     }
 

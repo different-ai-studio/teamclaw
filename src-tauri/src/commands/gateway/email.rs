@@ -1617,6 +1617,7 @@ fn process_and_reply_sync(
             &session_id,
             parts,
             model_param,
+            None,
         ).await
     })?;
 

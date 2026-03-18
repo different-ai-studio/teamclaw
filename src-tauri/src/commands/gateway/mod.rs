@@ -234,6 +234,7 @@ pub async fn send_message_async_with_approval(
     session_id: &str,
     parts: Vec<serde_json::Value>,
     model: Option<(String, String)>,
+    question_ctx: Option<QuestionContext>,
 ) -> Result<String, String> {
     // Step 1: Send message asynchronously (non-blocking)
     let client = reqwest::Client::new();
@@ -263,7 +264,7 @@ pub async fn send_message_async_with_approval(
     
     // Step 2 & 3: Use unified SSE stream to handle both message waiting and permission approval
     // This avoids having multiple SSE connections which can cause event conflicts
-    poll_for_message_with_approval(port, session_id, send_timestamp_ms).await
+    poll_for_message_with_approval(port, session_id, send_timestamp_ms, question_ctx).await
 }
 
 /// Unified SSE handler: wait for assistant message AND auto-approve permissions
@@ -278,6 +279,7 @@ async fn poll_for_message_with_approval(
     port: u16,
     session_id: &str,
     send_timestamp_ms: u64,
+    question_ctx: Option<QuestionContext>,
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
     let sse_url = format!("http://127.0.0.1:{}/event", port);
@@ -410,7 +412,97 @@ async fn poll_for_message_with_approval(
                         // Ignore all other permission events
                         continue;
                     }
-                    
+
+                    "question.asked" => {
+                        let q_session_id = event.get("properties")
+                            .and_then(|p| p.get("sessionID").or_else(|| p.get("sessionId")))
+                            .and_then(|s| s.as_str());
+
+                        if let Some(ref ctx) = question_ctx {
+                            if let Some(sess_id) = q_session_id {
+                                if tracked_sessions.contains(sess_id) {
+                                    let question_id = event.get("properties")
+                                        .and_then(|p| p.get("id"))
+                                        .and_then(|id| id.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+
+                                    let questions = parse_question_event(&event);
+
+                                    println!("[Gateway-{}] Question asked: id={}, {} question(s)",
+                                        &session_id[..8], question_id, questions.len());
+
+                                    let forwarded = ForwardedQuestion {
+                                        question_id: question_id.clone(),
+                                        questions: questions.clone(),
+                                    };
+
+                                    match (ctx.forwarder)(forwarded).await {
+                                        Ok(channel_msg_id) => {
+                                            let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+                                            ctx.store.insert(channel_msg_id.clone(), PendingQuestionEntry {
+                                                question_id: question_id.clone(),
+                                                answer_tx: tx,
+                                                created_at: std::time::Instant::now(),
+                                            }).await;
+
+                                            let port_clone = port;
+                                            let qid = question_id.clone();
+                                            let questions_clone = questions;
+                                            let store_clone = std::sync::Arc::clone(&ctx.store);
+                                            let cmid = channel_msg_id;
+                                            tokio::spawn(async move {
+                                                let client = reqwest::Client::new();
+                                                match tokio::time::timeout(
+                                                    std::time::Duration::from_secs(300), rx
+                                                ).await {
+                                                    Ok(Ok(answer)) => {
+                                                        let answers = resolve_answer(&answer, &questions_clone);
+                                                        let url = format!(
+                                                            "http://127.0.0.1:{}/question/{}/reply",
+                                                            port_clone, qid
+                                                        );
+                                                        let body = serde_json::json!({ "answers": answers });
+                                                        match client.post(&url).json(&body).send().await {
+                                                            Ok(r) => println!(
+                                                                "[Gateway] Question {} answered (HTTP {})",
+                                                                qid, r.status()
+                                                            ),
+                                                            Err(e) => eprintln!(
+                                                                "[Gateway] Failed to reply question {}: {}",
+                                                                qid, e
+                                                            ),
+                                                        }
+                                                    }
+                                                    _ => {
+                                                        let url = format!(
+                                                            "http://127.0.0.1:{}/question/{}/reject",
+                                                            port_clone, qid
+                                                        );
+                                                        let _ = client
+                                                            .post(&url)
+                                                            .json(&serde_json::json!({}))
+                                                            .send()
+                                                            .await;
+                                                        println!("[Gateway] Question {} auto-rejected (timeout)", qid);
+                                                    }
+                                                }
+                                                store_clone.take(&cmid).await;
+                                            });
+                                        }
+                                        Err(e) => {
+                                            eprintln!("[Gateway-{}] Failed to forward question: {}", &session_id[..8], e);
+                                            let url = format!("http://127.0.0.1:{}/question/{}/reject", port, question_id);
+                                            let client = reqwest::Client::new();
+                                            let _ = client.post(&url).json(&serde_json::json!({})).send().await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
                     "message.updated" => {
                         // CRITICAL: Only process message events for our target session
                         // Ignore all other sessions to avoid interference

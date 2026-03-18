@@ -1315,6 +1315,7 @@ async fn send_to_opencode(
         session_id,
         parts,
         model,
+        None,
     ).await
 }
 
