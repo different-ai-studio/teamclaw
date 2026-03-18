@@ -31,6 +31,7 @@ pub struct WeComGateway {
     #[allow(dead_code)]
     permission_approver: super::PermissionAutoApprover,
     session_queue: Arc<SessionQueue>,
+    pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -91,6 +92,7 @@ impl WeComGateway {
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
             session_queue: Arc::new(SessionQueue::new()),
+            pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
 
@@ -455,6 +457,17 @@ impl WeComGateway {
                 .and_then(|t| t.get("content"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+
+            // Check for question marker in quoted text
+            if let Some(qid) = super::extract_question_marker(quoted_text) {
+                if let Some(entry) = self.pending_questions.take_by_question_id(qid).await {
+                    let _ = entry.answer_tx.send(text_content.clone());
+                    println!("[WeCom] Question {} answered via quote reply", entry.question_id);
+                    return;
+                }
+            }
+
+            // Original behavior: prepend quoted text for context
             if !quoted_text.is_empty() {
                 text_content = format!("[Quoted message]\n{}\n[End quoted message]\n\n{}", quoted_text, text_content);
             }
@@ -494,6 +507,28 @@ impl WeComGateway {
         let req_id2 = req_id.clone();
         let ws_sink2 = Arc::clone(&ws_sink);
 
+        // Build question context for forwarding AI questions back to WeCom
+        let pending_questions_clone = Arc::clone(&self.pending_questions);
+        let ws_sink_for_q = Arc::clone(&ws_sink);
+        let req_id_for_q = req_id.clone();
+        let question_ctx = super::QuestionContext {
+            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
+                let qid = fq.question_id.clone();
+                let ws_sink_q = Arc::clone(&ws_sink_for_q);
+                let req_id_q = req_id_for_q.clone();
+                Box::pin(async move {
+                    let text = super::format_question_message(&fq.questions, &fq.question_id);
+                    let stream_id = uuid::Uuid::new_v4().to_string();
+                    WeComGateway::send_stream_chunk_static(
+                        &req_id_q, &stream_id, &text, true, &ws_sink_q,
+                    ).await.map_err(|e| format!("Failed to send question: {}", e))?;
+                    println!("[WeCom] Question forwarded: {}", qid);
+                    Ok(qid)
+                })
+            }),
+            store: pending_questions_clone,
+        };
+
         let result = self.session_queue.enqueue(&session_key, QueuedMessage {
             enqueued_at: std::time::Instant::now(),
             process_fn: Box::new(move || Box::pin(async move {
@@ -502,6 +537,7 @@ impl WeComGateway {
                     &session_key_owned, &text_content_owned,
                     image_url_owned.as_deref(), &msg_owned,
                     &req_id_owned, &ws_sink_owned,
+                    Some(&question_ctx),
                 ).await {
                     eprintln!("[WeCom] Process error: {}", e);
                     let _ = gateway.send_reply(&req_id_for_error, &format!("Error: {}", e), &ws_sink_owned).await;
@@ -639,6 +675,7 @@ impl WeComGateway {
         _original: &WeComMsgCallback,
         req_id: &str,
         ws_sink: &WsSink,
+        question_ctx: Option<&super::QuestionContext>,
     ) -> Result<(), String> {
         // Get or create session
         let model = self.session_mapping.get_model(session_key).await;
@@ -698,7 +735,7 @@ impl WeComGateway {
 
         // Stream OpenCode response to WeCom (retry with new session if prompt_async fails)
         match self.stream_opencode_to_wecom(
-            &session_id, parts.clone(), model_tuple.clone(), req_id, ws_sink,
+            &session_id, parts.clone(), model_tuple.clone(), req_id, ws_sink, question_ctx,
         ).await {
             Ok(()) => Ok(()),
             Err(e) if e.contains("prompt_async failed") => {
@@ -709,7 +746,7 @@ impl WeComGateway {
                     .set_session(session_key.to_string(), new_id.clone())
                     .await;
                 self.stream_opencode_to_wecom(
-                    &new_id, parts, model_tuple, req_id, ws_sink,
+                    &new_id, parts, model_tuple, req_id, ws_sink, question_ctx,
                 ).await
             }
             Err(e) => Err(e),
@@ -724,6 +761,7 @@ impl WeComGateway {
         model: Option<(String, String)>,
         req_id: &str,
         ws_sink: &WsSink,
+        question_ctx: Option<&super::QuestionContext>,
     ) -> Result<(), String> {
         use futures_util::StreamExt as _;
 
@@ -897,6 +935,75 @@ impl WeComGateway {
                                     approved_permission_ids.insert(perm_id_str.to_string());
                                 }
                             }
+                        }
+
+                        "question.asked" => {
+                            let q_session_id = event.get("properties")
+                                .and_then(|p| p.get("sessionID"))
+                                .and_then(|s| s.as_str());
+
+                            if let Some(ctx) = question_ctx {
+                                if let Some(sess_id) = q_session_id {
+                                    if tracked_sessions.contains(sess_id) {
+                                        let question_id = event.get("properties")
+                                            .and_then(|p| p.get("id"))
+                                            .and_then(|id| id.as_str())
+                                            .unwrap_or("").to_string();
+
+                                        let questions = super::parse_question_event(&event);
+
+                                        println!("[WeCom-{}] Question asked: id={}", &session_id[..8], question_id);
+
+                                        let forwarded = super::ForwardedQuestion {
+                                            question_id: question_id.clone(),
+                                            questions: questions.clone(),
+                                        };
+
+                                        match (ctx.forwarder)(forwarded).await {
+                                            Ok(channel_msg_id) => {
+                                                let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+                                                ctx.store.insert(channel_msg_id.clone(), super::PendingQuestionEntry {
+                                                    question_id: question_id.clone(),
+                                                    answer_tx: tx,
+                                                    created_at: std::time::Instant::now(),
+                                                }).await;
+
+                                                let port_clone = port;
+                                                let qid = question_id;
+                                                let questions_clone = questions;
+                                                let store_clone = Arc::clone(&ctx.store);
+                                                let cmid = channel_msg_id;
+                                                tokio::spawn(async move {
+                                                    let client = reqwest::Client::new();
+                                                    match tokio::time::timeout(
+                                                        std::time::Duration::from_secs(300), rx
+                                                    ).await {
+                                                        Ok(Ok(answer)) => {
+                                                            let answers = super::resolve_answer(&answer, &questions_clone);
+                                                            let url = format!("http://127.0.0.1:{}/question/{}/reply", port_clone, qid);
+                                                            let _ = client.post(&url).json(&serde_json::json!({"answers": answers})).send().await;
+                                                            println!("[WeCom] Question {} answered", qid);
+                                                        }
+                                                        _ => {
+                                                            let url = format!("http://127.0.0.1:{}/question/{}/reject", port_clone, qid);
+                                                            let _ = client.post(&url).json(&serde_json::json!({})).send().await;
+                                                            println!("[WeCom] Question {} auto-rejected", qid);
+                                                        }
+                                                    }
+                                                    store_clone.take(&cmid).await;
+                                                });
+                                            }
+                                            Err(e) => {
+                                                eprintln!("[WeCom] Failed to forward question: {}", e);
+                                                let url = format!("http://127.0.0.1:{}/question/{}/reject", port, question_id);
+                                                let client = reqwest::Client::new();
+                                                let _ = client.post(&url).json(&serde_json::json!({})).send().await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            continue;
                         }
 
                         "message.part.delta" => {
