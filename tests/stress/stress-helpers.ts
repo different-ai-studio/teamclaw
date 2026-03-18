@@ -48,7 +48,7 @@ export async function switchSession(sessionId: string): Promise<void> {
     const current = await getActiveSessionId();
     if (current === sessionId) return;
   }
-  console.warn(`[stress] switchSession: activeSessionId did not change to ${sessionId} within 3s`);
+  throw new Error(`switchSession: activeSessionId did not change to ${sessionId} within 3s`);
 }
 
 export async function sendMessage(text: string): Promise<void> {

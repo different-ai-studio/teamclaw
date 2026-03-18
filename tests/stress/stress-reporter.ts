@@ -148,7 +148,7 @@ export class StressReporter {
 }
 
 function generateHtml(report: StressReport): string {
-  const data = JSON.stringify(report);
+  const data = JSON.stringify(report).replace(/<\/script>/gi, '<\\/script>');
   const scenarioRows = ['totalMessages', 'successRate', 'avgResponseTimeMs', 'p95ResponseTimeMs', 'p99ResponseTimeMs', 'maxResponseTimeMs', 'failureCount', 'timeoutCount']
     .map(k => {
       const s = report.scenarios;

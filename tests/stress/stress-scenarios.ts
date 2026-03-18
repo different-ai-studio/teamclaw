@@ -31,14 +31,21 @@ async function runOneInteraction(
     let error: string | null = null;
     let success = false;
 
+    // Race: wait for reply vs detect error concurrently
+    const replyPromise = waitForMessageCount(sessionId, expectedCount, config.messageTimeoutMs)
+      .then(() => ({ type: 'reply' as const }));
+    const errorPromise = pollForError(config.messageTimeoutMs)
+      .then((err) => err ? { type: 'error' as const, error: err } : new Promise<never>(() => {}));
+
     try {
-      await waitForMessageCount(sessionId, expectedCount, config.messageTimeoutMs);
-      success = true;
-    } catch (waitErr: any) {
-      error = await pollForError(5_000);
-      if (!error) {
-        error = JSON.stringify({ type: 'timeout', message: waitErr.message });
+      const result = await Promise.race([replyPromise, errorPromise]);
+      if (result.type === 'reply') {
+        success = true;
+      } else {
+        error = result.error;
       }
+    } catch (waitErr: any) {
+      error = JSON.stringify({ type: 'timeout', message: waitErr.message });
     }
 
     const responseTimeMs = Date.now() - startMs;
