@@ -2,6 +2,7 @@ import React, { useCallback, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { MessageSquare, Loader2 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session'
+import { useStreamingStore } from '@/stores/streaming'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUIStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
@@ -20,6 +21,36 @@ interface SessionListItemProps {
   isHighlighted: boolean
   compact?: boolean
   onSelect: (id: string) => void
+}
+
+// Extracted sub-component: only rendered when isActive, so non-active items
+// don't subscribe to sessionStatus/streamingMessageId stores (keeps memo stable).
+function SessionStatusIndicator({ compact }: { compact?: boolean }) {
+  const sessionStatus = useSessionStore(s => s.sessionStatus)
+  const pendingPermission = useSessionStore(s => s.pendingPermission)
+  const pendingQuestion = useSessionStore(s => s.pendingQuestion)
+  const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
+
+  if (pendingPermission || pendingQuestion) {
+    return (
+      <span className="shrink-0 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+        等待确认
+      </span>
+    )
+  }
+
+  // Both checks needed: sessionStatus covers pre-streaming busy (tool exec),
+  // streamingMessageId covers streaming when status may lag
+  if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry' || streamingMessageId) {
+    return (
+      <Loader2 className={cn(
+        "shrink-0 animate-spin text-muted-foreground/70",
+        compact ? "h-3 w-3" : "h-3.5 w-3.5"
+      )} />
+    )
+  }
+
+  return null
 }
 
 const SessionListItem = React.memo(function SessionListItem({
@@ -57,11 +88,13 @@ const SessionListItem = React.memo(function SessionListItem({
             )}>
               {session.title}
             </span>
-            {isHighlighted && (
+            {isActive ? (
+              <SessionStatusIndicator compact={compact} />
+            ) : isHighlighted ? (
               <span className="shrink-0 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
                 NEW
               </span>
-            )}
+            ) : null}
           </div>
           <span className={cn("text-muted-foreground/70", compact ? "text-[10px]" : "text-xs")}>
             {formatRelativeDate(session.updatedAt)}
