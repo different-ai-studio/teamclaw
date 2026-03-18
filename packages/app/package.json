@@ -90,7 +90,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "^4.2.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/react-hooks": "^8.0.1",
     "@types/js-yaml": "^4.0.9",
