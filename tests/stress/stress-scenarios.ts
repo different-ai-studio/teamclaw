@@ -99,10 +99,15 @@ export async function runSingleSession(
   console.log(`[stress] Starting single session scenario (${Math.round(deadlineMs / 60000)} min)`);
   const deadline = Date.now() + deadlineMs;
 
-  // Try to create a new session, or fall back to the existing active session
-  let sessionId = await createSession();
-  if (!sessionId) {
-    sessionId = await getActiveSessionId();
+  // Try to create or find a session with retries (executeJs can be flaky at startup)
+  let sessionId: string | null = null;
+  for (let attempt = 0; attempt < 5 && !sessionId; attempt++) {
+    sessionId = await createSession();
+    if (!sessionId) sessionId = await getActiveSessionId();
+    if (!sessionId) {
+      console.warn(`[stress] Session creation attempt ${attempt + 1}/5 failed, retrying...`);
+      await (await import('../_utils/tauri-mcp-test-utils')).sleep(2000);
+    }
   }
   if (!sessionId) throw new Error('Failed to create or find a session for single-session scenario');
   reporter.trackSessionCreated(sessionId);
