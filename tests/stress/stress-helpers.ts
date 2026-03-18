@@ -28,14 +28,23 @@ export async function waitForIdle(timeoutMs = 30_000): Promise<void> {
 
 export async function createSession(): Promise<string | null> {
   const beforeId = await getActiveSessionId();
-  await executeJs(`${STORE}.session.getState().createSession()`);
+  try {
+    await executeJs(`${STORE}.session.getState().createSession()`);
+  } catch {
+    // createSession is async — executeJs may timeout but the session still gets created
+  }
+  // Poll for activeSessionId to change (or appear if it was null)
   let newId: string | null = null;
   for (let i = 0; i < 20; i++) {
     await sleep(500);
-    const currentId = await getActiveSessionId();
-    if (currentId && currentId !== beforeId) {
-      newId = currentId;
-      break;
+    try {
+      const currentId = await getActiveSessionId();
+      if (currentId && currentId !== beforeId) {
+        newId = currentId;
+        break;
+      }
+    } catch {
+      // transient executeJs error, keep polling
     }
   }
   return newId;
