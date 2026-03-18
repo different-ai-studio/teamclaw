@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 type View = 'chat' | 'settings'
 
@@ -21,9 +22,12 @@ interface UIState {
   toggleLayoutMode: () => void
   setFileModeRightTab: (tab: FileModeRightTab) => void
   setSpotlightMode: (mode: boolean) => void
+  advancedMode: boolean
+  setAdvancedMode: (value: boolean, workspacePath: string | null) => void
+  loadAdvancedMode: (workspacePath: string) => void
 }
 
-export const useUIStore = create<UIState>((set) => ({
+export const useUIStore = create<UIState>((set, get) => ({
   currentView: 'chat',
   layoutMode: 'task',
   fileModeRightTab: 'agent',
@@ -44,6 +48,91 @@ export const useUIStore = create<UIState>((set) => ({
   setFileModeRightTab: (tab) => set({ fileModeRightTab: tab }),
 
   setSpotlightMode: (mode) => set({ spotlightMode: mode }),
+
+  advancedMode: false,
+
+  setAdvancedMode: (value, workspacePath) => {
+    set({ advancedMode: value })
+
+    // If switching to normal mode, reset layout/tabs
+    if (!value) {
+      const state = get()
+      if (state.layoutMode === 'file') {
+        set({ layoutMode: 'task' })
+      }
+      set({ fileModeRightTab: 'shortcuts' })
+
+      // Reset workspace activeTab if on hidden tabs
+      const wsState = useWorkspaceStore.getState()
+      if (wsState.activeTab === 'diff' || wsState.activeTab === 'files') {
+        wsState.openPanel('shortcuts')
+      }
+    }
+
+    // Persist to teamclaw.json
+    if (workspacePath) {
+      import('@tauri-apps/api/path').then(({ join }) =>
+        join(workspacePath, '.teamclaw', 'teamclaw.json').then((configPath) =>
+          import('@tauri-apps/plugin-fs').then(({ readTextFile, writeTextFile, exists, mkdir }) =>
+            join(workspacePath, '.teamclaw').then((teamclawDir) =>
+              exists(teamclawDir).then((dirExists) => {
+                const writeConfig = () =>
+                  exists(configPath).then((fileExists) => {
+                    if (fileExists) {
+                      return readTextFile(configPath).then((content) => {
+                        try {
+                          const config = JSON.parse(content)
+                          config.advancedMode = value
+                          return writeTextFile(configPath, JSON.stringify(config, null, 2))
+                        } catch {
+                          return writeTextFile(configPath, JSON.stringify({ advancedMode: value }, null, 2))
+                        }
+                      })
+                    } else {
+                      return writeTextFile(configPath, JSON.stringify({ advancedMode: value }, null, 2))
+                    }
+                  })
+
+                if (!dirExists) {
+                  return mkdir(teamclawDir, { recursive: true }).then(writeConfig)
+                }
+                return writeConfig()
+              })
+            )
+          )
+        )
+      ).catch((err) => console.warn('[UI] Failed to persist advancedMode:', err))
+    }
+  },
+
+  loadAdvancedMode: async (workspacePath) => {
+    try {
+      const { join } = await import('@tauri-apps/api/path')
+      const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
+      const configPath = await join(workspacePath, '.teamclaw', 'teamclaw.json')
+      const fileExists = await exists(configPath)
+      if (!fileExists) {
+        set({ advancedMode: false })
+        return
+      }
+      const content = await readTextFile(configPath)
+      try {
+        const config = JSON.parse(content)
+        const value = config.advancedMode === true
+
+        // Guard against stale workspace switch
+        if (useWorkspaceStore.getState().workspacePath !== workspacePath) return
+
+        set({ advancedMode: value })
+      } catch {
+        console.warn('[UI] Failed to parse teamclaw.json, defaulting advancedMode to false')
+        set({ advancedMode: false })
+      }
+    } catch (err) {
+      console.warn('[UI] Failed to load advancedMode:', err)
+      set({ advancedMode: false })
+    }
+  },
 }))
 
 // Listen for Tauri spotlight-mode-changed event at module level
