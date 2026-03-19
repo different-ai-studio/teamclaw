@@ -30,6 +30,7 @@ import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
 import { getPermissionPolicy, setPermissionPolicy, type PermissionPolicy } from '@/lib/permission-policy'
 import { PermissionBatchSection } from './PermissionBatchSection'
 import { useSuggestionsStore } from '@/stores/suggestions'
+import { buildConfig } from '@/lib/build-config'
 import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -269,16 +270,18 @@ export const GeneralSection = React.memo(function GeneralSection() {
 
       <ChatSuggestionsCard />
 
-      <div className="flex items-center justify-between px-1 py-1">
-        <label className="text-xs text-muted-foreground flex items-center gap-1.5">
-          <Wrench className="h-3 w-3" />
-          {t('settings.general.advancedMode', 'Advanced Mode')}
-        </label>
-        <ToggleSwitch
-          enabled={advancedMode}
-          onChange={(v) => setAdvancedMode(v, workspacePath)}
-        />
-      </div>
+      {buildConfig.features.advancedMode && (
+        <div className="flex items-center justify-between px-1 py-1">
+          <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Wrench className="h-3 w-3" />
+            {t('settings.general.advancedMode', 'Advanced Mode')}
+          </label>
+          <ToggleSwitch
+            enabled={advancedMode}
+            onChange={(v) => setAdvancedMode(v, workspacePath)}
+          />
+        </div>
+      )}
     </div>
   )
 })

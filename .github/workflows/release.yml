@@ -71,7 +71,7 @@ jobs:
             set -e
             pnpm install
             echo "pnpm install done, building frontend..."
-            pnpm --filter @teamclaw/app build
+            BUILD_ENV=production pnpm --filter @teamclaw/app build
             echo "frontend build done"
           ) > /tmp/frontend.log 2>&1 &
           PID_FRONTEND=$!
@@ -198,6 +198,8 @@ jobs:
             ./src-tauri -> target
 
       - name: Install dependencies and build frontend
+        env:
+          BUILD_ENV: production
         run: |
           pnpm install
           pnpm --filter @teamclaw/app build

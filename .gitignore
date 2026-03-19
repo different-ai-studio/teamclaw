@@ -28,6 +28,7 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 config.json
+build.config.local.json
 
 # Tauri
 src-tauri/target/

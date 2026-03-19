@@ -9,6 +9,8 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
+declare const __BUILD_CONFIG__: import('./lib/build-config').BuildConfig | undefined
+
 declare module '*.css' {
   const content: string
   export default content

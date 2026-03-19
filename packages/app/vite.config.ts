@@ -1,4 +1,4 @@
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import path from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -7,6 +7,44 @@ import { visualizer } from 'rollup-plugin-visualizer'
 
 const tauriPluginMcpPath = path.resolve(__dirname, '../../.tauri-plugin-mcp')
 const useTauriPluginMcpStub = !existsSync(path.join(tauriPluginMcpPath, 'package.json'))
+
+// --- Build config: read build.config.json + optional environment/local overrides ---
+function readJSON(filePath: string): Record<string, unknown> | null {
+  try {
+    if (!existsSync(filePath)) return null
+    return JSON.parse(readFileSync(filePath, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+function deepMerge(base: Record<string, unknown>, ...overrides: (Record<string, unknown> | null)[]): Record<string, unknown> {
+  const result = { ...base }
+  for (const override of overrides) {
+    if (!override) continue
+    for (const key of Object.keys(override)) {
+      const baseVal = result[key]
+      const overVal = override[key]
+      if (
+        baseVal && overVal &&
+        typeof baseVal === 'object' && !Array.isArray(baseVal) &&
+        typeof overVal === 'object' && !Array.isArray(overVal)
+      ) {
+        result[key] = deepMerge(baseVal as Record<string, unknown>, overVal as Record<string, unknown>)
+      } else if (overVal !== undefined) {
+        result[key] = overVal
+      }
+    }
+  }
+  return result
+}
+
+const buildEnv = process.env.BUILD_ENV
+const rootDir = path.resolve(__dirname, '../..')
+const baseConfig = readJSON(path.join(rootDir, 'build.config.json'))
+const envConfig = buildEnv ? readJSON(path.join(rootDir, `build.config.${buildEnv}.json`)) : null
+const localConfig = readJSON(path.join(rootDir, 'build.config.local.json'))
+const buildConfig = deepMerge(baseConfig || {}, envConfig, localConfig)
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -37,6 +75,9 @@ export default defineConfig({
     watch: {
       ignored: ['**/src-tauri/**'],
     },
+  },
+  define: {
+    __BUILD_CONFIG__: JSON.stringify(buildConfig),
   },
   // Prevent vite from obscuring rust errors
   clearScreen: false,
