@@ -442,6 +442,41 @@ pub fn run() {
             // since workspace_path is not available at setup time.
             // The frontend calls team_sync_repo on startup when team config is enabled.
 
+            // --- Early sidecar launch ---
+            // Read last workspace and start OpenCode before frontend renders.
+            // The frontend's start_opencode call will reuse this result if the path matches.
+            if std::env::var("TEAMCLAW_DISABLE_EARLY_LAUNCH").unwrap_or_default() != "1" {
+                if let Some(workspace_path) = commands::opencode::read_last_workspace() {
+                    println!("[EarlyLaunch] Starting sidecar for: {}", workspace_path);
+                    let app_handle = app.handle().clone();
+                    let (tx, rx) = tokio::sync::watch::channel(None);
+
+                    // Store the early launch state so start_opencode can find it
+                    let early_state = app_handle.state::<commands::opencode::OpenCodeState>();
+                    {
+                        let mut early = early_state.early_launch.blocking_lock();
+                        *early = Some(commands::opencode::EarlyLaunchState {
+                            workspace_path: workspace_path.clone(),
+                            result_rx: rx,
+                        });
+                    }
+
+                    tauri::async_runtime::spawn(async move {
+                        let state = app_handle.state::<commands::opencode::OpenCodeState>();
+                        let config = commands::opencode::OpenCodeConfig {
+                            workspace_path,
+                            port: None,
+                        };
+                        let result = commands::opencode::start_opencode_inner(
+                            app_handle.clone(),
+                            &state,
+                            config,
+                        ).await;
+                        let _ = tx.send(Some(result));
+                    });
+                }
+            }
+
             // --- System Tray ---
             use tauri::menu::{MenuBuilder, MenuItemBuilder};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};

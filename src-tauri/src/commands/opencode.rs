@@ -72,6 +72,48 @@ pub async fn start_opencode(
     state: State<'_, OpenCodeState>,
     config: OpenCodeConfig,
 ) -> Result<OpenCodeStatus, String> {
+    // Check if early launch is in progress for this workspace
+    {
+        let mut early_guard = state.early_launch.lock().await;
+        if let Some(early) = early_guard.as_ref() {
+            if early.workspace_path == config.workspace_path {
+                println!("[OpenCode] Reusing early launch for: {}", config.workspace_path);
+                let mut rx = early.result_rx.clone();
+                drop(early_guard);
+                // Wait for the early launch to complete
+                while rx.borrow().is_none() {
+                    if rx.changed().await.is_err() {
+                        break;
+                    }
+                }
+                let result = rx.borrow().clone();
+                let mut early_guard = state.early_launch.lock().await;
+                *early_guard = None;
+                match result {
+                    Some(Ok(status)) => return Ok(status),
+                    Some(Err(e)) => {
+                        println!("[OpenCode] Early launch failed ({}), retrying fresh", e);
+                    }
+                    None => {
+                        println!("[OpenCode] Early launch sender dropped, retrying fresh");
+                    }
+                }
+            } else {
+                println!("[OpenCode] Workspace mismatch, clearing early launch");
+                *early_guard = None;
+            }
+        }
+    }
+
+    start_opencode_inner(app, &state, config).await
+}
+
+/// Core sidecar startup logic, shared between the Tauri command and early launch.
+pub async fn start_opencode_inner(
+    app: AppHandle,
+    state: &OpenCodeState,
+    config: OpenCodeConfig,
+) -> Result<OpenCodeStatus, String> {
     // Serialize concurrent calls — only one start_opencode runs at a time.
     let _start_guard = state.start_lock.lock().await;
 
