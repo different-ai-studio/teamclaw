@@ -270,59 +270,63 @@ pub async fn start_opencode(
     let port_str = port.to_string();
     let workspace_path = config.workspace_path.clone();
 
-    // Ensure opencode.json has a permission section with TeamClaw defaults
-    if let Err(e) = ensure_default_permissions(&workspace_path) {
-        eprintln!(
-            "[OpenCode] Warning: failed to ensure default permissions: {}",
-            e
-        );
-    }
+    // ── Pre-sidecar setup (parallelized) ──────────────────────────────
+    //
+    // Three branches run concurrently via tokio::join!:
+    //   1. opencode.json writers (sequential: permissions → config → binary paths)
+    //   2. ensure_inherent_skills (writes to .opencode/skills/, independent)
+    //   3. read_keyring_secrets (reads OS keyring, independent)
+    //
+    // resolve_config_secret_refs runs AFTER all three complete (depends on
+    // both the config writers finishing and keyring secrets being available).
 
-    // Ensure autoui/playwright MCPs and compass provider are present in opencode.json
-    if let Err(e) = ensure_inherent_config(&workspace_path) {
-        eprintln!(
-            "[OpenCode] Warning: failed to ensure inherent configs: {}",
-            e
-        );
-    }
-
-    // Ensure inherent skills are present in the workspace
-    if let Err(e) = ensure_inherent_skills(&workspace_path) {
-        eprintln!(
-            "[OpenCode] Warning: failed to ensure inherent skills: {}",
-            e
-        );
-    }
-
-    // Pre-process opencode.json before OpenCode reads it:
-    // 1. Fix architecture-specific binary paths for bundled MCP servers
-    // 2. Replace ${KEY} secret references with actual values from OS keyring
-    if let Err(e) = resolve_sidecar_binary_paths(&workspace_path) {
-        eprintln!("[OpenCode] Warning: failed to resolve binary paths: {}", e);
-    }
-
-    // Read secrets from OS keyring using spawn_blocking so that:
-    //  - The blocking keyring I/O runs on a dedicated thread (not a Tokio worker)
-    //  - macOS keychain password dialogs can properly display and block
+    let ws_for_config = workspace_path.clone();
+    let ws_for_skills = workspace_path.clone();
     let ws_for_keyring = workspace_path.clone();
-    let (mut secrets, failed_keys) =
-        tokio::task::spawn_blocking(move || read_keyring_secrets(&ws_for_keyring))
-            .await
-            .unwrap_or_else(|e| {
-                eprintln!("[OpenCode] spawn_blocking for keyring failed: {}", e);
-                (Vec::new(), Vec::new())
-            });
 
-    // If some secrets failed on the first attempt, retry.  The first read may
-    // have triggered the macOS keychain unlock dialog; once the user enters their
-    // password the keychain stays unlocked and the retry should succeed.
+    let (config_result, skills_result, keyring_result) = tokio::join!(
+        // Branch 1: opencode.json writers (must be sequential with each other)
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = ensure_default_permissions(&ws_for_config) {
+                eprintln!("[OpenCode] Warning: failed to ensure default permissions: {}", e);
+            }
+            if let Err(e) = ensure_inherent_config(&ws_for_config) {
+                eprintln!("[OpenCode] Warning: failed to ensure inherent configs: {}", e);
+            }
+            if let Err(e) = resolve_sidecar_binary_paths(&ws_for_config) {
+                eprintln!("[OpenCode] Warning: failed to resolve binary paths: {}", e);
+            }
+        }),
+        // Branch 2: inherent skills (writes to .opencode/skills/, no opencode.json conflict)
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = ensure_inherent_skills(&ws_for_skills) {
+                eprintln!("[OpenCode] Warning: failed to ensure inherent skills: {}", e);
+            }
+        }),
+        // Branch 3: keyring secrets
+        tokio::task::spawn_blocking(move || read_keyring_secrets(&ws_for_keyring))
+    );
+
+    // Unwrap spawn results (panics inside spawn_blocking become JoinErrors)
+    if let Err(e) = config_result {
+        eprintln!("[OpenCode] Config setup task panicked: {}", e);
+    }
+    if let Err(e) = skills_result {
+        eprintln!("[OpenCode] Skills setup task panicked: {}", e);
+    }
+
+    let (mut secrets, failed_keys) = keyring_result.unwrap_or_else(|e| {
+        eprintln!("[OpenCode] spawn_blocking for keyring failed: {}", e);
+        (Vec::new(), Vec::new())
+    });
+
+    // Keyring retry logic (unchanged from original)
     if !failed_keys.is_empty() {
         println!(
             "[OpenCode] {} secret(s) failed to read ({:?}), retrying after keychain unlock...",
             failed_keys.len(),
             failed_keys
         );
-        // Give the user a moment to finish the keychain dialog
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
         let ws_retry = workspace_path.clone();
@@ -342,7 +346,6 @@ pub async fn start_opencode(
             );
         }
 
-        // Use the retry result (it re-reads all secrets, not just the failed ones)
         secrets = retry_secrets;
     }
 
