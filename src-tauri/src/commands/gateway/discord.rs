@@ -536,6 +536,17 @@ impl EventHandler for DiscordHandler {
             }
         }
 
+        // Check for /answer command — routes reply to the most recent pending question
+        if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&msg.content) {
+            if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
+                println!("[Discord] Question {} answered via /answer: {}", qid, answer_text);
+                let _ = msg.reply(&ctx.http, &format!("✓ Answered: {}", answer_text)).await;
+            } else {
+                let _ = msg.reply(&ctx.http, "No pending questions to answer.").await;
+            }
+            return;
+        }
+
         let filter_result = self.should_process_message(&msg, &ctx).await;
         println!("[Discord] Filter result: {:?}, guild_id: {:?}, channel_id: {}", 
             filter_result, msg.guild_id, msg.channel_id);

@@ -17,7 +17,7 @@ pub use config::*;
 pub use pending_question::{
     PendingQuestionStore, QuestionContext,
     ForwardedQuestion,
-    format_question_message, extract_question_marker,
+    format_question_message, parse_question_event, extract_question_marker,
     handle_question_event,
 };
 pub use discord::DiscordGateway;
