@@ -150,6 +150,7 @@ pub fn run() {
             commands::stt::stt_stop_listening,
             commands::stt::stt_list_downloadable_models,
             commands::stt::stt_download_model,
+            commands::stt::stt_delete_model,
             commands::knowledge::convert_to_markdown,
             commands::knowledge::batch_convert_to_markdown,
             commands::knowledge::rag_index,

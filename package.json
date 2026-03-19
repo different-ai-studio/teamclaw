@@ -24,7 +24,8 @@
     "test:e2e:e2e": "vitest run --config vitest.config.e2e.ts tests/e2e",
     "test:e2e:functional": "vitest run --config vitest.config.e2e.ts tests/functional",
     "update-opencode": "node scripts/update-opencode.js",
-    "verify-release": "./scripts/verify-release-build.sh"
+    "verify-release": "./scripts/verify-release-build.sh",
+    "ship": "./scripts/ship-pr.sh"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0",
