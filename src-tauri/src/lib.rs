@@ -9,6 +9,50 @@ mod stt;
 mod rag;
 mod telemetry;
 
+/// Get the mtime of the user's shell profile file as a u64 (seconds since epoch).
+/// Returns 0 if the file doesn't exist or can't be read.
+fn get_shell_profile_mtime(shell: &str, home: &str) -> u64 {
+    let profile = if shell.ends_with("zsh") {
+        format!("{}/.zshrc", home)
+    } else if shell.ends_with("bash") {
+        format!("{}/.bashrc", home)
+    } else {
+        return 0;
+    };
+    std::fs::metadata(&profile)
+        .and_then(|m| m.modified())
+        .and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        })
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Read cached PATH if cache exists and profile mtime matches.
+fn read_path_cache(cache_path: &std::path::Path, current_mtime: u64) -> Option<String> {
+    let content = std::fs::read_to_string(cache_path).ok()?;
+    let mut lines = content.lines();
+    let cached_mtime: u64 = lines.next()?.parse().ok()?;
+    if cached_mtime != current_mtime || current_mtime == 0 {
+        return None;
+    }
+    let path = lines.next()?;
+    if path.is_empty() {
+        return None;
+    }
+    Some(path.to_string())
+}
+
+/// Write PATH cache file. Creates ~/.teamclaw/ if needed.
+fn write_path_cache(cache_path: &std::path::Path, mtime: u64, path: &str) {
+    if let Some(parent) = cache_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let content = format!("{}\n{}", mtime, path);
+    let _ = std::fs::write(cache_path, content);
+}
+
 /// Fix PATH environment variable for GUI apps on macOS/Linux.
 ///
 /// When launched from Dock/Spotlight (not a terminal), GUI apps inherit a minimal
@@ -33,6 +77,18 @@ fn fix_path_env() {
         return;
     }
 
+    // Try cache first
+    let home = std::env::var("HOME").unwrap_or_default();
+    let cache_path = std::path::PathBuf::from(&home).join(".teamclaw").join("cached-path.txt");
+    let profile_mtime = get_shell_profile_mtime(&shell, &home);
+
+    if let Some(cached) = read_path_cache(&cache_path, profile_mtime) {
+        std::env::set_var("PATH", &cached);
+        #[cfg(debug_assertions)]
+        eprintln!("[fix_path_env] PATH set from cache");
+        return;
+    }
+
     // Spawn a login shell to get the full PATH
     let output = std::process::Command::new(&shell)
         .args(["-l", "-c", "echo $PATH"])
@@ -45,6 +101,8 @@ fn fix_path_env() {
                 std::env::set_var("PATH", &full_path);
                 #[cfg(debug_assertions)]
                 eprintln!("[fix_path_env] PATH set to: {}", &full_path);
+                // Write cache (fire-and-forget)
+                write_path_cache(&cache_path, profile_mtime, &full_path);
             }
         }
         _ => {
@@ -125,7 +183,10 @@ pub fn run() {
         .plugin({
             #[cfg(debug_assertions)]
             {
-                tauri_plugin_mcp::init()
+                tauri_plugin_mcp::init_with_config(
+                    tauri_plugin_mcp::PluginConfig::new(String::from("teamclaw"))
+                        .socket_path(std::path::PathBuf::from("/tmp/tauri-mcp.sock"))
+                )
             }
             #[cfg(not(debug_assertions))]
             {
