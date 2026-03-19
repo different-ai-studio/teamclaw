@@ -200,6 +200,14 @@ pub const DEFAULT_TEAMCLAW_YAML: &str = r#"llm:
   modelName: "default"
 "#;
 
+/// Build teamclaw.yaml content using provided LLM config, falling back to defaults.
+pub fn build_teamclaw_yaml(base_url: Option<String>, model: Option<String>, model_name: Option<String>) -> String {
+    let base_url = base_url.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+    let model = model.filter(|s| !s.is_empty()).unwrap_or_else(|| "default".to_string());
+    let model_name = model_name.filter(|s| !s.is_empty()).unwrap_or_else(|| "default".to_string());
+    format!("llm:\n  baseUrl: \"{}\"\n  model: \"{}\"\n  modelName: \"{}\"\n", base_url, model, model_name)
+}
+
 /// The whitelist .gitignore content
 const GITIGNORE_CONTENT: &str = r#"# ============================================
 # TeamClaw Workspace — Whitelist mode
@@ -425,6 +433,9 @@ pub async fn team_check_workspace_has_git(
 pub async fn team_init_repo(
     git_url: String,
     git_token: Option<String>,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<TeamGitResult, String> {
     let workspace_path = get_workspace_path(&opencode_state)?;
@@ -458,7 +469,8 @@ pub async fn team_init_repo(
     // Write default teamclaw.yaml if the cloned repo doesn't have one
     let teamclaw_yaml_path = Path::new(&team_dir).join("teamclaw.yaml");
     if !teamclaw_yaml_path.exists() {
-        std::fs::write(&teamclaw_yaml_path, DEFAULT_TEAMCLAW_YAML)
+        let yaml_content = build_teamclaw_yaml(llm_base_url, llm_model, llm_model_name);
+        std::fs::write(&teamclaw_yaml_path, &yaml_content)
             .map_err(|e| format!("Failed to write default teamclaw.yaml: {}", e))?;
         println!("[Team Init] Created default teamclaw.yaml with team LLM config");
 

@@ -21,6 +21,7 @@ import {
   BookOpen,
 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -183,6 +184,9 @@ export function TeamGitConfig() {
       await tauriInvoke<TeamGitResult>('team_init_repo', {
         gitUrl: gitUrl.trim(),
         gitToken: isHttpsUrl && gitToken.trim() ? gitToken.trim() : null,
+        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
+        llmModel: buildConfig.team.llm.model || null,
+        llmModelName: buildConfig.team.llm.modelName || null,
       })
 
       setConnectStep(t('settings.team.generatingGitignore', 'Generating .gitignore...'))

@@ -19,6 +19,7 @@ import {
   Share2,
 } from 'lucide-react'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
@@ -272,7 +273,11 @@ export function TeamP2PConfig() {
     setCreateLoading(true)
     setP2pError(null)
     try {
-      await tauriInvoke<string>('p2p_create_team')
+      await tauriInvoke<string>('p2p_create_team', {
+        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
+        llmModel: buildConfig.team.llm.model || null,
+        llmModelName: buildConfig.team.llm.modelName || null,
+      })
       await loadSyncStatus()
       if (workspacePath) {
         const store = useTeamModeStore.getState()

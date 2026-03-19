@@ -182,8 +182,9 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 /// Scaffold the teamclaw-team directory with default structure if it doesn't exist or is empty.
-fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
+fn scaffold_team_dir(team_dir: &str, llm_base_url: Option<String>, llm_model: Option<String>, llm_model_name: Option<String>) -> Result<(), String> {
     let team_path = Path::new(team_dir);
+    let yaml_content = crate::commands::team::build_teamclaw_yaml(llm_base_url, llm_model, llm_model_name);
 
     // Always ensure teamclaw.yaml exists, even if directory already has content
     let teamclaw_yaml_path = team_path.join("teamclaw.yaml");
@@ -192,7 +193,7 @@ fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
     if !need_scaffold {
         // Directory exists with files, but still ensure teamclaw.yaml is present
         if !teamclaw_yaml_path.exists() {
-            std::fs::write(&teamclaw_yaml_path, crate::commands::team::DEFAULT_TEAMCLAW_YAML)
+            std::fs::write(&teamclaw_yaml_path, &yaml_content)
                 .map_err(|e| format!("Failed to write default teamclaw.yaml: {}", e))?;
             println!("[Team P2P] Created default teamclaw.yaml with team LLM config");
         }
@@ -214,7 +215,7 @@ fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
 
     // Write default teamclaw.yaml with team LLM config if not present
     if !teamclaw_yaml_path.exists() {
-        std::fs::write(&teamclaw_yaml_path, crate::commands::team::DEFAULT_TEAMCLAW_YAML)
+        std::fs::write(&teamclaw_yaml_path, &yaml_content)
             .map_err(|e| format!("Failed to write default teamclaw.yaml: {}", e))?;
         println!("[Team P2P] Created default teamclaw.yaml with team LLM config");
     }
@@ -229,8 +230,11 @@ pub async fn create_team(
     node: &mut IrohNode,
     team_dir: &str,
     workspace_path: &str,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
 ) -> Result<String, String> {
-    scaffold_team_dir(team_dir)?;
+    scaffold_team_dir(team_dir, llm_base_url, llm_model, llm_model_name)?;
 
     let node_id = get_node_id(node);
     let info = get_device_metadata();
@@ -419,7 +423,7 @@ pub async fn publish_team_drive(node: &IrohNode, team_dir: &str) -> Result<Strin
         .ok_or("No active team document. Create or join a team first.")?;
 
     let team_path = Path::new(team_dir);
-    scaffold_team_dir(team_dir)?;
+    scaffold_team_dir(team_dir, None, None, None)?;
 
     let files = collect_files(team_path, team_path);
     for (key, content) in &files {
@@ -444,7 +448,7 @@ pub async fn rotate_namespace(
     }
 
     // Re-create as owner
-    create_team(node, team_dir, workspace_path).await
+    create_team(node, team_dir, workspace_path, None, None, None).await
 }
 
 // ─── Background Sync Tasks ──────────────────────────────────────────────
@@ -1061,6 +1065,9 @@ pub async fn p2p_check_team_dir(
 
 #[tauri::command]
 pub async fn p2p_create_team(
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
@@ -1075,7 +1082,7 @@ pub async fn p2p_create_team(
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
     let team_dir = format!("{}/teamclaw-team", workspace_path);
-    create_team(node, &team_dir, &workspace_path).await
+    create_team(node, &team_dir, &workspace_path, llm_base_url, llm_model, llm_model_name).await
 }
 
 #[tauri::command]
@@ -1097,7 +1104,7 @@ pub async fn p2p_publish_drive(
 
     // If no active doc, create a team (first-time publish)
     if node.active_doc.is_none() {
-        return create_team(node, &team_dir, &workspace_path).await;
+        return create_team(node, &team_dir, &workspace_path, None, None, None).await;
     }
 
     // Otherwise, sync current files into existing doc and return saved ticket
@@ -1443,6 +1450,7 @@ mod tests {
             &mut node,
             team_dir.to_str().unwrap(),
             tmp.path().to_str().unwrap(),
+            None, None, None,
         ).await.unwrap();
 
         assert!(!ticket.is_empty(), "ticket should not be empty");
@@ -1748,6 +1756,7 @@ mod tests {
             &mut node,
             team_dir.to_str().unwrap(),
             workspace,
+            None, None, None,
         ).await.unwrap();
 
         assert!(!ticket.is_empty(), "should return a ticket");
