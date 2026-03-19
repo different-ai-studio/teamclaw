@@ -388,6 +388,7 @@ pub struct FeishuGateway {
     /// Permission auto-approver
     permission_approver: super::PermissionAutoApprover,
     session_queue: Arc<SessionQueue>,
+    pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl FeishuGateway {
@@ -401,6 +402,7 @@ impl FeishuGateway {
             is_running: Arc::new(RwLock::new(false)),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
             session_queue: Arc::new(SessionQueue::new()),
+            pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
 
@@ -445,10 +447,12 @@ impl FeishuGateway {
         let session_mapping = self.session_mapping.clone();
         let opencode_port = self.opencode_port;
         let session_queue = Arc::clone(&self.session_queue);
+        let pending_questions = Arc::clone(&self.pending_questions);
 
         tokio::spawn(async move {
             let result = run_feishu_gateway(
                 config_arc, status_arc.clone(), session_mapping, opencode_port, shutdown_rx, session_queue,
+                pending_questions,
             ).await;
 
             if let Err(e) = result {
@@ -522,6 +526,7 @@ impl Clone for FeishuGateway {
             is_running: Arc::clone(&self.is_running),
             permission_approver: self.permission_approver.clone(),
             session_queue: Arc::clone(&self.session_queue),
+            pending_questions: Arc::clone(&self.pending_questions),
         }
     }
 }
@@ -578,6 +583,7 @@ async fn run_feishu_gateway(
     opencode_port: u16,
     mut shutdown_rx: oneshot::Receiver<()>,
     session_queue: Arc<SessionQueue>,
+    pending_questions: Arc<super::PendingQuestionStore>,
 ) -> Result<(), String> {
     let cfg = config.read().await.clone();
     let token_manager = TokenManager::new(&cfg.app_id, &cfg.app_secret);
@@ -648,7 +654,7 @@ async fn run_feishu_gateway(
         let ws_result = handle_ws_connection(
             ws_stream, &config, &session_mapping, opencode_port,
             &token_manager, &processed_messages, &mut shutdown_rx, service_id,
-            &session_queue,
+            &session_queue, &pending_questions,
         ).await;
 
         match ws_result {
@@ -696,6 +702,7 @@ async fn handle_ws_connection(
     shutdown_rx: &mut oneshot::Receiver<()>,
     service_id: i32,
     session_queue: &Arc<SessionQueue>,
+    pending_questions: &Arc<super::PendingQuestionStore>,
 ) -> Result<WsExitReason, String> {
     use futures::stream::StreamExt;
     use futures::sink::SinkExt;
@@ -770,7 +777,7 @@ async fn handle_ws_connection(
                                 handle_binary_frame(
                                     frame, config, session_mapping, opencode_port,
                                     token_manager, processed_messages, &send_tx,
-                                    session_queue,
+                                    session_queue, pending_questions,
                                 ).await;
                             }
                             Err(e) => {
@@ -822,6 +829,7 @@ async fn handle_binary_frame(
     processed_messages: &Arc<RwLock<ProcessedMessageTracker>>,
     send_tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
     session_queue: &Arc<SessionQueue>,
+    pending_questions: &Arc<super::PendingQuestionStore>,
 ) {
     let method = frame.method; // 0=control, 1=data
     let msg_type = frame.get_header("type").unwrap_or("").to_string();
@@ -887,12 +895,14 @@ async fn handle_binary_frame(
                                 let token_manager_app_id = token_manager.app_id.clone();
                                 let token_manager_app_secret = token_manager.app_secret.clone();
                                 let session_queue_clone = Arc::clone(session_queue);
+                                let pending_questions_clone = Arc::clone(pending_questions);
                                 tokio::spawn(async move {
                                     println!("[Feishu] Spawned message handler task");
                                     let tm = TokenManager::new(&token_manager_app_id, &token_manager_app_secret);
                                     handle_message_event(
                                         &event_data, &config_clone, &session_mapping_clone,
                                         opencode_port, &tm, &session_queue_clone,
+                                        &pending_questions_clone,
                                     ).await;
                                     println!("[Feishu] Message handler task completed");
                                 });
@@ -928,6 +938,7 @@ async fn handle_message_event(
     opencode_port: u16,
     token_manager: &TokenManager,
     session_queue: &Arc<SessionQueue>,
+    pending_questions: &Arc<super::PendingQuestionStore>,
 ) {
     let sender = &event["sender"];
     let sender_id = sender["sender_id"]["open_id"].as_str().unwrap_or("").to_string();
@@ -965,6 +976,18 @@ async fn handle_message_event(
 
     if clean_text.is_empty() && msg_type != "image" {
         return;
+    }
+
+    // Check if this is a reply to a pending question (Feishu parent_id)
+    let parent_id = message["parent_id"].as_str();
+    if let Some(pid) = parent_id {
+        if !pid.is_empty() {
+            if let Some(entry) = pending_questions.take(pid).await {
+                let _ = entry.answer_tx.send(clean_text.clone());
+                println!("[Feishu] Question {} answered via reply to {}", entry.question_id, pid);
+                return;
+            }
+        }
     }
 
     // Check config filter
@@ -1103,6 +1126,8 @@ async fn handle_message_event(
     let tm_app_id2 = token_manager.app_id.clone();
     let tm_app_secret2 = token_manager.app_secret.clone();
 
+    let pending_questions_for_closure = Arc::clone(pending_questions);
+
     let result = session_queue.enqueue(&session_key, QueuedMessage {
         enqueued_at: std::time::Instant::now(),
         process_fn: Box::new(move || Box::pin(async move {
@@ -1132,8 +1157,29 @@ async fn handle_message_event(
                 None
             };
 
+            // Build question context for forwarding AI questions to Feishu
+            let pending_questions_clone = Arc::clone(&pending_questions_for_closure);
+            let tm_app_id_for_q = tm.app_id.clone();
+            let tm_app_secret_for_q = tm.app_secret.clone();
+            let message_id_for_q = message_id_owned.clone();
+            let question_ctx = super::QuestionContext {
+                forwarder: Box::new(move |fq: super::ForwardedQuestion| {
+                    let app_id = tm_app_id_for_q.clone();
+                    let app_secret = tm_app_secret_for_q.clone();
+                    let mid = message_id_for_q.clone();
+                    Box::pin(async move {
+                        let tm = TokenManager::new(&app_id, &app_secret);
+                        let token = tm.get_tenant_token().await
+                            .map_err(|e| format!("Failed to get token: {}", e))?;
+                        let text = super::format_question_message(&fq.questions, &fq.question_id);
+                        reply_feishu_message(&token, &mid, &text).await
+                    })
+                }),
+                store: pending_questions_clone,
+            };
+
             // Send to OpenCode
-            let result = send_to_opencode(opencode_port, &session_id, &content_owned, images_owned, model_param_owned).await;
+            let result = send_to_opencode(opencode_port, &session_id, &content_owned, images_owned, model_param_owned, Some(question_ctx)).await;
 
             // Reply (edit Thinking card or send new message)
             if let Ok(token) = tm.get_tenant_token().await {
@@ -1293,6 +1339,7 @@ async fn send_to_opencode(
     content: &str,
     images: Vec<(String, String)>,
     model: Option<(String, String)>,
+    question_ctx: Option<super::QuestionContext>,
 ) -> Result<String, String> {
     println!("[Feishu] Sending to OpenCode: content: {}, images: {}", content, images.len());
 
@@ -1315,6 +1362,7 @@ async fn send_to_opencode(
         session_id,
         parts,
         model,
+        question_ctx,
     ).await
 }
 

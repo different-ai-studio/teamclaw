@@ -11,8 +11,15 @@ pub mod wecom;
 pub mod wecom_config;
 pub mod session;
 pub mod session_queue;
+pub mod pending_question;
 
 pub use config::*;
+pub use pending_question::{
+    PendingQuestionStore, QuestionContext,
+    ForwardedQuestion,
+    format_question_message, extract_question_marker,
+    handle_question_event,
+};
 pub use discord::DiscordGateway;
 pub use email::EmailGateway;
 pub use feishu::FeishuGateway;
@@ -224,6 +231,7 @@ pub async fn send_message_async_with_approval(
     session_id: &str,
     parts: Vec<serde_json::Value>,
     model: Option<(String, String)>,
+    question_ctx: Option<QuestionContext>,
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
 
@@ -261,7 +269,7 @@ pub async fn send_message_async_with_approval(
         .map_err(|e| format!("Failed to send async message: {}", e))?;
 
     // Step 3: Process SSE events (connection already established)
-    poll_for_message_with_approval_from_stream(sse_response, port, session_id, send_timestamp_ms).await
+    poll_for_message_with_approval_from_stream(sse_response, port, session_id, send_timestamp_ms, question_ctx).await
 }
 
 /// Unified SSE handler using a pre-established SSE connection.
@@ -271,6 +279,7 @@ async fn poll_for_message_with_approval_from_stream(
     port: u16,
     session_id: &str,
     send_timestamp_ms: u64,
+    question_ctx: Option<QuestionContext>,
 ) -> Result<String, String> {
     let mut stream = sse_response.bytes_stream();
     let mut buffer = String::new();
@@ -282,7 +291,7 @@ async fn poll_for_message_with_approval_from_stream(
     tracked_sessions.insert(session_id.to_string());
     let mut approved_permission_ids = HashSet::new();
     
-    println!("[Gateway-{}] Waiting for AI response (monitoring SSE)", &session_id[..8]);
+    println!("[Gateway-{}] Waiting for AI response (monitoring SSE)", &session_id[..session_id.len().min(8)]);
     
     while let Some(chunk) = stream.next().await {
         // Check timeout
@@ -331,7 +340,7 @@ async fn poll_for_message_with_approval_from_stream(
                         if parent_id == Some(session_id) && new_session_id.is_some() {
                             let child_id = new_session_id.unwrap().to_string();
                             if tracked_sessions.insert(child_id.clone()) {
-                                println!("[Gateway-{}] Detected child session: {}", &session_id[..8], child_id);
+                                println!("[Gateway-{}] Detected child session: {}", &session_id[..session_id.len().min(8)], child_id);
                             }
                         }
                         // Ignore all other session.created events
@@ -352,13 +361,13 @@ async fn poll_for_message_with_approval_from_stream(
                             .unwrap_or("unknown");
                         
                         println!("[Gateway-{}] Permission event: id={:?}, sess={:?}, perm={}, tracked={:?}",
-                            &session_id[..8], perm_id, perm_session_id, permission, &tracked_sessions);
+                            &session_id[..session_id.len().min(8)], perm_id, perm_session_id, permission, &tracked_sessions);
                         
                         if let (Some(sess_id), Some(perm_id_str)) = (perm_session_id, perm_id) {
                             if tracked_sessions.contains(sess_id) {
                                 if !approved_permission_ids.contains(perm_id_str) {
                                     println!("[Gateway-{}] ✅ Auto-approving permission {} for '{}'",
-                                        &session_id[..8], perm_id_str, permission);
+                                        &session_id[..session_id.len().min(8)], perm_id_str, permission);
                                     
                                     // Auto-approve (fire and forget, don't block message waiting)
                                     let port_clone = port;
@@ -382,16 +391,24 @@ async fn poll_for_message_with_approval_from_stream(
                                     
                                     approved_permission_ids.insert(perm_id_str.to_string());
                                 } else {
-                                    println!("[Gateway-{}] Permission {} already approved", &session_id[..8], perm_id_str);
+                                    println!("[Gateway-{}] Permission {} already approved", &session_id[..session_id.len().min(8)], perm_id_str);
                                 }
                             } else {
-                                println!("[Gateway-{}] ⚠️ Permission for untracked session: {}", &session_id[..8], sess_id);
+                                println!("[Gateway-{}] ⚠️ Permission for untracked session: {}", &session_id[..session_id.len().min(8)], sess_id);
                             }
                         }
                         // Ignore all other permission events
                         continue;
                     }
-                    
+
+                    "question.asked" => {
+                        if let Some(ref ctx) = question_ctx {
+                            let prefix = &session_id[..session_id.len().min(8)];
+                            handle_question_event(ctx, &event, port, prefix, &tracked_sessions).await;
+                        }
+                        continue;
+                    }
+
                     "message.updated" => {
                         // CRITICAL: Only process message events for our target session
                         // Ignore all other sessions to avoid interference
@@ -424,7 +441,7 @@ async fn poll_for_message_with_approval_from_stream(
                                     // Only return if this is a final message (not just tool-calls)
                                     // If finish="tool-calls", OpenCode will continue with another assistant message
                                     if finish_reason != Some("tool-calls") {
-                                        println!("[Gateway-{}] Message completed, fetching content", &session_id[..8]);
+                                        println!("[Gateway-{}] Message completed, fetching content", &session_id[..session_id.len().min(8)]);
                                         
                                         // Fetch the complete message content
                                         return fetch_message_content(port, session_id, msg_id).await;

@@ -31,6 +31,7 @@ pub struct WeComGateway {
     #[allow(dead_code)]
     permission_approver: super::PermissionAutoApprover,
     session_queue: Arc<SessionQueue>,
+    pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -91,6 +92,7 @@ impl WeComGateway {
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
             session_queue: Arc::new(SessionQueue::new()),
+            pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
 
@@ -455,6 +457,17 @@ impl WeComGateway {
                 .and_then(|t| t.get("content"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+
+            // Check for question marker in quoted text
+            if let Some(qid) = super::extract_question_marker(quoted_text) {
+                if let Some(entry) = self.pending_questions.take_by_question_id(qid).await {
+                    let _ = entry.answer_tx.send(text_content.clone());
+                    println!("[WeCom] Question {} answered via quote reply", entry.question_id);
+                    return;
+                }
+            }
+
+            // Original behavior: prepend quoted text for context
             if !quoted_text.is_empty() {
                 text_content = format!("[Quoted message]\n{}\n[End quoted message]\n\n{}", quoted_text, text_content);
             }
@@ -494,6 +507,32 @@ impl WeComGateway {
         let req_id2 = req_id.clone();
         let ws_sink2 = Arc::clone(&ws_sink);
 
+        // Build question context for forwarding AI questions back to WeCom
+        let pending_questions_clone = Arc::clone(&self.pending_questions);
+        let ws_sink_for_q = Arc::clone(&ws_sink);
+        let req_id_for_q = req_id.clone();
+        let question_ctx = super::QuestionContext {
+            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
+                let qid = fq.question_id.clone();
+                let ws_sink_q = Arc::clone(&ws_sink_for_q);
+                let req_id_q = req_id_for_q.clone();
+                Box::pin(async move {
+                    let text = super::format_question_message(&fq.questions, &fq.question_id);
+                    let stream_id = uuid::Uuid::new_v4().to_string();
+                    WeComGateway::send_stream_chunk_static(
+                        &req_id_q, &stream_id, &text, true, &ws_sink_q,
+                    ).await.map_err(|e| format!("Failed to send question: {}", e))?;
+                    println!("[WeCom] Question forwarded: {}", qid);
+                    // WeCom's quote payload lacks a message ID, so we use question_id as the
+                    // channel_msg_id key. Reply interception uses take_by_question_id() which
+                    // matches on entry.question_id, and the timeout cleanup calls store.take(&cmid)
+                    // which also works because cmid == question_id == entry.question_id.
+                    Ok(qid)
+                })
+            }),
+            store: pending_questions_clone,
+        };
+
         let result = self.session_queue.enqueue(&session_key, QueuedMessage {
             enqueued_at: std::time::Instant::now(),
             process_fn: Box::new(move || Box::pin(async move {
@@ -502,6 +541,7 @@ impl WeComGateway {
                     &session_key_owned, &text_content_owned,
                     image_url_owned.as_deref(), &msg_owned,
                     &req_id_owned, &ws_sink_owned,
+                    Some(&question_ctx),
                 ).await {
                     eprintln!("[WeCom] Process error: {}", e);
                     let _ = gateway.send_reply(&req_id_for_error, &format!("Error: {}", e), &ws_sink_owned).await;
@@ -639,6 +679,7 @@ impl WeComGateway {
         _original: &WeComMsgCallback,
         req_id: &str,
         ws_sink: &WsSink,
+        question_ctx: Option<&super::QuestionContext>,
     ) -> Result<(), String> {
         // Get or create session
         let model = self.session_mapping.get_model(session_key).await;
@@ -698,7 +739,7 @@ impl WeComGateway {
 
         // Stream OpenCode response to WeCom (retry with new session if prompt_async fails)
         match self.stream_opencode_to_wecom(
-            &session_id, parts.clone(), model_tuple.clone(), req_id, ws_sink,
+            &session_id, parts.clone(), model_tuple.clone(), req_id, ws_sink, question_ctx,
         ).await {
             Ok(()) => Ok(()),
             Err(e) if e.contains("prompt_async failed") => {
@@ -709,7 +750,7 @@ impl WeComGateway {
                     .set_session(session_key.to_string(), new_id.clone())
                     .await;
                 self.stream_opencode_to_wecom(
-                    &new_id, parts, model_tuple, req_id, ws_sink,
+                    &new_id, parts, model_tuple, req_id, ws_sink, question_ctx,
                 ).await
             }
             Err(e) => Err(e),
@@ -724,6 +765,7 @@ impl WeComGateway {
         model: Option<(String, String)>,
         req_id: &str,
         ws_sink: &WsSink,
+        question_ctx: Option<&super::QuestionContext>,
     ) -> Result<(), String> {
         use futures_util::StreamExt as _;
 
@@ -831,7 +873,7 @@ impl WeComGateway {
         // so we can detect abort (idle after activity) vs spurious idle events
         let mut has_seen_activity = false;
 
-        println!("[Gateway-{}] Streaming AI response to WeCom", &session_id[..8]);
+        println!("[Gateway-{}] Streaming AI response to WeCom", &session_id[..session_id.len().min(8)]);
 
         while let Some(chunk) = stream.next().await {
             if start_time.elapsed() > std::time::Duration::from_secs(900) {
@@ -900,6 +942,14 @@ impl WeComGateway {
                                     approved_permission_ids.insert(perm_id_str.to_string());
                                 }
                             }
+                        }
+
+                        "question.asked" => {
+                            if let Some(ctx) = question_ctx {
+                                let prefix = &session_id[..session_id.len().min(8)];
+                                super::handle_question_event(ctx, &event, port, prefix, &tracked_sessions).await;
+                            }
+                            continue;
                         }
 
                         "message.part.delta" => {
@@ -976,7 +1026,7 @@ impl WeComGateway {
                                     && completed_time.is_some()
                                     && finish_reason != Some("tool-calls")
                                 {
-                                    println!("[Gateway-{}] Message completed, sending final stream chunk", &session_id[..8]);
+                                    println!("[Gateway-{}] Message completed, sending final stream chunk", &session_id[..session_id.len().min(8)]);
 
                                     // Stop thinking animation if still active
                                     if thinking_active {
