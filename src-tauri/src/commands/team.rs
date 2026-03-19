@@ -118,7 +118,11 @@ pub fn get_workspace_path(opencode_state: &OpenCodeState) -> Result<String, Stri
 
 /// Read team config from teamclaw.json
 fn read_team_config_from_file(workspace_path: &str) -> Result<Option<TeamConfig>, String> {
-    let config_path = format!("{}/{}/teamclaw.json", workspace_path, crate::commands::TEAMCLAW_DIR);
+    let config_path = format!(
+        "{}/{}/teamclaw.json",
+        workspace_path,
+        crate::commands::TEAMCLAW_DIR
+    );
 
     if !Path::new(&config_path).exists() {
         return Ok(None);
@@ -191,7 +195,7 @@ fn get_team_repo_path(workspace_path: &str) -> String {
 
 /// Default teamclaw.yaml content for new team repos
 pub const DEFAULT_TEAMCLAW_YAML: &str = r#"llm:
-  baseUrl: "https://ai.ucar.cc/v1"
+  baseUrl: "https://api.openai.com/v1"
   model: "default"
   modelName: "default"
 "#;
@@ -291,11 +295,7 @@ fn sync_team_mcp_configs_from_dir(
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
-                println!(
-                    "[Team MCP Sync] Failed to read {}: {}",
-                    path.display(),
-                    e
-                );
+                println!("[Team MCP Sync] Failed to read {}: {}", path.display(), e);
                 continue;
             }
         };
@@ -303,11 +303,7 @@ fn sync_team_mcp_configs_from_dir(
         let team_file: TeamMCPFile = match serde_json::from_str(&content) {
             Ok(f) => f,
             Err(e) => {
-                println!(
-                    "[Team MCP Sync] Failed to parse {}: {}",
-                    path.display(),
-                    e
-                );
+                println!("[Team MCP Sync] Failed to parse {}: {}", path.display(), e);
                 continue;
             }
         };
@@ -356,7 +352,10 @@ fn convert_team_server_to_opencode(server: &TeamMCPServer) -> MCPServerConfig {
             command: None,
             environment: None,
             url: server.url.clone(),
-            headers: server.headers.as_ref().map(|h| h.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+            headers: server
+                .headers
+                .as_ref()
+                .map(|h| h.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
             timeout: None,
         }
     } else {
@@ -373,7 +372,10 @@ fn convert_team_server_to_opencode(server: &TeamMCPServer) -> MCPServerConfig {
             server_type: "local".to_string(),
             enabled: Some(true),
             command: if cmd.is_empty() { None } else { Some(cmd) },
-            environment: server.env.as_ref().map(|e| e.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+            environment: server
+                .env
+                .as_ref()
+                .map(|e| e.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
             url: None,
             headers: None,
             timeout: None,
@@ -390,11 +392,7 @@ pub fn team_check_git_installed() -> Result<GitCheckResult, String> {
         Ok(output) => {
             let success = output.status.success();
             let version = if success {
-                Some(
-                    String::from_utf8_lossy(&output.stdout)
-                        .trim()
-                        .to_string(),
-                )
+                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
             } else {
                 None
             };
@@ -448,10 +446,7 @@ pub async fn team_init_repo(
     };
 
     // Clone into workspace/teamclaw-team (cwd = workspace, so clone creates teamclaw-team/)
-    let (ok, _, stderr) = run_git(
-        &["clone", &remote_url, TEAM_REPO_DIR],
-        &workspace_path,
-    )?;
+    let (ok, _, stderr) = run_git(&["clone", &remote_url, TEAM_REPO_DIR], &workspace_path)?;
     if !ok {
         let _ = std::fs::remove_dir_all(&team_dir);
         return Err(format!(
@@ -478,7 +473,10 @@ pub async fn team_init_repo(
     // Sync .mcp/ from team dir into workspace opencode.json
     match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
         Ok(count) if count > 0 => {
-            println!("[Team Init] Synced {} MCP server(s) from .mcp/ to opencode.json", count);
+            println!(
+                "[Team Init] Synced {} MCP server(s) from .mcp/ to opencode.json",
+                count
+            );
         }
         Ok(_) => {}
         Err(e) => {
@@ -490,8 +488,7 @@ pub async fn team_init_repo(
         success: true,
         message: format!(
             "Team repository cloned into {}/{}",
-            workspace_path,
-            TEAM_REPO_DIR
+            workspace_path, TEAM_REPO_DIR
         ),
     })
 }
@@ -541,10 +538,7 @@ pub async fn team_sync_repo(
         if let Some(ref token) = config.git_token {
             if !token.is_empty() && is_https_url(&config.git_url) {
                 let auth_url = embed_token_in_url(&config.git_url, token);
-                let _ = run_git(
-                    &["remote", "set-url", "origin", &auth_url],
-                    &team_dir,
-                );
+                let _ = run_git(&["remote", "set-url", "origin", &auth_url], &team_dir);
             }
         }
     }
@@ -571,7 +565,10 @@ pub async fn team_sync_repo(
 
     let mcp_msg = match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
         Ok(count) if count > 0 => {
-            println!("[Team Sync] Synced {} MCP server(s) from .mcp/ to opencode.json", count);
+            println!(
+                "[Team Sync] Synced {} MCP server(s) from .mcp/ to opencode.json",
+                count
+            );
             format!(". Synced {} MCP server(s)", count)
         }
         Ok(_) => String::new(),
@@ -634,9 +631,7 @@ pub async fn save_team_config(
 
 /// 2.4 - Clear team config from teamclaw.json
 #[tauri::command]
-pub async fn clear_team_config(
-    opencode_state: State<'_, OpenCodeState>,
-) -> Result<(), String> {
+pub async fn clear_team_config(opencode_state: State<'_, OpenCodeState>) -> Result<(), String> {
     let workspace_path = get_workspace_path(&opencode_state)?;
     write_team_config_to_file(&workspace_path, None)
 }

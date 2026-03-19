@@ -877,7 +877,16 @@ pub async fn p2p_disconnect_source(
     config.namespace_id = None;
     config.doc_ticket = None;
     config.role = None;
-    write_p2p_config(&workspace_path, Some(&config))
+    write_p2p_config(&workspace_path, Some(&config))?;
+
+    // Remove teamclaw-team directory
+    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    if Path::new(&team_dir).exists() {
+        std::fs::remove_dir_all(&team_dir)
+            .map_err(|e| format!("Failed to remove team directory: {}", e))?;
+    }
+
+    Ok(())
 }
 
 // ─── Team Member Management ─────────────────────────────────────────────

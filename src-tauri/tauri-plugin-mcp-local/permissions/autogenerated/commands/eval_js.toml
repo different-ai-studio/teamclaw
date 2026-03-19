@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-eval-js"
+description = "Enables the eval_js command without any pre-configured scope."
+commands.allow = ["eval_js"]
+
+[[permission]]
+identifier = "deny-eval-js"
+description = "Denies the eval_js command without any pre-configured scope."
+commands.deny = ["eval_js"]

@@ -24,11 +24,11 @@ case "$OS-$ARCH" in
     TARGET_NAME="opencode-aarch64-apple-darwin"
     ;;
   Darwin-x86_64)
-    ASSET_PATTERN="opencode-darwin-amd64.zip"
+    ASSET_PATTERN="opencode-darwin-x64.zip"
     TARGET_NAME="opencode-x86_64-apple-darwin"
     ;;
   Linux-x86_64)
-    ASSET_PATTERN="opencode-linux-amd64.tar.gz"
+    ASSET_PATTERN="opencode-linux-x64.tar.gz"
     TARGET_NAME="opencode-x86_64-unknown-linux-gnu"
     ;;
   *)

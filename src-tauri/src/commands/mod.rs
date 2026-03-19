@@ -7,7 +7,6 @@ pub mod filewatcher;
 pub mod gateway;
 pub mod git;
 pub mod knowledge;
-pub mod llm_proxy;
 pub mod local_stats;
 pub mod mcp;
 pub mod opencode;

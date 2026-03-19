@@ -412,6 +412,7 @@ export function useLayoutModeShortcut() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+        if (!useUIStore.getState().advancedMode) return;
         e.preventDefault();
         toggleLayoutMode();
       }

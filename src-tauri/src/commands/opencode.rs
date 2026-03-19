@@ -1,4 +1,3 @@
-use crate::commands::llm_proxy::{create_proxy_handle, ProxyServerHandle};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Mutex;
@@ -11,9 +10,6 @@ use tokio::sync::mpsc;
 /// This is the single source of truth for the port number.
 const DEFAULT_PORT: u16 = 13141;
 
-/// Default port for the LLM proxy server.
-const LLM_PROXY_PORT: u16 = 13142;
-
 /// OpenCode server state
 pub struct OpenCodeState {
     pub is_running: Mutex<bool>,
@@ -21,7 +17,6 @@ pub struct OpenCodeState {
     pub child_process: Mutex<Option<CommandChild>>,
     pub is_dev_mode: Mutex<bool>,
     pub workspace_path: Mutex<Option<String>>,
-    pub proxy_server: ProxyServerHandle,
     /// Async lock that serializes `start_opencode` calls to prevent concurrent spawns.
     pub start_lock: tokio::sync::Mutex<()>,
 }
@@ -39,7 +34,6 @@ impl Default for OpenCodeState {
             child_process: Mutex::new(None),
             is_dev_mode: Mutex::new(is_dev),
             workspace_path: Mutex::new(None),
-            proxy_server: create_proxy_handle(),
             start_lock: tokio::sync::Mutex::new(()),
         }
     }
@@ -115,12 +109,6 @@ pub async fn start_opencode(
                 println!("[OpenCode] Killing previous process...");
                 let _ = child.kill();
             }
-        }
-
-        // Stop existing proxy
-        {
-            let mut proxy = state.proxy_server.lock().await;
-            proxy.stop().await;
         }
 
         // Update state to not running
@@ -464,24 +452,6 @@ pub async fn start_opencode(
         println!("[OpenCode] Server confirmed running in directory: {}", dir);
     }
 
-    // Start internal LLM proxy (always enabled)
-    {
-        let proxy_running = is_port_in_use(LLM_PROXY_PORT).await;
-        if !proxy_running {
-            let target_url = "https://compass.llm.shopee.io/compass-api/v1".to_string();
-            let mut proxy = state.proxy_server.lock().await;
-            if let Err(e) = proxy.start(LLM_PROXY_PORT, target_url).await {
-                eprintln!("[LLM Proxy] Failed to start internal proxy: {}", e);
-                // Non-fatal: continue without proxy
-            }
-        } else {
-            println!(
-                "[LLM Proxy] Proxy already running on port {}",
-                LLM_PROXY_PORT
-            );
-        }
-    }
-
     // Update state
     {
         let mut is_running = state.is_running.lock().map_err(|e| e.to_string())?;
@@ -608,10 +578,7 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
                 serde_json::json!({
                     "type": "local",
                     "enabled": true,
-                    "command": ["pnpm", "dlx", "@playwright/mcp@latest"],
-                    "environment": {
-                        "PLAYWRIGHT_MCP_EXTENSION_TOKEN": "PeDxRV6o5vN3Bqaw_sRCc-T-AdQXsoiPnEmJqJxk2eI"
-                    }
+                    "command": ["pnpm", "dlx", "@playwright/mcp@latest"]
                 }),
             );
             changed = true;
@@ -1199,12 +1166,6 @@ pub async fn stop_opencode(state: State<'_, OpenCodeState>) -> Result<(), String
 
         tokio::time::sleep(delay).await;
         delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(1));
-    }
-
-    // Stop LLM proxy
-    {
-        let mut proxy = state.proxy_server.lock().await;
-        proxy.stop().await;
     }
 
     // Update state

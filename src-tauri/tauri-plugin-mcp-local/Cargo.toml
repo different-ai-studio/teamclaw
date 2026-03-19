@@ -1,0 +1,38 @@
+[package]
+name = "tauri-plugin-mcp"
+version = "0.1.0"
+authors = [ "Pegleg" ]
+description = "A Tauri plugin that enables AI agents to interact with GUIs through screenshots, DOM access, and input simulation utilizing MCP"
+edition = "2024"
+exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]
+links = "tauri-plugin-mcp"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.13.0"
+enigo = "0.3.0"
+futures = "0.3"
+image = "0.24.7"
+interprocess = { version = "2.2.3", features = ["tokio"] }
+log = "0.4"
+serde = "1.0"
+serde_json = "1.0"
+tauri = { version = "2.5.0", features = [] }
+thiserror = "2"
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.24.1"
+core-graphics = "0.22.3"
+objc = "0.2.7"
+xcap = "0.0.4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+win-screenshot = "4.0.5"
+
+[build-dependencies]
+tauri-plugin = { version = "2.2.0", features = ["build"] }
+
+
+[profile.dev.package."*"]
+opt-level = 0  # Force dependencies to compile with minimal optimization

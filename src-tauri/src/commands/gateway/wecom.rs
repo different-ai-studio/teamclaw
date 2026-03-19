@@ -31,6 +31,7 @@ pub struct WeComGateway {
     #[allow(dead_code)]
     permission_approver: super::PermissionAutoApprover,
     session_queue: Arc<SessionQueue>,
+    pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -91,6 +92,7 @@ impl WeComGateway {
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
             session_queue: Arc::new(SessionQueue::new()),
+            pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
 
@@ -455,6 +457,17 @@ impl WeComGateway {
                 .and_then(|t| t.get("content"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+
+            // Check for question marker in quoted text
+            if let Some(qid) = super::extract_question_marker(quoted_text) {
+                if let Some(entry) = self.pending_questions.take_by_question_id(qid).await {
+                    let _ = entry.answer_tx.send(text_content.clone());
+                    println!("[WeCom] Question {} answered via quote reply", entry.question_id);
+                    return;
+                }
+            }
+
+            // Original behavior: prepend quoted text for context
             if !quoted_text.is_empty() {
                 text_content = format!("[Quoted message]\n{}\n[End quoted message]\n\n{}", quoted_text, text_content);
             }
@@ -470,6 +483,17 @@ impl WeComGateway {
         } else {
             format!("wecom:{}", msg.chatid)
         };
+
+        // Check for /answer command — routes reply to the most recent pending question
+        if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&text_content) {
+            if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
+                println!("[WeCom] Question {} answered via /answer: {}", qid, answer_text);
+                let _ = self.send_reply(&req_id, &format!("✓ 已回复: {}", answer_text), &ws_sink).await;
+            } else {
+                let _ = self.send_reply(&req_id, "当前没有待回复的问题", &ws_sink).await;
+            }
+            return;
+        }
 
         // Check for slash commands (text only)
         let trimmed = text_content.trim();
@@ -494,6 +518,23 @@ impl WeComGateway {
         let req_id2 = req_id.clone();
         let ws_sink2 = Arc::clone(&ws_sink);
 
+        // Build question context for forwarding AI questions back to WeCom
+        // NOTE: The forwarder does NOT send to WeCom here — the SSE loop handles
+        // display on the existing stream (same stream_id, finish=false) to avoid
+        // prematurely closing the WeCom response. The forwarder only returns the
+        // question_id so the store/channel setup works correctly.
+        let pending_questions_clone = Arc::clone(&self.pending_questions);
+        let question_ctx = super::QuestionContext {
+            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
+                let qid = fq.question_id.clone();
+                Box::pin(async move {
+                    println!("[WeCom] Question registered: {}", qid);
+                    Ok(qid)
+                })
+            }),
+            store: pending_questions_clone,
+        };
+
         let result = self.session_queue.enqueue(&session_key, QueuedMessage {
             enqueued_at: std::time::Instant::now(),
             process_fn: Box::new(move || Box::pin(async move {
@@ -502,6 +543,7 @@ impl WeComGateway {
                     &session_key_owned, &text_content_owned,
                     image_url_owned.as_deref(), &msg_owned,
                     &req_id_owned, &ws_sink_owned,
+                    Some(&question_ctx),
                 ).await {
                     eprintln!("[WeCom] Process error: {}", e);
                     let _ = gateway.send_reply(&req_id_for_error, &format!("Error: {}", e), &ws_sink_owned).await;
@@ -639,6 +681,7 @@ impl WeComGateway {
         _original: &WeComMsgCallback,
         req_id: &str,
         ws_sink: &WsSink,
+        question_ctx: Option<&super::QuestionContext>,
     ) -> Result<(), String> {
         // Get or create session
         let model = self.session_mapping.get_model(session_key).await;
@@ -698,7 +741,7 @@ impl WeComGateway {
 
         // Stream OpenCode response to WeCom (retry with new session if prompt_async fails)
         match self.stream_opencode_to_wecom(
-            &session_id, parts.clone(), model_tuple.clone(), req_id, ws_sink,
+            &session_id, parts.clone(), model_tuple.clone(), req_id, ws_sink, question_ctx,
         ).await {
             Ok(()) => Ok(()),
             Err(e) if e.contains("prompt_async failed") => {
@@ -709,7 +752,7 @@ impl WeComGateway {
                     .set_session(session_key.to_string(), new_id.clone())
                     .await;
                 self.stream_opencode_to_wecom(
-                    &new_id, parts, model_tuple, req_id, ws_sink,
+                    &new_id, parts, model_tuple, req_id, ws_sink, question_ctx,
                 ).await
             }
             Err(e) => Err(e),
@@ -724,16 +767,17 @@ impl WeComGateway {
         model: Option<(String, String)>,
         req_id: &str,
         ws_sink: &WsSink,
+        question_ctx: Option<&super::QuestionContext>,
     ) -> Result<(), String> {
         use futures_util::StreamExt as _;
 
         let port = self.opencode_port;
         let client = reqwest::Client::new();
-        let stream_id = uuid::Uuid::new_v4().to_string();
+        let mut stream_id = uuid::Uuid::new_v4().to_string();
 
         // Start thinking animation IMMEDIATELY (before prompt_async / SSE setup)
-        let thinking_start = tokio::time::Instant::now();
-        let (thinking_stop_tx, mut thinking_stop_rx) = mpsc::channel::<()>(1);
+        // State: 0 = running, 1 = paused, 2 = stopped
+        let (thinking_ctl_tx, thinking_ctl_rx) = tokio::sync::watch::channel(0u8);
         let mut thinking_active = true;
 
         // Send first frame synchronously so it appears instantly
@@ -746,14 +790,31 @@ impl WeComGateway {
             let ws_sink_clone = Arc::clone(ws_sink);
             let req_id = req_id.to_string();
             let stream_id = stream_id.clone();
-            let start = thinking_start;
+            let mut ctl_rx = thinking_ctl_rx;
             tokio::spawn(async move {
+                let start = tokio::time::Instant::now();
                 let mut tick = 1usize;
                 loop {
                     tokio::select! {
                         _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
-                        _ = thinking_stop_rx.recv() => { break; }
+                        _ = ctl_rx.changed() => {
+                            let state = *ctl_rx.borrow();
+                            if state == 2 { break; } // stopped
+                            if state == 1 {
+                                // paused — wait until resumed or stopped
+                                loop {
+                                    if ctl_rx.changed().await.is_err() { return; }
+                                    let s = *ctl_rx.borrow();
+                                    if s == 0 { break; }   // resumed
+                                    if s == 2 { return; }   // stopped
+                                }
+                                continue;
+                            }
+                        }
                     }
+                    // Don't send frames while paused
+                    if *ctl_rx.borrow() != 0 { continue; }
+
                     let elapsed = start.elapsed().as_secs();
                     let time = if elapsed >= 60 {
                         format!("{}m{}s", elapsed / 60, elapsed % 60)
@@ -772,7 +833,18 @@ impl WeComGateway {
             });
         }
 
-        // Step 1: Send message async
+        // Step 1: Connect to SSE FIRST (before sending message) to avoid missing delta events
+        let sse_url = format!("http://127.0.0.1:{}/event", port);
+        let response = client.get(&sse_url)
+            .header("Accept", "text/event-stream")
+            .timeout(std::time::Duration::from_secs(900))
+            .send().await
+            .map_err(|e| {
+                let _ = thinking_ctl_tx.send(2);
+                format!("Failed to connect to SSE: {}", e)
+            })?;
+
+        // Step 2: Now send message async (SSE is already listening)
         let url = format!("http://127.0.0.1:{}/session/{}/prompt_async", port, session_id);
         let mut body = serde_json::json!({ "parts": parts });
         if let Some((provider_id, model_id)) = model {
@@ -792,27 +864,16 @@ impl WeComGateway {
             .timeout(std::time::Duration::from_secs(10))
             .send().await
             .map_err(|e| {
-                let _ = thinking_stop_tx.try_send(());
+                let _ = thinking_ctl_tx.send(2);
                 format!("Failed to send async message: {}", e)
             })?;
 
         if !resp.status().is_success() {
-            let _ = thinking_stop_tx.try_send(());
+            let _ = thinking_ctl_tx.send(2);
             let status = resp.status();
             let body_text = resp.text().await.unwrap_or_default();
             return Err(format!("OpenCode prompt_async failed: HTTP {} - {}", status, body_text));
         }
-
-        // Step 2: Connect to SSE and stream to WeCom
-        let sse_url = format!("http://127.0.0.1:{}/event", port);
-        let response = client.get(&sse_url)
-            .header("Accept", "text/event-stream")
-            .timeout(std::time::Duration::from_secs(900))
-            .send().await
-            .map_err(|e| {
-                let _ = thinking_stop_tx.try_send(());
-                format!("Failed to connect to SSE: {}", e)
-            })?;
 
         let mut stream = response.bytes_stream();
         let mut buffer = String::new();
@@ -827,14 +888,19 @@ impl WeComGateway {
         let mut tracked_sessions = std::collections::HashSet::new();
         tracked_sessions.insert(session_id.to_string());
         let mut approved_permission_ids = std::collections::HashSet::new();
+        // Track whether we've seen activity for our message (delta or busy status)
+        // so we can detect abort (idle after activity) vs spurious idle events
+        let mut has_seen_activity = false;
+        // When true, a question is pending user reply — idle is expected, not an abort
+        let mut waiting_for_question = false;
 
-        println!("[Gateway-{}] Streaming AI response to WeCom", &session_id[..8]);
+        println!("[Gateway-{}] Streaming AI response to WeCom", &session_id[..session_id.len().min(8)]);
 
         while let Some(chunk) = stream.next().await {
             if start_time.elapsed() > std::time::Duration::from_secs(900) {
                 // Stop animation and send whatever we have as final
                 if thinking_active {
-                    let _ = thinking_stop_tx.send(()).await;
+                    let _ = thinking_ctl_tx.send(2);
                 }
                 if !accumulated_text.is_empty() {
                     let _ = self.send_stream_chunk(req_id, &stream_id, &accumulated_text, true, ws_sink).await;
@@ -899,6 +965,46 @@ impl WeComGateway {
                             }
                         }
 
+                        "question.asked" => {
+                            if let Some(ctx) = question_ctx {
+                                waiting_for_question = true;
+                                has_seen_activity = false;
+                                // Stop thinking animation
+                                if thinking_active {
+                                    let _ = thinking_ctl_tx.send(1); // 1 = paused
+                                }
+                                // Send question text and FINISH current stream so the message
+                                // becomes interactive (user can quote-reply in WeCom)
+                                let questions = super::parse_question_event(&event);
+                                let question_id = event.get("properties")
+                                    .and_then(|p| p.get("id"))
+                                    .and_then(|id| id.as_str())
+                                    .unwrap_or("");
+                                let text = super::format_question_message(&questions, question_id);
+                                let _ = self.send_stream_chunk(
+                                    req_id, &stream_id, &text, true, ws_sink
+                                ).await;
+                                // Prepare a new stream for the post-question response
+                                stream_id = uuid::Uuid::new_v4().to_string();
+                                accumulated_text.clear();
+                                last_send_len = 0;
+                                println!("[WeCom] Question displayed (stream closed): {}", question_id);
+                                // Set up reply channel (forwarder won't send, just returns qid)
+                                let prefix = &session_id[..session_id.len().min(8)];
+                                super::handle_question_event(ctx, &event, port, prefix, &tracked_sessions).await;
+                            }
+                            continue;
+                        }
+
+                        "question.answered" => {
+                            waiting_for_question = false;
+                            // Resume thinking animation after user answers
+                            if thinking_active {
+                                let _ = thinking_ctl_tx.send(0); // 0 = running
+                            }
+                            continue;
+                        }
+
                         "message.part.delta" => {
                             if event_session_id != Some(session_id) { continue; }
                             // Extract delta text
@@ -912,12 +1018,13 @@ impl WeComGateway {
                                     .unwrap_or("");
                                 // Only stream text content, skip thinking/reasoning
                                 if part_type == "text_delta" || part_type == "text" {
+                                    has_seen_activity = true;
                                     accumulated_text.push_str(delta);
 
                                     // On first real text, stop thinking animation and replace with actual content
                                     if thinking_active && last_send_len == 0 {
                                         thinking_active = false;
-                                        let _ = thinking_stop_tx.send(()).await;
+                                        let _ = thinking_ctl_tx.send(2);
                                         if let Err(e) = self.send_stream_chunk(
                                             req_id, &stream_id, &accumulated_text, false, ws_sink
                                         ).await {
@@ -957,18 +1064,31 @@ impl WeComGateway {
                                     .and_then(|t| t.get("completed"))
                                     .and_then(|c| c.as_u64());
                                 let finish_reason = info.get("finish").and_then(|f| f.as_str());
+                                let msg_id = info.get("id").and_then(|id| id.as_str()).unwrap_or("?");
+
+                                println!("[Gateway-{}] message.updated: role={:?}, created={:?}, completed={:?}, finish={:?}, msg={}, send_ts={}, waiting_q={}",
+                                    &session_id[..session_id.len().min(8)], role, created_time, completed_time, finish_reason, msg_id, send_timestamp_ms, waiting_for_question);
+
+                                // tool-calls: intermediate step, reset activity flag so
+                                // the subsequent idle doesn't prematurely end the stream
+                                if role == Some("assistant")
+                                    && completed_time.is_some()
+                                    && finish_reason == Some("tool-calls")
+                                {
+                                    has_seen_activity = false;
+                                }
 
                                 if role == Some("assistant")
                                     && created_time.map_or(false, |t| t >= send_timestamp_ms)
                                     && completed_time.is_some()
                                     && finish_reason != Some("tool-calls")
                                 {
-                                    println!("[Gateway-{}] Message completed, sending final stream chunk", &session_id[..8]);
+                                    println!("[Gateway-{}] Message completed, sending final stream chunk", &session_id[..session_id.len().min(8)]);
 
                                     // Stop thinking animation if still active
                                     if thinking_active {
                                         // No need to update thinking_active — this branch ends the stream processing
-                                        let _ = thinking_stop_tx.send(()).await;
+                                        let _ = thinking_ctl_tx.send(2);
                                     }
 
                                     // If we didn't get any streaming content, fetch the full message
@@ -992,6 +1112,42 @@ impl WeComGateway {
                             }
                         }
 
+                        "session.status" | "session.idle" => {
+                            if event_session_id != Some(session_id) { continue; }
+                            let status_type = event.get("properties")
+                                .and_then(|p| p.get("status"))
+                                .and_then(|s| s.get("type"))
+                                .and_then(|t| t.as_str());
+                            let is_busy = status_type == Some("busy");
+                            let is_idle = status_type == Some("idle") || event_type == "session.idle";
+
+                            println!("[Gateway-{}] session.status: type={:?}, busy={}, idle={}, has_activity={}, waiting_q={}",
+                                &session_id[..session_id.len().min(8)], status_type, is_busy, is_idle, has_seen_activity, waiting_for_question);
+
+                            if is_busy {
+                                has_seen_activity = true;
+                            }
+
+                            // Only treat idle as abort/completion if we've seen activity
+                            // and we're not waiting for a question reply (idle is expected then)
+                            if is_idle && has_seen_activity && !waiting_for_question {
+                                println!("[Gateway-{}] Session went idle (aborted?), finishing stream", &session_id[..8]);
+
+                                if thinking_active {
+                                    let _ = thinking_ctl_tx.send(2);
+                                }
+
+                                let final_text = if accumulated_text.is_empty() {
+                                    "(已终止)".to_string()
+                                } else {
+                                    accumulated_text
+                                };
+                                return self.send_stream_chunk(
+                                    req_id, &stream_id, &final_text, true, ws_sink
+                                ).await;
+                            }
+                        }
+
                         _ => {}
                     }
                 }
@@ -1000,7 +1156,7 @@ impl WeComGateway {
 
         // SSE ended unexpectedly — stop animation and send whatever we have
         if thinking_active {
-            let _ = thinking_stop_tx.send(()).await;
+            let _ = thinking_ctl_tx.send(2);
         }
         if !accumulated_text.is_empty() {
             return self.send_stream_chunk(req_id, &stream_id, &accumulated_text, true, ws_sink).await;

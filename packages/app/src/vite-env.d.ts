@@ -1,5 +1,16 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  /** Build-time locale selection: 'en' | 'zh-CN' | 'all' | undefined */
+  readonly VITE_LOCALE?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
+declare const __BUILD_CONFIG__: import('./lib/build-config').BuildConfig | undefined
+
 declare module '*.css' {
   const content: string
   export default content

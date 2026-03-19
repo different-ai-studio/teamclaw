@@ -19,6 +19,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Write production build config from secret
+        env:
+          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
+        run: |
+          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.production.json
+            echo "✅ Production build config written"
+          else
+            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
+          fi
+
+      - name: Verify Tauri signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npm install --no-save @tauri-apps/cli
+          echo "test" > /tmp/test_sign_file
+          npx @tauri-apps/cli signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" /tmp/test_sign_file
+          echo "✅ Signing key verified successfully"
+          rm -f /tmp/test_sign_file /tmp/test_sign_file.sig
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -60,7 +82,7 @@ jobs:
             set -e
             pnpm install
             echo "pnpm install done, building frontend..."
-            pnpm --filter @teamclaw/app build
+            BUILD_ENV=production pnpm --filter @teamclaw/app build
             echo "frontend build done"
           ) > /tmp/frontend.log 2>&1 &
           PID_FRONTEND=$!
@@ -150,6 +172,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Write production build config from secret
+        env:
+          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
+        shell: bash
+        run: |
+          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.production.json
+            echo "✅ Production build config written"
+          else
+            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
+          fi
+
+      - name: Verify Tauri signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          npm install --no-save @tauri-apps/cli
+          echo "test" > "$RUNNER_TEMP/test_sign_file"
+          npx @tauri-apps/cli signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$RUNNER_TEMP/test_sign_file"
+          echo "✅ Signing key verified successfully"
+          rm -f "$RUNNER_TEMP/test_sign_file" "$RUNNER_TEMP/test_sign_file.sig"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -175,6 +221,8 @@ jobs:
             ./src-tauri -> target
 
       - name: Install dependencies and build frontend
+        env:
+          BUILD_ENV: production
         run: |
           pnpm install
           pnpm --filter @teamclaw/app build

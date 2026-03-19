@@ -1,9 +1,11 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Shield, Monitor } from 'lucide-react'
 import { useTelemetryStore } from '@/stores/telemetry'
 import { cn } from '@/lib/utils'
 
 export function PrivacySection() {
+  const { t } = useTranslation()
   const consent = useTelemetryStore((s) => s.consent)
   const deviceId = useTelemetryStore((s) => s.deviceId)
   const setConsent = useTelemetryStore((s) => s.setConsent)
@@ -25,10 +27,10 @@ export function PrivacySection() {
       <div>
         <h3 className="text-lg font-semibold flex items-center gap-2">
           <Shield className="h-5 w-5 text-slate-500" />
-          Privacy & Telemetry
+          {t('settings.privacy.title', 'Privacy & Telemetry')}
         </h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Control anonymous usage data collection to help improve TeamClaw.
+          {t('settings.privacy.description', 'Control anonymous usage data collection to help improve TeamClaw.')}
         </p>
       </div>
 
@@ -36,10 +38,9 @@ export function PrivacySection() {
       <div className="rounded-lg border p-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium">Analytics Data Collection</p>
+            <p className="font-medium">{t('settings.privacy.analyticsTitle', 'Analytics Data Collection')}</p>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Store anonymous usage metrics locally (tokens, tool stats, scores).
-              No code, conversations, or personal data. Data stays on your device.
+              {t('settings.privacy.analyticsDesc', 'Store anonymous usage metrics locally (tokens, tool stats, scores). No code, conversations, or personal data. Data stays on your device.')}
             </p>
           </div>
           <button
@@ -64,7 +65,7 @@ export function PrivacySection() {
             'h-2 w-2 rounded-full',
             isGranted ? 'bg-green-500' : 'bg-muted-foreground/30',
           )} />
-          {isGranted ? 'Analytics enabled' : 'Analytics disabled'}
+          {isGranted ? t('settings.privacy.analyticsEnabled', 'Analytics enabled') : t('settings.privacy.analyticsDisabled', 'Analytics disabled')}
         </div>
       </div>
 
@@ -72,10 +73,10 @@ export function PrivacySection() {
       <div className="rounded-lg border p-4 space-y-3">
         <p className="font-medium flex items-center gap-2">
           <Monitor className="h-4 w-4 text-muted-foreground" />
-          Device Information
+          {t('settings.privacy.deviceInfo', 'Device Information')}
         </p>
         <div className="grid grid-cols-2 gap-2 text-sm">
-          <span className="text-muted-foreground">Device ID</span>
+          <span className="text-muted-foreground">{t('settings.privacy.deviceId', 'Device ID')}</span>
           <span className="font-mono text-xs">{maskedDeviceId}</span>
         </div>
       </div>

@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 const REPO_OWNER: &str = "diffrent-ai-studio";
 const REPO_NAME: &str = "teamclaw";
-const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM3ODg4NDQ3QUFBRDVBRTgKUldUb1dxMnFSNFNJTjlrNW0yOU02Y0pBTmhQbC85OEFhNzBGYmlVTDIrS1Zya0dXMko5WGczSE8K";
+const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQzODk5QzIxMUI4RkY3OTkKUldTWjk0OGJJWnlKUTlnZVdEaUsyUGJ4WFpaYmlQZW03NGdlNVdyUlRMNGtKVVBKeTk3NEYwZXAK";
 const APP_USER_AGENT: &str = concat!("teamclaw-updater/", env!("CARGO_PKG_VERSION"));
 
 // ---------- Types ----------

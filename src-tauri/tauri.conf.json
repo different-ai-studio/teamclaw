@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "TeamClaw",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "identifier": "com.teamclaw.app",
   "build": {
     "beforeDevCommand": "pnpm --filter @teamclaw/app dev",
@@ -50,7 +50,7 @@
       "requireLiteralLeadingDot": false
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM3ODg4NDQ3QUFBRDVBRTgKUldUb1dxMnFSNFNJTjlrNW0yOU02Y0pBTmhQbC85OEFhNzBGYmlVTDIrS1Zya0dXMko5WGczSE8K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQzODk5QzIxMUI4RkY3OTkKUldTWjk0OGJJWnlKUTlnZVdEaUsyUGJ4WFpaYmlQZW03NGdlNVdyUlRMNGtKVVBKeTk3NEYwZXAK",
       "endpoints": [
         "https://github.com/diffrent-ai-studio/teamclaw/releases/latest/download/latest.json"
       ]

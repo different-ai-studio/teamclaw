@@ -426,6 +426,7 @@ function AppContent() {
   const layoutMode = useUIStore((s) => s.layoutMode);
   const fileModeRightTab = useUIStore((s) => s.fileModeRightTab);
   const setFileModeRightTab = useUIStore((s) => s.setFileModeRightTab);
+  const advancedMode = useUIStore((s) => s.advancedMode);
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
   const needsTrafficLightSpacer = useNeedsTrafficLightSpacer();
@@ -612,7 +613,7 @@ function AppContent() {
           {needsTrafficLightSpacer && <TrafficLights />}
 
           {/* Layout toggle - before TeamClaw */}
-          <LayoutToggleButton />
+          {advancedMode && <LayoutToggleButton />}
 
           <span className="text-sm font-medium">TeamClaw</span>
           <Separator
@@ -796,7 +797,7 @@ function AppContent() {
             )}
 
             {/* Layout mode toggle - before TeamClaw */}
-            <LayoutToggleButton />
+            {advancedMode && <LayoutToggleButton />}
 
             <span className="min-w-0 truncate text-sm">
               {activeSession?.title || t("chat.newChat", "New Chat")}
@@ -843,20 +844,24 @@ function AppContent() {
                 isActive={isPanelOpen && activeTab === "tasks"}
                 onClick={() => isPanelOpen && activeTab === "tasks" ? closePanel() : openPanel("tasks")}
               />
-              <HeaderPanelTab
-                icon={FolderGit}
-                label={t("navigation.changes", "Changes")}
-                count={sessionDiff.length}
-                isActive={isPanelOpen && activeTab === "diff"}
-                onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
-              />
-              <HeaderPanelTab
-                icon={FolderTree}
-                label={t("navigation.files", "Files")}
-                count={0}
-                isActive={isPanelOpen && activeTab === "files"}
-                onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
-              />
+              {advancedMode && (
+                <HeaderPanelTab
+                  icon={FolderGit}
+                  label={t("navigation.changes", "Changes")}
+                  count={sessionDiff.length}
+                  isActive={isPanelOpen && activeTab === "diff"}
+                  onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
+                />
+              )}
+              {advancedMode && (
+                <HeaderPanelTab
+                  icon={FolderTree}
+                  label={t("navigation.files", "Files")}
+                  count={0}
+                  isActive={isPanelOpen && activeTab === "files"}
+                  onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
+                />
+              )}
               {isPanelOpen && (
                 <button
                   className="ml-1 p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded"

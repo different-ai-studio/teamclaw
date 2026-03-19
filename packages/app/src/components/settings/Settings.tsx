@@ -7,7 +7,6 @@ import {
   MessageSquare,
   Plug,
   Sparkles,
-  Info,
   Users,
   Package,
   Clock,
@@ -22,7 +21,11 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
 import { useAppVersion } from '@/lib/version'
+import { useUpdaterStore } from '@/stores/updater'
+import { buildConfig, hasAnyChannel } from '@/lib/build-config'
+import { useTeamModeStore } from '@/stores/team-mode'
 
 // Section components
 import { LLMSection } from './LLMSection'
@@ -30,7 +33,6 @@ import { GeneralSection } from './GeneralSection'
 import { PromptSection } from './PromptSection'
 import { MCPSection } from './MCPSection'
 import { SkillsSection } from './SkillsSection'
-import { AboutSection } from './AboutSection'
 import { ChannelsSection } from './ChannelsSection'
 import { DependenciesSection } from './DependenciesSection'
 import { TeamSection } from './TeamSection'
@@ -49,7 +51,7 @@ interface SettingsProps {
   onClose?: () => void
 }
 
-type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'about' | 'leaderboard' | 'shortcuts'
+type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
 interface Section {
   id: SettingsSection
@@ -81,7 +83,6 @@ const advancedSections: Section[] = [
   { id: 'knowledge', label: 'Knowledge Base', labelKey: 'settings.nav.knowledge', icon: BookOpen, color: 'text-cyan-500' },
   { id: 'deps', label: 'Dependencies', labelKey: 'settings.nav.deps', icon: Package, color: 'text-teal-500' },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield, color: 'text-slate-500' },
-  { id: 'about', label: 'About', labelKey: 'settings.nav.about', icon: Info, color: 'text-cyan-500' },
 ]
 
 const sectionComponents: Record<SettingsSection, React.ComponentType> = {
@@ -100,9 +101,47 @@ const sectionComponents: Record<SettingsSection, React.ComponentType> = {
   tokenUsage: TokenUsageSection,
   privacy: PrivacySection,
   permissions: PermissionManagementSection,
-  about: AboutSection,
   leaderboard: LeaderboardSection,
   shortcuts: ShortcutsSection,
+}
+
+function UpdateButton() {
+  const { t } = useTranslation()
+  const update = useUpdaterStore(s => s.update)
+  const checkForUpdates = useUpdaterStore(s => s.checkForUpdates)
+  const installUpdate = useUpdaterStore(s => s.installUpdate)
+
+  if (update.state === 'ready') {
+    return (
+      <Button variant="default" size="sm" className="h-6 text-[11px] px-2" onClick={installUpdate}>
+        {t('settings.update.install', 'Install')}
+      </Button>
+    )
+  }
+
+  if (update.state === 'available' || update.state === 'downloading') {
+    return (
+      <span className="text-[11px] text-muted-foreground">
+        {update.state === 'downloading' ? `${t('settings.update.downloading', 'Downloading')}...` : `v${update.version}`}
+      </span>
+    )
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 text-[11px] px-2 text-muted-foreground"
+      onClick={() => checkForUpdates()}
+      disabled={update.state === 'checking'}
+    >
+      {update.state === 'checking'
+        ? `${t('settings.update.checking', 'Checking')}...`
+        : update.state === 'up-to-date'
+          ? t('settings.update.upToDate', 'Up to date')
+          : t('settings.update.check', 'Check for updates')}
+    </Button>
+  )
 }
 
 export function Settings(_props?: SettingsProps) {
@@ -110,6 +149,13 @@ export function Settings(_props?: SettingsProps) {
   const [activeView, setActiveView] = React.useState<SettingsSection>('general')
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false)
   const appVersion = useAppVersion()
+  const teamMode = useTeamModeStore(s => s.teamMode)
+
+  // Filter sections based on build config feature flags
+  const filteredPrimarySections = React.useMemo(() =>
+    primarySections.filter(s => s.id !== 'channels' || hasAnyChannel(buildConfig.features.channels)),
+    []
+  )
 
   // Check if current view is an advanced section
   const isAdvancedSection = advancedSections.some(s => s.id === activeView)
@@ -131,7 +177,7 @@ export function Settings(_props?: SettingsProps) {
         </div>
         <ScrollArea className="flex-1 overflow-hidden py-2">
           <div className="px-2 space-y-0.5">
-            {primarySections.map((section) => {
+            {filteredPrimarySections.map((section) => {
               const Icon = section.icon
               const isActive = activeView === section.id
               return (
@@ -221,15 +267,18 @@ export function Settings(_props?: SettingsProps) {
         </ScrollArea>
 
         {/* Team Ranking Card */}
-        <div className="px-3 pb-2">
-          <TeamRankingCard onClick={() => setActiveView('leaderboard')} />
-        </div>
+        {teamMode && (
+          <div className="px-3 pb-2">
+            <TeamRankingCard onClick={() => setActiveView('leaderboard')} />
+          </div>
+        )}
 
         {/* Footer */}
-        <div className="p-4 border-t">
-          <p className="text-xs text-muted-foreground text-center">
+        <div className="px-4 py-3 border-t flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
             v{appVersion}
-          </p>
+          </span>
+          <UpdateButton />
         </div>
       </div>
 

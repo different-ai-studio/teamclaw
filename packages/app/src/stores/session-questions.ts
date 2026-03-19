@@ -15,6 +15,7 @@ import {
 import {
   useStreamingStore,
 } from "@/stores/streaming";
+import { sessionDataCache } from "./session-data-cache";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -53,6 +54,14 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
         }
 
         const toolCallId = pendingQuestion.toolCallId;
+
+        // Clear pendingQuestion from both state and cache
+        if (activeSessionId) {
+          const cached = sessionDataCache.get(activeSessionId);
+          if (cached) {
+            sessionDataCache.set(activeSessionId, { ...cached, pendingQuestion: null });
+          }
+        }
 
         set((state) => ({
           sessions: state.sessions.map((s) =>
@@ -122,20 +131,29 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
         );
       }
 
-      if (event.sessionId !== activeSessionId) return;
+      const questionData = {
+        questionId: event.id,
+        toolCallId: event.tool?.callId || existing?.toolCallId || event.id,
+        messageId:
+          event.tool?.messageId ||
+          existing?.messageId ||
+          streamingMessageId ||
+          "",
+        questions: event.questions || existing?.questions || [],
+      };
 
-      set({
-        pendingQuestion: {
-          questionId: event.id,
-          toolCallId: event.tool?.callId || existing?.toolCallId || event.id,
-          messageId:
-            event.tool?.messageId ||
-            existing?.messageId ||
-            streamingMessageId ||
-            "",
-          questions: event.questions || existing?.questions || [],
-        },
-      });
+      if (event.sessionId !== activeSessionId) {
+        // Cache the question for non-active sessions so it's restored on switch
+        const cached = sessionDataCache.get(event.sessionId) || { todos: [], diff: [] };
+        sessionDataCache.set(event.sessionId, { ...cached, pendingQuestion: questionData });
+        return;
+      }
+
+      set({ pendingQuestion: questionData });
+
+      // Also save to cache so it survives session switching
+      const cachedActive = sessionDataCache.get(activeSessionId) || { todos: [], diff: [] };
+      sessionDataCache.set(activeSessionId, { ...cachedActive, pendingQuestion: questionData });
 
       // If we have tool info, also update the tool call in the message
       if (event.tool && streamingMessageId) {

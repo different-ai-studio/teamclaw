@@ -67,19 +67,30 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
       if (isQuestionTool && isRunning && questions && questions.length > 0) {
         const existing = get().pendingQuestion;
         if (!existing || !existing.questionId) {
-          set({
-            pendingQuestion: {
-              questionId: existing?.questionId || "",
-              toolCallId: event.toolCallId,
-              messageId: streamingMessageId,
-              questions,
-            },
-          });
+          const questionData = {
+            questionId: existing?.questionId || "",
+            toolCallId: event.toolCallId,
+            messageId: streamingMessageId,
+            questions,
+          };
+          set({ pendingQuestion: questionData });
+          // Also save to cache so it survives session switching
+          if (activeSessionId) {
+            const cached = sessionDataCache.get(activeSessionId) || { todos: [], diff: [] };
+            sessionDataCache.set(activeSessionId, { ...cached, pendingQuestion: questionData });
+          }
         }
       }
 
       if (isQuestionTool && event.status === "completed") {
         set({ pendingQuestion: null });
+        // Also clear from cache
+        if (activeSessionId) {
+          const cached = sessionDataCache.get(activeSessionId);
+          if (cached) {
+            sessionDataCache.set(activeSessionId, { ...cached, pendingQuestion: null });
+          }
+        }
       }
 
       const currentActiveSessionId = get().activeSessionId;

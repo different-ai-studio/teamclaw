@@ -1,0 +1,29 @@
+{
+  "team": {
+    "llm": {
+      "baseUrl": "",
+      "model": "",
+      "modelName": ""
+    },
+    "lockLlmConfig": false
+  },
+  "app": {
+    "name": "TeamClaw"
+  },
+  "features": {
+    "advancedMode": true,
+    "teamMode": true,
+    "updater": true,
+    "channels": {
+      "discord": true,
+      "feishu": true,
+      "email": true,
+      "kook": true,
+      "wecom": true
+    }
+  },
+  "defaults": {
+    "locale": "zh-CN",
+    "theme": "system"
+  }
+}

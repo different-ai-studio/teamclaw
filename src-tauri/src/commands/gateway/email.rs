@@ -209,6 +209,8 @@ pub struct EmailGateway {
     /// Permission auto-approver
     #[allow(dead_code)]
     permission_approver: super::PermissionAutoApprover,
+    /// Pending questions waiting for email replies
+    pub pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl EmailGateway {
@@ -225,6 +227,7 @@ impl EmailGateway {
             generation: Arc::new(AtomicU64::new(0)),
             email_db: Arc::new(RwLock::new(None)),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
+            pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
 
@@ -1012,7 +1015,7 @@ fn handle_imap_connection(
                             let filter_result = check_email_filter(config, &email_msg);
                                 match filter_result {
                                 FilterResult::Allow => {
-                                    if let Err(e) = process_and_reply_sync(gateway, config, &email_msg, access_token, rt_handle, email_db, account_key) {
+                                    if let Err(e) = process_and_reply_sync(gateway, config, &email_msg, access_token, rt_handle, email_db, account_key, &gateway.pending_questions) {
                                         println!("[Email] Failed to process message: {}", e);
                                     }
                                 }
@@ -1074,6 +1077,7 @@ fn handle_imap_connection(
 
 // ==================== Email Parsing ====================
 
+#[derive(Clone)]
 struct EmailMessage {
     uid: u32,
     from: String,
@@ -1559,6 +1563,7 @@ fn process_and_reply_sync(
     rt_handle: &tokio::runtime::Handle,
     email_db: Option<&EmailDb>,
     account_key: &str,
+    pending_questions: &Arc<super::PendingQuestionStore>,
 ) -> Result<(), String> {
     let port = gateway.opencode_port;
     let session_key = resolve_email_session_key_sync(gateway, email, rt_handle, email_db, account_key)?
@@ -1595,6 +1600,28 @@ fn process_and_reply_sync(
         clean_email_body(&email.body_text)
     };
 
+    // Check for /answer command — routes reply to the most recent pending question
+    if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&message_content) {
+        if let Some(qid) = rt_handle.block_on(pending_questions.try_answer(answer_text)) {
+            println!("[Email] Question {} answered via /answer: {}", qid, answer_text);
+        } else {
+            println!("[Email] /answer command received but no pending questions");
+        }
+        return Ok(());
+    }
+
+    // Check if this email is a reply to a pending question
+    for mid in extract_message_ids(&email.in_reply_to) {
+        let normalized = normalize_message_id(&mid);
+        if let Some(entry) = rt_handle.block_on(async {
+            pending_questions.take(&normalized).await
+        }) {
+            let _ = entry.answer_tx.send(message_content.clone());
+            println!("[Email] Question {} answered via email reply", entry.question_id);
+            return Ok(());
+        }
+    }
+
     // Get model preference from SessionMapping (for consistent model usage)
     let model_preference = {
         let mapping = gateway.session_mapping.clone();
@@ -1603,10 +1630,33 @@ fn process_and_reply_sync(
             mapping.get_model(&key).await
         })
     };
-    
+
     let model_param = model_preference
         .as_ref()
         .and_then(|m| crate::commands::gateway::parse_model_preference(m));
+
+    // Build question forwarder for email
+    let pending_questions_clone = Arc::clone(pending_questions);
+    let email_config_for_q = config.clone();
+    let reply_to_email_for_q = email.clone();
+    let access_token_for_q = access_token.map(|s| s.to_string());
+    let question_ctx = super::QuestionContext {
+        forwarder: Box::new(move |fq: super::ForwardedQuestion| {
+            let cfg = email_config_for_q.clone();
+            let reply_email = reply_to_email_for_q.clone();
+            let at = access_token_for_q.clone();
+            Box::pin(async move {
+                let text = super::format_question_message(&fq.questions, &fq.question_id);
+                let outgoing_msg_id = tokio::task::spawn_blocking(move || {
+                    send_reply_sync(&cfg, &reply_email, &text, at.as_deref())
+                }).await
+                    .map_err(|e| format!("Join error: {}", e))?
+                    .map_err(|e| format!("SMTP error: {}", e))?;
+                Ok(outgoing_msg_id)
+            })
+        }),
+        store: pending_questions_clone,
+    };
 
     // Send to OpenCode using async mode with permission auto-approval
     println!("[Email] Sending message asynchronously with permission auto-approval");
@@ -1617,6 +1667,7 @@ fn process_and_reply_sync(
             &session_id,
             parts,
             model_param,
+            Some(question_ctx),
         ).await
     })?;
 

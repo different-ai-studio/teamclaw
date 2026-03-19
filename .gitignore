@@ -28,6 +28,8 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 config.json
+build.config.local.json
+build.config.production.json
 
 # Tauri
 src-tauri/target/
@@ -106,3 +108,6 @@ docs/*
 
 # Scripts
 scripts/ship-pr.sh
+
+# Stress test reports
+tests/stress/reports/

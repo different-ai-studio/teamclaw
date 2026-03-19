@@ -22,6 +22,7 @@ export function usePanelAutoOpen() {
   const todos = useSessionStore((s) => s.todos);
   const sessionDiff = useSessionStore((s) => s.sessionDiff);
   const openPanel = useWorkspaceStore((s) => s.openPanel);
+  const advancedMode = useUIStore((s) => s.advancedMode);
   const prevTodosCount = useRef(0);
   const prevDiffCount = useRef(0);
 
@@ -33,11 +34,15 @@ export function usePanelAutoOpen() {
   }, [todos.length, openPanel]);
 
   useEffect(() => {
+    if (!advancedMode) {
+      prevDiffCount.current = sessionDiff.length;
+      return;
+    }
     if (sessionDiff.length > 0 && prevDiffCount.current === 0) {
       openPanel("diff");
     }
     prevDiffCount.current = sessionDiff.length;
-  }, [sessionDiff.length, openPanel]);
+  }, [sessionDiff.length, openPanel, advancedMode]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

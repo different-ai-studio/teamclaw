@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Search, SquarePen, Settings, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Pencil, Ellipsis } from "lucide-react"
 
 import { useSessionStore } from "@/stores/session"
+import { useStreamingStore } from "@/stores/streaming"
 import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useTabsStore } from "@/stores/tabs"
@@ -40,6 +41,30 @@ import {
   CommandGroup,
   CommandItem,
 } from "@/components/ui/command"
+
+// Status indicator for the active session in the sidebar
+function SidebarSessionStatusIndicator() {
+  const sessionStatus = useSessionStore(s => s.sessionStatus)
+  const pendingPermission = useSessionStore(s => s.pendingPermission)
+  const pendingQuestion = useSessionStore(s => s.pendingQuestion)
+  const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
+
+  if (pendingPermission || pendingQuestion) {
+    return (
+      <span className="shrink-0 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+        等待确认
+      </span>
+    )
+  }
+
+  if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry' || streamingMessageId) {
+    return (
+      <Loader2 className="shrink-0 h-3 w-3 animate-spin text-muted-foreground/70" />
+    )
+  }
+
+  return null
+}
 
 // Session search dialog component
 function SessionSearchDialog({ 
@@ -405,7 +430,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <SidebarMenuButton
                     isActive={session.id === activeSessionId}
                     className={cn(
-                      "h-auto py-2 pr-8 transition-all duration-300",
+                      "h-auto py-2 transition-all duration-300",
                       isHighlighted && "bg-emerald-500/15 ring-1 ring-emerald-500/30"
                     )}
                     onClick={() => {
@@ -431,7 +456,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                             <span className="truncate text-left">
                               {session.title}
                             </span>
-                            {isHighlighted && (
+                            {session.id !== activeSessionId && isHighlighted && (
                               <span className="shrink-0 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
                                 NEW
                               </span>
@@ -440,12 +465,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         )}
                       </div>
                       {!isRenaming && (
-                        <span className="text-[10px] text-muted-foreground">
-                          {formatDate(session.updatedAt)}
-                          {session.messageCount !== undefined && (
-                            <> · {session.messageCount} messages</>
+                        <div className="flex items-center gap-1.5 w-full">
+                          <span className="text-[10px] text-muted-foreground">
+                            {formatDate(session.updatedAt)}
+                            {session.messageCount !== undefined && (
+                              <> · {session.messageCount} messages</>
+                            )}
+                          </span>
+                          {session.id === activeSessionId && (
+                            <span className="ml-auto">
+                              <SidebarSessionStatusIndicator />
+                            </span>
                           )}
-                        </span>
+                        </div>
                       )}
                     </div>
                   </SidebarMenuButton>
@@ -454,7 +486,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
+                        className="absolute right-1 bottom-1 h-5 w-5 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <Ellipsis className="h-3 w-3" />

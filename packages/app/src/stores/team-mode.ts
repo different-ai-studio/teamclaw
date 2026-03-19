@@ -6,6 +6,7 @@ import {
 } from '@/lib/opencode/config'
 import { useProviderStore } from './provider'
 import { isTauri } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 
 
 const TEAM_PROVIDER_ID = 'team'
@@ -73,8 +74,14 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
   loadTeamConfig: async (workspacePath: string) => {
     const config = await readTeamYaml(workspacePath)
-    if (config) {
-      set({ teamMode: true, teamModelConfig: config })
+    // Fall back to build-time config if yaml is absent but build config has LLM settings
+    const effectiveConfig = config || (
+      buildConfig.team.llm.baseUrl
+        ? { baseUrl: buildConfig.team.llm.baseUrl, model: buildConfig.team.llm.model, modelName: buildConfig.team.llm.modelName }
+        : null
+    )
+    if (effectiveConfig) {
+      set({ teamMode: true, teamModelConfig: effectiveConfig })
     } else {
       const wasTeamMode = get().teamMode
       // Update state first so UI reacts immediately
@@ -167,6 +174,9 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   },
 
   clearTeamMode: async (workspacePath?: string) => {
+    // When LLM config is locked via build config, prevent exiting team mode
+    if (buildConfig.team.lockLlmConfig) return
+
     // Set state immediately to trigger UI updates
     set({ teamMode: false, teamModelConfig: null, _appliedConfigKey: null })
     
