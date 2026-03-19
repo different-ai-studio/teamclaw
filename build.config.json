@@ -14,7 +14,13 @@
     "advancedMode": true,
     "teamMode": true,
     "updater": true,
-    "channels": true
+    "channels": {
+      "discord": true,
+      "feishu": true,
+      "email": true,
+      "kook": true,
+      "wecom": true
+    }
   },
   "defaults": {
     "locale": "zh-CN",

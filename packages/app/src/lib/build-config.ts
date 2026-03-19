@@ -1,6 +1,14 @@
 // Build-time configuration injected by Vite's `define` from build.config.json.
 // See build.config.example.json for all available fields.
 
+export interface ChannelsFeatureConfig {
+  discord: boolean
+  feishu: boolean
+  email: boolean
+  kook: boolean
+  wecom: boolean
+}
+
 export interface BuildConfig {
   team: {
     llm: {
@@ -17,12 +25,38 @@ export interface BuildConfig {
     advancedMode: boolean
     teamMode: boolean
     updater: boolean
-    channels: boolean
+    channels: boolean | ChannelsFeatureConfig
   }
   defaults: {
     locale: string
     theme: string
   }
+}
+
+const allChannelsEnabled: ChannelsFeatureConfig = {
+  discord: true,
+  feishu: true,
+  email: true,
+  kook: true,
+  wecom: true,
+}
+
+/**
+ * Normalize channels config: `true` → all enabled, `false` → all disabled, object → as-is.
+ */
+export function resolveChannelsConfig(channels: boolean | ChannelsFeatureConfig): ChannelsFeatureConfig {
+  if (typeof channels === 'boolean') {
+    return channels
+      ? { ...allChannelsEnabled }
+      : { discord: false, feishu: false, email: false, kook: false, wecom: false }
+  }
+  return channels
+}
+
+/** Whether at least one channel is enabled. */
+export function hasAnyChannel(channels: boolean | ChannelsFeatureConfig): boolean {
+  if (typeof channels === 'boolean') return channels
+  return Object.values(channels).some(Boolean)
 }
 
 const fallback: BuildConfig = {
@@ -31,7 +65,7 @@ const fallback: BuildConfig = {
     lockLlmConfig: false,
   },
   app: { name: 'TeamClaw' },
-  features: { advancedMode: true, teamMode: true, updater: true, channels: true },
+  features: { advancedMode: true, teamMode: true, updater: true, channels: { ...allChannelsEnabled } },
   defaults: { locale: 'zh-CN', theme: 'system' },
 }
 

@@ -9,6 +9,9 @@ import { FeishuChannel } from './channels/Feishu'
 import { EmailChannel } from './channels/Email'
 import { KookChannel } from './channels/Kook'
 import { WeComChannel } from './channels/Wecom'
+import { buildConfig, resolveChannelsConfig } from '@/lib/build-config'
+
+const channelsConfig = resolveChannelsConfig(buildConfig.features.channels)
 
 // Main Channels Section Component
 export function ChannelsSection() {
@@ -56,11 +59,11 @@ export function ChannelsSection() {
       )}
 
       {/* Channel Components */}
-      <DiscordChannel />
-      <FeishuChannel />
-      <EmailChannel />
-      <KookChannel />
-      <WeComChannel />
+      {channelsConfig.discord && <DiscordChannel />}
+      {channelsConfig.feishu && <FeishuChannel />}
+      {channelsConfig.email && <EmailChannel />}
+      {channelsConfig.kook && <KookChannel />}
+      {channelsConfig.wecom && <WeComChannel />}
     </div>
   )
 }

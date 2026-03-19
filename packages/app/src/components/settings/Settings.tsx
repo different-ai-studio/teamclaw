@@ -24,7 +24,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { useAppVersion } from '@/lib/version'
 import { useUpdaterStore } from '@/stores/updater'
-import { buildConfig } from '@/lib/build-config'
+import { buildConfig, hasAnyChannel } from '@/lib/build-config'
+import { useTeamModeStore } from '@/stores/team-mode'
 
 // Section components
 import { LLMSection } from './LLMSection'
@@ -148,10 +149,11 @@ export function Settings(_props?: SettingsProps) {
   const [activeView, setActiveView] = React.useState<SettingsSection>('general')
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false)
   const appVersion = useAppVersion()
+  const teamMode = useTeamModeStore(s => s.teamMode)
 
   // Filter sections based on build config feature flags
   const filteredPrimarySections = React.useMemo(() =>
-    primarySections.filter(s => s.id !== 'channels' || buildConfig.features.channels),
+    primarySections.filter(s => s.id !== 'channels' || hasAnyChannel(buildConfig.features.channels)),
     []
   )
 
@@ -265,9 +267,11 @@ export function Settings(_props?: SettingsProps) {
         </ScrollArea>
 
         {/* Team Ranking Card */}
-        <div className="px-3 pb-2">
-          <TeamRankingCard onClick={() => setActiveView('leaderboard')} />
-        </div>
+        {teamMode && (
+          <div className="px-3 pb-2">
+            <TeamRankingCard onClick={() => setActiveView('leaderboard')} />
+          </div>
+        )}
 
         {/* Footer */}
         <div className="px-4 py-3 border-t flex items-center justify-between">
