@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/select"
 
 interface SkillsMarketplaceProps {
-  onInstalled?: () => void
+  onInstalled?: () => void | Promise<void>
 }
 
 type SkillsShCategory = "all-time" | "trending" | "hot"
@@ -222,7 +222,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
         isGlobal: location === 'global',
       })
       setInstalledSlugs((prev) => new Set(prev).add(slug))
-      onInstalled?.()
+      await onInstalled?.()
     } catch (err) {
       console.error("[SkillsMarketplace] Failed to install skill:", err)
       setError(err instanceof Error ? err.message : String(err))

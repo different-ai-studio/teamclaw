@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils'
 import { getOpenCodeClient, type Command as OpenCodeCommand } from '@/lib/opencode/client'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isTauri } from '@/lib/utils'
+import { loadAllSkills } from '@/lib/git/skill-loader'
+import { readSkillPermissions, resolveSkillPermission } from '@/lib/opencode/config'
 
 interface CommandPopoverProps {
   open: boolean
@@ -16,57 +18,28 @@ interface SkillEntry {
   name: string
   description: string
   path: string
+  permissionKey: string
 }
 
 // Unified type for display in the list
 type CommandOrSkill = OpenCodeCommand | SkillEntry
 
-// Module-level cache for skills
-let cachedWorkspace: string | null = null
-let cachedSkills: SkillEntry[] = []
-
-async function scanSkillsDirectory(workspacePath: string): Promise<SkillEntry[]> {
-  const { readDir, readTextFile, exists } = await import("@tauri-apps/plugin-fs")
-  const skills: SkillEntry[] = []
-  
-  const skillsPath = `${workspacePath}/.claude/skills`
-  
-  const skillsDirExists = await exists(skillsPath).catch(() => false)
-  if (!skillsDirExists) return []
-  
-  let entries: Awaited<ReturnType<typeof readDir>>
-  try {
-    entries = await readDir(skillsPath)
-  } catch {
-    return []
-  }
-  
-  for (const entry of entries) {
-    if (!entry.isDirectory || !entry.name) continue
-    
-    const skillFilePath = `${skillsPath}/${entry.name}/SKILL.md`
-    const skillFileExists = await exists(skillFilePath).catch(() => false)
-    if (!skillFileExists) continue
-    
-    try {
-      const content = await readTextFile(skillFilePath)
-      const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/)
-      if (!frontmatterMatch) continue
-      
-      const frontmatter = frontmatterMatch[1]
-      const nameMatch = frontmatter.match(/^name:\s*(.+)$/m)
+async function scanAvailableSkills(workspacePath: string): Promise<SkillEntry[]> {
+  const { skills } = await loadAllSkills(workspacePath)
+  return skills
+    .map((skill) => {
+      const frontmatterMatch = skill.content.match(/^---\n([\s\S]*?)\n---/)
+      const frontmatter = frontmatterMatch?.[1] ?? ""
       const descMatch = frontmatter.match(/^description:\s*(.+)$/m)
-      
-      const name = nameMatch?.[1]?.trim() || entry.name
-      const description = descMatch?.[1]?.trim() || ""
-      
-      skills.push({ name, description, path: entry.name })
-    } catch (error) {
-      console.error(`[CommandPopover] Failed to read skill ${entry.name}:`, error)
-    }
-  }
-  
-  return skills.sort((a, b) => a.name.localeCompare(b.name))
+
+      return {
+        name: skill.name,
+        description: descMatch?.[1]?.trim() || "",
+        path: skill.filename,
+        permissionKey: skill.filename,
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 // Filter items by search query
@@ -114,29 +87,44 @@ export function CommandPopover({
         })
       
       // Load skills from .claude/skills/ (only on Tauri)
-      const skillsPromise = (isTauri() && workspacePath) 
-        ? (async () => {
-            // Use cache if workspace hasn't changed
-            if (cachedWorkspace === workspacePath && cachedSkills.length > 0) {
-              return cachedSkills
-            }
-            const result = await scanSkillsDirectory(workspacePath)
-            cachedWorkspace = workspacePath
-            cachedSkills = result
-            return result
-          })()
+      const skillsPromise = (isTauri() && workspacePath)
+        ? scanAvailableSkills(workspacePath).catch(error => {
+            console.error('[CommandPopover] Failed to scan skills:', error)
+            return []
+          })
         : Promise.resolve([])
+
+      const permissionsPromise = workspacePath
+        ? readSkillPermissions(workspacePath).catch(error => {
+            console.error('[CommandPopover] Failed to load skill permissions:', error)
+            return {}
+          })
+        : Promise.resolve({})
       
-      Promise.all([commandsPromise, skillsPromise])
-        .then(([cmds, skls]) => {
+      Promise.all([commandsPromise, skillsPromise, permissionsPromise])
+        .then(([cmds, skls, permissions]) => {
           // Separate OpenCode commands by source
-          const openCodeSkills = cmds.filter(cmd => (cmd as any).source === 'skill')
+          const deniedSkillNames = new Set(
+            skls
+              .filter((skill) => resolveSkillPermission(skill.permissionKey, permissions).permission === 'deny')
+              .map((skill) => skill.name)
+          )
+
+          const allowedFrontendSkills = skls.filter(
+            (skill) => resolveSkillPermission(skill.permissionKey, permissions).permission !== 'deny'
+          )
+
+          const openCodeSkills = cmds.filter((cmd) => {
+            if ((cmd as any).source !== 'skill') return false
+            if (deniedSkillNames.has(cmd.name)) return false
+            return resolveSkillPermission(cmd.name, permissions).permission !== 'deny'
+          })
           const openCodeCommands = cmds.filter(cmd => (cmd as any).source !== 'skill')
           
           // Merge frontend-scanned skills with OpenCode skills
           // Deduplicate: prefer OpenCode skills (they have more metadata like template)
           const skillNameSet = new Set(openCodeSkills.map(s => s.name))
-          const uniqueFrontendSkills = skls.filter(s => !skillNameSet.has(s.name))
+          const uniqueFrontendSkills = allowedFrontendSkills.filter(s => !skillNameSet.has(s.name))
           
           setCommands(openCodeCommands)
           setSkills([...openCodeSkills, ...uniqueFrontendSkills])

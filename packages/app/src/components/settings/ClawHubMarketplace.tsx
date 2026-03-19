@@ -58,7 +58,7 @@ const SORT_OPTIONS: { value: SortOption; labelKey: string; fallback: string; ico
 ]
 
 interface ClawHubMarketplaceProps {
-  onInstalled?: () => void
+  onInstalled?: () => void | Promise<void>
 }
 
 export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
@@ -203,7 +203,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
           isGlobal: location === 'global',
         })
         setInstalledSlugs((prev) => new Set(prev).add(slug))
-        onInstalled?.()
+        await onInstalled?.()
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -244,7 +244,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
           next.delete(slug)
           return next
         })
-        onInstalled?.()
+        await onInstalled?.()
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       } finally {

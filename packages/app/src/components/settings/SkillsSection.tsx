@@ -65,6 +65,10 @@ interface Skill {
   dirPath?: string
 }
 
+type RestartOptions = {
+  preserveChangeFlag?: boolean
+}
+
 const PERMISSION_META: Record<SkillPermission, { icon: typeof ShieldCheck; colorClass: string }> = {
   allow: { icon: ShieldCheck, colorClass: 'text-emerald-600 dark:text-emerald-400' },
   ask: { icon: ShieldQuestion, colorClass: 'text-amber-600 dark:text-amber-400' },
@@ -190,6 +194,24 @@ export const SkillsSection = React.memo(function SkillsSection() {
     return () => window.removeEventListener('teamclaw-team-synced', onTeamSynced)
   }, [loadSkills])
 
+  const restartOpenCodeInstance = React.useCallback(
+    async (options?: RestartOptions) => {
+      if (!workspacePath) return
+
+      await invoke('stop_opencode')
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const status = await invoke<{ url: string }>('start_opencode', {
+        config: { workspace_path: workspacePath },
+      })
+      initOpenCodeClient({ baseUrl: status.url, workspacePath })
+
+      if (!options?.preserveChangeFlag) {
+        setHasChanges(false)
+      }
+    },
+    [workspacePath]
+  )
+
   // Watch for file changes in skills directories
   React.useEffect(() => {
     if (!workspacePath) return
@@ -311,6 +333,7 @@ ${skillContent.trim()}`
       
       await writeTextFile(`${skillDir}/SKILL.md`, finalContent)
       await loadSkills()
+      await restartOpenCodeInstance()
       
       setDialogOpen(false)
       setEditingSkill(null)
@@ -340,6 +363,7 @@ ${skillContent.trim()}`
         await remove(`${baseDir}/${skillToDelete.filename}`, { recursive: true })
       }
       await loadSkills()
+      await restartOpenCodeInstance()
       setDeleteConfirmOpen(false)
       setSkillToDelete(null)
     } catch (err) {
@@ -405,13 +429,7 @@ ${skillContent.trim()}`
     setIsRestarting(true)
     setRestartError(null)
     try {
-      await invoke('stop_opencode')
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const status = await invoke<{ url: string }>('start_opencode', {
-        config: { workspace_path: workspacePath },
-      })
-      initOpenCodeClient({ baseUrl: status.url })
-      setHasChanges(false)
+      await restartOpenCodeInstance()
     } catch (err) {
       console.error('[SkillsSection] Failed to restart OpenCode:', err)
       setRestartError(err instanceof Error ? err.message : String(err))
@@ -481,7 +499,12 @@ ${skillContent.trim()}`
 
       {/* Marketplace tab */}
       {activeTab === 'marketplace' && (
-        <SkillsMarketplace onInstalled={loadSkills} />
+        <SkillsMarketplace
+          onInstalled={async () => {
+            await loadSkills()
+            await restartOpenCodeInstance()
+          }}
+        />
       )}
 
       {/* Installed tab content */}
