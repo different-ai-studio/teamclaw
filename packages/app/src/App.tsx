@@ -916,7 +916,8 @@ function App() {
   // Extracted hooks — initialization, setup guide, telemetry consent, preload
   useTauriBodyClass();
   useOpenCodePreload();
-  const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide();
+  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+  const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide(openCodeReady);
   const { showConsentDialog, setShowConsentDialog } = useTelemetryConsent(showSetupGuide);
 
   if (spotlightMode) {
