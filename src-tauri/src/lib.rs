@@ -125,7 +125,7 @@ pub fn run() {
         .plugin({
             #[cfg(debug_assertions)]
             {
-                tauri_plugin_mcp::Builder.build()
+                tauri_plugin_mcp::init()
             }
             #[cfg(not(debug_assertions))]
             {
