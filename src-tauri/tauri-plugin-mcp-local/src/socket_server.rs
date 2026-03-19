@@ -158,6 +158,7 @@ impl<R: Runtime> SocketServer<R> {
         let listener = match &self.socket_type {
             SocketType::Ipc { path } => {
                 // Get the socket path for cleanup
+                #[allow(unused_variables)]
                 let socket_path = if let Some(p) = path {
                     p.clone()
                 } else {

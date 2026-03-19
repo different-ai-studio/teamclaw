@@ -24,6 +24,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { useAppVersion } from '@/lib/version'
 import { useUpdaterStore } from '@/stores/updater'
+import { buildConfig } from '@/lib/build-config'
 
 // Section components
 import { LLMSection } from './LLMSection'
@@ -148,6 +149,12 @@ export function Settings(_props?: SettingsProps) {
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false)
   const appVersion = useAppVersion()
 
+  // Filter sections based on build config feature flags
+  const filteredPrimarySections = React.useMemo(() =>
+    primarySections.filter(s => s.id !== 'channels' || buildConfig.features.channels),
+    []
+  )
+
   // Check if current view is an advanced section
   const isAdvancedSection = advancedSections.some(s => s.id === activeView)
 
@@ -168,7 +175,7 @@ export function Settings(_props?: SettingsProps) {
         </div>
         <ScrollArea className="flex-1 overflow-hidden py-2">
           <div className="px-2 space-y-0.5">
-            {primarySections.map((section) => {
+            {filteredPrimarySections.map((section) => {
               const Icon = section.icon
               const isActive = activeView === section.id
               return (

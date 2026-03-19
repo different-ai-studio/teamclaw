@@ -33,7 +33,7 @@ pub async fn take_screenshot<R: Runtime>(
     // Get all windows
     let windows = match window_list() {
       Ok(list) => list,
-      Err(e) => return Err(Error::WindowOperationFailed(format!("Failed to get window list: {:?}", e))),
+      Err(e) => return Err(Error::window_operation_failed("screenshot", format!("Failed to get window list: {:?}", e))),
     };
     
     info!("[SCREENSHOT] Found {} windows through win-screenshot", windows.len());
@@ -66,7 +66,7 @@ pub async fn take_screenshot<R: Runtime>(
       // Use PrintWindow for more reliable capture
       let buffer = match capture_window_ex(hwnd, Using::PrintWindow, Area::Full, None, None) {
         Ok(buf) => buf,
-        Err(e) => return Err(Error::WindowOperationFailed(format!("Failed to capture window: {:?}", e))),
+        Err(e) => return Err(Error::window_operation_failed("screenshot", format!("Failed to capture window: {:?}", e))),
       };
       
       info!("[SCREENSHOT] Successfully captured window image: {}x{}", 
@@ -75,7 +75,7 @@ pub async fn take_screenshot<R: Runtime>(
       // Convert to dynamic image for processing
       let dynamic_image = DynamicImage::ImageRgba8(
         RgbaImage::from_raw(buffer.width, buffer.height, buffer.pixels)
-          .ok_or_else(|| Error::WindowOperationFailed("Failed to create image from buffer".to_string()))?
+          .ok_or_else(|| Error::window_operation_failed("screenshot", "Failed to create image from buffer"))?
       );
       
       // Process the image
@@ -85,7 +85,7 @@ pub async fn take_screenshot<R: Runtime>(
       }
     } else {
       // No window found at all
-      Err(Error::WindowOperationFailed("Window not found using any detection method. Please ensure the window is visible and not minimized.".to_string()))
+      Err(Error::window_operation_failed("screenshot", "Window not found using any detection method. Please ensure the window is visible and not minimized."))
     }
   }).await
 }

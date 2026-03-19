@@ -13,7 +13,8 @@
   "features": {
     "advancedMode": true,
     "teamMode": true,
-    "updater": true
+    "updater": true,
+    "channels": true
   },
   "defaults": {
     "locale": "zh-CN",
