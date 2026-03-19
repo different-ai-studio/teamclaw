@@ -1016,6 +1016,21 @@ async fn handle_message_event(
     // Build session key for this chat context (used for session ID, model preference, and commands)
     let session_key = format!("feishu:{}", chat_id);
 
+    // Check for /answer command — routes reply to the most recent pending question
+    if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&clean_text) {
+        if let Some(qid) = pending_questions.try_answer(answer_text).await {
+            println!("[Feishu] Question {} answered via /answer: {}", qid, answer_text);
+            if let Ok(token) = token_manager.get_tenant_token().await {
+                let _ = reply_feishu_message(&token, &message_id,
+                    &format!("✓ 已回复: {}", answer_text)).await;
+            }
+        } else if let Ok(token) = token_manager.get_tenant_token().await {
+            let _ = reply_feishu_message(&token, &message_id,
+                "当前没有待回复的问题").await;
+        }
+        return;
+    }
+
     // Handle /model command
     if clean_text.eq_ignore_ascii_case("/model") || clean_text.to_lowercase().starts_with("/model ") {
         let arg = if clean_text.len() > 7 { clean_text[7..].trim() } else { "" };

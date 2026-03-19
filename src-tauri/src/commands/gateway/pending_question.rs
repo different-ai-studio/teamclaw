@@ -70,6 +70,34 @@ impl PendingQuestionStore {
         self.entries.write().await.remove(channel_msg_id)
     }
 
+    /// Take the most recently inserted pending question (for /answer command)
+    pub async fn take_latest(&self) -> Option<PendingQuestionEntry> {
+        let mut entries = self.entries.write().await;
+        entries.retain(|_, e| e.created_at.elapsed() < Duration::from_secs(EXPIRY_SECS));
+        let key = entries
+            .iter()
+            .max_by_key(|(_, e)| e.created_at)
+            .map(|(k, _)| k.clone());
+        key.and_then(|k| entries.remove(&k))
+    }
+
+    /// Parse `/answer` or `/a ` command from text. Returns the answer text if matched.
+    pub fn parse_answer_command(text: &str) -> Option<&str> {
+        let trimmed = text.trim();
+        trimmed
+            .strip_prefix("/answer")
+            .or_else(|| trimmed.strip_prefix("/a "))
+            .map(|s| s.trim())
+    }
+
+    /// Try to answer the most recent pending question. Returns (question_id, answer_text) on success.
+    pub async fn try_answer(&self, answer_text: &str) -> Option<String> {
+        let entry = self.take_latest().await?;
+        let qid = entry.question_id.clone();
+        let _ = entry.answer_tx.send(answer_text.to_string());
+        Some(qid)
+    }
+
     pub async fn take_by_question_id(&self, question_id: &str) -> Option<PendingQuestionEntry> {
         let mut entries = self.entries.write().await;
         let key = entries
@@ -125,8 +153,8 @@ pub fn format_question_message(questions: &[QuestionInfo], question_id: &str) ->
         out.push('\n');
     }
 
-    out.push_str("(Reply to this message with your answer. Auto-reject in 5 min)\n");
-    out.push_str(&format!("[Q:{}]", question_id));
+    out.push_str("请用 /answer <序号或内容> 回复，5分钟内有效\n");
+    out.push_str(&format!("例如: /answer 1\n[Q:{}]", question_id));
     out
 }
 

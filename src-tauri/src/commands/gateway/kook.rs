@@ -884,6 +884,17 @@ impl KookGateway {
         let content = self.strip_mentions(&msg.content, bot_id.as_deref());
         drop(bot_id);
 
+        // Check for /answer command — routes reply to the most recent pending question
+        if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&content) {
+            if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
+                println!("[KOOK] Question {} answered via /answer: {}", qid, answer_text);
+                let _ = self.send_reply(msg, &format!("✓ 已回复: {}", answer_text)).await;
+            } else {
+                let _ = self.send_reply(msg, "当前没有待回复的问题").await;
+            }
+            return Ok(());
+        }
+
         // Check for slash commands
         if content.starts_with('/') {
             return self.handle_slash_command(&session_key, &content, msg).await;

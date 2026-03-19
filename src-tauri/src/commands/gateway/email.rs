@@ -1600,6 +1600,16 @@ fn process_and_reply_sync(
         clean_email_body(&email.body_text)
     };
 
+    // Check for /answer command — routes reply to the most recent pending question
+    if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&message_content) {
+        if let Some(qid) = rt_handle.block_on(pending_questions.try_answer(answer_text)) {
+            println!("[Email] Question {} answered via /answer: {}", qid, answer_text);
+        } else {
+            println!("[Email] /answer command received but no pending questions");
+        }
+        return Ok(());
+    }
+
     // Check if this email is a reply to a pending question
     for mid in extract_message_ids(&email.in_reply_to) {
         let normalized = normalize_message_id(&mid);
