@@ -41,15 +41,20 @@ SSE connect → openCodeReady = true → UI usable
 **Problem**: `fix_path_env()` runs synchronously at the very start of `run()`, blocking Tauri Builder construction for ~50-200ms while spawning a login shell.
 
 **Solution**:
-- Move `fix_path_env()` into the `setup` hook, executed via `tauri::async_runtime::spawn_blocking`
-- Use a global `tokio::sync::OnceCell<()>` (or `std::sync::OnceLock`) as a completion signal
-- `start_opencode` awaits this signal before spawning the sidecar (sidecar inherits process PATH)
+- Spawn `fix_path_env()` on a dedicated thread **before** `tauri::Builder::default()`, but don't block on its result
+- Use a global `std::sync::OnceLock<()>` as a completion signal (set by the spawned thread when PATH is applied)
+- `start_opencode` checks this signal before spawning the sidecar (sidecar inherits process PATH)
+
+**Implementation detail**: `fix_path_env()` calls `std::env::set_var`, which is `unsafe` in multi-threaded contexts on Rust 1.83+. To mitigate: spawn the PATH-reading thread before `tauri::Builder::default()` (while still single-threaded for env reads), capture the result, and apply `set_var` before the Builder starts constructing. The OnceLock simply signals completion so downstream code knows PATH is ready. Alternatively, keep `fix_path_env()` synchronous but move the slow shell spawn to a pre-cached approach: try reading a cached PATH from `~/.teamclaw/cached-path.txt` first, fall back to shell spawn only if missing.
+
+**Chosen approach**: Keep `fix_path_env()` synchronous and before `Builder::default()` (avoiding `set_var` safety issues), but optimize it by caching the PATH result. This is simpler and avoids the multi-threaded `set_var` problem entirely. The ~50-200ms savings come from cache hits on subsequent launches.
 
 **Files**: `src-tauri/src/lib.rs`
 
 **Constraints**:
 - PATH must be set before any child process is spawned (sidecar, shell commands)
-- The `fix_path_env` completion signal must be awaitable from async context
+- `std::env::set_var` must be called while still effectively single-threaded (before Builder construction)
+- Cache file (`~/.teamclaw/cached-path.txt`) must be invalidated when shell profile changes (use file mtime of `~/.zshrc` / `~/.bashrc` as cache key)
 
 ### 2. Parallel File I/O Before Sidecar Spawn
 
@@ -60,39 +65,31 @@ ensure_default_permissions → ensure_inherent_config → ensure_inherent_skills
 → resolve_sidecar_binary_paths → read_keyring_secrets
 ```
 
-These are all independent of each other.
+Three of these (`ensure_default_permissions`, `ensure_inherent_config`, `resolve_sidecar_binary_paths`) all read/write `opencode.json` and must remain sequential with each other. The remaining two (`ensure_inherent_skills` writes to `.opencode/skills/`, `read_keyring_secrets` reads the OS keyring) are independent and can run in parallel.
 
 **Solution**:
-- Wrap the first 4 sync functions in `spawn_blocking`
-- Run all 5 operations in parallel via `tokio::join!`
-- `resolve_config_secret_refs` depends on keyring results, so it stays sequential after the join
+- Group the three `opencode.json` writers into a sequential chain, wrapped in a single `spawn_blocking`
+- Run `ensure_inherent_skills` and `read_keyring_secrets` in parallel with the config chain via `tokio::join!`
+- `resolve_config_secret_refs` depends on both the config chain AND keyring results completing, so it runs after the `tokio::join!`
 
 **Before** (serial, total = sum of all):
 ```
 ensure_permissions → ensure_config → ensure_skills → resolve_paths → read_keyring
 ```
 
-**After** (parallel, total ≈ max of all):
-```
-┌─ ensure_permissions ─┐
-├─ ensure_config ──────┤
-├─ ensure_skills ──────┼──→ resolve_config_secret_refs → spawn sidecar
-├─ resolve_paths ──────┤
-└─ read_keyring ───────┘
-```
-
-**Files**: `src-tauri/src/commands/opencode.rs`
-
-**Constraints**:
-- `ensure_default_permissions` and `ensure_inherent_config` both read/write `opencode.json` — they are logically independent (permissions section vs mcp/skills sections), but write to the same file. Must ensure no concurrent writes corrupt the file.
-- Solution: keep `ensure_default_permissions` and `ensure_inherent_config` sequential with each other (they share `opencode.json`), but parallel with `ensure_inherent_skills`, `resolve_sidecar_binary_paths`, and `read_keyring_secrets`.
-
-**Revised parallel layout**:
+**After** (partially parallel, total ≈ max of the two branches):
 ```
 ┌─ ensure_permissions → ensure_config → resolve_paths ─┐
 ├─ ensure_skills ──────────────────────────────────────┼──→ resolve_secret_refs → spawn
 └─ read_keyring ───────────────────────────────────────┘
 ```
+
+**Files**: `src-tauri/src/commands/opencode.rs`
+
+**Constraints**:
+- `ensure_default_permissions`, `ensure_inherent_config`, and `resolve_sidecar_binary_paths` all read/write `opencode.json` — they MUST remain sequential
+- `resolve_config_secret_refs` must not begin until ALL `opencode.json` mutations are complete (it reads the raw file content for string replacement)
+- `ensure_inherent_skills` and `read_keyring_secrets` have no file dependencies on `opencode.json` and are safe to parallelize
 
 ### 3. Early Sidecar Launch from Rust Setup Hook (Core Optimization)
 
@@ -106,14 +103,17 @@ ensure_permissions → ensure_config → ensure_skills → resolve_paths → rea
 - Write is fire-and-forget (non-blocking, errors logged)
 
 **3b. Early launch in setup hook**:
-- In `setup`, after spawning `fix_path_env`, read `last-workspace.json`
-- If a valid workspace path is found, spawn the full `start_opencode` logic (including file I/O, keyring, sidecar spawn) as an async task
-- Store the result in `Arc<tokio::sync::OnceCell<Result<OpenCodeStatus, String>>>` on `OpenCodeState`
+- In `setup`, read `last-workspace.json` (PATH is already set since `fix_path_env` runs synchronously before Builder)
+- If a valid workspace path is found, spawn the full sidecar startup logic (file I/O, keyring, sidecar spawn) as an async task
+- Store the in-flight future's result in a `Mutex<Option<EarlyLaunchState>>` on `OpenCodeState`, where `EarlyLaunchState` holds the workspace path and a `tokio::sync::watch::Sender/Receiver` for the result
 
 **3c. Frontend invoke hits cache**:
-- When frontend calls `start_opencode` with the same workspace path, check if the early-launch OnceCell is already set (or in progress)
-- If match: await the OnceCell and return its result
-- If mismatch (user changed workspace): proceed with normal restart logic, clear the OnceCell
+- When frontend calls `start_opencode` with the same workspace path, check if an early launch is in progress or completed for that path
+- If match and succeeded: return the cached result immediately
+- If match and failed: clear the early launch state, proceed with a fresh attempt (supports retry)
+- If mismatch (user changed workspace): clear the early launch state, proceed with normal restart logic
+
+**Why `watch` instead of `OnceCell`**: `OnceCell` can only be set once — if the early launch fails, subsequent retries cannot reset it. A `watch` channel (or `Mutex<Option<Result<...>>>`) allows the state to be cleared on failure, enabling the retry flow from the frontend's error screen.
 
 **Timing comparison**:
 
@@ -134,6 +134,7 @@ After:
 **Files**: `src-tauri/src/lib.rs`, `src-tauri/src/commands/opencode.rs`
 
 **Edge cases**:
+- `~/.teamclaw/` directory doesn't exist → `create_dir_all` before writing `last-workspace.json`
 - `last-workspace.json` missing or unreadable → skip early launch, fallback to frontend-triggered flow
 - Workspace directory deleted → sidecar fails, OnceCell stores Err, frontend receives error and shows error screen
 - User switches workspace → frontend invoke path differs from cached path, triggers normal restart logic
@@ -150,7 +151,7 @@ const timer = setTimeout(() => {
 }, delay);
 ```
 
-With early sidecar launch from Rust, this delay is unnecessary.
+With early sidecar launch from Rust, this delay is unnecessary. The original 300ms delay was a heuristic to give `useOpenCodePreload` time to fire first, but the preloader's deduplication (`hasPreloadFor` check + shared promise in `preloader.ts`) already handles double-invocation correctly. React strict mode's double-mount is also safe because the preloader returns the same in-flight promise.
 
 **Solution**: Remove the setTimeout, call `startOpenCode(workspacePath)` directly.
 
@@ -173,7 +174,7 @@ With early sidecar launch from Rust, this delay is unnecessary.
 
 | # | Optimization | Files | Expected Gain |
 |---|-------------|-------|---------------|
-| 1 | Async `fix_path_env()` | `lib.rs` | ~50-200ms |
+| 1 | Cache `fix_path_env()` PATH result | `lib.rs` | ~50-200ms (on cache hit) |
 | 2 | Parallel file I/O before sidecar | `opencode.rs` | ~100-300ms |
 | 3 | Early sidecar launch from setup hook | `lib.rs` + `opencode.rs` | ~500-1500ms |
 | 4 | Remove frontend 300ms delay | `useAppInit.ts` | 300ms |
@@ -193,9 +194,12 @@ With early sidecar launch from Rust, this delay is unnecessary.
   - Dev mode (`OPENCODE_DEV_MODE=true`)
 - **Cross-platform**: Test on macOS (primary), verify Windows/Linux builds compile and start correctly
 
+## Debugging
+
+Set `TEAMCLAW_DISABLE_EARLY_LAUNCH=1` to disable the early sidecar launch (optimization 3) for debugging. When set, the app falls back to the frontend-triggered launch flow.
+
 ## Non-Goals
 
 - No splash screen or UI flow changes
 - No Tauri plugin lazy loading (risk of side effects)
 - No frontend chunk splitting changes
-- No PATH caching to file (diminishing returns for added complexity)
