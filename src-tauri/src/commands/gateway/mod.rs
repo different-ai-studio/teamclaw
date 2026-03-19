@@ -15,10 +15,10 @@ pub mod pending_question;
 
 pub use config::*;
 pub use pending_question::{
-    PendingQuestionStore, PendingQuestionEntry, QuestionContext,
-    QuestionForwarder, ForwardedQuestion, QuestionInfo, QuestionOption,
-    format_question_message, resolve_answer, extract_question_marker,
-    parse_question_event,
+    PendingQuestionStore, QuestionContext,
+    ForwardedQuestion,
+    format_question_message, extract_question_marker,
+    handle_question_event,
 };
 pub use discord::DiscordGateway;
 pub use email::EmailGateway;
@@ -31,7 +31,7 @@ pub use wecom_config::*;
 pub use session::SessionMapping;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::State;
 use serde::Deserialize;
@@ -124,8 +124,6 @@ pub struct GatewayState {
     pub shared_session_mapping: SessionMapping,
     /// Whether the shared session mapping has been initialized with a persistence path
     pub session_initialized: Mutex<bool>,
-    /// Shared store for pending question forwarding
-    pub pending_questions: Arc<PendingQuestionStore>,
 }
 
 impl Default for GatewayState {
@@ -138,7 +136,6 @@ impl Default for GatewayState {
             wecom_gateway: Mutex::new(None),
             shared_session_mapping: SessionMapping::new(),
             session_initialized: Mutex::new(false),
-            pending_questions: Arc::new(PendingQuestionStore::new()),
         }
     }
 }
@@ -303,7 +300,7 @@ async fn poll_for_message_with_approval(
     tracked_sessions.insert(session_id.to_string());
     let mut approved_permission_ids = HashSet::new();
     
-    println!("[Gateway-{}] Waiting for AI response (monitoring SSE)", &session_id[..8]);
+    println!("[Gateway-{}] Waiting for AI response (monitoring SSE)", &session_id[..session_id.len().min(8)]);
     
     while let Some(chunk) = stream.next().await {
         // Check timeout
@@ -352,7 +349,7 @@ async fn poll_for_message_with_approval(
                         if parent_id == Some(session_id) && new_session_id.is_some() {
                             let child_id = new_session_id.unwrap().to_string();
                             if tracked_sessions.insert(child_id.clone()) {
-                                println!("[Gateway-{}] Detected child session: {}", &session_id[..8], child_id);
+                                println!("[Gateway-{}] Detected child session: {}", &session_id[..session_id.len().min(8)], child_id);
                             }
                         }
                         // Ignore all other session.created events
@@ -373,13 +370,13 @@ async fn poll_for_message_with_approval(
                             .unwrap_or("unknown");
                         
                         println!("[Gateway-{}] Permission event: id={:?}, sess={:?}, perm={}, tracked={:?}",
-                            &session_id[..8], perm_id, perm_session_id, permission, &tracked_sessions);
+                            &session_id[..session_id.len().min(8)], perm_id, perm_session_id, permission, &tracked_sessions);
                         
                         if let (Some(sess_id), Some(perm_id_str)) = (perm_session_id, perm_id) {
                             if tracked_sessions.contains(sess_id) {
                                 if !approved_permission_ids.contains(perm_id_str) {
                                     println!("[Gateway-{}] ✅ Auto-approving permission {} for '{}'",
-                                        &session_id[..8], perm_id_str, permission);
+                                        &session_id[..session_id.len().min(8)], perm_id_str, permission);
                                     
                                     // Auto-approve (fire and forget, don't block message waiting)
                                     let port_clone = port;
@@ -403,10 +400,10 @@ async fn poll_for_message_with_approval(
                                     
                                     approved_permission_ids.insert(perm_id_str.to_string());
                                 } else {
-                                    println!("[Gateway-{}] Permission {} already approved", &session_id[..8], perm_id_str);
+                                    println!("[Gateway-{}] Permission {} already approved", &session_id[..session_id.len().min(8)], perm_id_str);
                                 }
                             } else {
-                                println!("[Gateway-{}] ⚠️ Permission for untracked session: {}", &session_id[..8], sess_id);
+                                println!("[Gateway-{}] ⚠️ Permission for untracked session: {}", &session_id[..session_id.len().min(8)], sess_id);
                             }
                         }
                         // Ignore all other permission events
@@ -414,91 +411,9 @@ async fn poll_for_message_with_approval(
                     }
 
                     "question.asked" => {
-                        let q_session_id = event.get("properties")
-                            .and_then(|p| p.get("sessionID").or_else(|| p.get("sessionId")))
-                            .and_then(|s| s.as_str());
-
                         if let Some(ref ctx) = question_ctx {
-                            if let Some(sess_id) = q_session_id {
-                                if tracked_sessions.contains(sess_id) {
-                                    let question_id = event.get("properties")
-                                        .and_then(|p| p.get("id"))
-                                        .and_then(|id| id.as_str())
-                                        .unwrap_or("")
-                                        .to_string();
-
-                                    let questions = parse_question_event(&event);
-
-                                    println!("[Gateway-{}] Question asked: id={}, {} question(s)",
-                                        &session_id[..8], question_id, questions.len());
-
-                                    let forwarded = ForwardedQuestion {
-                                        question_id: question_id.clone(),
-                                        questions: questions.clone(),
-                                    };
-
-                                    match (ctx.forwarder)(forwarded).await {
-                                        Ok(channel_msg_id) => {
-                                            let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-                                            ctx.store.insert(channel_msg_id.clone(), PendingQuestionEntry {
-                                                question_id: question_id.clone(),
-                                                answer_tx: tx,
-                                                created_at: std::time::Instant::now(),
-                                            }).await;
-
-                                            let port_clone = port;
-                                            let qid = question_id.clone();
-                                            let questions_clone = questions;
-                                            let store_clone = std::sync::Arc::clone(&ctx.store);
-                                            let cmid = channel_msg_id;
-                                            tokio::spawn(async move {
-                                                let client = reqwest::Client::new();
-                                                match tokio::time::timeout(
-                                                    std::time::Duration::from_secs(300), rx
-                                                ).await {
-                                                    Ok(Ok(answer)) => {
-                                                        let answers = resolve_answer(&answer, &questions_clone);
-                                                        let url = format!(
-                                                            "http://127.0.0.1:{}/question/{}/reply",
-                                                            port_clone, qid
-                                                        );
-                                                        let body = serde_json::json!({ "answers": answers });
-                                                        match client.post(&url).json(&body).send().await {
-                                                            Ok(r) => println!(
-                                                                "[Gateway] Question {} answered (HTTP {})",
-                                                                qid, r.status()
-                                                            ),
-                                                            Err(e) => eprintln!(
-                                                                "[Gateway] Failed to reply question {}: {}",
-                                                                qid, e
-                                                            ),
-                                                        }
-                                                    }
-                                                    _ => {
-                                                        let url = format!(
-                                                            "http://127.0.0.1:{}/question/{}/reject",
-                                                            port_clone, qid
-                                                        );
-                                                        let _ = client
-                                                            .post(&url)
-                                                            .json(&serde_json::json!({}))
-                                                            .send()
-                                                            .await;
-                                                        println!("[Gateway] Question {} auto-rejected (timeout)", qid);
-                                                    }
-                                                }
-                                                store_clone.take(&cmid).await;
-                                            });
-                                        }
-                                        Err(e) => {
-                                            eprintln!("[Gateway-{}] Failed to forward question: {}", &session_id[..8], e);
-                                            let url = format!("http://127.0.0.1:{}/question/{}/reject", port, question_id);
-                                            let client = reqwest::Client::new();
-                                            let _ = client.post(&url).json(&serde_json::json!({})).send().await;
-                                        }
-                                    }
-                                }
-                            }
+                            let prefix = &session_id[..session_id.len().min(8)];
+                            handle_question_event(ctx, &event, port, prefix, &tracked_sessions).await;
                         }
                         continue;
                     }
@@ -535,7 +450,7 @@ async fn poll_for_message_with_approval(
                                     // Only return if this is a final message (not just tool-calls)
                                     // If finish="tool-calls", OpenCode will continue with another assistant message
                                     if finish_reason != Some("tool-calls") {
-                                        println!("[Gateway-{}] Message completed, fetching content", &session_id[..8]);
+                                        println!("[Gateway-{}] Message completed, fetching content", &session_id[..session_id.len().min(8)]);
                                         
                                         // Fetch the complete message content
                                         return fetch_message_content(port, session_id, msg_id).await;

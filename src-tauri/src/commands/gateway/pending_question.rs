@@ -154,6 +154,104 @@ pub fn resolve_answer(reply_text: &str, questions: &[QuestionInfo]) -> Vec<Vec<S
         .collect()
 }
 
+/// Handle a question.asked event: forward to channel, spawn wait task.
+/// Used by both the shared SSE handler (mod.rs) and WeCom's own SSE handler.
+pub async fn handle_question_event(
+    ctx: &QuestionContext,
+    event: &serde_json::Value,
+    port: u16,
+    session_id_prefix: &str,
+    tracked_sessions: &std::collections::HashSet<String>,
+) {
+    let q_session_id = event.get("properties")
+        .and_then(|p| p.get("sessionID").or_else(|| p.get("sessionId")))
+        .and_then(|s| s.as_str());
+
+    let sess_id = match q_session_id {
+        Some(s) if tracked_sessions.contains(s) => s,
+        _ => return,
+    };
+
+    let question_id = event.get("properties")
+        .and_then(|p| p.get("id"))
+        .and_then(|id| id.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let questions = parse_question_event(event);
+
+    println!("[Gateway-{}] Question asked: id={}, {} question(s)",
+        session_id_prefix, question_id, questions.len());
+
+    let forwarded = ForwardedQuestion {
+        question_id: question_id.clone(),
+        questions: questions.clone(),
+    };
+
+    let _ = sess_id; // used for tracked_sessions check above
+
+    match (ctx.forwarder)(forwarded).await {
+        Ok(channel_msg_id) => {
+            let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+            ctx.store.insert(channel_msg_id.clone(), PendingQuestionEntry {
+                question_id: question_id.clone(),
+                answer_tx: tx,
+                created_at: std::time::Instant::now(),
+            }).await;
+
+            let port_clone = port;
+            let qid = question_id;
+            let questions_clone = questions;
+            let store_clone = std::sync::Arc::clone(&ctx.store);
+            let cmid = channel_msg_id;
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(300), rx
+                ).await {
+                    Ok(Ok(answer)) => {
+                        let answers = resolve_answer(&answer, &questions_clone);
+                        let url = format!(
+                            "http://127.0.0.1:{}/question/{}/reply",
+                            port_clone, qid
+                        );
+                        let body = serde_json::json!({ "answers": answers });
+                        match client.post(&url).json(&body).send().await {
+                            Ok(r) => println!(
+                                "[Gateway] Question {} answered (HTTP {})",
+                                qid, r.status()
+                            ),
+                            Err(e) => eprintln!(
+                                "[Gateway] Failed to reply question {}: {}",
+                                qid, e
+                            ),
+                        }
+                    }
+                    _ => {
+                        let url = format!(
+                            "http://127.0.0.1:{}/question/{}/reject",
+                            port_clone, qid
+                        );
+                        let _ = client
+                            .post(&url)
+                            .json(&serde_json::json!({}))
+                            .send()
+                            .await;
+                        println!("[Gateway] Question {} auto-rejected (timeout)", qid);
+                    }
+                }
+                store_clone.take(&cmid).await;
+            });
+        }
+        Err(e) => {
+            eprintln!("[Gateway-{}] Failed to forward question: {}", session_id_prefix, e);
+            let url = format!("http://127.0.0.1:{}/question/{}/reject", port, question_id);
+            let client = reqwest::Client::new();
+            let _ = client.post(&url).json(&serde_json::json!({})).send().await;
+        }
+    }
+}
+
 pub fn extract_question_marker(text: &str) -> Option<&str> {
     let start = text.find("[Q:")?;
     let rest = &text[start + 3..];

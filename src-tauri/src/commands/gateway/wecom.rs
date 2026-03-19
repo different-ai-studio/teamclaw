@@ -523,6 +523,10 @@ impl WeComGateway {
                         &req_id_q, &stream_id, &text, true, &ws_sink_q,
                     ).await.map_err(|e| format!("Failed to send question: {}", e))?;
                     println!("[WeCom] Question forwarded: {}", qid);
+                    // WeCom's quote payload lacks a message ID, so we use question_id as the
+                    // channel_msg_id key. Reply interception uses take_by_question_id() which
+                    // matches on entry.question_id, and the timeout cleanup calls store.take(&cmid)
+                    // which also works because cmid == question_id == entry.question_id.
                     Ok(qid)
                 })
             }),
@@ -866,7 +870,7 @@ impl WeComGateway {
         tracked_sessions.insert(session_id.to_string());
         let mut approved_permission_ids = std::collections::HashSet::new();
 
-        println!("[Gateway-{}] Streaming AI response to WeCom", &session_id[..8]);
+        println!("[Gateway-{}] Streaming AI response to WeCom", &session_id[..session_id.len().min(8)]);
 
         while let Some(chunk) = stream.next().await {
             if start_time.elapsed() > std::time::Duration::from_secs(900) {
@@ -938,70 +942,9 @@ impl WeComGateway {
                         }
 
                         "question.asked" => {
-                            let q_session_id = event.get("properties")
-                                .and_then(|p| p.get("sessionID"))
-                                .and_then(|s| s.as_str());
-
                             if let Some(ctx) = question_ctx {
-                                if let Some(sess_id) = q_session_id {
-                                    if tracked_sessions.contains(sess_id) {
-                                        let question_id = event.get("properties")
-                                            .and_then(|p| p.get("id"))
-                                            .and_then(|id| id.as_str())
-                                            .unwrap_or("").to_string();
-
-                                        let questions = super::parse_question_event(&event);
-
-                                        println!("[WeCom-{}] Question asked: id={}", &session_id[..8], question_id);
-
-                                        let forwarded = super::ForwardedQuestion {
-                                            question_id: question_id.clone(),
-                                            questions: questions.clone(),
-                                        };
-
-                                        match (ctx.forwarder)(forwarded).await {
-                                            Ok(channel_msg_id) => {
-                                                let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-                                                ctx.store.insert(channel_msg_id.clone(), super::PendingQuestionEntry {
-                                                    question_id: question_id.clone(),
-                                                    answer_tx: tx,
-                                                    created_at: std::time::Instant::now(),
-                                                }).await;
-
-                                                let port_clone = port;
-                                                let qid = question_id;
-                                                let questions_clone = questions;
-                                                let store_clone = Arc::clone(&ctx.store);
-                                                let cmid = channel_msg_id;
-                                                tokio::spawn(async move {
-                                                    let client = reqwest::Client::new();
-                                                    match tokio::time::timeout(
-                                                        std::time::Duration::from_secs(300), rx
-                                                    ).await {
-                                                        Ok(Ok(answer)) => {
-                                                            let answers = super::resolve_answer(&answer, &questions_clone);
-                                                            let url = format!("http://127.0.0.1:{}/question/{}/reply", port_clone, qid);
-                                                            let _ = client.post(&url).json(&serde_json::json!({"answers": answers})).send().await;
-                                                            println!("[WeCom] Question {} answered", qid);
-                                                        }
-                                                        _ => {
-                                                            let url = format!("http://127.0.0.1:{}/question/{}/reject", port_clone, qid);
-                                                            let _ = client.post(&url).json(&serde_json::json!({})).send().await;
-                                                            println!("[WeCom] Question {} auto-rejected", qid);
-                                                        }
-                                                    }
-                                                    store_clone.take(&cmid).await;
-                                                });
-                                            }
-                                            Err(e) => {
-                                                eprintln!("[WeCom] Failed to forward question: {}", e);
-                                                let url = format!("http://127.0.0.1:{}/question/{}/reject", port, question_id);
-                                                let client = reqwest::Client::new();
-                                                let _ = client.post(&url).json(&serde_json::json!({})).send().await;
-                                            }
-                                        }
-                                    }
-                                }
+                                let prefix = &session_id[..session_id.len().min(8)];
+                                super::handle_question_event(ctx, &event, port, prefix, &tracked_sessions).await;
                             }
                             continue;
                         }
@@ -1070,7 +1013,7 @@ impl WeComGateway {
                                     && completed_time.is_some()
                                     && finish_reason != Some("tool-calls")
                                 {
-                                    println!("[Gateway-{}] Message completed, sending final stream chunk", &session_id[..8]);
+                                    println!("[Gateway-{}] Message completed, sending final stream chunk", &session_id[..session_id.len().min(8)]);
 
                                     // Stop thinking animation if still active
                                     if thinking_active {
