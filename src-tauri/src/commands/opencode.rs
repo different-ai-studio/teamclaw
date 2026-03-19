@@ -19,6 +19,8 @@ pub struct OpenCodeState {
     pub workspace_path: Mutex<Option<String>>,
     /// Async lock that serializes `start_opencode` calls to prevent concurrent spawns.
     pub start_lock: tokio::sync::Mutex<()>,
+    /// Early launch state — set by setup hook, consumed by start_opencode.
+    pub early_launch: tokio::sync::Mutex<Option<EarlyLaunchState>>,
 }
 
 impl Default for OpenCodeState {
@@ -35,6 +37,7 @@ impl Default for OpenCodeState {
             is_dev_mode: Mutex::new(is_dev),
             workspace_path: Mutex::new(None),
             start_lock: tokio::sync::Mutex::new(()),
+            early_launch: tokio::sync::Mutex::new(None),
         }
     }
 }
@@ -52,6 +55,14 @@ pub struct OpenCodeStatus {
     pub url: String,
     pub is_dev_mode: bool,
     pub workspace_path: Option<String>,
+}
+
+/// State for the early sidecar launch (initiated from setup hook before frontend).
+pub struct EarlyLaunchState {
+    /// The workspace path this early launch was started for.
+    pub workspace_path: String,
+    /// Receiver to await the result. Clone to subscribe.
+    pub result_rx: tokio::sync::watch::Receiver<Option<Result<OpenCodeStatus, String>>>,
 }
 
 /// Start OpenCode server as a sidecar process (or connect to external in dev mode)
@@ -464,6 +475,9 @@ pub async fn start_opencode(
         let mut workspace_guard = state.workspace_path.lock().map_err(|e| e.to_string())?;
         *workspace_guard = Some(workspace_path.clone());
     }
+
+    // Persist workspace for early launch on next startup
+    write_last_workspace(&workspace_path);
 
     Ok(OpenCodeStatus {
         is_running: true,
@@ -1364,6 +1378,46 @@ pub async fn write_opencode_allowlist(
         rules.len()
     );
     Ok(())
+}
+
+/// Path to the file that persists the last workspace for early launch.
+fn last_workspace_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home)
+        .join(".teamclaw")
+        .join("last-workspace.json")
+}
+
+/// Read the last workspace path from ~/.teamclaw/last-workspace.json.
+pub fn read_last_workspace() -> Option<String> {
+    let path = last_workspace_path();
+    let content = std::fs::read_to_string(&path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let ws = json.get("workspace_path")?.as_str()?;
+    // Verify the directory still exists
+    if std::path::Path::new(ws).is_dir() {
+        Some(ws.to_string())
+    } else {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[EarlyLaunch] Last workspace '{}' no longer exists, skipping",
+            ws
+        );
+        None
+    }
+}
+
+/// Persist the workspace path for next launch.
+fn write_last_workspace(workspace_path: &str) {
+    let path = last_workspace_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let json = serde_json::json!({ "workspace_path": workspace_path });
+    let _ = std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&json).unwrap_or_default(),
+    );
 }
 
 /// Get OpenCode server status
