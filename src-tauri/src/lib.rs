@@ -132,8 +132,13 @@ fn fix_path_env() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(debug_assertions)]
+    let startup_t0 = std::time::Instant::now();
+
     // Fix PATH before anything else so all child processes can find tools
     fix_path_env();
+    #[cfg(debug_assertions)]
+    eprintln!("[Startup] fix_path_env: {:.1}ms", startup_t0.elapsed().as_secs_f64() * 1000.0);
 
     // Create RagState (HTTP server will be started in setup hook)
     let rag_state = commands::knowledge::RagState::default();
@@ -410,6 +415,9 @@ pub fn run() {
             commands::team_webdav::get_team_mode,
         ])
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            let setup_t0 = std::time::Instant::now();
+
             // Start RAG HTTP API server for MCP bridge
             let rag_state_handle = app.handle().state::<commands::knowledge::RagState>();
             let rag_state_for_http = std::sync::Arc::new(rag_state_handle.inner().clone());
@@ -441,6 +449,9 @@ pub fn run() {
             // Team sync will be triggered from the frontend after workspace is set,
             // since workspace_path is not available at setup time.
             // The frontend calls team_sync_repo on startup when team config is enabled.
+
+            #[cfg(debug_assertions)]
+            eprintln!("[Startup] Setup hook (before early launch): {:.1}ms", setup_t0.elapsed().as_secs_f64() * 1000.0);
 
             // --- Early sidecar launch ---
             // Read last workspace and start OpenCode before frontend renders.

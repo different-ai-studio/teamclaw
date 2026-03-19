@@ -114,8 +114,12 @@ pub async fn start_opencode_inner(
     state: &OpenCodeState,
     config: OpenCodeConfig,
 ) -> Result<OpenCodeStatus, String> {
+    #[cfg(debug_assertions)]
+    let inner_t0 = std::time::Instant::now();
     // Serialize concurrent calls — only one start_opencode runs at a time.
     let _start_guard = state.start_lock.lock().await;
+    #[cfg(debug_assertions)]
+    eprintln!("[Startup] start_opencode_inner: lock acquired in {:.1}ms", inner_t0.elapsed().as_secs_f64() * 1000.0);
 
     let is_dev_mode = *state.is_dev_mode.lock().map_err(|e| e.to_string())?;
     let port = config.port.unwrap_or(DEFAULT_PORT);
@@ -402,6 +406,9 @@ pub async fn start_opencode_inner(
         secrets = retry_secrets;
     }
 
+    #[cfg(debug_assertions)]
+    eprintln!("[Startup] Pre-sidecar I/O (parallel): {:.1}ms", inner_t0.elapsed().as_secs_f64() * 1000.0);
+
     let original_config = resolve_config_secret_refs(&workspace_path, &secrets);
 
     println!(
@@ -517,6 +524,9 @@ pub async fn start_opencode_inner(
         let mut workspace_guard = state.workspace_path.lock().map_err(|e| e.to_string())?;
         *workspace_guard = Some(workspace_path.clone());
     }
+
+    #[cfg(debug_assertions)]
+    eprintln!("[Startup] start_opencode_inner TOTAL: {:.1}ms", inner_t0.elapsed().as_secs_f64() * 1000.0);
 
     // Persist workspace for early launch on next startup
     write_last_workspace(&workspace_path);
