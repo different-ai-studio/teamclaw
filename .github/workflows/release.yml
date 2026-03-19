@@ -19,6 +19,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Write production build config from secret
+        env:
+          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
+        run: |
+          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.production.json
+            echo "✅ Production build config written"
+          else
+            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
+          fi
+
       - name: Verify Tauri signing key
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -160,6 +171,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Write production build config from secret
+        env:
+          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
+        shell: bash
+        run: |
+          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.production.json
+            echo "✅ Production build config written"
+          else
+            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
+          fi
 
       - name: Verify Tauri signing key
         env:
