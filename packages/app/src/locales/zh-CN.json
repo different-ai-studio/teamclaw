@@ -1138,7 +1138,7 @@
       "sharedKnowledge": "共享知识库",
       "somethingWrong": "出了点问题",
       "disconnectTitle": "断开团队仓库",
-      "disconnectConfirm": "确定要断开团队仓库吗？共享内容（技能、MCP 配置、知识库）将保留在本地，但不再自动同步。",
+      "disconnectConfirm": "确定要断开团队仓库吗？teamclaw-team 目录及其所有内容将被永久删除。",
       "gitInstallHint": "Git CLI 未安装或不在 PATH 中。请安装 git 以启用团队仓库共享：",
       "tabP2p": "P2P",
       "tabGit": "Git",

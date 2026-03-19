@@ -1106,7 +1106,7 @@
       "sharedKnowledge": "Shared knowledge base",
       "somethingWrong": "Something went wrong",
       "disconnectTitle": "Disconnect Team Repository",
-      "disconnectConfirm": "Are you sure you want to disconnect the team repository? The shared content (skills, MCP configs, knowledge) will be kept locally but will no longer sync automatically.",
+      "disconnectConfirm": "Are you sure you want to disconnect the team repository? The teamclaw-team directory and all its content will be permanently deleted.",
       "gitInstallHint": "Git CLI is not installed or not in PATH. Install git to enable team repository sharing:",
       "tabP2p": "P2P",
       "tabGit": "Git",

@@ -603,7 +603,7 @@ export function TeamGitConfig() {
           <DialogHeader>
             <DialogTitle>{t('settings.team.disconnectTitle', 'Disconnect Team Repository')}</DialogTitle>
             <DialogDescription>
-              {t('settings.team.disconnectConfirm', 'Are you sure you want to disconnect the team repository? The shared content (skills, MCP configs, knowledge) will be kept locally but will no longer sync automatically.')}
+              {t('settings.team.disconnectConfirm', 'Are you sure you want to disconnect the team repository? The teamclaw-team directory and all its content will be permanently deleted.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

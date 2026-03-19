@@ -60,8 +60,8 @@ interface MemberStats {
 }
 
 const COLUMNS = [
-  { key: 'token', label: 'Token 用量', icon: Flame, color: 'text-amber-500' },
-  { key: 'feedback', label: '反馈次数', icon: MessageSquareHeart, color: 'text-pink-500' },
+  { key: 'token', label: 'Token Usage', icon: Flame, color: 'text-amber-500' },
+  { key: 'feedback', label: 'Feedback Count', icon: MessageSquareHeart, color: 'text-pink-500' },
 ] as const
 
 // ── Component ──────────────────────────────────────────────────────────

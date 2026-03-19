@@ -847,6 +847,13 @@ pub async fn webdav_disconnect(
     // Clear team_mode
     write_team_mode(&workspace_path, None)?;
 
+    // Remove teamclaw-team directory
+    let team_dir = Path::new(&workspace_path).join(TEAM_REPO_DIR);
+    if team_dir.exists() {
+        std::fs::remove_dir_all(&team_dir)
+            .map_err(|e| format!("Failed to remove team directory: {}", e))?;
+    }
+
     Ok(())
 }
 

@@ -125,11 +125,7 @@ pub fn run() {
         .plugin({
             #[cfg(debug_assertions)]
             {
-                tauri_plugin_mcp::init_with_config(
-                    tauri_plugin_mcp::PluginConfig::new("TeamClaw".to_string())
-                        .start_socket_server(true)
-                        .socket_path("/tmp/tauri-mcp.sock".into())
-                )
+                tauri_plugin_mcp::Builder.build()
             }
             #[cfg(not(debug_assertions))]
             {

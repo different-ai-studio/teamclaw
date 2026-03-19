@@ -130,8 +130,8 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
   const { overallRank, totalMembers, tokenRank, feedbackRank } = ranks
 
   const stats = [
-    { label: 'Token 用量', rank: tokenRank, icon: Flame, color: 'text-amber-300' },
-    { label: '反馈次数', rank: feedbackRank, icon: MessageSquareHeart, color: 'text-pink-300' },
+    { label: 'Token Usage', rank: tokenRank, icon: Flame, color: 'text-amber-300' },
+    { label: 'Feedback Count', rank: feedbackRank, icon: MessageSquareHeart, color: 'text-pink-300' },
   ]
 
   if (totalMembers === 0) {
