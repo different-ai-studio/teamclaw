@@ -91,21 +91,21 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
       </div>
 
       {/* Questions */}
-      <div className="p-4 space-y-6">
+      <div className="px-4 py-3 space-y-4">
         {questions.map((question, qIndex) => {
           const questionId = question.id || String(qIndex)
           const selectedOption = answers[questionId]
           const customInput = customInputs[questionId] || ''
 
           return (
-            <div key={questionId} className="space-y-3">
+            <div key={questionId} className="space-y-1.5">
               {/* Question header and text */}
               {question.header && (
                 <div className="text-sm font-medium text-foreground">
                   {question.header}
                 </div>
               )}
-              <div className="text-sm text-muted-foreground">
+              <div className="text-sm text-muted-foreground mb-2">
                 {question.question}
               </div>
 
@@ -120,7 +120,7 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
                       key={optIndex}
                       onClick={() => handleOptionSelect(qIndex, optionValue)}
                       className={cn(
-                        'w-full flex items-center gap-3 px-4 py-3 rounded-lg border text-left transition-all',
+                        'w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md border text-left transition-all',
                         isSelected
                           ? 'border-foreground/30 bg-muted/70 text-foreground'
                           : 'border-border hover:border-foreground/20 hover:bg-muted/50'
@@ -129,18 +129,18 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
                     >
                       <div
                         className={cn(
-                          'flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors',
+                          'flex-shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors',
                           isSelected
                             ? 'border-foreground/60 bg-foreground/10'
                             : 'border-muted-foreground/50'
                         )}
                       >
-                        {isSelected && <Check className="h-3 w-3 text-foreground" />}
+                        {isSelected && <Check className="h-2.5 w-2.5 text-foreground" />}
                       </div>
                       <span className="text-sm flex-1">{option.label}</span>
                       <ChevronRight
                         className={cn(
-                          'h-4 w-4 transition-opacity',
+                          'h-3.5 w-3.5 transition-opacity',
                           isSelected ? 'opacity-100 text-foreground/70' : 'opacity-0'
                         )}
                       />
@@ -151,7 +151,7 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
 
               {/* Text input - always shown when interactive */}
               {showInteractiveUI && (
-                <div className="pt-2">
+                <div className="pt-1">
                   <Input
                     placeholder={question.options?.length ? "Or type a custom answer..." : "Type your answer..."}
                     value={customInput}
@@ -182,13 +182,14 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
 
       {/* Submit button */}
       {showInteractiveUI && (
-        <div className="px-4 pb-4">
+        <div className="px-4 pb-3">
           <Button
             onClick={handleSubmit}
             disabled={!hasAllAnswers || isSubmitting}
             className="w-full gap-2"
+            size="sm"
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-3.5 w-3.5" />
             {isSubmitting ? 'Submitting...' : 'Submit Answer'}
           </Button>
         </div>

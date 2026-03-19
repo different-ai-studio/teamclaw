@@ -102,7 +102,7 @@ md5 = "0.7"
 rayon = "1.10"  # Parallel iterator for recursive skill search
 
 # MCP plugin for AI agent integration (debug only)
-tauri-plugin-mcp = "0.7"
+tauri-plugin-mcp = { path = "tauri-plugin-mcp-local" }
 
 # WebDAV team sync dependencies
 quick-xml = "0.36"
@@ -120,6 +120,8 @@ rdev = "0.5"
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.24"
 objc = "0.2"
+objc2 = "0.6"
+objc2-web-kit = { version = "0.3", features = ["WKWebViewConfiguration", "WKWebView"] }
 
 [dev-dependencies]
 wiremock = "0.5"

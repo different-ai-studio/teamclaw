@@ -10,8 +10,10 @@ interface WebViewContentProps {
 
 // Track which webview labels have been created (globally, survives component unmount)
 const createdWebviews = new Set<string>()
+// Track webviews whose tabs were closed — need URL reset when reopened
+const needsUrlReset = new Set<string>()
 
-// Subscribe to tab store to close native webviews when their tabs are closed
+// Subscribe to tab store to hide native webviews when their tabs are closed
 let tabCleanupInitialized = false
 function initTabCleanup() {
   if (tabCleanupInitialized || !isTauri()) return
@@ -30,9 +32,11 @@ function initTabCleanup() {
     for (const tab of removed) {
       const label = urlToLabel(normalizeUrl(tab.target))
       if (createdWebviews.has(label)) {
-        createdWebviews.delete(label)
+        // Hide instead of close to preserve login/session state.
+        // Mark for URL reset so reopening navigates to the original URL.
+        needsUrlReset.add(label)
         import("@tauri-apps/api/core").then(({ invoke }) => {
-          invoke("webview_close", { label }).catch(() => {})
+          invoke("webview_hide", { label }).catch(() => {})
         })
       }
     }
@@ -98,8 +102,15 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
         const alreadyExists = createdWebviews.has(label)
 
         if (alreadyExists) {
-          // Webview already exists — just show and reposition (no reload)
+          // Webview already exists — show and reposition
           setIsLoading(false)
+
+          // If tab was closed and reopened, navigate back to the original URL
+          if (needsUrlReset.has(label)) {
+            needsUrlReset.delete(label)
+            await invoke("webview_navigate", { label, url })
+          }
+
           await invoke("webview_show", {
             label,
             x: Math.round(rect.left),

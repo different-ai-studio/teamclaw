@@ -1,3 +1,6 @@
+// Suppress cfg warnings from the legacy `objc` crate's `msg_send!` / `sel_impl!` macros.
+#![allow(unexpected_cfgs)]
+
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
@@ -333,6 +336,7 @@ pub fn run() {
             commands::webview::webview_go_back,
             commands::webview::webview_go_forward,
             commands::webview::webview_reload,
+            commands::webview::webview_navigate,
             commands::webview::webview_get_url,
             commands::spotlight::toggle_spotlight,
             commands::spotlight::set_spotlight_pin,

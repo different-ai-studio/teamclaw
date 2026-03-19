@@ -7,7 +7,6 @@ import {
   MessageSquare,
   Plug,
   Sparkles,
-  Info,
   Users,
   Package,
   Clock,
@@ -22,7 +21,9 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
 import { useAppVersion } from '@/lib/version'
+import { useUpdaterStore } from '@/stores/updater'
 
 // Section components
 import { LLMSection } from './LLMSection'
@@ -30,7 +31,6 @@ import { GeneralSection } from './GeneralSection'
 import { PromptSection } from './PromptSection'
 import { MCPSection } from './MCPSection'
 import { SkillsSection } from './SkillsSection'
-import { AboutSection } from './AboutSection'
 import { ChannelsSection } from './ChannelsSection'
 import { DependenciesSection } from './DependenciesSection'
 import { TeamSection } from './TeamSection'
@@ -49,7 +49,7 @@ interface SettingsProps {
   onClose?: () => void
 }
 
-type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'about' | 'leaderboard' | 'shortcuts'
+type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
 interface Section {
   id: SettingsSection
@@ -81,7 +81,6 @@ const advancedSections: Section[] = [
   { id: 'knowledge', label: 'Knowledge Base', labelKey: 'settings.nav.knowledge', icon: BookOpen, color: 'text-cyan-500' },
   { id: 'deps', label: 'Dependencies', labelKey: 'settings.nav.deps', icon: Package, color: 'text-teal-500' },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield, color: 'text-slate-500' },
-  { id: 'about', label: 'About', labelKey: 'settings.nav.about', icon: Info, color: 'text-cyan-500' },
 ]
 
 const sectionComponents: Record<SettingsSection, React.ComponentType> = {
@@ -100,9 +99,47 @@ const sectionComponents: Record<SettingsSection, React.ComponentType> = {
   tokenUsage: TokenUsageSection,
   privacy: PrivacySection,
   permissions: PermissionManagementSection,
-  about: AboutSection,
   leaderboard: LeaderboardSection,
   shortcuts: ShortcutsSection,
+}
+
+function UpdateButton() {
+  const { t } = useTranslation()
+  const update = useUpdaterStore(s => s.update)
+  const checkForUpdates = useUpdaterStore(s => s.checkForUpdates)
+  const installUpdate = useUpdaterStore(s => s.installUpdate)
+
+  if (update.state === 'ready') {
+    return (
+      <Button variant="default" size="sm" className="h-6 text-[11px] px-2" onClick={installUpdate}>
+        {t('settings.update.install', 'Install')}
+      </Button>
+    )
+  }
+
+  if (update.state === 'available' || update.state === 'downloading') {
+    return (
+      <span className="text-[11px] text-muted-foreground">
+        {update.state === 'downloading' ? `${t('settings.update.downloading', 'Downloading')}...` : `v${update.version}`}
+      </span>
+    )
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 text-[11px] px-2 text-muted-foreground"
+      onClick={() => checkForUpdates()}
+      disabled={update.state === 'checking'}
+    >
+      {update.state === 'checking'
+        ? `${t('settings.update.checking', 'Checking')}...`
+        : update.state === 'up-to-date'
+          ? t('settings.update.upToDate', 'Up to date')
+          : t('settings.update.check', 'Check for updates')}
+    </Button>
+  )
 }
 
 export function Settings(_props?: SettingsProps) {
@@ -226,10 +263,11 @@ export function Settings(_props?: SettingsProps) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t">
-          <p className="text-xs text-muted-foreground text-center">
+        <div className="px-4 py-3 border-t flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
             v{appVersion}
-          </p>
+          </span>
+          <UpdateButton />
         </div>
       </div>
 

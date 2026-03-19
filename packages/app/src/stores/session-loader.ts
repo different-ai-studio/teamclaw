@@ -162,13 +162,14 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
 
     // Create a new session
     createSession: async (_workspacePath?: string) => {
-      // Save current session's message queue to cache before creating new session
-      const { activeSessionId: prevSessionId, messageQueue: currentQueue } = get();
-      if (prevSessionId && currentQueue.length > 0) {
+      // Save current session's message queue and pending question to cache before creating new session
+      const { activeSessionId: prevSessionId, messageQueue: currentQueue, pendingQuestion: currentPendingQuestion } = get();
+      if (prevSessionId) {
         const prevCached = sessionDataCache.get(prevSessionId) || { todos: [], diff: [] };
         sessionDataCache.set(prevSessionId, {
           ...prevCached,
-          messageQueue: currentQueue,
+          messageQueue: currentQueue.length > 0 ? currentQueue : prevCached.messageQueue,
+          pendingQuestion: currentPendingQuestion,
         });
       }
 
@@ -223,19 +224,21 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         todos: currentTodos,
         sessionDiff: currentDiff,
         messageQueue: currentQueue,
+        pendingQuestion: currentPendingQuestion,
       } = get();
 
-      // Save current session's todos, diff, and message queue to cache before switching
+      // Save current session's todos, diff, message queue, and pending question to cache before switching
       if (prevSessionId) {
         const prevCached = sessionDataCache.get(prevSessionId) || { todos: [], diff: [] };
         sessionDataCache.set(prevSessionId, {
           todos: currentTodos.length > 0 ? currentTodos : prevCached.todos,
           diff: currentDiff.length > 0 ? currentDiff : prevCached.diff,
           messageQueue: currentQueue.length > 0 ? currentQueue : undefined,
+          pendingQuestion: currentPendingQuestion,
         });
       }
 
-      // Restore todos, diff, and message queue from cache for the new session, or use empty
+      // Restore todos, diff, message queue, and pending question from cache for the new session
       const cachedData = sessionDataCache.get(id);
 
       // Reset streaming state and restore session-specific data when switching sessions
@@ -254,7 +257,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         sessionError: null,
         pendingPermission: null,
         pendingPermissionChildSessionId: null,
-        pendingQuestion: null,
+        pendingQuestion: cachedData?.pendingQuestion || null,
       });
 
       try {

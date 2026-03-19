@@ -43,20 +43,30 @@ impl Default for WebviewManager {
 
 /// Create a shared WKWebViewConfiguration on the main thread.
 /// Must be called from Tauri's builder chain or setup() which run on the main thread.
+///
+/// All child webviews share this configuration, which means they share:
+/// - WKProcessPool → session cookies shared in-memory across webviews
+/// - WKWebsiteDataStore (defaultDataStore) → persistent cookies, localStorage shared
 #[cfg(target_os = "macos")]
 pub fn init_shared_config(manager: &mut WebviewManager) {
     use objc2::MainThreadMarker;
-    use objc2_web_kit::WKWebViewConfiguration;
+    use objc2_web_kit::{WKWebViewConfiguration, WKWebsiteDataStore};
 
     let mtm = MainThreadMarker::new()
         .expect("init_shared_config must be called from the main thread");
     unsafe {
         let config = WKWebViewConfiguration::new(mtm);
+        // Explicitly set the default persistent data store so cookies/localStorage
+        // are shared with all webviews using this config.
+        // Note: WKProcessPool is deprecated/no-op on modern macOS — all webviews
+        // share a single global process pool automatically.
+        let data_store = WKWebsiteDataStore::defaultDataStore(mtm);
+        config.setWebsiteDataStore(&data_store);
         let raw = objc2::rc::Retained::as_ptr(&config) as *const std::ffi::c_void;
         objc2::ffi::objc_retain(raw as *mut _);
         manager.shared_config = Some(SharedConfig(raw));
     }
-    eprintln!("[Webview] Shared WKWebViewConfiguration initialized on main thread");
+    eprintln!("[Webview] Shared WKWebViewConfiguration initialized on main thread (defaultDataStore + shared pool)");
 }
 
 /// Execute JavaScript in the main webview and return the stringified result.
@@ -311,6 +321,18 @@ pub async fn webview_go_forward(app: tauri::AppHandle, label: String) -> Result<
 pub async fn webview_reload(app: tauri::AppHandle, label: String) -> Result<(), String> {
     if let Some(webview) = app.get_webview(&label) {
         let _ = webview.eval("window.location.reload()");
+    }
+    Ok(())
+}
+
+/// Navigate a webview to a new URL.
+#[tauri::command]
+pub async fn webview_navigate(app: tauri::AppHandle, label: String, url: String) -> Result<(), String> {
+    if let Some(webview) = app.get_webview(&label) {
+        let parsed = url.parse::<tauri::Url>()
+            .map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+        eprintln!("[Webview] Navigating '{}' to {}", label, url);
+        webview.navigate(parsed).map_err(|e| format!("Failed to navigate: {}", e))?;
     }
     Ok(())
 }

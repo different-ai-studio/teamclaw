@@ -3,6 +3,10 @@
   "identifier": "default",
   "description": "Default capabilities for the main window",
   "windows": ["main", "spotlight"],
+  "webviews": ["main", "wv-*"],
+  "remote": {
+    "urls": ["https://*"]
+  },
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -127,11 +127,12 @@ export const GeneralSection = React.memo(function GeneralSection() {
     system: Monitor,
   }
 
+
   return (
     <div className="space-y-6">
-      <SectionHeader 
-        icon={Settings2} 
-        title={t('settings.general.title', 'General')} 
+      <SectionHeader
+        icon={Settings2}
+        title={t('settings.general.title', 'General')}
         description={t('settings.general.description', 'Customize your application preferences')}
         iconColor="text-blue-500"
       />
@@ -162,24 +163,6 @@ export const GeneralSection = React.memo(function GeneralSection() {
               </button>
             )
           })}
-        </div>
-      </SettingCard>
-
-      <SettingCard>
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <label className="text-sm font-medium flex items-center gap-2">
-              <Wrench className="h-4 w-4 text-muted-foreground" />
-              {t('settings.general.advancedMode', 'Advanced Mode')}
-            </label>
-            <p className="text-xs text-muted-foreground">
-              {t('settings.general.advancedModeDesc', 'Enable Code mode, Changes and Files panels for power users')}
-            </p>
-          </div>
-          <ToggleSwitch
-            enabled={advancedMode}
-            onChange={(v) => setAdvancedMode(v, workspacePath)}
-          />
         </div>
       </SettingCard>
 
@@ -285,6 +268,17 @@ export const GeneralSection = React.memo(function GeneralSection() {
       )}
 
       <ChatSuggestionsCard />
+
+      <div className="flex items-center justify-between px-1 py-1">
+        <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Wrench className="h-3 w-3" />
+          {t('settings.general.advancedMode', 'Advanced Mode')}
+        </label>
+        <ToggleSwitch
+          enabled={advancedMode}
+          onChange={(v) => setAdvancedMode(v, workspacePath)}
+        />
+      </div>
     </div>
   )
 })
