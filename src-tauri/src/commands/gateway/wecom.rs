@@ -772,7 +772,18 @@ impl WeComGateway {
             });
         }
 
-        // Step 1: Send message async
+        // Step 1: Connect to SSE FIRST (before sending message) to avoid missing delta events
+        let sse_url = format!("http://127.0.0.1:{}/event", port);
+        let response = client.get(&sse_url)
+            .header("Accept", "text/event-stream")
+            .timeout(std::time::Duration::from_secs(900))
+            .send().await
+            .map_err(|e| {
+                let _ = thinking_stop_tx.try_send(());
+                format!("Failed to connect to SSE: {}", e)
+            })?;
+
+        // Step 2: Now send message async (SSE is already listening)
         let url = format!("http://127.0.0.1:{}/session/{}/prompt_async", port, session_id);
         let mut body = serde_json::json!({ "parts": parts });
         if let Some((provider_id, model_id)) = model {
@@ -803,17 +814,6 @@ impl WeComGateway {
             return Err(format!("OpenCode prompt_async failed: HTTP {} - {}", status, body_text));
         }
 
-        // Step 2: Connect to SSE and stream to WeCom
-        let sse_url = format!("http://127.0.0.1:{}/event", port);
-        let response = client.get(&sse_url)
-            .header("Accept", "text/event-stream")
-            .timeout(std::time::Duration::from_secs(900))
-            .send().await
-            .map_err(|e| {
-                let _ = thinking_stop_tx.try_send(());
-                format!("Failed to connect to SSE: {}", e)
-            })?;
-
         let mut stream = response.bytes_stream();
         let mut buffer = String::new();
         let start_time = tokio::time::Instant::now();
@@ -827,6 +827,9 @@ impl WeComGateway {
         let mut tracked_sessions = std::collections::HashSet::new();
         tracked_sessions.insert(session_id.to_string());
         let mut approved_permission_ids = std::collections::HashSet::new();
+        // Track whether we've seen activity for our message (delta or busy status)
+        // so we can detect abort (idle after activity) vs spurious idle events
+        let mut has_seen_activity = false;
 
         println!("[Gateway-{}] Streaming AI response to WeCom", &session_id[..8]);
 
@@ -912,6 +915,7 @@ impl WeComGateway {
                                     .unwrap_or("");
                                 // Only stream text content, skip thinking/reasoning
                                 if part_type == "text_delta" || part_type == "text" {
+                                    has_seen_activity = true;
                                     accumulated_text.push_str(delta);
 
                                     // On first real text, stop thinking animation and replace with actual content
@@ -958,6 +962,15 @@ impl WeComGateway {
                                     .and_then(|c| c.as_u64());
                                 let finish_reason = info.get("finish").and_then(|f| f.as_str());
 
+                                // tool-calls: intermediate step, reset activity flag so
+                                // the subsequent idle doesn't prematurely end the stream
+                                if role == Some("assistant")
+                                    && completed_time.is_some()
+                                    && finish_reason == Some("tool-calls")
+                                {
+                                    has_seen_activity = false;
+                                }
+
                                 if role == Some("assistant")
                                     && created_time.map_or(false, |t| t >= send_timestamp_ms)
                                     && completed_time.is_some()
@@ -989,6 +1002,39 @@ impl WeComGateway {
                                         req_id, &stream_id, &final_text, true, ws_sink
                                     ).await;
                                 }
+                            }
+                        }
+
+                        "session.status" | "session.idle" => {
+                            if event_session_id != Some(session_id) { continue; }
+                            let status_type = event.get("properties")
+                                .and_then(|p| p.get("status"))
+                                .and_then(|s| s.get("type"))
+                                .and_then(|t| t.as_str());
+                            let is_busy = status_type == Some("busy");
+                            let is_idle = status_type == Some("idle") || event_type == "session.idle";
+
+                            if is_busy {
+                                has_seen_activity = true;
+                            }
+
+                            // Only treat idle as abort/completion if we've seen activity
+                            // (avoids reacting to spurious idle events before our message is processed)
+                            if is_idle && has_seen_activity {
+                                println!("[Gateway-{}] Session went idle (aborted?), finishing stream", &session_id[..8]);
+
+                                if thinking_active {
+                                    let _ = thinking_stop_tx.send(()).await;
+                                }
+
+                                let final_text = if accumulated_text.is_empty() {
+                                    "(已终止)".to_string()
+                                } else {
+                                    accumulated_text
+                                };
+                                return self.send_stream_chunk(
+                                    req_id, &stream_id, &final_text, true, ws_sink
+                                ).await;
                             }
                         }
 

@@ -225,10 +225,20 @@ pub async fn send_message_async_with_approval(
     parts: Vec<serde_json::Value>,
     model: Option<(String, String)>,
 ) -> Result<String, String> {
-    // Step 1: Send message asynchronously (non-blocking)
     let client = reqwest::Client::new();
+
+    // Step 1: Connect to SSE FIRST to avoid missing events
+    let sse_url = format!("http://127.0.0.1:{}/event", port);
+    let sse_response = client
+        .get(&sse_url)
+        .header("Accept", "text/event-stream")
+        .timeout(Duration::from_secs(900))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to SSE: {}", e))?;
+
+    // Step 2: Send message asynchronously (SSE is already listening)
     let url = format!("http://127.0.0.1:{}/session/{}/prompt_async", port, session_id);
-    
     let mut body = serde_json::json!({ "parts": parts });
     if let Some((provider_id, model_id)) = model {
         body["model"] = serde_json::json!({
@@ -236,13 +246,12 @@ pub async fn send_message_async_with_approval(
             "modelID": model_id
         });
     }
-    
-    // Step 1.5: Record current timestamp (milliseconds since epoch)
+
     let send_timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
-    
+
     client
         .post(&url)
         .json(&body)
@@ -250,38 +259,20 @@ pub async fn send_message_async_with_approval(
         .send()
         .await
         .map_err(|e| format!("Failed to send async message: {}", e))?;
-    
-    // Step 2 & 3: Use unified SSE stream to handle both message waiting and permission approval
-    // This avoids having multiple SSE connections which can cause event conflicts
-    poll_for_message_with_approval(port, session_id, send_timestamp_ms).await
+
+    // Step 3: Process SSE events (connection already established)
+    poll_for_message_with_approval_from_stream(sse_response, port, session_id, send_timestamp_ms).await
 }
 
-/// Unified SSE handler: wait for assistant message AND auto-approve permissions
-/// 
-/// This function uses a SINGLE SSE connection to:
-/// 1. Wait for the assistant's message completion (message.updated with completed time)
-/// 2. Monitor for child session creation (session.created)
-/// 3. Auto-approve permissions for parent and child sessions (permission.asked)
-/// 
-/// Using one SSE connection avoids event conflicts and duplicate processing.
-async fn poll_for_message_with_approval(
+/// Unified SSE handler using a pre-established SSE connection.
+/// SSE must be connected BEFORE sending the prompt to avoid missing events.
+async fn poll_for_message_with_approval_from_stream(
+    sse_response: reqwest::Response,
     port: u16,
     session_id: &str,
     send_timestamp_ms: u64,
 ) -> Result<String, String> {
-    let client = reqwest::Client::new();
-    let sse_url = format!("http://127.0.0.1:{}/event", port);
-    
-    // Connect to SSE stream
-    let response = client
-        .get(&sse_url)
-        .header("Accept", "text/event-stream")
-        .timeout(Duration::from_secs(900)) // 15 minute timeout
-        .send()
-        .await
-        .map_err(|e| format!("Failed to connect to SSE: {}", e))?;
-    
-    let mut stream = response.bytes_stream();
+    let mut stream = sse_response.bytes_stream();
     let mut buffer = String::new();
     let mut new_message_id: Option<String> = None;
     let start_time = tokio::time::Instant::now();
