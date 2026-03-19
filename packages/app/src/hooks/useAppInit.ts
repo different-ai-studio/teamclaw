@@ -282,7 +282,6 @@ export function useSetupGuide(openCodeReady: boolean) {
   const [showSetupGuide, setShowSetupGuide] = useState(false);
   const {
     dependencies,
-    checked: depsChecked,
     checkDependencies,
   } = useDepsStore();
   const depsResultRef = useRef<{ checked: boolean; hasRequiredMissing: boolean }>({
@@ -317,32 +316,11 @@ export function useSetupGuide(openCodeReady: boolean) {
     checkDependencies().then((result) => {
       const hasRequiredMissing = result.some((d) => d.required && !d.installed);
       depsResultRef.current = { checked: true, hasRequiredMissing };
-    });
-  }, [openCodeReady, checkDependencies]);
-
-  // Apply deps result once check completes
-  useEffect(() => {
-    const decision = setupDecisionRef.current;
-
-    if (depsResultRef.current.checked) {
-      if (
-        depsResultRef.current.hasRequiredMissing &&
-        (decision === "show" || decision === "silent-check")
-      ) {
-        setShowSetupGuide(true);
-      }
-      return;
-    }
-
-    if (depsChecked) return;
-
-    checkDependencies().then((result) => {
-      const hasRequiredMissing = result.some((d) => d.required && !d.installed);
       if (hasRequiredMissing && (decision === "show" || decision === "silent-check")) {
         setShowSetupGuide(true);
       }
     });
-  }, [depsChecked, checkDependencies]);
+  }, [openCodeReady, checkDependencies]);
 
   const handleRecheck = useCallback(async () => {
     return checkDependencies();

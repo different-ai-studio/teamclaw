@@ -114,7 +114,7 @@ describe('useLayoutModeShortcut', () => {
 describe('useSetupGuide', () => {
   it('returns showSetupGuide as false initially', async () => {
     const { useSetupGuide } = await import('@/hooks/useAppInit')
-    const { result } = renderHook(() => useSetupGuide())
+    const { result } = renderHook(() => useSetupGuide(false))
     expect(result.current.showSetupGuide).toBe(false)
     expect(result.current.dependencies).toEqual([])
   })
