@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tauri-mcp": {
+      "command": "tauri-mcp-server",
+      "args": []
+    }
+  }
+}

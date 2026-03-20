@@ -22,6 +22,29 @@ pub struct TeamConfig {
     pub git_token: Option<String>,
 }
 
+/// LLM configuration stored in teamclaw.json under "llm" key.
+/// Replaces the old teamclaw-team/teamclaw.yaml file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmConfig {
+    pub base_url: String,
+    pub model: String,
+    pub model_name: String,
+}
+
+/// Unified team status returned by check_team_status().
+/// Single source of truth for "is this workspace in team mode?"
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamStatus {
+    /// Whether a team mode is currently active
+    pub active: bool,
+    /// Which team mode: "p2p", "webdav", or "git"
+    pub mode: Option<String>,
+    /// Team LLM configuration, if present
+    pub llm: Option<LlmConfig>,
+}
+
 /// Result of a git operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamGitResult {
@@ -193,19 +216,118 @@ fn get_team_repo_path(workspace_path: &str) -> String {
     p.to_string_lossy().to_string()
 }
 
-/// Default teamclaw.yaml content for new team repos
-pub const DEFAULT_TEAMCLAW_YAML: &str = r#"llm:
-  baseUrl: "https://api.openai.com/v1"
-  model: "default"
-  modelName: "default"
-"#;
+/// Build an LlmConfig from optional parameters, falling back to defaults.
+pub fn build_llm_config(base_url: Option<String>, model: Option<String>, model_name: Option<String>) -> LlmConfig {
+    LlmConfig {
+        base_url: base_url.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+        model: model.filter(|s| !s.is_empty()).unwrap_or_else(|| "default".to_string()),
+        model_name: model_name.filter(|s| !s.is_empty()).unwrap_or_else(|| "default".to_string()),
+    }
+}
 
-/// Build teamclaw.yaml content using provided LLM config, falling back to defaults.
-pub fn build_teamclaw_yaml(base_url: Option<String>, model: Option<String>, model_name: Option<String>) -> String {
-    let base_url = base_url.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-    let model = model.filter(|s| !s.is_empty()).unwrap_or_else(|| "default".to_string());
-    let model_name = model_name.filter(|s| !s.is_empty()).unwrap_or_else(|| "default".to_string());
-    format!("llm:\n  baseUrl: \"{}\"\n  model: \"{}\"\n  modelName: \"{}\"\n", base_url, model, model_name)
+/// Write LLM config to teamclaw.json under "llm" key, preserving other fields.
+pub fn write_llm_config(
+    workspace_path: &str,
+    config: Option<&LlmConfig>,
+) -> Result<(), String> {
+    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
+    let _ = std::fs::create_dir_all(&teamclaw_dir);
+    let config_path = format!("{}/teamclaw.json", teamclaw_dir);
+
+    let mut json: serde_json::Value = if Path::new(&config_path).exists() {
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse teamclaw.json: {}", e))?
+    } else {
+        serde_json::json!({
+            "$schema": "https://opencode.ai/config.json"
+        })
+    };
+
+    if let Some(llm_config) = config {
+        let llm_val = serde_json::to_value(llm_config)
+            .map_err(|e| format!("Failed to serialize llm config: {}", e))?;
+        json.as_object_mut()
+            .ok_or("teamclaw.json is not an object")?
+            .insert("llm".to_string(), llm_val);
+    } else {
+        json.as_object_mut()
+            .ok_or("teamclaw.json is not an object")?
+            .remove("llm");
+    }
+
+    let content = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    std::fs::write(&config_path, content)
+        .map_err(|e| format!("Failed to write teamclaw.json: {}", e))
+}
+
+/// Single source of truth: check whether this workspace has an active team mode.
+/// Reads .teamclaw/teamclaw.json once and returns TeamStatus with mode + LLM config.
+pub fn check_team_status(workspace_path: &str) -> TeamStatus {
+    let config_path = Path::new(workspace_path)
+        .join(crate::commands::TEAMCLAW_DIR)
+        .join("teamclaw.json");
+
+    let json = match std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+    {
+        Some(v) => v,
+        None => return TeamStatus { active: false, mode: None, llm: None },
+    };
+
+    // Determine mode: explicit field first, then infer from enabled flags
+    let mode = json
+        .get("team_mode")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            if json.get("webdav").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
+                Some("webdav".to_string())
+            } else if json.get("p2p").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
+                Some("p2p".to_string())
+            } else if json.get("team").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
+                Some("git".to_string())
+            } else {
+                None
+            }
+        });
+
+    // Read LLM config
+    let llm = json.get("llm").and_then(|v| serde_json::from_value::<LlmConfig>(v.clone()).ok());
+
+    let active = mode.is_some();
+    TeamStatus { active, mode, llm }
+}
+
+/// Write the team_mode field in .teamclaw/teamclaw.json.
+/// Pass None to clear it (on disconnect).
+pub fn write_team_mode(workspace_path: &str, mode: Option<&str>) -> Result<(), String> {
+    let teamclaw_dir = Path::new(workspace_path).join(crate::commands::TEAMCLAW_DIR);
+    std::fs::create_dir_all(&teamclaw_dir)
+        .map_err(|e| format!("Failed to create .teamclaw: {}", e))?;
+
+    let config_path = teamclaw_dir.join("teamclaw.json");
+    let mut json: serde_json::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    match mode {
+        Some(m) => json["team_mode"] = serde_json::Value::String(m.to_string()),
+        None => { json.as_object_mut().map(|o| o.remove("team_mode")); }
+    }
+
+    let content = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    std::fs::write(&config_path, content)
+        .map_err(|e| format!("Failed to write teamclaw.json: {}", e))
 }
 
 /// The whitelist .gitignore content
@@ -230,7 +352,6 @@ const GITIGNORE_CONTENT: &str = r#"# ===========================================
 !knowledge/**
 
 # 5. Allow workspace config
-!teamclaw.yaml
 !.gitignore
 
 # 6. Allow Git collaboration config (team mode)
@@ -391,6 +512,17 @@ fn convert_team_server_to_opencode(server: &TeamMCPServer) -> MCPServerConfig {
     }
 }
 
+// ─── Tauri Commands: Team Status ─────────────────────────────────────────────
+
+/// Unified team status check — single source of truth for frontend.
+#[tauri::command]
+pub fn get_team_status(
+    opencode_state: State<'_, OpenCodeState>,
+) -> Result<TeamStatus, String> {
+    let workspace_path = get_workspace_path(&opencode_state)?;
+    Ok(check_team_status(&workspace_path))
+}
+
 // ─── Tauri Commands: Git Operations ─────────────────────────────────────────
 
 /// 1.1 - Check if git is installed on the system
@@ -466,21 +598,10 @@ pub async fn team_init_repo(
         ));
     }
 
-    // Write default teamclaw.yaml if the cloned repo doesn't have one
-    let teamclaw_yaml_path = Path::new(&team_dir).join("teamclaw.yaml");
-    if !teamclaw_yaml_path.exists() {
-        let yaml_content = build_teamclaw_yaml(llm_base_url, llm_model, llm_model_name);
-        std::fs::write(&teamclaw_yaml_path, &yaml_content)
-            .map_err(|e| format!("Failed to write default teamclaw.yaml: {}", e))?;
-        println!("[Team Init] Created default teamclaw.yaml with team LLM config");
-
-        // Commit the default config so it's shared with the team
-        let _ = run_git(&["add", "teamclaw.yaml"], &team_dir);
-        let _ = run_git(
-            &["commit", "-m", "chore: add default team LLM configuration"],
-            &team_dir,
-        );
-    }
+    // Write LLM config to .teamclaw/teamclaw.json
+    let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name);
+    write_llm_config(&workspace_path, Some(&llm_config))?;
+    println!("[Team Init] Wrote LLM config to .teamclaw/teamclaw.json");
 
     // Sync .mcp/ from team dir into workspace opencode.json
     match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
