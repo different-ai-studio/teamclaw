@@ -653,62 +653,7 @@ async fn do_background_sync(
     result
 }
 
-// --- team_mode ---
-
-pub fn read_team_mode(workspace_path: &str) -> Option<String> {
-    let config_path = Path::new(workspace_path).join(TEAMCLAW_DIR).join("teamclaw.json");
-    let content = fs::read_to_string(&config_path).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-    json.get("team_mode")?.as_str().map(|s| s.to_string())
-}
-
-pub fn write_team_mode(workspace_path: &str, mode: Option<&str>) -> Result<(), String> {
-    let teamclaw_dir = Path::new(workspace_path).join(TEAMCLAW_DIR);
-    fs::create_dir_all(&teamclaw_dir).map_err(|e| format!("Failed to create .teamclaw: {e}"))?;
-
-    let config_path = teamclaw_dir.join("teamclaw.json");
-    let mut json: serde_json::Value = if config_path.exists() {
-        let content = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
-        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
-
-    match mode {
-        Some(m) => json["team_mode"] = serde_json::Value::String(m.to_string()),
-        None => { json.as_object_mut().map(|o| o.remove("team_mode")); }
-    }
-
-    let content = serde_json::to_string_pretty(&json)
-        .map_err(|e| format!("Serialize error: {e}"))?;
-    fs::write(&config_path, content)
-        .map_err(|e| format!("Write error: {e}"))?;
-
-    Ok(())
-}
-
-pub fn infer_team_mode(workspace_path: &str) -> Option<String> {
-    let config_path = Path::new(workspace_path).join(TEAMCLAW_DIR).join("teamclaw.json");
-    let content = fs::read_to_string(&config_path).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-
-    if json.get("team_mode").and_then(|v| v.as_str()).is_some() {
-        return read_team_mode(workspace_path);
-    }
-
-    if json.get("webdav").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
-        return Some("webdav".to_string());
-    }
-    if json.get("p2p").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
-        return Some("p2p".to_string());
-    }
-    if json.get("team").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
-        return Some("git".to_string());
-    }
-
-    None
-}
+// --- team_mode --- (delegated to team::check_team_status / team::write_team_mode)
 
 // --- Tauri Commands ---
 
@@ -756,7 +701,7 @@ pub async fn webdav_connect(
     write_webdav_config(&workspace_path, &new_config)?;
 
     // Set team_mode
-    write_team_mode(&workspace_path, Some("webdav"))?;
+    crate::commands::team::write_team_mode(&workspace_path, Some("webdav"))?;
 
     // Update state
     let mut state = webdav_state.lock().await;
@@ -845,7 +790,7 @@ pub async fn webdav_disconnect(
     let _ = delete_credential(&workspace_path);
 
     // Clear team_mode
-    write_team_mode(&workspace_path, None)?;
+    crate::commands::team::write_team_mode(&workspace_path, None)?;
 
     // Remove teamclaw-team directory
     let team_dir = Path::new(&workspace_path).join(TEAM_REPO_DIR);
@@ -923,12 +868,13 @@ pub async fn webdav_get_status(
     })
 }
 
+/// Deprecated: use team::get_team_status instead. Kept for backward compatibility.
 #[tauri::command]
 pub async fn get_team_mode(
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<Option<String>, String> {
     let workspace_path = get_workspace_path(&opencode_state)?;
-    Ok(infer_team_mode(&workspace_path))
+    Ok(crate::commands::team::check_team_status(&workspace_path).mode)
 }
 
 // --- Tests ---
@@ -1006,7 +952,7 @@ mod tests {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>/dav/teamclaw-team/teamclaw.yaml</D:href>
+    <D:href>/dav/teamclaw-team/README.md</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype/>
@@ -1032,7 +978,7 @@ mod tests {
         assert_eq!(entries.len(), 2);
 
         let file = entries.iter().find(|e| !e.is_collection).unwrap();
-        assert_eq!(file.href, "teamclaw.yaml");
+        assert_eq!(file.href, "README.md");
         assert_eq!(file.etag.as_deref(), Some("\"abc123\""));
         assert_eq!(file.content_length, Some(256));
 
@@ -1073,7 +1019,7 @@ mod tests {
         use std::collections::HashMap;
 
         let mut old_files = HashMap::new();
-        old_files.insert("teamclaw.yaml".to_string(), FileEntry {
+        old_files.insert("README.md".to_string(), FileEntry {
             etag: Some("\"aaa\"".to_string()),
             last_modified: None,
             size: 100,
@@ -1086,7 +1032,7 @@ mod tests {
 
         let remote_files = vec![
             DavEntry {
-                href: "teamclaw.yaml".to_string(),
+                href: "README.md".to_string(),
                 is_collection: false,
                 etag: Some("\"aaa-changed\"".to_string()),
                 last_modified: None,
@@ -1106,7 +1052,7 @@ mod tests {
         assert_eq!(diff.to_update.len(), 1);
         assert_eq!(diff.to_delete.len(), 1);
         assert_eq!(diff.to_add[0].href, "skills/new.md");
-        assert_eq!(diff.to_update[0].href, "teamclaw.yaml");
+        assert_eq!(diff.to_update[0].href, "README.md");
         assert_eq!(diff.to_delete[0], "old-file.md");
     }
 
@@ -1178,20 +1124,23 @@ mod tests {
 
     #[test]
     fn test_read_write_team_mode() {
+        use crate::commands::team::{check_team_status, write_team_mode};
         let tmp = TempDir::new().unwrap();
         let workspace = tmp.path().to_str().unwrap();
 
-        assert!(read_team_mode(workspace).is_none());
+        assert!(!check_team_status(workspace).active);
 
         write_team_mode(workspace, Some("webdav")).unwrap();
-        assert_eq!(read_team_mode(workspace).as_deref(), Some("webdav"));
+        let status = check_team_status(workspace);
+        assert_eq!(status.mode.as_deref(), Some("webdav"));
 
         write_team_mode(workspace, None).unwrap();
-        assert!(read_team_mode(workspace).is_none());
+        assert!(!check_team_status(workspace).active);
     }
 
     #[test]
     fn test_team_mode_migration() {
+        use crate::commands::team::check_team_status;
         let tmp = TempDir::new().unwrap();
         let workspace = tmp.path().to_str().unwrap();
         let teamclaw_dir = tmp.path().join(".teamclaw");
@@ -1200,8 +1149,9 @@ mod tests {
         let config = r#"{"p2p": {"enabled": true}, "team": {"enabled": false}}"#;
         fs::write(teamclaw_dir.join("teamclaw.json"), config).unwrap();
 
-        let mode = infer_team_mode(workspace);
-        assert_eq!(mode.as_deref(), Some("p2p"));
+        let status = check_team_status(workspace);
+        assert!(status.active);
+        assert_eq!(status.mode.as_deref(), Some("p2p"));
     }
 }
 
@@ -1223,7 +1173,7 @@ mod integration_tests {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>{base_path}teamclaw.yaml</D:href>
+    <D:href>{base_path}README.md</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype/>
@@ -1251,7 +1201,7 @@ mod integration_tests {
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/team/teamclaw.yaml"))
+            .and(path("/team/README.md"))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_string("llm:\n  model: gpt-4o\n")
@@ -1274,13 +1224,13 @@ mod integration_tests {
         assert_eq!(result.files_deleted, 0);
 
         let content = fs::read_to_string(
-            tmp.path().join("teamclaw-team").join("teamclaw.yaml")
+            tmp.path().join("teamclaw-team").join("README.md")
         ).unwrap();
         assert!(content.contains("gpt-4o"));
 
         let manifest = read_sync_manifest(workspace).unwrap();
         assert_eq!(manifest.files.len(), 1);
-        assert!(manifest.files.contains_key("teamclaw.yaml"));
+        assert!(manifest.files.contains_key("README.md"));
     }
 
     #[tokio::test]
@@ -1380,7 +1330,7 @@ mod integration_tests {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>{base_path}teamclaw.yaml</D:href>
+    <D:href>{base_path}README.md</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype/>
@@ -1399,7 +1349,7 @@ mod integration_tests {
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/team/teamclaw.yaml"))
+            .and(path("/team/README.md"))
             .respond_with(ResponseTemplate::new(200).set_body_string("version: 1"))
             .mount(&server)
             .await;
@@ -1426,7 +1376,7 @@ mod integration_tests {
             .await;
 
         Mock::given(method("GET"))
-            .and(path("/team/teamclaw.yaml"))
+            .and(path("/team/README.md"))
             .respond_with(ResponseTemplate::new(200).set_body_string("version: 2"))
             .mount(&server)
             .await;
@@ -1436,7 +1386,7 @@ mod integration_tests {
         assert_eq!(r3.files_updated, 1);
 
         let content = fs::read_to_string(
-            tmp.path().join("teamclaw-team").join("teamclaw.yaml")
+            tmp.path().join("teamclaw-team").join("README.md")
         ).unwrap();
         assert_eq!(content, "version: 2");
     }
@@ -1463,7 +1413,7 @@ mod integration_tests {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>{base_path}teamclaw.yaml</D:href>
+    <D:href>{base_path}README.md</D:href>
     <D:propstat>
       <D:prop><D:resourcetype/><D:getcontentlength>10</D:getcontentlength><D:getetag>"a"</D:getetag></D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
@@ -1481,7 +1431,7 @@ mod integration_tests {
         Mock::given(method("PROPFIND")).and(path(base_path))
             .respond_with(ResponseTemplate::new(207).set_body_string(&propfind_two))
             .mount(&server).await;
-        Mock::given(method("GET")).and(path("/team/teamclaw.yaml"))
+        Mock::given(method("GET")).and(path("/team/README.md"))
             .respond_with(ResponseTemplate::new(200).set_body_string("yaml"))
             .mount(&server).await;
         Mock::given(method("GET")).and(path("/team/old.txt"))
@@ -1504,7 +1454,7 @@ mod integration_tests {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>{base_path}teamclaw.yaml</D:href>
+    <D:href>{base_path}README.md</D:href>
     <D:propstat>
       <D:prop><D:resourcetype/><D:getcontentlength>10</D:getcontentlength><D:getetag>"a"</D:getetag></D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
@@ -1519,6 +1469,6 @@ mod integration_tests {
         let result = sync_from_webdav(&client, &url, &auth, workspace).await.unwrap();
         assert_eq!(result.files_deleted, 1);
         assert!(!tmp.path().join("teamclaw-team/old.txt").exists());
-        assert!(tmp.path().join("teamclaw-team/teamclaw.yaml").exists());
+        assert!(tmp.path().join("teamclaw-team/README.md").exists());
     }
 }

@@ -324,6 +324,7 @@ pub fn run() {
             commands::git::git_status,
             commands::git::git_diff,
             commands::git::git_show_file,
+            commands::team::get_team_status,
             commands::team::team_check_git_installed,
             commands::team::team_check_workspace_has_git,
             commands::team::team_init_repo,

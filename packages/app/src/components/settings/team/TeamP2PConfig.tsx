@@ -155,6 +155,7 @@ export function TeamP2PConfig() {
   const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
   const [joinApprovalPending, setJoinApprovalPending] = React.useState(false)
   const [confirmAction, setConfirmAction] = React.useState<'create' | 'join' | null>(null)
+  const [confirmDisconnect, setConfirmDisconnect] = React.useState(false)
 
   const ownerNodeId = syncStatus?.members?.[0]?.nodeId ?? null
   const allowedMembers = syncStatus?.members ?? []
@@ -308,11 +309,21 @@ export function TeamP2PConfig() {
     }
   }
 
-  const handleP2pDisconnect = async () => {
+  const handleP2pDisconnect = () => {
+    setConfirmDisconnect(true)
+  }
+
+  const doDisconnect = async () => {
+    setConfirmDisconnect(false)
     setP2pError(null)
     try {
       await tauriInvoke('p2p_disconnect_source')
       setSyncStatus(null)
+      // Clear frontend team mode state
+      if (workspacePath) {
+        const store = useTeamModeStore.getState()
+        await store.clearTeamMode(workspacePath)
+      }
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : String(err))
     }
@@ -627,6 +638,29 @@ export function TeamP2PConfig() {
             </Button>
             <Button variant="destructive" onClick={handleConfirmOverwrite} className="gap-2">
               {t('common.continue', 'Continue')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Disconnect Confirmation Dialog */}
+      <Dialog open={confirmDisconnect} onOpenChange={(open) => { if (!open) setConfirmDisconnect(false) }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>
+              {t('settings.team.disconnectTitle', 'Disconnect from team?')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('settings.team.disconnectDesc', 'This will delete local team data (.teamclaw and teamclaw-team directories). This action cannot be undone.')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDisconnect(false)}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button variant="destructive" onClick={doDisconnect} className="gap-2">
+              <Unlink className="h-3.5 w-3.5" />
+              {t('settings.team.confirmDisconnect', 'Disconnect')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import yaml from 'js-yaml'
 import {
   addCustomProviderToConfig,
   removeCustomProviderFromConfig,
@@ -11,7 +10,6 @@ import { buildConfig } from '@/lib/build-config'
 
 const TEAM_PROVIDER_ID = 'team'
 const TEAM_API_KEY_STORAGE = 'teamclaw-team-api-key'
-const TEAM_CONFIG_PATH = 'teamclaw-team/teamclaw.yaml'
 
 export interface TeamModelConfig {
   baseUrl: string
@@ -31,24 +29,19 @@ interface TeamModeState {
   clearTeamMode: (workspacePath?: string) => Promise<void>
 }
 
-async function readTeamYaml(workspacePath: string): Promise<TeamModelConfig | null> {
+interface TeamStatusResponse {
+  active: boolean
+  mode: string | null
+  llm: TeamModelConfig | null
+}
+
+async function fetchTeamStatus(): Promise<TeamStatusResponse | null> {
   if (!isTauri()) return null
   try {
-    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
-    const configPath = `${workspacePath}/${TEAM_CONFIG_PATH}`
-    if (!(await exists(configPath))) return null
-    const content = await readTextFile(configPath)
-    const doc = yaml.load(content) as Record<string, unknown> | null
-    if (!doc || typeof doc !== 'object') return null
-    const llm = doc.llm as Record<string, unknown> | undefined
-    if (!llm || !llm.baseUrl || !llm.model) return null
-    return {
-      baseUrl: String(llm.baseUrl),
-      model: String(llm.model),
-      modelName: String(llm.modelName || llm.model),
-    }
+    const { invoke } = await import('@tauri-apps/api/core')
+    return await invoke<TeamStatusResponse>('get_team_status')
   } catch (err) {
-    console.warn('[TeamMode] Failed to read team config:', err)
+    console.warn('[TeamMode] Failed to read team status:', err)
     return null
   }
 }
@@ -72,22 +65,20 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     }
   })(),
 
-  loadTeamConfig: async (workspacePath: string) => {
-    const config = await readTeamYaml(workspacePath)
-    // Fall back to build-time config if yaml is absent but build config has LLM settings
-    const effectiveConfig = config || (
-      buildConfig.team.llm.baseUrl
-        ? { baseUrl: buildConfig.team.llm.baseUrl, model: buildConfig.team.llm.model, modelName: buildConfig.team.llm.modelName }
-        : null
-    )
-    if (effectiveConfig) {
-      set({ teamMode: true, teamModelConfig: effectiveConfig })
+  loadTeamConfig: async (_workspacePath: string) => {
+    const status = await fetchTeamStatus()
+    if (status?.active && status.llm) {
+      const config: TeamModelConfig = {
+        baseUrl: status.llm.baseUrl,
+        model: status.llm.model,
+        modelName: status.llm.modelName || status.llm.model,
+      }
+      set({ teamMode: true, teamModelConfig: config })
     } else {
       const wasTeamMode = get().teamMode
-      // Update state first so UI reacts immediately
       set({ teamMode: false, teamModelConfig: null })
       if (wasTeamMode) {
-        await get().clearTeamMode(workspacePath)
+        await get().clearTeamMode(_workspacePath)
       }
     }
   },
@@ -181,7 +172,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
     // Set state immediately to trigger UI updates
     set({ teamMode: false, teamModelConfig: null, _appliedConfigKey: null })
-    
+
     try {
       localStorage.removeItem(TEAM_API_KEY_STORAGE)
     } catch { /* ignore */ }
@@ -190,7 +181,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     if (workspacePath) {
       try {
         await removeCustomProviderFromConfig(workspacePath, TEAM_PROVIDER_ID)
-        
+
         // Restart OpenCode to apply the removal of the custom provider
         if (isTauri()) {
           const { invoke } = await import('@tauri-apps/api/core')
@@ -213,10 +204,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     try {
       const preTeamModel = localStorage.getItem('teamclaw-pre-team-model')
       const providerStore = useProviderStore.getState()
-      
+
       // Force disconnect the team provider to remove it from the list immediately
       await providerStore.disconnectProvider(TEAM_PROVIDER_ID)
-      
+
       // Wait for OpenCode to be fully ready before initializing
       if (isTauri()) {
         const { getOpenCodeClient } = await import('@/lib/opencode/client')
@@ -233,10 +224,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
           retries--
         }
       }
-      
+
       // Ensure UI updates by refreshing providers and initializing
       await providerStore.initAll()
-      
+
       if (preTeamModel && !preTeamModel.startsWith('team/')) {
         const parts = preTeamModel.split('/')
         if (parts.length >= 2) {
