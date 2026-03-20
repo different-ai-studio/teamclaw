@@ -7,19 +7,10 @@ use crate::keys;
 
 /// Type arbitrary text.
 ///
-/// - Pure ASCII is typed via [`Keyboard::text`] which is reliable and fast.
-/// - Text containing non-ASCII (e.g. Chinese) is pasted via the system
-///   clipboard so it works regardless of the input method.
+/// - All text is pasted via the system clipboard for reliability.
+/// - This avoids input order issues and works with any character encoding.
 pub fn type_text(text: &str, _interval: f64) -> Result<String> {
-    let is_ascii = text.chars().all(|c| c.is_ascii());
-
-    if is_ascii {
-        let mut enigo =
-            Enigo::new(&Settings::default()).context("Failed to create Enigo instance")?;
-        enigo.text(text).context("enigo.text() failed")?;
-    } else {
-        paste_via_clipboard(text)?;
-    }
+    paste_via_clipboard(text)?;
 
     let preview = if text.len() > 50 {
         format!("{}...", &text[..text.char_indices().nth(50).map(|(i, _)| i).unwrap_or(text.len())])

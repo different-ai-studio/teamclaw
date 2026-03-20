@@ -89,7 +89,7 @@ pub struct MouseDragRequest {
 pub struct KeyboardTypeRequest {
     #[schemars(description = "要输入的文本")]
     pub text: String,
-    #[schemars(description = "字符间隔（秒），仅 ASCII 文本有效（默认 0）")]
+    #[schemars(description = "字符间隔（秒）（当前未使用，所有文本通过剪贴板粘贴）")]
     pub interval: Option<f64>,
 }
 
@@ -306,7 +306,7 @@ impl AutoUiService {
     // ---- Keyboard ----
 
     #[tool(
-        description = "输入文本，支持中文等 Unicode 字符（通过剪贴板粘贴）。"
+        description = "输入文本，所有文本都通过剪贴板粘贴以确保可靠性（支持 ASCII 和 Unicode）。"
     )]
     async fn auto_keyboard_type(
         &self,

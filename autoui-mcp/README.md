@@ -154,7 +154,7 @@ pnpm dlx autoui-mcp
 
 ### Keyboard Tools
 
-- `auto_keyboard_type`: Type text (supports Unicode via clipboard)
+- `auto_keyboard_type`: Type text (all text is pasted via clipboard for reliability)
 - `auto_keyboard_press`: Press key or key combination (e.g., 'enter', 'ctrl+c', 'command+v')
 
 ## Workflow: plan → act → verify
