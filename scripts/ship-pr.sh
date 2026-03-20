@@ -121,7 +121,7 @@ git push -u origin "$BRANCH_NAME"
 if command -v gh >/dev/null 2>&1; then
   echo ""
   # 解析 owner/repo：支持 https 与 git@ 两种 URL
-  parse_owner_repo() { git remote get-url "$1" 2>/dev/null | sed -E 's|.*github\.com[:/]([^/]+/[^/]+?)(\.git)?$|\1|'; }
+  parse_owner_repo() { git remote get-url "$1" 2>/dev/null | sed -E 's|.*github\.com[:/]([^/]+/[^/]+)(\.git)?$|\1|'; }
   UPSTREAM_REPO=""
   ORIGIN_REPO="$(parse_owner_repo origin)"
   if git remote get-url upstream >/dev/null 2>&1; then
@@ -155,10 +155,10 @@ $COMMIT_MSG"; then
 else
   yellow "未安装 gh (GitHub CLI)，请到 GitHub 仓库页面手动创建 PR。"
   _url="$(git remote get-url origin 2>/dev/null)"
-  _origin_repo="$(echo "$_url" | sed -E 's|.*github\.com[:/]([^/]+/[^/]+?)(\.git)?$|\1|')"
+  _origin_repo="$(echo "$_url" | sed -E 's|.*github\.com[:/]([^/]+/[^/]+)(\.git)?$|\1|')"
   _origin_owner="${_origin_repo%/*}"
   if git remote get-url upstream >/dev/null 2>&1; then
-    _upstream_repo="$(git remote get-url upstream | sed -E 's|.*github\.com[:/]([^/]+/[^/]+?)(\.git)?$|\1|')"
+    _upstream_repo="$(git remote get-url upstream | sed -E 's|.*github\.com[:/]([^/]+/[^/]+)(\.git)?$|\1|')"
     echo "  https://github.com/${_upstream_repo}/compare/${BASE_BRANCH}...${_origin_owner}:${BRANCH_NAME}"
   else
     echo "  https://github.com/${_origin_repo}/compare/${BASE_BRANCH}...${BRANCH_NAME}"

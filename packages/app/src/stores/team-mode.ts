@@ -103,13 +103,28 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       }
 
       // Write custom provider to opencode.json
+      const modelConfig: any = {
+        modelId: teamModelConfig.model,
+        modelName: teamModelConfig.modelName,
+        // Standard token limits for GPT-5.x models
+        limit: {
+          context: 256000,
+          output: 16000
+        }
+      }
+
+      // Add vision support if configured in build config
+      if (buildConfig.team.llm.supportsVision) {
+        modelConfig.modalities = {
+          input: ['text', 'image'],
+          output: ['text']
+        }
+      }
+
       await addCustomProviderToConfig(workspacePath, {
         name: 'Team',
         baseURL: teamModelConfig.baseUrl,
-        models: [{
-          modelId: teamModelConfig.model,
-          modelName: teamModelConfig.modelName,
-        }],
+        models: [modelConfig],
       })
 
       // Determine API key: user override or NodeId

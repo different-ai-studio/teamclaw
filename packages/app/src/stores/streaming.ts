@@ -86,7 +86,7 @@ export const useStreamingStore = create<StreamingState>((set) => ({
 export const CHARS_PER_FRAME = 3;
 
 export let textBuffer = "";
-export let reasoningBuffers: Map<string, string> = new Map(); // partId -> unrevealed chars
+export const reasoningBuffers: Map<string, string> = new Map(); // partId -> unrevealed chars
 export let rafId: number | null = null;
 
 // Clear all typewriter buffers and cancel pending rAF.

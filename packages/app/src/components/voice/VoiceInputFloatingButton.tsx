@@ -28,8 +28,6 @@ export function VoiceInputFloatingButton() {
     setRecognizing,
   } = useVoiceInputStore();
 
-  if (!voiceEnabled) return null;
-
   const onResult = React.useCallback(
     (transcript: string) => {
       setLastTranscript(transcript);
@@ -118,6 +116,8 @@ export function VoiceInputFloatingButton() {
     const t = setTimeout(() => setRecognizing(false), 60_000);
     return () => clearTimeout(t);
   }, [isRecognizing, setRecognizing]);
+
+  if (!voiceEnabled) return null;
 
   return (
     <div className="fixed bottom-6 right-6 z-[9998] flex flex-col items-end gap-2 isolate">

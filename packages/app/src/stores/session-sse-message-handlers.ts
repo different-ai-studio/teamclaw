@@ -473,7 +473,7 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
           .join("");
         
         // Fallback: If parts are empty, try event.finalContent or API fetch
-        let finalContent = textPartsContent || event.finalContent || "";
+        const finalContent = textPartsContent || event.finalContent || "";
         
         console.log("[MessageCompleted] Building final content from parts:", {
           partsCount: messages[msgIndex].parts.filter(p => p.type === "text").length,

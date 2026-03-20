@@ -15,6 +15,7 @@ export interface BuildConfig {
       baseUrl: string
       model: string
       modelName: string
+      supportsVision?: boolean
     }
     lockLlmConfig: boolean
   }
@@ -61,7 +62,7 @@ export function hasAnyChannel(channels: boolean | ChannelsFeatureConfig): boolea
 
 const fallback: BuildConfig = {
   team: {
-    llm: { baseUrl: '', model: '', modelName: '' },
+    llm: { baseUrl: '', model: '', modelName: '', supportsVision: false },
     lockLlmConfig: false,
   },
   app: { name: 'TeamClaw' },

@@ -193,8 +193,8 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
         
         if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
           const range = sel.getRangeAt(0)
-          let container = range.startContainer
-          let offset = range.startOffset
+          const container = range.startContainer
+          const offset = range.startOffset
           
           let chipToDelete: HTMLElement | null = null
           

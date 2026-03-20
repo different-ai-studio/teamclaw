@@ -11,6 +11,10 @@ export interface CustomModelConfig {
     context?: number
     output?: number
   }
+  modalities?: {
+    input: string[]
+    output: string[]
+  }
 }
 
 // Shape of a custom provider entry in opencode.json
@@ -25,7 +29,11 @@ interface OpenCodeProviderEntry {
   npm: string
   name?: string
   options?: { baseURL?: string; [key: string]: unknown }
-  models?: Record<string, { name: string; limit?: { context?: number; output?: number } }>
+  models?: Record<string, { 
+    name: string
+    limit?: { context?: number; output?: number }
+    modalities?: { input: string[]; output: string[] }
+  }>
 }
 
 export type SkillPermission = 'allow' | 'deny' | 'ask'
@@ -101,9 +109,17 @@ export async function addCustomProviderToConfig(
   }
 
   // Build models object from the models array
-  const modelsObj: Record<string, { name: string; limit?: { context?: number; output?: number } }> = {}
+  const modelsObj: Record<string, { 
+    name: string
+    limit?: { context?: number; output?: number }
+    modalities?: { input: string[]; output: string[] }
+  }> = {}
   for (const model of config.models) {
-    const modelEntry: { name: string; limit?: { context?: number; output?: number } } = {
+    const modelEntry: { 
+      name: string
+      limit?: { context?: number; output?: number }
+      modalities?: { input: string[]; output: string[] }
+    } = {
       name: model.modelName || model.modelId,
     }
     
@@ -116,6 +132,11 @@ export async function addCustomProviderToConfig(
       if (model.limit.output !== undefined) {
         modelEntry.limit.output = model.limit.output
       }
+    }
+    
+    // Add modalities if specified (no default)
+    if (model.modalities) {
+      modelEntry.modalities = model.modalities
     }
     
     modelsObj[model.modelId] = modelEntry
@@ -153,6 +174,7 @@ export async function getCustomProviderConfig(
         modelId,
         modelName: modelData.name,
         limit: modelData.limit,
+        modalities: modelData.modalities,
       })
     }
   }
@@ -180,9 +202,17 @@ export async function updateCustomProviderConfig(
   }
 
   // Build models object from the models array
-  const modelsObj: Record<string, { name: string; limit?: { context?: number; output?: number } }> = {}
+  const modelsObj: Record<string, { 
+    name: string
+    limit?: { context?: number; output?: number }
+    modalities?: { input: string[]; output: string[] }
+  }> = {}
   for (const model of config.models) {
-    const modelEntry: { name: string; limit?: { context?: number; output?: number } } = {
+    const modelEntry: { 
+      name: string
+      limit?: { context?: number; output?: number }
+      modalities?: { input: string[]; output: string[] }
+    } = {
       name: model.modelName || model.modelId,
     }
     
@@ -195,6 +225,11 @@ export async function updateCustomProviderConfig(
       if (model.limit.output !== undefined) {
         modelEntry.limit.output = model.limit.output
       }
+    }
+    
+    // Add modalities if specified (no default)
+    if (model.modalities) {
+      modelEntry.modalities = model.modalities
     }
     
     modelsObj[model.modelId] = modelEntry

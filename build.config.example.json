@@ -3,7 +3,8 @@
     "llm": {
       "baseUrl": "https://api.example.com/v1",
       "model": "gpt-4o",
-      "modelName": "GPT-4o"
+      "modelName": "GPT-4o",
+      "supportsVision": false
     },
     "lockLlmConfig": false
   },

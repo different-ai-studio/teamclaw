@@ -13,7 +13,10 @@ import { SAFE_BOTTOM_SPACING, NEAR_BOTTOM_THRESHOLD } from "./layout-constants";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const VIRTUAL_MSG_THRESHOLD = 50;
+// Chat messages can reflow heavily when the right-side panel opens/closes.
+// The current virtualized path occasionally keeps stale row heights and causes
+// overlap, so we keep the stable non-virtualized path for normal conversations.
+const VIRTUAL_MSG_THRESHOLD = Number.MAX_SAFE_INTEGER;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -147,9 +150,11 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     const [sessionSwitching, setSessionSwitching] = React.useState(false);
     const [inputAreaHeight, setInputAreaHeight] = React.useState(160);
+    const [messageAreaWidth, setMessageAreaWidth] = React.useState(0);
 
     // ── Refs ─────────────────────────────────────────────────────────────
     const scrollRef = React.useRef<HTMLDivElement>(null);
+    const messageAreaRef = React.useRef<HTMLDivElement>(null);
     const userScrolledUpRef = React.useRef(false);
     const prevStreamingRef = React.useRef(false);
 
@@ -178,6 +183,25 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       [handleInputHeightChange],
     );
 
+    React.useLayoutEffect(() => {
+      const el = messageAreaRef.current;
+      if (!el) return;
+
+      const updateWidth = () => {
+        const nextWidth = Math.round(el.getBoundingClientRect().width);
+        setMessageAreaWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+      };
+
+      updateWidth();
+
+      const observer = new ResizeObserver(() => {
+        updateWidth();
+      });
+
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, []);
+
     // ── Virtual scrolling ────────────────────────────────────────────────
     const useVirtualMessages = messages.length > VIRTUAL_MSG_THRESHOLD;
 
@@ -188,6 +212,16 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       overscan: 5,
       gap: 4,
     });
+
+    React.useLayoutEffect(() => {
+      if (!useVirtualMessages || messageAreaWidth <= 0) return;
+
+      const raf = requestAnimationFrame(() => {
+        messageVirtualizer.measure();
+      });
+
+      return () => cancelAnimationFrame(raf);
+    }, [useVirtualMessages, messageAreaWidth, messageVirtualizer]);
 
     // ── Scroll management ────────────────────────────────────────────────
 
@@ -462,6 +496,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
           )}
         >
           <div
+            ref={messageAreaRef}
             className={cn(
               "w-full",
               compact ? "px-2 py-4" : "mx-auto px-4 py-6 max-w-3xl",

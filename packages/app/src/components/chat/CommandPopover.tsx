@@ -115,11 +115,11 @@ export function CommandPopover({
           )
 
           const openCodeSkills = cmds.filter((cmd) => {
-            if ((cmd as any).source !== 'skill') return false
+            if ((cmd as OpenCodeCommand & { source?: string }).source !== 'skill') return false
             if (deniedSkillNames.has(cmd.name)) return false
             return resolveSkillPermission(cmd.name, permissions).permission !== 'deny'
           })
-          const openCodeCommands = cmds.filter(cmd => (cmd as any).source !== 'skill')
+          const openCodeCommands = cmds.filter((cmd) => (cmd as OpenCodeCommand & { source?: string }).source !== 'skill')
           
           // Merge frontend-scanned skills with OpenCode skills
           // Deduplicate: prefer OpenCode skills (they have more metadata like template)
@@ -164,8 +164,7 @@ export function CommandPopover({
     onSelect({
       name: item.name,
       description: item.description,
-      _type: item._itemType
-    } as any)
+    } as OpenCodeCommand)
     console.log('[CommandPopover] ✅ onSelect called, closing popover');
     onOpenChange(false)
   }, [onSelect, onOpenChange])

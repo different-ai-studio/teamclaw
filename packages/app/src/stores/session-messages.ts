@@ -52,7 +52,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
 
         console.log(`[RAG Auto-Inject] Found ${results.length} results above threshold`)
 
-        let contextLines: string[] = [
+        const contextLines: string[] = [
           '## \u76f8\u5173\u77e5\u8bc6\u5e93\u5185\u5bb9',
           '',
           '\u4ee5\u4e0b\u662f\u4ece\u77e5\u8bc6\u5e93\u4e2d\u68c0\u7d22\u5230\u7684\u76f8\u5173\u4fe1\u606f\uff0c\u8bf7\u53c2\u8003\u8fd9\u4e9b\u5185\u5bb9\u56de\u7b54\u7528\u6237\u95ee\u9898\uff1a',
@@ -102,7 +102,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
       if (!content.trim() && (!imageParts || imageParts.length === 0)) return;
 
       let { activeSessionId } = get();
-      let { streamingMessageId } = useStreamingStore.getState();
+      const { streamingMessageId } = useStreamingStore.getState();
 
       // Auto-create a session if there isn't one
       if (!activeSessionId) {

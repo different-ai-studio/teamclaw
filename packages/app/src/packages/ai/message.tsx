@@ -419,7 +419,11 @@ export function MessageResponse({
   const content = typeof children === "string" ? children : ""
   const parsedParts = parseMessageContent(content, isUserMessage)
   const hasMediaParts = parsedParts.some(p => p.type === 'image' || p.type === 'attachment')
-  
+  const inlineImages = React.useMemo(() => {
+    const allText = parsedParts.filter(p => p.type === 'text').map(p => p.content).join(' ')
+    return extractInlineImageReferences(allText)
+  }, [parsedParts])
+
   if (from === "user") {
     // For user messages with images or attachments, render them properly
     if (hasMediaParts) {
@@ -467,12 +471,6 @@ export function MessageResponse({
       </div>
     )
   }
-
-  // Extract inline image references from the message content
-  const inlineImages = React.useMemo(() => {
-    const allText = parsedParts.filter(p => p.type === 'text').map(p => p.content).join(' ')
-    return extractInlineImageReferences(allText)
-  }, [parsedParts])
 
   // For assistant messages, render images and text separately
   return (

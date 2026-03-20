@@ -111,7 +111,7 @@ export function VoiceSection() {
             progressFlushTimerRef.current = null;
           }
         });
-      } catch (_) {
+      } catch {
         setDownloadProgress(null);
       }
     })();

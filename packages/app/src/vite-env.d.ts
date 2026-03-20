@@ -45,8 +45,8 @@ interface SpeechRecognitionInstance extends EventTarget {
   stop(): void;
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
 }
-declare var SpeechRecognition: { new (): SpeechRecognitionInstance };
-declare var webkitSpeechRecognition: { new (): SpeechRecognitionInstance };
+declare let SpeechRecognition: { new (): SpeechRecognitionInstance };
+declare let webkitSpeechRecognition: { new (): SpeechRecognitionInstance };
 interface Window {
   SpeechRecognition?: typeof SpeechRecognition;
   webkitSpeechRecognition?: typeof webkitSpeechRecognition;
