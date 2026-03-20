@@ -202,6 +202,9 @@ pub async fn telemetry_export_team_feedback(
         .clone()
         .ok_or("Workspace path not set")?;
     let team_dir = std::path::Path::new(&workspace_path).join("teamclaw-team");
+    if !team_dir.exists() {
+        return Ok(());
+    }
     let feedback_dir = team_dir.join("_feedback");
 
     std::fs::create_dir_all(&feedback_dir)
@@ -378,6 +381,9 @@ pub async fn telemetry_export_leaderboard(
         .clone()
         .ok_or("Workspace path not set")?;
     let team_dir = std::path::Path::new(&workspace_path).join("teamclaw-team");
+    if !team_dir.exists() {
+        return Ok(());
+    }
     let leaderboard_dir = team_dir.join(".leaderboard");
 
     std::fs::create_dir_all(&leaderboard_dir)

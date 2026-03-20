@@ -16,11 +16,12 @@ const TEAMCLAW_APP_PATH =
   join(process.cwd(), 'src-tauri/target/debug/teamclaw');
 
 const TAURI_MCP_SOCKET =
-  process.env.TAURI_MCP_SOCKET || '/tmp/tauri-mcp-teamclaw.sock';
+  process.env.TAURI_MCP_SOCKET || '/tmp/tauri-mcp.sock';
 
 let _processId: string | null = null;
 let _osPid: number | null = null;
 let _appProcess: ChildProcess | null = null;
+let _ownedProcess = false; // true if we spawned the process ourselves
 
 // ── Socket client for tauri-plugin-mcp ────────────────────────────────
 // Connects to the Unix domain socket exposed by the tauri-plugin-mcp
@@ -131,16 +132,46 @@ function exec(cmd: string, maxBuffer = 10 * 1024 * 1024): string {
   }).trim();
 }
 
+/**
+ * Try to ping the socket to see if an app is already running.
+ */
+async function isSocketAlive(): Promise<boolean> {
+  try {
+    await socketCall('ping', {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function launchTeamClawApp(): Promise<string> {
+  // If the socket is already alive, reuse the running app (e.g. pnpm tauri dev)
+  if (existsSync(TAURI_MCP_SOCKET) && await isSocketAlive()) {
+    console.log('[test-utils] Existing app detected via socket, reusing it');
+    // Find the PID of the running teamclaw process
+    try {
+      const pid = exec('pgrep -f "target/debug/teamclaw" | head -1');
+      if (pid) {
+        _osPid = parseInt(pid);
+        _processId = String(_osPid);
+        _ownedProcess = false;
+        return _processId;
+      }
+    } catch { /* fall through to spawn */ }
+  }
+
   if (!existsSync(TEAMCLAW_APP_PATH)) {
     throw new Error(
       `TeamClaw binary not found at ${TEAMCLAW_APP_PATH}. Run: pnpm tauri:build`,
     );
   }
 
-  // Kill any existing teamclaw processes
+  // Kill any existing teamclaw processes (only when we need to spawn our own)
   try { exec('pkill -f "target/debug/teamclaw" 2>/dev/null || true'); } catch { /* ok */ }
-  await sleep(500);
+  await sleep(1000);
+
+  // Clean up stale socket file
+  try { exec(`rm -f ${TAURI_MCP_SOCKET}`); } catch { /* ok */ }
 
   // Launch app directly as a child process
   _appProcess = spawn(TEAMCLAW_APP_PATH, [], {
@@ -150,6 +181,7 @@ export async function launchTeamClawApp(): Promise<string> {
 
   _osPid = _appProcess.pid || null;
   _processId = _osPid ? String(_osPid) : null;
+  _ownedProcess = true;
 
   _appProcess.stdout?.on('data', () => { /* suppress */ });
   _appProcess.stderr?.on('data', () => { /* suppress */ });
@@ -159,21 +191,35 @@ export async function launchTeamClawApp(): Promise<string> {
     throw new Error('Failed to get PID from spawned app');
   }
 
+  // Wait for socket to appear
+  for (let i = 0; i < 30; i++) {
+    await sleep(2000);
+    if (existsSync(TAURI_MCP_SOCKET) && await isSocketAlive()) {
+      console.log(`[test-utils] Socket ready after ${(i + 1) * 2}s`);
+      break;
+    }
+  }
+
   return _processId!;
 }
 
 export async function stopApp(): Promise<void> {
-  if (_appProcess) {
-    try { _appProcess.kill(); } catch { /* ok */ }
-    _appProcess = null;
-  }
-  if (_osPid) {
-    try { exec(`kill ${_osPid} 2>/dev/null || true`); } catch { /* ok */ }
-    // Also kill any child processes
-    try { exec('pkill -f "target/debug/teamclaw" 2>/dev/null || true'); } catch { /* ok */ }
+  // Only kill the app if we spawned it ourselves
+  if (_ownedProcess) {
+    if (_appProcess) {
+      try { _appProcess.kill(); } catch { /* ok */ }
+      _appProcess = null;
+    }
+    if (_osPid) {
+      try { exec(`kill ${_osPid} 2>/dev/null || true`); } catch { /* ok */ }
+      try { exec('pkill -f "target/debug/teamclaw" 2>/dev/null || true'); } catch { /* ok */ }
+    }
+  } else {
+    console.log('[test-utils] Skipping app shutdown (reusing existing app)');
   }
   _processId = null;
   _osPid = null;
+  _ownedProcess = false;
 }
 
 export interface WindowInfo {

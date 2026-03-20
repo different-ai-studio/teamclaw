@@ -106,7 +106,7 @@ impl PluginConfig {
 
 /// Initializes the plugin.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    init_with_config(PluginConfig::default())
+    init_with_config(PluginConfig::new(String::new()))
 }
 
 /// Initializes the plugin with the given configuration.
