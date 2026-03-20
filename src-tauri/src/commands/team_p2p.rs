@@ -182,21 +182,12 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 /// Scaffold the teamclaw-team directory with default structure if it doesn't exist or is empty.
-fn scaffold_team_dir(team_dir: &str, llm_base_url: Option<String>, llm_model: Option<String>, llm_model_name: Option<String>) -> Result<(), String> {
+fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
     let team_path = Path::new(team_dir);
-    let yaml_content = crate::commands::team::build_teamclaw_yaml(llm_base_url, llm_model, llm_model_name);
 
-    // Always ensure teamclaw.yaml exists, even if directory already has content
-    let teamclaw_yaml_path = team_path.join("teamclaw.yaml");
     let need_scaffold = !team_path.exists() || collect_files(team_path, team_path).is_empty();
 
     if !need_scaffold {
-        // Directory exists with files, but still ensure teamclaw.yaml is present
-        if !teamclaw_yaml_path.exists() {
-            std::fs::write(&teamclaw_yaml_path, &yaml_content)
-                .map_err(|e| format!("Failed to write default teamclaw.yaml: {}", e))?;
-            println!("[Team P2P] Created default teamclaw.yaml with team LLM config");
-        }
         return Ok(());
     }
 
@@ -213,13 +204,6 @@ fn scaffold_team_dir(team_dir: &str, llm_base_url: Option<String>, llm_model: Op
             .map_err(|e| format!("Failed to write README.md: {}", e))?;
     }
 
-    // Write default teamclaw.yaml with team LLM config if not present
-    if !teamclaw_yaml_path.exists() {
-        std::fs::write(&teamclaw_yaml_path, &yaml_content)
-            .map_err(|e| format!("Failed to write default teamclaw.yaml: {}", e))?;
-        println!("[Team P2P] Created default teamclaw.yaml with team LLM config");
-    }
-
     Ok(())
 }
 
@@ -234,7 +218,12 @@ pub async fn create_team(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
 ) -> Result<String, String> {
-    scaffold_team_dir(team_dir, llm_base_url, llm_model, llm_model_name)?;
+    scaffold_team_dir(team_dir)?;
+
+    // Write LLM config to .teamclaw/teamclaw.json
+    let llm_config = crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    crate::commands::team::write_llm_config(workspace_path, Some(&llm_config))?;
+    println!("[Team P2P] Wrote LLM config to .teamclaw/teamclaw.json");
 
     let node_id = get_node_id(node);
     let info = get_device_metadata();
@@ -423,7 +412,7 @@ pub async fn publish_team_drive(node: &IrohNode, team_dir: &str) -> Result<Strin
         .ok_or("No active team document. Create or join a team first.")?;
 
     let team_path = Path::new(team_dir);
-    scaffold_team_dir(team_dir, None, None, None)?;
+    scaffold_team_dir(team_dir)?;
 
     let files = collect_files(team_path, team_path);
     for (key, content) in &files {
@@ -876,12 +865,12 @@ pub async fn p2p_disconnect_source(
     }
     drop(guard);
 
-    let mut config = read_p2p_config(&workspace_path)?.unwrap_or_default();
-    config.enabled = false;
-    config.namespace_id = None;
-    config.doc_ticket = None;
-    config.role = None;
-    write_p2p_config(&workspace_path, Some(&config))?;
+    // Remove .teamclaw directory (contains teamclaw.json, iroh data, etc.)
+    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
+    if Path::new(&teamclaw_dir).exists() {
+        std::fs::remove_dir_all(&teamclaw_dir)
+            .map_err(|e| format!("Failed to remove .teamclaw directory: {}", e))?;
+    }
 
     // Remove teamclaw-team directory
     let team_dir = format!("{}/teamclaw-team", workspace_path);

@@ -155,10 +155,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
       unlisten = await listen<{ path: string; kind: string }>('file-change', (event) => {
-        if (!event.payload.path.includes('teamclaw-team/teamclaw.yaml')) return;
+        if (!event.payload.path.includes('.teamclaw/teamclaw.json')) return;
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(async () => {
-          console.log('[TeamMode] teamclaw.yaml changed, reloading team config');
+          console.log('[TeamMode] teamclaw.json changed, reloading team config');
           const store = useTeamModeStore.getState();
           const wasTeamMode = store.teamMode;
           await store.loadTeamConfig(workspacePath);
