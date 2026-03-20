@@ -469,7 +469,7 @@ export function WeComChannel() {
             </div>
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">{t('settings.channels.wecom.secret', 'Secret')}</label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <div className="relative flex-1">
                   <Input
                     type="password"

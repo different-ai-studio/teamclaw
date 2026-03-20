@@ -49,16 +49,16 @@ export function TestCredentialsButton({
       </Button>
       {testResult && (
         <div className={cn(
-          "flex items-center gap-2 text-sm mt-2",
+          "flex items-start gap-2 text-sm mt-2 w-full basis-full",
           testResult.success ? "text-emerald-600" : "text-red-600"
         )}>
           {testResult.success ? (
-            <CheckCircle2 className="h-4 w-4" />
+            <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
           ) : (
-            <AlertCircle className="h-4 w-4" />
+            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
           )}
-          {testResult.message}
-          <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={onClearResult}>
+          <span className="break-words min-w-0">{testResult.message}</span>
+          <Button variant="ghost" size="sm" className="h-4 w-4 p-0 flex-shrink-0" onClick={onClearResult}>
             <X className="h-3 w-3" />
           </Button>
         </div>

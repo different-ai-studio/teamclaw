@@ -7,6 +7,26 @@ use futures_util::stream::SplitSink;
 use super::session::SessionMapping;
 use super::wecom_config::{WeComConfig, WeComGatewayStatus, WeComGatewayStatusResponse};
 
+/// Detect image MIME type from file magic bytes
+fn detect_image_mime(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 4 {
+        return None;
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg".into())
+    } else if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        Some("image/png".into())
+    } else if bytes.starts_with(b"GIF8") {
+        Some("image/gif".into())
+    } else if bytes.starts_with(b"RIFF") && bytes.len() >= 12 && &bytes[8..12] == b"WEBP" {
+        Some("image/webp".into())
+    } else if bytes.starts_with(b"BM") {
+        Some("image/bmp".into())
+    } else {
+        None
+    }
+}
+
 type WsSink = Arc<tokio::sync::Mutex<SplitSink<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     tokio_tungstenite::tungstenite::Message,
@@ -646,7 +666,7 @@ impl WeComGateway {
         }
 
         // Detect MIME from Content-Type header or default to image/png
-        let content_type = resp
+        let header_type = resp
             .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
@@ -660,6 +680,13 @@ impl WeComGateway {
             .bytes()
             .await
             .map_err(|e| format!("Failed to read body: {}", e))?;
+
+        // If Content-Type is generic octet-stream, detect actual image type from magic bytes
+        let content_type = if header_type == "application/octet-stream" {
+            detect_image_mime(&bytes).unwrap_or_else(|| header_type)
+        } else {
+            header_type
+        };
 
         println!("[WeCom] Downloaded image: {} bytes, mime={}", bytes.len(), content_type);
 
