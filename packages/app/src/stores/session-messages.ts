@@ -18,6 +18,7 @@ import {
 } from "./session-internals";
 import {
   useStreamingStore,
+  cleanupAllChildSessions,
 } from "@/stores/streaming";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
 
@@ -319,16 +320,32 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
     // Abort the current session's operation
     abortSession: async () => {
       const { activeSessionId } = get();
-      const { streamingMessageId } = useStreamingStore.getState();
-      if (!activeSessionId || !streamingMessageId) return;
+      if (!activeSessionId) return;
+      const { streamingMessageId, childSessionStreaming } = useStreamingStore.getState();
+      const childSessionIds = Object.entries(childSessionStreaming || {})
+        .filter(([, state]) => state.isStreaming)
+        .map(([sessionId]) => sessionId);
+
+      if (!streamingMessageId && childSessionIds.length === 0) return;
 
       try {
         clearMessageTimeout();
         const client = getOpenCodeClient();
-        await client.abortSession(activeSessionId);
+        const sessionIdsToAbort = Array.from(new Set([activeSessionId, ...childSessionIds]));
+        const abortResults = await Promise.allSettled(
+          sessionIdsToAbort.map((sessionId) => client.abortSession(sessionId)),
+        );
+        const failedAborts = abortResults.filter((r) => r.status === "rejected");
+        if (failedAborts.length > 0) {
+          console.warn("[Session] Some abort requests failed:", failedAborts.length);
+        }
 
         useStreamingStore.getState().clearStreaming();
+        cleanupAllChildSessions();
         set((state) => ({
+          pendingQuestion: null,
+          pendingPermission: null,
+          pendingPermissionChildSessionId: null,
           sessions: state.sessions.map((s) => ({
             ...s,
             messages: s.messages.map((m) =>
@@ -349,6 +366,8 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
           }
         }, 500);
       } catch (error) {
+        useStreamingStore.getState().clearStreaming();
+        cleanupAllChildSessions();
         set({
           error:
             error instanceof Error ? error.message : "Failed to abort session",
