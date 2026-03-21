@@ -98,6 +98,8 @@ export interface TeamMember {
   nodeId: string
   /** Human-readable display name (e.g. "Alice", "Bob") */
   name: string
+  /** Member role: owner, editor, or viewer */
+  role?: 'owner' | 'editor' | 'viewer'
   /** Human-readable label */
   label: string
   /** OS name */

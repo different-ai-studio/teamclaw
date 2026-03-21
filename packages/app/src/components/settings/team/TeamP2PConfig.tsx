@@ -148,6 +148,7 @@ export function TeamP2PConfig() {
     namespaceId: string | null
     lastSyncAt: string | null
     members: TeamMember[]
+    ownerNodeId: string | null
   } | null>(null)
 
   // Device identity & allowlist state
@@ -157,7 +158,7 @@ export function TeamP2PConfig() {
   const [confirmAction, setConfirmAction] = React.useState<'create' | 'join' | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState(false)
 
-  const ownerNodeId = syncStatus?.members?.[0]?.nodeId ?? null
+  const ownerNodeId = syncStatus?.ownerNodeId ?? syncStatus?.members?.[0]?.nodeId ?? null
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
   const isConnected = syncStatus?.connected ?? false
@@ -169,6 +170,7 @@ export function TeamP2PConfig() {
     try {
       const status = await tauriInvoke<typeof syncStatus>('p2p_sync_status')
       setSyncStatus(status)
+      useTeamModeStore.setState({ myRole: (status?.role as 'owner' | 'editor' | 'viewer') ?? null })
     } catch {
       // may not be available
     }
@@ -319,6 +321,7 @@ export function TeamP2PConfig() {
     try {
       await tauriInvoke('p2p_disconnect_source')
       setSyncStatus(null)
+      useTeamModeStore.setState({ myRole: null })
       // Clear frontend team mode state
       if (workspacePath) {
         const store = useTeamModeStore.getState()
@@ -364,7 +367,11 @@ export function TeamP2PConfig() {
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {isOwner ? t('settings.team.roleOwner', 'Owner') : t('settings.team.roleMember', 'Member')}
+                      {syncStatus?.role === 'owner'
+                        ? t('settings.team.roleOwner', 'Owner')
+                        : syncStatus?.role === 'viewer'
+                          ? t('settings.team.roleViewer', 'Viewer')
+                          : t('settings.team.roleEditor', 'Editor')}
                       {syncStatus?.lastSyncAt && ` · ${t('settings.team.lastSync', 'Last sync')}: ${formatLastSync(syncStatus.lastSyncAt)}`}
                     </p>
                   </div>
@@ -449,16 +456,24 @@ export function TeamP2PConfig() {
                       setP2pError(err instanceof Error ? err.message : String(err))
                     }
                   }}
+                  onRoleChange={async (nodeId, newRole) => {
+                    try {
+                      await tauriInvoke('team_update_member_role', { nodeId, role: newRole })
+                      await loadSyncStatus()
+                    } catch (err) {
+                      setP2pError(err instanceof Error ? err.message : String(err))
+                    }
+                  }}
                 />
 
                 {isOwner && (
                   <div className="pt-2 border-t">
                     <p className="text-xs font-medium text-muted-foreground mb-2">{t('settings.team.addMember', 'Add Member')}</p>
                     <AddMemberInput
-                      onAdd={async (nodeId, name) => {
+                      onAdd={async (nodeId, name, role) => {
                         setAddMemberError(null)
                         try {
-                          await tauriInvoke('team_add_member', { nodeId, name })
+                          await tauriInvoke('team_add_member', { nodeId, name, role })
                           await loadSyncStatus()
                         } catch (err) {
                           setAddMemberError(err instanceof Error ? err.message : String(err))

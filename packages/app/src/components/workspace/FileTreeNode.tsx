@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { cn } from '@/lib/utils';
+import { useTeamModeStore } from '@/stores/team-mode';
 import { getFileIcon } from '@/lib/file-icons';
 import { getGitStatusIndicator, getGitStatusTextColor } from '@/lib/git-status-utils';
 import { GitStatus } from "@/lib/git/service";
@@ -207,6 +208,9 @@ export const FileTreeItem = React.memo(function FileTreeItem({
 }: FileTreeItemProps) {
   const { t } = useTranslation();
   const isDirectory = node.type === "directory";
+  const myRole = useTeamModeStore((s) => s.myRole)
+  const isTeamFile = node.path.includes('/teamclaw-team/')
+  const isViewerRestricted = isTeamFile && myRole === 'viewer'
 
   const handleClick = (e: React.MouseEvent) => {
     if (isDirectory) {
@@ -347,7 +351,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
     <ContextMenu>
       <ContextMenuTrigger asChild>{rowContent}</ContextMenuTrigger>
       <ContextMenuContent className="w-56">
-        {isDirectory && (
+        {isDirectory && !isViewerRestricted && (
           <>
             <ContextMenuItem onClick={() => onNewFile(node.path)}>
               <FilePlus className="h-4 w-4" />
@@ -381,19 +385,23 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           {t("fileExplorer.copyRelativePath", "Copy Relative Path")}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onRename(node.path)}>
-          <Pencil className="h-4 w-4" />
-          {t("fileExplorer.rename", "Rename")}
-          <ContextMenuShortcut>F2</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuItem
-          variant="destructive"
-          onClick={() => onDelete(node.path, isDirectory)}
-        >
-          <Trash2 className="h-4 w-4" />
-          {t("fileExplorer.delete", "Delete")}
-          <ContextMenuShortcut>⌫</ContextMenuShortcut>
-        </ContextMenuItem>
+        {!isViewerRestricted && (
+          <ContextMenuItem onClick={() => onRename(node.path)}>
+            <Pencil className="h-4 w-4" />
+            {t("fileExplorer.rename", "Rename")}
+            <ContextMenuShortcut>F2</ContextMenuShortcut>
+          </ContextMenuItem>
+        )}
+        {!isViewerRestricted && (
+          <ContextMenuItem
+            variant="destructive"
+            onClick={() => onDelete(node.path, isDirectory)}
+          >
+            <Trash2 className="h-4 w-4" />
+            {t("fileExplorer.delete", "Delete")}
+            <ContextMenuShortcut>⌫</ContextMenuShortcut>
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => onOpenTerminal(terminalPath)}>
           <Terminal className="h-4 w-4" />

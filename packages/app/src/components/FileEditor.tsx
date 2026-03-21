@@ -30,6 +30,7 @@ import { ConflictBanner } from "@/components/editors/ConflictBanner";
 import { useSessionStore } from "@/stores/session";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useTeamModeStore } from "@/stores/team-mode";
 import { useGitStatus } from "@/hooks/use-git-status";
 import { gitManager } from "@/lib/git/manager";
 import { Button } from "@/components/ui/button";
@@ -332,6 +333,9 @@ export function FileEditor({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const myRole = useTeamModeStore((s) => s.myRole)
+  const isTeamFile = filePath?.includes('/teamclaw-team/') ?? false
+  const isViewerReadOnly = isTeamFile && myRole === 'viewer'
   const targetLine = useWorkspaceStore((s) => s.targetLine);
   const targetHeading = useWorkspaceStore((s) => s.targetHeading);
   const [currentContent, setCurrentContent] = useState(content);
@@ -809,6 +813,14 @@ export function FileEditor({
         />
       )}
 
+      {/* Viewer read-only banner */}
+      {isViewerReadOnly && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
+          <Eye className="h-3.5 w-3.5" />
+          {t('team.viewerReadOnly', 'Read-only mode — you don\'t have edit permissions')}
+        </div>
+      )}
+
       {/* Editor / Diff / Preview - file-type-routed */}
       <div className="flex-1 overflow-hidden">
         {/* Conflict diff view for markdown */}
@@ -872,6 +884,7 @@ export function FileEditor({
                     isDark={isDark}
                     targetLine={targetLine}
                     targetHeading={targetHeading}
+                    readOnly={isViewerReadOnly}
                   />
                 </Suspense>
               );
@@ -908,7 +921,8 @@ export function FileEditor({
                         onChange={(value) => setCurrentContent(value)}
                         isDark={isDark}
                         originalContent={gitHeadContent ?? fileDiff?.before ?? null}
-                      targetLine={targetLine}
+                        targetLine={targetLine}
+                        readOnly={isViewerReadOnly}
                     />
                   </Suspense>
                 </div>

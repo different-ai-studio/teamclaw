@@ -40,7 +40,7 @@ describe('AddMemberInput', () => {
     const addBtn = screen.getByRole('button', { name: /add/i })
     fireEvent.click(addBtn)
 
-    expect(onAdd).toHaveBeenCalledWith('new-member-node-id', 'Alice')
+    expect(onAdd).toHaveBeenCalledWith('new-member-node-id', 'Alice', 'editor')
   })
 
   it('shows error state when error prop is set', async () => {

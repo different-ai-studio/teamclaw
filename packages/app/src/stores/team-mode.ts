@@ -23,6 +23,7 @@ interface TeamModeState {
   teamApiKey: string | null // user-overridden key, null = use NodeId
   _appliedConfigKey: string | null // fingerprint of last applied config to avoid redundant apply
   devUnlocked: boolean // hidden dev mode: unlocks model selector & hidden dirs in team mode
+  myRole: 'owner' | 'editor' | 'viewer' | null
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
   applyTeamModelToOpenCode: (workspacePath: string) => Promise<void>
@@ -60,6 +61,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   teamModelConfig: null,
   _appliedConfigKey: null,
   devUnlocked: false,
+  myRole: null,
   teamApiKey: (() => {
     try {
       return localStorage.getItem(TEAM_API_KEY_STORAGE) || null

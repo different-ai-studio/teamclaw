@@ -363,6 +363,8 @@ pub fn run() {
             #[cfg(feature = "p2p")]
             commands::team_p2p::team_remove_member,
             #[cfg(feature = "p2p")]
+            commands::team_p2p::team_update_member_role,
+            #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_check_team_dir,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_create_team,
