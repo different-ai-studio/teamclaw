@@ -55,6 +55,12 @@ async function loadPermissionConfig(): Promise<Record<string, string>> {
   return {};
 }
 
+/**
+ * In-memory set of permission types the user has clicked "Always Allow" for
+ * during this app session. Prevents repeated dialogs for the same permission type.
+ */
+const _alwaysAllowedPermissions = new Set<string>();
+
 /** Pre-load the permission config cache. Call early so it's available synchronously later. */
 export function loadPermissionConfigCache(): void {
   loadPermissionConfig().catch(() => { /* ignore */ });
@@ -149,6 +155,15 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
         return;
       }
 
+      // Check if this permission type was already "Always Allowed" during this session
+      if (event.permission && _alwaysAllowedPermissions.has(event.permission)) {
+        const client = getOpenCodeClient();
+        client.replyPermission(event.id, { reply: "always" }).catch((err) => {
+          console.error("[Session] Failed to auto-reply always-allowed permission:", err);
+        });
+        return;
+      }
+
       const {
         activeSessionId,
         sessions: currentSessions,
@@ -213,7 +228,7 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
           reply: replyMap[decision],
         });
 
-        // Persist "always" decisions to opencode.db
+        // Persist "always" decisions to opencode.db and cache in memory
         if (decision === "always") {
           const { activeSessionId, pendingPermission } = get();
           const session = activeSessionId ? getSessionById(activeSessionId) : null;
@@ -239,6 +254,10 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
             permEvent = pendingPermission;
           }
           if (permEvent) {
+            // Cache in memory so subsequent requests for same permission type are auto-approved
+            if (permEvent.permission) {
+              _alwaysAllowedPermissions.add(permEvent.permission);
+            }
             persistAllowlistRule(permEvent).catch((err) => {
               console.error("[Session] Failed to persist allowlist rule to DB:", err);
             });
@@ -314,12 +333,18 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
           return;
         }
 
-        // Auto-authorize permissions that are set to "allow" in opencode.json
-        if (_permConfigCache) {
+        // Auto-authorize permissions that are set to "allow" in opencode.json or already "Always Allowed"
+        {
           const remaining = permissions.filter((perm) => {
-            if (perm.permission && _permConfigCache![perm.permission] === "allow") {
+            if (perm.permission && _permConfigCache?.[perm.permission] === "allow") {
               client.replyPermission(perm.id, { reply: "once" }).catch((err) => {
                 console.error("[Session] Failed to auto-reply polled permission from config:", err);
+              });
+              return false;
+            }
+            if (perm.permission && _alwaysAllowedPermissions.has(perm.permission)) {
+              client.replyPermission(perm.id, { reply: "always" }).catch((err) => {
+                console.error("[Session] Failed to auto-reply polled always-allowed permission:", err);
               });
               return false;
             }
