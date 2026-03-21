@@ -19,6 +19,52 @@ import {
   attachPermissionToToolCall,
 } from "./session-internals";
 
+/**
+ * Cache of permission config from opencode.json.
+ * Maps permission name (e.g. "bash", "write") to its action ("allow" | "ask" | "deny").
+ */
+let _permConfigCache: Record<string, string> | null = null;
+let _permConfigLoading = false;
+
+async function loadPermissionConfig(): Promise<Record<string, string>> {
+  if (_permConfigCache) return _permConfigCache;
+  if (!isTauri()) return {};
+
+  const workspacePath = useWorkspaceStore.getState().workspacePath;
+  if (!workspacePath) return {};
+
+  if (_permConfigLoading) return {};
+  _permConfigLoading = true;
+
+  try {
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
+    const configPath = `${workspacePath}/opencode.json`;
+    if (!(await exists(configPath))) return {};
+
+    const content = await readTextFile(configPath);
+    const config = JSON.parse(content);
+    if (config.permission && typeof config.permission === "object") {
+      _permConfigCache = config.permission;
+      return _permConfigCache!;
+    }
+  } catch {
+    // ignore read errors
+  } finally {
+    _permConfigLoading = false;
+  }
+  return {};
+}
+
+/** Pre-load the permission config cache. Call early so it's available synchronously later. */
+export function loadPermissionConfigCache(): void {
+  loadPermissionConfig().catch(() => { /* ignore */ });
+}
+
+/** Invalidate the permission config cache (call when config is saved). */
+export function invalidatePermissionConfigCache(): void {
+  _permConfigCache = null;
+}
+
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
 
@@ -90,6 +136,15 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
         const client = getOpenCodeClient();
         client.replyPermission(event.id, { reply: "always" }).catch((err) => {
           console.error("[Session] Failed to auto-reply permission:", err);
+        });
+        return;
+      }
+
+      // Check opencode.json permission config -- auto-authorize if set to "allow"
+      if (event.permission && _permConfigCache?.[event.permission] === "allow") {
+        const client = getOpenCodeClient();
+        client.replyPermission(event.id, { reply: "once" }).catch((err) => {
+          console.error("[Session] Failed to auto-reply permission from config:", err);
         });
         return;
       }
@@ -257,6 +312,20 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
             });
           }
           return;
+        }
+
+        // Auto-authorize permissions that are set to "allow" in opencode.json
+        if (_permConfigCache) {
+          const remaining = permissions.filter((perm) => {
+            if (perm.permission && _permConfigCache![perm.permission] === "allow") {
+              client.replyPermission(perm.id, { reply: "once" }).catch((err) => {
+                console.error("[Session] Failed to auto-reply polled permission from config:", err);
+              });
+              return false;
+            }
+            return true;
+          });
+          if (remaining.length === 0) return;
         }
 
         const match = permissions.find((p) => p.sessionID === activeSessionId) || permissions[0];

@@ -9,11 +9,17 @@ import { useEffect, useRef } from 'react'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useOpenCodeSSE } from '@/lib/opencode/sse'
+import { loadPermissionConfigCache } from '@/stores/session-permissions'
 
 export function SSEProvider() {
   const activeSessionId = useSessionStore(s => s.activeSessionId)
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const openCodeUrl = useWorkspaceStore(s => s.openCodeUrl)
+
+  // Pre-load permission config cache so it's available synchronously
+  useEffect(() => {
+    if (workspacePath) loadPermissionConfigCache()
+  }, [workspacePath])
 
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 

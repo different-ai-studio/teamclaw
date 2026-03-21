@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/select'
 import { SettingCard, SectionHeader } from './shared'
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
+import { invalidatePermissionConfigCache } from '@/stores/session-permissions'
 
 type PermissionAction = 'allow' | 'ask' | 'deny'
 
@@ -214,6 +215,7 @@ export const PermissionManagementSection = React.memo(function PermissionManagem
 
       await writeTextFile(configPath, JSON.stringify(config, null, 2))
       setConfigModified(false)
+      invalidatePermissionConfigCache()
 
       // Restart OpenCode so the new permission config takes effect immediately
       try {
