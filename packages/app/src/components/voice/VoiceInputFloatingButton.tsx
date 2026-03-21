@@ -17,6 +17,23 @@ import { cn, isTauri, copyToClipboard } from '@/lib/utils';
 export function VoiceInputFloatingButton() {
   const { t } = useTranslation();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const [hasInstalledModel, setHasInstalledModel] = React.useState(!isTauri());
+
+  React.useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const models = await invoke<{ installed: boolean }[]>('stt_list_downloadable_models');
+        if (!cancelled) setHasInstalledModel(models.some(m => m.installed));
+      } catch {
+        if (!cancelled) setHasInstalledModel(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const {
     voiceEnabled,
     lastTranscript,
@@ -117,7 +134,7 @@ export function VoiceInputFloatingButton() {
     return () => clearTimeout(t);
   }, [isRecognizing, setRecognizing]);
 
-  if (!voiceEnabled) return null;
+  if (!voiceEnabled || !hasInstalledModel) return null;
 
   return (
     <div className="fixed bottom-6 right-6 z-[9998] flex flex-col items-end gap-2 isolate">
