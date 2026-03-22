@@ -1,0 +1,11 @@
+{
+  "name": "teamclaw-fc",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@alicloud/sts20150401": "^1.1.2",
+    "@alicloud/openapi-client": "^0.4.12",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "nanoid": "^5.0.0"
+  }
+}
