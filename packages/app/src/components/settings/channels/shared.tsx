@@ -37,6 +37,18 @@ export function WeComIcon({ className }: { className?: string }) {
   )
 }
 
+// WeChat brand icon
+export function WeChatIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8.5 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM13.5 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" fill="#07C160"/>
+      <path d="M9 3C4.584 3 1 6.067 1 9.833c0 2.12 1.12 4.012 2.87 5.308L3 18l3.168-1.584C7.35 16.795 8.648 17 10 17c.34 0 .675-.016 1.006-.047A6.473 6.473 0 0 1 10.5 14.5c0-3.59 2.91-6.5 6.5-6.5.34 0 .675.027 1.003.08C17.39 5.206 13.576 3 9 3Z" fill="#07C160"/>
+      <path d="M15 15.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM19 15.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" fill="#07C160"/>
+      <path d="M17 9c-3.314 0-6 2.239-6 5s2.686 5 6 5c.87 0 1.698-.16 2.46-.45L22 20l-.6-2.4C22.37 16.53 23 15.33 23 14c0-2.761-2.686-5-6-5Z" fill="#07C160" opacity="0.7"/>
+    </svg>
+  )
+}
+
 // Gmail brand icon
 export function GmailIcon({ className }: { className?: string }) {
   return (
