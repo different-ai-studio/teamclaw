@@ -159,7 +159,27 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "TeamClaw ${{ github.ref_name }}"
-          releaseBody: "See the assets to download and install TeamClaw."
+          releaseBody: |
+            ## Installation
+
+            ### macOS (one-line install)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/diffrent-ai-studio/teamclaw/main/scripts/install-mac.sh | bash
+            ```
+
+            ### macOS (manual)
+            1. Download the `.dmg` file below
+            2. Open the DMG and drag TeamClaw to Applications
+            3. Before opening, run in Terminal:
+               ```
+               sudo xattr -dr com.apple.quarantine /Applications/Teamclaw.app
+               ```
+            4. Open TeamClaw from Applications
+
+            > **Why is this needed?** TeamClaw is not yet notarized with Apple. macOS blocks unsigned apps downloaded from the internet. The command above removes this restriction.
+
+            ### Windows
+            Download and run the `.exe` installer below.
           releaseDraft: false
           prerelease: false
           args: "--target aarch64-apple-darwin"
@@ -260,7 +280,27 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "TeamClaw ${{ github.ref_name }}"
-          releaseBody: "See the assets to download and install TeamClaw."
+          releaseBody: |
+            ## Installation
+
+            ### macOS (one-line install)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/diffrent-ai-studio/teamclaw/main/scripts/install-mac.sh | bash
+            ```
+
+            ### macOS (manual)
+            1. Download the `.dmg` file below
+            2. Open the DMG and drag TeamClaw to Applications
+            3. Before opening, run in Terminal:
+               ```
+               sudo xattr -dr com.apple.quarantine /Applications/Teamclaw.app
+               ```
+            4. Open TeamClaw from Applications
+
+            > **Why is this needed?** TeamClaw is not yet notarized with Apple. macOS blocks unsigned apps downloaded from the internet. The command above removes this restriction.
+
+            ### Windows
+            Download and run the `.exe` installer below.
           releaseDraft: false
           prerelease: false
           # Windows: NSIS installer, no p2p feature (avoids wmi/windows-core conflicts)
