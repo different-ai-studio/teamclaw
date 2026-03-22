@@ -267,6 +267,7 @@ impl CronScheduler {
             response_summary: None,
             delivery_status: None,
             error: None,
+            worktree_path: None,
         };
         self.storage.append_run(&record).await;
 
