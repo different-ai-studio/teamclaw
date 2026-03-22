@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use super::email_config::EmailConfig;
 use super::feishu_config::FeishuConfig;
 use super::kook_config::KookConfig;
+use super::wechat_config::WeChatConfig;
 use super::wecom_config::WeComConfig;
 
 /// Root channels configuration
@@ -13,6 +14,7 @@ pub struct ChannelsConfig {
     pub feishu: Option<FeishuConfig>,
     pub email: Option<EmailConfig>,
     pub kook: Option<KookConfig>,
+    pub wechat: Option<WeChatConfig>,
     pub wecom: Option<WeComConfig>,
 }
 

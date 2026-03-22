@@ -7,6 +7,8 @@ pub mod feishu;
 pub mod feishu_config;
 pub mod kook;
 pub mod kook_config;
+pub mod wechat;
+pub mod wechat_config;
 pub mod wecom;
 pub mod wecom_config;
 pub mod session;
@@ -26,6 +28,8 @@ pub use feishu::FeishuGateway;
 pub use feishu_config::*;
 pub use kook::KookGateway;
 pub use kook_config::*;
+pub use wechat::WeChatGateway;
+pub use wechat_config::*;
 pub use wecom::WeComGateway;
 pub use wecom_config::*;
 pub use session::SessionMapping;
@@ -120,6 +124,7 @@ pub struct GatewayState {
     pub email_gateway: Mutex<Option<EmailGateway>>,
     pub kook_gateway: Mutex<Option<KookGateway>>,
     pub wecom_gateway: Mutex<Option<WeComGateway>>,
+    pub wechat_gateway: Mutex<Option<WeChatGateway>>,
     /// Shared session mapping across all gateways
     pub shared_session_mapping: SessionMapping,
     /// Whether the shared session mapping has been initialized with a persistence path
@@ -134,6 +139,7 @@ impl Default for GatewayState {
             email_gateway: Mutex::new(None),
             kook_gateway: Mutex::new(None),
             wecom_gateway: Mutex::new(None),
+            wechat_gateway: Mutex::new(None),
             shared_session_mapping: SessionMapping::new(),
             session_initialized: Mutex::new(false),
         }
