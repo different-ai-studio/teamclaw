@@ -1135,7 +1135,11 @@
       "newJob": "新建作业",
       "noJobs": "暂无定时作业",
       "noJobsDesc": "创建您的第一个自动化任务，让 AI 助手按计划执行操作。例如，每 30 分钟检查一次审批平台。",
-      "createFirstJob": "创建您的第一个作业"
+      "createFirstJob": "创建您的第一个作业",
+      "useWorktree": "在隔离工作树中运行",
+      "useWorktreeDesc": "在临时 git worktree 副本中执行",
+      "worktreeBranch": "分支",
+      "worktreeBranchPlaceholder": "main"
     },
     "team": {
       "checkingWorkspace": "检查工作区...",
