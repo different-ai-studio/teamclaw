@@ -289,6 +289,8 @@ pub fn check_team_status(workspace_path: &str) -> TeamStatus {
                 Some("webdav".to_string())
             } else if json.get("p2p").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
                 Some("p2p".to_string())
+            } else if json.get("oss").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
+                Some("oss".to_string())
             } else if json.get("team").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
                 Some("git".to_string())
             } else {

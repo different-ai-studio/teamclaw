@@ -222,4 +222,4 @@ export interface WebDavSyncResult {
   filesDeleted: number
 }
 
-export type TeamSyncMode = 'git' | 'p2p' | 'webdav' | null
+export type TeamSyncMode = 'git' | 'p2p' | 'webdav' | 'oss' | null
