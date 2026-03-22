@@ -234,6 +234,7 @@ pub fn run() {
         .manage(<commands::p2p_state::IrohState>::default())
         .manage(commands::spotlight::SpotlightState::default())
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
+        .manage(commands::oss_sync::OssSyncState::default())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::show_in_folder,
@@ -437,6 +438,17 @@ pub fn run() {
             commands::team_webdav::webdav_import_config,
             commands::team_webdav::webdav_get_status,
             commands::team_webdav::get_team_mode,
+            commands::oss_commands::oss_create_team,
+            commands::oss_commands::oss_join_team,
+            commands::oss_commands::oss_restore_sync,
+            commands::oss_commands::oss_leave_team,
+            commands::oss_commands::oss_sync_now,
+            commands::oss_commands::oss_get_sync_status,
+            commands::oss_commands::oss_create_snapshot,
+            commands::oss_commands::oss_cleanup_updates,
+            commands::oss_commands::oss_update_members,
+            commands::oss_commands::oss_reset_team_secret,
+            commands::oss_commands::oss_get_team_config,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

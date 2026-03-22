@@ -108,6 +108,29 @@ impl OssSyncManager {
     }
 
     // -----------------------------------------------------------------------
+    // Accessors / Mutators (used by oss_commands)
+    // -----------------------------------------------------------------------
+
+    pub fn team_id(&self) -> &str {
+        &self.team_id
+    }
+
+    pub fn set_credentials(&mut self, creds: OssCredentials, oss: OssConfig) {
+        self.s3_client = Some(Self::create_s3_client(&creds, &oss));
+        self.credentials = Some(creds);
+        self.oss_config = Some(oss);
+        self.connected = true;
+    }
+
+    pub fn set_role(&mut self, role: TeamRole) {
+        self.role = role;
+    }
+
+    pub fn set_last_sync_at(&mut self, ts: Option<String>) {
+        self.last_sync_at = ts;
+    }
+
+    // -----------------------------------------------------------------------
     // S3 Client
     // -----------------------------------------------------------------------
 
@@ -130,7 +153,7 @@ impl OssSyncManager {
         aws_sdk_s3::Client::from_conf(s3_config)
     }
 
-    async fn refresh_token_if_needed(&mut self) -> Result<(), String> {
+    pub async fn refresh_token_if_needed(&mut self) -> Result<(), String> {
         let creds = match &self.credentials {
             Some(c) => c,
             None => return Ok(()),
@@ -172,7 +195,7 @@ impl OssSyncManager {
         Ok(())
     }
 
-    async fn call_fc(&self, path: &str, body: &Value) -> Result<FcResponse, String> {
+    pub async fn call_fc(&self, path: &str, body: &Value) -> Result<FcResponse, String> {
         let url = format!("{}{}", self.fc_endpoint, path);
         let client = reqwest::Client::new();
 
@@ -215,7 +238,7 @@ impl OssSyncManager {
             .ok_or_else(|| "S3 client not initialized".to_string())
     }
 
-    async fn s3_put(&self, key: &str, body: &[u8]) -> Result<(), String> {
+    pub async fn s3_put(&self, key: &str, body: &[u8]) -> Result<(), String> {
         let client = self.client()?;
         let bucket = self.bucket()?;
 
@@ -231,7 +254,7 @@ impl OssSyncManager {
         Ok(())
     }
 
-    async fn s3_get(&self, key: &str) -> Result<Vec<u8>, String> {
+    pub async fn s3_get(&self, key: &str) -> Result<Vec<u8>, String> {
         let client = self.client()?;
         let bucket = self.bucket()?;
 
@@ -469,7 +492,7 @@ impl OssSyncManager {
         Ok(())
     }
 
-    fn persist_local_snapshot(&self, doc_type: DocType) -> Result<(), String> {
+    pub fn persist_local_snapshot(&self, doc_type: DocType) -> Result<(), String> {
         std::fs::create_dir_all(&self.loro_cache_dir)
             .map_err(|e| format!("Failed to create loro cache dir: {e}"))?;
 
@@ -488,7 +511,7 @@ impl OssSyncManager {
         Ok(())
     }
 
-    fn restore_from_local_snapshot(&mut self, doc_type: DocType) -> Result<bool, String> {
+    pub fn restore_from_local_snapshot(&mut self, doc_type: DocType) -> Result<bool, String> {
         let path = self
             .loro_cache_dir
             .join(format!("{}.snapshot", doc_type.path()));
