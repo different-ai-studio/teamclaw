@@ -407,6 +407,55 @@ export function ClickableImage({ src, alt, className }: { src: string; alt?: str
   )
 }
 
+// --- Stable ReactMarkdown components (no closure over basePath) ---
+// Hoisted to module level so the object reference never changes between renders.
+// The `img` component needs basePath, so it's added per-render via useMemo.
+const markdownComponentsBase = {
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="text-xl font-semibold text-foreground mt-4 mb-2">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="text-lg font-semibold text-foreground mt-3 mb-2">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="text-base font-semibold text-foreground mt-3 mb-1.5">{children}</h3>
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => <p className="leading-relaxed text-foreground my-2">{children}</p>,
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="overflow-x-auto rounded-lg border border-border my-3">
+      <table className="min-w-full border-collapse text-sm">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => <thead className="bg-muted">{children}</thead>,
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border-b border-border px-4 py-2.5 text-left font-medium">{children}</th>
+  ),
+  tr: ({ children }: { children?: React.ReactNode }) => (
+    <tr className="border-b border-border last:border-b-0">{children}</tr>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => <td className="px-4 py-2.5">{children}</td>,
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="border-l-4 border-[#5a7a64] pl-4 my-3 italic text-muted-foreground">{children}</blockquote>
+  ),
+  code: ({ className, children, ...codeProps }: { className?: string; children?: React.ReactNode }) => {
+    const isInline = !className
+    return isInline ? (
+      <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-[#4a6a54]" {...codeProps}>{children}</code>
+    ) : (
+      <code className={cn("block rounded-lg bg-muted p-3 text-xs text-foreground my-2", className)} {...codeProps}>{children}</code>
+    )
+  },
+  a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#5a7a64] hover:underline">{children}</a>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>,
+  ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>,
+  li: ({ children }: { children?: React.ReactNode }) => <li className="leading-relaxed">{children}</li>,
+} as const;
+
+// Stable remarkPlugins array — avoids re-creating on every render
+const remarkPluginsStable = [remarkGfm];
+
 export function MessageResponse({
   className,
   children,
@@ -414,15 +463,44 @@ export function MessageResponse({
 }: React.ComponentProps<"div">) {
   const { from, basePath } = useMessageContext()
   const isUserMessage = from === "user"
-  
+
   // Parse content to detect/clean images and attachments
+  // PERF: memoized to avoid re-running regex every render during streaming
   const content = typeof children === "string" ? children : ""
-  const parsedParts = parseMessageContent(content, isUserMessage)
+  const parsedParts = React.useMemo(
+    () => parseMessageContent(content, isUserMessage),
+    [content, isUserMessage],
+  )
   const hasMediaParts = parsedParts.some(p => p.type === 'image' || p.type === 'attachment')
   const inlineImages = React.useMemo(() => {
     const allText = parsedParts.filter(p => p.type === 'text').map(p => p.content).join(' ')
     return extractInlineImageReferences(allText)
   }, [parsedParts])
+
+  // PERF: Merge base components with basePath-dependent `img` handler.
+  // Only re-creates when basePath changes (rare), not every render.
+  const markdownComponents = React.useMemo(() => ({
+    ...markdownComponentsBase,
+    img: ({ src, alt }: { src?: string; alt?: string }) => {
+      const resolvedSrc = resolveImagePath(src || '', basePath)
+      if (resolvedSrc.startsWith('/')) {
+        return (
+          <LocalImage
+            src={resolvedSrc}
+            alt={alt || 'Image'}
+            className="max-w-full max-h-80 object-contain rounded-lg border my-2"
+          />
+        )
+      }
+      return (
+        <ClickableImage
+          src={resolvedSrc}
+          alt={alt || 'Image'}
+          className="max-w-full max-h-80 object-contain rounded-lg border my-2"
+        />
+      )
+    },
+  }), [basePath])
 
   if (from === "user") {
     // For user messages with images or attachments, render them properly
@@ -487,95 +565,8 @@ export function MessageResponse({
         ) : (
           <div key={index} className="prose prose-sm max-w-none text-foreground space-y-3 break-words [overflow-wrap:anywhere]">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                h1: ({ children }) => (
-                  <h1 className="text-xl font-semibold text-foreground mt-4 mb-2">{children}</h1>
-                ),
-                h2: ({ children }) => (
-                  <h2 className="text-lg font-semibold text-foreground mt-3 mb-2">{children}</h2>
-                ),
-                h3: ({ children }) => (
-                  <h3 className="text-base font-semibold text-foreground mt-3 mb-1.5">{children}</h3>
-                ),
-                p: ({ children }) => <p className="leading-relaxed text-foreground my-2">{children}</p>,
-                table: ({ children }) => (
-                  <div className="overflow-x-auto rounded-lg border border-border my-3">
-                    <table className="min-w-full border-collapse text-sm">{children}</table>
-                  </div>
-                ),
-                thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
-                th: ({ children }) => (
-                  <th className="border-b border-border px-4 py-2.5 text-left font-medium">
-                    {children}
-                  </th>
-                ),
-                tr: ({ children }) => (
-                  <tr className="border-b border-border last:border-b-0">{children}</tr>
-                ),
-                td: ({ children }) => <td className="px-4 py-2.5">{children}</td>,
-                blockquote: ({ children }) => (
-                  <blockquote className="border-l-4 border-[#5a7a64] pl-4 my-3 italic text-muted-foreground">
-                    {children}
-                  </blockquote>
-                ),
-                code: ({ className, children, ...codeProps }) => {
-                  const isInline = !className
-                  return isInline ? (
-                    <code
-                      className="rounded bg-muted px-1.5 py-0.5 text-xs text-[#4a6a54]"
-                      {...codeProps}
-                    >
-                      {children}
-                    </code>
-                  ) : (
-                    <code
-                      className={cn(
-                        "block rounded-lg bg-muted p-3 text-xs text-foreground my-2",
-                        className
-                      )}
-                      {...codeProps}
-                    >
-                      {children}
-                    </code>
-                  )
-                },
-                a: ({ children, href }) => (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#5a7a64] hover:underline"
-                  >
-                    {children}
-                  </a>
-                ),
-                ul: ({ children }) => <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>,
-                ol: ({ children }) => <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>,
-                li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-                // Handle images in markdown with local path resolution
-                img: ({ src, alt }) => {
-                  const resolvedSrc = resolveImagePath(src || '', basePath)
-                  // If it's a local path, use LocalImage component (with click-to-enlarge)
-                  if (resolvedSrc.startsWith('/')) {
-                    return (
-                      <LocalImage 
-                        src={resolvedSrc} 
-                        alt={alt || 'Image'} 
-                        className="max-w-full max-h-80 object-contain rounded-lg border my-2"
-                      />
-                    )
-                  }
-                  // Otherwise use ClickableImage for remote URLs
-                  return (
-                    <ClickableImage 
-                      src={resolvedSrc} 
-                      alt={alt || 'Image'} 
-                      className="max-w-full max-h-80 object-contain rounded-lg border my-2"
-                    />
-                  )
-                },
-              }}
+              remarkPlugins={remarkPluginsStable}
+              components={markdownComponents}
             >
               {part.content}
             </ReactMarkdown>

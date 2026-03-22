@@ -43,14 +43,22 @@ export const ChatMessage = React.memo(function ChatMessage({
   const { t } = useTranslation();
   const isUser = message.role === "user";
 
-  // Use streaming content for the actively streaming message
+  // Use streaming content for the actively streaming message.
+  // PERF: Only the streaming message subscribes to high-frequency updates (trigger/content).
+  // Non-streaming messages subscribe to streamingMessageId only (changes ~2x per conversation).
   const streamingMessageId = useStreamingStore(s => s.streamingMessageId);
-  const streamingContent = useStreamingStore(s => s.streamingContent);
-  const streamingUpdateTrigger = useStreamingStore(s => s.streamingUpdateTrigger);
-  const activeSessionId = useSessionStore(s => s.activeSessionId);
-  
   const isThisMessageStreaming = message.isStreaming && message.id === streamingMessageId;
-  
+
+  // Only subscribe to per-frame updates when THIS message is streaming.
+  // This prevents all other ChatMessage instances from re-rendering every frame.
+  const streamingContent = useStreamingStore(s =>
+    isThisMessageStreaming ? s.streamingContent : "",
+  );
+  const streamingUpdateTrigger = useStreamingStore(s =>
+    isThisMessageStreaming ? s.streamingUpdateTrigger : 0,
+  );
+  const activeSessionId = useSessionStore(s => s.activeSessionId);
+
   // When streaming, get the latest message data from sessionLookupCache
   // which includes updated reasoning parts from typewriterTick
   const latestMessage = React.useMemo(() => {
@@ -60,7 +68,7 @@ export const ChatMessage = React.memo(function ChatMessage({
     const latest = session.messages.find(m => m.id === message.id);
     return latest || message;
   }, [isThisMessageStreaming, activeSessionId, message, streamingUpdateTrigger]);
-  
+
   const textContent = isThisMessageStreaming ? streamingContent : (latestMessage.content || "");
 
   // Extract reasoning/thinking content from parts — memoized to avoid

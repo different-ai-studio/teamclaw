@@ -13,7 +13,7 @@ interface ThinkingBlockProps {
   isOpen?: boolean;
 }
 
-export function ThinkingBlock({
+export const ThinkingBlock = React.memo(function ThinkingBlock({
   content,
   isStreaming = false,
   isOpen = false,
@@ -28,7 +28,10 @@ export function ThinkingBlock({
     }
   }, [isStreaming, content]);
 
-  const compactContent = content.replace(/\n{2,}/g, "\n");
+  const compactContent = React.useMemo(
+    () => content.replace(/\n{2,}/g, "\n"),
+    [content],
+  );
 
   if (isStreaming) {
     return (
@@ -84,4 +87,4 @@ export function ThinkingBlock({
       </Collapsible>
     </div>
   );
-}
+});

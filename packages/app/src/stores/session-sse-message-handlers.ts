@@ -234,89 +234,82 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
 
       clearMessageTimeout();
 
-      set((state) => {
-        const session = getSessionById(activeSessionId);
-        if (!session) return state;
+      // PERF: Update sessionLookupCache directly instead of going through sessions.map().
+      // PartCreated fires 5-20x per conversation (per text/tool part). The old code did:
+      //   1. findIndex O(n) on messages
+      //   2. findIndex O(p) on parts
+      //   3. parts.map O(p) to replace one part
+      //   4. sessions.map O(s) to replace one session  ← triggers all session selectors
+      // Now: direct index access + cache-only write. Session store syncs on completion.
+      const session = getSessionById(activeSessionId);
+      if (!session) return;
 
-        const msgIndex = session.messages.findIndex((m) => m.id === event.messageId);
-        if (msgIndex === -1) return state;
+      const msgIndex = session.messages.findIndex((m) => m.id === event.messageId);
+      if (msgIndex === -1) return;
 
-        const messages = [...session.messages];
-        const msg = { ...messages[msgIndex] };
+      const messages = session.messages.slice();
+      const msg = { ...messages[msgIndex] };
 
-        const existingPartIndex = msg.parts.findIndex(
-          (p) => p.id === event.partId,
+      const newPart: MessagePart = {
+        id: event.partId,
+        type: event.type as MessagePart["type"],
+        content: event.content,
+        text: event.text || event.content,
+        tool: event.tool,
+        result: event.result,
+      };
+
+      const existingPartIndex = msg.parts.findIndex(
+        (p) => p.id === event.partId,
+      );
+      if (existingPartIndex !== -1) {
+        const parts = msg.parts.slice();
+        parts[existingPartIndex] = newPart;
+        msg.parts = parts;
+      } else {
+        msg.parts = [...msg.parts, newPart];
+      }
+
+      if (event.type === "tool_call" && event.tool) {
+        const existingToolCall = msg.toolCalls?.find(
+          (tc) => tc.id === event.tool!.id,
         );
-
-        const newPart: MessagePart = {
-          id: event.partId,
-          type: event.type as MessagePart["type"],
-          content: event.content,
-          text: event.text || event.content,
-          tool: event.tool,
-          result: event.result,
-        };
-
-        if (existingPartIndex !== -1) {
-          msg.parts = msg.parts.map((p, i) =>
-            i === existingPartIndex ? newPart : p,
-          );
-        } else {
-          msg.parts = [...msg.parts, newPart];
+        if (!existingToolCall) {
+          msg.toolCalls = [
+            ...(msg.toolCalls || []),
+            {
+              id: event.tool.id,
+              name: event.tool.name,
+              status: "calling",
+              arguments: event.tool.input,
+              startTime: new Date(),
+            },
+          ];
         }
+      }
 
-        if (event.type === "tool_call" && event.tool) {
-          const existingToolCall = msg.toolCalls?.find(
-            (tc) => tc.id === event.tool!.id,
-          );
-          if (!existingToolCall) {
-            msg.toolCalls = [
-              ...(msg.toolCalls || []),
-              {
-                id: event.tool.id,
-                name: event.tool.name,
-                status: "calling",
-                arguments: event.tool.input,
-                startTime: new Date(),
-              },
-            ];
-          }
-        }
+      messages[msgIndex] = msg;
+      const newSession = { ...session, messages };
 
-        if (event.type === "text" && event.content) {
-          // CRITICAL ARCHITECTURE CHANGE: Do NOT update msg.content during streaming!
-          // 
-          // ROOT CAUSE OF DUPLICATION:
-          // - Text snapshots from OpenCode contain full content
-          // - If we set msg.content = snapshot here, then typewriter continues appending buffer
-          // - Result: msg.content = snapshot + buffer remainder → DUPLICATION
-          // 
-          // CORRECT STRATEGY - Single Source of Truth:
-          // - During streaming: Only streamingContent exists (from delta buffer)
-          // - After completion: Only msg.content exists (from parts)
-          // - NEVER mix the two
-          // 
-          // Therefore: Do NOT touch msg.content here. Only update parts.
-          // Let handleMessageCompleted build the final msg.content from parts.
-          
-          // CRITICAL: Trigger scroll after tool completion by incrementing streamingUpdateTrigger
-          // Tool calls can add significant content (tool output, result summaries).
-          // We need to signal MessageList to re-check scroll position.
-          const currentTrigger = useStreamingStore.getState().streamingUpdateTrigger;
-          useStreamingStore.setState({ streamingUpdateTrigger: currentTrigger + 1 });
-        }
+      // Write to cache only — no sessions.map() needed during streaming.
+      // The session store will be synced when handleMessageCompleted runs.
+      sessionLookupCache.set(activeSessionId, newSession);
 
-        messages[msgIndex] = msg;
-        const newSession = { ...session, messages };
+      if (event.type === "text" && event.content) {
+        // Trigger scroll after tool completion (text snapshot arrives after tool output)
+        const currentTrigger = useStreamingStore.getState().streamingUpdateTrigger;
+        useStreamingStore.setState({ streamingUpdateTrigger: currentTrigger + 1 });
+      }
 
-        sessionLookupCache.set(activeSessionId, newSession);
-
-        return {
+      // For tool_call parts, we need to update session store so ToolCallCard renders.
+      // Text parts don't need this — they're displayed via streamingContent.
+      if (event.type === "tool_call" || event.type === "step-start" || event.type === "step-finish") {
+        set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === activeSessionId ? newSession : s,
           ),
-        };
-      });
+        }));
+      }
     },
 
     handleMessagePartUpdated: (event: MessagePartUpdatedEvent) => {

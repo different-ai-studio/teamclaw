@@ -25,13 +25,18 @@ export function parseStreamingUITree(content: string): StreamingUIState {
     elementCount: 0,
   }
 
-  // 尝试查找 JSON 开始
   const jsonStart = content.indexOf('{')
   if (jsonStart === -1) {
     return state
   }
 
   const jsonContent = content.slice(jsonStart)
+
+  // PERF: Fast reject — a valid UITree must contain "root" and "elements" keys.
+  // Skip expensive JSON.parse + regex for normal markdown that happens to contain '{'.
+  if (!jsonContent.includes('"root"') || !jsonContent.includes('"elements"')) {
+    return state
+  }
 
   // 尝试解析完整的 JSON
   try {

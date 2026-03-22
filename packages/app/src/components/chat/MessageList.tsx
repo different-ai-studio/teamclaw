@@ -69,9 +69,12 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       return len;
     });
 
-    const activeSession = useSessionStore((s) =>
+    // PERF: Return primitive string instead of session object.
+    // Object references from .find() change on every sessions update → unnecessary re-renders.
+    // We only need activeSession.directory for basePath, so return that directly.
+    const activeSessionDirectory = useSessionStore((s) =>
       s.activeSessionId
-        ? s.sessions.find((ss) => ss.id === s.activeSessionId)
+        ? s.sessions.find((ss) => ss.id === s.activeSessionId)?.directory
         : undefined,
     );
 
@@ -597,7 +600,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                               <ErrorBoundary scope="Message" inline>
                                 <ChatMessage
                                   message={message}
-                                  basePath={activeSession?.directory}
+                                  basePath={activeSessionDirectory}
                                   shouldShowThinking={shouldShowThinking}
                                   showStarRating={
                                     virtualItem.index ===
@@ -626,7 +629,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                         >
                           <ChatMessage
                             message={message}
-                            basePath={activeSession?.directory}
+                            basePath={activeSessionDirectory}
                             shouldShowThinking={shouldShowThinking}
                             showStarRating={
                               index === lastCompletedAssistantIdx
