@@ -328,6 +328,8 @@ pub struct WeChatGateway {
     pending_questions: Arc<super::PendingQuestionStore>,
     /// Cache of from_user_id -> context_token for replies
     context_tokens: Arc<RwLock<HashMap<String, String>>>,
+    /// Workspace path for persisting config to disk
+    workspace_path: Arc<RwLock<Option<String>>>,
 }
 
 impl WeChatGateway {
@@ -344,7 +346,12 @@ impl WeChatGateway {
             session_queue: Arc::new(SessionQueue::new()),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             context_tokens: Arc::new(RwLock::new(HashMap::new())),
+            workspace_path: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub async fn set_workspace_path(&self, path: String) {
+        *self.workspace_path.write().await = Some(path);
     }
 
     pub async fn set_config(&self, config: WeChatConfig) {
@@ -375,6 +382,31 @@ impl WeChatGateway {
             .ok_or_else(|| format!("No context_token for user {}. User must send a message first.", to_user_id))?;
         let client = reqwest::Client::new();
         send_text_message(&client, &config.base_url, &config.bot_token, to_user_id, text, &context_token).await
+    }
+
+    /// Persist context_tokens from in-memory config to teamclaw.json on disk
+    async fn persist_context_tokens(&self) {
+        let workspace_path = match self.workspace_path.read().await.clone() {
+            Some(p) => p,
+            None => return,
+        };
+        let config = self.config.read().await.clone();
+        let path = format!("{}/{}/teamclaw.json", workspace_path, crate::commands::TEAMCLAW_DIR);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let mut json: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        // Update only the contextTokens field under channels.wechat
+        if let Some(wechat) = json.get_mut("channels").and_then(|c| c.get_mut("wechat")) {
+            if let Ok(tokens_val) = serde_json::to_value(&config.context_tokens) {
+                wechat["contextTokens"] = tokens_val;
+            }
+        }
+        let _ = std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap_or_default());
     }
 
     pub async fn start(&self) -> Result<(), String> {
@@ -496,6 +528,12 @@ impl WeChatGateway {
                             // Cache context token
                             if let Some(ct) = &msg.context_token {
                                 self.context_tokens.write().await.insert(sender_id.clone(), ct.clone());
+                                // Persist context_token to config on disk
+                                {
+                                    let mut cfg = self.config.write().await;
+                                    cfg.context_tokens.insert(sender_id.clone(), ct.clone());
+                                }
+                                self.persist_context_tokens().await;
                             }
 
                             println!("[WeChat] Message from {}: {}...", sender_id, &text[..text.len().min(50)]);

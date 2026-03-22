@@ -2080,6 +2080,7 @@ pub async fn start_wechat_gateway(
 
     if let Some(gw) = gateway_clone {
         gw.set_config(wechat_cfg).await;
+        gw.set_workspace_path(workspace_path).await;
         gw.start().await?;
     }
 
@@ -2149,6 +2150,7 @@ pub async fn poll_wechat_qr_status(
                 account_id: bot_id.clone(),
                 base_url,
                 sync_buf: None,
+                context_tokens: std::collections::HashMap::new(),
             };
             // Save to config if workspace is set
             if let Ok(guard) = opencode_state.workspace_path.lock() {

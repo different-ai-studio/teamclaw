@@ -72,7 +72,7 @@ interface QrData {
 }
 
 interface QrStatusResponse {
-  status: 'scanning' | 'confirmed' | 'expired' | 'waiting'
+  status: 'scaned' | 'confirmed' | 'expired' | 'wait'
   botToken?: string
   ilinkBotId?: string
   baseurl?: string
@@ -116,7 +116,7 @@ function WeChatSetupWizard({
     setError('')
     setScanStatus('')
     try {
-      const data = await invoke<QrData>('fetch_wechat_qr')
+      const data = await invoke<QrData>('start_wechat_qr_login')
       setQrData(data)
       setQrLoading(false)
 
@@ -245,13 +245,13 @@ function WeChatSetupWizard({
                 <p className="text-sm text-muted-foreground text-center">
                   {t('settings.channels.wechat.scanInstructions', 'Open WeChat on your iPhone and scan this QR code to log in.')}
                 </p>
-                {scanStatus === 'scanning' && (
+                {scanStatus === 'scaned' && (
                   <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     {t('settings.channels.wechat.waitingConfirm', 'QR scanned — please confirm on your phone...')}
                   </div>
                 )}
-                {scanStatus === 'waiting' && (
+                {scanStatus === 'wait' && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     {t('settings.channels.wechat.waitingScan', 'Waiting for scan...')}

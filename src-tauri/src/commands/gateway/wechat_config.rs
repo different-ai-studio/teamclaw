@@ -13,6 +13,8 @@ pub struct WeChatConfig {
     pub base_url: String,
     #[serde(default)]
     pub sync_buf: Option<String>,
+    #[serde(default)]
+    pub context_tokens: std::collections::HashMap<String, String>,
 }
 
 pub fn default_ilink_base_url() -> String {
@@ -27,6 +29,7 @@ impl Default for WeChatConfig {
             account_id: String::new(),
             base_url: default_ilink_base_url(),
             sync_buf: None,
+            context_tokens: std::collections::HashMap::new(),
         }
     }
 }
@@ -77,12 +80,12 @@ pub struct WeChatQrLoginResponse {
 #[serde(rename_all = "camelCase")]
 pub struct WeChatQrStatusResponse {
     pub status: String, // "wait" | "scaned" | "confirmed" | "expired"
-    #[serde(default)]
+    #[serde(default, alias = "bot_token")]
     pub bot_token: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "ilink_bot_id")]
     pub ilink_bot_id: Option<String>,
     #[serde(default)]
     pub baseurl: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "ilink_user_id")]
     pub ilink_user_id: Option<String>,
 }
