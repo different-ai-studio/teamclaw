@@ -7,10 +7,11 @@ import { cn } from '@/lib/utils'
 import { TeamGitConfig } from './team/TeamGitConfig'
 import { TeamP2PConfig } from './team/TeamP2PConfig'
 import { TeamWebDavConfig } from './team/TeamWebDavConfig'
+import { TeamOSSConfig } from './team/TeamOSSConfig'
 
 // ─── Tab Switcher ────────────────────────────────────────────────────────────
 
-type TeamTab = 'p2p' | 'webdav' | 'git'
+type TeamTab = 'oss' | 'p2p' | 'webdav' | 'git'
 
 function TabSwitcher({
   activeTab,
@@ -22,6 +23,7 @@ function TabSwitcher({
   t: ReturnType<typeof import('react-i18next').useTranslation>['t']
 }) {
   const tabs: { id: TeamTab; label: string; badge?: string }[] = [
+    { id: 'oss', label: 'OSS 云同步' },
     { id: 'p2p', label: t('settings.team.tabP2p', 'P2P') },
     { id: 'webdav', label: 'WebDAV' },
     { id: 'git', label: t('settings.team.tabGit', 'Git'), badge: t('settings.team.legacy', 'Legacy') },
@@ -84,7 +86,7 @@ function SectionHeader({
 
 export function TeamSection() {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = React.useState<TeamTab>('p2p')
+  const [activeTab, setActiveTab] = React.useState<TeamTab>('oss')
 
   return (
     <div className="space-y-6">
@@ -97,6 +99,9 @@ export function TeamSection() {
 
       {/* Tab Switcher */}
       <TabSwitcher activeTab={activeTab} onTabChange={setActiveTab} t={t} />
+
+      {/* OSS Tab */}
+      {activeTab === 'oss' && <TeamOSSConfig />}
 
       {/* P2P Tab */}
       {activeTab === 'p2p' && <TeamP2PConfig />}
