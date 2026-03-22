@@ -85,7 +85,25 @@ export const useStreamingStore = create<StreamingState>((set) => ({
 }));
 
 // --- Module-level variables (moved from session.ts) ---
-export const CHARS_PER_FRAME = 3;
+
+// Adaptive typewriter speed:
+// - BASE_CHARS: minimum chars per frame (smooth typing feel at low throughput)
+// - When buffer grows past CATCHUP_THRESHOLD, reveal extra chars proportional to backlog
+//   so the UI never falls more than ~0.5s behind the real stream.
+// At 60fps: base alone = 180 chars/s. With 500-char buffer: 3 + 500*0.05 = 28 chars/frame = 1680 chars/s.
+const BASE_CHARS_PER_FRAME = 3;
+const CATCHUP_THRESHOLD = 120;   // buffer chars before catchup kicks in (~0.67s at base rate)
+const CATCHUP_RATIO = 0.05;      // fraction of excess buffer to drain per frame
+
+/** Compute how many chars to reveal this frame, adapting to buffer backlog. */
+function adaptiveCharsPerFrame(bufferLen: number): number {
+  if (bufferLen <= CATCHUP_THRESHOLD) return Math.min(BASE_CHARS_PER_FRAME, bufferLen);
+  const excess = bufferLen - CATCHUP_THRESHOLD;
+  return Math.min(bufferLen, Math.ceil(BASE_CHARS_PER_FRAME + excess * CATCHUP_RATIO));
+}
+
+// Keep the old export name for tests / external references
+export const CHARS_PER_FRAME = BASE_CHARS_PER_FRAME;
 
 // Debug logging — off by default; enable via: localStorage.setItem('debug-streaming', '1')
 const DEBUG = () => localStorage.getItem('debug-streaming') === '1';
@@ -200,7 +218,7 @@ export const typewriterTick = () => {
 
   // If reasoning buffer has content, ONLY reveal reasoning (skip text)
   // If reasoning buffer is empty, then reveal text
-  const textChars = hasReasoningChars ? 0 : Math.min(CHARS_PER_FRAME, textBuffer.length);
+  const textChars = hasReasoningChars ? 0 : adaptiveCharsPerFrame(textBuffer.length);
 
   if (textChars === 0 && !hasReasoningChars) {
     rafId = null;
@@ -222,12 +240,12 @@ export const typewriterTick = () => {
     revealedText = revealedText + chunk;
   }
 
-  // Reveal reasoning chars (same rate per part)
+  // Reveal reasoning chars (adaptive speed per part)
   if (hasReasoningChars) {
     const parts = msg.parts.slice(); // shallow copy once
     for (const [partId, buf] of reasoningBuffers) {
       if (buf.length === 0) continue;
-      const chars = Math.min(CHARS_PER_FRAME, buf.length);
+      const chars = adaptiveCharsPerFrame(buf.length);
       const chunk = buf.slice(0, chars);
       reasoningBuffers.set(partId, buf.slice(chars));
 
