@@ -19,7 +19,8 @@
       "feishu": true,
       "email": true,
       "kook": true,
-      "wecom": true
+      "wecom": true,
+      "wechat": true
     }
   },
   "defaults": {

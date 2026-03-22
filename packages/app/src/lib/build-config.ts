@@ -7,6 +7,7 @@ export interface ChannelsFeatureConfig {
   email: boolean
   kook: boolean
   wecom: boolean
+  wechat: boolean
 }
 
 export interface BuildConfig {
@@ -40,6 +41,7 @@ const allChannelsEnabled: ChannelsFeatureConfig = {
   email: true,
   kook: true,
   wecom: true,
+  wechat: true,
 }
 
 /**
@@ -49,7 +51,7 @@ export function resolveChannelsConfig(channels: boolean | ChannelsFeatureConfig)
   if (typeof channels === 'boolean') {
     return channels
       ? { ...allChannelsEnabled }
-      : { discord: false, feishu: false, email: false, kook: false, wecom: false }
+      : { discord: false, feishu: false, email: false, kook: false, wecom: false, wechat: false }
   }
   return channels
 }
