@@ -214,6 +214,20 @@ pub async fn get_updates(
         .map_err(|e| format!("getupdates parse failed: {}", e))
 }
 
+/// Quick connection test using a short-timeout getupdates call.
+pub async fn test_connection(bot_token: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let base_url = super::wechat_config::default_ilink_base_url();
+    match get_updates(&client, &base_url, bot_token, "").await {
+        Ok(_) => Ok("Connection successful".to_string()),
+        Err(e) if e == "timeout" => Ok("Connection successful".to_string()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Send a text message back to WeChat
 pub async fn send_text_message(
     client: &reqwest::Client,
