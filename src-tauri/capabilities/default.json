@@ -81,6 +81,7 @@
     "core:window:allow-is-visible",
     "global-shortcut:allow-register",
     "global-shortcut:allow-is-registered",
-    "process:allow-restart"
+    "process:allow-restart",
+    "aptabase:allow-track-event"
   ]
 }
