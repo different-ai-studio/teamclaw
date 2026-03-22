@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tauri_plugin_aptabase::EventTracker;
+use serde_json::json;
 
 /// Managed state wrapper for TelemetryDb.
 pub struct TelemetryState {
@@ -78,12 +80,23 @@ pub async fn telemetry_set_consent(
 #[tauri::command]
 pub async fn telemetry_set_feedback(
     state: tauri::State<'_, TelemetryState>,
+    app_handle: tauri::AppHandle,
     session_id: String,
     message_id: String,
     rating: String,
 ) -> Result<(), String> {
     let db = get_db(&state).await?;
-    db.set_feedback(&session_id, &message_id, &rating).await
+    db.set_feedback(&session_id, &message_id, &rating).await?;
+
+    // Track analytics event (consent-gated)
+    let consent = db.get_consent().await.unwrap_or_default();
+    if consent == "granted" {
+        app_handle.track_event("feedback_given", Some(json!({
+            "rating": rating,
+        })));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -132,10 +145,27 @@ pub async fn telemetry_remove_star_rating(
 #[tauri::command]
 pub async fn telemetry_save_report(
     state: tauri::State<'_, TelemetryState>,
+    app_handle: tauri::AppHandle,
     report: SessionReport,
 ) -> Result<(), String> {
     let db = get_db(&state).await?;
-    db.save_report(&report).await
+    db.save_report(&report).await?;
+
+    // Track analytics events (consent-gated)
+    let consent = db.get_consent().await.unwrap_or_default();
+    if consent == "granted" {
+        app_handle.track_event("session_created", Some(json!({
+            "model_id": report.model_id.as_deref().unwrap_or("unknown"),
+            "provider_id": report.provider_id.as_deref().unwrap_or("unknown"),
+            "agent": report.agent.as_deref().unwrap_or("none"),
+            "tokens_input": report.total_tokens_input,
+            "tokens_output": report.total_tokens_output,
+            "tokens_reasoning": report.total_tokens_reasoning,
+            "cost": report.total_cost,
+        })));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
