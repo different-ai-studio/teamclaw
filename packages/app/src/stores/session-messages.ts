@@ -20,6 +20,7 @@ import {
   useStreamingStore,
   cleanupAllChildSessions,
 } from "@/stores/streaming";
+import { syncSetSessionId } from "@/lib/opencode/sse";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
@@ -114,6 +115,10 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
           return;
         }
         activeSessionId = newSession.id;
+        // Sync SSE session filter immediately — don't wait for React useEffect.
+        // Without this, message.updated events for the new session are dropped
+        // because the SSE filter still has the old (empty) session ID.
+        syncSetSessionId(activeSessionId);
         console.log("[Session] Created new session:", activeSessionId);
       }
 

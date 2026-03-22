@@ -161,6 +161,18 @@ export function isChildSession(id: string): boolean {
   return childSessionIds.has(id)
 }
 
+// Module-level SSE instance reference for synchronous session ID updates.
+// This solves the race condition where sendMessage creates a new session
+// and sends the API request before React's useEffect updates the SSE filter,
+// causing message.updated events to be silently dropped.
+let activeSseInstance: OpenCodeSSE | null = null
+
+export function syncSetSessionId(id: string): void {
+  if (activeSseInstance) {
+    activeSseInstance.setSessionId(id)
+  }
+}
+
 export class OpenCodeSSE {
   private eventSource: EventSource | null = null
   private baseUrl: string
@@ -961,12 +973,14 @@ export function useOpenCodeSSE(
       onInactivityWarning: (active) => handlersRef.current.onInactivityWarning?.(active),
     }, workspacePath || undefined)
 
+    activeSseInstance = sseRef.current
     sseRef.current.connect()
   }, [baseUrl]) // Only baseUrl — sessionId changes are handled by setSessionId()
 
   const disconnect = useCallback(() => {
     sseRef.current?.disconnect()
     sseRef.current = null
+    activeSseInstance = null
   }, [])
 
   // Connect SSE once when baseUrl is available.
