@@ -46,6 +46,10 @@ impl DeliveryManager {
                 self.send_kook(&config, target, message).await?;
                 Ok(None)
             }
+            DeliveryChannel::Wechat => {
+                self.send_wechat(&config, target, message).await?;
+                Ok(None)
+            }
         }
     }
 
@@ -200,6 +204,36 @@ impl DeliveryManager {
 
         println!("[Cron Delivery] KOOK message sent to {}", target);
         Ok(())
+    }
+
+    // ==================== WeChat ====================
+
+    /// Send via WeChat — delegates to gateway::wechat::send_text_message
+    async fn send_wechat(
+        &self,
+        config: &serde_json::Value,
+        target: &str,
+        message: &str,
+    ) -> Result<(), String> {
+        let bot_token = config["channels"]["wechat"]["botToken"]
+            .as_str()
+            .filter(|t| !t.is_empty())
+            .ok_or("WeChat bot token not configured")?;
+        let base_url = config["channels"]["wechat"]["baseUrl"]
+            .as_str()
+            .unwrap_or("https://ilinkai.weixin.qq.com");
+
+        // Look up context_token from persisted config
+        let context_token = config["channels"]["wechat"]["contextTokens"][target]
+            .as_str()
+            .ok_or_else(|| format!(
+                "No context_token for WeChat user '{}'. The user must send a message to the gateway first.",
+                target
+            ))?;
+
+        use crate::commands::gateway::wechat;
+        let client = reqwest::Client::new();
+        wechat::send_text_message(&client, base_url, bot_token, target, message, context_token).await
     }
 }
 

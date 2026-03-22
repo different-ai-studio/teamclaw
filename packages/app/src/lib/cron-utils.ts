@@ -199,6 +199,23 @@ export const DELIVERY_CHANNEL_REGISTRY: DeliveryChannelRegistryEntry[] = [
       return to
     },
   },
+  {
+    id: 'wechat',
+    name: 'WeChat',
+    getEnabled: (s) => !!s.wechat?.enabled,
+    getConnected: (s) => s.wechatGatewayStatus?.status === 'connected',
+    fields: [
+      {
+        key: 'userId',
+        label: 'User ID',
+        placeholder: 'e.g., xxx@im.wechat',
+        hint: 'WeChat user ID (from_user_id). Visible in gateway logs after the user sends a message. The gateway must be running and the user must have sent at least one message for delivery to work.',
+        required: true,
+      },
+    ],
+    buildTarget: (_mode, values) => values.userId,
+    parseTarget: (to) => ({ mode: '', values: { userId: to } }),
+  },
 ]
 
 export function getRegistryEntry(channelId: DeliveryChannel): DeliveryChannelRegistryEntry | undefined {

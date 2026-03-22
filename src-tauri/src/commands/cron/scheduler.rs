@@ -112,6 +112,7 @@ impl CronScheduler {
                     Some(format!("kook:dm:{}", target))
                 }
             }
+            DeliveryChannel::Wechat => Some(format!("wechat:{}", target)),
         }
     }
 

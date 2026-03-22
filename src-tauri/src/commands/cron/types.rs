@@ -71,6 +71,7 @@ pub enum DeliveryChannel {
     Feishu,
     Email,
     Kook,
+    Wechat,
 }
 
 /// Delivery configuration for cron job results

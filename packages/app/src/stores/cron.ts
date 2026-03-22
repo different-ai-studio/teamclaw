@@ -21,7 +21,7 @@ export interface CronPayload {
 }
 
 export type DeliveryMode = 'announce' | 'none'
-export type DeliveryChannel = 'discord' | 'feishu' | 'email' | 'kook'
+export type DeliveryChannel = 'discord' | 'feishu' | 'email' | 'kook' | 'wechat'
 
 export interface CronDelivery {
   mode: DeliveryMode
@@ -318,6 +318,8 @@ export function getChannelDisplayName(channel: DeliveryChannel): string {
       return 'Email'
     case 'kook':
       return 'KOOK'
+    case 'wechat':
+      return 'WeChat'
     default:
       return channel
   }
