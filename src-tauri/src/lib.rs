@@ -3,6 +3,7 @@
 
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+use tauri_plugin_aptabase::EventTracker;
 
 mod commands;
 mod stt;
@@ -170,6 +171,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_aptabase::Builder::new("A-US-9094113207").build())
         .plugin({
             // Configure global shortcuts for Spotlight.
             // Errors in shortcut registration should not abort app startup, so we
@@ -812,18 +814,30 @@ pub fn run() {
                 });
             }
 
+            // Track app_started (always, regardless of consent)
+            app.handle().track_event("app_started", Some(serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "platform": std::env::consts::OS,
+            })));
+
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, _event| {
-            // macOS: clicking the Dock icon when all windows are hidden should show the main window
-            #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = _event {
-                if !has_visible_windows {
-                    let state = _app.state::<commands::spotlight::SpotlightState>();
-                    commands::spotlight::show_main_window(_app.clone(), state);
+        .run(|app, event| {
+            match event {
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                    if !has_visible_windows {
+                        let state = app.state::<commands::spotlight::SpotlightState>();
+                        commands::spotlight::show_main_window(app.clone(), state);
+                    }
                 }
+                tauri::RunEvent::Exit => {
+                    app.track_event("app_exited", None);
+                    app.flush_events_blocking();
+                }
+                _ => {}
             }
         });
 }
