@@ -1054,6 +1054,18 @@
         "inviteStep5": "在浏览器中打开链接以将机器人添加到服务器",
         "inviteAdminNote": "您需要服务器管理员权限才能邀请机器人。",
         "nextStepConfigure": "如需要，配置服务器/频道设置"
+      },
+      "wechat": {
+        "title": "微信",
+        "description": "通过 ClawBot 连接个人微信",
+        "wizardIntroTitle": "欢迎使用微信设置",
+        "wizardIntroDesc": "通过 ClawBot 将个人微信连接到 TeamClaw。",
+        "wizardScanTitle": "扫描二维码",
+        "wizardScanDesc": "使用微信扫描二维码。",
+        "wizardVerifyTitle": "连接已验证",
+        "wizardVerifyDesc": "微信已成功连接。",
+        "wizardCompleteTitle": "设置完成",
+        "wizardCompleteDesc": "微信渠道已就绪。"
       }
     },
     "cron": {

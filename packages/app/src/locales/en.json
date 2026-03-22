@@ -1030,6 +1030,18 @@
         "inviteStep5": "Open the link in browser to add bot to server",
         "inviteAdminNote": "You need server admin permissions to invite bots.",
         "nextStepConfigure": "Configure server/channel settings if needed"
+      },
+      "wechat": {
+        "title": "WeChat",
+        "description": "Connect personal WeChat via ClawBot",
+        "wizardIntroTitle": "Welcome to WeChat Setup",
+        "wizardIntroDesc": "Connect your personal WeChat to TeamClaw via ClawBot.",
+        "wizardScanTitle": "Scan QR Code",
+        "wizardScanDesc": "Use WeChat to scan the QR code.",
+        "wizardVerifyTitle": "Connection Verified",
+        "wizardVerifyDesc": "Your WeChat is connected.",
+        "wizardCompleteTitle": "Setup Complete",
+        "wizardCompleteDesc": "Your WeChat channel is ready."
       }
     },
     "cron": {
