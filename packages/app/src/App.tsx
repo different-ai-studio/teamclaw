@@ -41,6 +41,7 @@ import {
   useOpenCodeInit,
   useChannelGatewayInit,
   useGitReposInit,
+  useOssSyncInit,
   useExternalLinkHandler,
   useTauriBodyClass,
   useSetupGuide,
@@ -436,6 +437,7 @@ function AppContent() {
   const { openCodeError, setOpenCodeError } = useOpenCodeInit();
   useChannelGatewayInit();
   useGitReposInit();
+  useOssSyncInit();
   useExternalLinkHandler();
   useLayoutModeShortcut();
   usePanelAutoOpen();

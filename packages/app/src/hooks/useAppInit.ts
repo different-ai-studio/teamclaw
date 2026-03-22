@@ -18,6 +18,7 @@ import { useGitReposStore } from "@/stores/git-repos";
 import { useUIStore } from "@/stores/ui";
 import { useDepsStore, getSetupDecision, markSetupCompleted } from "@/stores/deps";
 import { useTelemetryStore } from "@/stores/telemetry";
+import { useTeamOssStore } from "@/stores/team-oss";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { initOpenCodeClient } from "@/lib/opencode/client";
 import {
@@ -259,6 +260,30 @@ export function useGitReposInit() {
       }
     };
   }, [workspacePath, initGitRepos, syncGitRepos]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OSS sync auto-restore
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function useOssSyncInit() {
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
+  const initialize = useTeamOssStore((s) => s.initialize);
+  const cleanup = useTeamOssStore((s) => s.cleanup);
+  const hasInitialized = useRef(false);
+
+  useEffect(() => {
+    if (!workspacePath || !isTauri() || hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    initialize(workspacePath).catch((err: unknown) => {
+      console.warn("[App] OSS sync init failed (non-critical):", err);
+    });
+
+    return () => {
+      cleanup();
+    };
+  }, [workspacePath, initialize, cleanup]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
