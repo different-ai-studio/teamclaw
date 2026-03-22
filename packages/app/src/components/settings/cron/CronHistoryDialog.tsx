@@ -11,6 +11,7 @@ import {
   Loader2,
   History,
   Send,
+  GitBranch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -78,6 +79,13 @@ function RunRecordCard({ run }: { run: CronRunRecord }) {
         <p className="text-xs text-muted-foreground">
           <Send className="h-3 w-3 inline mr-1" />
           {run.deliveryStatus}
+        </p>
+      )}
+
+      {run.worktreePath && (
+        <p className="text-xs text-muted-foreground">
+          <GitBranch className="h-3 w-3 inline mr-1" />
+          {run.worktreePath}
         </p>
       )}
 
