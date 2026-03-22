@@ -1,0 +1,120 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OssCredentials {
+    pub access_key_id: String,
+    pub access_key_secret: String,
+    pub security_token: String,
+    pub expiration: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OssConfig {
+    pub bucket: String,
+    pub region: String,
+    pub endpoint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FcResponse {
+    pub credentials: OssCredentials,
+    pub oss: OssConfig,
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OssTeamInfo {
+    pub team_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_secret: Option<String>,
+    pub team_name: String,
+    pub owner_name: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    pub connected: bool,
+    pub syncing: bool,
+    pub last_sync_at: Option<String>,
+    pub next_sync_at: Option<String>,
+    pub docs: HashMap<String, DocSyncStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocSyncStatus {
+    pub local_version: u64,
+    pub remote_update_count: u32,
+    pub last_upload_at: Option<String>,
+    pub last_download_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupResult {
+    pub deleted_count: u32,
+    pub freed_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMember {
+    pub node_id: String,
+    pub name: String,
+    pub role: String,
+    pub joined_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OssTeamConfig {
+    pub enabled: bool,
+    pub team_id: String,
+    pub fc_endpoint: String,
+    pub last_sync_at: Option<String>,
+    pub poll_interval_secs: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DocType {
+    Skills,
+    Mcp,
+    Knowledge,
+}
+
+impl DocType {
+    pub fn path(&self) -> &str {
+        match self {
+            DocType::Skills => "skills",
+            DocType::Mcp => "mcp",
+            DocType::Knowledge => "knowledge",
+        }
+    }
+
+    pub fn dir_name(&self) -> &str {
+        match self {
+            DocType::Skills => "skills",
+            DocType::Mcp => ".mcp",
+            DocType::Knowledge => "knowledge",
+        }
+    }
+
+    pub fn all() -> [DocType; 3] {
+        [DocType::Skills, DocType::Mcp, DocType::Knowledge]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TeamRole {
+    Owner,
+    Member,
+}
