@@ -31,6 +31,7 @@ export const useStreamingStore = create<StreamingState>((set) => ({
   childSessionStreaming: {},
 
   setStreaming: (messageId: string, content?: string) => {
+    invalidateStreamingMsgIndex();
     set({ streamingMessageId: messageId, streamingContent: content ?? "", streamingUpdateTrigger: 0 });
   },
 
@@ -38,6 +39,7 @@ export const useStreamingStore = create<StreamingState>((set) => ({
     // CRITICAL: Also clear typewriter buffers to prevent orphaned content
     // If we only clear store state but leave buffer with content, handleMessageCompleted
     // will keep deferring indefinitely (buffer has content but typewriter won't run)
+    invalidateStreamingMsgIndex();
     clearTypewriterBuffers();
     set({ streamingMessageId: null, streamingContent: "", streamingUpdateTrigger: 0 });
   },
@@ -85,9 +87,48 @@ export const useStreamingStore = create<StreamingState>((set) => ({
 // --- Module-level variables (moved from session.ts) ---
 export const CHARS_PER_FRAME = 3;
 
+// Debug logging — off by default; enable via: localStorage.setItem('debug-streaming', '1')
+const DEBUG = () => localStorage.getItem('debug-streaming') === '1';
+
 export let textBuffer = "";
 export const reasoningBuffers: Map<string, string> = new Map(); // partId -> unrevealed chars
 export let rafId: number | null = null;
+
+// --- Cached index for streaming message (avoids O(n) findIndex every frame) ---
+let cachedMsgIndex = -1;
+let cachedMsgIndexFor: string | null = null; // messageId this index is valid for
+let cachedSessionIdFor: string | null = null; // sessionId this index is valid for
+
+/** Resolve the index of the streaming message, using cache when possible. */
+function getStreamingMsgIndex(
+  messages: readonly { id: string }[],
+  messageId: string,
+  sessionId: string,
+): number {
+  // Cache hit: same message + session, and the index still points at the right element
+  if (
+    cachedMsgIndexFor === messageId &&
+    cachedSessionIdFor === sessionId &&
+    cachedMsgIndex >= 0 &&
+    cachedMsgIndex < messages.length &&
+    messages[cachedMsgIndex].id === messageId
+  ) {
+    return cachedMsgIndex;
+  }
+  // Cache miss: linear scan and update cache
+  const idx = messages.findIndex((m) => m.id === messageId);
+  cachedMsgIndex = idx;
+  cachedMsgIndexFor = messageId;
+  cachedSessionIdFor = sessionId;
+  return idx;
+}
+
+/** Invalidate the cached index (call when streaming message changes). */
+export function invalidateStreamingMsgIndex(): void {
+  cachedMsgIndex = -1;
+  cachedMsgIndexFor = null;
+  cachedSessionIdFor = null;
+}
 
 // Clear all typewriter buffers and cancel pending rAF.
 // Needed by session.ts when a final text snapshot arrives.
@@ -102,13 +143,7 @@ export const clearTypewriterBuffers = () => {
 
 // Append text to the typewriter buffer (called from session.ts on text_delta)
 export const appendTextBuffer = (delta: string) => {
-  const oldLength = textBuffer.length;
   textBuffer += delta;
-  console.log("[Typewriter] appendTextBuffer:", {
-    deltaLength: delta.length,
-    oldBufferLength: oldLength,
-    newBufferLength: textBuffer.length,
-  });
 };
 
 // Append reasoning to the typewriter buffer (called from session.ts on reasoning_delta)
@@ -140,15 +175,7 @@ export const typewriterTick = () => {
   const { streamingMessageId } = streamingState;
   const { activeSessionId } = useSessionStore.getState();
 
-  console.log("[Typewriter] Tick:", {
-    streamingMessageId,
-    activeSessionId,
-    textBufferLength: textBuffer.length,
-    reasoningBufferCount: reasoningBuffers.size,
-  });
-
   if (!streamingMessageId || !activeSessionId) {
-    console.log("[Typewriter] No streaming, clearing buffers");
     textBuffer = "";
     reasoningBuffers.clear();
     rafId = null;
@@ -158,7 +185,7 @@ export const typewriterTick = () => {
   const session = getSessionById(activeSessionId);
   if (!session) { textBuffer = ""; reasoningBuffers.clear(); rafId = null; return; }
 
-  const msgIndex = session.messages.findIndex((m) => m.id === streamingMessageId);
+  const msgIndex = getStreamingMsgIndex(session.messages, streamingMessageId, activeSessionId);
   if (msgIndex === -1) { textBuffer = ""; reasoningBuffers.clear(); rafId = null; return; }
 
   // CRITICAL ARCHITECTURE: Prioritize reasoning over text for sequential display
@@ -175,15 +202,7 @@ export const typewriterTick = () => {
   // If reasoning buffer is empty, then reveal text
   const textChars = hasReasoningChars ? 0 : Math.min(CHARS_PER_FRAME, textBuffer.length);
 
-  console.log("[Typewriter] Processing:", {
-    textChars,
-    hasReasoningChars,
-    remainingTextBuffer: textBuffer.length,
-    reasoningBufferCount: reasoningBuffers.size,
-  });
-
   if (textChars === 0 && !hasReasoningChars) {
-    console.log("[Typewriter] No chars to reveal, stopping tick");
     rafId = null;
     return;
   }
@@ -201,16 +220,11 @@ export const typewriterTick = () => {
     const chunk = textBuffer.slice(0, textChars);
     textBuffer = textBuffer.slice(textChars);
     revealedText = revealedText + chunk;
-    console.log("[Typewriter] Revealed text chunk:", {
-      chunkLength: chunk.length,
-      totalRevealedLength: revealedText.length,
-      remainingBuffer: textBuffer.length,
-    });
   }
 
   // Reveal reasoning chars (same rate per part)
   if (hasReasoningChars) {
-    let parts = [...msg.parts];
+    const parts = msg.parts.slice(); // shallow copy once
     for (const [partId, buf] of reasoningBuffers) {
       if (buf.length === 0) continue;
       const chars = Math.min(CHARS_PER_FRAME, buf.length);
@@ -220,13 +234,9 @@ export const typewriterTick = () => {
       const idx = parts.findIndex((p) => p.id === partId);
       if (idx !== -1) {
         const existingText = parts[idx].text || "";
-        parts = parts.map((p, i) =>
-          i === idx
-            ? { ...p, text: existingText + chunk, content: existingText + chunk }
-            : p,
-        );
+        parts[idx] = { ...parts[idx], text: existingText + chunk, content: existingText + chunk };
       } else {
-        parts = [...parts, { id: partId, type: "reasoning", text: chunk, content: chunk }];
+        parts.push({ id: partId, type: "reasoning", text: chunk, content: chunk });
       }
     }
     msg = { ...msg, parts };
@@ -235,17 +245,19 @@ export const typewriterTick = () => {
   // CRITICAL FIX: Re-fetch session to get latest state (may include newly inserted child messages)
   // This prevents race condition where child message insertions get overwritten
   const latestSession = getSessionById(activeSessionId);
-  if (!latestSession) { 
-    textBuffer = ""; 
-    reasoningBuffers.clear(); 
-    rafId = null; 
-    return; 
+  if (!latestSession) {
+    textBuffer = "";
+    reasoningBuffers.clear();
+    rafId = null;
+    return;
   }
 
-  // Only update the streaming message, preserve all other messages
-  const updatedMessages = latestSession.messages.map((m) =>
-    m.id === streamingMessageId ? msg : m
-  );
+  // Only update the streaming message via direct index — O(1) instead of O(n) .map()
+  const latestIdx = getStreamingMsgIndex(latestSession.messages, streamingMessageId, activeSessionId);
+  if (latestIdx === -1) { rafId = null; return; }
+
+  const updatedMessages = latestSession.messages.slice(); // shallow copy
+  updatedMessages[latestIdx] = msg;
 
   const newSession = { ...latestSession, messages: updatedMessages };
 
@@ -269,16 +281,9 @@ export const typewriterTick = () => {
     }
   }
 
-  console.log("[Typewriter] After reveal:", {
-    anyRemaining,
-    textBufferLength: textBuffer.length,
-    willContinue: anyRemaining,
-  });
-
   if (anyRemaining) {
     rafId = requestAnimationFrame(typewriterTick);
   } else {
-    console.log("[Typewriter] All content revealed, stopping");
     rafId = null;
   }
 };
@@ -306,7 +311,7 @@ export const flushAllPending = (): string => {
   const session = getSessionById(activeSessionId);
   if (!session) { textBuffer = ""; reasoningBuffers.clear(); return ""; }
 
-  const msgIndex = session.messages.findIndex((m) => m.id === streamingMessageId);
+  const msgIndex = getStreamingMsgIndex(session.messages, streamingMessageId, activeSessionId);
   if (msgIndex === -1) { textBuffer = ""; reasoningBuffers.clear(); return ""; }
 
   let msg = { ...session.messages[msgIndex] };
@@ -316,39 +321,37 @@ export const flushAllPending = (): string => {
   if (textBuffer) {
     finalStreamingContent = finalStreamingContent + textBuffer;
     textBuffer = "";
-    console.log("[FlushBuffer] Flushed text buffer to streamingContent:", finalStreamingContent.length, "chars");
+    if (DEBUG()) console.log("[FlushBuffer] Flushed text buffer:", finalStreamingContent.length, "chars");
   }
 
   // Flush reasoning buffers to parts (for display in thinking blocks)
   if (reasoningBuffers.size > 0) {
-    let parts = [...msg.parts];
+    const parts = msg.parts.slice(); // shallow copy once
     for (const [partId, buf] of reasoningBuffers) {
       if (buf.length === 0) continue;
       const idx = parts.findIndex((p) => p.id === partId);
       if (idx !== -1) {
         const existingText = parts[idx].text || "";
-        parts = parts.map((p, i) =>
-          i === idx
-            ? { ...p, text: existingText + buf, content: existingText + buf }
-            : p,
-        );
+        parts[idx] = { ...parts[idx], text: existingText + buf, content: existingText + buf };
       } else {
-        parts = [...parts, { id: partId, type: "reasoning", text: buf, content: buf }];
+        parts.push({ id: partId, type: "reasoning", text: buf, content: buf });
       }
     }
     msg = { ...msg, parts };
     reasoningBuffers.clear();
-    console.log("[FlushBuffer] Flushed reasoning buffers to parts");
+    if (DEBUG()) console.log("[FlushBuffer] Flushed reasoning buffers");
   }
 
   // CRITICAL: Re-fetch session to get latest state before final write
   const latestSession = getSessionById(activeSessionId);
   if (!latestSession) return finalStreamingContent;
 
-  // Only update the streaming message's parts (for reasoning), preserve all other messages
-  const updatedMessages = latestSession.messages.map((m) =>
-    m.id === streamingMessageId ? msg : m
-  );
+  // Only update the streaming message via direct index — O(1) instead of O(n) .map()
+  const latestIdx = getStreamingMsgIndex(latestSession.messages, streamingMessageId, activeSessionId);
+  if (latestIdx === -1) return finalStreamingContent;
+
+  const updatedMessages = latestSession.messages.slice();
+  updatedMessages[latestIdx] = msg;
 
   const newSession = { ...latestSession, messages: updatedMessages };
   sessionLookupCache.set(activeSessionId, newSession);
@@ -373,9 +376,6 @@ export const flushAllPending = (): string => {
 export const scheduleTypewriter = () => {
   if (rafId === null) {
     rafId = requestAnimationFrame(typewriterTick);
-    console.log("[Typewriter] Scheduled typewriter tick (bufferLength:", textBuffer.length, ")");
-  } else {
-    console.log("[Typewriter] Already scheduled, skipping");
   }
 };
 

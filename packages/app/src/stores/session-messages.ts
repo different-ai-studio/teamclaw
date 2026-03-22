@@ -225,6 +225,10 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         };
       });
 
+      // Set timeout immediately after streaming starts — before any async work (RAG, API call).
+      // This ensures that if autoInjectKnowledge or the API call hangs, the timeout still fires.
+      setMessageTimeout(pendingAssistantId, activeSessionId);
+
       try {
         const client = getOpenCodeClient();
         const { selectedModel } = get();
@@ -245,7 +249,17 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         }
 
         // RAG V2: Auto-inject knowledge before sending message
-        const ragResult = await get().autoInjectKnowledge(content.trim());
+        // Wrap with a 3-second timeout to prevent hanging if knowledge search is unresponsive
+        const RAG_TIMEOUT_MS = 3000;
+        const ragResult = await Promise.race([
+          get().autoInjectKnowledge(content.trim()),
+          new Promise<{ context?: string; chunks?: SearchResult[] }>((resolve) =>
+            setTimeout(() => {
+              console.warn('[RAG Auto-Inject] Timed out after', RAG_TIMEOUT_MS, 'ms, skipping');
+              resolve({});
+            }, RAG_TIMEOUT_MS)
+          ),
+        ]);
         if (ragResult.context) {
           systemPrompt = systemPrompt
             ? `${ragResult.context}\n\n---\n\n${systemPrompt}`
@@ -293,6 +307,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
             systemPrompt,
           );
         }
+        // Reset timeout after successful send — gives a fresh 5 minutes from actual send time
         setMessageTimeout(pendingAssistantId, activeSessionId);
       } catch (error) {
         clearMessageTimeout();
@@ -326,18 +341,47 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         .filter(([, state]) => state.isStreaming)
         .map(([sessionId]) => sessionId);
 
-      if (!streamingMessageId && childSessionIds.length === 0) return;
+      // Fallback: even if streamingMessageId is null (e.g. cleared by a race condition),
+      // still force-clear all streaming/UI state so the user isn't stuck with a red button.
+      if (!streamingMessageId && childSessionIds.length === 0) {
+        console.warn("[Session] abortSession: no streamingMessageId, force-clearing UI state");
+        clearMessageTimeout();
+        useStreamingStore.getState().clearStreaming();
+        set((state) => ({
+          pendingQuestion: null,
+          pendingPermission: null,
+          pendingPermissionChildSessionId: null,
+          sessionError: null,
+          sessions: state.sessions.map((s) => ({
+            ...s,
+            messages: s.messages.map((m) =>
+              m.isStreaming ? { ...m, isStreaming: false } : m,
+            ),
+          })),
+        }));
+        return;
+      }
 
       try {
         clearMessageTimeout();
         const client = getOpenCodeClient();
         const sessionIdsToAbort = Array.from(new Set([activeSessionId, ...childSessionIds]));
+
+        // Abort with a 5-second timeout per request — don't let a hung server block the UI
+        const ABORT_TIMEOUT_MS = 5000;
         const abortResults = await Promise.allSettled(
-          sessionIdsToAbort.map((sessionId) => client.abortSession(sessionId)),
+          sessionIdsToAbort.map((sessionId) =>
+            Promise.race([
+              client.abortSession(sessionId),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Abort request timed out')), ABORT_TIMEOUT_MS)
+              ),
+            ])
+          ),
         );
         const failedAborts = abortResults.filter((r) => r.status === "rejected");
         if (failedAborts.length > 0) {
-          console.warn("[Session] Some abort requests failed:", failedAborts.length);
+          console.warn("[Session] Some abort requests failed:", failedAborts);
         }
 
         useStreamingStore.getState().clearStreaming();
