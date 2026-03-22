@@ -244,6 +244,8 @@ export interface JobFormState {
   deliveryBestEffort: boolean
   deleteAfterRun: boolean
   runImmediately: boolean
+  useWorktree: boolean
+  worktreeBranch: string
 }
 
 export const defaultFormState: JobFormState = {
@@ -266,6 +268,8 @@ export const defaultFormState: JobFormState = {
   deliveryBestEffort: true,
   deleteAfterRun: false,
   runImmediately: true,
+  useWorktree: false,
+  worktreeBranch: '',
 }
 
 export function jobToFormState(job: CronJob): JobFormState {
@@ -312,6 +316,8 @@ export function jobToFormState(job: CronJob): JobFormState {
     deliveryBestEffort: job.delivery?.bestEffort ?? true,
     deleteAfterRun: job.deleteAfterRun,
     runImmediately: false,
+    useWorktree: job.payload.useWorktree ?? false,
+    worktreeBranch: job.payload.worktreeBranch ?? '',
   }
 }
 
@@ -353,6 +359,8 @@ export function formStateToPayload(form: JobFormState): CronPayload {
     message: form.message,
     model: form.model || undefined,
     timeoutSeconds: form.timeoutSeconds !== 180 ? form.timeoutSeconds : undefined,
+    useWorktree: form.useWorktree || undefined,
+    worktreeBranch: form.useWorktree && form.worktreeBranch ? form.worktreeBranch : undefined,
   }
 }
 
