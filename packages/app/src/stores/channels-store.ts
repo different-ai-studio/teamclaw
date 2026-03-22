@@ -6,11 +6,13 @@ import type {
   EmailConfig,
   KookConfig,
   WeComConfig,
+  WeChatConfig,
   GatewayStatusResponse,
   FeishuGatewayStatusResponse,
   EmailGatewayStatusResponse,
   KookGatewayStatusResponse,
   WeComGatewayStatusResponse,
+  WeChatGatewayStatusResponse,
   ChannelsState,
 } from './channels-types'
 import {
@@ -19,12 +21,14 @@ import {
   defaultKookConfig,
   defaultEmailConfig,
   defaultWeComConfig,
+  defaultWeChatConfig,
 } from './channels-types'
 import { createDiscordActions } from './channels/discord'
 import { createFeishuActions } from './channels/feishu'
 import { createEmailActions } from './channels/email'
 import { createKookActions } from './channels/kook'
 import { createWecomActions } from './channels/wecom'
+import { createWechatActions } from './channels/wechat'
 
 export const useChannelsStore = create<ChannelsState>((set) => ({
   // Discord initial state
@@ -69,6 +73,14 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
   wecomIsTesting: false,
   wecomTestResult: null,
 
+  // WeChat initial state
+  wechat: null,
+  wechatIsLoading: false,
+  wechatGatewayStatus: { status: 'disconnected' },
+  wechatHasChanges: false,
+  wechatIsTesting: false,
+  wechatTestResult: null,
+
   // Email initial state
   email: null,
   emailIsLoading: false,
@@ -85,6 +97,7 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
   ...createEmailActions(set),
   ...createKookActions(set),
   ...createWecomActions(set),
+  ...createWechatActions(set),
 
   // ========== Shared gateway logic ==========
 
@@ -130,6 +143,15 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
       } catch {
         // WeCom config may not exist yet
       }
+      // Also load WeChat config
+      let wechatConfig: WeChatConfig | null = null
+      let wechatStatus: WeChatGatewayStatusResponse = { status: 'disconnected' }
+      try {
+        wechatConfig = await invoke<WeChatConfig | null>('get_wechat_config')
+        wechatStatus = await invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status')
+      } catch {
+        // WeChat config may not exist yet
+      }
       set({
         discord: config || defaultDiscordConfig,
         gatewayStatus: status,
@@ -141,11 +163,14 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
         kookGatewayStatus: kookStatus,
         wecom: wecomConfig || defaultWeComConfig,
         wecomGatewayStatus: wecomStatus,
+        wechat: wechatConfig || defaultWeChatConfig,
+        wechatGatewayStatus: wechatStatus,
         isLoading: false,
         hasChanges: false,
         feishuHasChanges: false,
         emailHasChanges: false,
         wecomHasChanges: false,
+        wechatHasChanges: false,
       })
     } catch (error) {
       set({
@@ -201,6 +226,14 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
       }
     }
 
+    if (state.wechatGatewayStatus.status !== 'disconnected') {
+      try {
+        await invoke('stop_wechat_gateway')
+      } catch (e) {
+        console.warn('[Channels] Failed to stop WeChat gateway:', e)
+      }
+    }
+
     set({
       discord: null,
       isLoading: false,
@@ -235,6 +268,12 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
       wecomHasChanges: false,
       wecomIsTesting: false,
       wecomTestResult: null,
+      wechat: null,
+      wechatIsLoading: false,
+      wechatGatewayStatus: { status: 'disconnected' },
+      wechatHasChanges: false,
+      wechatIsTesting: false,
+      wechatTestResult: null,
     })
     console.log('[Channels] All gateways stopped and state reset')
   },
@@ -292,6 +331,18 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
       }
     }
 
+    if (state.wechat?.enabled && state.wechatGatewayStatus.status === 'disconnected') {
+      console.log('[AutoStart] Starting WeChat gateway...')
+      try {
+        await invoke('start_wechat_gateway')
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        const status = await invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status')
+        set({ wechatGatewayStatus: status })
+      } catch (error) {
+        console.error('[AutoStart] WeChat start failed:', error)
+      }
+    }
+
     // Email last — Gmail OAuth may block waiting for browser authorization
     if (state.email?.enabled && state.emailGatewayStatus.status === 'disconnected') {
       console.log('[AutoStart] Starting Email gateway...')
@@ -310,18 +361,20 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
 
   keepAliveCheck: async () => {
     try {
-      const [discordStatus, feishuStatus, emailStatus, kookStatus, wecomStatus] = await Promise.all([
+      const [discordStatus, feishuStatus, emailStatus, kookStatus, wecomStatus, wechatStatus] = await Promise.all([
         invoke<GatewayStatusResponse>('get_gateway_status').catch(() => null),
         invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status').catch(() => null),
         invoke<EmailGatewayStatusResponse>('get_email_gateway_status').catch(() => null),
         invoke<KookGatewayStatusResponse>('get_kook_gateway_status').catch(() => null),
         invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status').catch(() => null),
+        invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status').catch(() => null),
       ])
       if (discordStatus) set({ gatewayStatus: discordStatus })
       if (feishuStatus) set({ feishuGatewayStatus: feishuStatus })
       if (emailStatus) set({ emailGatewayStatus: emailStatus })
       if (kookStatus) set({ kookGatewayStatus: kookStatus })
       if (wecomStatus) set({ wecomGatewayStatus: wecomStatus })
+      if (wechatStatus) set({ wechatGatewayStatus: wechatStatus })
     } catch {
       // Ignore status refresh errors
     }
@@ -420,6 +473,30 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
         console.log('[KeepAlive] WeCom restarted, status=', status.status)
       } catch (error) {
         console.error('[KeepAlive] WeCom restart failed:', error)
+      }
+    }
+
+    // WeChat: restart if enabled but disconnected/errored (skip auth errors)
+    if (
+      updated.wechat?.enabled &&
+      (updated.wechatGatewayStatus.status === 'disconnected' || updated.wechatGatewayStatus.status === 'error')
+    ) {
+      const errMsg = updated.wechatGatewayStatus.errorMessage || ''
+      if (errMsg.includes('re-authenticate') || errMsg.includes('expired')) {
+        console.log('[KeepAlive] WeChat has auth error, skipping restart:', errMsg)
+      } else {
+        console.log('[KeepAlive] WeChat is enabled but status=', updated.wechatGatewayStatus.status, '- restarting...')
+        try {
+          await invoke('stop_wechat_gateway').catch(() => {})
+          await new Promise((resolve) => setTimeout(resolve, 500))
+          await invoke('start_wechat_gateway')
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          const status = await invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status')
+          set({ wechatGatewayStatus: status })
+          console.log('[KeepAlive] WeChat restarted, status=', status.status)
+        } catch (error) {
+          console.error('[KeepAlive] WeChat restart failed:', error)
+        }
       }
     }
   },

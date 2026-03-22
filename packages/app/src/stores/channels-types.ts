@@ -159,6 +159,23 @@ export interface WeComGatewayStatusResponse {
   botId?: string
 }
 
+// WeChat types
+export interface WeChatConfig {
+  enabled: boolean
+  botToken: string
+  accountId: string
+  baseUrl: string
+  syncBuf?: string
+}
+
+export type WeChatGatewayStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+
+export interface WeChatGatewayStatusResponse {
+  status: WeChatGatewayStatus
+  errorMessage?: string
+  accountId?: string
+}
+
 // Channels configuration
 export interface ChannelsConfig {
   discord?: DiscordConfig
@@ -166,6 +183,7 @@ export interface ChannelsConfig {
   email?: EmailConfig
   kook?: KookConfig
   wecom?: WeComConfig
+  wechat?: WeChatConfig
 }
 
 // Gateway status response
@@ -183,6 +201,13 @@ export const defaultWeComConfig: WeComConfig = {
   botId: '',
   secret: '',
   encodingAesKey: undefined,
+}
+
+export const defaultWeChatConfig: WeChatConfig = {
+  enabled: false,
+  botToken: '',
+  accountId: '',
+  baseUrl: 'https://ilinkai.weixin.qq.com',
 }
 
 export const defaultDmConfig: DmConfig = {
@@ -282,6 +307,14 @@ export interface ChannelsState {
   wecomIsTesting: boolean
   wecomTestResult: { success: boolean; message: string } | null
 
+  // WeChat state
+  wechat: WeChatConfig | null
+  wechatIsLoading: boolean
+  wechatGatewayStatus: WeChatGatewayStatusResponse
+  wechatHasChanges: boolean
+  wechatIsTesting: boolean
+  wechatTestResult: { success: boolean; message: string } | null
+
   // Actions
   loadConfig: () => Promise<void>
   saveDiscordConfig: (config: DiscordConfig) => Promise<void>
@@ -335,12 +368,23 @@ export interface ChannelsState {
   clearWecomTestResult: () => void
   setWecomHasChanges: (hasChanges: boolean) => void
 
+  // WeChat actions
+  loadWechatConfig: () => Promise<void>
+  saveWechatConfig: (config: WeChatConfig) => Promise<void>
+  startWechatGateway: () => Promise<void>
+  stopWechatGateway: () => Promise<void>
+  refreshWechatStatus: () => Promise<void>
+  testWechatConnection: (botToken: string) => Promise<boolean>
+  clearWechatTestResult: () => void
+  setWechatHasChanges: (hasChanges: boolean) => void
+
   // Toggle enabled and persist immediately
   toggleDiscordEnabled: (enabled: boolean, config: DiscordConfig) => Promise<void>
   toggleFeishuEnabled: (enabled: boolean, config: FeishuConfig) => Promise<void>
   toggleEmailEnabled: (enabled: boolean, config: EmailConfig) => Promise<void>
   toggleKookEnabled: (enabled: boolean, config: KookConfig) => Promise<void>
   toggleWecomEnabled: (enabled: boolean, config: WeComConfig) => Promise<void>
+  toggleWechatEnabled: (enabled: boolean, config: WeChatConfig) => Promise<void>
 
   // Auto-start enabled gateways
   autoStartEnabledGateways: () => Promise<void>

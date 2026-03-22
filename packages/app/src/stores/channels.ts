@@ -36,6 +36,9 @@ export type {
   WeComConfig,
   WeComGatewayStatus,
   WeComGatewayStatusResponse,
+  WeChatConfig,
+  WeChatGatewayStatus,
+  WeChatGatewayStatusResponse,
   ChannelsConfig,
   GatewayStatusResponse,
   ChannelsState,
@@ -44,6 +47,7 @@ export type {
 // Re-export default configs
 export {
   defaultWeComConfig,
+  defaultWeChatConfig,
   defaultDmConfig,
   defaultDiscordConfig,
   defaultFeishuConfig,
