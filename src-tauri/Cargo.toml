@@ -134,7 +134,7 @@ wiremock = "0.5"
 
 [profile.release]
 # Use unwind so catch_unwind in email.rs and deps (e.g. html2md) work; abort would conflict.
-codegen-units = 1
+codegen-units = 16
 lto = "thin"
 opt-level = "s"
 strip = true
