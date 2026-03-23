@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { notificationService } from "@/lib/notification-service";
+import { getOpenCodeClient } from "@/lib/opencode/client";
 import type {
   SessionErrorEvent,
 } from "@/lib/opencode/types";
@@ -43,6 +44,19 @@ import {
   cleanupChildSession,
 } from "@/stores/streaming";
 import { workspacePathsMatch } from "./session-utils";
+
+// --- Retry timeout ---
+// Safety net: if OpenCode keeps retrying beyond this duration,
+// clear streaming to prevent stuck UI (send button stays loading forever)
+let retryTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_RETRY_DURATION_MS = 120_000; // 2 minutes
+
+const clearRetryTimeout = () => {
+  if (retryTimeoutTimer) {
+    clearTimeout(retryTimeoutTimer);
+    retryTimeoutTimer = null;
+  }
+};
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -217,17 +231,74 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
           message: status.message,
           nextRetryAt: status.next,
         });
-        
+
+        // Check if this error is non-retryable (quota, plan limits, auth, etc.)
+        // These will never succeed no matter how many times we retry.
+        const retryMsg = (status.message || "").toLowerCase();
+        const isNonRetryable =
+          retryMsg.includes("quota") ||
+          retryMsg.includes("not support model") ||
+          retryMsg.includes("exceeded") ||
+          retryMsg.includes("unauthorized") ||
+          retryMsg.includes("forbidden") ||
+          retryMsg.includes("invalid api key") ||
+          retryMsg.includes("token plan");
+
+        if (isNonRetryable) {
+          console.warn("[SessionStatus] Non-retryable error detected, stopping immediately:", status.message);
+          clearRetryTimeout();
+          clearMessageTimeout();
+          useStreamingStore.getState().clearStreaming();
+          set((state) => {
+            const sessionId = state.activeSessionId;
+            const newSessions = sessionId
+              ? state.sessions.map((s) =>
+                  s.id === sessionId
+                    ? {
+                        ...s,
+                        messages: s.messages
+                          .map((m) => m.isStreaming ? { ...m, isStreaming: false } : m)
+                          .filter((m) => !(m.id.startsWith('pending-assistant-') && !m.content)),
+                      }
+                    : s,
+                )
+              : state.sessions;
+            if (sessionId) updateSessionCache(newSessions);
+            return {
+              sessions: newSessions,
+              sessionStatus: { type: 'idle' as const },
+              sessionError: {
+                sessionId: event.sessionId,
+                error: {
+                  name: "RetryError",
+                  data: { message: status.message, isRetryable: false },
+                },
+              },
+            };
+          });
+
+          // Abort the backend session to stop further retries
+          try {
+            const client = getOpenCodeClient();
+            client.abortSession(event.sessionId).catch(() => {
+              // Ignore abort errors — best-effort
+            });
+          } catch {
+            // Ignore if client not available
+          }
+          return;
+        }
+
         // CRITICAL: Do NOT clear streaming during retry!
         // OpenCode will automatically retry after a delay. If we clear streaming,
         // subsequent message.part.delta events will be ignored, causing content loss.
-        // 
+        //
         // Instead:
         // 1. Keep streamingMessageId active → continue processing delta events
         // 2. Keep message.isStreaming = true → keep Abort button visible
         // 3. Show retry error to inform user, but DON'T interrupt the stream
         // 4. When retry succeeds, OpenCode transitions to 'busy' → clear the error
-        
+
         const retryError: SessionErrorEvent = {
           sessionId: event.sessionId,
           error: {
@@ -243,15 +314,91 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
           sessionStatus: status,
           sessionError: retryError,
         });
-        
+
         // Note: clearMessageTimeout() is intentionally NOT called here
         // The timeout should only be cleared when the message truly completes
+
+        // Start retry timeout on first retry event — if retries don't resolve
+        // within MAX_RETRY_DURATION_MS, clear streaming to prevent stuck UI
+        if (!retryTimeoutTimer) {
+          retryTimeoutTimer = setTimeout(() => {
+            retryTimeoutTimer = null;
+            const { streamingMessageId: sid } = useStreamingStore.getState();
+            const currentState = get();
+            if (
+              currentState.activeSessionId === event.sessionId &&
+              sid &&
+              currentState.sessionStatus?.type === 'retry'
+            ) {
+              console.warn("[SessionStatus] Retry timeout reached, clearing streaming");
+              clearMessageTimeout();
+              useStreamingStore.getState().clearStreaming();
+              set((state) => {
+                const sessionId = state.activeSessionId;
+                const newSessions = sessionId
+                  ? state.sessions.map((s) =>
+                      s.id === sessionId
+                        ? {
+                            ...s,
+                            messages: s.messages
+                              .map((m) => m.isStreaming ? { ...m, isStreaming: false } : m)
+                              .filter((m) => !(m.id.startsWith('pending-assistant-') && !m.content)),
+                          }
+                        : s,
+                    )
+                  : state.sessions;
+                if (sessionId) updateSessionCache(newSessions);
+                return {
+                  sessions: newSessions,
+                  sessionStatus: { type: 'idle' as const },
+                };
+              });
+            }
+          }, MAX_RETRY_DURATION_MS);
+        }
       } else if (status.type === 'idle') {
-        set((state) => ({
-          sessionStatus: status,
-          sessionError: state.sessionError?.error?.name === 'RetryError' ? null : state.sessionError,
-        }));
+        clearRetryTimeout();
+        const wasRetrying = get().sessionStatus?.type === 'retry';
+
+        if (wasRetrying && streamingMessageId) {
+          // Retries exhausted → clear streaming to unstick UI
+          console.log("[SessionStatus] Retry → idle: clearing streaming state");
+          clearMessageTimeout();
+          useStreamingStore.getState().clearStreaming();
+          set((state) => {
+            const newSessions = activeSessionId
+              ? state.sessions.map((s) =>
+                  s.id === activeSessionId
+                    ? {
+                        ...s,
+                        messages: s.messages
+                          .map((m) => m.isStreaming ? { ...m, isStreaming: false } : m)
+                          .filter((m) => !(m.id.startsWith('pending-assistant-') && !m.content)),
+                      }
+                    : s,
+                )
+              : state.sessions;
+            if (activeSessionId) updateSessionCache(newSessions);
+            return {
+              sessionStatus: status,
+              sessionError: null,
+              sessions: newSessions,
+              pendingPermission: null,
+              pendingPermissionChildSessionId: null,
+              pendingQuestion: null,
+            };
+          });
+        } else {
+          set((state) => ({
+            sessionStatus: status,
+            sessionError: state.sessionError?.error?.name === 'RetryError' ? null : state.sessionError,
+            pendingPermission: null,
+            pendingPermissionChildSessionId: null,
+            pendingQuestion: null,
+          }));
+        }
       } else {
+        clearRetryTimeout();
         set((state) => ({
           sessionStatus: status,
           ...(state.sessionStatus?.type === 'retry' ? { sessionError: null } : {}),
@@ -264,6 +411,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
     },
 
     handleSessionIdle: (event: SessionIdleEvent) => {
+      clearRetryTimeout();
       busySessions.delete(event.sessionId);
 
       const { 
@@ -319,9 +467,9 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
 
           const newSession = {
             ...session,
-            messages: session.messages.map((m) =>
-              m.id === streamingMessageId ? { ...m, isStreaming: false } : m,
-            ),
+            messages: session.messages
+              .map((m) => m.id === streamingMessageId ? { ...m, isStreaming: false } : m)
+              .filter((m) => !(m.id.startsWith('pending-assistant-') && !m.content)),
           };
           sessionLookupCache.set(activeSessionId, newSession);
 
@@ -407,6 +555,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         errorName === "AbortError"
       ) {
         console.log("[Session] Abort error suppressed (user-initiated cancel)");
+        clearRetryTimeout();
         clearMessageTimeout();
         set((state) => {
           const newSessions = activeSessionId
@@ -414,9 +563,9 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
                 s.id === activeSessionId
                   ? {
                       ...s,
-                      messages: s.messages.map((m) =>
-                        m.isStreaming ? { ...m, isStreaming: false } : m,
-                      ),
+                      messages: s.messages
+                        .map((m) => m.isStreaming ? { ...m, isStreaming: false } : m)
+                        .filter((m) => !(m.id.startsWith('pending-assistant-') && !m.content)),
                     }
                   : s,
               )
@@ -457,6 +606,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         },
       );
 
+      clearRetryTimeout();
       clearMessageTimeout();
 
       set((state) => {
@@ -465,9 +615,9 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
               s.id === activeSessionId
                 ? {
                     ...s,
-                    messages: s.messages.map((m) =>
-                      m.isStreaming ? { ...m, isStreaming: false } : m,
-                    ),
+                    messages: s.messages
+                      .map((m) => m.isStreaming ? { ...m, isStreaming: false } : m)
+                      .filter((m) => !(m.id.startsWith('pending-assistant-') && !m.content)),
                   }
                 : s,
             )

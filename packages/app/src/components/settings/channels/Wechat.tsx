@@ -68,7 +68,7 @@ const WECHAT_WIZARD_STEPS = [
 
 interface QrData {
   qrcode: string
-  qrcodeImgContent: string
+  qrcodeImgContent?: string
 }
 
 interface QrStatusResponse {
@@ -240,7 +240,7 @@ function WeChatSetupWizard({
             {qrData && !qrLoading && (
               <div className="flex flex-col items-center space-y-4">
                 <div className="p-4 bg-white rounded-xl shadow-sm border">
-                  <QRCodeSVG value={qrData.qrcodeImgContent} size={200} level="M" />
+                  <QRCodeSVG value={qrData.qrcodeImgContent || qrData.qrcode} size={200} level="M" />
                 </div>
                 <p className="text-sm text-muted-foreground text-center">
                   {t('settings.channels.wechat.scanInstructions', 'Open WeChat on your iPhone and scan this QR code to log in.')}

@@ -8,11 +8,35 @@ import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { invoke } from '@tauri-apps/api/core'
 import type { DeviceInfo } from '@/lib/git/types'
+import {
+  Cloud,
+  Copy,
+  Eye,
+  EyeOff,
+  LogOut,
+  RefreshCw,
+  Shield,
+  UserPlus,
+  Users,
+  Camera,
+  Trash2,
+} from 'lucide-react'
 
-function SettingCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SettingCard({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string
+  icon?: React.ElementType
+  children: React.ReactNode
+}) {
   return (
-    <div className="rounded-lg border border-border/50 bg-card/50 p-4">
-      <h4 className="mb-3 text-sm font-medium text-foreground/80">{title}</h4>
+    <div className="rounded-xl border border-border/40 bg-card/30 p-5 backdrop-blur-sm">
+      <div className="mb-4 flex items-center gap-2">
+        {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
+        <h4 className="text-sm font-semibold text-foreground/90">{title}</h4>
+      </div>
       {children}
     </div>
   )
@@ -170,64 +194,82 @@ export function TeamOSSConfig() {
       {/* State 1: Disconnected — Create/Join forms */}
       {!connected && (
         <>
-          <SettingCard title="创建团队">
+          <SettingCard title="创建团队" icon={Users}>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">团队名称</label>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">团队名称</label>
                 <Input
                   value={teamName}
                   onChange={(e) => setTeamName(e.target.value)}
                   placeholder="输入团队名称"
+                  className="bg-background/50"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">你的名字</label>
-                <Input
-                  value={ownerName}
-                  onChange={(e) => setOwnerName(e.target.value)}
-                  placeholder="输入你的名字"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">你的邮箱</label>
-                <Input
-                  value={ownerEmail}
-                  onChange={(e) => setOwnerEmail(e.target.value)}
-                  placeholder="输入你的邮箱"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">你的名字</label>
+                  <Input
+                    value={ownerName}
+                    onChange={(e) => setOwnerName(e.target.value)}
+                    placeholder="输入你的名字"
+                    className="bg-background/50"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">你的邮箱</label>
+                  <Input
+                    value={ownerEmail}
+                    onChange={(e) => setOwnerEmail(e.target.value)}
+                    placeholder="输入你的邮箱"
+                    className="bg-background/50"
+                  />
+                </div>
               </div>
               <Button
                 onClick={handleCreateTeam}
                 disabled={creating || !teamName || !ownerName || !ownerEmail}
+                className="w-full"
               >
+                <Cloud className="mr-2 h-4 w-4" />
                 {creating ? '创建中...' : '创建团队'}
               </Button>
             </div>
           </SettingCard>
 
-          <SettingCard title="加入团队">
+          <div className="relative flex items-center py-1">
+            <div className="flex-1 border-t border-border/40" />
+            <span className="px-3 text-xs text-muted-foreground">或</span>
+            <div className="flex-1 border-t border-border/40" />
+          </div>
+
+          <SettingCard title="加入团队" icon={UserPlus}>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">团队 ID</label>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">团队 ID</label>
                 <Input
                   value={joinTeamId}
                   onChange={(e) => setJoinTeamId(e.target.value)}
                   placeholder="输入团队 ID"
+                  className="font-mono bg-background/50"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">团队密钥</label>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">团队密钥</label>
                 <Input
                   type="password"
                   value={joinTeamSecret}
                   onChange={(e) => setJoinTeamSecret(e.target.value)}
                   placeholder="输入团队密钥"
+                  className="bg-background/50"
                 />
               </div>
               <Button
                 onClick={handleJoinTeam}
                 disabled={joining || !joinTeamId || !joinTeamSecret}
+                variant="outline"
+                className="w-full"
               >
+                <UserPlus className="mr-2 h-4 w-4" />
                 {joining ? '加入中...' : '加入团队'}
               </Button>
               {deviceInfo && (
@@ -244,55 +286,58 @@ export function TeamOSSConfig() {
       {/* State 2 & 3: Connected */}
       {connected && teamInfo && (
         <>
-          <SettingCard title="团队信息">
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
+          <SettingCard title="团队信息" icon={Users}>
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
                 <span className="text-muted-foreground">团队名称</span>
-                <span>{teamInfo.teamName}</span>
+                <span className="font-medium">{teamInfo.teamName}</span>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
                 <span className="text-muted-foreground">团队 ID</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs">{teamInfo.teamId}</span>
+                <div className="flex items-center gap-1.5">
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{teamInfo.teamId}</code>
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
-                    className="h-6 px-2 text-xs"
+                    className="h-6 w-6"
                     onClick={() => copyToClipboard(teamInfo.teamId)}
                   >
-                    复制
+                    <Copy className="h-3 w-3" />
                   </Button>
                 </div>
               </div>
               {teamInfo.teamSecret && (
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
                   <span className="text-muted-foreground">团队密钥</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs">
-                      {showSecret ? teamInfo.teamSecret : '•••••••••'}
-                    </span>
+                  <div className="flex items-center gap-1.5">
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                      {showSecret ? teamInfo.teamSecret : '••••••••••••'}
+                    </code>
                     <Button
-                      size="sm"
+                      size="icon"
                       variant="ghost"
-                      className="h-6 px-2 text-xs"
+                      className="h-6 w-6"
                       onClick={() => setShowSecret(!showSecret)}
                     >
-                      {showSecret ? '隐藏' : '显示'}
+                      {showSecret ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                     </Button>
                     <Button
-                      size="sm"
+                      size="icon"
                       variant="ghost"
-                      className="h-6 px-2 text-xs"
+                      className="h-6 w-6"
                       onClick={() => copyToClipboard(teamInfo.teamSecret!)}
                     >
-                      复制
+                      <Copy className="h-3 w-3" />
                     </Button>
                   </div>
                 </div>
               )}
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
                 <span className="text-muted-foreground">角色</span>
-                <span>{isOwner ? '管理员' : '成员'}</span>
+                <div className="flex items-center gap-1.5">
+                  <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="font-medium">{isOwner ? '管理员' : '成员'}</span>
+                </div>
               </div>
             </div>
           </SettingCard>
@@ -301,35 +346,41 @@ export function TeamOSSConfig() {
             <TeamMemberList />
           </SettingCard>
 
-          <SettingCard title="同步状态">
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span>{connected ? '已连接' : '未连接'}</span>
-              </div>
-              {syncStatus?.lastSyncAt && (
-                <div className="text-muted-foreground">
-                  上次同步: {new Date(syncStatus.lastSyncAt).toLocaleString()}
+          <SettingCard title="同步状态" icon={RefreshCw}>
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ring-2 ${connected ? 'bg-green-500 ring-green-500/20' : 'bg-red-500 ring-red-500/20'}`} />
+                  <span className="font-medium">{connected ? '已连接' : '未连接'}</span>
                 </div>
-              )}
-              <div className="pt-2">
                 <Button
                   size="sm"
+                  variant="outline"
                   onClick={handleSyncNow}
                   disabled={syncing}
+                  className="h-8"
                 >
+                  <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
                   {syncing ? '同步中...' : '立即同步'}
                 </Button>
               </div>
+              {syncStatus?.lastSyncAt && (
+                <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  上次同步: {new Date(syncStatus.lastSyncAt).toLocaleString()}
+                </div>
+              )}
             </div>
           </SettingCard>
 
           {/* Admin-only section */}
           {isOwner && (
-            <SettingCard title="管理员操作">
-              <div className="space-y-3">
+            <SettingCard title="管理员操作" icon={Shield}>
+              <div className="space-y-4">
                 <div>
-                  <label className="mb-2 block text-xs text-muted-foreground">快照</label>
+                  <label className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Camera className="h-3 w-3" />
+                    快照
+                  </label>
                   <div className="flex flex-wrap gap-2">
                     {DOC_TYPES.map((dt) => (
                       <Button
@@ -338,6 +389,7 @@ export function TeamOSSConfig() {
                         variant="outline"
                         onClick={() => handleSnapshot(dt.key)}
                         disabled={snapshotLoading === dt.key}
+                        className="h-8"
                       >
                         {snapshotLoading === dt.key ? '创建中...' : `${dt.label} 快照`}
                       </Button>
@@ -345,7 +397,10 @@ export function TeamOSSConfig() {
                   </div>
                 </div>
                 <div>
-                  <label className="mb-2 block text-xs text-muted-foreground">清理</label>
+                  <label className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Trash2 className="h-3 w-3" />
+                    清理
+                  </label>
                   <div className="flex flex-wrap gap-2">
                     {DOC_TYPES.map((dt) => (
                       <Button
@@ -354,6 +409,7 @@ export function TeamOSSConfig() {
                         variant="outline"
                         onClick={() => handleCleanup(dt.key)}
                         disabled={cleanupLoading === dt.key}
+                        className="h-8"
                       >
                         {cleanupLoading === dt.key ? '清理中...' : `${dt.label} 清理`}
                       </Button>
@@ -364,13 +420,18 @@ export function TeamOSSConfig() {
             </SettingCard>
           )}
 
-          <Button
-            variant="destructive"
-            onClick={handleLeaveTeam}
-            disabled={leaving}
-          >
-            {leaving ? '离开中...' : '离开团队'}
-          </Button>
+          <div className="pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLeaveTeam}
+              disabled={leaving}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+            >
+              <LogOut className="mr-1.5 h-3.5 w-3.5" />
+              {leaving ? '离开中...' : '离开团队'}
+            </Button>
+          </div>
         </>
       )}
 

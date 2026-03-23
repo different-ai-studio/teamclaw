@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 const KEYRING_SERVICE: &str = "teamclaw-oss";
 const TOKEN_REFRESH_MARGIN_SECS: i64 = 300; // refresh 5 min before expiry
@@ -38,6 +38,7 @@ pub struct OssSyncManager {
     known_files: HashMap<DocType, HashSet<String>>,
 
     poll_interval: Duration,
+    #[allow(dead_code)]
     workspace_path: String,
     team_dir: PathBuf,
     loro_cache_dir: PathBuf,
@@ -130,6 +131,10 @@ impl OssSyncManager {
         self.connected = true;
     }
 
+    pub fn role(&self) -> MemberRole {
+        self.role.clone()
+    }
+
     pub fn set_role(&mut self, role: MemberRole) {
         self.role = role;
     }
@@ -152,10 +157,11 @@ impl OssSyncManager {
         );
 
         let s3_config = aws_sdk_s3::config::Builder::new()
+            .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
             .endpoint_url(&config.endpoint)
             .region(aws_sdk_s3::config::Region::new(config.region.clone()))
             .credentials_provider(credentials)
-            .force_path_style(true)
+            .force_path_style(false)
             .build();
 
         aws_sdk_s3::Client::from_conf(s3_config)
@@ -252,7 +258,7 @@ impl OssSyncManager {
             .body(ByteStream::from(body.to_vec()))
             .send()
             .await
-            .map_err(|e| format!("S3 PUT {key} failed: {e}"))?;
+            .map_err(|e| format!("S3 PUT {key} failed: {e:?}"))?;
 
         Ok(())
     }
@@ -817,7 +823,7 @@ impl OssSyncManager {
         doc_type: DocType,
     ) -> Result<CleanupResult, String> {
         let mut deleted_count: u32 = 0;
-        let mut freed_bytes: u64 = 0;
+        let freed_bytes: u64 = 0;
 
         // Find latest snapshot timestamp
         let snapshot_prefix = format!(
@@ -862,6 +868,8 @@ impl OssSyncManager {
         );
         let update_keys = self.s3_list(&updates_prefix).await?;
 
+        // Collect keys to delete first, then delete — avoids borrowing self
+        // mutably (known_files) and immutably (s3_delete) at the same time.
         let keys_to_delete: Vec<String> = update_keys
             .iter()
             .filter(|key| {
@@ -880,7 +888,6 @@ impl OssSyncManager {
             self.s3_delete(key).await?;
             deleted_count += 1;
         }
-
         let known_set = self.known_files.entry(doc_type).or_default();
         for key in &keys_to_delete {
             known_set.remove(key);

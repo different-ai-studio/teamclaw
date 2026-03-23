@@ -161,6 +161,13 @@ pub fn run() {
     // Initialize tracing/logging
     init_tracing();
 
+    // Create a Tokio runtime and register it with Tauri BEFORE plugin initialization.
+    // tauri-plugin-aptabase calls tokio::spawn during init (start_polling),
+    // which panics if no reactor is running on the main thread.
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+    let _guard = rt.enter();
+    tauri::async_runtime::set(rt.handle().clone());
+
     // Create RagState (HTTP server will be started in setup hook)
     let rag_state = commands::knowledge::RagState::default();
 
@@ -821,7 +828,7 @@ pub fn run() {
             }
 
             // Track app_started (always, regardless of consent)
-            app.handle().track_event("app_started", Some(serde_json::json!({
+            let _ = app.handle().track_event("app_started", Some(serde_json::json!({
                 "version": env!("CARGO_PKG_VERSION"),
                 "platform": std::env::consts::OS,
             })));
@@ -840,7 +847,7 @@ pub fn run() {
                     }
                 }
                 tauri::RunEvent::Exit => {
-                    app.track_event("app_exited", None);
+                    let _ = app.track_event("app_exited", None);
                     app.flush_events_blocking();
                 }
                 _ => {}

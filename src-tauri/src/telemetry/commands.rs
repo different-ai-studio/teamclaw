@@ -91,7 +91,7 @@ pub async fn telemetry_set_feedback(
     // Track analytics event (consent-gated)
     let consent = db.get_consent().await.unwrap_or_default();
     if consent == "granted" {
-        app_handle.track_event("feedback_given", Some(json!({
+        let _ = app_handle.track_event("feedback_given", Some(json!({
             "rating": rating,
         })));
     }
@@ -154,7 +154,7 @@ pub async fn telemetry_save_report(
     // Track analytics events (consent-gated)
     let consent = db.get_consent().await.unwrap_or_default();
     if consent == "granted" {
-        app_handle.track_event("session_created", Some(json!({
+        let _ = app_handle.track_event("session_created", Some(json!({
             "model_id": report.model_id.as_deref().unwrap_or("unknown"),
             "provider_id": report.provider_id.as_deref().unwrap_or("unknown"),
             "agent": report.agent.as_deref().unwrap_or("none"),
