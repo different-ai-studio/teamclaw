@@ -21,6 +21,7 @@ import {
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { buildConfig } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
+import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
@@ -132,6 +133,8 @@ function TeamApiKeyCard() {
 export function TeamP2PConfig() {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+
+  const teamMembersStore = useTeamMembersStore()
 
   const [p2pError, setP2pError] = React.useState<string | null>(null)
   const [joinTicketInput, setJoinTicketInput] = React.useState('')
@@ -247,6 +250,9 @@ export function TeamP2PConfig() {
       await tauriInvoke('p2p_join_drive', { ticket: joinTicketInput.trim(), label: '' })
       setJoinTicketInput('')
       await loadSyncStatus()
+      // Load unified members after successful join
+      await teamMembersStore.loadMembers()
+      await teamMembersStore.loadMyRole()
       // Reload team config so LLM section switches to team mode
       if (workspacePath) {
         const store = useTeamModeStore.getState()
@@ -257,10 +263,11 @@ export function TeamP2PConfig() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      if (msg.toLowerCase().includes('not authorized')) {
+      if (msg.includes('not been added') || msg.includes('not authorized') || msg.includes('未被添加')) {
         setJoinApprovalPending(true)
+        setP2pError('Your device has not been added to the team. Please contact the team Owner')
       } else {
-        setP2pError(msg)
+        setP2pError('Invalid ticket, please check and try again')
       }
     } finally {
       setJoinLoading(false)
