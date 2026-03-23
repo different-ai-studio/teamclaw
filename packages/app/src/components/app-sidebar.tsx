@@ -7,6 +7,7 @@ import { useStreamingStore } from "@/stores/streaming"
 import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useTabsStore } from "@/stores/tabs"
+import { useCronStore } from "@/stores/cron"
 import {
   Sidebar,
   SidebarContent,
@@ -325,14 +326,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const archiveSession = useSessionStore(s => s.archiveSession)
   const updateSessionTitle = useSessionStore(s => s.updateSessionTitle)
   const loadMoreSessions = useSessionStore(s => s.loadMoreSessions)
+  const cronSessionIds = useCronStore(s => s.cronSessionIds)
 
   // Rename state
   const [renamingSessionId, setRenamingSessionId] = React.useState<string | null>(null)
 
-  // UI-level pagination: only render the first visibleSessionCount sessions
+  // UI-level pagination: filter out cron sessions, then slice to visible count
   const sessions = React.useMemo(
-    () => allSessions.slice(0, visibleSessionCount),
-    [allSessions, visibleSessionCount],
+    () => allSessions
+      .filter(s => !cronSessionIds.has(s.id) || s.id === activeSessionId)
+      .slice(0, visibleSessionCount),
+    [allSessions, cronSessionIds, activeSessionId, visibleSessionCount],
   )
   
   const openSettings = useUIStore(s => s.openSettings)
