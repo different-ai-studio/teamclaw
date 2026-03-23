@@ -86,6 +86,14 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         await get().clearTeamMode(_workspacePath)
       }
     }
+    // Load user's role (non-critical)
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const role = await invoke<string | null>('unified_team_get_my_role')
+      set({ myRole: role as any })
+    } catch {
+      // Non-critical, role can be loaded later
+    }
   },
 
   applyTeamModelToOpenCode: async (workspacePath: string) => {
