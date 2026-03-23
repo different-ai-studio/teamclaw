@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use tantivy::collector::TopDocs;
-use tantivy::query::QueryParser;
+use tantivy::query::{BooleanQuery, EmptyQuery, Occur, Query, TermQuery};
 use tantivy::schema::*;
-use tantivy::tokenizer::{NgramTokenizer, TextAnalyzer};
+use tantivy::tokenizer::{NgramTokenizer, TextAnalyzer, Token};
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy};
 use tokio::sync::RwLock;
 
@@ -146,26 +147,66 @@ impl BM25Index {
         Ok(())
     }
 
+    /// Disjunction of [`TermQuery`] clauses over content, title, and heading, using the same
+    /// `ngram3` tokenizer as indexing. Avoids Tantivy [`QueryParser`] syntax so arbitrary user
+    /// text (URLs, code, `foo:bar`, `AND`, etc.) never fails to parse.
+    fn build_token_boolean_query(&self, query: &str) -> Result<Box<dyn Query>> {
+        let Some(mut analyzer) = self.index.tokenizers().get("ngram3") else {
+            anyhow::bail!("ngram3 tokenizer not registered on index");
+        };
+
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Box::new(EmptyQuery));
+        }
+
+        let fields = [self.content_field, self.title_field, self.heading_field];
+        let mut seen: HashSet<(u32, String)> = HashSet::new();
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+
+        let mut token_stream = analyzer.token_stream(query);
+        token_stream.process(&mut |token: &Token| {
+            if token.text.is_empty() {
+                return;
+            }
+            for &field in &fields {
+                let key = (field.field_id(), token.text.clone());
+                if !seen.insert(key) {
+                    continue;
+                }
+                let term = Term::from_field_text(field, token.text.as_str());
+                clauses.push((
+                    Occur::Should,
+                    Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs)),
+                ));
+            }
+        });
+
+        if clauses.is_empty() {
+            Ok(Box::new(EmptyQuery))
+        } else {
+            Ok(Box::new(BooleanQuery::new(clauses)))
+        }
+    }
+
     /// Search the BM25 index and return top_k results
     /// Returns Vec<(chunk_id, score)>
     pub async fn search(&self, query: &str, top_k: usize) -> Result<Vec<(i64, f64)>> {
+        if let Err(e) = self.reader.reload() {
+            tracing::warn!("BM25 reader reload before search: {}", e);
+        }
         let searcher = self.reader.searcher();
         let num_docs = searcher.num_docs();
 
-        // Parse query across content, title, and heading fields
-        // The QueryParser will automatically use the tokenizer registered with the index
-        let query_parser = QueryParser::for_index(
-            &self.index,
-            vec![self.content_field, self.title_field, self.heading_field],
-        );
-
-        let parsed_query = query_parser
-            .parse_query(query)
-            .context("Failed to parse query")?;
+        let parsed_query = self
+            .build_token_boolean_query(query)
+            .context("Failed to build BM25 query")?;
 
         tracing::debug!(
             "BM25 search: query='{}', num_docs={}, parsed_query={:?}",
-            query, num_docs, parsed_query
+            query.trim(),
+            num_docs,
+            parsed_query
         );
 
         // Execute search
@@ -231,6 +272,26 @@ mod tests {
 
         // Search
         let results = index.search("Rust", 10).await.unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].0, 1);
+    }
+
+    #[tokio::test]
+    async fn test_bm25_search_special_chars_do_not_break_parser() {
+        let temp_dir = TempDir::new().unwrap();
+        let index = BM25Index::new(temp_dir.path()).unwrap();
+
+        index
+            .add_document(1, "set foo:bar in yaml config", None, None)
+            .await
+            .unwrap();
+        index.commit().await.unwrap();
+
+        // QueryParser would treat ':' as field syntax; token query treats it as literal text.
+        let results = index
+            .search("foo:bar", 10)
+            .await
+            .expect("search must succeed");
         assert!(!results.is_empty());
         assert_eq!(results[0].0, 1);
     }
