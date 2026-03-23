@@ -79,7 +79,7 @@ tracing = { version = "0.1", features = ["log"] }
 tauri-plugin-log = "2"
 
 # P2P team sync (optional; enable with p2p feature; off by default on Windows build)
-iroh = { version = "0.96", optional = true }
+iroh = { version = "0.97", optional = true }
 iroh-blobs = { version = "0.98", features = ["fs-store"], optional = true }
 iroh-docs = { version = "0.96", optional = true }
 iroh-gossip = { version = "0.96", optional = true }
