@@ -10,6 +10,7 @@ use super::wechat_config::{
 use super::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 use super::session_queue::{SessionQueue, QueuedMessage, EnqueueResult, RejectReason};
 
+#[allow(dead_code)]
 const ILINK_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const LONG_POLL_TIMEOUT_MS: u64 = 35_000;
 const MAX_CONSECUTIVE_FAILURES: u32 = 3;
@@ -58,6 +59,7 @@ struct ILinkMessageItem {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct ILinkMessage {
     #[serde(default)]
     from_user_id: Option<String>,
@@ -74,7 +76,7 @@ struct ILinkMessage {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct GetUpdatesResponse {
+pub(crate) struct GetUpdatesResponse {
     #[serde(default)]
     ret: Option<i32>,
     #[serde(default)]
@@ -320,6 +322,7 @@ pub struct WeChatGateway {
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<WeChatGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
+    #[allow(dead_code)]
     processed_messages: Arc<RwLock<ProcessedMessageTracker>>,
     #[allow(dead_code)]
     permission_approver: super::PermissionAutoApprover,
@@ -369,6 +372,7 @@ impl WeChatGateway {
     }
 
     /// Get cached context_token for a user (used by cron delivery)
+    #[allow(dead_code)]
     pub async fn get_context_token(&self, user_id: &str) -> Option<String> {
         self.context_tokens.read().await.get(user_id).cloned()
     }
@@ -575,6 +579,14 @@ impl WeChatGateway {
     async fn handle_incoming_message(&self, sender_id: &str, text: &str) -> Result<(), String> {
         let session_key = format!("wechat:dm:{}", sender_id);
 
+        // Check for slash commands first
+        let trimmed = text.trim();
+        if !trimmed.is_empty() && trimmed.starts_with('/') {
+            let reply = self.handle_slash_command(&session_key, trimmed).await;
+            let _ = self.send_to_user(sender_id, &reply).await;
+            return Ok(());
+        }
+
         // Build message for the session queue
         let gateway = self.clone();
         let text = text.to_string();
@@ -630,6 +642,49 @@ impl WeChatGateway {
         Ok(())
     }
 
+    async fn handle_slash_command(&self, session_key: &str, content: &str) -> String {
+        let parts: Vec<&str> = content.splitn(2, ' ').collect();
+        let cmd = parts[0].to_lowercase();
+        let arg = parts.get(1).copied().unwrap_or("").trim();
+
+        match cmd.as_str() {
+            "/help" => {
+                "Available commands:\n/help - Show this help\n/model [name] - List or switch models\n/sessions [id] - List or bind sessions\n/reset - Start new session\n/stop - Stop current processing".to_string()
+            }
+            "/reset" => {
+                self.session_mapping.remove_session(session_key).await;
+                "Session reset. Next message will start a new conversation.".to_string()
+            }
+            "/model" => {
+                super::handle_model_command(
+                    self.opencode_port,
+                    &self.session_mapping,
+                    session_key,
+                    arg,
+                )
+                .await
+            }
+            "/sessions" => {
+                super::handle_sessions_command(
+                    self.opencode_port,
+                    &self.session_mapping,
+                    session_key,
+                    arg,
+                )
+                .await
+            }
+            "/stop" => {
+                super::handle_stop_command(
+                    self.opencode_port,
+                    &self.session_mapping,
+                    session_key,
+                )
+                .await
+            }
+            _ => format!("Unknown command: {}\nType /help for available commands.", cmd),
+        }
+    }
+
     async fn process_and_reply(&self, sender_id: &str, text: &str) {
         // Get or create session
         let session_key = format!("wechat:dm:{}", sender_id);
@@ -652,130 +707,36 @@ impl WeChatGateway {
             }
         };
 
-        // IMPORTANT: Connect to SSE FIRST (before sending message) to avoid missing delta events.
-        let port = self.opencode_port;
-        let sse_url = format!("http://127.0.0.1:{}/event", port);
-        let sse_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(900))
-            .build()
-            .unwrap_or_default();
-        let sse_resp = match sse_client
-            .get(&sse_url)
-            .header("Accept", "text/event-stream")
-            .send()
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("[WeChat] SSE connect failed: {}", e);
-                let _ = self.send_to_user(sender_id, "Failed to connect to session.").await;
-                return;
-            }
+        // Get model preference for this session key
+        let model = {
+            let model_str = self.session_mapping.get_model(&session_key).await;
+            model_str.and_then(|s| super::parse_model_preference(&s))
         };
 
-        // THEN send the prompt
-        let prompt_url = format!("http://127.0.0.1:{}/session/{}/prompt_async", port, session_id);
-        let client = reqwest::Client::new();
-        let body = serde_json::json!({
-            "parts": [{ "type": "text", "text": text }],
-        });
+        // Use unified gateway with SSE + permission auto-approval
+        let parts = vec![serde_json::json!({ "type": "text", "text": text })];
+        println!("[WeChat] Sending to session {} via unified gateway", session_id);
 
-        match client.post(&prompt_url).json(&body).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                println!("[WeChat] Message forwarded to session {}", session_id);
-            }
-            Ok(resp) => {
-                let status = resp.status();
-                eprintln!("[WeChat] prompt_async failed: HTTP {}", status);
-                let _ = self.send_to_user(sender_id, "Failed to process message.").await;
-                return;
+        match super::send_message_async_with_approval(
+            self.opencode_port,
+            &session_id,
+            parts,
+            model,
+            None, // no question context for now
+        )
+        .await
+        {
+            Ok(response) => {
+                if !response.is_empty() {
+                    let _ = self.send_to_user(sender_id, &response).await;
+                }
             }
             Err(e) => {
-                eprintln!("[WeChat] prompt_async error: {}", e);
-                let _ = self.send_to_user(sender_id, &format!("Error: {}", e)).await;
-                return;
+                eprintln!("[WeChat] Unified gateway error: {}", e);
+                let _ = self
+                    .send_to_user(sender_id, &format!("Error: {}", e))
+                    .await;
             }
-        }
-
-        // Stream response back to WeChat using the already-connected SSE
-        self.stream_sse_to_wechat(sender_id, sse_resp).await;
-    }
-
-    async fn stream_sse_to_wechat(&self, sender_id: &str, resp: reqwest::Response) {
-        // Accumulate text and send periodically
-        let mut accumulated_text = String::new();
-        let mut last_send = std::time::Instant::now();
-        let mut bytes_stream = resp.bytes_stream();
-        let mut buffer = String::new();
-
-        use futures_util::StreamExt;
-        while let Some(chunk) = bytes_stream.next().await {
-            let chunk = match chunk {
-                Ok(c) => c,
-                Err(_) => break,
-            };
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-            // Parse SSE events from buffer
-            while let Some(pos) = buffer.find("\n\n") {
-                let event_str = buffer[..pos].to_string();
-                buffer = buffer[pos + 2..].to_string();
-
-                // Parse event type and data
-                let mut event_type = String::new();
-                let mut event_data = String::new();
-                for line in event_str.lines() {
-                    if let Some(t) = line.strip_prefix("event: ") {
-                        event_type = t.to_string();
-                    } else if let Some(d) = line.strip_prefix("data: ") {
-                        event_data = d.to_string();
-                    }
-                }
-
-                match event_type.as_str() {
-                    "message.part.delta" => {
-                        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&event_data) {
-                            if let Some(text) = data["delta"]["text"].as_str() {
-                                accumulated_text.push_str(text);
-                            }
-                        }
-                        // Send periodically (every 2s or 500+ chars)
-                        if (last_send.elapsed().as_secs() >= 2 || accumulated_text.len() >= 500)
-                            && !accumulated_text.is_empty()
-                        {
-                            let _ = self.send_to_user(sender_id, &accumulated_text).await;
-                            accumulated_text.clear();
-                            last_send = std::time::Instant::now();
-                        }
-                    }
-                    "message.updated" => {
-                        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&event_data) {
-                            if data["role"].as_str() == Some("assistant")
-                                && data["completedTime"].is_string()
-                            {
-                                // Send final accumulated text
-                                if !accumulated_text.is_empty() {
-                                    let _ = self.send_to_user(sender_id, &accumulated_text).await;
-                                }
-                                return;
-                            }
-                        }
-                    }
-                    "session.idle" => {
-                        // Session done
-                        if !accumulated_text.is_empty() {
-                            let _ = self.send_to_user(sender_id, &accumulated_text).await;
-                        }
-                        return;
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // Send any remaining text
-        if !accumulated_text.is_empty() {
-            let _ = self.send_to_user(sender_id, &accumulated_text).await;
         }
     }
 }
