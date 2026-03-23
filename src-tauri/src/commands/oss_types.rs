@@ -41,6 +41,38 @@ pub struct OssTeamInfo {
     pub role: MemberRole,
 }
 
+// Note on serde attributes:
+// - `tag = "status"` puts the variant name as "status" field
+// - `rename_all = "camelCase"` applies to field names (node_id -> nodeId, team_name -> teamName)
+// - Explicit `#[serde(rename = "...")]` on variants overrides `rename_all` for the tag value
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum OssJoinResult {
+    #[serde(rename = "joined")]
+    Joined {
+        #[serde(flatten)]
+        info: OssTeamInfo,
+    },
+    #[serde(rename = "not_member")]
+    NotMember {
+        node_id: String,
+        team_name: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamApplication {
+    pub node_id: String,
+    pub name: String,
+    pub email: String,
+    pub note: String,
+    pub platform: String,
+    pub arch: String,
+    pub hostname: String,
+    pub applied_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
@@ -75,6 +107,14 @@ pub struct OssTeamConfig {
     pub fc_endpoint: String,
     pub last_sync_at: Option<String>,
     pub poll_interval_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingApplication {
+    pub team_id: String,
+    pub fc_endpoint: String,
+    pub applied_at: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
