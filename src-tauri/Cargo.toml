@@ -93,7 +93,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 gethostname = "1.1.0"
 
 # ClawHub skill registry
-zip = "2"
+zip = "8"
 urlencoding = "2"
 dirs = "5"
 
