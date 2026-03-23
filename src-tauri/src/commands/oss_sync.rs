@@ -1150,3 +1150,75 @@ pub fn delete_team_secret(team_id: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to delete team secret from keyring: {e}"))?;
     Ok(())
 }
+
+pub fn write_pending_application(workspace_path: &str, pending: &PendingApplication) -> Result<(), String> {
+    let config_path = Path::new(workspace_path)
+        .join(TEAMCLAW_DIR)
+        .join("teamclaw.json");
+
+    let mut json: Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?
+    } else {
+        Value::Object(serde_json::Map::new())
+    };
+
+    let pending_value = serde_json::to_value(pending)
+        .map_err(|e| format!("Failed to serialize pending application: {e}"))?;
+
+    let root = json.as_object_mut()
+        .ok_or_else(|| "teamclaw.json root is not an object".to_string())?;
+    let oss = root.entry("oss").or_insert_with(|| Value::Object(serde_json::Map::new()));
+    if let Some(oss_obj) = oss.as_object_mut() {
+        oss_obj.insert("pendingApplication".to_string(), pending_value);
+    }
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {e}"))?;
+    }
+
+    let output = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
+    std::fs::write(&config_path, output)
+        .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+
+    Ok(())
+}
+
+pub fn read_pending_application(workspace_path: &str) -> Option<PendingApplication> {
+    let config_path = Path::new(workspace_path)
+        .join(TEAMCLAW_DIR)
+        .join("teamclaw.json");
+
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let json: Value = serde_json::from_str(&content).ok()?;
+    let pending = json.get("oss")?.get("pendingApplication")?;
+    serde_json::from_value(pending.clone()).ok()
+}
+
+pub fn clear_pending_application(workspace_path: &str) -> Result<(), String> {
+    let config_path = Path::new(workspace_path)
+        .join(TEAMCLAW_DIR)
+        .join("teamclaw.json");
+
+    if !config_path.exists() {
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
+    let mut json: Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?;
+
+    if let Some(oss) = json.get_mut("oss").and_then(|v| v.as_object_mut()) {
+        oss.remove("pendingApplication");
+    }
+
+    let output = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
+    std::fs::write(&config_path, output)
+        .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+
+    Ok(())
+}

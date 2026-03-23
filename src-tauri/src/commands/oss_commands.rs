@@ -205,7 +205,7 @@ pub async fn oss_join_team(
     team_id: String,
     team_secret: String,
     fc_endpoint: String,
-) -> Result<OssTeamInfo, String> {
+) -> Result<OssJoinResult, String> {
     let node_id = get_p2p_node_id(&iroh_state).await?;
 
     // Create manager and call FC /token
@@ -234,20 +234,7 @@ pub async fn oss_join_team(
         serde_json::from_str(&format!("\"{}\"", resp.role)).unwrap_or(MemberRole::Editor);
     manager.set_role(role.clone());
 
-    // Two-step NodeId validation: check device is in the members manifest
-    match manager.check_member_authorized(&node_id).await {
-        Ok(_authorized_role) => {
-            // Device is authorized, proceed with sync
-        }
-        Err(_) => {
-            return Err("你的设备未被添加到团队中，请联系团队 Owner".to_string());
-        }
-    }
-
-    // Run initial sync
-    manager.initial_sync().await?;
-
-    // Read _meta/team.json from OSS to get team_name and owner_name
+    // Read _meta/team.json BEFORE member check (both paths need team_name)
     let team_key = format!("teams/{}/_meta/team.json", team_id);
     let team_data = manager.s3_get(&team_key).await.unwrap_or_default();
     let team_meta: Value = serde_json::from_slice(&team_data).unwrap_or(Value::Null);
@@ -262,6 +249,29 @@ pub async fn oss_join_team(
         .unwrap_or("Unknown")
         .to_string();
 
+    // Check if device is in members manifest
+    match manager.check_member_authorized(&node_id).await {
+        Ok(_authorized_role) => {
+            // Device is authorized, proceed with sync
+        }
+        Err(_) => {
+            // Not a member — return NotMember so frontend can show application dialog
+            return Ok(OssJoinResult::NotMember {
+                node_id,
+                team_name,
+            });
+        }
+    }
+
+    // Scaffold teamclaw-team directory
+    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    if !std::path::Path::new(&team_dir).exists() {
+        super::team::scaffold_team_dir(&team_dir)?;
+    }
+
+    // Run initial sync
+    manager.initial_sync().await?;
+
     // Save config + keyring
     let config = OssTeamConfig {
         enabled: true,
@@ -273,6 +283,9 @@ pub async fn oss_join_team(
     write_oss_config(&workspace_path, &config)?;
     save_team_secret(&team_id, &team_secret)?;
 
+    // Clear any pending application
+    let _ = clear_pending_application(&workspace_path);
+
     // Store manager in state, start poll loop
     {
         let mut guard = state.manager.lock().await;
@@ -282,12 +295,14 @@ pub async fn oss_join_team(
 
     info!("Joined OSS team: {team_id}");
 
-    Ok(OssTeamInfo {
-        team_id,
-        team_secret: None,
-        team_name,
-        owner_name,
-        role,
+    Ok(OssJoinResult::Joined {
+        info: OssTeamInfo {
+            team_id,
+            team_secret: None,
+            team_name,
+            owner_name,
+            role,
+        },
     })
 }
 
@@ -547,4 +562,74 @@ pub async fn oss_reset_team_secret(
 #[tauri::command]
 pub async fn oss_get_team_config(workspace_path: String) -> Result<Option<OssTeamConfig>, String> {
     Ok(read_oss_config(&workspace_path))
+}
+
+#[tauri::command]
+pub async fn oss_apply_team(
+    iroh_state: State<'_, IrohState>,
+    workspace_path: String,
+    team_id: String,
+    team_secret: String,
+    fc_endpoint: String,
+    name: String,
+    email: String,
+    note: String,
+) -> Result<(), String> {
+    let node_id = get_p2p_node_id(&iroh_state).await?;
+
+    // Get device info for the application
+    let hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let platform = std::env::consts::OS.to_string();
+    let arch = std::env::consts::ARCH.to_string();
+
+    // Call FC /apply
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "teamId": team_id,
+        "teamSecret": team_secret,
+        "nodeId": node_id,
+        "name": name,
+        "email": email,
+        "note": note,
+        "platform": platform,
+        "arch": arch,
+        "hostname": hostname,
+    });
+
+    let url = format!("{}/apply", fc_endpoint);
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to call FC /apply: {e}"))?;
+
+    if !response.status().is_success() {
+        let text = response.text().await.unwrap_or_else(|_| "unknown".to_string());
+        return Err(format!("FC /apply failed: {text}"));
+    }
+
+    // Save pending application state locally
+    let pending = PendingApplication {
+        team_id: team_id.clone(),
+        fc_endpoint,
+        applied_at: chrono::Utc::now().to_rfc3339(),
+    };
+    write_pending_application(&workspace_path, &pending)?;
+
+    // Save team secret so we can re-check later
+    save_team_secret(&team_id, &team_secret)?;
+
+    info!("Application submitted for team: {team_id}");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn oss_get_pending_application(workspace_path: String) -> Result<Option<PendingApplication>, String> {
+    Ok(read_pending_application(&workspace_path))
+}
+
+#[tauri::command]
+pub async fn oss_cancel_application(workspace_path: String) -> Result<(), String> {
+    clear_pending_application(&workspace_path)
 }
