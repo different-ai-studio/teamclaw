@@ -89,6 +89,11 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         }
       }
 
+      // Refresh cron session IDs so newly created cron sessions get filtered
+      import("@/stores/cron").then(({ useCronStore }) => {
+        useCronStore.getState().loadCronSessionIds();
+      });
+
       set((state) => ({
         highlightedSessionIds: [...state.highlightedSessionIds, event.sessionId],
       }));

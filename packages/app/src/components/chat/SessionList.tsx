@@ -1,10 +1,11 @@
-import React, { useCallback, useRef } from 'react'
+import React, { useCallback, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { MessageSquare, Loader2 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session'
 import { useStreamingStore } from '@/stores/streaming'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUIStore } from '@/stores/ui'
+import { useCronStore } from '@/stores/cron'
 import { cn } from '@/lib/utils'
 import { formatRelativeDate } from '@/lib/date-format'
 
@@ -114,8 +115,15 @@ const ROW_HEIGHT = 52
 const ROW_HEIGHT_COMPACT = 40
 
 export function SessionList({ compact, onSessionSelected }: SessionListProps) {
-  const sessions = useSessionStore(s => s.sessions)
+  const allSessions = useSessionStore(s => s.sessions)
   const activeSessionId = useSessionStore(s => s.activeSessionId)
+  const cronSessionIds = useCronStore(s => s.cronSessionIds)
+
+  // Filter out cron-created sessions (unless it's the currently active one)
+  const sessions = useMemo(
+    () => allSessions.filter(s => !cronSessionIds.has(s.id) || s.id === activeSessionId),
+    [allSessions, cronSessionIds, activeSessionId],
+  )
   const isLoading = useSessionStore(s => s.isLoading)
   const highlightedSessionIds = useSessionStore(s => s.highlightedSessionIds)
   const setActiveSession = useSessionStore(s => s.setActiveSession)

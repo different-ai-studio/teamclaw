@@ -91,6 +91,9 @@ interface CronState {
   error: string | null
   isInitialized: boolean
 
+  // All session IDs created by cron (for filtering in session list)
+  cronSessionIds: Set<string>
+
   // Run history for the currently viewed job
   selectedJobId: string | null
   runs: CronRunRecord[]
@@ -100,6 +103,7 @@ interface CronState {
   init: () => Promise<void>
   reinit: () => Promise<void>
   loadJobs: () => Promise<void>
+  loadCronSessionIds: () => Promise<void>
   addJob: (request: CreateCronJobRequest) => Promise<CronJob>
   updateJob: (request: UpdateCronJobRequest) => Promise<CronJob>
   removeJob: (jobId: string) => Promise<void>
@@ -117,6 +121,8 @@ export const useCronStore = create<CronState>((set, get) => ({
   error: null,
   isInitialized: false,
 
+  cronSessionIds: new Set<string>(),
+
   selectedJobId: null,
   runs: [],
   runsLoading: false,
@@ -130,7 +136,7 @@ export const useCronStore = create<CronState>((set, get) => ({
     try {
       await invoke('cron_init')
       set({ isInitialized: true })
-      await get().loadJobs()
+      await Promise.all([get().loadJobs(), get().loadCronSessionIds()])
     } catch (error) {
       console.error('[Cron] Init failed:', error)
       set({ error: error instanceof Error ? error.message : String(error) })
@@ -143,7 +149,7 @@ export const useCronStore = create<CronState>((set, get) => ({
       set({ isInitialized: false })
       await invoke('cron_init')
       set({ isInitialized: true })
-      await get().loadJobs()
+      await Promise.all([get().loadJobs(), get().loadCronSessionIds()])
     } catch (error) {
       console.error('[Cron] Re-init failed:', error)
       set({ error: error instanceof Error ? error.message : String(error) })
@@ -207,6 +213,15 @@ export const useCronStore = create<CronState>((set, get) => ({
       await invoke('cron_run_job', { jobId })
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) })
+    }
+  },
+
+  loadCronSessionIds: async () => {
+    try {
+      const ids = await invoke<string[]>('cron_get_all_session_ids')
+      set({ cronSessionIds: new Set(ids) })
+    } catch (error) {
+      console.error('[Cron] Failed to load cron session IDs:', error)
     }
   },
 

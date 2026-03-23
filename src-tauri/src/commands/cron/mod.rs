@@ -239,6 +239,14 @@ pub async fn cron_get_runs(
     Ok(cron_state.storage.get_runs(&job_id, Some(limit)).await)
 }
 
+/// Get all session IDs created by cron jobs (used to filter cron sessions in UI)
+#[tauri::command]
+pub async fn cron_get_all_session_ids(
+    cron_state: State<'_, CronState>,
+) -> Result<Vec<String>, String> {
+    Ok(cron_state.storage.get_all_session_ids().await)
+}
+
 /// Refresh delivery configs (no-op now — DeliveryManager reads config on demand)
 #[tauri::command]
 pub async fn cron_refresh_delivery(
