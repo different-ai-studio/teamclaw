@@ -305,6 +305,39 @@ async function handleResetSecret(body) {
   return json(200, { success: true });
 }
 
+async function handleApply(body) {
+  const { teamId, teamSecret, nodeId, name, email, note, platform, arch, hostname } = body;
+  if (!teamId || !teamSecret || !nodeId || !name || !email) {
+    return json(400, { error: "Missing required fields" });
+  }
+
+  const auth = await ossGet(`teams/${teamId}/_registry/auth.json`);
+  if (!auth) {
+    return json(404, { error: "Team not found" });
+  }
+
+  if (sha256(teamSecret) !== auth.teamSecretHash) {
+    console.log(`[apply] Secret mismatch for teamId=${teamId} nodeId=${nodeId}`);
+    return json(403, { error: "Invalid team secret" });
+  }
+
+  const application = {
+    nodeId,
+    name,
+    email,
+    note: note || "",
+    platform: platform || "",
+    arch: arch || "",
+    hostname: hostname || "",
+    appliedAt: new Date().toISOString(),
+  };
+
+  await ossPut(`teams/${teamId}/_meta/applications/${nodeId}.json`, application);
+
+  console.log(`[apply] Application submitted for teamId=${teamId} nodeId=${nodeId}`);
+  return json(200, { success: true });
+}
+
 // ---------------------------------------------------------------------------
 // FC HTTP handler
 // ---------------------------------------------------------------------------
@@ -350,6 +383,8 @@ export async function handler(event, context) {
         return await handleToken(body);
       case "/reset-secret":
         return await handleResetSecret(body);
+      case "/apply":
+        return await handleApply(body);
       default:
         return json(404, { error: "Not found" });
     }
