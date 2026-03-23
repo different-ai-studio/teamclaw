@@ -115,7 +115,6 @@ function JobCard({
           variant="outline"
           size="sm"
           onClick={onEdit}
-          disabled={!job.enabled}
           className="h-7 text-xs"
         >
           <Edit2 className="h-3 w-3 mr-1" />
@@ -125,7 +124,6 @@ function JobCard({
           variant="outline"
           size="sm"
           onClick={onViewHistory}
-          disabled={!job.enabled}
           className="h-7 text-xs"
         >
           <History className="h-3 w-3 mr-1" />

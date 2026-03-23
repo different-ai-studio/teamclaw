@@ -255,6 +255,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         todos: cachedData?.todos || [],
         sessionDiff: cachedData?.diff || [],
         sessionError: null,
+        sessionStatus: null,
         pendingPermission: null,
         pendingPermissionChildSessionId: null,
         pendingQuestion: cachedData?.pendingQuestion || null,

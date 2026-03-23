@@ -12,9 +12,14 @@ import {
   History,
   Send,
   GitBranch,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { useSessionStore } from '@/stores/session'
+import { useUIStore } from '@/stores/ui'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { useTabsStore } from '@/stores/tabs'
 import {
   Dialog,
   DialogContent,
@@ -32,7 +37,7 @@ import {
   type CronRunRecord,
 } from '@/stores/cron'
 
-function RunRecordCard({ run }: { run: CronRunRecord }) {
+function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSession?: (sessionId: string) => void }) {
   const statusColor = getRunStatusColor(run.status)
   const duration =
     run.startedAt && run.finishedAt
@@ -95,6 +100,18 @@ function RunRecordCard({ run }: { run: CronRunRecord }) {
           {run.error}
         </p>
       )}
+
+      {run.sessionId && onViewSession && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => onViewSession(run.sessionId!)}
+        >
+          <MessageSquare className="h-3 w-3 mr-1" />
+          查看对话
+        </Button>
+      )}
     </div>
   )
 }
@@ -110,6 +127,17 @@ export function CronHistoryDialog({
 }) {
   const { t } = useTranslation()
   const { runs, runsLoading, loadRuns } = useCronStore()
+  const setActiveSession = useSessionStore(s => s.setActiveSession)
+  const closeSettings = useUIStore(s => s.closeSettings)
+  const clearSelection = useWorkspaceStore(s => s.clearSelection)
+
+  const handleViewSession = React.useCallback(async (sessionId: string) => {
+    clearSelection()
+    useTabsStore.getState().hideAll()
+    await setActiveSession(sessionId)
+    closeSettings()
+    onOpenChange(false)
+  }, [clearSelection, setActiveSession, closeSettings, onOpenChange])
 
   React.useEffect(() => {
     if (open && job) {
@@ -145,7 +173,7 @@ export function CronHistoryDialog({
           ) : (
             <div className="space-y-3">
               {runs.map((run) => (
-                <RunRecordCard key={run.runId} run={run} />
+                <RunRecordCard key={run.runId} run={run} onViewSession={handleViewSession} />
               ))}
             </div>
           )}
