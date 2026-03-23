@@ -34,7 +34,7 @@ indexmap = { version = "2", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
 reqwest = { version = "0.11", features = ["json", "blocking", "stream"] }
 notify = { version = "6", features = ["macos_fsevent"] }
-notify-debouncer-mini = "0.4"
+notify-debouncer-mini = "0.7"
 notify-debouncer-full = "0.3"
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
 futures = "0.3"
