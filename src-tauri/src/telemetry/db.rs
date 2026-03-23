@@ -11,7 +11,7 @@ pub struct MessageFeedback {
     pub id: String,
     pub session_id: String,
     pub message_id: String,
-    pub rating: String, // "positive" | "negative"
+    pub rating: String,           // "positive" | "negative"
     pub star_rating: Option<i64>, // 1-5 star rating
     pub created_at: String,
 }
@@ -33,11 +33,11 @@ pub struct SessionReport {
     pub message_count: i64,
     pub tool_call_count: i64,
     pub tool_error_count: i64,
-    pub tool_calls: Option<String>,  // JSON string
-    pub scores: Option<String>,      // JSON string
+    pub tool_calls: Option<String>, // JSON string
+    pub scores: Option<String>,     // JSON string
     pub model_id: Option<String>,
     pub provider_id: Option<String>,
-    pub agent: Option<String>,       // Agent/skill name
+    pub agent: Option<String>, // Agent/skill name
     pub created_at: String,
 }
 
@@ -255,7 +255,12 @@ impl TelemetryDb {
             "INSERT INTO message_feedbacks (id, session_id, message_id, rating)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(session_id, message_id) DO UPDATE SET rating = ?4, synced_at = NULL",
-            params![id, session_id.to_string(), message_id.to_string(), rating.to_string()],
+            params![
+                id,
+                session_id.to_string(),
+                message_id.to_string(),
+                rating.to_string()
+            ],
         )
         .await
         .map_err(|e| format!("Failed to set feedback: {}", e))?;
@@ -297,11 +302,7 @@ impl TelemetryDb {
     }
 
     /// Remove a feedback for a specific message.
-    pub async fn remove_feedback(
-        &self,
-        session_id: &str,
-        message_id: &str,
-    ) -> Result<(), String> {
+    pub async fn remove_feedback(&self, session_id: &str, message_id: &str) -> Result<(), String> {
         let conn = self.conn.lock().await;
         conn.execute(
             "DELETE FROM message_feedbacks WHERE session_id = ?1 AND message_id = ?2",
@@ -326,7 +327,12 @@ impl TelemetryDb {
             "INSERT INTO message_feedbacks (id, session_id, message_id, rating, star_rating)
              VALUES (?1, ?2, ?3, 'positive', ?4)
              ON CONFLICT(session_id, message_id) DO UPDATE SET star_rating = ?4, synced_at = NULL",
-            params![id, session_id.to_string(), message_id.to_string(), star_rating],
+            params![
+                id,
+                session_id.to_string(),
+                message_id.to_string(),
+                star_rating
+            ],
         )
         .await
         .map_err(|e| format!("Failed to set star rating: {}", e))?;
@@ -422,11 +428,7 @@ impl TelemetryDb {
     }
 
     /// Get session reports with pagination.
-    pub async fn get_reports(
-        &self,
-        limit: i64,
-        offset: i64,
-    ) -> Result<Vec<SessionReport>, String> {
+    pub async fn get_reports(&self, limit: i64, offset: i64) -> Result<Vec<SessionReport>, String> {
         let conn = self.conn.lock().await;
         let mut rows = conn
             .query(

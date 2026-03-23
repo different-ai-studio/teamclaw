@@ -5,20 +5,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use pbkdf2::pbkdf2_hmac;
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use reqwest::{Client, Method, StatusCode};
-use sha2::{Sha256, Digest};
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-use aes_gcm::aead::Aead;
-use pbkdf2::pbkdf2_hmac;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use tokio::task::JoinHandle;
+use sha2::{Digest, Sha256};
 use tauri::State;
+use tokio::task::JoinHandle;
 
-use super::TEAMCLAW_DIR;
 use super::opencode::OpenCodeState;
 use super::team::{get_workspace_path, TEAM_REPO_DIR};
+use super::TEAMCLAW_DIR;
 
 // --- Types ---
 
@@ -133,7 +133,9 @@ const MIN_PASSWORD_LEN: usize = 8;
 // --- Config I/O ---
 
 pub fn read_webdav_config(workspace_path: &str) -> Option<WebDavConfig> {
-    let config_path = Path::new(workspace_path).join(TEAMCLAW_DIR).join("teamclaw.json");
+    let config_path = Path::new(workspace_path)
+        .join(TEAMCLAW_DIR)
+        .join("teamclaw.json");
     let content = fs::read_to_string(&config_path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
     let webdav_value = json.get("webdav")?;
@@ -142,7 +144,8 @@ pub fn read_webdav_config(workspace_path: &str) -> Option<WebDavConfig> {
 
 pub fn write_webdav_config(workspace_path: &str, config: &WebDavConfig) -> Result<(), String> {
     let teamclaw_dir = Path::new(workspace_path).join(TEAMCLAW_DIR);
-    fs::create_dir_all(&teamclaw_dir).map_err(|e| format!("Failed to create .teamclaw dir: {e}"))?;
+    fs::create_dir_all(&teamclaw_dir)
+        .map_err(|e| format!("Failed to create .teamclaw dir: {e}"))?;
 
     let config_path = teamclaw_dir.join("teamclaw.json");
     let mut json: serde_json::Value = if config_path.exists() {
@@ -159,8 +162,7 @@ pub fn write_webdav_config(workspace_path: &str, config: &WebDavConfig) -> Resul
 
     let content = serde_json::to_string_pretty(&json)
         .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
-    fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+    fs::write(&config_path, content).map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
 
     Ok(())
 }
@@ -175,12 +177,12 @@ pub fn read_sync_manifest(workspace_path: &str) -> Option<SyncManifest> {
 
 pub fn write_sync_manifest(workspace_path: &str, manifest: &SyncManifest) -> Result<(), String> {
     let teamclaw_dir = Path::new(workspace_path).join(TEAMCLAW_DIR);
-    fs::create_dir_all(&teamclaw_dir).map_err(|e| format!("Failed to create .teamclaw dir: {e}"))?;
+    fs::create_dir_all(&teamclaw_dir)
+        .map_err(|e| format!("Failed to create .teamclaw dir: {e}"))?;
     let path = teamclaw_dir.join("webdav_sync_manifest.json");
     let content = serde_json::to_string_pretty(manifest)
         .map_err(|e| format!("Failed to serialize manifest: {e}"))?;
-    fs::write(&path, content)
-        .map_err(|e| format!("Failed to write manifest: {e}"))?;
+    fs::write(&path, content).map_err(|e| format!("Failed to write manifest: {e}"))?;
     Ok(())
 }
 
@@ -297,7 +299,10 @@ pub fn validate_webdav_url(url: &str, allow_insecure: bool) -> Result<(), String
         return Ok(());
     }
     if url.starts_with("http://") {
-        return Err("HTTP URLs are not allowed. Use HTTPS or enable 'allow insecure connections'.".to_string());
+        return Err(
+            "HTTP URLs are not allowed. Use HTTPS or enable 'allow insecure connections'."
+                .to_string(),
+        );
     }
     Err(format!("Unsupported URL scheme: {url}"))
 }
@@ -309,7 +314,9 @@ fn build_client(_auth: &WebDavAuth) -> Result<Client, String> {
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(READ_TIMEOUT);
 
-    builder.build().map_err(|e| format!("Failed to build HTTP client: {e}"))
+    builder
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))
 }
 
 fn apply_auth(req: reqwest::RequestBuilder, auth: &WebDavAuth) -> reqwest::RequestBuilder {
@@ -319,24 +326,37 @@ fn apply_auth(req: reqwest::RequestBuilder, auth: &WebDavAuth) -> reqwest::Reque
     }
 }
 
-pub async fn propfind(client: &Client, url: &str, auth: &WebDavAuth) -> Result<Vec<DavEntry>, String> {
-    let req = client.request(Method::from_bytes(b"PROPFIND").unwrap(), url)
+pub async fn propfind(
+    client: &Client,
+    url: &str,
+    auth: &WebDavAuth,
+) -> Result<Vec<DavEntry>, String> {
+    let req = client
+        .request(Method::from_bytes(b"PROPFIND").unwrap(), url)
         .header("Depth", "1")
         .header("Content-Type", "application/xml");
 
     let req = apply_auth(req, auth);
 
-    let resp = req.send().await.map_err(|e| format!("PROPFIND request failed: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("PROPFIND request failed: {e}"))?;
 
     match resp.status() {
         StatusCode::MULTI_STATUS => {
-            let body = resp.text().await.map_err(|e| format!("Failed to read response: {e}"))?;
+            let body = resp
+                .text()
+                .await
+                .map_err(|e| format!("Failed to read response: {e}"))?;
             let base_path = url::Url::parse(url)
                 .map(|u| u.path().to_string())
                 .unwrap_or_default();
             parse_propfind_response(&body, &base_path)
         }
-        StatusCode::UNAUTHORIZED => Err("Authentication failed (401). Check credentials.".to_string()),
+        StatusCode::UNAUTHORIZED => {
+            Err("Authentication failed (401). Check credentials.".to_string())
+        }
         StatusCode::FORBIDDEN => Err("Access denied (403). Check permissions.".to_string()),
         StatusCode::NOT_FOUND => Err("Directory not found (404). Check URL.".to_string()),
         status => Err(format!("Unexpected status: {status}")),
@@ -348,14 +368,19 @@ pub fn list_all_files<'a>(
     base_url: &'a str,
     auth: &'a WebDavAuth,
     prefix: &'a str,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<DavEntry>, String>> + Send + 'a>> {
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<DavEntry>, String>> + Send + 'a>>
+{
     Box::pin(async move {
         let mut all_files: Vec<DavEntry> = Vec::new();
         let entries = propfind(client, base_url, auth).await?;
 
         for entry in entries {
             if entry.is_collection {
-                let sub_url = format!("{}{}", base_url.trim_end_matches('/'), &format!("/{}", entry.href.trim_end_matches('/')));
+                let sub_url = format!(
+                    "{}{}",
+                    base_url.trim_end_matches('/'),
+                    &format!("/{}", entry.href.trim_end_matches('/'))
+                );
                 let sub_url = format!("{}/", sub_url);
                 let sub_prefix = format!("{}{}", prefix, &entry.href);
                 let sub_files = list_all_files(client, &sub_url, auth, &sub_prefix).await?;
@@ -379,9 +404,16 @@ pub async fn download_file(
     auth: &WebDavAuth,
     dest: &Path,
 ) -> Result<u64, String> {
-    let url = format!("{}/{}", base_url.trim_end_matches('/'), file_path.trim_start_matches('/'));
+    let url = format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        file_path.trim_start_matches('/')
+    );
     let req = apply_auth(client.get(&url), auth);
-    let resp = req.send().await.map_err(|e| format!("GET failed for {file_path}: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("GET failed for {file_path}: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("GET {file_path} returned {}", resp.status()));
@@ -391,7 +423,10 @@ pub async fn download_file(
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {e}"))?;
     }
 
-    let bytes = resp.bytes().await.map_err(|e| format!("Failed to read body: {e}"))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read body: {e}"))?;
     let size = bytes.len() as u64;
     fs::write(dest, &bytes).map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
 
@@ -434,7 +469,11 @@ pub fn compute_sync_diff(
         .cloned()
         .collect();
 
-    SyncDiff { to_add, to_update, to_delete }
+    SyncDiff {
+        to_add,
+        to_update,
+        to_delete,
+    }
 }
 
 pub async fn sync_from_webdav(
@@ -471,11 +510,14 @@ pub async fn sync_from_webdav(
     let mut new_files = std::collections::HashMap::new();
     for entry in &remote_files {
         if !entry.is_collection {
-            new_files.insert(entry.href.clone(), FileEntry {
-                etag: entry.etag.clone(),
-                last_modified: entry.last_modified.clone(),
-                size: entry.content_length.unwrap_or(0),
-            });
+            new_files.insert(
+                entry.href.clone(),
+                FileEntry {
+                    etag: entry.etag.clone(),
+                    last_modified: entry.last_modified.clone(),
+                    size: entry.content_length.unwrap_or(0),
+                },
+            );
         }
     }
 
@@ -505,7 +547,8 @@ pub fn store_credential(workspace_path: &str, password: &str) -> Result<(), Stri
     let account = keyring_account_id(workspace_path);
     let entry = keyring::Entry::new(KEYRING_SERVICE, &account)
         .map_err(|e| format!("Keyring entry error: {e}"))?;
-    entry.set_password(password)
+    entry
+        .set_password(password)
         .map_err(|e| format!("Failed to store credential: {e}"))?;
     Ok(())
 }
@@ -514,7 +557,8 @@ pub fn get_credential(workspace_path: &str) -> Result<String, String> {
     let account = keyring_account_id(workspace_path);
     let entry = keyring::Entry::new(KEYRING_SERVICE, &account)
         .map_err(|e| format!("Keyring entry error: {e}"))?;
-    entry.get_password()
+    entry
+        .get_password()
         .map_err(|e| format!("Failed to get credential: {e}"))
 }
 
@@ -522,7 +566,8 @@ pub fn delete_credential(workspace_path: &str) -> Result<(), String> {
     let account = keyring_account_id(workspace_path);
     let entry = keyring::Entry::new(KEYRING_SERVICE, &account)
         .map_err(|e| format!("Keyring entry error: {e}"))?;
-    entry.delete_credential()
+    entry
+        .delete_credential()
         .map_err(|e| format!("Failed to delete credential: {e}"))
 }
 
@@ -530,7 +575,9 @@ pub fn delete_credential(workspace_path: &str) -> Result<(), String> {
 
 pub fn encrypt_config(payload: &ExportPayload, password: &str) -> Result<String, String> {
     if password.len() < MIN_PASSWORD_LEN {
-        return Err(format!("Password must be at least {MIN_PASSWORD_LEN} characters"));
+        return Err(format!(
+            "Password must be at least {MIN_PASSWORD_LEN} characters"
+        ));
     }
 
     let mut salt = [0u8; 16];
@@ -541,13 +588,12 @@ pub fn encrypt_config(payload: &ExportPayload, password: &str) -> Result<String,
     let mut key = [0u8; 32];
     pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt, PBKDF2_ITERATIONS, &mut key);
 
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| format!("Cipher init error: {e}"))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Cipher init error: {e}"))?;
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let plaintext = serde_json::to_vec(payload)
-        .map_err(|e| format!("Serialize error: {e}"))?;
-    let ciphertext = cipher.encrypt(nonce, plaintext.as_ref())
+    let plaintext = serde_json::to_vec(payload).map_err(|e| format!("Serialize error: {e}"))?;
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext.as_ref())
         .map_err(|e| format!("Encryption error: {e}"))?;
 
     let export = serde_json::json!({
@@ -558,37 +604,38 @@ pub fn encrypt_config(payload: &ExportPayload, password: &str) -> Result<String,
         "ciphertext": BASE64.encode(&ciphertext),
     });
 
-    serde_json::to_string_pretty(&export)
-        .map_err(|e| format!("JSON serialize error: {e}"))
+    serde_json::to_string_pretty(&export).map_err(|e| format!("JSON serialize error: {e}"))
 }
 
 pub fn decrypt_config(encrypted_json: &str, password: &str) -> Result<ExportPayload, String> {
-    let json: serde_json::Value = serde_json::from_str(encrypted_json)
-        .map_err(|e| format!("Invalid JSON: {e}"))?;
+    let json: serde_json::Value =
+        serde_json::from_str(encrypted_json).map_err(|e| format!("Invalid JSON: {e}"))?;
 
     if json["type"] != "teamclaw-team-webdav" {
         return Err("Invalid config file type".to_string());
     }
 
-    let salt = BASE64.decode(json["salt"].as_str().ok_or("Missing salt")?)
+    let salt = BASE64
+        .decode(json["salt"].as_str().ok_or("Missing salt")?)
         .map_err(|e| format!("Invalid salt: {e}"))?;
-    let nonce_bytes = BASE64.decode(json["nonce"].as_str().ok_or("Missing nonce")?)
+    let nonce_bytes = BASE64
+        .decode(json["nonce"].as_str().ok_or("Missing nonce")?)
         .map_err(|e| format!("Invalid nonce: {e}"))?;
-    let ciphertext = BASE64.decode(json["ciphertext"].as_str().ok_or("Missing ciphertext")?)
+    let ciphertext = BASE64
+        .decode(json["ciphertext"].as_str().ok_or("Missing ciphertext")?)
         .map_err(|e| format!("Invalid ciphertext: {e}"))?;
 
     let mut key = [0u8; 32];
     pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt, PBKDF2_ITERATIONS, &mut key);
 
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| format!("Cipher init error: {e}"))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Cipher init error: {e}"))?;
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let plaintext = cipher.decrypt(nonce, ciphertext.as_ref())
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext.as_ref())
         .map_err(|_| "Decryption failed. Wrong password?".to_string())?;
 
-    serde_json::from_slice(&plaintext)
-        .map_err(|e| format!("Invalid payload: {e}"))
+    serde_json::from_slice(&plaintext).map_err(|e| format!("Invalid payload: {e}"))
 }
 
 // --- Background Sync Timer ---
@@ -815,8 +862,16 @@ pub async fn webdav_export_config(
         url: config.url,
         auth_type: config.auth_type.clone(),
         username: config.username,
-        password: if config.auth_type == "basic" { Some(credential.clone()) } else { None },
-        token: if config.auth_type == "bearer" { Some(credential) } else { None },
+        password: if config.auth_type == "basic" {
+            Some(credential.clone())
+        } else {
+            None
+        },
+        token: if config.auth_type == "bearer" {
+            Some(credential)
+        } else {
+            None
+        },
     };
 
     encrypt_config(&payload, &password)
@@ -1019,16 +1074,22 @@ mod tests {
         use std::collections::HashMap;
 
         let mut old_files = HashMap::new();
-        old_files.insert("README.md".to_string(), FileEntry {
-            etag: Some("\"aaa\"".to_string()),
-            last_modified: None,
-            size: 100,
-        });
-        old_files.insert("old-file.md".to_string(), FileEntry {
-            etag: Some("\"bbb\"".to_string()),
-            last_modified: None,
-            size: 50,
-        });
+        old_files.insert(
+            "README.md".to_string(),
+            FileEntry {
+                etag: Some("\"aaa\"".to_string()),
+                last_modified: None,
+                size: 100,
+            },
+        );
+        old_files.insert(
+            "old-file.md".to_string(),
+            FileEntry {
+                etag: Some("\"bbb\"".to_string()),
+                last_modified: None,
+                size: 50,
+            },
+        );
 
         let remote_files = vec![
             DavEntry {
@@ -1159,11 +1220,12 @@ mod tests {
 mod integration_tests {
     use super::*;
     use tempfile::TempDir;
-    use wiremock::{MockServer, Mock, ResponseTemplate};
     use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn propfind_response(base_path: &str) -> String {
-        format!(r#"<?xml version="1.0" encoding="utf-8"?>
+        format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
     <D:href>{base_path}</D:href>
@@ -1183,7 +1245,8 @@ mod integration_tests {
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
   </D:response>
-</D:multistatus>"#)
+</D:multistatus>"#
+        )
     }
 
     #[tokio::test]
@@ -1193,19 +1256,13 @@ mod integration_tests {
 
         Mock::given(method("PROPFIND"))
             .and(path(base_path))
-            .respond_with(
-                ResponseTemplate::new(207)
-                    .set_body_string(propfind_response(base_path))
-            )
+            .respond_with(ResponseTemplate::new(207).set_body_string(propfind_response(base_path)))
             .mount(&server)
             .await;
 
         Mock::given(method("GET"))
             .and(path("/team/README.md"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_string("llm:\n  model: gpt-4o\n")
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_string("llm:\n  model: gpt-4o\n"))
             .mount(&server)
             .await;
 
@@ -1218,14 +1275,15 @@ mod integration_tests {
         };
         let client = build_client(&auth).unwrap();
 
-        let result = sync_from_webdav(&client, &url, &auth, workspace).await.unwrap();
+        let result = sync_from_webdav(&client, &url, &auth, workspace)
+            .await
+            .unwrap();
         assert_eq!(result.files_added, 1);
         assert_eq!(result.files_updated, 0);
         assert_eq!(result.files_deleted, 0);
 
-        let content = fs::read_to_string(
-            tmp.path().join("teamclaw-team").join("README.md")
-        ).unwrap();
+        let content =
+            fs::read_to_string(tmp.path().join("teamclaw-team").join("README.md")).unwrap();
         assert!(content.contains("gpt-4o"));
 
         let manifest = read_sync_manifest(workspace).unwrap();
@@ -1262,7 +1320,7 @@ mod integration_tests {
             .respond_with(
                 ResponseTemplate::new(207)
                     .set_body_string("<D:multistatus xmlns:D=\"DAV:\"></D:multistatus>")
-                    .set_delay(std::time::Duration::from_secs(10))
+                    .set_delay(std::time::Duration::from_secs(10)),
             )
             .mount(&server)
             .await;
@@ -1320,7 +1378,8 @@ mod integration_tests {
         };
         let client = build_client(&auth).unwrap();
 
-        let propfind_v1 = format!(r#"<?xml version="1.0" encoding="utf-8"?>
+        let propfind_v1 = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
     <D:href>{base_path}</D:href>
@@ -1340,7 +1399,8 @@ mod integration_tests {
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
   </D:response>
-</D:multistatus>"#);
+</D:multistatus>"#
+        );
 
         Mock::given(method("PROPFIND"))
             .and(path(base_path))
@@ -1355,12 +1415,16 @@ mod integration_tests {
             .await;
 
         let url = format!("{}{}", server.uri(), base_path);
-        let r1 = sync_from_webdav(&client, &url, &auth, workspace).await.unwrap();
+        let r1 = sync_from_webdav(&client, &url, &auth, workspace)
+            .await
+            .unwrap();
         assert_eq!(r1.files_added, 1);
         assert_eq!(r1.files_updated, 0);
 
         // Second sync: same etag -> no download
-        let r2 = sync_from_webdav(&client, &url, &auth, workspace).await.unwrap();
+        let r2 = sync_from_webdav(&client, &url, &auth, workspace)
+            .await
+            .unwrap();
         assert_eq!(r2.files_added, 0);
         assert_eq!(r2.files_updated, 0);
         assert_eq!(r2.files_deleted, 0);
@@ -1381,13 +1445,14 @@ mod integration_tests {
             .mount(&server)
             .await;
 
-        let r3 = sync_from_webdav(&client, &url, &auth, workspace).await.unwrap();
+        let r3 = sync_from_webdav(&client, &url, &auth, workspace)
+            .await
+            .unwrap();
         assert_eq!(r3.files_added, 0);
         assert_eq!(r3.files_updated, 1);
 
-        let content = fs::read_to_string(
-            tmp.path().join("teamclaw-team").join("README.md")
-        ).unwrap();
+        let content =
+            fs::read_to_string(tmp.path().join("teamclaw-team").join("README.md")).unwrap();
         assert_eq!(content, "version: 2");
     }
 
@@ -1403,7 +1468,8 @@ mod integration_tests {
         };
         let client = build_client(&auth).unwrap();
 
-        let propfind_two = format!(r#"<?xml version="1.0" encoding="utf-8"?>
+        let propfind_two = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
     <D:href>{base_path}</D:href>
@@ -1426,25 +1492,35 @@ mod integration_tests {
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
   </D:response>
-</D:multistatus>"#);
+</D:multistatus>"#
+        );
 
-        Mock::given(method("PROPFIND")).and(path(base_path))
+        Mock::given(method("PROPFIND"))
+            .and(path(base_path))
             .respond_with(ResponseTemplate::new(207).set_body_string(&propfind_two))
-            .mount(&server).await;
-        Mock::given(method("GET")).and(path("/team/README.md"))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/team/README.md"))
             .respond_with(ResponseTemplate::new(200).set_body_string("yaml"))
-            .mount(&server).await;
-        Mock::given(method("GET")).and(path("/team/old.txt"))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/team/old.txt"))
             .respond_with(ResponseTemplate::new(200).set_body_string("old"))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let url = format!("{}{}", server.uri(), base_path);
-        sync_from_webdav(&client, &url, &auth, workspace).await.unwrap();
+        sync_from_webdav(&client, &url, &auth, workspace)
+            .await
+            .unwrap();
         assert!(tmp.path().join("teamclaw-team/old.txt").exists());
 
         // Second sync: old.txt removed from remote
         server.reset().await;
-        let propfind_one = format!(r#"<?xml version="1.0" encoding="utf-8"?>
+        let propfind_one = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
     <D:href>{base_path}</D:href>
@@ -1460,13 +1536,18 @@ mod integration_tests {
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
   </D:response>
-</D:multistatus>"#);
+</D:multistatus>"#
+        );
 
-        Mock::given(method("PROPFIND")).and(path(base_path))
+        Mock::given(method("PROPFIND"))
+            .and(path(base_path))
             .respond_with(ResponseTemplate::new(207).set_body_string(&propfind_one))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
-        let result = sync_from_webdav(&client, &url, &auth, workspace).await.unwrap();
+        let result = sync_from_webdav(&client, &url, &auth, workspace)
+            .await
+            .unwrap();
         assert_eq!(result.files_deleted, 1);
         assert!(!tmp.path().join("teamclaw-team/old.txt").exists());
         assert!(tmp.path().join("teamclaw-team/README.md").exists());

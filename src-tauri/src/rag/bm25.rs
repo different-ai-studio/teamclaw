@@ -26,16 +26,17 @@ impl BM25Index {
     /// Create or open a BM25 index at the given path
     pub fn new(index_path: &Path) -> Result<Self> {
         // Ensure the directory exists
-        std::fs::create_dir_all(index_path)
-            .context("Failed to create BM25 index directory")?;
+        std::fs::create_dir_all(index_path).context("Failed to create BM25 index directory")?;
 
         // Define schema with Chinese-friendly text options
-        let text_options = TextOptions::default().set_indexing_options(
-            TextFieldIndexing::default()
-                .set_tokenizer("ngram3") // Use ngram tokenizer for Chinese
-                .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-        ).set_stored();
-        
+        let text_options = TextOptions::default()
+            .set_indexing_options(
+                TextFieldIndexing::default()
+                    .set_tokenizer("ngram3") // Use ngram tokenizer for Chinese
+                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+            )
+            .set_stored();
+
         let mut schema_builder = Schema::builder();
         let chunk_id_field = schema_builder.add_i64_field("chunk_id", STORED | INDEXED);
         let content_field = schema_builder.add_text_field("content", text_options.clone());
@@ -50,14 +51,14 @@ impl BM25Index {
                 Err(e) => {
                     // Failed to open existing index (schema mismatch?)
                     eprintln!("Failed to open existing BM25 index, recreating: {}", e);
-                    
+
                     // Remove corrupted index and create fresh one
                     if let Err(remove_err) = std::fs::remove_dir_all(index_path) {
                         eprintln!("Warning: Failed to remove corrupted index: {}", remove_err);
                     }
                     std::fs::create_dir_all(index_path)
                         .context("Failed to recreate BM25 index directory")?;
-                    
+
                     Index::create_in_dir(index_path, schema.clone())
                         .context("Failed to create new index after corruption")?
                 }
@@ -68,10 +69,8 @@ impl BM25Index {
         };
 
         // Register ngram tokenizer for Chinese text
-        let ngram_tokenizer = TextAnalyzer::builder(
-            NgramTokenizer::new(2, 3, false).unwrap()
-        )
-        .build();
+        let ngram_tokenizer =
+            TextAnalyzer::builder(NgramTokenizer::new(2, 3, false).unwrap()).build();
         index.tokenizers().register("ngram3", ngram_tokenizer);
 
         // Create reader with auto-reload
@@ -140,9 +139,7 @@ impl BM25Index {
     /// Commit pending changes
     pub async fn commit(&self) -> Result<()> {
         let mut writer = self.writer.write().await;
-        writer
-            .commit()
-            .context("Failed to commit index changes")?;
+        writer.commit().context("Failed to commit index changes")?;
         Ok(())
     }
 
@@ -165,7 +162,9 @@ impl BM25Index {
 
         tracing::debug!(
             "BM25 search: query='{}', num_docs={}, parsed_query={:?}",
-            query, num_docs, parsed_query
+            query,
+            num_docs,
+            parsed_query
         );
 
         // Execute search

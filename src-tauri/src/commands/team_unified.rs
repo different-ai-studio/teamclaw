@@ -106,10 +106,7 @@ pub fn find_member_role(manifest: &TeamManifest, node_id: &str) -> Option<Member
 
 /// Helper: check that caller has Owner or Editor role by looking up their NodeId in the manifest.
 /// Returns Err if they lack the required role.
-async fn require_manager_role(
-    manifest: &TeamManifest,
-    caller_node_id: &str,
-) -> Result<(), String> {
+async fn require_manager_role(manifest: &TeamManifest, caller_node_id: &str) -> Result<(), String> {
     let role = find_member_role(manifest, caller_node_id)
         .ok_or_else(|| "Your device is not in the team manifest".to_string())?;
     if !can_manage_members(&role) {
@@ -134,18 +131,22 @@ pub async fn unified_team_get_members(
         Some("oss") => {
             let guard = oss_state.manager.lock().await;
             let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
-            let manifest = manager.download_members_manifest().await?
+            let manifest = manager
+                .download_members_manifest()
+                .await?
                 .ok_or("No members manifest found")?;
             Ok(manifest.members)
         }
         #[cfg(feature = "p2p")]
         Some("p2p") => {
             let _ = iroh_state;
-            let config = super::team_p2p::read_p2p_config(&workspace_path)?
-                .unwrap_or_default();
+            let config = super::team_p2p::read_p2p_config(&workspace_path)?.unwrap_or_default();
             Ok(config.allowed_members)
         }
-        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        Some(mode) => Err(format!(
+            "Member management not supported for mode: {}",
+            mode
+        )),
         None => Err("No active team mode".to_string()),
     }
 }
@@ -185,14 +186,12 @@ pub async fn unified_team_add_member(
             let caller_node_id = super::team_p2p::get_node_id(node);
             drop(guard);
             let team_dir = format!("{}/teamclaw-team", workspace_path);
-            super::team_p2p::add_member_to_team(
-                &workspace_path,
-                &team_dir,
-                &caller_node_id,
-                member,
-            )
+            super::team_p2p::add_member_to_team(&workspace_path, &team_dir, &caller_node_id, member)
         }
-        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        Some(mode) => Err(format!(
+            "Member management not supported for mode: {}",
+            mode
+        )),
         None => Err("No active team mode".to_string()),
     }
 }
@@ -214,7 +213,9 @@ pub async fn unified_team_remove_member(
             let guard = oss_state.manager.lock().await;
             let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
             let caller_node_id = manager.node_id().to_string();
-            let manifest = manager.download_members_manifest().await?
+            let manifest = manager
+                .download_members_manifest()
+                .await?
                 .ok_or("No members manifest found")?;
             require_manager_role(&manifest, &caller_node_id).await?;
             drop(guard);
@@ -236,7 +237,10 @@ pub async fn unified_team_remove_member(
                 &node_id,
             )
         }
-        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        Some(mode) => Err(format!(
+            "Member management not supported for mode: {}",
+            mode
+        )),
         None => Err("No active team mode".to_string()),
     }
 }
@@ -259,7 +263,9 @@ pub async fn unified_team_update_member_role(
             let guard = oss_state.manager.lock().await;
             let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
             let caller_node_id = manager.node_id().to_string();
-            let manifest = manager.download_members_manifest().await?
+            let manifest = manager
+                .download_members_manifest()
+                .await?
                 .ok_or("No members manifest found")?;
             require_manager_role(&manifest, &caller_node_id).await?;
             drop(guard);
@@ -282,7 +288,10 @@ pub async fn unified_team_update_member_role(
                 role,
             )
         }
-        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        Some(mode) => Err(format!(
+            "Member management not supported for mode: {}",
+            mode
+        )),
         None => Err("No active team mode".to_string()),
     }
 }
@@ -302,7 +311,9 @@ pub async fn unified_team_get_my_role(
             let guard = oss_state.manager.lock().await;
             let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
             let my_node_id = manager.node_id().to_string();
-            let manifest = manager.download_members_manifest().await?
+            let manifest = manager
+                .download_members_manifest()
+                .await?
                 .ok_or("No members manifest found")?;
             find_member_role(&manifest, &my_node_id)
                 .ok_or_else(|| "This device is not in the team manifest".to_string())
@@ -310,11 +321,16 @@ pub async fn unified_team_get_my_role(
         #[cfg(feature = "p2p")]
         Some("p2p") => {
             let _ = iroh_state;
-            let config = super::team_p2p::read_p2p_config(&workspace_path)?
-                .ok_or("No P2P config found")?;
-            config.role.ok_or_else(|| "Role not set in P2P config".to_string())
+            let config =
+                super::team_p2p::read_p2p_config(&workspace_path)?.ok_or("No P2P config found")?;
+            config
+                .role
+                .ok_or_else(|| "Role not set in P2P config".to_string())
         }
-        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        Some(mode) => Err(format!(
+            "Member management not supported for mode: {}",
+            mode
+        )),
         None => Err("No active team mode".to_string()),
     }
 }

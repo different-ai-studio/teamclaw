@@ -27,7 +27,6 @@ pub struct EmailConfig {
     pub provider: EmailProvider,
 
     // ---- Gmail OAuth2 fields ----
-
     /// Google Cloud OAuth2 client ID
     #[serde(default)]
     pub gmail_client_id: String,
@@ -45,7 +44,6 @@ pub struct EmailConfig {
     pub gmail_authorized: bool,
 
     // ---- Custom IMAP/SMTP fields ----
-
     /// IMAP server hostname
     #[serde(default)]
     pub imap_server: String,
@@ -71,7 +69,6 @@ pub struct EmailConfig {
     pub password: String,
 
     // ---- Filter settings ----
-
     /// Allowed sender email addresses or patterns (e.g., *@company.com)
     #[serde(default)]
     pub allowed_senders: Vec<String>,

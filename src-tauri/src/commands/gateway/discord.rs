@@ -1,11 +1,11 @@
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serenity::all::{
-    async_trait, Client, Context, EventHandler, GatewayIntents, Message, Ready,
-    Http, Interaction, Command, CreateCommand, CreateCommandOption, CommandOptionType,
-    CreateInteractionResponse, CreateInteractionResponseMessage, EditInteractionResponse, EditMessage,
+    async_trait, Client, Command, CommandOptionType, Context, CreateCommand, CreateCommandOption,
+    CreateInteractionResponse, CreateInteractionResponseMessage, EditInteractionResponse,
+    EditMessage, EventHandler, GatewayIntents, Http, Interaction, Message, Ready,
 };
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock, oneshot};
+use tokio::sync::{mpsc, oneshot, RwLock};
 
 use super::config::{DiscordConfig, GatewayStatus, GatewayStatusResponse};
 use super::session::SessionMapping;
@@ -43,7 +43,9 @@ impl DiscordHandler {
             opencode_port,
             status_tx,
             bot_user_id: Arc::new(RwLock::new(None)),
-            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
+            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
+                MAX_PROCESSED_MESSAGES,
+            ))),
             permission_approver,
             pending_questions,
         }
@@ -66,14 +68,17 @@ impl DiscordHandler {
 
         // Check if it's a DM
         if msg.guild_id.is_none() {
-            return self.check_dm_allowed(&config, &msg.author.id.to_string()).await;
+            return self
+                .check_dm_allowed(&config, &msg.author.id.to_string())
+                .await;
         }
 
         // It's a guild message
         let guild_id = msg.guild_id.unwrap().to_string();
         let channel_id = msg.channel_id.to_string();
 
-        self.check_guild_allowed(&config, &guild_id, &channel_id, msg, ctx).await
+        self.check_guild_allowed(&config, &guild_id, &channel_id, msg, ctx)
+            .await
     }
 
     /// Check if DM is allowed for this user
@@ -86,7 +91,8 @@ impl DiscordHandler {
             "open" => FilterResult::Allow,
             "allowlist" => {
                 if config.dm.allow_from.contains(&user_id.to_string())
-                    || config.dm.allow_from.contains(&"*".to_string()) {
+                    || config.dm.allow_from.contains(&"*".to_string())
+                {
                     FilterResult::Allow
                 } else {
                     FilterResult::UserNotAllowed
@@ -105,9 +111,15 @@ impl DiscordHandler {
         msg: &Message,
         _ctx: &Context,
     ) -> FilterResult {
-        println!("[Discord] check_guild_allowed: guild_id={}, channel_id={}", guild_id, channel_id);
-        println!("[Discord] Available guilds in config: {:?}", config.guilds.keys().collect::<Vec<_>>());
-        
+        println!(
+            "[Discord] check_guild_allowed: guild_id={}, channel_id={}",
+            guild_id, channel_id
+        );
+        println!(
+            "[Discord] Available guilds in config: {:?}",
+            config.guilds.keys().collect::<Vec<_>>()
+        );
+
         // Check wildcard guild config first
         let guild_config = config
             .guilds
@@ -118,7 +130,7 @@ impl DiscordHandler {
             Some(c) => {
                 println!("[Discord] Found guild config");
                 c
-            },
+            }
             None => {
                 println!("[Discord] No guild config found for {}", guild_id);
                 return FilterResult::ChannelNotConfigured;
@@ -128,15 +140,23 @@ impl DiscordHandler {
         // Check if user is in guild allowlist (if specified)
         if !guild_config.users.is_empty() {
             let user_id = msg.author.id.to_string();
-            println!("[Discord] Checking user {} against allowlist: {:?}", user_id, guild_config.users);
-            if !guild_config.users.contains(&user_id) && !guild_config.users.contains(&"*".to_string()) {
+            println!(
+                "[Discord] Checking user {} against allowlist: {:?}",
+                user_id, guild_config.users
+            );
+            if !guild_config.users.contains(&user_id)
+                && !guild_config.users.contains(&"*".to_string())
+            {
                 println!("[Discord] User not in allowlist");
                 return FilterResult::UserNotAllowed;
             }
         }
 
         // Check channel config
-        println!("[Discord] Available channels in config: {:?}", guild_config.channels.keys().collect::<Vec<_>>());
+        println!(
+            "[Discord] Available channels in config: {:?}",
+            guild_config.channels.keys().collect::<Vec<_>>()
+        );
         let channel_config = guild_config
             .channels
             .get(channel_id)
@@ -145,8 +165,11 @@ impl DiscordHandler {
         let (allow, require_mention) = match channel_config {
             Some(c) => {
                 println!("[Discord] Found channel config: allow={}", c.allow);
-                (c.allow, c.require_mention.unwrap_or(guild_config.require_mention))
-            },
+                (
+                    c.allow,
+                    c.require_mention.unwrap_or(guild_config.require_mention),
+                )
+            }
             None => {
                 println!("[Discord] No channel config found");
                 // If no channel config and guild has channels specified, deny
@@ -169,7 +192,10 @@ impl DiscordHandler {
             let bot_id = self.bot_user_id.read().await;
             if let Some(id) = *bot_id {
                 let mentioned = msg.mentions_user_id(id);
-                println!("[Discord] Require mention: bot_id={}, mentioned={}", id, mentioned);
+                println!(
+                    "[Discord] Require mention: bot_id={}, mentioned={}",
+                    id, mentioned
+                );
                 if mentioned {
                     return FilterResult::Allow;
                 } else {
@@ -186,7 +212,10 @@ impl DiscordHandler {
 
     /// Process a message and send to OpenCode
     async fn process_message(&self, msg: &Message, ctx: &Context) {
-        println!("[Discord] process_message called, opencode_port: {}", self.opencode_port);
+        println!(
+            "[Discord] process_message called, opencode_port: {}",
+            self.opencode_port
+        );
         let _config = self.config.read().await;
         let is_dm = msg.guild_id.is_none();
         println!("[Discord] is_dm: {}", is_dm);
@@ -204,10 +233,13 @@ impl DiscordHandler {
         drop(bot_id);
 
         // Check if message has any content (text or images)
-        let has_images = msg.attachments
-            .iter()
-            .any(|a| a.content_type.as_ref().map(|ct| ct.starts_with("image/")).unwrap_or(false));
-        
+        let has_images = msg.attachments.iter().any(|a| {
+            a.content_type
+                .as_ref()
+                .map(|ct| ct.starts_with("image/"))
+                .unwrap_or(false)
+        });
+
         if content.is_empty() && !has_images {
             return;
         }
@@ -216,16 +248,28 @@ impl DiscordHandler {
         let session_key = if is_dm {
             format!("discord:dm:{}", msg.author.id)
         } else {
-            format!("discord:channel:{}:{}", msg.guild_id.unwrap(), msg.channel_id)
+            format!(
+                "discord:channel:{}:{}",
+                msg.guild_id.unwrap(),
+                msg.channel_id
+            )
         };
 
         // Handle /model command before creating session
         if content.eq_ignore_ascii_case("/model") || content.to_lowercase().starts_with("/model ") {
-            let arg = if content.len() > 7 { content[7..].trim() } else { "" };
+            let arg = if content.len() > 7 {
+                content[7..].trim()
+            } else {
+                ""
+            };
             println!("[Discord] Model command received, arg: '{}'", arg);
             let response = super::handle_model_command(
-                self.opencode_port, &self.session_mapping, &session_key, arg,
-            ).await;
+                self.opencode_port,
+                &self.session_mapping,
+                &session_key,
+                arg,
+            )
+            .await;
 
             // Split response if too long
             let chunks = split_message(&response, 2000);
@@ -261,29 +305,41 @@ impl DiscordHandler {
         // Handle /stop command
         if content.eq_ignore_ascii_case("/stop") {
             println!("[Discord] Stop command received");
-            let response = super::handle_stop_command(
-                self.opencode_port, &self.session_mapping, &session_key,
-            ).await;
+            let response =
+                super::handle_stop_command(self.opencode_port, &self.session_mapping, &session_key)
+                    .await;
             let _ = msg.reply(&ctx.http, &response).await;
             return;
         }
 
         // Handle /sessions command (send placeholder first, then edit with result)
-        if content.eq_ignore_ascii_case("/sessions") || content.to_lowercase().starts_with("/sessions ") {
-            let arg = if content.len() > 10 { content[10..].trim() } else { "" };
+        if content.eq_ignore_ascii_case("/sessions")
+            || content.to_lowercase().starts_with("/sessions ")
+        {
+            let arg = if content.len() > 10 {
+                content[10..].trim()
+            } else {
+                ""
+            };
             println!("[Discord] Sessions command received, arg: '{}'", arg);
 
             // Send a placeholder message first
             let placeholder = msg.reply(&ctx.http, "Loading sessions...").await;
             let response = super::handle_sessions_command(
-                self.opencode_port, &self.session_mapping, &session_key, arg,
-            ).await;
+                self.opencode_port,
+                &self.session_mapping,
+                &session_key,
+                arg,
+            )
+            .await;
 
             // Edit the placeholder with the actual response
             if let Ok(mut reply_msg) = placeholder {
                 let chunks = split_message(&response, 2000);
                 let first_chunk = chunks.first().cloned().unwrap_or_default();
-                let _ = reply_msg.edit(&ctx.http, EditMessage::new().content(&first_chunk)).await;
+                let _ = reply_msg
+                    .edit(&ctx.http, EditMessage::new().content(&first_chunk))
+                    .await;
                 // Send remaining chunks as new messages
                 for chunk in chunks.iter().skip(1) {
                     let _ = msg.channel_id.say(&ctx.http, chunk).await;
@@ -294,26 +350,25 @@ impl DiscordHandler {
 
         let session_id = match self.session_mapping.get_session(&session_key).await {
             Some(id) => id,
-            None => {
-                match self.create_opencode_session().await {
-                    Ok(id) => {
-                        self.session_mapping
-                            .set_session(session_key.clone(), id.clone())
-                            .await;
-                        id
-                    }
-                    Err(e) => {
-                        let _ = msg
-                            .reply(&ctx.http, format!("Error creating session: {}", e))
-                            .await;
-                        return;
-                    }
+            None => match self.create_opencode_session().await {
+                Ok(id) => {
+                    self.session_mapping
+                        .set_session(session_key.clone(), id.clone())
+                        .await;
+                    id
                 }
-            }
+                Err(e) => {
+                    let _ = msg
+                        .reply(&ctx.http, format!("Error creating session: {}", e))
+                        .await;
+                    return;
+                }
+            },
         };
 
         // Extract images from attachments: (url, mime_type)
-        let images: Vec<(String, String)> = msg.attachments
+        let images: Vec<(String, String)> = msg
+            .attachments
             .iter()
             .filter_map(|a| {
                 a.content_type.as_ref().and_then(|ct| {
@@ -325,7 +380,7 @@ impl DiscordHandler {
                 })
             })
             .collect();
-        
+
         if !images.is_empty() {
             println!("[Discord] Found {} image(s) in message", images.len());
             for (url, mime) in &images {
@@ -355,7 +410,9 @@ impl DiscordHandler {
                 let http = Arc::clone(&http);
                 Box::pin(async move {
                     let text = super::format_question_message(&fq.questions, &fq.question_id);
-                    let sent = channel_id.say(&http, &text).await
+                    let sent = channel_id
+                        .say(&http, &text)
+                        .await
                         .map_err(|e| format!("Failed to send question: {}", e))?;
                     Ok(sent.id.to_string())
                 })
@@ -364,7 +421,15 @@ impl DiscordHandler {
         };
 
         // Send message to OpenCode (with automatic permission approval)
-        let result = self.send_to_opencode(&session_id, &content, images.clone(), model_param.clone(), Some(question_ctx)).await;
+        let result = self
+            .send_to_opencode(
+                &session_id,
+                &content,
+                images.clone(),
+                model_param.clone(),
+                Some(question_ctx),
+            )
+            .await;
 
         match result {
             Ok(response) => {
@@ -433,17 +498,21 @@ impl DiscordHandler {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .map_err(|e| format!("Failed to create client: {}", e))?;
-        
+
         let url = format!(
             "http://127.0.0.1:{}/session/{}/message",
             self.opencode_port, session_id
         );
-        println!("[Discord] Sending to OpenCode: {} content: {}, images: {}", 
-            url, content, images.len());
+        println!(
+            "[Discord] Sending to OpenCode: {} content: {}, images: {}",
+            url,
+            content,
+            images.len()
+        );
 
         // Build parts array with text and images
         let mut parts = Vec::new();
-        
+
         // Add text part if not empty
         if !content.is_empty() {
             parts.push(serde_json::json!({
@@ -451,42 +520,48 @@ impl DiscordHandler {
                 "text": content
             }));
         }
-        
+
         // Add image parts as "file" type with data URI (download and convert to base64)
         for (image_url, mime_type) in &images {
             println!("[Discord] Downloading image: {}", image_url);
-            
+
             // Download image
             let img_response = client
                 .get(image_url)
                 .send()
                 .await
                 .map_err(|e| format!("Failed to download image: {}", e))?;
-            
+
             if !img_response.status().is_success() {
-                println!("[Discord] Failed to download image: HTTP {}", img_response.status());
+                println!(
+                    "[Discord] Failed to download image: HTTP {}",
+                    img_response.status()
+                );
                 continue;
             }
-            
+
             let img_bytes = img_response
                 .bytes()
                 .await
                 .map_err(|e| format!("Failed to read image bytes: {}", e))?;
-            
+
             // Convert to base64 data URI
             let base64_data = BASE64.encode(&img_bytes);
             let data_uri = format!("data:{};base64,{}", mime_type, base64_data);
-            
-            println!("[Discord] Image converted to base64: {} bytes -> {} chars", 
-                img_bytes.len(), data_uri.len());
-            
+
+            println!(
+                "[Discord] Image converted to base64: {} bytes -> {} chars",
+                img_bytes.len(),
+                data_uri.len()
+            );
+
             parts.push(serde_json::json!({
                 "type": "file",
                 "url": data_uri,
                 "mime": mime_type
             }));
         }
-        
+
         // If no parts, add empty text
         if parts.is_empty() {
             parts.push(serde_json::json!({
@@ -496,7 +571,7 @@ impl DiscordHandler {
         }
 
         println!("[Discord] Sending message asynchronously with permission auto-approval");
-        
+
         // Use async send with permission auto-approval
         super::send_message_async_with_approval(
             self.opencode_port,
@@ -504,7 +579,8 @@ impl DiscordHandler {
             parts,
             model,
             question_ctx,
-        ).await
+        )
+        .await
     }
 
     /// Update gateway status
@@ -517,11 +593,17 @@ impl DiscordHandler {
 impl EventHandler for DiscordHandler {
     async fn message(&self, ctx: Context, msg: Message) {
         let message_id = msg.id.get();
-        println!("[Discord] Received message {} from {}: {}", message_id, msg.author.name, msg.content);
-        
+        println!(
+            "[Discord] Received message {} from {}: {}",
+            message_id, msg.author.name, msg.content
+        );
+
         // Check for duplicate message processing
         if self.mark_message_processed(message_id).await {
-            println!("[Discord] Message {} already processed, skipping", message_id);
+            println!(
+                "[Discord] Message {} already processed, skipping",
+                message_id
+            );
             return;
         }
 
@@ -531,7 +613,10 @@ impl EventHandler for DiscordHandler {
             if let Some(entry) = self.pending_questions.take(&ref_id).await {
                 let answer_text = msg.content.clone();
                 let _ = entry.answer_tx.send(answer_text);
-                println!("[Discord] Question {} answered via reply", entry.question_id);
+                println!(
+                    "[Discord] Question {} answered via reply",
+                    entry.question_id
+                );
                 return;
             }
         }
@@ -539,18 +624,27 @@ impl EventHandler for DiscordHandler {
         // Check for /answer command — routes reply to the most recent pending question
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&msg.content) {
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
-                println!("[Discord] Question {} answered via /answer: {}", qid, answer_text);
-                let _ = msg.reply(&ctx.http, &format!("✓ Answered: {}", answer_text)).await;
+                println!(
+                    "[Discord] Question {} answered via /answer: {}",
+                    qid, answer_text
+                );
+                let _ = msg
+                    .reply(&ctx.http, &format!("✓ Answered: {}", answer_text))
+                    .await;
             } else {
-                let _ = msg.reply(&ctx.http, "No pending questions to answer.").await;
+                let _ = msg
+                    .reply(&ctx.http, "No pending questions to answer.")
+                    .await;
             }
             return;
         }
 
         let filter_result = self.should_process_message(&msg, &ctx).await;
-        println!("[Discord] Filter result: {:?}, guild_id: {:?}, channel_id: {}", 
-            filter_result, msg.guild_id, msg.channel_id);
-        
+        println!(
+            "[Discord] Filter result: {:?}, guild_id: {:?}, channel_id: {}",
+            filter_result, msg.guild_id, msg.channel_id
+        );
+
         match filter_result {
             FilterResult::Allow => {
                 println!("[Discord] Processing message {}...", message_id);
@@ -560,14 +654,14 @@ impl EventHandler for DiscordHandler {
             FilterResult::UserNotAllowed => {
                 println!("[Discord] User not in whitelist, sending rejection");
                 let _ = msg.reply(
-                    &ctx.http, 
+                    &ctx.http,
                     "Sorry, you are not authorized to use this bot. Please contact the administrator to request access."
                 ).await;
             }
             FilterResult::ChannelNotConfigured => {
                 println!("[Discord] Channel not configured, sending hint");
                 let _ = msg.reply(
-                    &ctx.http, 
+                    &ctx.http,
                     "This channel is not configured for the bot. Please ask the administrator to add this server/channel in TeamClaw settings."
                 ).await;
             }
@@ -589,8 +683,7 @@ impl EventHandler for DiscordHandler {
         // Register global slash commands
         println!("[Discord] Registering slash commands...");
         let commands = vec![
-            CreateCommand::new("reset")
-                .description("Reset the current chat session with the AI"),
+            CreateCommand::new("reset").description("Reset the current chat session with the AI"),
             CreateCommand::new("model")
                 .description("View current model or switch to a different model")
                 .add_option(
@@ -601,8 +694,7 @@ impl EventHandler for DiscordHandler {
                     )
                     .required(false),
                 ),
-            CreateCommand::new("stop")
-                .description("Stop the current session's processing"),
+            CreateCommand::new("stop").description("Stop the current session's processing"),
             CreateCommand::new("sessions")
                 .description("List recent sessions or switch to a session by number")
                 .add_option(
@@ -619,8 +711,9 @@ impl EventHandler for DiscordHandler {
 
         match Command::set_global_commands(&ctx.http, commands).await {
             Ok(cmds) => {
-                println!("[Discord] Registered {} slash commands: {:?}", 
-                    cmds.len(), 
+                println!(
+                    "[Discord] Registered {} slash commands: {:?}",
+                    cmds.len(),
                     cmds.iter().map(|c| &c.name).collect::<Vec<_>>()
                 );
             }
@@ -630,11 +723,7 @@ impl EventHandler for DiscordHandler {
         }
 
         // Update status
-        let guilds: Vec<String> = ready
-            .guilds
-            .iter()
-            .map(|g| g.id.to_string())
-            .collect();
+        let guilds: Vec<String> = ready.guilds.iter().map(|g| g.id.to_string()).collect();
 
         self.update_status(GatewayStatusResponse {
             status: GatewayStatus::Connected,
@@ -653,7 +742,7 @@ impl EventHandler for DiscordHandler {
             // Defer the response first to avoid the 3-second timeout.
             // This shows "Bot is thinking..." to the user.
             let defer = CreateInteractionResponse::Defer(
-                CreateInteractionResponseMessage::new().ephemeral(true)
+                CreateInteractionResponseMessage::new().ephemeral(true),
             );
             if let Err(e) = command.create_response(&ctx.http, defer).await {
                 println!("[Discord] Failed to defer slash command: {}", e);
@@ -666,11 +755,16 @@ impl EventHandler for DiscordHandler {
                     let session_key = if is_dm {
                         format!("discord:dm:{}", command.user.id)
                     } else {
-                        format!("discord:channel:{}:{}", command.guild_id.unwrap(), command.channel_id)
+                        format!(
+                            "discord:channel:{}:{}",
+                            command.guild_id.unwrap(),
+                            command.channel_id
+                        )
                     };
                     self.session_mapping.remove_session(&session_key).await;
                     if is_dm {
-                        "Session reset! A new conversation will start with your next message.".to_string()
+                        "Session reset! A new conversation will start with your next message."
+                            .to_string()
                     } else {
                         "Channel session reset! A new conversation will start with the next message.".to_string()
                     }
@@ -688,24 +782,39 @@ impl EventHandler for DiscordHandler {
                     let session_key = if is_dm {
                         format!("discord:dm:{}", command.user.id)
                     } else {
-                        format!("discord:channel:{}:{}", command.guild_id.unwrap(), command.channel_id)
+                        format!(
+                            "discord:channel:{}:{}",
+                            command.guild_id.unwrap(),
+                            command.channel_id
+                        )
                     };
 
                     super::handle_model_command(
-                        self.opencode_port, &self.session_mapping, &session_key, model_arg,
-                    ).await
+                        self.opencode_port,
+                        &self.session_mapping,
+                        &session_key,
+                        model_arg,
+                    )
+                    .await
                 }
                 "stop" => {
                     let is_dm = command.guild_id.is_none();
                     let session_key = if is_dm {
                         format!("discord:dm:{}", command.user.id)
                     } else {
-                        format!("discord:channel:{}:{}", command.guild_id.unwrap(), command.channel_id)
+                        format!(
+                            "discord:channel:{}:{}",
+                            command.guild_id.unwrap(),
+                            command.channel_id
+                        )
                     };
 
                     super::handle_stop_command(
-                        self.opencode_port, &self.session_mapping, &session_key,
-                    ).await
+                        self.opencode_port,
+                        &self.session_mapping,
+                        &session_key,
+                    )
+                    .await
                 }
                 "sessions" => {
                     let session_arg = command
@@ -721,15 +830,22 @@ impl EventHandler for DiscordHandler {
                     let session_key = if is_dm {
                         format!("discord:dm:{}", command.user.id)
                     } else {
-                        format!("discord:channel:{}:{}", command.guild_id.unwrap(), command.channel_id)
+                        format!(
+                            "discord:channel:{}:{}",
+                            command.guild_id.unwrap(),
+                            command.channel_id
+                        )
                     };
 
                     super::handle_sessions_command(
-                        self.opencode_port, &self.session_mapping, &session_key, &session_arg,
-                    ).await
+                        self.opencode_port,
+                        &self.session_mapping,
+                        &session_key,
+                        &session_arg,
+                    )
+                    .await
                 }
-                "help" => {
-                    "**TeamClaw Bot Commands**\n\n\
+                "help" => "**TeamClaw Bot Commands**\n\n\
                     `/reset` - Reset the current chat session\n\
                     `/model` - View current model or switch models\n\
                     `/sessions` - List or switch sessions\n\
@@ -738,8 +854,8 @@ impl EventHandler for DiscordHandler {
                     **How to use:**\n\
                     • In DMs: Just send a message to start chatting\n\
                     • In channels: Mention the bot or reply to its messages\n\n\
-                    You can also send images along with your messages!".to_string()
-                }
+                    You can also send images along with your messages!"
+                    .to_string(),
                 _ => "Unknown command".to_string(),
             };
 
@@ -952,11 +1068,11 @@ impl DiscordGateway {
         if !running {
             return Err("Discord gateway is not running".to_string());
         }
-        
+
         let mut shutdown = self.shutdown_tx.write().await;
         if let Some(tx) = shutdown.take() {
             let _ = tx.send(());
-            
+
             // Wait for the spawned task to finish (is_running becomes false)
             for _ in 0..50 {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -964,7 +1080,7 @@ impl DiscordGateway {
                     break;
                 }
             }
-            
+
             // Force reset state in case the wait timed out
             {
                 let mut is_running = self.is_running.write().await;
@@ -974,10 +1090,10 @@ impl DiscordGateway {
                 let mut status = self.status.write().await;
                 *status = GatewayStatusResponse::default();
             }
-            
+
             // Clear only Discord sessions
             self.session_mapping.clear_by_namespace("discord").await;
-            
+
             println!("[Discord] Gateway fully stopped");
             Ok(())
         } else {
@@ -991,7 +1107,7 @@ impl DiscordGateway {
     /// Test if a token is valid
     pub async fn test_token(token: &str) -> Result<String, String> {
         let http = Http::new(token);
-        
+
         match http.get_current_user().await {
             Ok(user) => {
                 // In newer Discord API, discriminator may be None (for users with new username system)
@@ -1025,9 +1141,16 @@ impl Clone for DiscordGateway {
 // Used by both the gateway handler and cron delivery.
 
 /// Send a message to a Discord channel via REST API.
-pub async fn send_channel_message(token: &str, channel_id: &str, content: &str) -> Result<(), String> {
+pub async fn send_channel_message(
+    token: &str,
+    channel_id: &str,
+    content: &str,
+) -> Result<(), String> {
     let client = reqwest::Client::new();
-    let url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
+    let url = format!(
+        "https://discord.com/api/v10/channels/{}/messages",
+        channel_id
+    );
     let body = serde_json::json!({ "content": content });
 
     let response = client

@@ -266,16 +266,24 @@ impl Database {
     pub async fn insert_chunks(
         &self,
         doc_id: i64,
-        chunks: &[(String, i32, Option<String>, Vec<f32>, Option<String>, Option<String>, Option<i64>, Option<i64>)],
+        chunks: &[(
+            String,
+            i32,
+            Option<String>,
+            Vec<f32>,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+        )],
     ) -> Result<()> {
         let conn = self.conn.lock().await;
 
-        for (content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line) in chunks {
+        for (content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line) in
+            chunks
+        {
             // Convert Vec<f32> to binary blob for F32_BLOB
-            let embedding_bytes: Vec<u8> = embedding
-                .iter()
-                .flat_map(|f| f.to_le_bytes())
-                .collect();
+            let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
 
             conn.execute(
                 "INSERT INTO chunks (doc_id, content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line)
@@ -345,10 +353,7 @@ impl Database {
     ) -> Result<Vec<SearchResult>> {
         let conn = self.conn.lock().await;
 
-        let embedding_bytes: Vec<u8> = embedding
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
+        let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
 
         let mut rows = conn
             .query(

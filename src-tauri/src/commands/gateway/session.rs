@@ -68,21 +68,16 @@ impl SessionMapping {
         // Load existing sessions if file exists
         if path.exists() {
             match std::fs::read_to_string(&path) {
-                Ok(content) => {
-                    match serde_json::from_str::<SessionData>(&content) {
-                        Ok(loaded_data) => {
-                            let mut data = self.data.write().await;
-                            *data = loaded_data;
-                            println!(
-                                "[Session] Loaded {} sessions",
-                                data.sessions.len()
-                            );
-                        }
-                        Err(e) => {
-                            println!("[Session] Failed to parse sessions file: {}", e);
-                        }
+                Ok(content) => match serde_json::from_str::<SessionData>(&content) {
+                    Ok(loaded_data) => {
+                        let mut data = self.data.write().await;
+                        *data = loaded_data;
+                        println!("[Session] Loaded {} sessions", data.sessions.len());
                     }
-                }
+                    Err(e) => {
+                        println!("[Session] Failed to parse sessions file: {}", e);
+                    }
+                },
                 Err(e) => {
                     println!("[Session] Failed to read sessions file: {}", e);
                 }
@@ -129,9 +124,7 @@ impl SessionMapping {
     /// Get the OpenCode session ID for a key
     pub async fn get_session(&self, key: &str) -> Option<String> {
         let data = self.data.read().await;
-        data.sessions
-            .get(key)
-            .and_then(|e| e.session_id.clone())
+        data.sessions.get(key).and_then(|e| e.session_id.clone())
     }
 
     /// Set the OpenCode session ID for a key (preserves existing model preference)
@@ -170,9 +163,7 @@ impl SessionMapping {
     /// Get the model preference for a key
     pub async fn get_model(&self, key: &str) -> Option<String> {
         let data = self.data.read().await;
-        data.sessions
-            .get(key)
-            .and_then(|e| e.model.clone())
+        data.sessions.get(key).and_then(|e| e.model.clone())
     }
 
     /// Set the model preference for a key (preserves existing session ID)
@@ -221,11 +212,7 @@ impl SessionMapping {
     }
 
     /// Index a message ID to an email session key.
-    pub async fn set_email_message_session(
-        &self,
-        message_id: String,
-        session_key: String,
-    ) {
+    pub async fn set_email_message_session(&self, message_id: String, session_key: String) {
         let message_id = message_id.trim().to_lowercase();
         if message_id.is_empty() || session_key.is_empty() {
             return;
@@ -248,11 +235,7 @@ impl SessionMapping {
     }
 
     /// Index a normalized subject to an email session key.
-    pub async fn set_email_subject_session(
-        &self,
-        normalized_subject: String,
-        session_key: String,
-    ) {
+    pub async fn set_email_subject_session(&self, normalized_subject: String, session_key: String) {
         let normalized_subject = normalized_subject.trim().to_lowercase();
         if normalized_subject.is_empty() || session_key.is_empty() {
             return;

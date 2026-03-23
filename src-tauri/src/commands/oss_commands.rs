@@ -1,5 +1,5 @@
-use crate::commands::oss_types::*;
 use crate::commands::oss_sync::*;
+use crate::commands::oss_types::*;
 use crate::commands::TEAMCLAW_DIR;
 
 use serde_json::Value;
@@ -21,8 +21,7 @@ fn get_or_create_node_id(workspace_path: &str) -> Result<String, String> {
     let mut json: Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?
     } else {
         Value::Object(serde_json::Map::new())
     };
@@ -55,8 +54,7 @@ fn get_or_create_node_id(workspace_path: &str) -> Result<String, String> {
 
     // Ensure parent dir exists
     if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create config dir: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {e}"))?;
     }
 
     let output = serde_json::to_string_pretty(&json)
@@ -91,8 +89,7 @@ async fn start_poll_loop(state: &OssSyncState) {
 /// Generate a 32-byte random hex string for use as a team secret.
 fn generate_team_secret() -> Result<String, String> {
     let mut buf = [0u8; 32];
-    getrandom::getrandom(&mut buf)
-        .map_err(|e| format!("Failed to generate random bytes: {e}"))?;
+    getrandom::getrandom(&mut buf).map_err(|e| format!("Failed to generate random bytes: {e}"))?;
     Ok(hex::encode(buf))
 }
 
@@ -182,7 +179,9 @@ pub async fn oss_create_team(
         owner_node_id: node_id.clone(),
         members: vec![owner_member],
     };
-    manager.upload_members_manifest(&manifest).await
+    manager
+        .upload_members_manifest(&manifest)
+        .await
         .map_err(|e| format!("Failed to upload members manifest: {}", e))?;
 
     // Upload team.json to _meta/
@@ -257,12 +256,14 @@ pub async fn oss_join_team(
         "teamSecret": team_secret,
         "nodeId": node_id,
     });
-    let resp = manager.call_fc("/token", &body).await
+    let resp = manager
+        .call_fc("/token", &body)
+        .await
         .map_err(|_| "Ticket 不正确，请检查后重试".to_string())?;
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
 
-    let role: MemberRole = serde_json::from_str(&format!("\"{}\"", resp.role))
-        .unwrap_or(MemberRole::Editor);
+    let role: MemberRole =
+        serde_json::from_str(&format!("\"{}\"", resp.role)).unwrap_or(MemberRole::Editor);
     manager.set_role(role.clone());
 
     // Two-step NodeId validation: check device is in the members manifest
@@ -355,8 +356,8 @@ pub async fn oss_restore_sync(
     let resp = manager.call_fc("/token", &body).await?;
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
 
-    let role: MemberRole = serde_json::from_str(&format!("\"{}\"", resp.role))
-        .unwrap_or(MemberRole::Editor);
+    let role: MemberRole =
+        serde_json::from_str(&format!("\"{}\"", resp.role)).unwrap_or(MemberRole::Editor);
     manager.set_role(role.clone());
 
     // Restore from local snapshots, then pull remote
@@ -412,7 +413,8 @@ pub async fn oss_leave_team(
             if mgr.role() == MemberRole::Owner {
                 if let Ok(Some(manifest)) = mgr.download_members_manifest().await {
                     if manifest.members.len() > 1 {
-                        return Err("团队还有其他成员，请先移除所有成员或转让管理员角色后再离开".to_string());
+                        return Err("团队还有其他成员，请先移除所有成员或转让管理员角色后再离开"
+                            .to_string());
                     }
                 }
             }
@@ -464,9 +466,7 @@ pub async fn oss_leave_team(
 }
 
 #[tauri::command]
-pub async fn oss_sync_now(
-    state: State<'_, OssSyncState>,
-) -> Result<SyncStatus, String> {
+pub async fn oss_sync_now(state: State<'_, OssSyncState>) -> Result<SyncStatus, String> {
     let mut guard = state.manager.lock().await;
     let manager = guard
         .as_mut()
@@ -487,9 +487,7 @@ pub async fn oss_sync_now(
 }
 
 #[tauri::command]
-pub async fn oss_get_sync_status(
-    state: State<'_, OssSyncState>,
-) -> Result<SyncStatus, String> {
+pub async fn oss_get_sync_status(state: State<'_, OssSyncState>) -> Result<SyncStatus, String> {
     let guard = state.manager.lock().await;
     let manager = guard
         .as_ref()
@@ -578,8 +576,6 @@ pub async fn oss_reset_team_secret(
 }
 
 #[tauri::command]
-pub async fn oss_get_team_config(
-    workspace_path: String,
-) -> Result<Option<OssTeamConfig>, String> {
+pub async fn oss_get_team_config(workspace_path: String) -> Result<Option<OssTeamConfig>, String> {
     Ok(read_oss_config(&workspace_path))
 }

@@ -23,8 +23,7 @@ pub fn chunk_markdown(text: &str, chunk_size: usize, chunk_overlap: usize) -> Ve
     let mut chunk_index = 0i32;
 
     for section in &sections {
-        let section_chunks =
-            split_section_into_chunks(&section.content, chunk_size, chunk_overlap);
+        let section_chunks = split_section_into_chunks(&section.content, chunk_size, chunk_overlap);
         for chunk_content in section_chunks {
             if !chunk_content.trim().is_empty() {
                 chunks.push(Chunk {
@@ -130,7 +129,7 @@ fn floor_char_boundary(s: &str, pos: usize) -> usize {
     if pos >= s.len() {
         return s.len();
     }
-    
+
     // A byte is a valid char boundary if:
     // 1. It's at the start of the string (0)
     // 2. It's not a continuation byte (0x80-0xBF)
@@ -143,7 +142,7 @@ fn floor_char_boundary(s: &str, pos: usize) -> usize {
             return i;
         }
     }
-    
+
     // Fallback (should never reach here)
     0
 }
@@ -171,7 +170,9 @@ fn split_by_headings(text: &str) -> Vec<Section> {
 
     for event in parser {
         match event {
-            Event::Start(Tag::Heading { level, .. }) if level == HeadingLevel::H2 || level == HeadingLevel::H3 => {
+            Event::Start(Tag::Heading { level, .. })
+                if level == HeadingLevel::H2 || level == HeadingLevel::H3 =>
+            {
                 // Save current section before starting new heading
                 if !current_content.trim().is_empty() || current_heading.is_some() {
                     sections.push(Section {
@@ -253,11 +254,7 @@ fn split_by_headings(text: &str) -> Vec<Section> {
 }
 
 /// Split a section's text into chunks respecting paragraph boundaries
-fn split_section_into_chunks(
-    text: &str,
-    chunk_size: usize,
-    chunk_overlap: usize,
-) -> Vec<String> {
+fn split_section_into_chunks(text: &str, chunk_size: usize, chunk_overlap: usize) -> Vec<String> {
     let text = text.trim();
     if text.is_empty() {
         return Vec::new();
@@ -280,9 +277,7 @@ fn split_section_into_chunks(
         }
 
         // If adding this paragraph exceeds chunk_size and we have content, start new chunk
-        if !current_chunk.is_empty()
-            && current_chunk.len() + para.len() + 2 > chunk_size
-        {
+        if !current_chunk.is_empty() && current_chunk.len() + para.len() + 2 > chunk_size {
             chunks.push(current_chunk.trim().to_string());
 
             // Start new chunk with overlap from end of previous

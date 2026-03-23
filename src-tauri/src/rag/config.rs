@@ -12,14 +12,14 @@ pub struct RagConfig {
     pub chunk_size: usize,
     pub chunk_overlap: usize,
     pub auto_index: bool,
-    
+
     // Knowledge directories
     #[serde(default = "default_knowledge_dirs")]
     pub knowledge_dirs: Vec<String>,
-    
+
     // Hybrid search
     pub hybrid_weight: f64,
-    
+
     // Reranking
     pub rerank_enabled: bool,
     pub rerank_provider: String,
@@ -28,10 +28,10 @@ pub struct RagConfig {
     #[serde(default = "default_rerank_base_url")]
     pub rerank_base_url: String,
     pub rerank_top_k: usize,
-    
+
     // File watcher
     pub file_watcher_enabled: bool,
-    
+
     // RAG V2: Auto-inject (Pre-inference)
     pub auto_inject_enabled: bool,
     pub auto_inject_threshold: f64,
@@ -100,7 +100,7 @@ impl RagConfig {
         }
 
         let config = Self::default();
-        
+
         if let Err(e) = config.save_to_workspace(workspace_path).await {
             tracing::warn!(
                 "[RAG] Failed to auto-create rag-config.json: {}. Using in-memory defaults.",
@@ -112,7 +112,7 @@ impl RagConfig {
                 rag_config_path.display()
             );
         }
-        
+
         Ok(config)
     }
 
@@ -145,7 +145,7 @@ impl RagConfig {
             .map(|dir| workspace_path.join(dir))
             .collect()
     }
-    
+
     /// Get knowledge directory path (deprecated, use knowledge_dirs instead)
     /// Returns first directory for backward compatibility
     #[allow(dead_code)]

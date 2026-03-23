@@ -419,7 +419,10 @@ impl EmailDb {
     pub async fn get_all_account_keys(&self) -> Result<Vec<String>, String> {
         let conn = self.conn.lock().await;
         let mut rows = conn
-            .query("SELECT account_key FROM email_accounts ORDER BY account_key", ())
+            .query(
+                "SELECT account_key FROM email_accounts ORDER BY account_key",
+                (),
+            )
             .await
             .map_err(|e| format!("Failed to query account keys: {}", e))?;
 
@@ -440,7 +443,7 @@ impl EmailDb {
     #[allow(dead_code)]
     pub async fn delete_account(&self, account_key: &str) -> Result<(), String> {
         let conn = self.conn.lock().await;
-        
+
         conn.execute(
             "DELETE FROM email_accounts WHERE account_key = ?1",
             params![account_key.to_string()],

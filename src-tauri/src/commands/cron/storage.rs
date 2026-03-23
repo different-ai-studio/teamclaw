@@ -43,12 +43,16 @@ impl CronStorage {
 
     /// Get the jobs file path
     fn jobs_path(workspace: &str) -> PathBuf {
-        PathBuf::from(workspace).join(crate::commands::TEAMCLAW_DIR).join("cron-jobs.json")
+        PathBuf::from(workspace)
+            .join(crate::commands::TEAMCLAW_DIR)
+            .join("cron-jobs.json")
     }
 
     /// Get the runs directory path
     fn runs_dir(workspace: &str) -> PathBuf {
-        PathBuf::from(workspace).join(crate::commands::TEAMCLAW_DIR).join("cron-runs")
+        PathBuf::from(workspace)
+            .join(crate::commands::TEAMCLAW_DIR)
+            .join("cron-runs")
     }
 
     /// Get the run history file for a specific job

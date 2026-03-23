@@ -197,8 +197,8 @@ impl OssSyncManager {
         self.oss_config = Some(resp.oss.clone());
         self.s3_client = Some(Self::create_s3_client(&resp.credentials, &resp.oss));
 
-        self.role = serde_json::from_str(&format!("\"{}\"", resp.role))
-            .unwrap_or(MemberRole::Editor);
+        self.role =
+            serde_json::from_str(&format!("\"{}\"", resp.role)).unwrap_or(MemberRole::Editor);
 
         info!("OSS STS token refreshed successfully");
         Ok(())
@@ -382,7 +382,11 @@ impl OssSyncManager {
             return Ok(result);
         }
 
-        fn walk(base: &Path, current: &Path, result: &mut HashMap<String, Vec<u8>>) -> Result<(), String> {
+        fn walk(
+            base: &Path,
+            current: &Path,
+            result: &mut HashMap<String, Vec<u8>>,
+        ) -> Result<(), String> {
             let entries = std::fs::read_dir(current)
                 .map_err(|e| format!("Failed to read dir {}: {e}", current.display()))?;
 
@@ -611,20 +615,25 @@ impl OssSyncManager {
             for path in &changed {
                 if let Some(content) = local_files.get(path) {
                     let hash = Self::compute_hash(content);
-                    let content_str =
-                        String::from_utf8_lossy(content).to_string();
+                    let content_str = String::from_utf8_lossy(content).to_string();
 
-                    let entry_map = files_map.get_or_create_container(path, loro::LoroMap::new())
+                    let entry_map = files_map
+                        .get_or_create_container(path, loro::LoroMap::new())
                         .map_err(|e| format!("Failed to get/create map entry for {path}: {e}"))?;
-                    entry_map.insert("content", content_str.as_str())
+                    entry_map
+                        .insert("content", content_str.as_str())
                         .map_err(|e| format!("Failed to set content for {path}: {e}"))?;
-                    entry_map.insert("hash", hash.as_str())
+                    entry_map
+                        .insert("hash", hash.as_str())
                         .map_err(|e| format!("Failed to set hash for {path}: {e}"))?;
-                    entry_map.insert("deleted", false)
+                    entry_map
+                        .insert("deleted", false)
                         .map_err(|e| format!("Failed to set deleted for {path}: {e}"))?;
-                    entry_map.insert("updatedBy", node_id.as_str())
+                    entry_map
+                        .insert("updatedBy", node_id.as_str())
                         .map_err(|e| format!("Failed to set updatedBy for {path}: {e}"))?;
-                    entry_map.insert("updatedAt", now.as_str())
+                    entry_map
+                        .insert("updatedAt", now.as_str())
                         .map_err(|e| format!("Failed to set updatedAt for {path}: {e}"))?;
                 }
             }
@@ -642,11 +651,14 @@ impl OssSyncManager {
                             let entry_map = files_map
                                 .get_or_create_container(path, loro::LoroMap::new())
                                 .map_err(|e| format!("Failed to get map entry for {path}: {e}"))?;
-                            entry_map.insert("deleted", true)
+                            entry_map
+                                .insert("deleted", true)
                                 .map_err(|e| format!("Failed to mark deleted for {path}: {e}"))?;
-                            entry_map.insert("updatedBy", node_id.as_str())
+                            entry_map
+                                .insert("updatedBy", node_id.as_str())
                                 .map_err(|e| format!("Failed to set updatedBy for {path}: {e}"))?;
-                            entry_map.insert("updatedAt", now.as_str())
+                            entry_map
+                                .insert("updatedAt", now.as_str())
                                 .map_err(|e| format!("Failed to set updatedAt for {path}: {e}"))?;
                         }
                     }
@@ -686,11 +698,7 @@ impl OssSyncManager {
         let prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
         let all_keys = self.s3_list(&prefix).await?;
 
-        let known = self
-            .known_files
-            .get(&doc_type)
-            .cloned()
-            .unwrap_or_default();
+        let known = self.known_files.get(&doc_type).cloned().unwrap_or_default();
 
         let new_keys: Vec<String> = all_keys
             .into_iter()
@@ -734,11 +742,7 @@ impl OssSyncManager {
             let _ = self.restore_from_local_snapshot(doc_type);
 
             // 2. Find latest snapshot on OSS
-            let snapshot_prefix = format!(
-                "teams/{}/{}/snapshot/",
-                self.team_id,
-                doc_type.path()
-            );
+            let snapshot_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
             let snapshot_keys = self.s3_list(&snapshot_prefix).await?;
 
             if let Some(latest_key) = snapshot_keys.last() {
@@ -846,11 +850,7 @@ impl OssSyncManager {
         let freed_bytes: u64 = 0;
 
         // Find latest snapshot timestamp
-        let snapshot_prefix = format!(
-            "teams/{}/{}/snapshot/",
-            self.team_id,
-            doc_type.path()
-        );
+        let snapshot_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
         let snapshot_keys = self.s3_list(&snapshot_prefix).await?;
 
         if snapshot_keys.is_empty() {
@@ -881,11 +881,7 @@ impl OssSyncManager {
             .unwrap_or(0);
 
         // Delete updates older than the snapshot
-        let updates_prefix = format!(
-            "teams/{}/{}/updates/",
-            self.team_id,
-            doc_type.path()
-        );
+        let updates_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
         let update_keys = self.s3_list(&updates_prefix).await?;
 
         // Collect keys to delete first, then delete — avoids borrowing self
@@ -999,11 +995,13 @@ impl OssSyncManager {
 
     /// Add a member to the manifest and upload
     pub async fn add_member(&self, member: TeamMember) -> Result<(), String> {
-        let mut manifest = self.download_members_manifest().await?
-            .unwrap_or_else(|| TeamManifest {
-                owner_node_id: self.node_id.clone(),
-                members: vec![],
-            });
+        let mut manifest =
+            self.download_members_manifest()
+                .await?
+                .unwrap_or_else(|| TeamManifest {
+                    owner_node_id: self.node_id.clone(),
+                    members: vec![],
+                });
 
         if manifest.members.iter().any(|m| m.node_id == member.node_id) {
             return Err("This device already exists in the team".to_string());
@@ -1015,7 +1013,9 @@ impl OssSyncManager {
 
     /// Remove a member from the manifest and upload
     pub async fn remove_member(&self, node_id: &str) -> Result<(), String> {
-        let mut manifest = self.download_members_manifest().await?
+        let mut manifest = self
+            .download_members_manifest()
+            .await?
             .ok_or("No members manifest found")?;
 
         if manifest.owner_node_id == node_id {
@@ -1028,7 +1028,9 @@ impl OssSyncManager {
 
     /// Update a member's role in the manifest and upload
     pub async fn update_member_role(&self, node_id: &str, role: MemberRole) -> Result<(), String> {
-        let mut manifest = self.download_members_manifest().await?
+        let mut manifest = self
+            .download_members_manifest()
+            .await?
             .ok_or("No members manifest found")?;
 
         if manifest.owner_node_id == node_id && role != MemberRole::Owner {
@@ -1046,13 +1048,20 @@ impl OssSyncManager {
 
     /// Check if a node_id is in the members manifest
     pub async fn check_member_authorized(&self, node_id: &str) -> Result<MemberRole, String> {
-        let manifest = self.download_members_manifest().await?
+        let manifest = self
+            .download_members_manifest()
+            .await?
             .ok_or("No members manifest found")?;
 
-        manifest.members.iter()
+        manifest
+            .members
+            .iter()
             .find(|m| m.node_id == node_id)
             .map(|m| m.role.clone())
-            .ok_or("Your device has not been added to the team. Please contact the team Owner".to_string())
+            .ok_or(
+                "Your device has not been added to the team. Please contact the team Owner"
+                    .to_string(),
+            )
     }
 }
 
@@ -1079,8 +1088,7 @@ pub fn write_oss_config(workspace_path: &str, config: &OssTeamConfig) -> Result<
     let mut json: Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?
     } else {
         Value::Object(serde_json::Map::new())
     };
@@ -1089,7 +1097,8 @@ pub fn write_oss_config(workspace_path: &str, config: &OssTeamConfig) -> Result<
         serde_json::to_value(config).map_err(|e| format!("Failed to serialize oss config: {e}"))?;
 
     // Merge new config into existing oss object to preserve fields like nodeId
-    let root = json.as_object_mut()
+    let root = json
+        .as_object_mut()
         .ok_or_else(|| "teamclaw.json root is not an object".to_string())?;
     if let Some(existing_oss) = root.get_mut("oss").and_then(|v| v.as_object_mut()) {
         if let Some(new_obj) = oss_value.as_object() {
@@ -1103,8 +1112,7 @@ pub fn write_oss_config(workspace_path: &str, config: &OssTeamConfig) -> Result<
 
     // Ensure parent dir exists
     if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create config dir: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {e}"))?;
     }
 
     let output = serde_json::to_string_pretty(&json)

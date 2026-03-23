@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, RwLock};
-use serde::Deserialize;
-#[allow(unused_imports)]
-use futures_util::StreamExt;
-use futures_util::stream::SplitSink;
 use super::session::SessionMapping;
 use super::wecom_config::{WeComConfig, WeComGatewayStatus, WeComGatewayStatusResponse};
+use futures_util::stream::SplitSink;
+#[allow(unused_imports)]
+use futures_util::StreamExt;
+use serde::Deserialize;
+use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot, RwLock};
 
 /// Detect image MIME type from file magic bytes
 fn detect_image_mime(bytes: &[u8]) -> Option<String> {
@@ -27,17 +27,23 @@ fn detect_image_mime(bytes: &[u8]) -> Option<String> {
     }
 }
 
-type WsSink = Arc<tokio::sync::Mutex<SplitSink<
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-    tokio_tungstenite::tungstenite::Message,
->>>;
+type WsSink = Arc<
+    tokio::sync::Mutex<
+        SplitSink<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+            tokio_tungstenite::tungstenite::Message,
+        >,
+    >,
+>;
 
 pub const WECOM_WS_ENDPOINT: &str = "wss://openws.work.weixin.qq.com";
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 #[allow(dead_code)]
 const HEARTBEAT_TIMEOUT_SECS: u64 = 6;
+use super::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
 use super::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
-use super::session_queue::{SessionQueue, QueuedMessage, EnqueueResult, RejectReason};
 
 #[derive(Clone)]
 pub struct WeComGateway {
@@ -109,7 +115,9 @@ impl WeComGateway {
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(WeComGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
-            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
+            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
+                MAX_PROCESSED_MESSAGES,
+            ))),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
             session_queue: Arc::new(SessionQueue::new()),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
@@ -165,7 +173,8 @@ impl WeComGateway {
         }
         self.session_queue.shutdown().await;
         *self.is_running.write().await = false;
-        self.set_status(WeComGatewayStatus::Disconnected, None).await;
+        self.set_status(WeComGatewayStatus::Disconnected, None)
+            .await;
         Ok(())
     }
 
@@ -178,7 +187,10 @@ impl WeComGateway {
         let mut backoff_secs = 2u64;
 
         loop {
-            match self.connect_and_run(&bot_id, &secret, &mut shutdown_rx).await {
+            match self
+                .connect_and_run(&bot_id, &secret, &mut shutdown_rx)
+                .await
+            {
                 Ok(WsExitReason::Shutdown) => {
                     println!("[WeCom] Gateway shut down gracefully");
                     break;
@@ -211,7 +223,8 @@ impl WeComGateway {
         }
 
         *self.is_running.write().await = false;
-        self.set_status(WeComGatewayStatus::Disconnected, None).await;
+        self.set_status(WeComGatewayStatus::Disconnected, None)
+            .await;
     }
 
     async fn connect_and_run(
@@ -238,19 +251,19 @@ impl WeComGateway {
             "body": { "bot_id": bot_id, "secret": secret }
         });
         ws_sink
-            .send(tokio_tungstenite::tungstenite::Message::Text(subscribe_msg.to_string()))
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                subscribe_msg.to_string(),
+            ))
             .await
             .map_err(|e| format!("Failed to send subscribe: {}", e))?;
 
         // Wait for subscribe response (5s timeout)
-        let subscribe_response = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            ws_stream.next(),
-        )
-        .await
-        .map_err(|_| "Subscribe response timeout".to_string())?
-        .ok_or("WebSocket closed before subscribe response")?
-        .map_err(|e| format!("Subscribe response error: {}", e))?;
+        let subscribe_response =
+            tokio::time::timeout(std::time::Duration::from_secs(5), ws_stream.next())
+                .await
+                .map_err(|_| "Subscribe response timeout".to_string())?
+                .ok_or("WebSocket closed before subscribe response")?
+                .map_err(|e| format!("Subscribe response error: {}", e))?;
 
         if let tokio_tungstenite::tungstenite::Message::Text(text) = subscribe_response {
             let resp: serde_json::Value = serde_json::from_str(&text)
@@ -258,7 +271,9 @@ impl WeComGateway {
             // WeCom API uses "errcode"/"errmsg" fields (not "code"/"msg")
             let code = resp.get("errcode").and_then(|c| c.as_i64()).unwrap_or(-1);
             if code != 0 {
-                let msg = resp.get("errmsg").and_then(|m| m.as_str())
+                let msg = resp
+                    .get("errmsg")
+                    .and_then(|m| m.as_str())
                     .unwrap_or("Unknown error");
                 return Err(format!("Subscribe failed (code {}): {}", code, msg));
             }
@@ -337,11 +352,7 @@ impl WeComGateway {
         Ok(exit_reason)
     }
 
-    async fn handle_ws_message(
-        &self,
-        text: &str,
-        ws_sink: WsSink,
-    ) {
+    async fn handle_ws_message(&self, text: &str, ws_sink: WsSink) {
         let msg: WeComWsMessage = match serde_json::from_str(text) {
             Ok(m) => m,
             Err(e) => {
@@ -352,7 +363,10 @@ impl WeComGateway {
 
         match msg.cmd.as_str() {
             "aibot_msg_callback" => {
-                println!("[WeCom] Received msg callback: {}", text.chars().take(2000).collect::<String>());
+                println!(
+                    "[WeCom] Received msg callback: {}",
+                    text.chars().take(2000).collect::<String>()
+                );
                 if let Some(body) = msg.body {
                     let callback: WeComMsgCallback = match serde_json::from_value(body) {
                         Ok(c) => c,
@@ -362,17 +376,22 @@ impl WeComGateway {
                         }
                     };
                     // Extract original req_id for reply
-                    let req_id = msg.headers
+                    let req_id = msg
+                        .headers
                         .as_ref()
                         .and_then(|h| h.get("req_id"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    self.handle_message_callback(callback, req_id, ws_sink).await;
+                    self.handle_message_callback(callback, req_id, ws_sink)
+                        .await;
                 }
             }
             "aibot_event_callback" => {
-                println!("[WeCom] Received event callback: {}", text.chars().take(300).collect::<String>());
+                println!(
+                    "[WeCom] Received event callback: {}",
+                    text.chars().take(300).collect::<String>()
+                );
                 // Future: support additional event types (enter_chat, template_card_event, etc.)
             }
             "" => {
@@ -405,8 +424,10 @@ impl WeComGateway {
         ws_sink: WsSink,
     ) {
         let userid = msg.from.as_ref().map(|f| f.userid.as_str()).unwrap_or("");
-        println!("[WeCom] Callback: msgid={}, msgtype={}, chattype={}, userid={}",
-            msg.msgid, msg.msgtype, msg.chattype, userid);
+        println!(
+            "[WeCom] Callback: msgid={}, msgtype={}, chattype={}, userid={}",
+            msg.msgid, msg.msgtype, msg.chattype, userid
+        );
         // Deduplication
         if !self.mark_message_processed(&msg.msgid).await {
             return;
@@ -419,7 +440,8 @@ impl WeComGateway {
 
         match msg.msgtype.as_str() {
             "text" => {
-                text_content = msg.text
+                text_content = msg
+                    .text
                     .as_ref()
                     .and_then(|t| t.get("content"))
                     .and_then(|v| v.as_str())
@@ -427,7 +449,8 @@ impl WeComGateway {
                     .to_string();
             }
             "voice" => {
-                text_content = msg.voice
+                text_content = msg
+                    .voice
                     .as_ref()
                     .and_then(|v| v.get("content"))
                     .and_then(|v| v.as_str())
@@ -436,7 +459,8 @@ impl WeComGateway {
             }
             "image" => {
                 println!("[WeCom] Image message body: {:?}", msg.image);
-                image_url = msg.image
+                image_url = msg
+                    .image
                     .as_ref()
                     .and_then(|i| {
                         // Try "url" first, then "img_url", then "pic_url"
@@ -482,14 +506,20 @@ impl WeComGateway {
             if let Some(qid) = super::extract_question_marker(quoted_text) {
                 if let Some(entry) = self.pending_questions.take_by_question_id(qid).await {
                     let _ = entry.answer_tx.send(text_content.clone());
-                    println!("[WeCom] Question {} answered via quote reply", entry.question_id);
+                    println!(
+                        "[WeCom] Question {} answered via quote reply",
+                        entry.question_id
+                    );
                     return;
                 }
             }
 
             // Original behavior: prepend quoted text for context
             if !quoted_text.is_empty() {
-                text_content = format!("[Quoted message]\n{}\n[End quoted message]\n\n{}", quoted_text, text_content);
+                text_content = format!(
+                    "[Quoted message]\n{}\n[End quoted message]\n\n{}",
+                    quoted_text, text_content
+                );
             }
         }
 
@@ -505,12 +535,20 @@ impl WeComGateway {
         };
 
         // Check for /answer command — routes reply to the most recent pending question
-        if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&text_content) {
+        if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&text_content)
+        {
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
-                println!("[WeCom] Question {} answered via /answer: {}", qid, answer_text);
-                let _ = self.send_reply(&req_id, &format!("✓ 已回复: {}", answer_text), &ws_sink).await;
+                println!(
+                    "[WeCom] Question {} answered via /answer: {}",
+                    qid, answer_text
+                );
+                let _ = self
+                    .send_reply(&req_id, &format!("✓ 已回复: {}", answer_text), &ws_sink)
+                    .await;
             } else {
-                let _ = self.send_reply(&req_id, "当前没有待回复的问题", &ws_sink).await;
+                let _ = self
+                    .send_reply(&req_id, "当前没有待回复的问题", &ws_sink)
+                    .await;
             }
             return;
         }
@@ -518,7 +556,10 @@ impl WeComGateway {
         // Check for slash commands (text only)
         let trimmed = text_content.trim();
         if !trimmed.is_empty() && trimmed.starts_with('/') {
-            if let Err(e) = self.handle_slash_command(&session_key, trimmed, &msg, &req_id, &ws_sink).await {
+            if let Err(e) = self
+                .handle_slash_command(&session_key, trimmed, &msg, &req_id, &ws_sink)
+                .await
+            {
                 eprintln!("[WeCom] Slash command error: {}", e);
             }
             return;
@@ -555,37 +596,65 @@ impl WeComGateway {
             store: pending_questions_clone,
         };
 
-        let result = self.session_queue.enqueue(&session_key, QueuedMessage {
-            enqueued_at: std::time::Instant::now(),
-            process_fn: Box::new(move || Box::pin(async move {
-                let req_id_for_error = req_id_owned.clone();
-                if let Err(e) = gateway.process_and_reply_with_parts(
-                    &session_key_owned, &text_content_owned,
-                    image_url_owned.as_deref(), &msg_owned,
-                    &req_id_owned, &ws_sink_owned,
-                    Some(&question_ctx),
-                ).await {
-                    eprintln!("[WeCom] Process error: {}", e);
-                    let _ = gateway.send_reply(&req_id_for_error, &format!("Error: {}", e), &ws_sink_owned).await;
-                }
-            })),
-            notify_fn: Some(Box::new(move |reason| Box::pin(async move {
-                let msg = match reason {
-                    RejectReason::Timeout => "Your message timed out waiting in queue.",
-                    RejectReason::QueueFull => "Too many messages queued. Please try again later.",
-                    RejectReason::SessionClosed => "Your message could not be processed. Please resend.",
-                };
-                let _ = gateway2.send_reply(&req_id2, msg, &ws_sink2).await;
-            }))),
-        }).await;
+        let result = self
+            .session_queue
+            .enqueue(
+                &session_key,
+                QueuedMessage {
+                    enqueued_at: std::time::Instant::now(),
+                    process_fn: Box::new(move || {
+                        Box::pin(async move {
+                            let req_id_for_error = req_id_owned.clone();
+                            if let Err(e) = gateway
+                                .process_and_reply_with_parts(
+                                    &session_key_owned,
+                                    &text_content_owned,
+                                    image_url_owned.as_deref(),
+                                    &msg_owned,
+                                    &req_id_owned,
+                                    &ws_sink_owned,
+                                    Some(&question_ctx),
+                                )
+                                .await
+                            {
+                                eprintln!("[WeCom] Process error: {}", e);
+                                let _ = gateway
+                                    .send_reply(
+                                        &req_id_for_error,
+                                        &format!("Error: {}", e),
+                                        &ws_sink_owned,
+                                    )
+                                    .await;
+                            }
+                        })
+                    }),
+                    notify_fn: Some(Box::new(move |reason| {
+                        Box::pin(async move {
+                            let msg = match reason {
+                                RejectReason::Timeout => "Your message timed out waiting in queue.",
+                                RejectReason::QueueFull => {
+                                    "Too many messages queued. Please try again later."
+                                }
+                                RejectReason::SessionClosed => {
+                                    "Your message could not be processed. Please resend."
+                                }
+                            };
+                            let _ = gateway2.send_reply(&req_id2, msg, &ws_sink2).await;
+                        })
+                    })),
+                },
+            )
+            .await;
 
         match result {
             EnqueueResult::Queued { position } if position > 0 => {
-                let _ = self.send_reply(
-                    &req_id,
-                    &format!("Message queued (position: {}). Please wait...", position),
-                    &ws_sink,
-                ).await;
+                let _ = self
+                    .send_reply(
+                        &req_id,
+                        &format!("Message queued (position: {}). Please wait...", position),
+                        &ws_sink,
+                    )
+                    .await;
             }
             EnqueueResult::Full => { /* notify_fn already handled */ }
             _ => { /* Processing or Queued{0} — no feedback needed */ }
@@ -688,7 +757,11 @@ impl WeComGateway {
             header_type
         };
 
-        println!("[WeCom] Downloaded image: {} bytes, mime={}", bytes.len(), content_type);
+        println!(
+            "[WeCom] Downloaded image: {} bytes, mime={}",
+            bytes.len(),
+            content_type
+        );
 
         let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
         let data_url = format!("data:{};base64,{}", content_type, b64);
@@ -712,7 +785,9 @@ impl WeComGateway {
     ) -> Result<(), String> {
         // Get or create session
         let model = self.session_mapping.get_model(session_key).await;
-        let model_tuple = model.as_ref().and_then(|m| super::parse_model_preference(m));
+        let model_tuple = model
+            .as_ref()
+            .and_then(|m| super::parse_model_preference(m));
 
         let session_id = match self.session_mapping.get_session(session_key).await {
             Some(id) => id,
@@ -767,20 +842,37 @@ impl WeComGateway {
         }
 
         // Stream OpenCode response to WeCom (retry with new session if prompt_async fails)
-        match self.stream_opencode_to_wecom(
-            &session_id, parts.clone(), model_tuple.clone(), req_id, ws_sink, question_ctx,
-        ).await {
+        match self
+            .stream_opencode_to_wecom(
+                &session_id,
+                parts.clone(),
+                model_tuple.clone(),
+                req_id,
+                ws_sink,
+                question_ctx,
+            )
+            .await
+        {
             Ok(()) => Ok(()),
             Err(e) if e.contains("prompt_async failed") => {
                 // Session might be stale (e.g. OpenCode restarted), create a new one and retry
-                println!("[WeCom] Prompt failed, recreating session and retrying: {}", e);
+                println!(
+                    "[WeCom] Prompt failed, recreating session and retrying: {}",
+                    e
+                );
                 let new_id = self.create_opencode_session().await?;
                 self.session_mapping
                     .set_session(session_key.to_string(), new_id.clone())
                     .await;
                 self.stream_opencode_to_wecom(
-                    &new_id, parts, model_tuple, req_id, ws_sink, question_ctx,
-                ).await
+                    &new_id,
+                    parts,
+                    model_tuple,
+                    req_id,
+                    ws_sink,
+                    question_ctx,
+                )
+                .await
             }
             Err(e) => Err(e),
         }
@@ -808,7 +900,9 @@ impl WeComGateway {
         let mut thinking_active = true;
 
         // Send first frame synchronously so it appears instantly
-        let _ = self.send_stream_chunk(req_id, &stream_id, "thinking(0s).", false, ws_sink).await;
+        let _ = self
+            .send_stream_chunk(req_id, &stream_id, "thinking(0s).", false, ws_sink)
+            .await;
 
         // Animated thinking: time in middle, 1-5 dots cycle at end
         // Each cycle round adds an extra invisible char to keep content growing
@@ -840,7 +934,9 @@ impl WeComGateway {
                         }
                     }
                     // Don't send frames while paused
-                    if *ctl_rx.borrow() != 0 { continue; }
+                    if *ctl_rx.borrow() != 0 {
+                        continue;
+                    }
 
                     let elapsed = start.elapsed().as_secs();
                     let time = if elapsed >= 60 {
@@ -854,7 +950,14 @@ impl WeComGateway {
                     let dots = ".".repeat(dot_count);
                     let zws = "\u{200b}".repeat(zws_count);
                     let frame = format!("thinking({}){}{}", time, dots, zws);
-                    let _ = Self::send_stream_chunk_static(&req_id, &stream_id, &frame, false, &ws_sink_clone).await;
+                    let _ = Self::send_stream_chunk_static(
+                        &req_id,
+                        &stream_id,
+                        &frame,
+                        false,
+                        &ws_sink_clone,
+                    )
+                    .await;
                     tick += 1;
                 }
             });
@@ -862,17 +965,22 @@ impl WeComGateway {
 
         // Step 1: Connect to SSE FIRST (before sending message) to avoid missing delta events
         let sse_url = format!("http://127.0.0.1:{}/event", port);
-        let response = client.get(&sse_url)
+        let response = client
+            .get(&sse_url)
             .header("Accept", "text/event-stream")
             .timeout(std::time::Duration::from_secs(900))
-            .send().await
+            .send()
+            .await
             .map_err(|e| {
                 let _ = thinking_ctl_tx.send(2);
                 format!("Failed to connect to SSE: {}", e)
             })?;
 
         // Step 2: Now send message async (SSE is already listening)
-        let url = format!("http://127.0.0.1:{}/session/{}/prompt_async", port, session_id);
+        let url = format!(
+            "http://127.0.0.1:{}/session/{}/prompt_async",
+            port, session_id
+        );
         let mut body = serde_json::json!({ "parts": parts });
         if let Some((provider_id, model_id)) = model {
             body["model"] = serde_json::json!({
@@ -886,10 +994,12 @@ impl WeComGateway {
             .unwrap()
             .as_millis() as u64;
 
-        let resp = client.post(&url)
+        let resp = client
+            .post(&url)
             .json(&body)
             .timeout(std::time::Duration::from_secs(10))
-            .send().await
+            .send()
+            .await
             .map_err(|e| {
                 let _ = thinking_ctl_tx.send(2);
                 format!("Failed to send async message: {}", e)
@@ -899,7 +1009,10 @@ impl WeComGateway {
             let _ = thinking_ctl_tx.send(2);
             let status = resp.status();
             let body_text = resp.text().await.unwrap_or_default();
-            return Err(format!("OpenCode prompt_async failed: HTTP {} - {}", status, body_text));
+            return Err(format!(
+                "OpenCode prompt_async failed: HTTP {} - {}",
+                status, body_text
+            ));
         }
 
         let mut stream = response.bytes_stream();
@@ -921,7 +1034,10 @@ impl WeComGateway {
         // When true, a question is pending user reply — idle is expected, not an abort
         let mut waiting_for_question = false;
 
-        println!("[Gateway-{}] Streaming AI response to WeCom", &session_id[..session_id.len().min(8)]);
+        println!(
+            "[Gateway-{}] Streaming AI response to WeCom",
+            &session_id[..session_id.len().min(8)]
+        );
 
         while let Some(chunk) = stream.next().await {
             if start_time.elapsed() > std::time::Duration::from_secs(900) {
@@ -930,7 +1046,9 @@ impl WeComGateway {
                     let _ = thinking_ctl_tx.send(2);
                 }
                 if !accumulated_text.is_empty() {
-                    let _ = self.send_stream_chunk(req_id, &stream_id, &accumulated_text, true, ws_sink).await;
+                    let _ = self
+                        .send_stream_chunk(req_id, &stream_id, &accumulated_text, true, ws_sink)
+                        .await;
                 }
                 return Err("Timeout waiting for OpenCode response".to_string());
             }
@@ -946,7 +1064,8 @@ impl WeComGateway {
                 if let Some(event) = super::parse_sse_event(&event_text) {
                     let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
-                    let event_session_id = event.get("properties")
+                    let event_session_id = event
+                        .get("properties")
                         .and_then(|p| {
                             p.get("sessionID")
                                 .or_else(|| p.get("sessionId"))
@@ -957,10 +1076,15 @@ impl WeComGateway {
 
                     match event_type {
                         "session.created" => {
-                            let new_session_id = event.get("properties")
-                                .and_then(|p| p.get("sessionID").or_else(|| p.get("info").and_then(|i| i.get("id"))))
+                            let new_session_id = event
+                                .get("properties")
+                                .and_then(|p| {
+                                    p.get("sessionID")
+                                        .or_else(|| p.get("info").and_then(|i| i.get("id")))
+                                })
                                 .and_then(|id| id.as_str());
-                            let parent_id = event.get("properties")
+                            let parent_id = event
+                                .get("properties")
                                 .and_then(|p| p.get("info").and_then(|i| i.get("parentID")))
                                 .and_then(|p| p.as_str());
                             if parent_id == Some(session_id) {
@@ -971,21 +1095,32 @@ impl WeComGateway {
                         }
 
                         "permission.asked" => {
-                            let perm_session_id = event.get("properties")
+                            let perm_session_id = event
+                                .get("properties")
                                 .and_then(|p| p.get("sessionID"))
                                 .and_then(|s| s.as_str());
-                            let perm_id = event.get("properties")
+                            let perm_id = event
+                                .get("properties")
                                 .and_then(|p| p.get("id"))
                                 .and_then(|id| id.as_str());
 
                             if let (Some(sess_id), Some(perm_id_str)) = (perm_session_id, perm_id) {
-                                if tracked_sessions.contains(sess_id) && !approved_permission_ids.contains(perm_id_str) {
+                                if tracked_sessions.contains(sess_id)
+                                    && !approved_permission_ids.contains(perm_id_str)
+                                {
                                     let port_clone = port;
                                     let perm_id_clone = perm_id_str.to_string();
                                     tokio::spawn(async move {
                                         let client = reqwest::Client::new();
-                                        let url = format!("http://127.0.0.1:{}/permission/{}/reply", port_clone, perm_id_clone);
-                                        let _ = client.post(&url).json(&serde_json::json!({"reply":"always"})).send().await;
+                                        let url = format!(
+                                            "http://127.0.0.1:{}/permission/{}/reply",
+                                            port_clone, perm_id_clone
+                                        );
+                                        let _ = client
+                                            .post(&url)
+                                            .json(&serde_json::json!({"reply":"always"}))
+                                            .send()
+                                            .await;
                                     });
                                     approved_permission_ids.insert(perm_id_str.to_string());
                                 }
@@ -1003,22 +1138,33 @@ impl WeComGateway {
                                 // Send question text and FINISH current stream so the message
                                 // becomes interactive (user can quote-reply in WeCom)
                                 let questions = super::parse_question_event(&event);
-                                let question_id = event.get("properties")
+                                let question_id = event
+                                    .get("properties")
                                     .and_then(|p| p.get("id"))
                                     .and_then(|id| id.as_str())
                                     .unwrap_or("");
                                 let text = super::format_question_message(&questions, question_id);
-                                let _ = self.send_stream_chunk(
-                                    req_id, &stream_id, &text, true, ws_sink
-                                ).await;
+                                let _ = self
+                                    .send_stream_chunk(req_id, &stream_id, &text, true, ws_sink)
+                                    .await;
                                 // Prepare a new stream for the post-question response
                                 stream_id = uuid::Uuid::new_v4().to_string();
                                 accumulated_text.clear();
                                 last_send_len = 0;
-                                println!("[WeCom] Question displayed (stream closed): {}", question_id);
+                                println!(
+                                    "[WeCom] Question displayed (stream closed): {}",
+                                    question_id
+                                );
                                 // Set up reply channel (forwarder won't send, just returns qid)
                                 let prefix = &session_id[..session_id.len().min(8)];
-                                super::handle_question_event(ctx, &event, port, prefix, &tracked_sessions).await;
+                                super::handle_question_event(
+                                    ctx,
+                                    &event,
+                                    port,
+                                    prefix,
+                                    &tracked_sessions,
+                                )
+                                .await;
                             }
                             continue;
                         }
@@ -1033,13 +1179,17 @@ impl WeComGateway {
                         }
 
                         "message.part.delta" => {
-                            if event_session_id != Some(session_id) { continue; }
+                            if event_session_id != Some(session_id) {
+                                continue;
+                            }
                             // Extract delta text
-                            if let Some(delta) = event.get("properties")
+                            if let Some(delta) = event
+                                .get("properties")
                                 .and_then(|p| p.get("delta"))
                                 .and_then(|d| d.as_str())
                             {
-                                let part_type = event.get("properties")
+                                let part_type = event
+                                    .get("properties")
                                     .and_then(|p| p.get("type"))
                                     .and_then(|t| t.as_str())
                                     .unwrap_or("");
@@ -1052,10 +1202,20 @@ impl WeComGateway {
                                     if thinking_active && last_send_len == 0 {
                                         thinking_active = false;
                                         let _ = thinking_ctl_tx.send(2);
-                                        if let Err(e) = self.send_stream_chunk(
-                                            req_id, &stream_id, &accumulated_text, false, ws_sink
-                                        ).await {
-                                            eprintln!("[WeCom] Failed to send first text chunk: {}", e);
+                                        if let Err(e) = self
+                                            .send_stream_chunk(
+                                                req_id,
+                                                &stream_id,
+                                                &accumulated_text,
+                                                false,
+                                                ws_sink,
+                                            )
+                                            .await
+                                        {
+                                            eprintln!(
+                                                "[WeCom] Failed to send first text chunk: {}",
+                                                e
+                                            );
                                         }
                                         last_send_len = accumulated_text.len();
                                         last_send_time = tokio::time::Instant::now();
@@ -1066,11 +1226,20 @@ impl WeComGateway {
                                     // (conservative to stay under WeCom's 30 msg/min rate limit)
                                     let since_last = last_send_time.elapsed();
                                     let new_chars = accumulated_text.len() - last_send_len;
-                                    if since_last > std::time::Duration::from_secs(2) && new_chars > 10
-                                        || new_chars > 500 {
-                                        if let Err(e) = self.send_stream_chunk(
-                                            req_id, &stream_id, &accumulated_text, false, ws_sink
-                                        ).await {
+                                    if since_last > std::time::Duration::from_secs(2)
+                                        && new_chars > 10
+                                        || new_chars > 500
+                                    {
+                                        if let Err(e) = self
+                                            .send_stream_chunk(
+                                                req_id,
+                                                &stream_id,
+                                                &accumulated_text,
+                                                false,
+                                                ws_sink,
+                                            )
+                                            .await
+                                        {
                                             eprintln!("[WeCom] Failed to send stream chunk: {}", e);
                                         }
                                         last_send_len = accumulated_text.len();
@@ -1081,17 +1250,23 @@ impl WeComGateway {
                         }
 
                         "message.updated" => {
-                            if event_session_id != Some(session_id) { continue; }
-                            if let Some(info) = event.get("properties").and_then(|p| p.get("info")) {
+                            if event_session_id != Some(session_id) {
+                                continue;
+                            }
+                            if let Some(info) = event.get("properties").and_then(|p| p.get("info"))
+                            {
                                 let role = info.get("role").and_then(|r| r.as_str());
-                                let created_time = info.get("time")
+                                let created_time = info
+                                    .get("time")
                                     .and_then(|t| t.get("created"))
                                     .and_then(|c| c.as_u64());
-                                let completed_time = info.get("time")
+                                let completed_time = info
+                                    .get("time")
                                     .and_then(|t| t.get("completed"))
                                     .and_then(|c| c.as_u64());
                                 let finish_reason = info.get("finish").and_then(|f| f.as_str());
-                                let msg_id = info.get("id").and_then(|id| id.as_str()).unwrap_or("?");
+                                let msg_id =
+                                    info.get("id").and_then(|id| id.as_str()).unwrap_or("?");
 
                                 println!("[Gateway-{}] message.updated: role={:?}, created={:?}, completed={:?}, finish={:?}, msg={}, send_ts={}, waiting_q={}",
                                     &session_id[..session_id.len().min(8)], role, created_time, completed_time, finish_reason, msg_id, send_timestamp_ms, waiting_for_question);
@@ -1120,8 +1295,12 @@ impl WeComGateway {
 
                                     // If we didn't get any streaming content, fetch the full message
                                     if accumulated_text.is_empty() {
-                                        let msg_id = info.get("id").and_then(|id| id.as_str()).unwrap_or("");
-                                        if let Ok(full_text) = super::fetch_message_content(port, session_id, msg_id).await {
+                                        let msg_id =
+                                            info.get("id").and_then(|id| id.as_str()).unwrap_or("");
+                                        if let Ok(full_text) =
+                                            super::fetch_message_content(port, session_id, msg_id)
+                                                .await
+                                        {
                                             accumulated_text = full_text;
                                         }
                                     }
@@ -1132,21 +1311,31 @@ impl WeComGateway {
                                     } else {
                                         accumulated_text
                                     };
-                                    return self.send_stream_chunk(
-                                        req_id, &stream_id, &final_text, true, ws_sink
-                                    ).await;
+                                    return self
+                                        .send_stream_chunk(
+                                            req_id,
+                                            &stream_id,
+                                            &final_text,
+                                            true,
+                                            ws_sink,
+                                        )
+                                        .await;
                                 }
                             }
                         }
 
                         "session.status" | "session.idle" => {
-                            if event_session_id != Some(session_id) { continue; }
-                            let status_type = event.get("properties")
+                            if event_session_id != Some(session_id) {
+                                continue;
+                            }
+                            let status_type = event
+                                .get("properties")
                                 .and_then(|p| p.get("status"))
                                 .and_then(|s| s.get("type"))
                                 .and_then(|t| t.as_str());
                             let is_busy = status_type == Some("busy");
-                            let is_idle = status_type == Some("idle") || event_type == "session.idle";
+                            let is_idle =
+                                status_type == Some("idle") || event_type == "session.idle";
 
                             println!("[Gateway-{}] session.status: type={:?}, busy={}, idle={}, has_activity={}, waiting_q={}",
                                 &session_id[..session_id.len().min(8)], status_type, is_busy, is_idle, has_seen_activity, waiting_for_question);
@@ -1158,7 +1347,10 @@ impl WeComGateway {
                             // Only treat idle as abort/completion if we've seen activity
                             // and we're not waiting for a question reply (idle is expected then)
                             if is_idle && has_seen_activity && !waiting_for_question {
-                                println!("[Gateway-{}] Session went idle (aborted?), finishing stream", &session_id[..8]);
+                                println!(
+                                    "[Gateway-{}] Session went idle (aborted?), finishing stream",
+                                    &session_id[..8]
+                                );
 
                                 if thinking_active {
                                     let _ = thinking_ctl_tx.send(2);
@@ -1169,9 +1361,15 @@ impl WeComGateway {
                                 } else {
                                     accumulated_text
                                 };
-                                return self.send_stream_chunk(
-                                    req_id, &stream_id, &final_text, true, ws_sink
-                                ).await;
+                                return self
+                                    .send_stream_chunk(
+                                        req_id,
+                                        &stream_id,
+                                        &final_text,
+                                        true,
+                                        ws_sink,
+                                    )
+                                    .await;
                             }
                         }
 
@@ -1186,7 +1384,9 @@ impl WeComGateway {
             let _ = thinking_ctl_tx.send(2);
         }
         if !accumulated_text.is_empty() {
-            return self.send_stream_chunk(req_id, &stream_id, &accumulated_text, true, ws_sink).await;
+            return self
+                .send_stream_chunk(req_id, &stream_id, &accumulated_text, true, ws_sink)
+                .await;
         }
         Err("SSE stream ended unexpectedly".to_string())
     }
@@ -1217,7 +1417,9 @@ impl WeComGateway {
         ws_sink
             .lock()
             .await
-            .send(tokio_tungstenite::tungstenite::Message::Text(reply.to_string()))
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                reply.to_string(),
+            ))
             .await
             .map_err(|e| format!("Failed to send reply: {}", e))
     }
@@ -1248,20 +1450,17 @@ impl WeComGateway {
         ws_sink
             .lock()
             .await
-            .send(tokio_tungstenite::tungstenite::Message::Text(reply.to_string()))
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                reply.to_string(),
+            ))
             .await
             .map_err(|e| format!("Failed to send reply: {}", e))
     }
 
     /// Simple non-streaming reply (for slash commands and errors)
-    async fn send_reply(
-        &self,
-        req_id: &str,
-        text: &str,
-        ws_sink: &WsSink,
-    ) -> Result<(), String> {
+    async fn send_reply(&self, req_id: &str, text: &str, ws_sink: &WsSink) -> Result<(), String> {
         let stream_id = uuid::Uuid::new_v4().to_string();
-        self.send_stream_chunk(req_id, &stream_id, text, true, ws_sink).await
+        self.send_stream_chunk(req_id, &stream_id, text, true, ws_sink)
+            .await
     }
 }
-

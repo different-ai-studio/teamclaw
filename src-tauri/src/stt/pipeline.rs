@@ -216,4 +216,3 @@ fn transcribe_audio<R: Runtime>(
 ) -> String {
     String::new()
 }
-

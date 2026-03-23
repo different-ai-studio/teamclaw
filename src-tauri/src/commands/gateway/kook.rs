@@ -1,11 +1,11 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::{RwLock, oneshot, mpsc};
-use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
 use super::kook_config::{KookConfig, KookGatewayStatus, KookGatewayStatusResponse};
 use super::session::SessionMapping;
@@ -30,7 +30,6 @@ enum WsExitReason {
     Shutdown,
     Disconnected,
 }
-
 
 /// KOOK WebSocket signal types
 #[derive(Debug)]
@@ -118,7 +117,9 @@ impl KookGateway {
             is_running: Arc::new(RwLock::new(false)),
             ws_session_id: Arc::new(RwLock::new(None)),
             last_sn: Arc::new(AtomicU64::new(0)),
-            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
+            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
+                MAX_PROCESSED_MESSAGES,
+            ))),
             bot_user_id: Arc::new(RwLock::new(None)),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
@@ -218,7 +219,7 @@ impl KookGateway {
         }
 
         println!("[KOOK] Warning: Gateway did not stop within timeout, forcing stop");
-        
+
         // Force reset state in case the wait timed out
         {
             let mut is_running = self.is_running.write().await;
@@ -230,7 +231,7 @@ impl KookGateway {
             status.error_message = None;
             status.connected_guilds.clear();
         }
-        
+
         println!("[KOOK] Gateway forcefully stopped");
         Ok(())
     }
@@ -323,9 +324,7 @@ impl KookGateway {
             .ok_or_else(|| "No user ID in /user/me response".to_string())?
             .to_string();
 
-        let username = body["data"]["username"]
-            .as_str()
-            .unwrap_or("Unknown");
+        let username = body["data"]["username"].as_str().unwrap_or("Unknown");
 
         println!("[KOOK] Bot user ID: {}, username: {}", user_id, username);
         Ok(user_id)
@@ -357,10 +356,13 @@ impl KookGateway {
                 *bot_id = Some(id);
             }
             Err(e) => {
-                println!("[KOOK] Warning: Failed to fetch bot user ID: {}. Mentions won't be stripped.", e);
+                println!(
+                    "[KOOK] Warning: Failed to fetch bot user ID: {}. Mentions won't be stripped.",
+                    e
+                );
             }
         }
-        
+
         // Get gateway URL
         let gateway_url = self.get_gateway_url(token).await?;
         println!("[KOOK] Gateway URL: {}", gateway_url);
@@ -432,9 +434,11 @@ impl KookGateway {
                 let jitter = (std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
-                    .as_millis() % 11) as i64 - 5; // -5 to +5
+                    .as_millis()
+                    % 11) as i64
+                    - 5; // -5 to +5
                 let wait_secs = (HEARTBEAT_INTERVAL_SECS as i64 + jitter).max(1) as u64;
-                
+
                 tokio::select! {
                     _ = tokio::time::sleep(tokio::time::Duration::from_secs(wait_secs)) => {
                         // Send PING
@@ -443,14 +447,14 @@ impl KookGateway {
                             "s": Signal::Ping as u8,
                             "sn": sn
                         });
-                        
+
                         let mut writer = write_for_heartbeat.lock().await;
                         if let Err(e) = writer.send(WsMessage::Text(ping.to_string())).await {
                             println!("[KOOK] Failed to send heartbeat: {}", e);
                             break;
                         }
                         drop(writer);
-                        
+
                         // Wait for PONG (6s timeout)
                         match tokio::time::timeout(
                             tokio::time::Duration::from_secs(HEARTBEAT_TIMEOUT_SECS),
@@ -543,7 +547,8 @@ impl KookGateway {
 
         if let Some(code) = body.get("code").and_then(|c| c.as_i64()) {
             if code != 0 {
-                let message = body.get("message")
+                let message = body
+                    .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("Unknown error");
                 return Err(format!("Gateway API error ({}): {}", code, message));
@@ -559,7 +564,9 @@ impl KookGateway {
 
     /// Handle HELLO signal (s=1)
     async fn handle_hello(&self, event: KookEvent) -> Result<String, String> {
-        let code = event.data.get("code")
+        let code = event
+            .data
+            .get("code")
             .and_then(|c| c.as_i64())
             .unwrap_or(-1);
 
@@ -567,7 +574,9 @@ impl KookGateway {
             return Err(format!("HELLO failed with code: {}", code));
         }
 
-        let session_id = event.data.get("session_id")
+        let session_id = event
+            .data
+            .get("session_id")
             .and_then(|s| s.as_str())
             .ok_or("No session_id in HELLO")?
             .to_string();
@@ -582,8 +591,8 @@ impl KookGateway {
         heartbeat_tx: &mpsc::Sender<()>,
         message_buffer: &mut VecDeque<(u64, KookMessageData)>,
     ) -> Result<(), String> {
-        let event: KookEvent = serde_json::from_str(text)
-            .map_err(|e| format!("Failed to parse event: {}", e))?;
+        let event: KookEvent =
+            serde_json::from_str(text).map_err(|e| format!("Failed to parse event: {}", e))?;
 
         match event.signal {
             s if s == Signal::Event as u8 => {
@@ -632,7 +641,7 @@ impl KookGateway {
         if sn == last_sn + 1 {
             // In-order message, process immediately
             match self.process_message_data(sn, data).await {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => {
                     println!("[KOOK] Error handling message: {}", e);
                 }
@@ -646,7 +655,7 @@ impl KookGateway {
                     if let Some((sn, data_value)) = message_buffer.pop_front() {
                         let data_json = data_value.to_json();
                         match self.process_message_data(sn, data_json).await {
-                            Ok(_) => {},
+                            Ok(_) => {}
                             Err(e) => {
                                 println!("[KOOK] Error handling buffered message: {}", e);
                             }
@@ -660,14 +669,18 @@ impl KookGateway {
             }
         } else {
             // Out-of-order message, buffer it
-            println!("[KOOK] Buffering out-of-order message: sn={} (expected={})", sn, last_sn + 1);
-            
+            println!(
+                "[KOOK] Buffering out-of-order message: sn={} (expected={})",
+                sn,
+                last_sn + 1
+            );
+
             if let Ok(msg_data) = serde_json::from_value::<KookMessageData>(data) {
                 message_buffer.push_back((sn, msg_data));
-                
+
                 // Sort buffer by sn
                 message_buffer.make_contiguous().sort_by_key(|(sn, _)| *sn);
-                
+
                 // Limit buffer size
                 if message_buffer.len() > MAX_BUFFER_SIZE {
                     println!("[KOOK] Warning: Message buffer full, dropping oldest");
@@ -680,16 +693,14 @@ impl KookGateway {
     }
 
     /// Process a message event
-    async fn process_message_data(
-        &self,
-        sn: u64,
-        data: serde_json::Value,
-    ) -> Result<(), String> {
+    async fn process_message_data(&self, sn: u64, data: serde_json::Value) -> Result<(), String> {
         let msg_data: KookMessageData = serde_json::from_value(data)
             .map_err(|e| format!("Failed to parse message data: {}", e))?;
 
-        println!("[KOOK] Event sn={}, channel_type={}, msg_id={}", 
-            sn, msg_data.channel_type, msg_data.msg_id);
+        println!(
+            "[KOOK] Event sn={}, channel_type={}, msg_id={}",
+            sn, msg_data.channel_type, msg_data.msg_id
+        );
 
         // Check if already processed
         if self.mark_message_processed(&msg_data.msg_id).await {
@@ -698,20 +709,25 @@ impl KookGateway {
         }
 
         // Check if this is a reply to a pending question (KOOK uses extra.quote)
-        if let Some(quote_id) = msg_data.extra.get("quote")
+        if let Some(quote_id) = msg_data
+            .extra
+            .get("quote")
             .and_then(|q| q.get("rong_id").or_else(|| q.get("id")))
             .and_then(|id| id.as_str())
         {
             if let Some(entry) = self.pending_questions.take(quote_id).await {
                 let _ = entry.answer_tx.send(msg_data.content.clone());
-                println!("[KOOK] Question {} answered via quote reply", entry.question_id);
+                println!(
+                    "[KOOK] Question {} answered via quote reply",
+                    entry.question_id
+                );
                 return Ok(());
             }
         }
 
         // Filter message
         let filter_result = self.filter_message(&msg_data).await;
-        
+
         match filter_result {
             FilterResult::Allow => {
                 self.process_and_reply(&msg_data).await?;
@@ -760,7 +776,8 @@ impl KookGateway {
                     "open" => FilterResult::Allow,
                     "allowlist" => {
                         if config.dm.allow_from.contains(&msg.author_id)
-                            || config.dm.allow_from.contains(&"*".to_string()) {
+                            || config.dm.allow_from.contains(&"*".to_string())
+                        {
                             FilterResult::Allow
                         } else {
                             FilterResult::UserNotAllowed
@@ -771,19 +788,29 @@ impl KookGateway {
             }
             "GROUP" => {
                 // Guild channel message
-                let guild_id = msg.extra.get("guild_id")
+                let guild_id = msg
+                    .extra
+                    .get("guild_id")
                     .and_then(|g| g.as_str())
                     .unwrap_or("");
 
-                println!("[KOOK] GROUP message: guild_id={}, channel_id={}", guild_id, msg.target_id);
-                println!("[KOOK] Configured guilds: {:?}", config.guilds.keys().collect::<Vec<_>>());
+                println!(
+                    "[KOOK] GROUP message: guild_id={}, channel_id={}",
+                    guild_id, msg.target_id
+                );
+                println!(
+                    "[KOOK] Configured guilds: {:?}",
+                    config.guilds.keys().collect::<Vec<_>>()
+                );
 
                 if guild_id.is_empty() {
                     return FilterResult::Ignore;
                 }
 
                 // Check if guild is configured (exact match or wildcard)
-                let guild_cfg = config.guilds.get(guild_id)
+                let guild_cfg = config
+                    .guilds
+                    .get(guild_id)
                     .or_else(|| config.guilds.get("*"));
 
                 let Some(guild_cfg) = guild_cfg else {
@@ -795,7 +822,9 @@ impl KookGateway {
                 }
 
                 // Check channel configuration (exact match or wildcard)
-                let channel_rule = guild_cfg.channels.get(&msg.target_id)
+                let channel_rule = guild_cfg
+                    .channels
+                    .get(&msg.target_id)
                     .or_else(|| guild_cfg.channels.get("*"));
 
                 if let Some(rule) = channel_rule {
@@ -804,9 +833,10 @@ impl KookGateway {
                     }
 
                     // Check user allowlist (channel-specific)
-                    if !rule.allowed_users.is_empty() 
+                    if !rule.allowed_users.is_empty()
                         && !rule.allowed_users.contains(&msg.author_id)
-                        && !rule.allowed_users.contains(&"*".to_string()) {
+                        && !rule.allowed_users.contains(&"*".to_string())
+                    {
                         return FilterResult::UserNotAllowed;
                     }
 
@@ -837,12 +867,14 @@ impl KookGateway {
     /// Process message and send reply
     async fn process_and_reply(&self, msg: &KookMessageData) -> Result<(), String> {
         let config = self.config.read().await;
-        
+
         // Build session key
         let session_key = if msg.channel_type == "PERSON" {
             format!("kook:dm:{}", msg.author_id)
         } else {
-            let guild_id = msg.extra.get("guild_id")
+            let guild_id = msg
+                .extra
+                .get("guild_id")
                 .and_then(|g| g.as_str())
                 .unwrap_or("");
             format!("kook:channel:{}:{}", guild_id, msg.target_id)
@@ -853,10 +885,14 @@ impl KookGateway {
         let configured_session_id = if msg.channel_type == "PERSON" {
             None
         } else {
-            let guild_id = msg.extra.get("guild_id")
+            let guild_id = msg
+                .extra
+                .get("guild_id")
                 .and_then(|g| g.as_str())
                 .unwrap_or("");
-            config.guilds.get(guild_id)
+            config
+                .guilds
+                .get(guild_id)
                 .and_then(|guild| guild.channels.get(&msg.target_id))
                 .and_then(|ch| ch.session_id.clone())
         };
@@ -871,12 +907,14 @@ impl KookGateway {
                 Some(id) => id,
                 None => {
                     let new_id = self.create_opencode_session().await?;
-                    self.session_mapping.set_session(session_key.clone(), new_id.clone()).await;
+                    self.session_mapping
+                        .set_session(session_key.clone(), new_id.clone())
+                        .await;
                     new_id
                 }
             }
         };
-        
+
         drop(config);
 
         // Strip bot mention from content (like Discord strips <@BOTID>)
@@ -887,8 +925,13 @@ impl KookGateway {
         // Check for /answer command — routes reply to the most recent pending question
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&content) {
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
-                println!("[KOOK] Question {} answered via /answer: {}", qid, answer_text);
-                let _ = self.send_reply(msg, &format!("✓ 已回复: {}", answer_text)).await;
+                println!(
+                    "[KOOK] Question {} answered via /answer: {}",
+                    qid, answer_text
+                );
+                let _ = self
+                    .send_reply(msg, &format!("✓ 已回复: {}", answer_text))
+                    .await;
             } else {
                 let _ = self.send_reply(msg, "当前没有待回复的问题").await;
             }
@@ -925,18 +968,26 @@ impl KookGateway {
                     let text = super::format_question_message(&fq.questions, &fq.question_id);
                     let client = reqwest::Client::new();
                     let (url, body) = if ct == "PERSON" {
-                        ("https://www.kookapp.cn/api/v3/direct-message/create".to_string(),
-                         serde_json::json!({ "target_id": target, "type": 1, "content": text }))
+                        (
+                            "https://www.kookapp.cn/api/v3/direct-message/create".to_string(),
+                            serde_json::json!({ "target_id": target, "type": 1, "content": text }),
+                        )
                     } else {
-                        ("https://www.kookapp.cn/api/v3/message/create".to_string(),
-                         serde_json::json!({ "target_id": target, "type": 1, "content": text }))
+                        (
+                            "https://www.kookapp.cn/api/v3/message/create".to_string(),
+                            serde_json::json!({ "target_id": target, "type": 1, "content": text }),
+                        )
                     };
-                    let resp = client.post(&url)
+                    let resp = client
+                        .post(&url)
                         .header("Authorization", format!("Bot {}", token))
                         .json(&body)
-                        .send().await
+                        .send()
+                        .await
                         .map_err(|e| format!("KOOK send failed: {}", e))?;
-                    let json: serde_json::Value = resp.json().await
+                    let json: serde_json::Value = resp
+                        .json()
+                        .await
                         .map_err(|e| format!("KOOK parse failed: {}", e))?;
                     json.get("data")
                         .and_then(|d| d.get("msg_id"))
@@ -952,18 +1003,33 @@ impl KookGateway {
         let thinking_msg_id = self.send_thinking_card(msg).await?;
 
         // Send to OpenCode
-        let response = match self.send_to_opencode(&session_id, &content, model_param.clone(), Some(question_ctx)).await {
+        let response = match self
+            .send_to_opencode(
+                &session_id,
+                &content,
+                model_param.clone(),
+                Some(question_ctx),
+            )
+            .await
+        {
             Ok(resp) => resp,
             Err(e) => {
                 // Update the thinking message with error
                 let error_text = format!("❌ Error: {}", e);
-                let _ = self.update_card_message(&thinking_msg_id, &error_text, msg.channel_type == "PERSON").await;
+                let _ = self
+                    .update_card_message(
+                        &thinking_msg_id,
+                        &error_text,
+                        msg.channel_type == "PERSON",
+                    )
+                    .await;
                 return Err(e);
             }
         };
 
         // Update the thinking message with actual response
-        self.update_card_message(&thinking_msg_id, &response, msg.channel_type == "PERSON").await?;
+        self.update_card_message(&thinking_msg_id, &response, msg.channel_type == "PERSON")
+            .await?;
 
         Ok(())
     }
@@ -992,7 +1058,8 @@ impl KookGateway {
             parts,
             model,
             question_ctx,
-        ).await
+        )
+        .await
     }
 
     /// Send "Thinking..." card message and return msg_id
@@ -1053,7 +1120,8 @@ impl KookGateway {
 
         if let Some(code) = body.get("code").and_then(|c| c.as_i64()) {
             if code != 0 {
-                let message = body.get("message")
+                let message = body
+                    .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("Unknown error");
                 return Err(format!("KOOK API error ({}): {}", code, message));
@@ -1069,7 +1137,12 @@ impl KookGateway {
     }
 
     /// Update card message with actual content
-    async fn update_card_message(&self, msg_id: &str, content: &str, is_dm: bool) -> Result<(), String> {
+    async fn update_card_message(
+        &self,
+        msg_id: &str,
+        content: &str,
+        is_dm: bool,
+    ) -> Result<(), String> {
         let config = self.config.read().await;
         let client = reqwest::Client::new();
 
@@ -1117,7 +1190,8 @@ impl KookGateway {
 
         if let Some(code) = body.get("code").and_then(|c| c.as_i64()) {
             if code != 0 {
-                let message = body.get("message")
+                let message = body
+                    .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("Unknown error");
                 return Err(format!("KOOK API error ({}): {}", code, message));
@@ -1184,7 +1258,8 @@ impl KookGateway {
 
         if let Some(code) = body.get("code").and_then(|c| c.as_i64()) {
             if code != 0 {
-                let message = body.get("message")
+                let message = body
+                    .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("Unknown error");
                 return Err(format!("Reply API error ({}): {}", code, message));
@@ -1208,7 +1283,11 @@ impl KookGateway {
         match command.as_str() {
             "/reset" => {
                 self.session_mapping.remove_session(session_key).await;
-                self.send_reply(msg, "Session reset! A new conversation will start with your next message.").await?;
+                self.send_reply(
+                    msg,
+                    "Session reset! A new conversation will start with your next message.",
+                )
+                .await?;
             }
             "/model" if arg.is_empty() => {
                 // List models - use dedicated card layout
@@ -1220,7 +1299,8 @@ impl KookGateway {
                     &self.session_mapping,
                     session_key,
                     &arg,
-                ).await;
+                )
+                .await;
                 self.send_reply(msg, &response).await?;
             }
             "/sessions" => {
@@ -1229,7 +1309,8 @@ impl KookGateway {
                     &self.session_mapping,
                     session_key,
                     &arg,
-                ).await;
+                )
+                .await;
                 self.send_reply(msg, &response).await?;
             }
             "/stop" => {
@@ -1237,7 +1318,8 @@ impl KookGateway {
                     self.opencode_port,
                     &self.session_mapping,
                     session_key,
-                ).await;
+                )
+                .await;
                 self.send_reply(msg, &response).await?;
             }
             "/help" => {
@@ -1252,8 +1334,13 @@ impl KookGateway {
     }
 
     /// Send model list as a well-structured multi-module card
-    async fn send_model_list_card(&self, session_key: &str, msg: &KookMessageData) -> Result<(), String> {
-        let (models, default_model) = super::opencode_get_available_models(self.opencode_port).await
+    async fn send_model_list_card(
+        &self,
+        session_key: &str,
+        msg: &KookMessageData,
+    ) -> Result<(), String> {
+        let (models, default_model) = super::opencode_get_available_models(self.opencode_port)
+            .await
             .map_err(|e| format!("Failed to get models: {}", e))?;
 
         let stored = self.session_mapping.get_model(session_key).await;
@@ -1265,9 +1352,13 @@ impl KookGateway {
         let current_label = if is_custom { "custom" } else { "default" };
 
         // Group models by provider
-        let mut provider_groups: std::collections::BTreeMap<String, Vec<&super::ModelInfo>> = std::collections::BTreeMap::new();
+        let mut provider_groups: std::collections::BTreeMap<String, Vec<&super::ModelInfo>> =
+            std::collections::BTreeMap::new();
         for m in &models {
-            provider_groups.entry(m.provider.clone()).or_default().push(m);
+            provider_groups
+                .entry(m.provider.clone())
+                .or_default()
+                .push(m);
         }
 
         // Build card modules
@@ -1288,11 +1379,18 @@ impl KookGateway {
 
         // Add each provider as a separate section
         for (provider, provider_models) in &provider_groups {
-            let lines: Vec<String> = provider_models.iter().map(|m| {
-                let full_id = format!("{}/{}", m.provider, m.id);
-                let marker = if full_id == active { " ← current" } else { "" };
-                format!("{} ({}){}", full_id, m.name, marker)
-            }).collect();
+            let lines: Vec<String> = provider_models
+                .iter()
+                .map(|m| {
+                    let full_id = format!("{}/{}", m.provider, m.id);
+                    let marker = if full_id == active {
+                        " ← current"
+                    } else {
+                        ""
+                    };
+                    format!("{} ({}){}", full_id, m.name, marker)
+                })
+                .collect();
 
             let section_text = format!("**{}**\n{}", provider, lines.join("\n"));
 
@@ -1369,7 +1467,11 @@ impl KookGateway {
     }
 
     /// Send a raw card JSON message
-    async fn send_card_direct(&self, original: &KookMessageData, card: &serde_json::Value) -> Result<(), String> {
+    async fn send_card_direct(
+        &self,
+        original: &KookMessageData,
+        card: &serde_json::Value,
+    ) -> Result<(), String> {
         let config = self.config.read().await;
         let client = reqwest::Client::new();
 
@@ -1408,7 +1510,8 @@ impl KookGateway {
 
         if let Some(code) = body.get("code").and_then(|c| c.as_i64()) {
             if code != 0 {
-                let message = body.get("message")
+                let message = body
+                    .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("Unknown error");
                 return Err(format!("KOOK API error ({}): {}", code, message));
@@ -1497,7 +1600,8 @@ pub async fn send_kook_message_http(
 
     if let Some(code) = body.get("code").and_then(|c| c.as_i64()) {
         if code != 0 {
-            let message = body.get("message")
+            let message = body
+                .get("message")
                 .and_then(|m| m.as_str())
                 .unwrap_or("Unknown error");
             return Err(format!("KOOK API error ({}): {}", code, message));

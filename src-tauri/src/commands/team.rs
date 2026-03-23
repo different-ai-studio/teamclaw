@@ -247,19 +247,26 @@ fn get_team_repo_path(workspace_path: &str) -> String {
 }
 
 /// Build an LlmConfig from optional parameters, falling back to defaults.
-pub fn build_llm_config(base_url: Option<String>, model: Option<String>, model_name: Option<String>) -> LlmConfig {
+pub fn build_llm_config(
+    base_url: Option<String>,
+    model: Option<String>,
+    model_name: Option<String>,
+) -> LlmConfig {
     LlmConfig {
-        base_url: base_url.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
-        model: model.filter(|s| !s.is_empty()).unwrap_or_else(|| "default".to_string()),
-        model_name: model_name.filter(|s| !s.is_empty()).unwrap_or_else(|| "default".to_string()),
+        base_url: base_url
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+        model: model
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "default".to_string()),
+        model_name: model_name
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "default".to_string()),
     }
 }
 
 /// Write LLM config to teamclaw.json under "llm" key, preserving other fields.
-pub fn write_llm_config(
-    workspace_path: &str,
-    config: Option<&LlmConfig>,
-) -> Result<(), String> {
+pub fn write_llm_config(workspace_path: &str, config: Option<&LlmConfig>) -> Result<(), String> {
     let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
     let _ = std::fs::create_dir_all(&teamclaw_dir);
     let config_path = format!("{}/teamclaw.json", teamclaw_dir);
@@ -306,7 +313,13 @@ pub fn check_team_status(workspace_path: &str) -> TeamStatus {
         .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
     {
         Some(v) => v,
-        None => return TeamStatus { active: false, mode: None, llm: None },
+        None => {
+            return TeamStatus {
+                active: false,
+                mode: None,
+                llm: None,
+            }
+        }
     };
 
     // Determine mode: explicit field first, then infer from enabled flags
@@ -315,13 +328,33 @@ pub fn check_team_status(workspace_path: &str) -> TeamStatus {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .or_else(|| {
-            if json.get("webdav").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
+            if json
+                .get("webdav")
+                .and_then(|v| v.get("enabled"))
+                .and_then(|v| v.as_bool())
+                == Some(true)
+            {
                 Some("webdav".to_string())
-            } else if json.get("p2p").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
+            } else if json
+                .get("p2p")
+                .and_then(|v| v.get("enabled"))
+                .and_then(|v| v.as_bool())
+                == Some(true)
+            {
                 Some("p2p".to_string())
-            } else if json.get("oss").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
+            } else if json
+                .get("oss")
+                .and_then(|v| v.get("enabled"))
+                .and_then(|v| v.as_bool())
+                == Some(true)
+            {
                 Some("oss".to_string())
-            } else if json.get("team").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()) == Some(true) {
+            } else if json
+                .get("team")
+                .and_then(|v| v.get("enabled"))
+                .and_then(|v| v.as_bool())
+                == Some(true)
+            {
                 Some("git".to_string())
             } else {
                 None
@@ -329,7 +362,9 @@ pub fn check_team_status(workspace_path: &str) -> TeamStatus {
         });
 
     // Read LLM config
-    let llm = json.get("llm").and_then(|v| serde_json::from_value::<LlmConfig>(v.clone()).ok());
+    let llm = json
+        .get("llm")
+        .and_then(|v| serde_json::from_value::<LlmConfig>(v.clone()).ok());
 
     let active = mode.is_some();
     TeamStatus { active, mode, llm }
@@ -353,7 +388,9 @@ pub fn write_team_mode(workspace_path: &str, mode: Option<&str>) -> Result<(), S
 
     match mode {
         Some(m) => json["team_mode"] = serde_json::Value::String(m.to_string()),
-        None => { json.as_object_mut().map(|o| o.remove("team_mode")); }
+        None => {
+            json.as_object_mut().map(|o| o.remove("team_mode"));
+        }
     }
 
     let content = serde_json::to_string_pretty(&json)
@@ -548,9 +585,7 @@ fn convert_team_server_to_opencode(server: &TeamMCPServer) -> MCPServerConfig {
 
 /// Unified team status check — single source of truth for frontend.
 #[tauri::command]
-pub fn get_team_status(
-    opencode_state: State<'_, OpenCodeState>,
-) -> Result<TeamStatus, String> {
+pub fn get_team_status(opencode_state: State<'_, OpenCodeState>) -> Result<TeamStatus, String> {
     let workspace_path = get_workspace_path(&opencode_state)?;
     Ok(check_team_status(&workspace_path))
 }
@@ -729,11 +764,17 @@ pub async fn team_sync_repo(
             stdout.trim().to_string()
         } else {
             // Fallback: detect remote default branch via origin/HEAD
-            let (ok2, stdout2, _) =
-                run_git(&["symbolic-ref", "refs/remotes/origin/HEAD", "--short"], &team_dir)?;
+            let (ok2, stdout2, _) = run_git(
+                &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+                &team_dir,
+            )?;
             if ok2 && !stdout2.trim().is_empty() {
                 // stdout2 is like "origin/main", strip the "origin/" prefix
-                stdout2.trim().strip_prefix("origin/").unwrap_or(stdout2.trim()).to_string()
+                stdout2
+                    .trim()
+                    .strip_prefix("origin/")
+                    .unwrap_or(stdout2.trim())
+                    .to_string()
             } else {
                 "main".to_string()
             }
@@ -750,10 +791,7 @@ pub async fn team_sync_repo(
         ));
     }
 
-    let (ok, _, stderr) = run_git(
-        &["reset", "--hard", &remote_ref],
-        &team_dir,
-    )?;
+    let (ok, _, stderr) = run_git(&["reset", "--hard", &remote_ref], &team_dir)?;
     if !ok {
         return Err(format!("git reset failed: {}", stderr.trim()));
     }

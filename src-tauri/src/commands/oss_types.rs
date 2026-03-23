@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub use super::team_unified::{MemberRole, TeamMember, TeamManifest};
+pub use super::team_unified::{MemberRole, TeamManifest, TeamMember};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,4 +105,3 @@ impl DocType {
         [DocType::Skills, DocType::Mcp, DocType::Knowledge]
     }
 }
-

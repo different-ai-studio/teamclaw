@@ -50,10 +50,10 @@ pub async fn hybrid_search(
                 Ok(semantic_results) => {
                     Ok(semantic_results
                         .into_iter()
-                        .map(|(chunk_id, score)| HybridSearchResult { 
-                            chunk_id, 
+                        .map(|(chunk_id, score)| HybridSearchResult {
+                            chunk_id,
                             // Clamp to ensure 0-1 range (should already be in range from cosine similarity)
-                            score: score.min(1.0).max(0.0)
+                            score: score.min(1.0).max(0.0),
                         })
                         .collect())
                 }
@@ -63,7 +63,7 @@ pub async fn hybrid_search(
                     if let Some(bm25) = bm25_index {
                         let bm25_results = bm25.search(query, top_k).await?;
                         let bm25_k = 3.0;
-                        
+
                         Ok(bm25_results
                             .into_iter()
                             .filter(|(_, score)| *score > 0.0)
@@ -83,7 +83,7 @@ pub async fn hybrid_search(
             if let Some(bm25) = bm25_index {
                 let bm25_results = bm25.search(query, top_k).await?;
                 let bm25_k = 3.0;
-                
+
                 Ok(bm25_results
                     .into_iter()
                     .filter(|(_, score)| *score > 0.0)
@@ -95,7 +95,8 @@ pub async fn hybrid_search(
             } else {
                 // Fallback to semantic if BM25 not available
                 tracing::warn!("BM25 index not available, falling back to semantic search");
-                let semantic_results = semantic_search_internal(db, embedding_provider, query, top_k).await?;
+                let semantic_results =
+                    semantic_search_internal(db, embedding_provider, query, top_k).await?;
                 Ok(semantic_results
                     .into_iter()
                     .map(|(chunk_id, score)| HybridSearchResult { chunk_id, score })
@@ -106,14 +107,23 @@ pub async fn hybrid_search(
             // Hybrid search with weighted score fusion
             if let Some(bm25) = bm25_index {
                 // Try hybrid search, fallback to BM25 if embedding fails
-                match hybrid_search_weighted(db, embedding_provider, bm25, query, top_k, hybrid_weight).await {
+                match hybrid_search_weighted(
+                    db,
+                    embedding_provider,
+                    bm25,
+                    query,
+                    top_k,
+                    hybrid_weight,
+                )
+                .await
+                {
                     Ok(results) => Ok(results),
                     Err(e) => {
                         // Hybrid failed (likely embedding issue), fallback to BM25-only
                         tracing::warn!("Hybrid search failed ({}), falling back to BM25-only", e);
                         let bm25_results = bm25.search(query, top_k).await?;
                         let bm25_k = 3.0;
-                        
+
                         Ok(bm25_results
                             .into_iter()
                             .filter(|(_, score)| *score > 0.0)
@@ -127,7 +137,8 @@ pub async fn hybrid_search(
             } else {
                 // BM25 not available, try semantic-only
                 tracing::warn!("BM25 index not available, falling back to semantic search");
-                let semantic_results = semantic_search_internal(db, embedding_provider, query, top_k).await?;
+                let semantic_results =
+                    semantic_search_internal(db, embedding_provider, query, top_k).await?;
                 Ok(semantic_results
                     .into_iter()
                     .map(|(chunk_id, score)| HybridSearchResult { chunk_id, score })
@@ -203,12 +214,19 @@ async fn hybrid_search_rrf(
         .map(|(chunk_id, score)| HybridSearchResult { chunk_id, score })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(top_k);
 
     // Normalize RRF scores to 0-1 range based on max score
     if !results.is_empty() {
-        let max_score = results.iter().map(|r| r.score).fold(f64::NEG_INFINITY, f64::max);
+        let max_score = results
+            .iter()
+            .map(|r| r.score)
+            .fold(f64::NEG_INFINITY, f64::max);
         if max_score > 0.0 {
             for result in &mut results {
                 result.score = (result.score / max_score).min(1.0);
@@ -275,7 +293,11 @@ async fn hybrid_search_weighted(
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(top_k);
 
     Ok(results)

@@ -1,14 +1,14 @@
-use std::sync::Arc;
-use std::collections::HashMap;
-use tokio::sync::{oneshot, RwLock};
-use serde::Deserialize;
 use super::session::SessionMapping;
+use super::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
 use super::wechat_config::{
-    WeChatConfig, WeChatGatewayStatus, WeChatGatewayStatusResponse,
-    WeChatQrLoginResponse, WeChatQrStatusResponse,
+    WeChatConfig, WeChatGatewayStatus, WeChatGatewayStatusResponse, WeChatQrLoginResponse,
+    WeChatQrStatusResponse,
 };
 use super::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
-use super::session_queue::{SessionQueue, QueuedMessage, EnqueueResult, RejectReason};
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{oneshot, RwLock};
 
 #[allow(dead_code)]
 const ILINK_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
@@ -147,7 +147,10 @@ pub async fn fetch_qr_code(base_url: &str) -> Result<WeChatQrLoginResponse, Stri
 }
 
 /// Poll QR code scan status
-pub async fn poll_qr_status(base_url: &str, qrcode: &str) -> Result<WeChatQrStatusResponse, String> {
+pub async fn poll_qr_status(
+    base_url: &str,
+    qrcode: &str,
+) -> Result<WeChatQrStatusResponse, String> {
     let url = format!(
         "{}/ilink/bot/get_qrcode_status?qrcode={}",
         base_url.trim_end_matches('/'),
@@ -187,10 +190,7 @@ pub async fn get_updates(
     token: &str,
     get_updates_buf: &str,
 ) -> Result<GetUpdatesResponse, String> {
-    let url = format!(
-        "{}/ilink/bot/getupdates",
-        base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/ilink/bot/getupdates", base_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "get_updates_buf": get_updates_buf,
         "base_info": { "channel_version": CHANNEL_VERSION },
@@ -239,10 +239,7 @@ pub async fn send_text_message(
     text: &str,
     context_token: &str,
 ) -> Result<(), String> {
-    let url = format!(
-        "{}/ilink/bot/sendmessage",
-        base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/ilink/bot/sendmessage", base_url.trim_end_matches('/'));
     let client_id = format!(
         "teamclaw:{}-{:08x}",
         chrono::Utc::now().timestamp_millis(),
@@ -344,7 +341,9 @@ impl WeChatGateway {
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(WeChatGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
-            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES))),
+            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
+                MAX_PROCESSED_MESSAGES,
+            ))),
             permission_approver: super::PermissionAutoApprover::new(opencode_port),
             session_queue: Arc::new(SessionQueue::new()),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
@@ -380,12 +379,28 @@ impl WeChatGateway {
     /// Send a message to a WeChat user (used by cron delivery and reply)
     pub async fn send_to_user(&self, to_user_id: &str, text: &str) -> Result<(), String> {
         let config = self.config.read().await;
-        let context_token = self.context_tokens.read().await
+        let context_token = self
+            .context_tokens
+            .read()
+            .await
             .get(to_user_id)
             .cloned()
-            .ok_or_else(|| format!("No context_token for user {}. User must send a message first.", to_user_id))?;
+            .ok_or_else(|| {
+                format!(
+                    "No context_token for user {}. User must send a message first.",
+                    to_user_id
+                )
+            })?;
         let client = reqwest::Client::new();
-        send_text_message(&client, &config.base_url, &config.bot_token, to_user_id, text, &context_token).await
+        send_text_message(
+            &client,
+            &config.base_url,
+            &config.bot_token,
+            to_user_id,
+            text,
+            &context_token,
+        )
+        .await
     }
 
     /// Persist context_tokens from in-memory config to teamclaw.json on disk
@@ -395,7 +410,11 @@ impl WeChatGateway {
             None => return,
         };
         let config = self.config.read().await.clone();
-        let path = format!("{}/{}/teamclaw.json", workspace_path, crate::commands::TEAMCLAW_DIR);
+        let path = format!(
+            "{}/{}/teamclaw.json",
+            workspace_path,
+            crate::commands::TEAMCLAW_DIR
+        );
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => return,
@@ -410,7 +429,10 @@ impl WeChatGateway {
                 wechat["contextTokens"] = tokens_val;
             }
         }
-        let _ = std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap_or_default());
+        let _ = std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&json).unwrap_or_default(),
+        );
     }
 
     pub async fn start(&self) -> Result<(), String> {
@@ -444,7 +466,8 @@ impl WeChatGateway {
             let _ = tx.send(());
         }
         *self.is_running.write().await = false;
-        self.set_status(WeChatGatewayStatus::Disconnected, None).await;
+        self.set_status(WeChatGatewayStatus::Disconnected, None)
+            .await;
         self.session_queue.shutdown().await;
         Ok(())
     }
@@ -455,7 +478,9 @@ impl WeChatGateway {
         let mut consecutive_failures: u32 = 0;
 
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(LONG_POLL_TIMEOUT_MS + 5000))
+            .timeout(std::time::Duration::from_millis(
+                LONG_POLL_TIMEOUT_MS + 5000,
+            ))
             .build()
             .unwrap_or_default();
 
@@ -476,7 +501,14 @@ impl WeChatGateway {
                 Err(oneshot::error::TryRecvError::Empty) => {}
             }
 
-            match get_updates(&client, &config.base_url, &config.bot_token, &get_updates_buf).await {
+            match get_updates(
+                &client,
+                &config.base_url,
+                &config.bot_token,
+                &get_updates_buf,
+            )
+            .await
+            {
                 Ok(resp) => {
                     // Check for API errors
                     let is_error = resp.ret.unwrap_or(0) != 0 || resp.errcode.unwrap_or(0) != 0;
@@ -492,17 +524,23 @@ impl WeChatGateway {
                         if resp.errcode == Some(401) || resp.errcode == Some(403) {
                             self.set_status(
                                 WeChatGatewayStatus::Error,
-                                Some("Token expired or invalid. Please re-authenticate.".to_string()),
-                            ).await;
+                                Some(
+                                    "Token expired or invalid. Please re-authenticate.".to_string(),
+                                ),
+                            )
+                            .await;
                             break;
                         }
 
                         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                            self.set_status(WeChatGatewayStatus::Error, Some(err_msg)).await;
+                            self.set_status(WeChatGatewayStatus::Error, Some(err_msg))
+                                .await;
                             consecutive_failures = 0;
-                            tokio::time::sleep(std::time::Duration::from_millis(BACKOFF_DELAY_MS)).await;
+                            tokio::time::sleep(std::time::Duration::from_millis(BACKOFF_DELAY_MS))
+                                .await;
                         } else {
-                            tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                            tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS))
+                                .await;
                         }
                         continue;
                     }
@@ -527,11 +565,17 @@ impl WeChatGateway {
                             if text.is_empty() {
                                 continue;
                             }
-                            let sender_id = msg.from_user_id.clone().unwrap_or_else(|| "unknown".to_string());
+                            let sender_id = msg
+                                .from_user_id
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string());
 
                             // Cache context token
                             if let Some(ct) = &msg.context_token {
-                                self.context_tokens.write().await.insert(sender_id.clone(), ct.clone());
+                                self.context_tokens
+                                    .write()
+                                    .await
+                                    .insert(sender_id.clone(), ct.clone());
                                 // Persist context_token to config on disk
                                 {
                                     let mut cfg = self.config.write().await;
@@ -540,14 +584,21 @@ impl WeChatGateway {
                                 self.persist_context_tokens().await;
                             }
 
-                            println!("[WeChat] Message from {}: {}...", sender_id, &text[..text.len().min(50)]);
+                            println!(
+                                "[WeChat] Message from {}: {}...",
+                                sender_id,
+                                &text[..text.len().min(50)]
+                            );
 
                             // Forward to OpenCode session
                             let gateway = self.clone();
                             let text_clone = text.clone();
                             let sender_clone = sender_id.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = gateway.handle_incoming_message(&sender_clone, &text_clone).await {
+                                if let Err(e) = gateway
+                                    .handle_incoming_message(&sender_clone, &text_clone)
+                                    .await
+                                {
                                     eprintln!("[WeChat] Failed to handle message: {}", e);
                                 }
                             });
@@ -564,7 +615,8 @@ impl WeChatGateway {
                     if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
                         self.set_status(WeChatGatewayStatus::Error, Some(e)).await;
                         consecutive_failures = 0;
-                        tokio::time::sleep(std::time::Duration::from_millis(BACKOFF_DELAY_MS)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(BACKOFF_DELAY_MS))
+                            .await;
                     } else {
                         tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
                     }
@@ -600,10 +652,13 @@ impl WeChatGateway {
                 let gateway = gateway.clone();
                 let text = text.clone();
                 let sender_id = sender_id.clone();
-                Box::pin(async move {
-                    gateway.process_and_reply(&sender_id, &text).await
-                }) as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-            }) as Box<dyn FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send>
+                Box::pin(async move { gateway.process_and_reply(&sender_id, &text).await })
+                    as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+            })
+                as Box<
+                    dyn FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                        + Send,
+                >
         };
 
         let notify_fn = {
@@ -619,8 +674,16 @@ impl WeChatGateway {
                         RejectReason::SessionClosed => "Gateway is shutting down.",
                     };
                     let _ = gateway.send_to_user(&sender_id, msg).await;
-                }) as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-            }) as Box<dyn FnOnce(RejectReason) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send>)
+                })
+                    as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+            })
+                as Box<
+                    dyn FnOnce(
+                            RejectReason,
+                        )
+                            -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                        + Send,
+                >)
         };
 
         let queued = QueuedMessage {
@@ -632,7 +695,10 @@ impl WeChatGateway {
         match self.session_queue.enqueue(&session_key, queued).await {
             EnqueueResult::Processing => {}
             EnqueueResult::Queued { position } => {
-                println!("[WeChat] Message queued at position {} for {}", position, session_key);
+                println!(
+                    "[WeChat] Message queued at position {} for {}",
+                    position, session_key
+                );
             }
             EnqueueResult::Full => {
                 eprintln!("[WeChat] Message queue full for {}", session_key);
@@ -690,21 +756,19 @@ impl WeChatGateway {
         let session_key = format!("wechat:dm:{}", sender_id);
         let session_id = match self.session_mapping.get_session(&session_key).await {
             Some(id) => id,
-            None => {
-                match super::create_opencode_session(self.opencode_port).await {
-                    Ok(id) => {
-                        self.session_mapping
-                            .set_session(session_key.clone(), id.clone())
-                            .await;
-                        id
-                    }
-                    Err(e) => {
-                        eprintln!("[WeChat] Failed to create session: {}", e);
-                        let _ = self.send_to_user(sender_id, &format!("Error: {}", e)).await;
-                        return;
-                    }
+            None => match super::create_opencode_session(self.opencode_port).await {
+                Ok(id) => {
+                    self.session_mapping
+                        .set_session(session_key.clone(), id.clone())
+                        .await;
+                    id
                 }
-            }
+                Err(e) => {
+                    eprintln!("[WeChat] Failed to create session: {}", e);
+                    let _ = self.send_to_user(sender_id, &format!("Error: {}", e)).await;
+                    return;
+                }
+            },
         };
 
         // Get model preference for this session key
@@ -715,7 +779,10 @@ impl WeChatGateway {
 
         // Use unified gateway with SSE + permission auto-approval
         let parts = vec![serde_json::json!({ "type": "text", "text": text })];
-        println!("[WeChat] Sending to session {} via unified gateway", session_id);
+        println!(
+            "[WeChat] Sending to session {} via unified gateway",
+            session_id
+        );
 
         match super::send_message_async_with_approval(
             self.opencode_port,
@@ -733,9 +800,7 @@ impl WeChatGateway {
             }
             Err(e) => {
                 eprintln!("[WeChat] Unified gateway error: {}", e);
-                let _ = self
-                    .send_to_user(sender_id, &format!("Error: {}", e))
-                    .await;
+                let _ = self.send_to_user(sender_id, &format!("Error: {}", e)).await;
             }
         }
     }

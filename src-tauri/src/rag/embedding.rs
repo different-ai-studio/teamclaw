@@ -67,13 +67,10 @@ struct EmbeddingData {
 
 impl OnlineProvider {
     fn get_api_key(&self) -> Result<&str> {
-        self.api_key
-            .as_deref()
-            .filter(|k| !k.is_empty())
-            .context(
-                "RAG_EMBEDDING_API_KEY is required when RAG_EMBEDDING_PROVIDER=openai. \
+        self.api_key.as_deref().filter(|k| !k.is_empty()).context(
+            "RAG_EMBEDDING_API_KEY is required when RAG_EMBEDDING_PROVIDER=openai. \
                  Set it in the environment or in opencode.json mcp.rag.environment.",
-            )
+        )
     }
 
     async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {

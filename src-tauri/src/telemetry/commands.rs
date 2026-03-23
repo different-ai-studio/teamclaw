@@ -1,10 +1,13 @@
-use super::db::{FeedbackSummary, SessionReport, TelemetryDb, MessageFeedback, SkillFeedbackStats, LeaderboardStats};
+use super::db::{
+    FeedbackSummary, LeaderboardStats, MessageFeedback, SessionReport, SkillFeedbackStats,
+    TelemetryDb,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tauri_plugin_aptabase::EventTracker;
-use serde_json::json;
+use tokio::sync::Mutex;
 
 /// Managed state wrapper for TelemetryDb.
 pub struct TelemetryState {
@@ -41,7 +44,9 @@ fn dirs_next() -> Option<std::path::PathBuf> {
         .or_else(|| {
             #[cfg(target_os = "windows")]
             {
-                std::env::var("USERPROFILE").ok().map(std::path::PathBuf::from)
+                std::env::var("USERPROFILE")
+                    .ok()
+                    .map(std::path::PathBuf::from)
             }
             #[cfg(not(target_os = "windows"))]
             {
@@ -51,7 +56,6 @@ fn dirs_next() -> Option<std::path::PathBuf> {
 }
 
 // ─── Tauri Commands ──────────────────────────────────────────────────────
-
 
 #[tauri::command]
 pub async fn telemetry_get_consent(
@@ -84,9 +88,12 @@ pub async fn telemetry_set_feedback(
     // Track analytics event (consent-gated)
     let consent = db.get_consent().await.unwrap_or_default();
     if consent == "granted" {
-        let _ = app_handle.track_event("feedback_given", Some(json!({
-            "rating": rating,
-        })));
+        let _ = app_handle.track_event(
+            "feedback_given",
+            Some(json!({
+                "rating": rating,
+            })),
+        );
     }
 
     Ok(())
@@ -122,7 +129,8 @@ pub async fn telemetry_set_star_rating(
         return Err("star_rating must be between 1 and 5".to_string());
     }
     let db = get_db(&state).await?;
-    db.set_star_rating(&session_id, &message_id, star_rating).await
+    db.set_star_rating(&session_id, &message_id, star_rating)
+        .await
 }
 
 #[tauri::command]
@@ -147,15 +155,18 @@ pub async fn telemetry_save_report(
     // Track analytics events (consent-gated)
     let consent = db.get_consent().await.unwrap_or_default();
     if consent == "granted" {
-        let _ = app_handle.track_event("session_created", Some(json!({
-            "model_id": report.model_id.as_deref().unwrap_or("unknown"),
-            "provider_id": report.provider_id.as_deref().unwrap_or("unknown"),
-            "agent": report.agent.as_deref().unwrap_or("none"),
-            "tokens_input": report.total_tokens_input,
-            "tokens_output": report.total_tokens_output,
-            "tokens_reasoning": report.total_tokens_reasoning,
-            "cost": report.total_cost,
-        })));
+        let _ = app_handle.track_event(
+            "session_created",
+            Some(json!({
+                "model_id": report.model_id.as_deref().unwrap_or("unknown"),
+                "provider_id": report.provider_id.as_deref().unwrap_or("unknown"),
+                "agent": report.agent.as_deref().unwrap_or("none"),
+                "tokens_input": report.total_tokens_input,
+                "tokens_output": report.total_tokens_output,
+                "tokens_reasoning": report.total_tokens_reasoning,
+                "cost": report.total_cost,
+            })),
+        );
     }
 
     Ok(())
@@ -209,54 +220,54 @@ pub async fn telemetry_export_team_feedback(
 
     #[cfg(feature = "p2p")]
     {
-    let db = get_db(&state).await?;
+        let db = get_db(&state).await?;
 
-    let guard = iroh_state.lock().await;
-    let node = guard.as_ref().ok_or("P2P node not running")?;
-    let node_id = crate::commands::team_p2p::get_node_id(node);
-    let device_info = crate::commands::team_p2p::get_device_metadata();
-    drop(guard);
+        let guard = iroh_state.lock().await;
+        let node = guard.as_ref().ok_or("P2P node not running")?;
+        let node_id = crate::commands::team_p2p::get_node_id(node);
+        let device_info = crate::commands::team_p2p::get_device_metadata();
+        drop(guard);
 
-    let workspace_path = opencode_state
-        .workspace_path
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone()
-        .ok_or("Workspace path not set")?;
-    let team_dir = std::path::Path::new(&workspace_path).join("teamclaw-team");
-    if !team_dir.exists() {
-        return Ok(());
-    }
-    let feedback_dir = team_dir.join("_feedback");
+        let workspace_path = opencode_state
+            .workspace_path
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone()
+            .ok_or("Workspace path not set")?;
+        let team_dir = std::path::Path::new(&workspace_path).join("teamclaw-team");
+        if !team_dir.exists() {
+            return Ok(());
+        }
+        let feedback_dir = team_dir.join("_feedback");
 
-    std::fs::create_dir_all(&feedback_dir)
-        .map_err(|e| format!("Failed to create _feedback dir: {}", e))?;
+        std::fs::create_dir_all(&feedback_dir)
+            .map_err(|e| format!("Failed to create _feedback dir: {}", e))?;
 
-    let summary = db.export_feedback_summary().await?;
+        let summary = db.export_feedback_summary().await?;
 
-    let member_name = device_info.hostname.clone();
+        let member_name = device_info.hostname.clone();
 
-    let export = MemberFeedbackExport {
-        member_id: node_id.clone(),
-        member_name: member_name.clone(),
-        exported_at: chrono::Utc::now().to_rfc3339(),
-        summary,
-    };
+        let export = MemberFeedbackExport {
+            member_id: node_id.clone(),
+            member_name: member_name.clone(),
+            exported_at: chrono::Utc::now().to_rfc3339(),
+            summary,
+        };
 
-    let json = serde_json::to_string_pretty(&export)
-        .map_err(|e| format!("Failed to serialize feedback: {}", e))?;
+        let json = serde_json::to_string_pretty(&export)
+            .map_err(|e| format!("Failed to serialize feedback: {}", e))?;
 
-    // Use memberName as filename (sanitize for safety)
-    let safe_filename = member_name
-        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
-        .chars()
-        .take(200)
-        .collect::<String>();
-    let file_path = feedback_dir.join(format!("{}.json", safe_filename));
-    std::fs::write(&file_path, json)
-        .map_err(|e| format!("Failed to write feedback file: {}", e))?;
+        // Use memberName as filename (sanitize for safety)
+        let safe_filename = member_name
+            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+            .chars()
+            .take(200)
+            .collect::<String>();
+        let file_path = feedback_dir.join(format!("{}.json", safe_filename));
+        std::fs::write(&file_path, json)
+            .map_err(|e| format!("Failed to write feedback file: {}", e))?;
 
-    Ok(())
+        Ok(())
     }
 }
 
@@ -313,12 +324,14 @@ pub async fn telemetry_get_team_feedback_summary(
         }
 
         for (skill, stats) in &m.summary.by_skill {
-            let entry = team_by_skill.entry(skill.clone()).or_insert(SkillFeedbackStats {
-                sessions: 0,
-                positive: 0,
-                negative: 0,
-                avg_star: 0.0,
-            });
+            let entry = team_by_skill
+                .entry(skill.clone())
+                .or_insert(SkillFeedbackStats {
+                    sessions: 0,
+                    positive: 0,
+                    negative: 0,
+                    avg_star: 0.0,
+                });
             entry.sessions += stats.sessions;
             entry.positive += stats.positive;
             entry.negative += stats.negative;
@@ -385,94 +398,98 @@ pub async fn telemetry_export_leaderboard(
 
     #[cfg(feature = "p2p")]
     {
-    let db = get_db(&state).await?;
+        let db = get_db(&state).await?;
 
-    let guard = iroh_state.lock().await;
-    let node = guard.as_ref().ok_or("P2P node not running")?;
-    let node_id = crate::commands::team_p2p::get_node_id(node);
-    let device_info = crate::commands::team_p2p::get_device_metadata();
-    drop(guard);
+        let guard = iroh_state.lock().await;
+        let node = guard.as_ref().ok_or("P2P node not running")?;
+        let node_id = crate::commands::team_p2p::get_node_id(node);
+        let device_info = crate::commands::team_p2p::get_device_metadata();
+        drop(guard);
 
-    let workspace_path = opencode_state
-        .workspace_path
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone()
-        .ok_or("Workspace path not set")?;
-    let team_dir = std::path::Path::new(&workspace_path).join("teamclaw-team");
-    if !team_dir.exists() {
-        return Ok(());
-    }
-    let leaderboard_dir = team_dir.join(".leaderboard");
+        let workspace_path = opencode_state
+            .workspace_path
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone()
+            .ok_or("Workspace path not set")?;
+        let team_dir = std::path::Path::new(&workspace_path).join("teamclaw-team");
+        if !team_dir.exists() {
+            return Ok(());
+        }
+        let leaderboard_dir = team_dir.join(".leaderboard");
 
-    std::fs::create_dir_all(&leaderboard_dir)
-        .map_err(|e| format!("Failed to create .leaderboard dir: {}", e))?;
+        std::fs::create_dir_all(&leaderboard_dir)
+            .map_err(|e| format!("Failed to create .leaderboard dir: {}", e))?;
 
-    // Read local stats from current workspace's .teamclaw/stats.json
-    let stats_path = std::path::Path::new(&workspace_path).join(".teamclaw").join("stats.json");
-    let local_stats = if stats_path.exists() {
-        let content = std::fs::read_to_string(&stats_path)
-            .map_err(|e| format!("Failed to read .teamclaw/stats.json: {}", e))?;
-        serde_json::from_str::<crate::commands::local_stats::LocalStats>(&content)
-            .map_err(|e| format!("Failed to parse .teamclaw/stats.json: {}", e))?
-    } else {
-        // If stats.json doesn't exist, use default
-        crate::commands::local_stats::LocalStats::default()
-    };
+        // Read local stats from current workspace's .teamclaw/stats.json
+        let stats_path = std::path::Path::new(&workspace_path)
+            .join(".teamclaw")
+            .join("stats.json");
+        let local_stats = if stats_path.exists() {
+            let content = std::fs::read_to_string(&stats_path)
+                .map_err(|e| format!("Failed to read .teamclaw/stats.json: {}", e))?;
+            serde_json::from_str::<crate::commands::local_stats::LocalStats>(&content)
+                .map_err(|e| format!("Failed to parse .teamclaw/stats.json: {}", e))?
+        } else {
+            // If stats.json doesn't exist, use default
+            crate::commands::local_stats::LocalStats::default()
+        };
 
-    // Convert LocalStats to LeaderboardStats
-    let workspace_stats = LeaderboardStats {
-        total_feedbacks: local_stats.feedback_count,
-        positive_count: local_stats.positive_count,
-        negative_count: local_stats.negative_count,
-        total_tokens: local_stats.total_tokens,
-        total_cost: local_stats.total_cost,
-        session_count: local_stats.sessions.total,
-    };
-    
-    let member_name = device_info.hostname.clone();
-    let safe_filename = member_name
-        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
-        .chars()
-        .take(200)
-        .collect::<String>();
-    let file_path = leaderboard_dir.join(format!("{}.json", safe_filename));
-    
-    // Read existing leaderboard file or create new
-    let mut workspaces = if file_path.exists() {
-        let content = std::fs::read_to_string(&file_path)
-            .map_err(|e| format!("Failed to read existing leaderboard: {}", e))?;
-        let existing: MemberLeaderboardExport = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse existing leaderboard: {}", e))?;
-        existing.workspaces
-    } else {
-        std::collections::HashMap::new()
-    };
-    
-    // Update current workspace stats
-    workspaces.insert(workspace_path.clone(), workspace_stats);
-    
-    let now = chrono::Utc::now().to_rfc3339();
-    let export = MemberLeaderboardExport {
-        member_id: node_id.clone(),
-        member_name: member_name.clone(),
-        exported_at: now.clone(),
-        update_at: now,
-        workspaces,
-    };
+        // Convert LocalStats to LeaderboardStats
+        let workspace_stats = LeaderboardStats {
+            total_feedbacks: local_stats.feedback_count,
+            positive_count: local_stats.positive_count,
+            negative_count: local_stats.negative_count,
+            total_tokens: local_stats.total_tokens,
+            total_cost: local_stats.total_cost,
+            session_count: local_stats.sessions.total,
+        };
 
-    let json = serde_json::to_string_pretty(&export)
-        .map_err(|e| format!("Failed to serialize leaderboard: {}", e))?;
+        let member_name = device_info.hostname.clone();
+        let safe_filename = member_name
+            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+            .chars()
+            .take(200)
+            .collect::<String>();
+        let file_path = leaderboard_dir.join(format!("{}.json", safe_filename));
 
-    std::fs::write(&file_path, json)
-        .map_err(|e| format!("Failed to write leaderboard file: {}", e))?;
+        // Read existing leaderboard file or create new
+        let mut workspaces = if file_path.exists() {
+            let content = std::fs::read_to_string(&file_path)
+                .map_err(|e| format!("Failed to read existing leaderboard: {}", e))?;
+            let existing: MemberLeaderboardExport = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse existing leaderboard: {}", e))?;
+            existing.workspaces
+        } else {
+            std::collections::HashMap::new()
+        };
 
-    Ok(())
+        // Update current workspace stats
+        workspaces.insert(workspace_path.clone(), workspace_stats);
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let export = MemberLeaderboardExport {
+            member_id: node_id.clone(),
+            member_name: member_name.clone(),
+            exported_at: now.clone(),
+            update_at: now,
+            workspaces,
+        };
+
+        let json = serde_json::to_string_pretty(&export)
+            .map_err(|e| format!("Failed to serialize leaderboard: {}", e))?;
+
+        std::fs::write(&file_path, json)
+            .map_err(|e| format!("Failed to write leaderboard file: {}", e))?;
+
+        Ok(())
     }
 }
 
 /// Aggregate stats from all workspaces for a member
-fn aggregate_workspace_stats(workspaces: &std::collections::HashMap<String, LeaderboardStats>) -> LeaderboardStats {
+fn aggregate_workspace_stats(
+    workspaces: &std::collections::HashMap<String, LeaderboardStats>,
+) -> LeaderboardStats {
     let mut total = LeaderboardStats {
         total_feedbacks: 0,
         positive_count: 0,
@@ -481,7 +498,7 @@ fn aggregate_workspace_stats(workspaces: &std::collections::HashMap<String, Lead
         total_cost: 0.0,
         session_count: 0,
     };
-    
+
     for stats in workspaces.values() {
         total.total_feedbacks += stats.total_feedbacks;
         total.positive_count += stats.positive_count;
@@ -490,7 +507,7 @@ fn aggregate_workspace_stats(workspaces: &std::collections::HashMap<String, Lead
         total.total_cost += stats.total_cost;
         total.session_count += stats.session_count;
     }
-    
+
     total
 }
 
@@ -553,7 +570,7 @@ pub async fn telemetry_get_member_aggregated_stats(
         .take(200)
         .collect::<String>();
     let file_path = leaderboard_dir.join(format!("{}.json", safe_filename));
-    
+
     if !file_path.exists() {
         return Ok(LeaderboardStats {
             total_feedbacks: 0,
@@ -564,11 +581,11 @@ pub async fn telemetry_get_member_aggregated_stats(
             session_count: 0,
         });
     }
-    
+
     let content = std::fs::read_to_string(&file_path)
         .map_err(|e| format!("Failed to read leaderboard file: {}", e))?;
     let export: MemberLeaderboardExport = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse leaderboard file: {}", e))?;
-    
+
     Ok(aggregate_workspace_stats(&export.workspaces))
 }

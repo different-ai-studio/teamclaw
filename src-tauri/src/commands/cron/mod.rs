@@ -47,10 +47,7 @@ pub async fn cron_init(
         .clone()
         .ok_or("No workspace path set.")?;
 
-    let port = *opencode_state
-        .port
-        .lock()
-        .map_err(|e| e.to_string())?;
+    let port = *opencode_state.port.lock().map_err(|e| e.to_string())?;
 
     // Step 1: Stop old scheduler first (if reinitializing).
     // CRITICAL: Must stop BEFORE init() to prevent old tick loop from reading
@@ -72,7 +69,10 @@ pub async fn cron_init(
     cron_state.scheduler.set_port(port).await;
 
     let session_mapping = gateway_state.shared_session_mapping.clone();
-    cron_state.scheduler.set_session_mapping(session_mapping).await;
+    cron_state
+        .scheduler
+        .set_session_mapping(session_mapping)
+        .await;
 
     let delivery_mgr = DeliveryManager::new(workspace_path.clone());
     cron_state.scheduler.set_delivery(delivery_mgr).await;
@@ -80,15 +80,16 @@ pub async fn cron_init(
     // Step 4: Start the scheduler for the new workspace
     cron_state.scheduler.start().await;
 
-    println!("[Cron] System initialized for workspace: {}", workspace_path);
+    println!(
+        "[Cron] System initialized for workspace: {}",
+        workspace_path
+    );
     Ok(())
 }
 
 /// List all cron jobs
 #[tauri::command]
-pub async fn cron_list_jobs(
-    cron_state: State<'_, CronState>,
-) -> Result<Vec<CronJob>, String> {
+pub async fn cron_list_jobs(cron_state: State<'_, CronState>) -> Result<Vec<CronJob>, String> {
     Ok(cron_state.storage.list_jobs().await)
 }
 
@@ -202,16 +203,17 @@ pub async fn cron_toggle_enabled(
         }
     }
 
-    println!("[Cron] Job {} {}", job_id, if enabled { "enabled" } else { "disabled" });
+    println!(
+        "[Cron] Job {} {}",
+        job_id,
+        if enabled { "enabled" } else { "disabled" }
+    );
     Ok(())
 }
 
 /// Run a cron job immediately (manual trigger)
 #[tauri::command]
-pub async fn cron_run_job(
-    job_id: String,
-    cron_state: State<'_, CronState>,
-) -> Result<(), String> {
+pub async fn cron_run_job(job_id: String, cron_state: State<'_, CronState>) -> Result<(), String> {
     let job = cron_state
         .storage
         .get_job(&job_id)

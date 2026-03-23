@@ -203,7 +203,10 @@ impl CronScheduler {
             Self::cleanup_orphan_worktrees(&workspace);
         }
 
-        println!("[Cron] Scheduler started (gen: {}, tick every 15 seconds)", current_gen);
+        println!(
+            "[Cron] Scheduler started (gen: {}, tick every 15 seconds)",
+            current_gen
+        );
 
         let scheduler = self.clone();
         tokio::spawn(async move {
@@ -211,7 +214,10 @@ impl CronScheduler {
                 // Check if this loop's generation is still current
                 let active_gen = *scheduler.generation.read().await;
                 if active_gen != current_gen {
-                    println!("[Cron] Scheduler gen {} stopped (current: {})", current_gen, active_gen);
+                    println!(
+                        "[Cron] Scheduler gen {} stopped (current: {})",
+                        current_gen, active_gen
+                    );
                     break;
                 }
 
@@ -261,7 +267,10 @@ impl CronScheduler {
             };
 
             if is_due {
-                println!("[Cron] Job '{}' ({}) is due, executing...", job.name, job.id);
+                println!(
+                    "[Cron] Job '{}' ({}) is due, executing...",
+                    job.name, job.id
+                );
 
                 // IMPORTANT: Update next_run_at IMMEDIATELY before spawning,
                 // so subsequent ticks don't re-fire the same job while it's running.
@@ -292,7 +301,10 @@ impl CronScheduler {
             return Err(format!("git worktree add failed: {}", stderr.trim()));
         }
 
-        println!("[Cron] Created worktree at: {} (branch: {})", worktree_path, branch);
+        println!(
+            "[Cron] Created worktree at: {} (branch: {})",
+            worktree_path, branch
+        );
         Ok(())
     }
 
@@ -308,7 +320,10 @@ impl CronScheduler {
                 println!("[Cron] Removed worktree: {}", worktree_path);
             }
             _ => {
-                println!("[Cron] git worktree remove failed, falling back to rm -rf for: {}", worktree_path);
+                println!(
+                    "[Cron] git worktree remove failed, falling back to rm -rf for: {}",
+                    worktree_path
+                );
                 let _ = std::fs::remove_dir_all(worktree_path);
                 let _ = std::process::Command::new("git")
                     .current_dir(workspace)
@@ -333,7 +348,10 @@ impl CronScheduler {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with("cron-") && entry.path().is_dir() {
-                println!("[Cron] Cleaning up orphan worktree: {}", entry.path().display());
+                println!(
+                    "[Cron] Cleaning up orphan worktree: {}",
+                    entry.path().display()
+                );
                 Self::remove_worktree(workspace, &entry.path().to_string_lossy());
             }
         }
@@ -380,7 +398,8 @@ impl CronScheduler {
                 record.finished_at = Some(Utc::now());
                 record.error = Some(format!("Failed to create .worktrees dir: {}", e));
                 self.storage.update_last_run(&record).await;
-                self.update_job_after_run(&job, started_at, &my_workspace).await;
+                self.update_job_after_run(&job, started_at, &my_workspace)
+                    .await;
                 return;
             }
 
@@ -395,7 +414,8 @@ impl CronScheduler {
                     record.finished_at = Some(Utc::now());
                     record.error = Some(format!("Worktree creation failed: {}", e));
                     self.storage.update_last_run(&record).await;
-                    self.update_job_after_run(&job, started_at, &my_workspace).await;
+                    self.update_job_after_run(&job, started_at, &my_workspace)
+                        .await;
                     return;
                 }
             }
@@ -461,7 +481,8 @@ impl CronScheduler {
                     record.finished_at = Some(Utc::now());
                     record.error = Some(format!("Failed to create session: {}", e));
                     self.storage.update_last_run(&record).await;
-                    self.update_job_after_run(&job, started_at, &my_workspace).await;
+                    self.update_job_after_run(&job, started_at, &my_workspace)
+                        .await;
                     return;
                 }
             }
@@ -477,9 +498,7 @@ impl CronScheduler {
                     // Store the session under the unique email thread key
                     let sm_guard = self.session_mapping.read().await;
                     if let Some(mapping) = sm_guard.as_ref() {
-                        mapping
-                            .set_session(session_key.clone(), id.clone())
-                            .await;
+                        mapping.set_session(session_key.clone(), id.clone()).await;
                     }
                     (id, true)
                 }
@@ -488,7 +507,8 @@ impl CronScheduler {
                     record.finished_at = Some(Utc::now());
                     record.error = Some(format!("Failed to create session: {}", e));
                     self.storage.update_last_run(&record).await;
-                    self.update_job_after_run(&job, started_at, &my_workspace).await;
+                    self.update_job_after_run(&job, started_at, &my_workspace)
+                        .await;
                     return;
                 }
             }
@@ -516,7 +536,8 @@ impl CronScheduler {
                         record.finished_at = Some(Utc::now());
                         record.error = Some(format!("Failed to create session: {}", e));
                         self.storage.update_last_run(&record).await;
-                        self.update_job_after_run(&job, started_at, &my_workspace).await;
+                        self.update_job_after_run(&job, started_at, &my_workspace)
+                            .await;
                         return;
                     }
                 }
@@ -530,7 +551,8 @@ impl CronScheduler {
                     record.finished_at = Some(Utc::now());
                     record.error = Some(format!("Failed to create session: {}", e));
                     self.storage.update_last_run(&record).await;
-                    self.update_job_after_run(&job, started_at, &my_workspace).await;
+                    self.update_job_after_run(&job, started_at, &my_workspace)
+                        .await;
                     return;
                 }
             }
@@ -584,7 +606,13 @@ impl CronScheduler {
 
         // Step 2: Send message to OpenCode
         let response = match self
-            .send_to_opencode(port, &session_id, &job.payload.message, model_param.clone(), timeout_secs)
+            .send_to_opencode(
+                port,
+                &session_id,
+                &job.payload.message,
+                model_param.clone(),
+                timeout_secs,
+            )
             .await
         {
             Ok(text) => text,
@@ -598,7 +626,8 @@ impl CronScheduler {
                 record.finished_at = Some(Utc::now());
                 record.error = Some(format!("Failed to send message: {}", e));
                 self.storage.update_last_run(&record).await;
-                self.update_job_after_run(&job, started_at, &my_workspace).await;
+                self.update_job_after_run(&job, started_at, &my_workspace)
+                    .await;
                 return;
             }
         };
@@ -622,10 +651,7 @@ impl CronScheduler {
                 let delivery_mgr = self.delivery.read().await;
                 if let Some(mgr) = delivery_mgr.as_ref() {
                     // Format the delivery message with job context
-                    let delivery_message = format!(
-                        "[Cron: {}]\n\n{}",
-                        job.name, response
-                    );
+                    let delivery_message = format!("[Cron: {}]\n\n{}", job.name, response);
 
                     match mgr
                         .send_notification(&delivery.channel, &delivery.to, &delivery_message)
@@ -654,9 +680,10 @@ impl CronScheduler {
                                         )
                                         .await;
                                     // Register subject -> session_key for fallback matching
-                                    let subject = crate::commands::gateway::email::normalize_subject(
-                                        "[TeamClaw] Cron Job Notification",
-                                    );
+                                    let subject =
+                                        crate::commands::gateway::email::normalize_subject(
+                                            "[TeamClaw] Cron Job Notification",
+                                        );
                                     mapping
                                         .set_email_subject_session(
                                             subject.clone(),
@@ -680,7 +707,8 @@ impl CronScheduler {
                                 record.finished_at = Some(Utc::now());
                                 record.error = Some(err_msg);
                                 self.storage.update_last_run(&record).await;
-                                self.update_job_after_run(&job, started_at, &my_workspace).await;
+                                self.update_job_after_run(&job, started_at, &my_workspace)
+                                    .await;
                                 return;
                             }
                         }
@@ -702,7 +730,8 @@ impl CronScheduler {
         check_generation!();
 
         // Update job timestamps
-        self.update_job_after_run(&job, started_at, &my_workspace).await;
+        self.update_job_after_run(&job, started_at, &my_workspace)
+            .await;
 
         // Handle delete_after_run for one-time jobs
         // Do NOT delete if delivery failed — user should see the result and retry
@@ -730,7 +759,12 @@ impl CronScheduler {
     /// Update job timestamps after a run.
     /// Note: `next_run_at` is already set by `tick()` before spawning the execution,
     /// so here we only update `last_run_at` to reflect the actual execution time.
-    async fn update_job_after_run(&self, job: &CronJob, last_run: DateTime<Utc>, expected_workspace: &str) {
+    async fn update_job_after_run(
+        &self,
+        job: &CronJob,
+        last_run: DateTime<Utc>,
+        expected_workspace: &str,
+    ) {
         // Verify we're still in the same workspace before updating
         let current_workspace = self.storage.get_workspace_path().await;
         if current_workspace.as_deref() != Some(expected_workspace) {
@@ -793,10 +827,7 @@ impl CronScheduler {
                             schedule.after(&after).next()
                         }
                         Err(e) => {
-                            eprintln!(
-                                "[Cron] Invalid cron expression '{}': {}",
-                                expr, e
-                            );
+                            eprintln!("[Cron] Invalid cron expression '{}': {}", expr, e);
                             None
                         }
                     }
@@ -829,7 +860,11 @@ impl CronScheduler {
     }
 
     /// Create a new OpenCode session
-    async fn create_opencode_session(&self, port: u16, directory: Option<&str>) -> Result<String, String> {
+    async fn create_opencode_session(
+        &self,
+        port: u16,
+        directory: Option<&str>,
+    ) -> Result<String, String> {
         let client = reqwest::Client::new();
         let mut url = format!("http://127.0.0.1:{}/session", port);
         if let Some(dir) = directory {
@@ -887,10 +922,7 @@ impl CronScheduler {
             .build()
             .map_err(|e| format!("Failed to create client: {}", e))?;
 
-        let url = format!(
-            "http://127.0.0.1:{}/session/{}/message",
-            port, session_id
-        );
+        let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
         println!(
             "[Cron] Sending to OpenCode: {} content length: {} (timeout: {}s)",
             url,
@@ -919,11 +951,7 @@ impl CronScheduler {
             .json(&body)
             .send();
 
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            post_future,
-        )
-        .await
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), post_future).await
         {
             Ok(Ok(response)) => {
                 // POST completed within timeout — extract text from the returned Message
@@ -942,9 +970,8 @@ impl CronScheduler {
                     return Err("Empty response from OpenCode".to_string());
                 }
 
-                let response_json: serde_json::Value =
-                    serde_json::from_str(&response_text)
-                        .map_err(|e| format!("Failed to parse response: {}", e))?;
+                let response_json: serde_json::Value = serde_json::from_str(&response_text)
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
 
                 // Check for error in the response
                 if let Some(error) = response_json["info"]["error"].as_object() {
@@ -986,10 +1013,7 @@ impl CronScheduler {
                 let text = Self::fetch_last_assistant_text(&client, port, session_id).await;
                 match text {
                     Some(t) if !t.is_empty() => {
-                        println!(
-                            "[Cron] Salvaged {} chars after timeout",
-                            t.len()
-                        );
+                        println!("[Cron] Salvaged {} chars after timeout", t.len());
                         Ok(format!(
                             "{}\n\n---\n⚠️ AI response was cut short after {}s timeout.",
                             t, timeout_secs
@@ -1024,20 +1048,14 @@ impl CronScheduler {
 
     /// Abort an OpenCode session. Non-fatal — logs errors but does not propagate.
     async fn abort_session(client: &reqwest::Client, port: u16, session_id: &str) {
-        let url = format!(
-            "http://127.0.0.1:{}/session/{}/abort",
-            port, session_id
-        );
+        let url = format!("http://127.0.0.1:{}/session/{}/abort", port, session_id);
         match client.post(&url).send().await {
             Ok(resp) => println!(
                 "[Cron] Abort session '{}': HTTP {}",
                 session_id,
                 resp.status()
             ),
-            Err(e) => println!(
-                "[Cron] Failed to abort session '{}': {}",
-                session_id, e
-            ),
+            Err(e) => println!("[Cron] Failed to abort session '{}': {}", session_id, e),
         }
     }
 
@@ -1049,10 +1067,7 @@ impl CronScheduler {
         port: u16,
         session_id: &str,
     ) -> Option<String> {
-        let url = format!(
-            "http://127.0.0.1:{}/session/{}/message",
-            port, session_id
-        );
+        let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
         let response = client.get(&url).send().await.ok()?;
         if !response.status().is_success() {
             return None;

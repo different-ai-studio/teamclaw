@@ -53,13 +53,10 @@ impl JinaReranker {
     }
 
     fn get_api_key(&self) -> Result<&str> {
-        self.api_key
-            .as_deref()
-            .filter(|k| !k.is_empty())
-            .context(
-                "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true. \
+        self.api_key.as_deref().filter(|k| !k.is_empty()).context(
+            "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true. \
                  Set it in the environment or in opencode.json mcp.rag.environment.",
-            )
+        )
     }
 
     async fn rerank_internal(
@@ -165,13 +162,10 @@ impl CompassReranker {
     }
 
     fn get_api_key(&self) -> Result<&str> {
-        self.api_key
-            .as_deref()
-            .filter(|k| !k.is_empty())
-            .context(
-                "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=compass). \
+        self.api_key.as_deref().filter(|k| !k.is_empty()).context(
+            "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=compass). \
                  Set it in .teamclaw/rag-config.json or opencode.json mcp.rag.environment.",
-            )
+        )
     }
 
     async fn rerank_internal(
@@ -286,19 +280,15 @@ impl LangSearchReranker {
             } else {
                 model
             },
-            base_url: base_url
-                .unwrap_or_else(|| "https://api.langsearch.com/v1".to_string()),
+            base_url: base_url.unwrap_or_else(|| "https://api.langsearch.com/v1".to_string()),
         }
     }
 
     fn get_api_key(&self) -> Result<&str> {
-        self.api_key
-            .as_deref()
-            .filter(|k| !k.is_empty())
-            .context(
-                "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=langsearch). \
+        self.api_key.as_deref().filter(|k| !k.is_empty()).context(
+            "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=langsearch). \
                  Set it in .teamclaw/rag-config.json or opencode.json mcp.rag.environment.",
-            )
+        )
     }
 
     async fn rerank_internal(
@@ -379,9 +369,8 @@ pub fn create_reranker(
     match provider.to_lowercase().as_str() {
         "jina" => Ok(Box::new(JinaReranker::new(api_key, model))),
         "compass" => {
-            let url = base_url.unwrap_or_else(|| {
-                "https://compass.llm.shopee.io/compass-api/v1".to_string()
-            });
+            let url = base_url
+                .unwrap_or_else(|| "https://compass.llm.shopee.io/compass-api/v1".to_string());
             Ok(Box::new(CompassReranker::new(api_key, url)))
         }
         "langsearch" => Ok(Box::new(LangSearchReranker::new(api_key, model, base_url))),
@@ -421,11 +410,7 @@ mod tests {
 
     #[test]
     fn test_langsearch_reranker_creation() {
-        let reranker = LangSearchReranker::new(
-            Some("test-key".to_string()),
-            String::new(),
-            None,
-        );
+        let reranker = LangSearchReranker::new(Some("test-key".to_string()), String::new(), None);
         assert_eq!(reranker.model, "langsearch-reranker-v1");
         assert_eq!(reranker.base_url, "https://api.langsearch.com/v1");
     }
@@ -463,11 +448,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_langsearch_reranker_empty_documents() {
-        let reranker = LangSearchReranker::new(
-            Some("test-key".to_string()),
-            String::new(),
-            None,
-        );
+        let reranker = LangSearchReranker::new(Some("test-key".to_string()), String::new(), None);
         let results = reranker.rerank("test query", Vec::new()).await.unwrap();
         assert!(results.is_empty());
     }
@@ -485,12 +466,7 @@ mod tests {
 
     #[test]
     fn test_create_reranker_langsearch() {
-        let reranker = create_reranker(
-            "langsearch",
-            Some("key".to_string()),
-            String::new(),
-            None,
-        );
+        let reranker = create_reranker("langsearch", Some("key".to_string()), String::new(), None);
         assert!(reranker.is_ok());
     }
 

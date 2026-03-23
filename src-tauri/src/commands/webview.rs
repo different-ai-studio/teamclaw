@@ -52,8 +52,8 @@ pub fn init_shared_config(manager: &mut WebviewManager) {
     use objc2::MainThreadMarker;
     use objc2_web_kit::{WKWebViewConfiguration, WKWebsiteDataStore};
 
-    let mtm = MainThreadMarker::new()
-        .expect("init_shared_config must be called from the main thread");
+    let mtm =
+        MainThreadMarker::new().expect("init_shared_config must be called from the main thread");
     unsafe {
         let config = WKWebViewConfiguration::new(mtm);
         // Explicitly set the default persistent data store so cookies/localStorage
@@ -83,10 +83,13 @@ pub async fn webview_eval_js(app: tauri::AppHandle, code: String) -> Result<Stri
         .ok_or_else(|| "Main window not found".to_string())?;
 
     // Generate a unique callback ID to avoid collisions
-    let callback_id = format!("__eval_{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos());
+    let callback_id = format!(
+        "__eval_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
 
     // Wrap the code: eval it, stringify the result, store in a global keyed by callback_id
     // Then call postMessage to the IPC channel to signal completion.
@@ -119,19 +122,25 @@ pub async fn webview_eval_js(app: tauri::AppHandle, code: String) -> Result<Stri
     });
 
     // Execute
-    webview.eval(&wrapped).map_err(|e| format!("Failed to eval: {}", e))?;
+    webview
+        .eval(&wrapped)
+        .map_err(|e| format!("Failed to eval: {}", e))?;
 
     // Wait for result
     match rx.recv_timeout(std::time::Duration::from_secs(10)) {
         Ok(raw) => {
             // Parse the double-serialized payload
             let payload_str: String = serde_json::from_str(&raw).unwrap_or(raw.clone());
-            let parsed: serde_json::Value = serde_json::from_str(&payload_str)
-                .unwrap_or(serde_json::Value::String(raw));
+            let parsed: serde_json::Value =
+                serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::String(raw));
             if let Some(err) = parsed.get("error").and_then(|e| e.as_str()) {
                 return Err(format!("JS error: {}", err));
             }
-            Ok(parsed.get("result").and_then(|r| r.as_str()).unwrap_or("").to_string())
+            Ok(parsed
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string())
         }
         Err(_) => Err("Timeout waiting for JS eval result (10s)".to_string()),
     }
@@ -153,7 +162,10 @@ pub async fn webview_create(
     let exists = state.labels.lock().unwrap().contains_key(&label);
     if exists {
         if let Some(webview) = app.get_webview(&label) {
-            eprintln!("[Webview] Reusing existing '{}', showing and repositioning", label);
+            eprintln!(
+                "[Webview] Reusing existing '{}', showing and repositioning",
+                label
+            );
             let _ = webview.set_position(tauri::LogicalPosition::new(x, y));
             let _ = webview.set_size(tauri::LogicalSize::new(width, height));
             let _ = webview.show();
@@ -178,11 +190,9 @@ pub async fn webview_create(
         label, url, x, y, width, height
     );
 
-    let mut webview_builder = tauri::webview::WebviewBuilder::new(
-        &label,
-        tauri::WebviewUrl::External(parsed_url),
-    )
-    .user_agent(CHROME_UA);
+    let mut webview_builder =
+        tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed_url))
+            .user_agent(CHROME_UA);
 
     // On macOS, use the shared WKWebViewConfiguration so all webviews share
     // the same WKProcessPool → cookies/session shared instantly across tabs.
@@ -326,12 +336,19 @@ pub async fn webview_reload(app: tauri::AppHandle, label: String) -> Result<(), 
 
 /// Navigate a webview to a new URL.
 #[tauri::command]
-pub async fn webview_navigate(app: tauri::AppHandle, label: String, url: String) -> Result<(), String> {
+pub async fn webview_navigate(
+    app: tauri::AppHandle,
+    label: String,
+    url: String,
+) -> Result<(), String> {
     if let Some(webview) = app.get_webview(&label) {
-        let parsed = url.parse::<tauri::Url>()
+        let parsed = url
+            .parse::<tauri::Url>()
             .map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
         eprintln!("[Webview] Navigating '{}' to {}", label, url);
-        webview.navigate(parsed).map_err(|e| format!("Failed to navigate: {}", e))?;
+        webview
+            .navigate(parsed)
+            .map_err(|e| format!("Failed to navigate: {}", e))?;
     }
     Ok(())
 }
@@ -340,7 +357,10 @@ pub async fn webview_navigate(app: tauri::AppHandle, label: String, url: String)
 #[tauri::command]
 pub async fn webview_get_url(app: tauri::AppHandle, label: String) -> Result<String, String> {
     if let Some(webview) = app.get_webview(&label) {
-        return webview.url().map(|u| u.to_string()).map_err(|e| format!("{}", e));
+        return webview
+            .url()
+            .map(|u| u.to_string())
+            .map_err(|e| format!("{}", e));
     }
     Err("Webview not found".to_string())
 }

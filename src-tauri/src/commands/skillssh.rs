@@ -1,31 +1,31 @@
 //! Skills.sh integration for TeamClaw
-//! 
+//!
 //! This module provides integration with skills.sh marketplace for discovering and installing
 //! agent skills. The implementation follows the vercel-labs/skills pattern for skill discovery:
-//! 
+//!
 //! - Searches priority directories (.opencode/skills, .claude/skills, skills/, etc.)
 //! - Parses SKILL.md frontmatter to identify skills
 //! - **Parallel recursive discovery** using rayon for 3-10x performance improvement
 //! - Uses GitHub Code Search API for intelligent skill discovery (handles any directory structure)
 //! - Supports multiple git hosting platforms (GitHub, GitLab, Gitee, Bitbucket, self-hosted)
-//! 
+//!
 //! ## Skill Discovery Strategy
-//! 
+//!
 //! For GitHub repositories, the module uses a two-phase approach:
 //! 1. **GitHub API Search (Primary)**: Uses Code Search API to find all SKILL.md files and intelligently
 //!    matches them based on parent directory name (e.g., `.github/plugins/azure-skills/skills/microsoft-foundry/SKILL.md`)
 //! 2. **Priority Path Fallback**: Falls back to checking standard skill paths if API is rate-limited
-//! 
+//!
 //! ## Performance Optimization
-//! 
+//!
 //! The recursive skill discovery uses **rayon** for parallel directory traversal:
 //! - Searches multiple subdirectories concurrently
 //! - Typical speedup: 3-10x compared to serial search (depending on CPU cores)
 //! - Automatically scales with available CPU cores
-//! 
+//!
 //! This strategy handles repositories with deeply nested skill structures (like microsoft/azure-skills)
 //! while maintaining backward compatibility and excellent performance.
-//! 
+//!
 //! Reference: https://github.com/vercel-labs/skills
 
 use serde::{Deserialize, Serialize};
@@ -38,25 +38,40 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Clone, PartialEq)]
 enum GitHosting {
-    GitHub { owner: String, repo: String },
-    GitLab { owner: String, repo: String, instance: String },
-    Gitee { owner: String, repo: String },
-    Bitbucket { owner: String, repo: String },
-    Generic { url: String },
+    GitHub {
+        owner: String,
+        repo: String,
+    },
+    GitLab {
+        owner: String,
+        repo: String,
+        instance: String,
+    },
+    Gitee {
+        owner: String,
+        repo: String,
+    },
+    Bitbucket {
+        owner: String,
+        repo: String,
+    },
+    Generic {
+        url: String,
+    },
 }
 
 /// Parse git URL and detect hosting platform
 fn detect_git_hosting(url: &str) -> GitHosting {
     // Normalize URL
     let url_lower = url.to_lowercase();
-    
+
     // GitHub patterns
     if url_lower.contains("github.com") {
         if let Some((owner, repo)) = parse_owner_repo(url) {
             return GitHosting::GitHub { owner, repo };
         }
     }
-    
+
     // GitLab patterns (both gitlab.com and self-hosted)
     if url_lower.contains("gitlab") {
         if let Some((owner, repo)) = parse_owner_repo(url) {
@@ -66,26 +81,32 @@ fn detect_git_hosting(url: &str) -> GitHosting {
                 // Extract instance URL from self-hosted GitLab
                 extract_base_url(url)
             };
-            return GitHosting::GitLab { owner, repo, instance };
+            return GitHosting::GitLab {
+                owner,
+                repo,
+                instance,
+            };
         }
     }
-    
+
     // Gitee (Chinese git hosting)
     if url_lower.contains("gitee.com") {
         if let Some((owner, repo)) = parse_owner_repo(url) {
             return GitHosting::Gitee { owner, repo };
         }
     }
-    
+
     // Bitbucket
     if url_lower.contains("bitbucket.org") {
         if let Some((owner, repo)) = parse_owner_repo(url) {
             return GitHosting::Bitbucket { owner, repo };
         }
     }
-    
+
     // Generic git URL
-    GitHosting::Generic { url: url.to_string() }
+    GitHosting::Generic {
+        url: url.to_string(),
+    }
 }
 
 /// Extract owner and repo from git URL
@@ -93,9 +114,9 @@ fn parse_owner_repo(url: &str) -> Option<(String, String)> {
     // Handle both HTTPS and SSH URLs
     // HTTPS: https://github.com/owner/repo.git
     // SSH: git@github.com:owner/repo.git
-    
+
     let url = url.trim_end_matches('/').trim_end_matches(".git");
-    
+
     // SSH format
     if url.contains('@') && url.contains(':') {
         if let Some(after_colon) = url.split(':').nth(1) {
@@ -105,7 +126,7 @@ fn parse_owner_repo(url: &str) -> Option<(String, String)> {
             }
         }
     }
-    
+
     // HTTPS format
     let parts: Vec<&str> = url.split('/').collect();
     if parts.len() >= 2 {
@@ -113,7 +134,7 @@ fn parse_owner_repo(url: &str) -> Option<(String, String)> {
         let repo = parts[parts.len() - 1];
         return Some((owner.to_string(), repo.to_string()));
     }
-    
+
     None
 }
 
@@ -175,11 +196,13 @@ pub struct SkillsShSearchEntry {
 
 /// Fetch skills.sh leaderboard data
 /// This scrapes the HTML page since skills.sh doesn't have a public API
-/// 
+///
 /// # Arguments
 /// * `category` - "all-time", "trending", or "hot"
 #[tauri::command]
-pub async fn fetch_skillssh_leaderboard(category: Option<String>) -> Result<SkillsShLeaderboard, String> {
+pub async fn fetch_skillssh_leaderboard(
+    category: Option<String>,
+) -> Result<SkillsShLeaderboard, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .user_agent("TeamClaw/1.0")
@@ -206,11 +229,11 @@ pub async fn fetch_skillssh_leaderboard(category: Option<String>) -> Result<Skil
 
     // Parse the HTML to extract leaderboard data
     let mut skills = parse_skillssh_html(&html)?;
-    
+
     // If parsing failed or returned empty, use fallback with category-specific filtering
     if skills.is_empty() {
         skills = get_fallback_leaderboard();
-        
+
         // Apply category-specific sorting to fallback data
         match category.as_deref() {
             Some("trending") => {
@@ -224,14 +247,22 @@ pub async fn fetch_skillssh_leaderboard(category: Option<String>) -> Result<Skil
             Some("hot") => {
                 // Hot: prefer recent popular skills
                 skills.sort_by(|a, b| {
-                    let a_score = if a.rank <= 10 { a.installs * 2 } else { a.installs };
-                    let b_score = if b.rank <= 10 { b.installs * 2 } else { b.installs };
+                    let a_score = if a.rank <= 10 {
+                        a.installs * 2
+                    } else {
+                        a.installs
+                    };
+                    let b_score = if b.rank <= 10 {
+                        b.installs * 2
+                    } else {
+                        b.installs
+                    };
                     b_score.cmp(&a_score)
                 });
             }
             _ => {} // all-time: keep original order
         }
-        
+
         // Re-rank after sorting
         for (i, skill) in skills.iter_mut().enumerate() {
             skill.rank = i + 1;
@@ -264,7 +295,11 @@ pub async fn search_skillssh_skills(query: String) -> Result<SkillsShLeaderboard
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let url = format!("{}/api/search?q={}", SKILLSSH_URL, urlencoding::encode(&query));
+    let url = format!(
+        "{}/api/search?q={}",
+        SKILLSSH_URL,
+        urlencoding::encode(&query)
+    );
 
     let response = client
         .get(&url)
@@ -318,18 +353,19 @@ fn parse_skillssh_html(html: &str) -> Result<Vec<SkillsShEntry>, String> {
 
     // The data is embedded in a Next.js script tag as escaped JSON
     // Look for the array starting with [{"source":
-    let re = Regex::new(r#"\[\{\\"source\\":\\".*?\}\]"#).map_err(|e| format!("Regex error: {}", e))?;
-    
+    let re =
+        Regex::new(r#"\[\{\\"source\\":\\".*?\}\]"#).map_err(|e| format!("Regex error: {}", e))?;
+
     if let Some(caps) = re.captures(html) {
         let json_str = caps.get(0).unwrap().as_str();
-        
+
         // Unescape the string (replace \" with " and \\ with \)
         let unescaped = json_str.replace("\\\"", "\"").replace("\\\\", "\\");
-        
+
         // Parse the JSON array
         if let Ok(Value::Array(arr)) = serde_json::from_str(&unescaped) {
             let mut rank = 1;
-            
+
             for item in arr {
                 if let (Some(source), Some(slug), Some(installs)) = (
                     item.get("source").and_then(|v| v.as_str()),
@@ -352,7 +388,7 @@ fn parse_skillssh_html(html: &str) -> Result<Vec<SkillsShEntry>, String> {
                         installs,
                         category: None,
                     });
-                    
+
                     rank += 1;
                     if rank > 100 {
                         break;
@@ -365,7 +401,7 @@ fn parse_skillssh_html(html: &str) -> Result<Vec<SkillsShEntry>, String> {
     // If HTML parsing failed, return static fallback data
     if skills.is_empty() {
         skills = get_fallback_leaderboard();
-        
+
         // Apply category-specific sorting to fallback data
         // ... (rest of fallback logic is handled in fetch_skillssh_leaderboard)
     }
@@ -377,7 +413,7 @@ fn parse_skillssh_html(html: &str) -> Result<Vec<SkillsShEntry>, String> {
 #[allow(dead_code)]
 fn parse_installs(text: &str) -> Option<u64> {
     let text = text.replace(",", "").replace(" ", "");
-    
+
     if text.ends_with('K') {
         let num_str = text.trim_end_matches('K');
         let num: f64 = num_str.parse().ok()?;
@@ -394,31 +430,206 @@ fn parse_installs(text: &str) -> Option<u64> {
 /// Fallback leaderboard data (static, used when scraping fails)
 fn get_fallback_leaderboard() -> Vec<SkillsShEntry> {
     vec![
-        SkillsShEntry { rank: 1, slug: "find-skills".to_string(), owner: "vercel-labs".to_string(), repo: "skills".to_string(), installs: 521400, category: Some("utility".to_string()) },
-        SkillsShEntry { rank: 2, slug: "vercel-react-best-practices".to_string(), owner: "vercel-labs".to_string(), repo: "agent-skills".to_string(), installs: 202300, category: Some("development".to_string()) },
-        SkillsShEntry { rank: 3, slug: "web-design-guidelines".to_string(), owner: "vercel-labs".to_string(), repo: "agent-skills".to_string(), installs: 158900, category: Some("design".to_string()) },
-        SkillsShEntry { rank: 4, slug: "frontend-design".to_string(), owner: "anthropics".to_string(), repo: "skills".to_string(), installs: 148800, category: Some("design".to_string()) },
-        SkillsShEntry { rank: 5, slug: "remotion-best-practices".to_string(), owner: "remotion-dev".to_string(), repo: "skills".to_string(), installs: 140500, category: Some("video".to_string()) },
-        SkillsShEntry { rank: 6, slug: "azure-ai".to_string(), owner: "microsoft".to_string(), repo: "github-copilot-for-azure".to_string(), installs: 132900, category: Some("cloud".to_string()) },
-        SkillsShEntry { rank: 7, slug: "agent-browser".to_string(), owner: "vercel-labs".to_string(), repo: "agent-browser".to_string(), installs: 93200, category: Some("automation".to_string()) },
-        SkillsShEntry { rank: 8, slug: "vercel-composition-patterns".to_string(), owner: "vercel-labs".to_string(), repo: "agent-skills".to_string(), installs: 81200, category: Some("development".to_string()) },
-        SkillsShEntry { rank: 9, slug: "skill-creator".to_string(), owner: "anthropics".to_string(), repo: "skills".to_string(), installs: 77900, category: Some("utility".to_string()) },
-        SkillsShEntry { rank: 10, slug: "azure-compute".to_string(), owner: "microsoft".to_string(), repo: "github-copilot-for-azure".to_string(), installs: 67600, category: Some("cloud".to_string()) },
-        SkillsShEntry { rank: 11, slug: "ui-ux-pro-max".to_string(), owner: "nextlevelbuilder".to_string(), repo: "ui-ux-pro-max-skill".to_string(), installs: 58300, category: Some("design".to_string()) },
-        SkillsShEntry { rank: 12, slug: "vercel-react-native-skills".to_string(), owner: "vercel-labs".to_string(), repo: "agent-skills".to_string(), installs: 56800, category: Some("mobile".to_string()) },
-        SkillsShEntry { rank: 13, slug: "brainstorming".to_string(), owner: "obra".to_string(), repo: "superpowers".to_string(), installs: 51900, category: Some("productivity".to_string()) },
-        SkillsShEntry { rank: 14, slug: "browser-use".to_string(), owner: "browser-use".to_string(), repo: "browser-use".to_string(), installs: 48500, category: Some("automation".to_string()) },
-        SkillsShEntry { rank: 15, slug: "seo-audit".to_string(), owner: "coreyhaines31".to_string(), repo: "marketingskills".to_string(), installs: 40500, category: Some("marketing".to_string()) },
-        SkillsShEntry { rank: 16, slug: "pdf".to_string(), owner: "anthropics".to_string(), repo: "skills".to_string(), installs: 35700, category: Some("utility".to_string()) },
-        SkillsShEntry { rank: 17, slug: "supabase-postgres-best-practices".to_string(), owner: "supabase".to_string(), repo: "agent-skills".to_string(), installs: 32700, category: Some("database".to_string()) },
-        SkillsShEntry { rank: 18, slug: "next-best-practices".to_string(), owner: "vercel-labs".to_string(), repo: "next-skills".to_string(), installs: 32200, category: Some("development".to_string()) },
-        SkillsShEntry { rank: 19, slug: "systematic-debugging".to_string(), owner: "obra".to_string(), repo: "superpowers".to_string(), installs: 28600, category: Some("development".to_string()) },
-        SkillsShEntry { rank: 20, slug: "test-driven-development".to_string(), owner: "obra".to_string(), repo: "superpowers".to_string(), installs: 23600, category: Some("development".to_string()) },
-        SkillsShEntry { rank: 21, slug: "webapp-testing".to_string(), owner: "anthropics".to_string(), repo: "skills".to_string(), installs: 22500, category: Some("testing".to_string()) },
-        SkillsShEntry { rank: 22, slug: "better-auth-best-practices".to_string(), owner: "better-auth".to_string(), repo: "skills".to_string(), installs: 21700, category: Some("security".to_string()) },
-        SkillsShEntry { rank: 23, slug: "using-superpowers".to_string(), owner: "obra".to_string(), repo: "superpowers".to_string(), installs: 20900, category: Some("utility".to_string()) },
-        SkillsShEntry { rank: 24, slug: "mcp-builder".to_string(), owner: "anthropics".to_string(), repo: "skills".to_string(), installs: 20000, category: Some("development".to_string()) },
-        SkillsShEntry { rank: 25, slug: "canvas-design".to_string(), owner: "anthropics".to_string(), repo: "skills".to_string(), installs: 17600, category: Some("design".to_string()) },
+        SkillsShEntry {
+            rank: 1,
+            slug: "find-skills".to_string(),
+            owner: "vercel-labs".to_string(),
+            repo: "skills".to_string(),
+            installs: 521400,
+            category: Some("utility".to_string()),
+        },
+        SkillsShEntry {
+            rank: 2,
+            slug: "vercel-react-best-practices".to_string(),
+            owner: "vercel-labs".to_string(),
+            repo: "agent-skills".to_string(),
+            installs: 202300,
+            category: Some("development".to_string()),
+        },
+        SkillsShEntry {
+            rank: 3,
+            slug: "web-design-guidelines".to_string(),
+            owner: "vercel-labs".to_string(),
+            repo: "agent-skills".to_string(),
+            installs: 158900,
+            category: Some("design".to_string()),
+        },
+        SkillsShEntry {
+            rank: 4,
+            slug: "frontend-design".to_string(),
+            owner: "anthropics".to_string(),
+            repo: "skills".to_string(),
+            installs: 148800,
+            category: Some("design".to_string()),
+        },
+        SkillsShEntry {
+            rank: 5,
+            slug: "remotion-best-practices".to_string(),
+            owner: "remotion-dev".to_string(),
+            repo: "skills".to_string(),
+            installs: 140500,
+            category: Some("video".to_string()),
+        },
+        SkillsShEntry {
+            rank: 6,
+            slug: "azure-ai".to_string(),
+            owner: "microsoft".to_string(),
+            repo: "github-copilot-for-azure".to_string(),
+            installs: 132900,
+            category: Some("cloud".to_string()),
+        },
+        SkillsShEntry {
+            rank: 7,
+            slug: "agent-browser".to_string(),
+            owner: "vercel-labs".to_string(),
+            repo: "agent-browser".to_string(),
+            installs: 93200,
+            category: Some("automation".to_string()),
+        },
+        SkillsShEntry {
+            rank: 8,
+            slug: "vercel-composition-patterns".to_string(),
+            owner: "vercel-labs".to_string(),
+            repo: "agent-skills".to_string(),
+            installs: 81200,
+            category: Some("development".to_string()),
+        },
+        SkillsShEntry {
+            rank: 9,
+            slug: "skill-creator".to_string(),
+            owner: "anthropics".to_string(),
+            repo: "skills".to_string(),
+            installs: 77900,
+            category: Some("utility".to_string()),
+        },
+        SkillsShEntry {
+            rank: 10,
+            slug: "azure-compute".to_string(),
+            owner: "microsoft".to_string(),
+            repo: "github-copilot-for-azure".to_string(),
+            installs: 67600,
+            category: Some("cloud".to_string()),
+        },
+        SkillsShEntry {
+            rank: 11,
+            slug: "ui-ux-pro-max".to_string(),
+            owner: "nextlevelbuilder".to_string(),
+            repo: "ui-ux-pro-max-skill".to_string(),
+            installs: 58300,
+            category: Some("design".to_string()),
+        },
+        SkillsShEntry {
+            rank: 12,
+            slug: "vercel-react-native-skills".to_string(),
+            owner: "vercel-labs".to_string(),
+            repo: "agent-skills".to_string(),
+            installs: 56800,
+            category: Some("mobile".to_string()),
+        },
+        SkillsShEntry {
+            rank: 13,
+            slug: "brainstorming".to_string(),
+            owner: "obra".to_string(),
+            repo: "superpowers".to_string(),
+            installs: 51900,
+            category: Some("productivity".to_string()),
+        },
+        SkillsShEntry {
+            rank: 14,
+            slug: "browser-use".to_string(),
+            owner: "browser-use".to_string(),
+            repo: "browser-use".to_string(),
+            installs: 48500,
+            category: Some("automation".to_string()),
+        },
+        SkillsShEntry {
+            rank: 15,
+            slug: "seo-audit".to_string(),
+            owner: "coreyhaines31".to_string(),
+            repo: "marketingskills".to_string(),
+            installs: 40500,
+            category: Some("marketing".to_string()),
+        },
+        SkillsShEntry {
+            rank: 16,
+            slug: "pdf".to_string(),
+            owner: "anthropics".to_string(),
+            repo: "skills".to_string(),
+            installs: 35700,
+            category: Some("utility".to_string()),
+        },
+        SkillsShEntry {
+            rank: 17,
+            slug: "supabase-postgres-best-practices".to_string(),
+            owner: "supabase".to_string(),
+            repo: "agent-skills".to_string(),
+            installs: 32700,
+            category: Some("database".to_string()),
+        },
+        SkillsShEntry {
+            rank: 18,
+            slug: "next-best-practices".to_string(),
+            owner: "vercel-labs".to_string(),
+            repo: "next-skills".to_string(),
+            installs: 32200,
+            category: Some("development".to_string()),
+        },
+        SkillsShEntry {
+            rank: 19,
+            slug: "systematic-debugging".to_string(),
+            owner: "obra".to_string(),
+            repo: "superpowers".to_string(),
+            installs: 28600,
+            category: Some("development".to_string()),
+        },
+        SkillsShEntry {
+            rank: 20,
+            slug: "test-driven-development".to_string(),
+            owner: "obra".to_string(),
+            repo: "superpowers".to_string(),
+            installs: 23600,
+            category: Some("development".to_string()),
+        },
+        SkillsShEntry {
+            rank: 21,
+            slug: "webapp-testing".to_string(),
+            owner: "anthropics".to_string(),
+            repo: "skills".to_string(),
+            installs: 22500,
+            category: Some("testing".to_string()),
+        },
+        SkillsShEntry {
+            rank: 22,
+            slug: "better-auth-best-practices".to_string(),
+            owner: "better-auth".to_string(),
+            repo: "skills".to_string(),
+            installs: 21700,
+            category: Some("security".to_string()),
+        },
+        SkillsShEntry {
+            rank: 23,
+            slug: "using-superpowers".to_string(),
+            owner: "obra".to_string(),
+            repo: "superpowers".to_string(),
+            installs: 20900,
+            category: Some("utility".to_string()),
+        },
+        SkillsShEntry {
+            rank: 24,
+            slug: "mcp-builder".to_string(),
+            owner: "anthropics".to_string(),
+            repo: "skills".to_string(),
+            installs: 20000,
+            category: Some("development".to_string()),
+        },
+        SkillsShEntry {
+            rank: 25,
+            slug: "canvas-design".to_string(),
+            owner: "anthropics".to_string(),
+            repo: "skills".to_string(),
+            installs: 17600,
+            category: Some("design".to_string()),
+        },
     ]
 }
 
@@ -447,21 +658,22 @@ async fn fetch_skill_content_from_url(git_url: &str, slug: &str) -> Result<Strin
     let hosting = detect_git_hosting(git_url);
 
     match hosting {
-        GitHosting::GitHub { owner, repo } => {
-            fetch_from_github(&client, &owner, &repo, slug).await
-        }
-        GitHosting::GitLab { owner, repo, instance } => {
-            fetch_from_gitlab(&client, &owner, &repo, slug, &instance).await
-        }
-        GitHosting::Gitee { owner, repo } => {
-            fetch_from_gitee(&client, &owner, &repo, slug).await
-        }
+        GitHosting::GitHub { owner, repo } => fetch_from_github(&client, &owner, &repo, slug).await,
+        GitHosting::GitLab {
+            owner,
+            repo,
+            instance,
+        } => fetch_from_gitlab(&client, &owner, &repo, slug, &instance).await,
+        GitHosting::Gitee { owner, repo } => fetch_from_gitee(&client, &owner, &repo, slug).await,
         GitHosting::Bitbucket { owner, repo } => {
             fetch_from_bitbucket(&client, &owner, &repo, slug).await
         }
         GitHosting::Generic { url } => {
             // For generic URLs, we need to clone to discover skills
-            Err(format!("Cannot preview skill from generic git URL. Please install to discover content: {}", url))
+            Err(format!(
+                "Cannot preview skill from generic git URL. Please install to discover content: {}",
+                url
+            ))
         }
     }
 }
@@ -485,9 +697,15 @@ async fn fetch_from_github(
     for branch in &branches {
         for path in &search_paths {
             let url = if path.is_empty() {
-                format!("https://raw.githubusercontent.com/{}/{}/{}/SKILL.md", owner, repo, branch)
+                format!(
+                    "https://raw.githubusercontent.com/{}/{}/{}/SKILL.md",
+                    owner, repo, branch
+                )
             } else {
-                format!("https://raw.githubusercontent.com/{}/{}/{}/{}/{}/SKILL.md", owner, repo, branch, path, slug)
+                format!(
+                    "https://raw.githubusercontent.com/{}/{}/{}/{}/{}/SKILL.md",
+                    owner, repo, branch, path, slug
+                )
             };
 
             if let Ok(content) = try_fetch_content(client, &url).await {
@@ -496,7 +714,10 @@ async fn fetch_from_github(
         }
     }
 
-    Err(format!("Could not find SKILL.md for {}/{} ({})", owner, repo, slug))
+    Err(format!(
+        "Could not find SKILL.md for {}/{} ({})",
+        owner, repo, slug
+    ))
 }
 
 /// Fetch skill content from GitLab
@@ -546,7 +767,10 @@ async fn fetch_from_gitlab(
         }
     }
 
-    Err(format!("Could not find SKILL.md for {}/{} on GitLab", owner, repo))
+    Err(format!(
+        "Could not find SKILL.md for {}/{} on GitLab",
+        owner, repo
+    ))
 }
 
 /// Fetch skill content from Gitee
@@ -563,9 +787,15 @@ async fn fetch_from_gitee(
     for branch in &branches {
         for path in &search_paths {
             let url = if path.is_empty() {
-                format!("https://gitee.com/{}/{}/raw/{}/SKILL.md", owner, repo, branch)
+                format!(
+                    "https://gitee.com/{}/{}/raw/{}/SKILL.md",
+                    owner, repo, branch
+                )
             } else {
-                format!("https://gitee.com/{}/{}/raw/{}/{}/{}/SKILL.md", owner, repo, branch, path, slug)
+                format!(
+                    "https://gitee.com/{}/{}/raw/{}/{}/{}/SKILL.md",
+                    owner, repo, branch, path, slug
+                )
             };
 
             if let Ok(content) = try_fetch_content(client, &url).await {
@@ -574,7 +804,10 @@ async fn fetch_from_gitee(
         }
     }
 
-    Err(format!("Could not find SKILL.md for {}/{} on Gitee", owner, repo))
+    Err(format!(
+        "Could not find SKILL.md for {}/{} on Gitee",
+        owner, repo
+    ))
 }
 
 /// Fetch skill content from Bitbucket
@@ -591,9 +824,15 @@ async fn fetch_from_bitbucket(
     for branch in &branches {
         for path in &search_paths {
             let url = if path.is_empty() {
-                format!("https://bitbucket.org/{}/{}/raw/{}/SKILL.md", owner, repo, branch)
+                format!(
+                    "https://bitbucket.org/{}/{}/raw/{}/SKILL.md",
+                    owner, repo, branch
+                )
             } else {
-                format!("https://bitbucket.org/{}/{}/raw/{}/{}/{}/SKILL.md", owner, repo, branch, path, slug)
+                format!(
+                    "https://bitbucket.org/{}/{}/raw/{}/{}/{}/SKILL.md",
+                    owner, repo, branch, path, slug
+                )
             };
 
             if let Ok(content) = try_fetch_content(client, &url).await {
@@ -602,7 +841,10 @@ async fn fetch_from_bitbucket(
         }
     }
 
-    Err(format!("Could not find SKILL.md for {}/{} on Bitbucket", owner, repo))
+    Err(format!(
+        "Could not find SKILL.md for {}/{} on Bitbucket",
+        owner, repo
+    ))
 }
 
 /// Get standard skill search paths (following vercel-labs/skills conventions)
@@ -622,7 +864,7 @@ fn get_skill_search_paths() -> Vec<&'static str> {
         ".commandcode/skills",
         ".continue/skills",
         ".github/skills",
-        ".github/plugins/azure-skills/skills",  // Microsoft Azure Skills
+        ".github/plugins/azure-skills/skills", // Microsoft Azure Skills
         ".goose/skills",
         ".iflow/skills",
         ".junie/skills",
@@ -647,11 +889,12 @@ async fn try_fetch_content(client: &reqwest::Client, url: &str) -> Result<String
         Ok(response) => {
             if response.status().is_success() {
                 if let Ok(content) = response.text().await {
-                    if !content.trim().is_empty() 
+                    if !content.trim().is_empty()
                         && !content.contains("404: Not Found")
                         && !content.contains("404 - Not Found")
-                        && content.contains("name:") 
-                        && content.contains("description:") {
+                        && content.contains("name:")
+                        && content.contains("description:")
+                    {
                         return Ok(content);
                     }
                 }
@@ -683,7 +926,10 @@ async fn search_skill_via_github_api(
         .map_err(|e| format!("GitHub API request failed: {}", e))?;
 
     if !response.status().is_success() {
-        return Err(format!("GitHub API search failed with status: {}", response.status()));
+        return Err(format!(
+            "GitHub API search failed with status: {}",
+            response.status()
+        ));
     }
 
     let json: serde_json::Value = response
@@ -707,18 +953,18 @@ async fn search_skill_via_github_api(
             if parts.len() >= 2 && parts[parts.len() - 1] == "SKILL.md" {
                 let parent_dir = parts[parts.len() - 2];
                 let parent_lower = parent_dir.to_lowercase();
-                
+
                 // Calculate match score (higher is better)
                 let score = if parent_lower == slug_lower {
-                    100  // Exact directory name match
+                    100 // Exact directory name match
                 } else if path.to_lowercase().contains(&slug_lower) {
-                    50   // Path contains slug
+                    50 // Path contains slug
                 } else if path == "SKILL.md" {
-                    10   // Root SKILL.md
+                    10 // Root SKILL.md
                 } else {
-                    0    // No match
+                    0 // No match
                 };
-                
+
                 if score > 0 {
                     if let Some(html_url) = item["html_url"].as_str() {
                         if best_match.is_none() || score > best_match.as_ref().unwrap().1 {
@@ -732,8 +978,10 @@ async fn search_skill_via_github_api(
 
     // Fetch the best match
     if let Some((html_url, _)) = best_match {
-        let raw_url = html_url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/");
-        
+        let raw_url = html_url
+            .replace("github.com", "raw.githubusercontent.com")
+            .replace("/blob/", "/");
+
         if let Ok(content) = try_fetch_content(client, &raw_url).await {
             return Ok(content);
         }
@@ -766,17 +1014,17 @@ pub async fn install_skill_from_git_url(
     slug: String,
     is_global: bool,
 ) -> Result<String, String> {
-    use std::process::Command;
-    use std::path::Path;
     use std::fs;
+    use std::path::Path;
+    use std::process::Command;
 
     // Sanitize slug for directory name
     let slug = slug.trim();
-    
+
     // Generate unique temp directory name
     let url_hash = format!("{:x}", md5::compute(&git_url));
     let temp_dir = std::env::temp_dir().join(format!("teamclaw-skill-{}", url_hash));
-    
+
     // Remove if exists
     if temp_dir.exists() {
         let _ = fs::remove_dir_all(&temp_dir);
@@ -784,7 +1032,13 @@ pub async fn install_skill_from_git_url(
 
     // Clone repo with shallow depth
     let status = Command::new("git")
-        .args(&["clone", "--depth", "1", &git_url, temp_dir.to_str().unwrap()])
+        .args(&[
+            "clone",
+            "--depth",
+            "1",
+            &git_url,
+            temp_dir.to_str().unwrap(),
+        ])
         .status()
         .map_err(|e| format!("Failed to execute git: {}", e))?;
 
@@ -798,21 +1052,27 @@ pub async fn install_skill_from_git_url(
     // Determine target directory based on install location
     let target_dir = if is_global {
         // Global install: ~/.config/opencode/skills/<slug>
-        let home = dirs::home_dir()
-            .ok_or_else(|| "Failed to determine home directory".to_string())?;
-        home.join(".config").join("opencode").join("skills").join(slug)
+        let home =
+            dirs::home_dir().ok_or_else(|| "Failed to determine home directory".to_string())?;
+        home.join(".config")
+            .join("opencode")
+            .join("skills")
+            .join(slug)
     } else {
         // Workspace install: <workspace>/.opencode/skills/<slug>
         let ws_path = workspace_path
             .ok_or_else(|| "Workspace path required for workspace installation".to_string())?;
-        Path::new(&ws_path).join(".opencode").join("skills").join(slug)
+        Path::new(&ws_path)
+            .join(".opencode")
+            .join("skills")
+            .join(slug)
     };
-    
+
     // Remove existing if any
     if target_dir.exists() {
         let _ = fs::remove_dir_all(&target_dir);
     }
-    
+
     fs::create_dir_all(&target_dir)
         .map_err(|e| format!("Failed to create target directory: {}", e))?;
 
@@ -822,14 +1082,21 @@ pub async fn install_skill_from_git_url(
     // Cleanup
     let _ = fs::remove_dir_all(&temp_dir);
 
-    let location = if is_global { "globally" } else { "to workspace" };
+    let location = if is_global {
+        "globally"
+    } else {
+        "to workspace"
+    };
     Ok(format!("Successfully installed {} {}", slug, location))
 }
 
 /// Discover skill directory in cloned repo following vercel-labs/skills pattern
-fn discover_skill_directory(repo_path: &std::path::PathBuf, slug: &str) -> Result<std::path::PathBuf, String> {
+fn discover_skill_directory(
+    repo_path: &std::path::PathBuf,
+    slug: &str,
+) -> Result<std::path::PathBuf, String> {
     use std::fs;
-    
+
     // Priority search paths (same as vercel-labs/skills)
     let search_dirs = vec![
         repo_path.clone(),
@@ -846,7 +1113,11 @@ fn discover_skill_directory(repo_path: &std::path::PathBuf, slug: &str) -> Resul
         repo_path.join(".commandcode").join("skills"),
         repo_path.join(".continue").join("skills"),
         repo_path.join(".github").join("skills"),
-        repo_path.join(".github").join("plugins").join("azure-skills").join("skills"),  // Microsoft Azure Skills
+        repo_path
+            .join(".github")
+            .join("plugins")
+            .join("azure-skills")
+            .join("skills"), // Microsoft Azure Skills
         repo_path.join(".goose").join("skills"),
         repo_path.join(".iflow").join("skills"),
         repo_path.join(".junie").join("skills"),
@@ -878,7 +1149,7 @@ fn discover_skill_directory(repo_path: &std::path::PathBuf, slug: &str) -> Resul
                 }
             }
         }
-        
+
         // Also check if the directory itself has SKILL.md (for root-level skills)
         if dir.join("SKILL.md").exists() {
             all_skills.push(dir.clone());
@@ -928,15 +1199,26 @@ fn discover_skill_directory(repo_path: &std::path::PathBuf, slug: &str) -> Resul
 
 /// Recursively find all directories containing SKILL.md (parallel version)
 /// Uses rayon for parallel directory traversal, significantly faster for large repositories
-fn find_all_skill_dirs(dir: &std::path::PathBuf, depth: usize, max_depth: usize) -> Result<Vec<std::path::PathBuf>, String> {
-    use std::fs;
+fn find_all_skill_dirs(
+    dir: &std::path::PathBuf,
+    depth: usize,
+    max_depth: usize,
+) -> Result<Vec<std::path::PathBuf>, String> {
     use rayon::prelude::*;
-    
+    use std::fs;
+
     if depth > max_depth {
         return Ok(Vec::new());
     }
 
-    let skip_dirs = vec![".git", "node_modules", "dist", "build", "__pycache__", "target"];
+    let skip_dirs = vec![
+        ".git",
+        "node_modules",
+        "dist",
+        "build",
+        "__pycache__",
+        "target",
+    ];
     let mut result = Vec::new();
 
     // Check if current dir has SKILL.md
@@ -969,7 +1251,7 @@ fn find_all_skill_dirs(dir: &std::path::PathBuf, depth: usize, max_depth: usize)
         // Each subdir is processed by a separate thread from rayon's thread pool
         // Threads automatically "steal" work from each other for load balancing
         let parallel_results: Vec<std::path::PathBuf> = subdirs
-            .par_iter()  // 🚀 Parallel iterator - uses all CPU cores
+            .par_iter() // 🚀 Parallel iterator - uses all CPU cores
             .flat_map(|subdir| {
                 // Recursively search each subdir in parallel
                 // unwrap_or_default() isolates errors (one failing subdir doesn't affect others)
@@ -987,7 +1269,7 @@ fn find_all_skill_dirs(dir: &std::path::PathBuf, depth: usize, max_depth: usize)
 fn extract_frontmatter_name(content: &str) -> Option<String> {
     // Simple YAML frontmatter parser for name field
     let lines: Vec<&str> = content.lines().collect();
-    
+
     if lines.is_empty() || !lines[0].starts_with("---") {
         return None;
     }
@@ -996,7 +1278,7 @@ fn extract_frontmatter_name(content: &str) -> Option<String> {
         if line.starts_with("---") {
             break;
         }
-        
+
         if line.trim_start().starts_with("name:") {
             let name = line.split(':').nth(1)?.trim();
             // Remove quotes if present
@@ -1011,29 +1293,29 @@ fn extract_frontmatter_name(content: &str) -> Option<String> {
 /// Copy skill directory excluding .git and other metadata
 fn copy_skill_directory(src: &std::path::PathBuf, dst: &std::path::PathBuf) -> Result<(), String> {
     use std::fs;
-    
+
     let exclude_files = vec!["metadata.json"];
     let exclude_dirs = vec![".git", "__pycache__", "__pypackages__"];
-    
+
     let mut copy_dirs = vec![(src.clone(), dst.clone())];
-    
+
     while let Some((src_dir, dst_dir)) = copy_dirs.pop() {
         if let Ok(entries) = fs::read_dir(&src_dir) {
             for entry in entries.flatten() {
                 let src_path = entry.path();
                 let file_name = entry.file_name();
                 let name = file_name.to_string_lossy();
-                
+
                 // Skip excluded files and directories
                 if exclude_files.contains(&name.as_ref()) {
                     continue;
                 }
-                
+
                 if src_path.is_dir() {
                     if exclude_dirs.contains(&name.as_ref()) || name.starts_with('.') {
                         continue;
                     }
-                    
+
                     let dst_path = dst_dir.join(&file_name);
                     if let Ok(_) = fs::create_dir_all(&dst_path) {
                         copy_dirs.push((src_path, dst_path));
@@ -1043,7 +1325,7 @@ fn copy_skill_directory(src: &std::path::PathBuf, dst: &std::path::PathBuf) -> R
                     if name.starts_with('.') {
                         continue;
                     }
-                    
+
                     let dst_path = dst_dir.join(&file_name);
                     let _ = fs::copy(&src_path, &dst_path);
                 }

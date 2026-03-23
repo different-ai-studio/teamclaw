@@ -77,7 +77,10 @@ pub async fn start_opencode(
         let mut early_guard = state.early_launch.lock().await;
         if let Some(early) = early_guard.as_ref() {
             if early.workspace_path == config.workspace_path {
-                println!("[OpenCode] Reusing early launch for: {}", config.workspace_path);
+                println!(
+                    "[OpenCode] Reusing early launch for: {}",
+                    config.workspace_path
+                );
                 let mut rx = early.result_rx.clone();
                 drop(early_guard);
                 // Wait for the early launch to complete
@@ -119,7 +122,10 @@ pub async fn start_opencode_inner(
     // Serialize concurrent calls — only one start_opencode runs at a time.
     let _start_guard = state.start_lock.lock().await;
     #[cfg(debug_assertions)]
-    eprintln!("[Startup] start_opencode_inner: lock acquired in {:.1}ms", inner_t0.elapsed().as_secs_f64() * 1000.0);
+    eprintln!(
+        "[Startup] start_opencode_inner: lock acquired in {:.1}ms",
+        inner_t0.elapsed().as_secs_f64() * 1000.0
+    );
 
     let is_dev_mode = *state.is_dev_mode.lock().map_err(|e| e.to_string())?;
     let port = config.port.unwrap_or(DEFAULT_PORT);
@@ -345,10 +351,16 @@ pub async fn start_opencode_inner(
         // Branch 1: opencode.json writers (must be sequential with each other)
         tokio::task::spawn_blocking(move || {
             if let Err(e) = ensure_default_permissions(&ws_for_config) {
-                eprintln!("[OpenCode] Warning: failed to ensure default permissions: {}", e);
+                eprintln!(
+                    "[OpenCode] Warning: failed to ensure default permissions: {}",
+                    e
+                );
             }
             if let Err(e) = ensure_inherent_config(&ws_for_config) {
-                eprintln!("[OpenCode] Warning: failed to ensure inherent configs: {}", e);
+                eprintln!(
+                    "[OpenCode] Warning: failed to ensure inherent configs: {}",
+                    e
+                );
             }
             if let Err(e) = resolve_sidecar_binary_paths(&ws_for_config) {
                 eprintln!("[OpenCode] Warning: failed to resolve binary paths: {}", e);
@@ -357,7 +369,10 @@ pub async fn start_opencode_inner(
         // Branch 2: inherent skills (writes to .opencode/skills/, no opencode.json conflict)
         tokio::task::spawn_blocking(move || {
             if let Err(e) = ensure_inherent_skills(&ws_for_skills) {
-                eprintln!("[OpenCode] Warning: failed to ensure inherent skills: {}", e);
+                eprintln!(
+                    "[OpenCode] Warning: failed to ensure inherent skills: {}",
+                    e
+                );
             }
         }),
         // Branch 3: keyring secrets
@@ -407,7 +422,10 @@ pub async fn start_opencode_inner(
     }
 
     #[cfg(debug_assertions)]
-    eprintln!("[Startup] Pre-sidecar I/O (parallel): {:.1}ms", inner_t0.elapsed().as_secs_f64() * 1000.0);
+    eprintln!(
+        "[Startup] Pre-sidecar I/O (parallel): {:.1}ms",
+        inner_t0.elapsed().as_secs_f64() * 1000.0
+    );
 
     let original_config = resolve_config_secret_refs(&workspace_path, &secrets);
 
@@ -526,7 +544,10 @@ pub async fn start_opencode_inner(
     }
 
     #[cfg(debug_assertions)]
-    eprintln!("[Startup] start_opencode_inner TOTAL: {:.1}ms", inner_t0.elapsed().as_secs_f64() * 1000.0);
+    eprintln!(
+        "[Startup] start_opencode_inner TOTAL: {:.1}ms",
+        inner_t0.elapsed().as_secs_f64() * 1000.0
+    );
 
     // Persist workspace for early launch on next startup
     write_last_workspace(&workspace_path);

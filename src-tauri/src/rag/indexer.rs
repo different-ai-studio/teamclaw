@@ -57,21 +57,25 @@ impl Indexer {
     /// This will clear ALL chunks (embeddings) and BM25 index, then rebuild from scratch
     pub async fn force_reindex_all(&self) -> Result<IndexResult> {
         tracing::info!("Starting force reindex - clearing all embeddings and BM25 index");
-        
+
         // Clear all chunks (this removes all vector embeddings from the database)
         if let Err(e) = self.db.clear_all_chunks().await {
             tracing::error!("Failed to clear chunks: {}", e);
             return Err(e);
         }
         tracing::info!("Cleared all chunks (vector embeddings)");
-        
+
         // Clear BM25 index (done at command level before recreating instance)
-        
+
         // Now rebuild everything
         self.index_directory_internal(None, true).await
     }
 
-    async fn index_directory_internal(&self, path: Option<&str>, force: bool) -> Result<IndexResult> {
+    async fn index_directory_internal(
+        &self,
+        path: Option<&str>,
+        force: bool,
+    ) -> Result<IndexResult> {
         let start = Instant::now();
 
         // Collect all files to index
@@ -87,10 +91,7 @@ impl Indexer {
 
             if scan_path.is_file() {
                 // Single file mode
-                let ext = scan_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                let ext = scan_path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 if !is_supported_extension(ext) {
                     bail!(
                         "Unsupported file extension: '{}'. Supported: .md, .txt, .rs, .ts, .tsx, .py, .go",
@@ -105,13 +106,16 @@ impl Indexer {
             // No path provided - scan all configured knowledge directories
             let knowledge_dirs = self.config.knowledge_dirs(&self.workspace_path);
             let mut all_files = Vec::new();
-            
+
             for knowledge_dir in &knowledge_dirs {
                 if !knowledge_dir.exists() {
-                    tracing::warn!("Knowledge directory does not exist, skipping: {:?}", knowledge_dir);
+                    tracing::warn!(
+                        "Knowledge directory does not exist, skipping: {:?}",
+                        knowledge_dir
+                    );
                     continue;
                 }
-                
+
                 match scan_directory(knowledge_dir) {
                     Ok(files) => all_files.extend(files),
                     Err(e) => {
@@ -119,7 +123,7 @@ impl Indexer {
                     }
                 }
             }
-            
+
             all_files
         };
 
@@ -134,7 +138,10 @@ impl Indexer {
             let relative_path = self.relative_path(file_path);
             seen_paths.insert(relative_path.clone());
 
-            match self.process_file_internal(file_path, &relative_path, force).await {
+            match self
+                .process_file_internal(file_path, &relative_path, force)
+                .await
+            {
                 Ok(ProcessResult::Indexed) => indexed += 1,
                 Ok(ProcessResult::Skipped) => skipped += 1,
                 Err(e) => {
@@ -192,7 +199,7 @@ impl Indexer {
             } else {
                 tracing::info!("File modified, re-indexing: {}", relative_path);
             }
-            
+
             // Delete old BM25 entries BEFORE deleting chunks from DB
             // (we need the chunk IDs to delete from BM25)
             if let Some(bm25) = &self.bm25_index {
@@ -200,14 +207,18 @@ impl Indexer {
                 tracing::info!("Deleting {} old chunks from BM25 index", old_chunks.len());
                 for chunk in old_chunks {
                     if let Err(e) = bm25.delete_document(chunk.chunk_id).await {
-                        tracing::warn!("Failed to delete chunk {} from BM25: {}", chunk.chunk_id, e);
+                        tracing::warn!(
+                            "Failed to delete chunk {} from BM25: {}",
+                            chunk.chunk_id,
+                            e
+                        );
                     }
                 }
                 if let Err(e) = bm25.commit().await {
                     tracing::warn!("Failed to commit BM25 deletions: {}", e);
                 }
             }
-            
+
             self.db.delete_chunks_by_doc_id(existing.id).await?;
 
             // Parse and chunk
@@ -225,7 +236,16 @@ impl Indexer {
             let embeddings = self.embedding.embed(texts).await?;
 
             // Store chunks
-            let chunk_data: Vec<(String, i32, Option<String>, Vec<f32>, Option<String>, Option<String>, Option<i64>, Option<i64>)> = chunks
+            let chunk_data: Vec<(
+                String,
+                i32,
+                Option<String>,
+                Vec<f32>,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+                Option<i64>,
+            )> = chunks
                 .iter()
                 .zip(embeddings.iter())
                 .map(|(chunk, emb)| {
@@ -254,7 +274,8 @@ impl Indexer {
                 .await?;
 
             // Update BM25 index
-            self.sync_bm25_for_document(existing.id, title.as_deref()).await?;
+            self.sync_bm25_for_document(existing.id, title.as_deref())
+                .await?;
 
             Ok(ProcessResult::Indexed)
         } else {
@@ -296,7 +317,16 @@ impl Indexer {
                 .await?;
 
             // Store chunks
-            let chunk_data: Vec<(String, i32, Option<String>, Vec<f32>, Option<String>, Option<String>, Option<i64>, Option<i64>)> = chunks
+            let chunk_data: Vec<(
+                String,
+                i32,
+                Option<String>,
+                Vec<f32>,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+                Option<i64>,
+            )> = chunks
                 .iter()
                 .zip(embeddings.iter())
                 .map(|(chunk, emb)| {
@@ -316,7 +346,8 @@ impl Indexer {
             self.db.insert_chunks(doc_id, &chunk_data).await?;
 
             // Update BM25 index
-            self.sync_bm25_for_document(doc_id, title.as_deref()).await?;
+            self.sync_bm25_for_document(doc_id, title.as_deref())
+                .await?;
 
             Ok(ProcessResult::Indexed)
         }
@@ -332,13 +363,19 @@ impl Indexer {
         match ext.as_str() {
             "md" => {
                 let title = chunker::extract_title(content);
-                let chunks =
-                    chunker::chunk_markdown(content, self.config.chunk_size, self.config.chunk_overlap);
+                let chunks = chunker::chunk_markdown(
+                    content,
+                    self.config.chunk_size,
+                    self.config.chunk_overlap,
+                );
                 Ok((chunks, title))
             }
             "txt" => {
-                let chunks =
-                    chunker::chunk_plain_text(content, self.config.chunk_size, self.config.chunk_overlap);
+                let chunks = chunker::chunk_plain_text(
+                    content,
+                    self.config.chunk_size,
+                    self.config.chunk_overlap,
+                );
                 Ok((chunks, None))
             }
             "rs" | "ts" | "tsx" | "py" | "go" => {
@@ -350,7 +387,7 @@ impl Indexer {
                     .map(|(i, cc)| chunker::Chunk {
                         content: cc.content.clone(),
                         chunk_index: i as i32,
-                        heading: None,  // Code files use start_line for navigation, not heading
+                        heading: None, // Code files use start_line for navigation, not heading
                         chunk_type: Some(cc.chunk_type.clone()),
                         name: Some(cc.name.clone()),
                         start_line: Some(cc.start_line),
@@ -372,20 +409,24 @@ impl Indexer {
         for (id, path) in all_docs {
             if !seen_paths.contains(&path) {
                 tracing::info!("File deleted, removing from index: {}", path);
-                
+
                 // Delete from BM25 index first (before deleting from DB)
                 if let Some(bm25) = &self.bm25_index {
                     let chunks = self.db.get_chunks_by_doc_id(id).await?;
                     for chunk in chunks {
                         if let Err(e) = bm25.delete_document(chunk.chunk_id).await {
-                            tracing::warn!("Failed to delete chunk {} from BM25: {}", chunk.chunk_id, e);
+                            tracing::warn!(
+                                "Failed to delete chunk {} from BM25: {}",
+                                chunk.chunk_id,
+                                e
+                            );
                         }
                     }
                     if let Err(e) = bm25.commit().await {
                         tracing::warn!("Failed to commit BM25 deletions: {}", e);
                     }
                 }
-                
+
                 // Then delete from database (cascades to chunks)
                 self.db.delete_document(id).await?;
             }
@@ -398,13 +439,17 @@ impl Indexer {
     pub async fn delete_file(&self, relative_path: &str) -> Result<()> {
         if let Some(doc) = self.db.get_document_by_path(relative_path).await? {
             tracing::info!("File deleted, removing from index: {}", relative_path);
-            
+
             // Get all chunk IDs for BM25 cleanup
             if let Some(bm25) = &self.bm25_index {
                 let chunks = self.db.get_chunks_by_doc_id(doc.id).await?;
                 for chunk in chunks {
                     if let Err(e) = bm25.delete_document(chunk.chunk_id).await {
-                        tracing::warn!("Failed to delete chunk {} from BM25: {}", chunk.chunk_id, e);
+                        tracing::warn!(
+                            "Failed to delete chunk {} from BM25: {}",
+                            chunk.chunk_id,
+                            e
+                        );
                     }
                 }
                 // Commit BM25 changes
@@ -412,7 +457,7 @@ impl Indexer {
                     tracing::warn!("Failed to commit BM25 index after deletion: {}", e);
                 }
             }
-            
+
             // Delete from database (cascades to chunks)
             self.db.delete_document(doc.id).await?;
             tracing::info!("Successfully removed {} from index", relative_path);
@@ -424,14 +469,14 @@ impl Indexer {
     /// Tries to strip prefix from all configured knowledge directories
     fn relative_path(&self, file_path: &Path) -> String {
         let knowledge_dirs = self.config.knowledge_dirs(&self.workspace_path);
-        
+
         // Try to find which knowledge directory this file belongs to
         for knowledge_dir in &knowledge_dirs {
             if let Ok(relative) = file_path.strip_prefix(knowledge_dir) {
                 return relative.to_string_lossy().to_string();
             }
         }
-        
+
         // Fallback: return the full path if not in any knowledge directory
         file_path.to_string_lossy().to_string()
     }
@@ -441,9 +486,13 @@ impl Indexer {
         if let Some(bm25) = &self.bm25_index {
             // Get all chunks for this document from DB
             let chunks = self.db.get_chunks_by_doc_id(doc_id).await?;
-            
-            tracing::info!("Syncing {} chunks to BM25 index for doc_id={}", chunks.len(), doc_id);
-            
+
+            tracing::info!(
+                "Syncing {} chunks to BM25 index for doc_id={}",
+                chunks.len(),
+                doc_id
+            );
+
             // Add each chunk to BM25 index
             for chunk in &chunks {
                 if let Err(e) = bm25
@@ -455,7 +504,11 @@ impl Indexer {
                     )
                     .await
                 {
-                    tracing::error!("Failed to add chunk {} to BM25 index: {}", chunk.chunk_id, e);
+                    tracing::error!(
+                        "Failed to add chunk {} to BM25 index: {}",
+                        chunk.chunk_id,
+                        e
+                    );
                     return Err(e);
                 }
             }
@@ -465,7 +518,7 @@ impl Indexer {
                 tracing::error!("Failed to commit BM25 index: {}", e);
                 return Err(e);
             }
-            
+
             tracing::info!("Successfully synced {} chunks to BM25", chunks.len());
         } else {
             tracing::warn!("BM25 index not available, skipping sync");
@@ -504,7 +557,10 @@ fn scan_directory(dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn is_supported_extension(ext: &str) -> bool {
-    matches!(ext.to_lowercase().as_str(), "md" | "txt" | "rs" | "ts" | "tsx" | "py" | "go")
+    matches!(
+        ext.to_lowercase().as_str(),
+        "md" | "txt" | "rs" | "ts" | "tsx" | "py" | "go"
+    )
 }
 
 fn file_extension(path: &Path) -> String {

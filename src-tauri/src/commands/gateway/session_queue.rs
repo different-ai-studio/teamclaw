@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::future::Future;
-use std::sync::Arc;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 
@@ -25,7 +25,8 @@ pub enum EnqueueResult {
 pub struct QueuedMessage {
     pub enqueued_at: Instant,
     pub process_fn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
-    pub notify_fn: Option<Box<dyn FnOnce(RejectReason) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    pub notify_fn:
+        Option<Box<dyn FnOnce(RejectReason) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
 }
 
 struct SessionQueueState {
@@ -39,7 +40,9 @@ pub struct SessionQueue {
 
 impl SessionQueue {
     pub fn new() -> Self {
-        Self { queues: Arc::new(RwLock::new(HashMap::new())) }
+        Self {
+            queues: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     pub async fn enqueue(&self, session_key: &str, msg: QueuedMessage) -> EnqueueResult {
@@ -55,7 +58,12 @@ impl SessionQueue {
                 }
                 Err(mpsc::error::TrySendError::Closed(returned_msg)) => {
                     queues.remove(session_key);
-                    return Self::create_and_send(&mut queues, session_key, returned_msg, &self.queues);
+                    return Self::create_and_send(
+                        &mut queues,
+                        session_key,
+                        returned_msg,
+                        &self.queues,
+                    );
                 }
                 Err(mpsc::error::TrySendError::Full(mut returned_msg)) => {
                     if let Some(notify) = returned_msg.notify_fn.take() {
@@ -82,10 +90,13 @@ impl SessionQueue {
 
         let _ = tx.try_send(msg);
 
-        queues.insert(session_key.to_string(), SessionQueueState {
-            tx,
-            pending_count: Arc::clone(&pending_count),
-        });
+        queues.insert(
+            session_key.to_string(),
+            SessionQueueState {
+                tx,
+                pending_count: Arc::clone(&pending_count),
+            },
+        );
 
         spawn_consumer(
             session_key.to_string(),
@@ -140,7 +151,10 @@ fn spawn_consumer(
 
         let mut queues = queues.write().await;
         queues.remove(&session_key);
-        println!("[SessionQueue] Consumer for '{}' exited and cleaned up", session_key);
+        println!(
+            "[SessionQueue] Consumer for '{}' exited and cleaned up",
+            session_key
+        );
     });
 }
 
@@ -152,9 +166,11 @@ mod tests {
     fn make_msg(processed: Arc<AtomicBool>) -> QueuedMessage {
         QueuedMessage {
             enqueued_at: Instant::now(),
-            process_fn: Box::new(move || Box::pin(async move {
-                processed.store(true, Ordering::Relaxed);
-            })),
+            process_fn: Box::new(move || {
+                Box::pin(async move {
+                    processed.store(true, Ordering::Relaxed);
+                })
+            }),
             notify_fn: None,
         }
     }
@@ -163,7 +179,9 @@ mod tests {
     async fn test_first_enqueue_returns_processing() {
         let queue = SessionQueue::new();
         let processed = Arc::new(AtomicBool::new(false));
-        let result = queue.enqueue("test:session1", make_msg(processed.clone())).await;
+        let result = queue
+            .enqueue("test:session1", make_msg(processed.clone()))
+            .await;
         assert!(matches!(result, EnqueueResult::Processing));
     }
 
@@ -174,9 +192,11 @@ mod tests {
         // First message: starts a slow consumer
         let msg1 = QueuedMessage {
             enqueued_at: Instant::now(),
-            process_fn: Box::new(|| Box::pin(async {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            })),
+            process_fn: Box::new(|| {
+                Box::pin(async {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                })
+            }),
             notify_fn: None,
         };
         let r1 = queue.enqueue("s1", msg1).await;
@@ -196,9 +216,11 @@ mod tests {
         // First message: block the consumer
         let msg1 = QueuedMessage {
             enqueued_at: Instant::now(),
-            process_fn: Box::new(|| Box::pin(async {
-                tokio::time::sleep(Duration::from_secs(10)).await;
-            })),
+            process_fn: Box::new(|| {
+                Box::pin(async {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                })
+            }),
             notify_fn: None,
         };
         queue.enqueue("s1", msg1).await;
@@ -208,24 +230,36 @@ mod tests {
 
         // Fill the queue (5 more = channel capacity)
         for _ in 0..MAX_QUEUE_SIZE {
-            let r = queue.enqueue("s1", QueuedMessage {
-                enqueued_at: Instant::now(),
-                process_fn: Box::new(|| Box::pin(async {})),
-                notify_fn: None,
-            }).await;
+            let r = queue
+                .enqueue(
+                    "s1",
+                    QueuedMessage {
+                        enqueued_at: Instant::now(),
+                        process_fn: Box::new(|| Box::pin(async {})),
+                        notify_fn: None,
+                    },
+                )
+                .await;
             assert!(matches!(r, EnqueueResult::Queued { .. }));
         }
 
         // Next one should be Full
         let notified_clone = notified.clone();
-        let r = queue.enqueue("s1", QueuedMessage {
-            enqueued_at: Instant::now(),
-            process_fn: Box::new(|| Box::pin(async {})),
-            notify_fn: Some(Box::new(move |_reason| {
-                let n = notified_clone;
-                Box::pin(async move { n.store(true, Ordering::Relaxed); })
-            })),
-        }).await;
+        let r = queue
+            .enqueue(
+                "s1",
+                QueuedMessage {
+                    enqueued_at: Instant::now(),
+                    process_fn: Box::new(|| Box::pin(async {})),
+                    notify_fn: Some(Box::new(move |_reason| {
+                        let n = notified_clone;
+                        Box::pin(async move {
+                            n.store(true, Ordering::Relaxed);
+                        })
+                    })),
+                },
+            )
+            .await;
         assert!(matches!(r, EnqueueResult::Full));
 
         // Give spawned notify task time to run
@@ -242,9 +276,11 @@ mod tests {
             let order_clone = Arc::clone(&order);
             let msg = QueuedMessage {
                 enqueued_at: Instant::now(),
-                process_fn: Box::new(move || Box::pin(async move {
-                    order_clone.lock().await.push(i);
-                })),
+                process_fn: Box::new(move || {
+                    Box::pin(async move {
+                        order_clone.lock().await.push(i);
+                    })
+                }),
                 notify_fn: None,
             };
             queue.enqueue("s1", msg).await;
@@ -269,19 +305,29 @@ mod tests {
             enqueued_at: Instant::now() - Duration::from_secs(200), // > MESSAGE_TIMEOUT
             process_fn: Box::new(move || {
                 let p = processed_clone;
-                Box::pin(async move { p.store(true, Ordering::Relaxed); })
+                Box::pin(async move {
+                    p.store(true, Ordering::Relaxed);
+                })
             }),
             notify_fn: Some(Box::new(move |_reason| {
                 let t = timed_out_clone;
-                Box::pin(async move { t.store(true, Ordering::Relaxed); })
+                Box::pin(async move {
+                    t.store(true, Ordering::Relaxed);
+                })
             })),
         };
 
         queue.enqueue("s1", msg).await;
 
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(!processed.load(Ordering::Relaxed), "timed-out message should not be processed");
-        assert!(timed_out.load(Ordering::Relaxed), "notify_fn should have been called");
+        assert!(
+            !processed.load(Ordering::Relaxed),
+            "timed-out message should not be processed"
+        );
+        assert!(
+            timed_out.load(Ordering::Relaxed),
+            "notify_fn should have been called"
+        );
     }
 
     #[tokio::test]
@@ -309,9 +355,11 @@ mod tests {
         // Block consumer with slow message
         let msg = QueuedMessage {
             enqueued_at: Instant::now(),
-            process_fn: Box::new(|| Box::pin(async {
-                tokio::time::sleep(Duration::from_secs(10)).await;
-            })),
+            process_fn: Box::new(|| {
+                Box::pin(async {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                })
+            }),
             notify_fn: None,
         };
         queue.enqueue("s1", msg).await;

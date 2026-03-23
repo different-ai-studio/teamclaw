@@ -45,7 +45,11 @@ impl RagState {
 
         // If workspace changed, clear old instance
         if current_workspace.as_ref() != Some(&workspace_path.to_string()) {
-            tracing::info!("[RAG] Workspace changed: {:?} -> {}", *current_workspace, workspace_path);
+            tracing::info!(
+                "[RAG] Workspace changed: {:?} -> {}",
+                *current_workspace,
+                workspace_path
+            );
             *current_workspace = Some(workspace_path.to_string());
             *current_instance = None;
         }
@@ -133,7 +137,7 @@ pub async fn rag_index(
         let config = RagConfig::load_from_workspace(&workspace_path_buf)
             .await
             .map_err(|e| format!("Failed to load config: {}", e))?;
-        
+
         let bm25_path = config.bm25_index_path(&workspace_path_buf);
         if bm25_path.exists() {
             if let Err(e) = std::fs::remove_dir_all(&bm25_path) {
@@ -142,14 +146,14 @@ pub async fn rag_index(
                 eprintln!("Old BM25 index removed, will be recreated");
             }
         }
-        
+
         // Clear current instance so it recreates with fresh BM25 index
         state.clear_current_instance().await;
-        
+
         // Get fresh instance with new BM25 index
         let instance = state.get_or_create_instance(&workspace_path).await?;
         let instance = instance.lock().await;
-        
+
         instance
             .indexer
             .force_reindex_all()
@@ -159,7 +163,7 @@ pub async fn rag_index(
         // Normal incremental indexing
         let instance = state.get_or_create_instance(&workspace_path).await?;
         let instance = instance.lock().await;
-        
+
         instance
             .indexer
             .index_directory(path.as_deref())
@@ -224,9 +228,8 @@ pub async fn rag_search(
     let instance = instance.lock().await;
 
     let top_k = top_k.unwrap_or(5);
-    let mode = crate::rag::hybrid_search::SearchMode::from_str(
-        search_mode.as_deref().unwrap_or("hybrid"),
-    );
+    let mode =
+        crate::rag::hybrid_search::SearchMode::from_str(search_mode.as_deref().unwrap_or("hybrid"));
 
     crate::rag::search::search(
         &instance.db,
@@ -335,7 +338,9 @@ pub async fn rag_start_watcher(
         return Ok(()); // Already running
     }
 
-    let knowledge_dirs = instance.config.knowledge_dirs(&PathBuf::from(&workspace_path));
+    let knowledge_dirs = instance
+        .config
+        .knowledge_dirs(&PathBuf::from(&workspace_path));
     let watcher = KnowledgeWatcher::watch(knowledge_dirs, instance.indexer.clone(), Some(app))
         .map_err(|e| format!("Failed to start file watcher: {}", e))?;
 
@@ -428,9 +433,7 @@ pub fn parse_memory_file(filename: &str, raw: &str) -> MemoryRecord {
 }
 
 #[tauri::command]
-pub async fn rag_list_memories(
-    workspace_path: String,
-) -> Result<Vec<MemoryRecord>, String> {
+pub async fn rag_list_memories(workspace_path: String) -> Result<Vec<MemoryRecord>, String> {
     let memory_dir = PathBuf::from(&workspace_path).join("knowledge/memory");
 
     if !memory_dir.exists() {
@@ -438,8 +441,8 @@ pub async fn rag_list_memories(
     }
 
     let mut memories = Vec::new();
-    let entries = fs::read_dir(&memory_dir)
-        .map_err(|e| format!("Failed to read memory directory: {}", e))?;
+    let entries =
+        fs::read_dir(&memory_dir).map_err(|e| format!("Failed to read memory directory: {}", e))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -475,8 +478,7 @@ pub async fn rag_save_memory(
     };
     let file_path = memory_dir.join(&safe_filename);
 
-    fs::write(&file_path, &content)
-        .map_err(|e| format!("Failed to write memory file: {}", e))?;
+    fs::write(&file_path, &content).map_err(|e| format!("Failed to write memory file: {}", e))?;
 
     // Trigger incremental indexing for the memory file
     let rel_path = format!("knowledge/memory/{}", safe_filename);
@@ -495,15 +497,20 @@ pub async fn rag_delete_memory(
     let file_path = memory_dir.join(&filename);
 
     if file_path.exists() {
-        fs::remove_file(&file_path)
-            .map_err(|e| format!("Failed to delete memory file: {}", e))?;
+        fs::remove_file(&file_path).map_err(|e| format!("Failed to delete memory file: {}", e))?;
     }
 
     // Remove from index
     let rel_path = format!("knowledge/memory/{}", filename);
     let instance = state.get_or_create_instance(&workspace_path).await?;
     let instance = instance.lock().await;
-    if let Some(doc) = instance.db.get_document_by_path(&rel_path).await.ok().flatten() {
+    if let Some(doc) = instance
+        .db
+        .get_document_by_path(&rel_path)
+        .await
+        .ok()
+        .flatten()
+    {
         let _ = instance.db.delete_document(doc.id).await;
     }
 
@@ -526,10 +533,7 @@ async fn trigger_memory_index(
 // ============================================================================
 
 #[tauri::command]
-pub async fn convert_to_markdown(
-    file_path: String,
-    output_path: String,
-) -> Result<String, String> {
+pub async fn convert_to_markdown(file_path: String, output_path: String) -> Result<String, String> {
     let md = markitdown::MarkItDown::new();
 
     let extension = Path::new(&file_path)
@@ -544,9 +548,12 @@ pub async fn convert_to_markdown(
         llm_model: None,
     };
 
-    let result = md
-        .convert(&file_path, Some(options))
-        .ok_or_else(|| format!("Conversion failed: unsupported file type or conversion error for {}", file_path))?;
+    let result = md.convert(&file_path, Some(options)).ok_or_else(|| {
+        format!(
+            "Conversion failed: unsupported file type or conversion error for {}",
+            file_path
+        )
+    })?;
 
     fs::write(&output_path, &result.text_content)
         .map_err(|e| format!("Failed to write output: {}", e))?;

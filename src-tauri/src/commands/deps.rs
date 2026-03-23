@@ -245,7 +245,10 @@ pub fn check_dependencies() -> Vec<DependencyInfo> {
         false,
         "Python runtime - needed for uvx-based MCP servers and data analysis",
         get_install_commands_map("python3").unwrap(),
-        vec!["MCP Servers (uvx-based)".to_string(), "Data Analysis".to_string()],
+        vec![
+            "MCP Servers (uvx-based)".to_string(),
+            "Data Analysis".to_string(),
+        ],
         1,
     ));
 
@@ -287,7 +290,10 @@ pub async fn install_dependency<R: Runtime>(
         if !brew_installed {
             let brew_result = run_install(&app, "brew").await;
             if !brew_result {
-                return Err("Failed to install Homebrew, which is required to install this dependency".to_string());
+                return Err(
+                    "Failed to install Homebrew, which is required to install this dependency"
+                        .to_string(),
+                );
             }
         }
     }
@@ -307,7 +313,10 @@ async fn run_install<R: Runtime>(app: &AppHandle<R>, name: &str) -> bool {
                     name: name.to_string(),
                     status: "failed".to_string(),
                     output_line: None,
-                    error: Some(format!("No install command available for '{}' on this platform", name)),
+                    error: Some(format!(
+                        "No install command available for '{}' on this platform",
+                        name
+                    )),
                 },
             );
             return false;
@@ -326,7 +335,11 @@ async fn run_install<R: Runtime>(app: &AppHandle<R>, name: &str) -> bool {
     );
 
     // Spawn the install process via shell
-    let shell = if cfg!(target_os = "windows") { "cmd" } else { "/bin/bash" };
+    let shell = if cfg!(target_os = "windows") {
+        "cmd"
+    } else {
+        "/bin/bash"
+    };
     let shell_args: Vec<&str> = if cfg!(target_os = "windows") {
         vec!["/C", &install_cmd]
     } else {

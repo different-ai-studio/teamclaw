@@ -3,8 +3,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 
-use tauri::Manager;
 use tauri::Emitter;
+use tauri::Manager;
 use tauri::State;
 
 use crate::stt::{run_pipeline_streaming, stt_models_dir, SttState};
@@ -22,7 +22,7 @@ fn expected_model_bytes(model_id: &str) -> Option<u64> {
         "tiny" => Some(75 * MB),
         "base" => Some(142 * MB),
         "small" => Some(466 * MB),
-        "medium" => Some((15 * GB) / 10),  // ~1.5 GB
+        "medium" => Some((15 * GB) / 10),   // ~1.5 GB
         "large-v3" => Some((29 * GB) / 10), // ~2.9 GB
         _ => None,
     }
@@ -86,7 +86,9 @@ pub fn stt_is_available(app_handle: tauri::AppHandle) -> Result<serde_json::Valu
             let p = models_dir.join(&file);
             std::fs::metadata(p)
                 .ok()
-                .map(|m| m.len() * INSTALLED_MIN_RATIO_DEN >= expected_bytes * INSTALLED_MIN_RATIO_NUM)
+                .map(|m| {
+                    m.len() * INSTALLED_MIN_RATIO_DEN >= expected_bytes * INSTALLED_MIN_RATIO_NUM
+                })
                 .unwrap_or(false)
         });
     #[cfg(feature = "stt-whisper")]
@@ -138,7 +140,9 @@ pub fn stt_stop_listening(state: State<'_, SttState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn stt_list_downloadable_models(app_handle: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+pub fn stt_list_downloadable_models(
+    app_handle: tauri::AppHandle,
+) -> Result<Vec<serde_json::Value>, String> {
     let models_dir = stt_models_dir(&app_handle).ok();
     let list: Vec<serde_json::Value> = downloadable_models()
         .into_iter()
@@ -148,7 +152,8 @@ pub fn stt_list_downloadable_models(app_handle: tauri::AppHandle) -> Result<Vec<
                 .and_then(|dir| {
                     let p = dir.join(&file);
                     std::fs::metadata(p).ok().map(|m| {
-                        m.len() * INSTALLED_MIN_RATIO_DEN >= expected_bytes * INSTALLED_MIN_RATIO_NUM
+                        m.len() * INSTALLED_MIN_RATIO_DEN
+                            >= expected_bytes * INSTALLED_MIN_RATIO_NUM
                     })
                 })
                 .unwrap_or(false);
@@ -238,7 +243,13 @@ pub fn stt_download_model(app_handle: tauri::AppHandle, model_id: String) -> Res
                 bytes_downloaded += n as u64;
 
                 let pct = total_bytes
-                    .and_then(|t| if t > 0 { Some((bytes_downloaded * 100).min(100) / t) } else { None })
+                    .and_then(|t| {
+                        if t > 0 {
+                            Some((bytes_downloaded * 100).min(100) / t)
+                        } else {
+                            None
+                        }
+                    })
                     .unwrap_or(0);
                 let emit_by_interval =
                     bytes_downloaded.saturating_sub(last_emit_bytes) >= PROGRESS_EMIT_INTERVAL;
@@ -292,7 +303,10 @@ pub fn stt_download_model(app_handle: tauri::AppHandle, model_id: String) -> Res
                 );
             }
             Err(message) => {
-                println!("[STT] download failed model={} message={}", model_id_for_thread, message);
+                println!(
+                    "[STT] download failed model={} message={}",
+                    model_id_for_thread, message
+                );
                 // Best-effort cleanup of temp file.
                 if temp_path_for_thread.exists() {
                     let _ = std::fs::remove_file(&temp_path_for_thread);

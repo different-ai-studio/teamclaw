@@ -109,10 +109,7 @@ pub async fn env_var_set(
         existing.description = description;
     } else {
         // Add new entry
-        entries.push(EnvVarEntry {
-            key,
-            description,
-        });
+        entries.push(EnvVarEntry { key, description });
     }
 
     set_env_vars_in_json(&mut json, &entries);
@@ -121,9 +118,7 @@ pub async fn env_var_set(
 
 /// Retrieve an environment variable value from the OS keyring.
 #[tauri::command]
-pub async fn env_var_get(
-    key: String,
-) -> Result<String, String> {
+pub async fn env_var_get(key: String) -> Result<String, String> {
     let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
         .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
     entry
@@ -133,10 +128,7 @@ pub async fn env_var_get(
 
 /// Delete an environment variable from both the OS keyring and teamclaw.json index.
 #[tauri::command]
-pub async fn env_var_delete(
-    state: State<'_, OpenCodeState>,
-    key: String,
-) -> Result<(), String> {
+pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
     // Delete from OS keyring (ignore errors if not found)
@@ -154,9 +146,7 @@ pub async fn env_var_delete(
 
 /// List all registered environment variable keys with descriptions (no values).
 #[tauri::command]
-pub async fn env_var_list(
-    state: State<'_, OpenCodeState>,
-) -> Result<Vec<EnvVarEntry>, String> {
+pub async fn env_var_list(state: State<'_, OpenCodeState>) -> Result<Vec<EnvVarEntry>, String> {
     let workspace_path = get_workspace_path(&state)?;
     let json = read_teamclaw_json(&workspace_path)?;
     Ok(get_env_vars_from_json(&json))
@@ -164,11 +154,8 @@ pub async fn env_var_list(
 
 /// Resolve `${KEY}` references in a string by replacing them with actual values from the keyring.
 #[tauri::command]
-pub async fn env_var_resolve(
-    input: String,
-) -> Result<String, String> {
-    let re = regex::Regex::new(r"\$\{([^}]+)\}")
-        .map_err(|e| format!("Invalid regex: {}", e))?;
+pub async fn env_var_resolve(input: String) -> Result<String, String> {
+    let re = regex::Regex::new(r"\$\{([^}]+)\}").map_err(|e| format!("Invalid regex: {}", e))?;
 
     let mut result = input.clone();
     let mut errors: Vec<String> = Vec::new();

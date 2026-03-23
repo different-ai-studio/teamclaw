@@ -19,7 +19,9 @@ pub struct RecordedAudio {
 #[allow(dead_code)]
 pub fn record_until_stopped(stop: Arc<AtomicBool>) -> Result<RecordedAudio, String> {
     let host = cpal::default_host();
-    let device = host.default_input_device().ok_or("No default input device")?;
+    let device = host
+        .default_input_device()
+        .ok_or("No default input device")?;
     let config = device
         .default_input_config()
         .map_err(|e| format!("Default input config: {}", e))?;
@@ -48,10 +50,8 @@ pub fn record_until_stopped(stop: Arc<AtomicBool>) -> Result<RecordedAudio, Stri
             device.build_input_stream(
                 &config_clone.into(),
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    let f32_samples: Vec<f32> = data
-                        .iter()
-                        .map(|&s| s as f32 / i16::MAX as f32)
-                        .collect();
+                    let f32_samples: Vec<f32> =
+                        data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                     buffer_in.lock().unwrap().extend(f32_samples);
                 },
                 |err| {
@@ -91,7 +91,10 @@ pub fn record_until_stopped(stop: Arc<AtomicBool>) -> Result<RecordedAudio, Stri
 
     let samples = buffer.lock().unwrap().clone();
     let sample_rate = config.sample_rate();
-    Ok(RecordedAudio { samples, sample_rate })
+    Ok(RecordedAudio {
+        samples,
+        sample_rate,
+    })
 }
 
 fn resample_to_16k(samples: &[f32], from_rate: u32) -> Vec<f32> {
@@ -127,7 +130,9 @@ pub fn stream_chunks_until_stopped(
         return Ok(rx);
     }
     let host = cpal::default_host();
-    let device = host.default_input_device().ok_or("No default input device")?;
+    let device = host
+        .default_input_device()
+        .ok_or("No default input device")?;
     let config = device
         .default_input_config()
         .map_err(|e| format!("Default input config: {}", e))?;
@@ -160,10 +165,8 @@ pub fn stream_chunks_until_stopped(
                 device.build_input_stream(
                     &config_clone.into(),
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                        let f32_samples: Vec<f32> = data
-                            .iter()
-                            .map(|&s| s as f32 / i16::MAX as f32)
-                            .collect();
+                        let f32_samples: Vec<f32> =
+                            data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                         buffer_in.lock().unwrap().extend(f32_samples);
                     },
                     |err| {
@@ -240,7 +243,10 @@ mod tests {
     fn stream_chunks_until_stopped_returns_receiver() {
         let stop = Arc::new(AtomicBool::new(true));
         let rx = stream_chunks_until_stopped(stop, 500).expect("should not fail at init");
-        assert!(rx.recv().is_err(), "when stop is already set, channel should be closed");
+        assert!(
+            rx.recv().is_err(),
+            "when stop is already set, channel should be closed"
+        );
     }
 
     #[test]

@@ -66,7 +66,10 @@ impl Default for LocalStats {
             positive_count: 0,
             negative_count: 0,
             star_ratings: StarRatings::default(),
-            sessions: SessionStats { total: 0, with_feedback: 0 },
+            sessions: SessionStats {
+                total: 0,
+                with_feedback: 0,
+            },
             last_updated: now.clone(),
             created_at: now,
         }
@@ -75,14 +78,22 @@ impl Default for LocalStats {
 
 impl Default for StarRatings {
     fn default() -> Self {
-        Self { one: 0, two: 0, three: 0, four: 0, five: 0 }
+        Self {
+            one: 0,
+            two: 0,
+            three: 0,
+            four: 0,
+            five: 0,
+        }
     }
 }
 
 // ─── Helper functions ────────────────────────────────────────────────────
 
 fn get_stats_path(workspace_path: &str) -> PathBuf {
-    PathBuf::from(workspace_path).join(".teamclaw").join("stats.json")
+    PathBuf::from(workspace_path)
+        .join(".teamclaw")
+        .join("stats.json")
 }
 
 fn ensure_teamclaw_dir(workspace_path: &str) -> Result<(), String> {
@@ -98,47 +109,43 @@ fn ensure_teamclaw_dir(workspace_path: &str) -> Result<(), String> {
 #[tauri::command]
 pub async fn read_local_stats(workspace_path: String) -> Result<LocalStats, String> {
     let stats_path = get_stats_path(&workspace_path);
-    
+
     if !stats_path.exists() {
         // Create .teamclaw directory if it doesn't exist
         ensure_teamclaw_dir(&workspace_path)?;
-        
+
         // Create default stats file
         let default_stats = LocalStats::default();
         let json = serde_json::to_string_pretty(&default_stats)
             .map_err(|e| format!("Failed to serialize default stats: {}", e))?;
-        
+
         std::fs::write(&stats_path, json)
             .map_err(|e| format!("Failed to create stats.json: {}", e))?;
-        
+
         println!("[LocalStats] Created new stats.json at: {:?}", stats_path);
         return Ok(default_stats);
     }
-    
+
     let content = std::fs::read_to_string(&stats_path)
         .map_err(|e| format!("Failed to read stats.json: {}", e))?;
-    
-    let stats: LocalStats = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse stats.json: {}", e))?;
-    
+
+    let stats: LocalStats =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse stats.json: {}", e))?;
+
     Ok(stats)
 }
 
 /// Write local stats to .teamclaw/stats.json
 #[tauri::command]
-pub async fn write_local_stats(
-    workspace_path: String,
-    stats: LocalStats,
-) -> Result<(), String> {
+pub async fn write_local_stats(workspace_path: String, stats: LocalStats) -> Result<(), String> {
     ensure_teamclaw_dir(&workspace_path)?;
-    
+
     let stats_path = get_stats_path(&workspace_path);
     let json = serde_json::to_string_pretty(&stats)
         .map_err(|e| format!("Failed to serialize stats: {}", e))?;
-    
-    std::fs::write(&stats_path, json)
-        .map_err(|e| format!("Failed to write stats.json: {}", e))?;
-    
+
+    std::fs::write(&stats_path, json).map_err(|e| format!("Failed to write stats.json: {}", e))?;
+
     Ok(())
 }
 
@@ -149,7 +156,7 @@ pub async fn update_local_stats(
     updates: LocalStatsUpdate,
 ) -> Result<LocalStats, String> {
     let mut stats = read_local_stats(workspace_path.clone()).await?;
-    
+
     // Apply incremental updates
     if let Some(task_completed) = updates.task_completed {
         stats.task_completed += task_completed;
@@ -185,13 +192,13 @@ pub async fn update_local_stats(
     if let Some(sessions_with_feedback) = updates.sessions_with_feedback {
         stats.sessions.with_feedback += sessions_with_feedback;
     }
-    
+
     // Update timestamp
     stats.last_updated = chrono::Utc::now().to_rfc3339();
-    
+
     // Write back
     write_local_stats(workspace_path, stats.clone()).await?;
-    
+
     Ok(stats)
 }
 

@@ -111,24 +111,42 @@ impl PendingQuestionStore {
 // ==================== SSE Event Parsing ====================
 
 pub fn parse_question_event(event: &serde_json::Value) -> Vec<QuestionInfo> {
-    event.get("properties")
+    event
+        .get("properties")
         .and_then(|p| p.get("questions"))
         .and_then(|q| q.as_array())
-        .map(|arr| arr.iter().map(|q| {
-            let question = q.get("question")
-                .and_then(|v| v.as_str())
-                .unwrap_or("").to_string();
-            let options = q.get("options")
-                .and_then(|o| o.as_array())
-                .map(|opts| opts.iter().map(|o| QuestionOption {
-                    label: o.get("label").and_then(|l| l.as_str())
-                        .or_else(|| o.get("value").and_then(|v| v.as_str()))
-                        .unwrap_or("").to_string(),
-                    value: o.get("value").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                }).collect())
-                .unwrap_or_default();
-            QuestionInfo { question, options }
-        }).collect())
+        .map(|arr| {
+            arr.iter()
+                .map(|q| {
+                    let question = q
+                        .get("question")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let options = q
+                        .get("options")
+                        .and_then(|o| o.as_array())
+                        .map(|opts| {
+                            opts.iter()
+                                .map(|o| QuestionOption {
+                                    label: o
+                                        .get("label")
+                                        .and_then(|l| l.as_str())
+                                        .or_else(|| o.get("value").and_then(|v| v.as_str()))
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    value: o
+                                        .get("value")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    QuestionInfo { question, options }
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -191,7 +209,8 @@ pub async fn handle_question_event(
     session_id_prefix: &str,
     tracked_sessions: &std::collections::HashSet<String>,
 ) {
-    let q_session_id = event.get("properties")
+    let q_session_id = event
+        .get("properties")
         .and_then(|p| p.get("sessionID").or_else(|| p.get("sessionId")))
         .and_then(|s| s.as_str());
 
@@ -200,7 +219,8 @@ pub async fn handle_question_event(
         _ => return,
     };
 
-    let question_id = event.get("properties")
+    let question_id = event
+        .get("properties")
         .and_then(|p| p.get("id"))
         .and_then(|id| id.as_str())
         .unwrap_or("")
@@ -208,8 +228,12 @@ pub async fn handle_question_event(
 
     let questions = parse_question_event(event);
 
-    println!("[Gateway-{}] Question asked: id={}, {} question(s)",
-        session_id_prefix, question_id, questions.len());
+    println!(
+        "[Gateway-{}] Question asked: id={}, {} question(s)",
+        session_id_prefix,
+        question_id,
+        questions.len()
+    );
 
     let forwarded = ForwardedQuestion {
         question_id: question_id.clone(),
@@ -221,11 +245,16 @@ pub async fn handle_question_event(
     match (ctx.forwarder)(forwarded).await {
         Ok(channel_msg_id) => {
             let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-            ctx.store.insert(channel_msg_id.clone(), PendingQuestionEntry {
-                question_id: question_id.clone(),
-                answer_tx: tx,
-                created_at: std::time::Instant::now(),
-            }).await;
+            ctx.store
+                .insert(
+                    channel_msg_id.clone(),
+                    PendingQuestionEntry {
+                        question_id: question_id.clone(),
+                        answer_tx: tx,
+                        created_at: std::time::Instant::now(),
+                    },
+                )
+                .await;
 
             let port_clone = port;
             let qid = question_id;
@@ -234,37 +263,26 @@ pub async fn handle_question_event(
             let cmid = channel_msg_id;
             tokio::spawn(async move {
                 let client = reqwest::Client::new();
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(300), rx
-                ).await {
+                match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
                     Ok(Ok(answer)) => {
                         let answers = resolve_answer(&answer, &questions_clone);
-                        let url = format!(
-                            "http://127.0.0.1:{}/question/{}/reply",
-                            port_clone, qid
-                        );
+                        let url = format!("http://127.0.0.1:{}/question/{}/reply", port_clone, qid);
                         let body = serde_json::json!({ "answers": answers });
                         match client.post(&url).json(&body).send().await {
                             Ok(r) => println!(
                                 "[Gateway] Question {} answered (HTTP {})",
-                                qid, r.status()
+                                qid,
+                                r.status()
                             ),
-                            Err(e) => eprintln!(
-                                "[Gateway] Failed to reply question {}: {}",
-                                qid, e
-                            ),
+                            Err(e) => {
+                                eprintln!("[Gateway] Failed to reply question {}: {}", qid, e)
+                            }
                         }
                     }
                     _ => {
-                        let url = format!(
-                            "http://127.0.0.1:{}/question/{}/reject",
-                            port_clone, qid
-                        );
-                        let _ = client
-                            .post(&url)
-                            .json(&serde_json::json!({}))
-                            .send()
-                            .await;
+                        let url =
+                            format!("http://127.0.0.1:{}/question/{}/reject", port_clone, qid);
+                        let _ = client.post(&url).json(&serde_json::json!({})).send().await;
                         println!("[Gateway] Question {} auto-rejected (timeout)", qid);
                     }
                 }
@@ -272,7 +290,10 @@ pub async fn handle_question_event(
             });
         }
         Err(e) => {
-            eprintln!("[Gateway-{}] Failed to forward question: {}", session_id_prefix, e);
+            eprintln!(
+                "[Gateway-{}] Failed to forward question: {}",
+                session_id_prefix, e
+            );
             let url = format!("http://127.0.0.1:{}/question/{}/reject", port, question_id);
             let client = reqwest::Client::new();
             let _ = client.post(&url).json(&serde_json::json!({})).send().await;
@@ -295,11 +316,16 @@ mod tests {
     async fn test_insert_and_take() {
         let store = PendingQuestionStore::new();
         let (tx, _rx) = oneshot::channel();
-        store.insert("msg_123".to_string(), PendingQuestionEntry {
-            question_id: "q_abc".to_string(),
-            answer_tx: tx,
-            created_at: Instant::now(),
-        }).await;
+        store
+            .insert(
+                "msg_123".to_string(),
+                PendingQuestionEntry {
+                    question_id: "q_abc".to_string(),
+                    answer_tx: tx,
+                    created_at: Instant::now(),
+                },
+            )
+            .await;
         let entry = store.take("msg_123").await;
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().question_id, "q_abc");
@@ -316,11 +342,16 @@ mod tests {
     async fn test_take_by_question_id() {
         let store = PendingQuestionStore::new();
         let (tx, _rx) = oneshot::channel();
-        store.insert("msg_456".to_string(), PendingQuestionEntry {
-            question_id: "q_xyz".to_string(),
-            answer_tx: tx,
-            created_at: Instant::now(),
-        }).await;
+        store
+            .insert(
+                "msg_456".to_string(),
+                PendingQuestionEntry {
+                    question_id: "q_xyz".to_string(),
+                    answer_tx: tx,
+                    created_at: Instant::now(),
+                },
+            )
+            .await;
         let entry = store.take_by_question_id("q_xyz").await;
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().question_id, "q_xyz");
@@ -331,19 +362,30 @@ mod tests {
     async fn test_expired_cleanup_on_insert() {
         let store = PendingQuestionStore::new();
         let (tx, _rx) = oneshot::channel();
-        let expired_time = Instant::now().checked_sub(Duration::from_secs(400))
+        let expired_time = Instant::now()
+            .checked_sub(Duration::from_secs(400))
             .unwrap_or_else(Instant::now);
-        store.insert("old".to_string(), PendingQuestionEntry {
-            question_id: "q_old".to_string(),
-            answer_tx: tx,
-            created_at: expired_time,
-        }).await;
+        store
+            .insert(
+                "old".to_string(),
+                PendingQuestionEntry {
+                    question_id: "q_old".to_string(),
+                    answer_tx: tx,
+                    created_at: expired_time,
+                },
+            )
+            .await;
         let (tx2, _rx2) = oneshot::channel();
-        store.insert("new".to_string(), PendingQuestionEntry {
-            question_id: "q_new".to_string(),
-            answer_tx: tx2,
-            created_at: Instant::now(),
-        }).await;
+        store
+            .insert(
+                "new".to_string(),
+                PendingQuestionEntry {
+                    question_id: "q_new".to_string(),
+                    answer_tx: tx2,
+                    created_at: Instant::now(),
+                },
+            )
+            .await;
         assert!(store.take("old").await.is_none());
         assert!(store.take("new").await.is_some());
     }
@@ -353,14 +395,17 @@ mod tests {
         let store = Arc::new(PendingQuestionStore::new());
         let store2 = Arc::clone(&store);
         let (tx, rx) = oneshot::channel();
-        store.insert("msg_concurrent".to_string(), PendingQuestionEntry {
-            question_id: "q_concurrent".to_string(),
-            answer_tx: tx,
-            created_at: Instant::now(),
-        }).await;
-        let handle = tokio::spawn(async move {
-            store2.take("msg_concurrent").await
-        });
+        store
+            .insert(
+                "msg_concurrent".to_string(),
+                PendingQuestionEntry {
+                    question_id: "q_concurrent".to_string(),
+                    answer_tx: tx,
+                    created_at: Instant::now(),
+                },
+            )
+            .await;
+        let handle = tokio::spawn(async move { store2.take("msg_concurrent").await });
         let entry = handle.await.unwrap();
         assert!(entry.is_some());
         let entry = entry.unwrap();
@@ -373,8 +418,14 @@ mod tests {
         let questions = vec![QuestionInfo {
             question: "Continue with the refactor?".to_string(),
             options: vec![
-                QuestionOption { label: "Yes".to_string(), value: Some("yes".to_string()) },
-                QuestionOption { label: "No".to_string(), value: Some("no".to_string()) },
+                QuestionOption {
+                    label: "Yes".to_string(),
+                    value: Some("yes".to_string()),
+                },
+                QuestionOption {
+                    label: "No".to_string(),
+                    value: Some("no".to_string()),
+                },
             ],
         }];
         let msg = format_question_message(&questions, "q_123");
@@ -400,8 +451,14 @@ mod tests {
     #[test]
     fn test_format_question_multiple() {
         let questions = vec![
-            QuestionInfo { question: "First?".to_string(), options: vec![] },
-            QuestionInfo { question: "Second?".to_string(), options: vec![] },
+            QuestionInfo {
+                question: "First?".to_string(),
+                options: vec![],
+            },
+            QuestionInfo {
+                question: "Second?".to_string(),
+                options: vec![],
+            },
         ];
         let msg = format_question_message(&questions, "q_multi");
         assert!(msg.contains("**Question 1:**"));
@@ -413,14 +470,26 @@ mod tests {
         let questions = vec![QuestionInfo {
             question: "Pick one".to_string(),
             options: vec![
-                QuestionOption { label: "A".to_string(), value: Some("a_val".to_string()) },
-                QuestionOption { label: "B".to_string(), value: None },
+                QuestionOption {
+                    label: "A".to_string(),
+                    value: Some("a_val".to_string()),
+                },
+                QuestionOption {
+                    label: "B".to_string(),
+                    value: None,
+                },
             ],
         }];
-        assert_eq!(resolve_answer("1", &questions), vec![vec!["a_val".to_string()]]);
+        assert_eq!(
+            resolve_answer("1", &questions),
+            vec![vec!["a_val".to_string()]]
+        );
         assert_eq!(resolve_answer("2", &questions), vec![vec!["B".to_string()]]);
         assert_eq!(resolve_answer("3", &questions), vec![vec!["3".to_string()]]);
-        assert_eq!(resolve_answer("hello", &questions), vec![vec!["hello".to_string()]]);
+        assert_eq!(
+            resolve_answer("hello", &questions),
+            vec![vec!["hello".to_string()]]
+        );
     }
 
     #[test]
@@ -429,14 +498,23 @@ mod tests {
             question: "What?".to_string(),
             options: vec![],
         }];
-        assert_eq!(resolve_answer("my answer", &questions), vec![vec!["my answer".to_string()]]);
+        assert_eq!(
+            resolve_answer("my answer", &questions),
+            vec![vec!["my answer".to_string()]]
+        );
     }
 
     #[test]
     fn test_resolve_answer_multiple_questions() {
         let questions = vec![
-            QuestionInfo { question: "First?".to_string(), options: vec![] },
-            QuestionInfo { question: "Second?".to_string(), options: vec![] },
+            QuestionInfo {
+                question: "First?".to_string(),
+                options: vec![],
+            },
+            QuestionInfo {
+                question: "Second?".to_string(),
+                options: vec![],
+            },
         ];
         let result = resolve_answer("my answer", &questions);
         assert_eq!(result, vec![vec!["my answer".to_string()], vec![]]);
@@ -444,7 +522,10 @@ mod tests {
 
     #[test]
     fn test_extract_question_marker() {
-        assert_eq!(extract_question_marker("blah [Q:abc123] end"), Some("abc123"));
+        assert_eq!(
+            extract_question_marker("blah [Q:abc123] end"),
+            Some("abc123")
+        );
         assert_eq!(extract_question_marker("no marker here"), None);
         assert_eq!(extract_question_marker("[Q:]"), Some(""));
     }

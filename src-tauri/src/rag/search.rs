@@ -6,10 +6,10 @@ use std::sync::Arc;
 // RAG search implementation
 use crate::rag::bm25::BM25Index;
 use crate::rag::config::RagConfig;
-use crate::rag::{Database, SearchResult};
 use crate::rag::embedding;
 use crate::rag::hybrid_search::{hybrid_search, HybridSearchResult, SearchMode};
 use crate::rag::reranker::create_reranker;
+use crate::rag::{Database, SearchResult};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,21 +82,23 @@ pub async fn search(
         mode,
         config.hybrid_weight,
     )
-    .await {
+    .await
+    {
         Ok(results) => results,
         Err(e) => {
             // If hybrid/semantic search completely failed and no fallback worked
             tracing::error!("Search failed: {}", e);
-            
+
             // Last resort: try pure BM25 if available
             if let Some(bm25) = bm25_index {
                 tracing::warn!("Attempting last resort BM25 search");
                 degraded = true;
                 actual_mode = SearchMode::BM25;
-                
-                let bm25_results = bm25.search(query, fetch_k).await
-                    .map_err(|e2| anyhow::anyhow!("All search methods failed. Original: {}, BM25: {}", e, e2))?;
-                
+
+                let bm25_results = bm25.search(query, fetch_k).await.map_err(|e2| {
+                    anyhow::anyhow!("All search methods failed. Original: {}, BM25: {}", e, e2)
+                })?;
+
                 bm25_results
                     .into_iter()
                     .map(|(chunk_id, score)| HybridSearchResult { chunk_id, score })
@@ -151,7 +153,10 @@ pub async fn search(
         match apply_reranking(query, &intermediate_results, top_k, config).await {
             Ok(reranked_results) => {
                 reranked = true;
-                tracing::info!("[RAG] Reranking succeeded, {} results", reranked_results.len());
+                tracing::info!(
+                    "[RAG] Reranking succeeded, {} results",
+                    reranked_results.len()
+                );
                 reranked_results
             }
             Err(e) => {
@@ -236,5 +241,9 @@ async fn apply_reranking(
     reranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     // Take top_k
-    Ok(reranked.into_iter().take(top_k).map(|(item, _)| item).collect())
+    Ok(reranked
+        .into_iter()
+        .take(top_k)
+        .map(|(item, _)| item)
+        .collect())
 }

@@ -239,8 +239,8 @@ fn write_lockfile(workspace_path: &str, lock: &Lockfile) -> Result<(), String> {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create .clawhub dir: {}", e))?;
     }
-    let json =
-        serde_json::to_string_pretty(lock).map_err(|e| format!("Failed to serialize lockfile: {}", e))?;
+    let json = serde_json::to_string_pretty(lock)
+        .map_err(|e| format!("Failed to serialize lockfile: {}", e))?;
     std::fs::write(&path, format!("{}\n", json))
         .map_err(|e| format!("Failed to write lockfile: {}", e))
 }
@@ -252,8 +252,7 @@ fn skills_dir(workspace_path: &str) -> PathBuf {
 }
 
 fn global_skills_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| "Failed to determine home directory".to_string())?;
+    let home = dirs::home_dir().ok_or_else(|| "Failed to determine home directory".to_string())?;
     Ok(home.join(".config").join("opencode").join("skills"))
 }
 
@@ -271,9 +270,7 @@ fn validate_slug(slug: &str) -> Result<(), String> {
 /// Safely sanitize a relative path from a zip entry.
 /// Returns None for entries that are directories or contain path traversal.
 fn sanitize_zip_path(raw: &str) -> Option<String> {
-    let normalized = raw
-        .trim_start_matches("./")
-        .trim_start_matches('/');
+    let normalized = raw.trim_start_matches("./").trim_start_matches('/');
     if normalized.is_empty() || normalized.ends_with('/') {
         return None;
     }
@@ -337,8 +334,8 @@ fn write_skill_origin(skill_folder: &std::path::Path, origin: &SkillOrigin) -> R
     let origin_dir = skill_folder.join(".clawhub");
     std::fs::create_dir_all(&origin_dir)
         .map_err(|e| format!("Failed to create .clawhub origin dir: {}", e))?;
-    let json =
-        serde_json::to_string_pretty(origin).map_err(|e| format!("Failed to serialize origin: {}", e))?;
+    let json = serde_json::to_string_pretty(origin)
+        .map_err(|e| format!("Failed to serialize origin: {}", e))?;
     std::fs::write(origin_dir.join("origin.json"), format!("{}\n", json))
         .map_err(|e| format!("Failed to write origin.json: {}", e))
 }
@@ -362,9 +359,11 @@ fn set_skill_permission_ask(workspace_path: &str, slug: &str) {
         Err(_) => return,
     };
 
-    let permission = json
-        .as_object_mut()
-        .and_then(|o| o.entry("permission").or_insert_with(|| serde_json::json!({})).as_object_mut());
+    let permission = json.as_object_mut().and_then(|o| {
+        o.entry("permission")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+    });
     if let Some(perm_obj) = permission {
         let skill_perms = perm_obj
             .entry("skill")
@@ -388,7 +387,11 @@ pub fn clawhub_search(query: String, limit: Option<u32>) -> Result<ClawHubSearch
     let registry = get_registry();
     let client = build_client()?;
 
-    let mut url = format!("{}/api/v1/search?q={}", registry, urlencoding::encode(&query));
+    let mut url = format!(
+        "{}/api/v1/search?q={}",
+        registry,
+        urlencoding::encode(&query)
+    );
     if let Some(l) = limit {
         url.push_str(&format!("&limit={}", l.min(200)));
     }
@@ -422,10 +425,7 @@ pub fn clawhub_explore(
     let client = build_client()?;
 
     let bounded_limit = limit.unwrap_or(25).min(200).max(1);
-    let mut url = format!(
-        "{}/api/v1/skills?limit={}",
-        registry, bounded_limit
-    );
+    let mut url = format!("{}/api/v1/skills?limit={}", registry, bounded_limit);
     if let Some(ref s) = sort {
         if s != "updated" {
             url.push_str(&format!("&sort={}", urlencoding::encode(s)));
@@ -474,10 +474,7 @@ pub fn clawhub_get_skill(slug: String) -> Result<ClawHubSkillDetail, String> {
         .map_err(|e| format!("Get skill request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!(
-            "Get skill failed with status {}",
-            resp.status()
-        ));
+        return Err(format!("Get skill failed with status {}", resp.status()));
     }
 
     let data: ApiSkillResponse = resp
@@ -515,9 +512,8 @@ pub fn clawhub_install(
             .ok_or_else(|| "Workspace path required for workspace installation".to_string())?;
         skills_dir(ws_path)
     };
-    
-    std::fs::create_dir_all(&skills)
-        .map_err(|e| format!("Failed to create skills dir: {}", e))?;
+
+    std::fs::create_dir_all(&skills).map_err(|e| format!("Failed to create skills dir: {}", e))?;
 
     let target = skills.join(&slug);
     let force = force.unwrap_or(false);
@@ -530,11 +526,7 @@ pub fn clawhub_install(
     }
 
     // Fetch skill metadata to check moderation
-    let meta_url = format!(
-        "{}/api/v1/skills/{}",
-        registry,
-        urlencoding::encode(&slug)
-    );
+    let meta_url = format!("{}/api/v1/skills/{}", registry, urlencoding::encode(&slug));
     let meta_resp = client
         .get(&meta_url)
         .header("Accept", "application/json")
@@ -575,10 +567,7 @@ pub fn clawhub_install(
         .map_err(|e| format!("Download failed: {}", e))?;
 
     if !zip_resp.status().is_success() {
-        return Err(format!(
-            "Download failed with status {}",
-            zip_resp.status()
-        ));
+        return Err(format!("Download failed with status {}", zip_resp.status()));
     }
 
     let zip_bytes = zip_resp
@@ -677,11 +666,7 @@ pub fn clawhub_check_updates(workspace_path: String) -> Result<Vec<ClawHubUpdate
             continue;
         }
 
-        let url = format!(
-            "{}/api/v1/skills/{}",
-            registry,
-            urlencoding::encode(slug)
-        );
+        let url = format!("{}/api/v1/skills/{}", registry, urlencoding::encode(slug));
 
         match client.get(&url).header("Accept", "application/json").send() {
             Ok(resp) if resp.status().is_success() => {

@@ -1,7 +1,6 @@
 pub mod clawhub;
 pub mod cron;
 pub mod deps;
-pub mod stt;
 pub mod env_vars;
 pub mod filewatcher;
 pub mod gateway;
@@ -10,18 +9,19 @@ pub mod knowledge;
 pub mod local_stats;
 pub mod mcp;
 pub mod opencode;
-pub mod spotlight;
+pub mod oss_commands;
+pub mod oss_sync;
+pub mod oss_types;
+pub mod p2p_state;
 pub mod rag_http_server;
 pub mod skillssh;
+pub mod spotlight;
+pub mod stt;
 pub mod team;
-pub mod team_webdav;
-pub mod oss_types;
-pub mod oss_sync;
-pub mod oss_commands;
 #[cfg(feature = "p2p")]
 pub mod team_p2p;
-pub mod p2p_state;
 pub mod team_unified;
+pub mod team_webdav;
 pub mod updater;
 pub mod webview;
 

@@ -41,20 +41,20 @@ pub async fn watch_directory(
     path: String,
 ) -> Result<bool, String> {
     let mut watchers = state.watchers.lock().await;
-    
+
     // If already watching this path, return success
     if watchers.contains_key(&path) {
         return Ok(true);
     }
-    
+
     let watch_path = PathBuf::from(&path);
     if !watch_path.exists() {
         return Err(format!("Path does not exist: {}", path));
     }
-    
+
     let app_handle = app.clone();
     let path_clone = path.clone();
-    
+
     // Create a debounced watcher with 500ms delay to batch rapid changes
     let mut debouncer = new_debouncer(
         Duration::from_millis(500),
@@ -67,12 +67,12 @@ pub async fn watch_directory(
                             DebouncedEventKind::AnyContinuous => "any",
                             _ => "any", // Handle any future variants
                         };
-                        
+
                         let change_event = FileChangeEvent {
                             path: event.path.to_string_lossy().to_string(),
                             kind: kind.to_string(),
                         };
-                        
+
                         // Emit event to frontend
                         if let Err(e) = app_handle.emit("file-change", change_event) {
                             eprintln!("[FileWatcher] Failed to emit event: {}", e);
@@ -84,18 +84,24 @@ pub async fn watch_directory(
                 }
             }
         },
-    ).map_err(|e| format!("Failed to create watcher: {}", e))?;
-    
+    )
+    .map_err(|e| format!("Failed to create watcher: {}", e))?;
+
     // Start watching the directory recursively
     debouncer
         .watcher()
         .watch(&watch_path, RecursiveMode::Recursive)
         .map_err(|e| format!("Failed to watch path: {}", e))?;
-    
+
     println!("[FileWatcher] Started watching: {}", path);
-    
-    watchers.insert(path_clone, WatcherHandle { _debouncer: debouncer });
-    
+
+    watchers.insert(
+        path_clone,
+        WatcherHandle {
+            _debouncer: debouncer,
+        },
+    );
+
     Ok(true)
 }
 
@@ -106,7 +112,7 @@ pub async fn unwatch_directory(
     path: String,
 ) -> Result<bool, String> {
     let mut watchers = state.watchers.lock().await;
-    
+
     if watchers.remove(&path).is_some() {
         println!("[FileWatcher] Stopped watching: {}", path);
         Ok(true)
@@ -117,9 +123,7 @@ pub async fn unwatch_directory(
 
 /// Stop all watchers
 #[tauri::command]
-pub async fn unwatch_all(
-    state: tauri::State<'_, FileWatcherState>,
-) -> Result<(), String> {
+pub async fn unwatch_all(state: tauri::State<'_, FileWatcherState>) -> Result<(), String> {
     let mut watchers = state.watchers.lock().await;
     let count = watchers.len();
     watchers.clear();

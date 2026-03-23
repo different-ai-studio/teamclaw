@@ -2,14 +2,13 @@
 #![allow(unexpected_cfgs)]
 
 use tauri::Manager;
-use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 use tauri_plugin_aptabase::EventTracker;
+use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
 mod commands;
-mod stt;
 mod rag;
+mod stt;
 mod telemetry;
-
 
 /// Get the mtime of the user's shell profile file as a u64 (seconds since epoch).
 /// Returns 0 if the file doesn't exist or can't be read.
@@ -81,7 +80,9 @@ fn fix_path_env() {
 
     // Try cache first
     let home = std::env::var("HOME").unwrap_or_default();
-    let cache_path = std::path::PathBuf::from(&home).join(".teamclaw").join("cached-path.txt");
+    let cache_path = std::path::PathBuf::from(&home)
+        .join(".teamclaw")
+        .join("cached-path.txt");
     let profile_mtime = get_shell_profile_mtime(&shell, &home);
 
     if let Some(cached) = read_path_cache(&cache_path, profile_mtime) {
@@ -111,9 +112,9 @@ fn fix_path_env() {
             // Fallback: append common paths that might be missing
             let current = std::env::var("PATH").unwrap_or_default();
             let extra = [
-                "/opt/homebrew/bin",              // macOS ARM Homebrew
+                "/opt/homebrew/bin", // macOS ARM Homebrew
                 "/opt/homebrew/sbin",
-                "/usr/local/bin",                 // macOS Intel Homebrew
+                "/usr/local/bin", // macOS Intel Homebrew
                 "/usr/local/sbin",
                 "/home/linuxbrew/.linuxbrew/bin", // Linux Homebrew
             ];
@@ -140,8 +141,10 @@ pub fn run() {
     // Fix PATH before anything else so all child processes can find tools
     fix_path_env();
     #[cfg(debug_assertions)]
-    eprintln!("[Startup] fix_path_env: {:.1}ms", startup_t0.elapsed().as_secs_f64() * 1000.0);
-
+    eprintln!(
+        "[Startup] fix_path_env: {:.1}ms",
+        startup_t0.elapsed().as_secs_f64() * 1000.0
+    );
 
     // Create a Tokio runtime and register it with Tauri BEFORE plugin initialization.
     // tauri-plugin-aptabase calls tokio::spawn during init (start_polling),
@@ -472,7 +475,7 @@ pub fn run() {
             // Start RAG HTTP API server for MCP bridge
             let rag_state_handle = app.handle().state::<commands::knowledge::RagState>();
             let rag_state_for_http = std::sync::Arc::new(rag_state_handle.inner().clone());
-            
+
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = commands::rag_http_server::start_http_server(rag_state_for_http, 13143).await {
                     eprintln!("[RAG HTTP] Failed to start HTTP server: {}", e);

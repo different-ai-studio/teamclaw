@@ -48,7 +48,11 @@ fn run_git_checked(args: &[&str], cwd: &str) -> Result<String, String> {
     if result.success {
         Ok(result.stdout)
     } else {
-        Err(format!("git {} failed: {}", args.join(" "), result.stderr.trim()))
+        Err(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            result.stderr.trim()
+        ))
     }
 }
 
@@ -71,7 +75,11 @@ pub fn git_check_available() -> Result<GitCommandResult, String> {
 
 /// 1.2 - Clone a git repository
 #[tauri::command]
-pub fn git_clone(url: String, path: String, shallow: Option<bool>) -> Result<GitCommandResult, String> {
+pub fn git_clone(
+    url: String,
+    path: String,
+    shallow: Option<bool>,
+) -> Result<GitCommandResult, String> {
     // Ensure parent directory exists
     if let Some(parent) = std::path::Path::new(&path).parent() {
         std::fs::create_dir_all(parent)
@@ -125,7 +133,11 @@ pub fn git_pull(path: String) -> Result<GitCommandResult, String> {
 
 /// 1.4 - Push commits to remote
 #[tauri::command]
-pub fn git_push(path: String, remote: Option<String>, branch: Option<String>) -> Result<GitCommandResult, String> {
+pub fn git_push(
+    path: String,
+    remote: Option<String>,
+    branch: Option<String>,
+) -> Result<GitCommandResult, String> {
     let remote_name = remote.unwrap_or_else(|| "origin".to_string());
     let mut args = vec!["push", &remote_name];
 
@@ -164,7 +176,9 @@ pub fn git_commit(path: String, message: String) -> Result<GitCommandResult, Str
         // Extract commit hash from output
         Ok(result)
     } else {
-        if result.stdout.contains("nothing to commit") || result.stderr.contains("nothing to commit") {
+        if result.stdout.contains("nothing to commit")
+            || result.stderr.contains("nothing to commit")
+        {
             Err("Nothing to commit - no staged changes.".to_string())
         } else {
             Err(format!("git commit failed: {}", result.stderr.trim()))
@@ -174,7 +188,11 @@ pub fn git_commit(path: String, message: String) -> Result<GitCommandResult, Str
 
 /// 1.6 - Stage files for commit
 #[tauri::command]
-pub fn git_add(path: String, files: Option<Vec<String>>, all: Option<bool>) -> Result<GitCommandResult, String> {
+pub fn git_add(
+    path: String,
+    files: Option<Vec<String>>,
+    all: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let args: Vec<String>;
     if all.unwrap_or(false) {
         args = vec!["add".to_string(), "--all".to_string()];
@@ -203,9 +221,13 @@ pub fn git_add(path: String, files: Option<Vec<String>>, all: Option<bool>) -> R
 pub fn git_status(path: String) -> Result<GitStatusResult, String> {
     // Get branch name
     let branch_output = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &path);
-    let branch = branch_output
-        .ok()
-        .and_then(|r| if r.success { Some(r.stdout.trim().to_string()) } else { None });
+    let branch = branch_output.ok().and_then(|r| {
+        if r.success {
+            Some(r.stdout.trim().to_string())
+        } else {
+            None
+        }
+    });
 
     // Get porcelain status for easy parsing
     let status_output = run_git_checked(&["status", "--porcelain=v1", "-uall"], &path)?;
@@ -251,7 +273,11 @@ pub fn git_status(path: String) -> Result<GitStatusResult, String> {
 
 /// 1.8 - Get diff output
 #[tauri::command]
-pub fn git_diff(path: String, file: Option<String>, staged: Option<bool>) -> Result<GitCommandResult, String> {
+pub fn git_diff(
+    path: String,
+    file: Option<String>,
+    staged: Option<bool>,
+) -> Result<GitCommandResult, String> {
     let mut args = vec!["diff"];
     if staged.unwrap_or(false) {
         args.push("--staged");
@@ -283,7 +309,11 @@ pub fn git_checkout_file(path: String, file: String) -> Result<GitCommandResult,
 /// at a specific commit. Used for git gutter decorations (comparing
 /// working-tree content against the last committed version).
 #[tauri::command]
-pub fn git_show_file(path: String, file: String, git_ref: Option<String>) -> Result<GitCommandResult, String> {
+pub fn git_show_file(
+    path: String,
+    file: String,
+    git_ref: Option<String>,
+) -> Result<GitCommandResult, String> {
     let r = git_ref.unwrap_or_else(|| "HEAD".to_string());
     let spec = format!("{}:{}", r, file);
     run_git(&["show", &spec], &path)

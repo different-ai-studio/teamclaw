@@ -19,7 +19,11 @@ pub struct KnowledgeWatcher {
 
 impl KnowledgeWatcher {
     /// Start watching multiple knowledge directories for file changes
-    pub fn watch(knowledge_dirs: Vec<PathBuf>, indexer: Arc<Indexer>, app_handle: Option<AppHandle>) -> Result<Self> {
+    pub fn watch(
+        knowledge_dirs: Vec<PathBuf>,
+        indexer: Arc<Indexer>,
+        app_handle: Option<AppHandle>,
+    ) -> Result<Self> {
         if knowledge_dirs.is_empty() {
             anyhow::bail!("No knowledge directories provided");
         }
@@ -27,8 +31,9 @@ impl KnowledgeWatcher {
         // Ensure all directories exist
         for knowledge_dir in &knowledge_dirs {
             if !knowledge_dir.exists() {
-                std::fs::create_dir_all(&knowledge_dir)
-                    .with_context(|| format!("Failed to create knowledge directory: {:?}", knowledge_dir))?;
+                std::fs::create_dir_all(&knowledge_dir).with_context(|| {
+                    format!("Failed to create knowledge directory: {:?}", knowledge_dir)
+                })?;
             }
         }
 
@@ -52,7 +57,9 @@ impl KnowledgeWatcher {
             debouncer
                 .watcher()
                 .watch(&knowledge_dir, RecursiveMode::Recursive)
-                .with_context(|| format!("Failed to watch knowledge directory: {:?}", knowledge_dir))?;
+                .with_context(|| {
+                    format!("Failed to watch knowledge directory: {:?}", knowledge_dir)
+                })?;
             tracing::info!("File watcher started for {:?}", knowledge_dir);
         }
 
@@ -122,7 +129,10 @@ async fn handle_file_event(
     }
 
     // Only process supported file types (skip this check for Remove events since file doesn't exist)
-    if matches!(event.event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
+    if matches!(
+        event.event.kind,
+        EventKind::Create(_) | EventKind::Modify(_)
+    ) {
         if path.is_file() && !is_supported_file(path) {
             return Ok(false);
         }
@@ -138,7 +148,7 @@ async fn handle_file_event(
         EventKind::Create(_) | EventKind::Modify(_) => {
             if path.is_file() {
                 tracing::info!("File changed, re-indexing: {:?}", path);
-                
+
                 // Use absolute path for indexing
                 let absolute_path = path.to_string_lossy().to_string();
 
@@ -164,13 +174,13 @@ async fn handle_file_event(
             // For remove events, the file/dir no longer exists, so we can't check path.is_file()
             // We need to check if it looks like a file (has extension) or directory
             let is_likely_file = path.extension().is_some();
-            
+
             if is_likely_file {
                 // Check if this is a supported file type by looking at the extension
                 if !is_supported_file(path) {
                     return Ok(false);
                 }
-                
+
                 // File was deleted, remove from index immediately
                 let relative_path = path
                     .strip_prefix(knowledge_dir)
@@ -207,7 +217,10 @@ fn is_hidden(path: &Path) -> bool {
 /// Check if a file has a supported extension
 fn is_supported_file(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        matches!(ext.to_lowercase().as_str(), "md" | "txt" | "rs" | "ts" | "tsx" | "py")
+        matches!(
+            ext.to_lowercase().as_str(),
+            "md" | "txt" | "rs" | "ts" | "tsx" | "py"
+        )
     } else {
         false
     }

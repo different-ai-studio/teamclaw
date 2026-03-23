@@ -5,8 +5,8 @@ use tree_sitter::{Language, Parser, Query, QueryCursor};
 #[derive(Debug, Clone)]
 pub struct CodeChunk {
     pub content: String,
-    pub chunk_type: String,  // "function" | "class" | "struct" | "impl" | "module"
-    pub name: String,        // Function/class/struct name
+    pub chunk_type: String, // "function" | "class" | "struct" | "impl" | "module"
+    pub name: String,       // Function/class/struct name
     #[allow(dead_code)]
     pub start_line: usize,
     #[allow(dead_code)]
@@ -49,8 +49,8 @@ fn chunk_rust(source: &str) -> Result<Vec<CodeChunk>> {
             type: (type_identifier) @name) @impl
     "#;
 
-    let query = Query::new(&language.into(), query_source)
-        .context("Failed to create Rust query")?;
+    let query =
+        Query::new(&language.into(), query_source).context("Failed to create Rust query")?;
 
     extract_chunks(source, &tree, &query, &language.into())
 }
@@ -63,7 +63,7 @@ fn chunk_typescript(source: &str, is_tsx: bool) -> Result<Vec<CodeChunk>> {
     } else {
         tree_sitter_typescript::LANGUAGE_TYPESCRIPT
     };
-    
+
     parser
         .set_language(&language.into())
         .context("Failed to set TypeScript language")?;
@@ -86,8 +86,8 @@ fn chunk_typescript(source: &str, is_tsx: bool) -> Result<Vec<CodeChunk>> {
             name: (property_identifier) @name) @method
     "#;
 
-    let query = Query::new(&language.into(), query_source)
-        .context("Failed to create TypeScript query")?;
+    let query =
+        Query::new(&language.into(), query_source).context("Failed to create TypeScript query")?;
 
     extract_chunks(source, &tree, &query, &language.into())
 }
@@ -112,8 +112,8 @@ fn chunk_python(source: &str) -> Result<Vec<CodeChunk>> {
             name: (identifier) @name) @class
     "#;
 
-    let query = Query::new(&language.into(), query_source)
-        .context("Failed to create Python query")?;
+    let query =
+        Query::new(&language.into(), query_source).context("Failed to create Python query")?;
 
     extract_chunks(source, &tree, &query, &language.into())
 }
@@ -148,8 +148,7 @@ fn chunk_go(source: &str) -> Result<Vec<CodeChunk>> {
                 type: (interface_type))) @interface
     "#;
 
-    let query = Query::new(&language.into(), query_source)
-        .context("Failed to create Go query")?;
+    let query = Query::new(&language.into(), query_source).context("Failed to create Go query")?;
 
     extract_chunks(source, &tree, &query, &language.into())
 }
@@ -184,10 +183,7 @@ fn extract_chunks(
                     end_byte = node.end_byte();
                 }
                 "name" => {
-                    name = node
-                        .utf8_text(source.as_bytes())
-                        .unwrap_or("")
-                        .to_string();
+                    name = node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
                 }
                 _ => {}
             }
@@ -251,7 +247,7 @@ impl Point {
 "#;
         let chunks = chunk_rust(source).unwrap();
         assert!(!chunks.is_empty());
-        
+
         // Should find function, struct, and impl
         let types: Vec<&str> = chunks.iter().map(|c| c.chunk_type.as_str()).collect();
         assert!(types.contains(&"function"));
@@ -281,7 +277,7 @@ interface User {
 "#;
         let chunks = chunk_typescript(source, false).unwrap();
         assert!(!chunks.is_empty());
-        
+
         let types: Vec<&str> = chunks.iter().map(|c| c.chunk_type.as_str()).collect();
         assert!(types.contains(&"function"));
         assert!(types.contains(&"class"));
@@ -302,7 +298,7 @@ class Person:
 "#;
         let chunks = chunk_python(source).unwrap();
         assert!(!chunks.is_empty());
-        
+
         let types: Vec<&str> = chunks.iter().map(|c| c.chunk_type.as_str()).collect();
         assert!(types.contains(&"function"));
         assert!(types.contains(&"class"));
@@ -334,7 +330,7 @@ type Reader interface {
 "#;
         let chunks = chunk_go(source).unwrap();
         assert!(!chunks.is_empty());
-        
+
         let types: Vec<&str> = chunks.iter().map(|c| c.chunk_type.as_str()).collect();
         assert!(types.contains(&"function"));
         assert!(types.contains(&"struct"));

@@ -1,12 +1,12 @@
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use std::sync::Arc;
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::{oneshot, RwLock};
 
 use super::feishu_config::{FeishuConfig, FeishuGatewayStatus, FeishuGatewayStatusResponse};
 use super::session::SessionMapping;
 
+use super::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
 use super::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
-use super::session_queue::{SessionQueue, QueuedMessage, EnqueueResult, RejectReason};
 
 /// Feishu API base URL
 const FEISHU_API_BASE: &str = "https://open.feishu.cn";
@@ -25,11 +25,11 @@ struct PbHeader {
 /// WebSocket binary frame (proto: pbbp2.Frame)
 #[derive(Debug, Clone, Default)]
 struct PbFrame {
-    seq_id: u64,   // field 1, varint
-    log_id: u64,   // field 2, varint
-    service: i32,  // field 3, varint
-    method: i32,   // field 4, varint (0=control, 1=data)
-    headers: Vec<PbHeader>, // field 5, repeated
+    seq_id: u64,              // field 1, varint
+    log_id: u64,              // field 2, varint
+    service: i32,             // field 3, varint
+    method: i32,              // field 4, varint (0=control, 1=data)
+    headers: Vec<PbHeader>,   // field 5, repeated
     payload_encoding: String, // field 6
     payload_type: String,     // field 7
     payload: Vec<u8>,         // field 8
@@ -39,7 +39,8 @@ struct PbFrame {
 impl PbFrame {
     /// Get a header value by key
     fn get_header(&self, key: &str) -> Option<&str> {
-        self.headers.iter()
+        self.headers
+            .iter()
             .find(|h| h.key == key)
             .map(|h| h.value.as_str())
     }
@@ -156,8 +157,7 @@ fn decode_bytes<'a>(data: &'a [u8], pos: &mut usize) -> Result<&'a [u8], String>
 
 fn decode_string(data: &[u8], pos: &mut usize) -> Result<String, String> {
     let bytes = decode_bytes(data, pos)?;
-    String::from_utf8(bytes.to_vec())
-        .map_err(|e| format!("invalid utf8: {}", e))
+    String::from_utf8(bytes.to_vec()).map_err(|e| format!("invalid utf8: {}", e))
 }
 
 impl PbHeader {
@@ -171,8 +171,12 @@ impl PbHeader {
             match (field, wire) {
                 (1, 2) => header.key = decode_string(data, &mut pos)?,
                 (2, 2) => header.value = decode_string(data, &mut pos)?,
-                (_, 0) => { decode_varint(data, &mut pos)?; },
-                (_, 2) => { decode_bytes(data, &mut pos)?; },
+                (_, 0) => {
+                    decode_varint(data, &mut pos)?;
+                }
+                (_, 2) => {
+                    decode_bytes(data, &mut pos)?;
+                }
                 _ => return Err(format!("unexpected wire type {} for field {}", wire, field)),
             }
         }
@@ -201,10 +205,18 @@ impl PbFrame {
                 (7, 2) => frame.payload_type = decode_string(data, &mut pos)?,
                 (8, 2) => frame.payload = decode_bytes(data, &mut pos)?.to_vec(),
                 (9, 2) => frame.log_id_new = decode_string(data, &mut pos)?,
-                (_, 0) => { decode_varint(data, &mut pos)?; },
-                (_, 2) => { decode_bytes(data, &mut pos)?; },
-                (_, 1) => { pos += 8; }, // 64-bit
-                (_, 5) => { pos += 4; }, // 32-bit
+                (_, 0) => {
+                    decode_varint(data, &mut pos)?;
+                }
+                (_, 2) => {
+                    decode_bytes(data, &mut pos)?;
+                }
+                (_, 1) => {
+                    pos += 8;
+                } // 64-bit
+                (_, 5) => {
+                    pos += 4;
+                } // 32-bit
                 _ => return Err(format!("unexpected wire type {} for field {}", wire, field)),
             }
         }
@@ -365,7 +377,10 @@ impl TokenManager {
         let code = body["code"].as_i64().unwrap_or(-1);
         if code != 0 {
             let msg = body["msg"].as_str().unwrap_or("Unknown error");
-            return Err(format!("Feishu tenant token error (code {}): {}", code, msg));
+            return Err(format!(
+                "Feishu tenant token error (code {}): {}",
+                code, msg
+            ));
         }
 
         body["tenant_access_token"]
@@ -451,9 +466,15 @@ impl FeishuGateway {
 
         tokio::spawn(async move {
             let result = run_feishu_gateway(
-                config_arc, status_arc.clone(), session_mapping, opencode_port, shutdown_rx, session_queue,
+                config_arc,
+                status_arc.clone(),
+                session_mapping,
+                opencode_port,
+                shutdown_rx,
+                session_queue,
                 pending_questions,
-            ).await;
+            )
+            .await;
 
             if let Err(e) = result {
                 eprintln!("[Feishu] Gateway error: {}", e);
@@ -572,7 +593,11 @@ async fn get_ws_endpoint(app_id: &str, app_secret: &str) -> Result<(String, i32)
         .as_i64()
         .unwrap_or(0) as i32;
 
-    println!("[Feishu] Got WS URL (service_id={}): {}...", service_id, &ws_url[..ws_url.len().min(80)]);
+    println!(
+        "[Feishu] Got WS URL (service_id={}): {}...",
+        service_id,
+        &ws_url[..ws_url.len().min(80)]
+    );
     Ok((ws_url, service_id))
 }
 
@@ -591,8 +616,9 @@ async fn run_feishu_gateway(
     // Validate credentials first
     token_manager.refresh_token().await?;
 
-    let processed_messages: Arc<RwLock<ProcessedMessageTracker>> =
-        Arc::new(RwLock::new(ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES)));
+    let processed_messages: Arc<RwLock<ProcessedMessageTracker>> = Arc::new(RwLock::new(
+        ProcessedMessageTracker::new(MAX_PROCESSED_MESSAGES),
+    ));
 
     let mut retry_delay = std::time::Duration::from_secs(1);
     let max_retry_delay = std::time::Duration::from_secs(60);
@@ -652,10 +678,18 @@ async fn run_feishu_gateway(
         };
 
         let ws_result = handle_ws_connection(
-            ws_stream, &config, &session_mapping, opencode_port,
-            &token_manager, &processed_messages, &mut shutdown_rx, service_id,
-            &session_queue, &pending_questions,
-        ).await;
+            ws_stream,
+            &config,
+            &session_mapping,
+            opencode_port,
+            &token_manager,
+            &processed_messages,
+            &mut shutdown_rx,
+            service_id,
+            &session_queue,
+            &pending_questions,
+        )
+        .await;
 
         match ws_result {
             Ok(WsExitReason::Shutdown) => {
@@ -704,8 +738,8 @@ async fn handle_ws_connection(
     session_queue: &Arc<SessionQueue>,
     pending_questions: &Arc<super::PendingQuestionStore>,
 ) -> Result<WsExitReason, String> {
-    use futures::stream::StreamExt;
     use futures::sink::SinkExt;
+    use futures::stream::StreamExt;
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
@@ -852,16 +886,24 @@ async fn handle_binary_frame(
             let trace_id = frame.get_header("trace_id").unwrap_or("").to_string();
             let start = std::time::Instant::now();
 
-            println!("[Feishu] Received data frame: type={}, message_id={}, trace_id={}", msg_type, message_id, trace_id);
+            println!(
+                "[Feishu] Received data frame: type={}, message_id={}, trace_id={}",
+                msg_type, message_id, trace_id
+            );
 
             match msg_type.as_str() {
                 "event" => {
                     // Payload is JSON event data
                     let payload_str = String::from_utf8_lossy(&frame.payload);
-                    println!("[Feishu] Event payload: {}", &payload_str[..payload_str.len().min(300)]);
+                    println!(
+                        "[Feishu] Event payload: {}",
+                        &payload_str[..payload_str.len().min(300)]
+                    );
 
                     // Parse the event JSON
-                    if let Ok(event_json) = serde_json::from_slice::<serde_json::Value>(&frame.payload) {
+                    if let Ok(event_json) =
+                        serde_json::from_slice::<serde_json::Value>(&frame.payload)
+                    {
                         // Check for duplicate
                         let event_id = event_json["header"]["event_id"]
                             .as_str()
@@ -898,12 +940,20 @@ async fn handle_binary_frame(
                                 let pending_questions_clone = Arc::clone(pending_questions);
                                 tokio::spawn(async move {
                                     println!("[Feishu] Spawned message handler task");
-                                    let tm = TokenManager::new(&token_manager_app_id, &token_manager_app_secret);
+                                    let tm = TokenManager::new(
+                                        &token_manager_app_id,
+                                        &token_manager_app_secret,
+                                    );
                                     handle_message_event(
-                                        &event_data, &config_clone, &session_mapping_clone,
-                                        opencode_port, &tm, &session_queue_clone,
+                                        &event_data,
+                                        &config_clone,
+                                        &session_mapping_clone,
+                                        opencode_port,
+                                        &tm,
+                                        &session_queue_clone,
                                         &pending_questions_clone,
-                                    ).await;
+                                    )
+                                    .await;
                                     println!("[Feishu] Message handler task completed");
                                 });
                             } else {
@@ -941,7 +991,10 @@ async fn handle_message_event(
     pending_questions: &Arc<super::PendingQuestionStore>,
 ) {
     let sender = &event["sender"];
-    let sender_id = sender["sender_id"]["open_id"].as_str().unwrap_or("").to_string();
+    let sender_id = sender["sender_id"]["open_id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     let sender_type = sender["sender_type"].as_str().unwrap_or("");
 
     if sender_type == "app" {
@@ -955,7 +1008,10 @@ async fn handle_message_event(
     let chat_type = message["chat_type"].as_str().unwrap_or("");
     let msg_type = message["message_type"].as_str().unwrap_or("");
 
-    println!("[Feishu] Message: sender={}, chat_id={}, chat_type={}, msg_type={}", sender_id, chat_id, chat_type, msg_type);
+    println!(
+        "[Feishu] Message: sender={}, chat_id={}, chat_type={}, msg_type={}",
+        sender_id, chat_id, chat_type, msg_type
+    );
 
     // Extract text content
     let content_str = message["content"].as_str().unwrap_or("{}");
@@ -984,7 +1040,10 @@ async fn handle_message_event(
         if !pid.is_empty() {
             if let Some(entry) = pending_questions.take(pid).await {
                 let _ = entry.answer_tx.send(clean_text.clone());
-                println!("[Feishu] Question {} answered via reply to {}", entry.question_id, pid);
+                println!(
+                    "[Feishu] Question {} answered via reply to {}",
+                    entry.question_id, pid
+                );
                 return;
             }
         }
@@ -1019,25 +1078,35 @@ async fn handle_message_event(
     // Check for /answer command — routes reply to the most recent pending question
     if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&clean_text) {
         if let Some(qid) = pending_questions.try_answer(answer_text).await {
-            println!("[Feishu] Question {} answered via /answer: {}", qid, answer_text);
+            println!(
+                "[Feishu] Question {} answered via /answer: {}",
+                qid, answer_text
+            );
             if let Ok(token) = token_manager.get_tenant_token().await {
-                let _ = reply_feishu_message(&token, &message_id,
-                    &format!("✓ 已回复: {}", answer_text)).await;
+                let _ = reply_feishu_message(
+                    &token,
+                    &message_id,
+                    &format!("✓ 已回复: {}", answer_text),
+                )
+                .await;
             }
         } else if let Ok(token) = token_manager.get_tenant_token().await {
-            let _ = reply_feishu_message(&token, &message_id,
-                "当前没有待回复的问题").await;
+            let _ = reply_feishu_message(&token, &message_id, "当前没有待回复的问题").await;
         }
         return;
     }
 
     // Handle /model command
-    if clean_text.eq_ignore_ascii_case("/model") || clean_text.to_lowercase().starts_with("/model ") {
-        let arg = if clean_text.len() > 7 { clean_text[7..].trim() } else { "" };
+    if clean_text.eq_ignore_ascii_case("/model") || clean_text.to_lowercase().starts_with("/model ")
+    {
+        let arg = if clean_text.len() > 7 {
+            clean_text[7..].trim()
+        } else {
+            ""
+        };
         println!("[Feishu] Model command received, arg: '{}'", arg);
-        let response = super::handle_model_command(
-            opencode_port, session_mapping, &session_key, arg,
-        ).await;
+        let response =
+            super::handle_model_command(opencode_port, session_mapping, &session_key, arg).await;
 
         if let Ok(token) = token_manager.get_tenant_token().await {
             let chunks = split_message(&response, 4000);
@@ -1058,8 +1127,12 @@ async fn handle_message_event(
     if clean_text.eq_ignore_ascii_case("/reset") {
         session_mapping.remove_session(&session_key).await;
         if let Ok(token) = token_manager.get_tenant_token().await {
-            let _ = reply_feishu_message(&token, &message_id,
-                "Session reset. A new session will be created for your next message.").await;
+            let _ = reply_feishu_message(
+                &token,
+                &message_id,
+                "Session reset. A new session will be created for your next message.",
+            )
+            .await;
         }
         return;
     }
@@ -1067,9 +1140,8 @@ async fn handle_message_event(
     // Handle /stop command
     if clean_text.eq_ignore_ascii_case("/stop") {
         println!("[Feishu] Stop command received");
-        let response = super::handle_stop_command(
-            opencode_port, session_mapping, &session_key,
-        ).await;
+        let response =
+            super::handle_stop_command(opencode_port, session_mapping, &session_key).await;
         if let Ok(token) = token_manager.get_tenant_token().await {
             let _ = reply_feishu_message(&token, &message_id, &response).await;
         }
@@ -1077,12 +1149,17 @@ async fn handle_message_event(
     }
 
     // Handle /sessions command
-    if clean_text.eq_ignore_ascii_case("/sessions") || clean_text.to_lowercase().starts_with("/sessions ") {
-        let arg = if clean_text.len() > 10 { clean_text[10..].trim() } else { "" };
+    if clean_text.eq_ignore_ascii_case("/sessions")
+        || clean_text.to_lowercase().starts_with("/sessions ")
+    {
+        let arg = if clean_text.len() > 10 {
+            clean_text[10..].trim()
+        } else {
+            ""
+        };
         println!("[Feishu] Sessions command received, arg: '{}'", arg);
-        let response = super::handle_sessions_command(
-            opencode_port, session_mapping, &session_key, arg,
-        ).await;
+        let response =
+            super::handle_sessions_command(opencode_port, session_mapping, &session_key, arg).await;
 
         if let Ok(token) = token_manager.get_tenant_token().await {
             let chunks = split_message(&response, 4000);
@@ -1143,122 +1220,222 @@ async fn handle_message_event(
 
     let pending_questions_for_closure = Arc::clone(pending_questions);
 
-    let result = session_queue.enqueue(&session_key, QueuedMessage {
-        enqueued_at: std::time::Instant::now(),
-        process_fn: Box::new(move || Box::pin(async move {
-            let tm = TokenManager::new(&tm_app_id, &tm_app_secret);
-
-            // Get or create session
-            let session_id = match session_mapping_owned.get_session(&session_key_owned).await {
-                Some(id) => id,
-                None => match create_opencode_session(opencode_port).await {
-                    Ok(id) => {
-                        session_mapping_owned.set_session(session_key_owned.clone(), id.clone()).await;
-                        id
-                    }
-                    Err(e) => {
-                        if let Ok(token) = tm.get_tenant_token().await {
-                            let _ = reply_feishu_message(&token, &message_id_owned, &format!("Error: {}", e)).await;
-                        }
-                        return;
-                    }
-                },
-            };
-
-            // Send "Thinking..." card
-            let processing_msg_id = if let Ok(token) = tm.get_tenant_token().await {
-                reply_feishu_card_message(&token, &message_id_owned, "🤔 Thinking...", None).await.ok()
-            } else {
-                None
-            };
-
-            // Build question context for forwarding AI questions to Feishu
-            let pending_questions_clone = Arc::clone(&pending_questions_for_closure);
-            let tm_app_id_for_q = tm.app_id.clone();
-            let tm_app_secret_for_q = tm.app_secret.clone();
-            let message_id_for_q = message_id_owned.clone();
-            let question_ctx = super::QuestionContext {
-                forwarder: Box::new(move |fq: super::ForwardedQuestion| {
-                    let app_id = tm_app_id_for_q.clone();
-                    let app_secret = tm_app_secret_for_q.clone();
-                    let mid = message_id_for_q.clone();
+    let result = session_queue
+        .enqueue(
+            &session_key,
+            QueuedMessage {
+                enqueued_at: std::time::Instant::now(),
+                process_fn: Box::new(move || {
                     Box::pin(async move {
-                        let tm = TokenManager::new(&app_id, &app_secret);
-                        let token = tm.get_tenant_token().await
-                            .map_err(|e| format!("Failed to get token: {}", e))?;
-                        let text = super::format_question_message(&fq.questions, &fq.question_id);
-                        reply_feishu_message(&token, &mid, &text).await
+                        let tm = TokenManager::new(&tm_app_id, &tm_app_secret);
+
+                        // Get or create session
+                        let session_id =
+                            match session_mapping_owned.get_session(&session_key_owned).await {
+                                Some(id) => id,
+                                None => match create_opencode_session(opencode_port).await {
+                                    Ok(id) => {
+                                        session_mapping_owned
+                                            .set_session(session_key_owned.clone(), id.clone())
+                                            .await;
+                                        id
+                                    }
+                                    Err(e) => {
+                                        if let Ok(token) = tm.get_tenant_token().await {
+                                            let _ = reply_feishu_message(
+                                                &token,
+                                                &message_id_owned,
+                                                &format!("Error: {}", e),
+                                            )
+                                            .await;
+                                        }
+                                        return;
+                                    }
+                                },
+                            };
+
+                        // Send "Thinking..." card
+                        let processing_msg_id = if let Ok(token) = tm.get_tenant_token().await {
+                            reply_feishu_card_message(
+                                &token,
+                                &message_id_owned,
+                                "🤔 Thinking...",
+                                None,
+                            )
+                            .await
+                            .ok()
+                        } else {
+                            None
+                        };
+
+                        // Build question context for forwarding AI questions to Feishu
+                        let pending_questions_clone = Arc::clone(&pending_questions_for_closure);
+                        let tm_app_id_for_q = tm.app_id.clone();
+                        let tm_app_secret_for_q = tm.app_secret.clone();
+                        let message_id_for_q = message_id_owned.clone();
+                        let question_ctx = super::QuestionContext {
+                            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
+                                let app_id = tm_app_id_for_q.clone();
+                                let app_secret = tm_app_secret_for_q.clone();
+                                let mid = message_id_for_q.clone();
+                                Box::pin(async move {
+                                    let tm = TokenManager::new(&app_id, &app_secret);
+                                    let token = tm
+                                        .get_tenant_token()
+                                        .await
+                                        .map_err(|e| format!("Failed to get token: {}", e))?;
+                                    let text = super::format_question_message(
+                                        &fq.questions,
+                                        &fq.question_id,
+                                    );
+                                    reply_feishu_message(&token, &mid, &text).await
+                                })
+                            }),
+                            store: pending_questions_clone,
+                        };
+
+                        // Send to OpenCode
+                        let result = send_to_opencode(
+                            opencode_port,
+                            &session_id,
+                            &content_owned,
+                            images_owned,
+                            model_param_owned,
+                            Some(question_ctx),
+                        )
+                        .await;
+
+                        // Reply (edit Thinking card or send new message)
+                        if let Ok(token) = tm.get_tenant_token().await {
+                            match result {
+                                Ok(response) => {
+                                    let chunks = split_message(&response, 4000);
+                                    if let Some(ref proc_id) = processing_msg_id {
+                                        if !proc_id.is_empty() {
+                                            match update_feishu_message(&token, proc_id, &chunks[0])
+                                                .await
+                                            {
+                                                Ok(_) => {}
+                                                Err(_) => {
+                                                    let _ = reply_feishu_message(
+                                                        &token,
+                                                        &message_id_owned,
+                                                        &chunks[0],
+                                                    )
+                                                    .await;
+                                                }
+                                            }
+                                            for chunk in chunks.iter().skip(1) {
+                                                let _ = send_feishu_message(
+                                                    &token,
+                                                    &chat_id_owned,
+                                                    chunk,
+                                                )
+                                                .await;
+                                            }
+                                        } else {
+                                            let mut first = true;
+                                            for chunk in chunks {
+                                                if first {
+                                                    first = false;
+                                                    let _ = reply_feishu_message(
+                                                        &token,
+                                                        &message_id_owned,
+                                                        &chunk,
+                                                    )
+                                                    .await;
+                                                } else {
+                                                    let _ = send_feishu_message(
+                                                        &token,
+                                                        &chat_id_owned,
+                                                        &chunk,
+                                                    )
+                                                    .await;
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        let mut first = true;
+                                        for chunk in chunks {
+                                            if first {
+                                                first = false;
+                                                let _ = reply_feishu_message(
+                                                    &token,
+                                                    &message_id_owned,
+                                                    &chunk,
+                                                )
+                                                .await;
+                                            } else {
+                                                let _ = send_feishu_message(
+                                                    &token,
+                                                    &chat_id_owned,
+                                                    &chunk,
+                                                )
+                                                .await;
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    if let Some(ref proc_id) = processing_msg_id {
+                                        if !proc_id.is_empty() {
+                                            let _ = update_feishu_message(
+                                                &token,
+                                                proc_id,
+                                                &format!("❌ Error: {}", e),
+                                            )
+                                            .await;
+                                        } else {
+                                            let _ = reply_feishu_message(
+                                                &token,
+                                                &message_id_owned,
+                                                &format!("Error: {}", e),
+                                            )
+                                            .await;
+                                        }
+                                    } else {
+                                        let _ = reply_feishu_message(
+                                            &token,
+                                            &message_id_owned,
+                                            &format!("Error: {}", e),
+                                        )
+                                        .await;
+                                    }
+                                }
+                            }
+                        }
                     })
                 }),
-                store: pending_questions_clone,
-            };
-
-            // Send to OpenCode
-            let result = send_to_opencode(opencode_port, &session_id, &content_owned, images_owned, model_param_owned, Some(question_ctx)).await;
-
-            // Reply (edit Thinking card or send new message)
-            if let Ok(token) = tm.get_tenant_token().await {
-                match result {
-                    Ok(response) => {
-                        let chunks = split_message(&response, 4000);
-                        if let Some(ref proc_id) = processing_msg_id {
-                            if !proc_id.is_empty() {
-                                match update_feishu_message(&token, proc_id, &chunks[0]).await {
-                                    Ok(_) => {}
-                                    Err(_) => { let _ = reply_feishu_message(&token, &message_id_owned, &chunks[0]).await; }
-                                }
-                                for chunk in chunks.iter().skip(1) {
-                                    let _ = send_feishu_message(&token, &chat_id_owned, chunk).await;
-                                }
-                            } else {
-                                let mut first = true;
-                                for chunk in chunks {
-                                    if first { first = false; let _ = reply_feishu_message(&token, &message_id_owned, &chunk).await; }
-                                    else { let _ = send_feishu_message(&token, &chat_id_owned, &chunk).await; }
-                                }
+                notify_fn: Some(Box::new(move |reason| {
+                    Box::pin(async move {
+                        let msg = match reason {
+                            RejectReason::Timeout => "Your message timed out waiting in queue.",
+                            RejectReason::QueueFull => {
+                                "Too many messages queued. Please try again later."
                             }
-                        } else {
-                            let mut first = true;
-                            for chunk in chunks {
-                                if first { first = false; let _ = reply_feishu_message(&token, &message_id_owned, &chunk).await; }
-                                else { let _ = send_feishu_message(&token, &chat_id_owned, &chunk).await; }
+                            RejectReason::SessionClosed => {
+                                "Your message could not be processed. Please resend."
                             }
+                        };
+                        let tm = TokenManager::new(&tm_app_id2, &tm_app_secret2);
+                        if let Ok(token) = tm.get_tenant_token().await {
+                            let _ = reply_feishu_message(&token, &message_id2, msg).await;
                         }
-                    }
-                    Err(e) => {
-                        if let Some(ref proc_id) = processing_msg_id {
-                            if !proc_id.is_empty() {
-                                let _ = update_feishu_message(&token, proc_id, &format!("❌ Error: {}", e)).await;
-                            } else {
-                                let _ = reply_feishu_message(&token, &message_id_owned, &format!("Error: {}", e)).await;
-                            }
-                        } else {
-                            let _ = reply_feishu_message(&token, &message_id_owned, &format!("Error: {}", e)).await;
-                        }
-                    }
-                }
-            }
-        })),
-        notify_fn: Some(Box::new(move |reason| Box::pin(async move {
-            let msg = match reason {
-                RejectReason::Timeout => "Your message timed out waiting in queue.",
-                RejectReason::QueueFull => "Too many messages queued. Please try again later.",
-                RejectReason::SessionClosed => "Your message could not be processed. Please resend.",
-            };
-            let tm = TokenManager::new(&tm_app_id2, &tm_app_secret2);
-            if let Ok(token) = tm.get_tenant_token().await {
-                let _ = reply_feishu_message(&token, &message_id2, msg).await;
-            }
-        }))),
-    }).await;
+                    })
+                })),
+            },
+        )
+        .await;
 
     match result {
         EnqueueResult::Queued { position } if position > 0 => {
             if let Ok(token) = token_manager.get_tenant_token().await {
                 let _ = reply_feishu_message(
-                    &token, &message_id,
+                    &token,
+                    &message_id,
                     &format!("Message queued (position: {}). Please wait...", position),
-                ).await;
+                )
+                .await;
             }
         }
         EnqueueResult::Full => { /* notify_fn already handled */ }
@@ -1267,7 +1444,6 @@ async fn handle_message_event(
 }
 
 // ==================== Helpers ====================
-
 
 fn check_feishu_allowed(config: &FeishuConfig, chat_id: &str, sender_id: &str) -> FilterResult {
     let chat_config = config.chats.get(chat_id).or_else(|| config.chats.get("*"));
@@ -1304,7 +1480,9 @@ fn clean_at_mentions(text: &str) -> String {
             if chars.peek() == Some(&'_') {
                 // Skip @_user_N or @_all mentions
                 while let Some(&next) = chars.peek() {
-                    if next == ' ' || next == '\n' { break; }
+                    if next == ' ' || next == '\n' {
+                        break;
+                    }
                     chars.next();
                 }
             } else {
@@ -1356,7 +1534,11 @@ async fn send_to_opencode(
     model: Option<(String, String)>,
     question_ctx: Option<super::QuestionContext>,
 ) -> Result<String, String> {
-    println!("[Feishu] Sending to OpenCode: content: {}, images: {}", content, images.len());
+    println!(
+        "[Feishu] Sending to OpenCode: content: {}, images: {}",
+        content,
+        images.len()
+    );
 
     let mut parts = Vec::new();
     if !content.is_empty() {
@@ -1370,27 +1552,25 @@ async fn send_to_opencode(
     }
 
     println!("[Feishu] Sending message asynchronously with permission auto-approval");
-    
+
     // Use async send with permission auto-approval
-    super::send_message_async_with_approval(
-        port,
-        session_id,
-        parts,
-        model,
-        question_ctx,
-    ).await
+    super::send_message_async_with_approval(port, session_id, parts, model, question_ctx).await
 }
 
 /// Reply to a Feishu message. Returns the reply message_id on success.
 async fn reply_feishu_message(token: &str, message_id: &str, text: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
-    let url = format!("{}/open-apis/im/v1/messages/{}/reply", FEISHU_API_BASE, message_id);
+    let url = format!(
+        "{}/open-apis/im/v1/messages/{}/reply",
+        FEISHU_API_BASE, message_id
+    );
     let body = serde_json::json!({
         "content": serde_json::json!({"text": text}).to_string(),
         "msg_type": "text"
     });
 
-    let response = client.post(&url)
+    let response = client
+        .post(&url)
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json; charset=utf-8")
         .json(&body)
@@ -1398,7 +1578,10 @@ async fn reply_feishu_message(token: &str, message_id: &str, text: &str) -> Resu
         .await
         .map_err(|e| format!("Failed to reply: {}", e))?;
 
-    let resp: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse: {}", e))?;
+    let resp: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse: {}", e))?;
     let code = resp["code"].as_i64().unwrap_or(-1);
     if code != 0 {
         let msg = resp["msg"].as_str().unwrap_or("Unknown");
@@ -1408,7 +1591,10 @@ async fn reply_feishu_message(token: &str, message_id: &str, text: &str) -> Resu
         .as_str()
         .unwrap_or("")
         .to_string();
-    println!("[Feishu] Reply sent to {} (reply_id={})", message_id, reply_msg_id);
+    println!(
+        "[Feishu] Reply sent to {} (reply_id={})",
+        message_id, reply_msg_id
+    );
     Ok(reply_msg_id)
 }
 
@@ -1416,7 +1602,10 @@ async fn reply_feishu_message(token: &str, message_id: &str, text: &str) -> Resu
 /// The message MUST have been sent as an interactive card; plain text messages cannot be updated.
 async fn update_feishu_message(token: &str, message_id: &str, text: &str) -> Result<(), String> {
     let client = reqwest::Client::new();
-    let url = format!("{}/open-apis/im/v1/messages/{}", FEISHU_API_BASE, message_id);
+    let url = format!(
+        "{}/open-apis/im/v1/messages/{}",
+        FEISHU_API_BASE, message_id
+    );
 
     // Build a card with the text content (matching the card format used when sending)
     let card = build_simple_card(text, None);
@@ -1425,7 +1614,8 @@ async fn update_feishu_message(token: &str, message_id: &str, text: &str) -> Res
         "msg_type": "interactive"
     });
 
-    let response = client.patch(&url)
+    let response = client
+        .patch(&url)
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json; charset=utf-8")
         .json(&body)
@@ -1433,7 +1623,10 @@ async fn update_feishu_message(token: &str, message_id: &str, text: &str) -> Res
         .await
         .map_err(|e| format!("Failed to update message: {}", e))?;
 
-    let resp: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse: {}", e))?;
+    let resp: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse: {}", e))?;
     let code = resp["code"].as_i64().unwrap_or(-1);
     if code != 0 {
         let msg = resp["msg"].as_str().unwrap_or("Unknown");
@@ -1446,12 +1639,10 @@ async fn update_feishu_message(token: &str, message_id: &str, text: &str) -> Res
 /// Build a simple Feishu interactive card JSON with text content.
 /// Optionally set a card title.
 fn build_simple_card(text: &str, title: Option<&str>) -> serde_json::Value {
-    let elements = vec![
-        serde_json::json!({
-            "tag": "markdown",
-            "content": text
-        })
-    ];
+    let elements = vec![serde_json::json!({
+        "tag": "markdown",
+        "content": text
+    })];
 
     let mut card = serde_json::json!({
         "elements": elements
@@ -1477,7 +1668,10 @@ async fn reply_feishu_card_message(
     title: Option<&str>,
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
-    let url = format!("{}/open-apis/im/v1/messages/{}/reply", FEISHU_API_BASE, message_id);
+    let url = format!(
+        "{}/open-apis/im/v1/messages/{}/reply",
+        FEISHU_API_BASE, message_id
+    );
 
     let card = build_simple_card(text, title);
     let body = serde_json::json!({
@@ -1485,7 +1679,8 @@ async fn reply_feishu_card_message(
         "msg_type": "interactive"
     });
 
-    let response = client.post(&url)
+    let response = client
+        .post(&url)
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json; charset=utf-8")
         .json(&body)
@@ -1493,7 +1688,10 @@ async fn reply_feishu_card_message(
         .await
         .map_err(|e| format!("Failed to reply card: {}", e))?;
 
-    let resp: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse: {}", e))?;
+    let resp: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse: {}", e))?;
     let code = resp["code"].as_i64().unwrap_or(-1);
     if code != 0 {
         let msg = resp["msg"].as_str().unwrap_or("Unknown");
@@ -1503,14 +1701,22 @@ async fn reply_feishu_card_message(
         .as_str()
         .unwrap_or("")
         .to_string();
-    println!("[Feishu] Card reply sent to {} (reply_id={})", message_id, reply_msg_id);
+    println!(
+        "[Feishu] Card reply sent to {} (reply_id={})",
+        message_id, reply_msg_id
+    );
     Ok(reply_msg_id)
 }
 
 /// Send a text message to a Feishu chat using app credentials.
 /// Standalone utility — obtains a tenant token internally and sends the message.
 /// Used by both the gateway and cron delivery.
-pub async fn send_chat_message(app_id: &str, app_secret: &str, chat_id: &str, text: &str) -> Result<(), String> {
+pub async fn send_chat_message(
+    app_id: &str,
+    app_secret: &str,
+    chat_id: &str,
+    text: &str,
+) -> Result<(), String> {
     let tm = TokenManager::new(app_id, app_secret);
     let token = tm.get_tenant_token().await?;
     send_feishu_message(&token, chat_id, text).await
@@ -1518,14 +1724,18 @@ pub async fn send_chat_message(app_id: &str, app_secret: &str, chat_id: &str, te
 
 async fn send_feishu_message(token: &str, chat_id: &str, text: &str) -> Result<(), String> {
     let client = reqwest::Client::new();
-    let url = format!("{}/open-apis/im/v1/messages?receive_id_type=chat_id", FEISHU_API_BASE);
+    let url = format!(
+        "{}/open-apis/im/v1/messages?receive_id_type=chat_id",
+        FEISHU_API_BASE
+    );
     let body = serde_json::json!({
         "receive_id": chat_id,
         "content": serde_json::json!({"text": text}).to_string(),
         "msg_type": "text"
     });
 
-    let response = client.post(&url)
+    let response = client
+        .post(&url)
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json; charset=utf-8")
         .json(&body)
@@ -1533,7 +1743,10 @@ async fn send_feishu_message(token: &str, chat_id: &str, text: &str) -> Result<(
         .await
         .map_err(|e| format!("Failed to send: {}", e))?;
 
-    let resp: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse: {}", e))?;
+    let resp: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse: {}", e))?;
     let code = resp["code"].as_i64().unwrap_or(-1);
     if code != 0 {
         let msg = resp["msg"].as_str().unwrap_or("Unknown");
@@ -1542,11 +1755,19 @@ async fn send_feishu_message(token: &str, chat_id: &str, text: &str) -> Result<(
     Ok(())
 }
 
-async fn download_feishu_image(token: &str, message_id: &str, image_key: &str) -> Result<(String, String), String> {
+async fn download_feishu_image(
+    token: &str,
+    message_id: &str,
+    image_key: &str,
+) -> Result<(String, String), String> {
     let client = reqwest::Client::new();
-    let url = format!("{}/open-apis/im/v1/messages/{}/resources/{}?type=image", FEISHU_API_BASE, message_id, image_key);
+    let url = format!(
+        "{}/open-apis/im/v1/messages/{}/resources/{}?type=image",
+        FEISHU_API_BASE, message_id, image_key
+    );
 
-    let response = client.get(&url)
+    let response = client
+        .get(&url)
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await
@@ -1556,11 +1777,21 @@ async fn download_feishu_image(token: &str, message_id: &str, image_key: &str) -
         return Err(format!("HTTP {}", response.status()));
     }
 
-    let content_type = response.headers().get("content-type")
-        .and_then(|v| v.to_str().ok()).unwrap_or("image/png").to_string();
-    let bytes = response.bytes().await.map_err(|e| format!("Failed to read: {}", e))?;
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/png")
+        .to_string();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read: {}", e))?;
     let b64 = BASE64.encode(&bytes);
-    Ok((format!("data:{};base64,{}", content_type, b64), content_type))
+    Ok((
+        format!("data:{};base64,{}", content_type, b64),
+        content_type,
+    ))
 }
 
 fn split_message(content: &str, max_len: usize) -> Vec<String> {
@@ -1577,8 +1808,12 @@ fn split_message(content: &str, max_len: usize) -> Vec<String> {
             if line.len() > max_len {
                 let mut remaining = line;
                 while remaining.len() > max_len {
-                    let at = remaining.char_indices().take_while(|(i, _)| *i < max_len).last()
-                        .map(|(i, c)| i + c.len_utf8()).unwrap_or(max_len);
+                    let at = remaining
+                        .char_indices()
+                        .take_while(|(i, _)| *i < max_len)
+                        .last()
+                        .map(|(i, c)| i + c.len_utf8())
+                        .unwrap_or(max_len);
                     let (chunk, rest) = remaining.split_at(at);
                     chunks.push(chunk.to_string());
                     remaining = rest;
@@ -1588,10 +1823,14 @@ fn split_message(content: &str, max_len: usize) -> Vec<String> {
                 current = line.to_string();
             }
         } else {
-            if !current.is_empty() { current.push('\n'); }
+            if !current.is_empty() {
+                current.push('\n');
+            }
             current.push_str(line);
         }
     }
-    if !current.is_empty() { chunks.push(current); }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
     chunks
 }

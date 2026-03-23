@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 use std::io::Write;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use tokio::sync::{RwLock, oneshot};
+use std::sync::Arc;
+use tokio::sync::{oneshot, RwLock};
 
-use super::email_config::{EmailConfig, EmailGatewayStatus, EmailGatewayStatusResponse, EmailProvider};
+use super::email_config::{
+    EmailConfig, EmailGatewayStatus, EmailGatewayStatusResponse, EmailProvider,
+};
 use super::email_db::EmailDb;
 use super::session::SessionMapping;
 
@@ -21,7 +23,9 @@ const POLL_INTERVAL_SECS: u64 = 30;
 
 /// Get the current highest UID in the mailbox (the "high water mark").
 /// All messages with UID > this value are considered new.
-fn get_max_uid(session: &mut imap::Session<impl std::io::Read + std::io::Write>) -> Result<u32, String> {
+fn get_max_uid(
+    session: &mut imap::Session<impl std::io::Read + std::io::Write>,
+) -> Result<u32, String> {
     let _ = session.noop();
     // Search ALL messages and take the max UID. For large mailboxes this is
     // still a server-side operation that just returns UID numbers (no bodies).
@@ -53,19 +57,19 @@ fn search_new_messages_since_uid(
     match session.uid_search(&query) {
         Ok(uids) => {
             // Filter out the since_uid itself (IMAP may return it if it's the max)
-            let new_uids: Vec<u32> = uids.into_iter()
-                .filter(|&uid| uid > since_uid)
-                .collect();
+            let new_uids: Vec<u32> = uids.into_iter().filter(|&uid| uid > since_uid).collect();
             Ok(new_uids)
         }
         Err(e) => {
             // Fallback to UNSEEN if UID range search fails
-            println!("[Email] UID range search failed: {}, falling back to UNSEEN", e);
+            println!(
+                "[Email] UID range search failed: {}, falling back to UNSEEN",
+                e
+            );
             match session.uid_search("UNSEEN") {
                 Ok(uids) => {
-                    let new_uids: Vec<u32> = uids.into_iter()
-                        .filter(|&uid| uid > since_uid)
-                        .collect();
+                    let new_uids: Vec<u32> =
+                        uids.into_iter().filter(|&uid| uid > since_uid).collect();
                     Ok(new_uids)
                 }
                 Err(e2) => Err(format!("Both UID range and UNSEEN search failed: {}", e2)),
@@ -101,7 +105,12 @@ struct GmailTokenManager {
 
 impl GmailTokenManager {
     fn new(client_id: &str, client_secret: &str, email: &str, workspace_path: &str) -> Self {
-        let token_path = format!("{}/{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR, TOKEN_FILE_NAME);
+        let token_path = format!(
+            "{}/{}/{}",
+            workspace_path,
+            crate::commands::TEAMCLAW_DIR,
+            TOKEN_FILE_NAME
+        );
         Self {
             client_id: client_id.to_string(),
             client_secret: client_secret.to_string(),
@@ -239,12 +248,12 @@ impl EmailGateway {
     pub async fn set_workspace_path(&self, workspace_path: &str) {
         let mut wp = self.workspace_path.write().await;
         *wp = Some(workspace_path.to_string());
-        
+
         // Initialize email database
         let db_path = std::path::PathBuf::from(workspace_path)
             .join(crate::commands::TEAMCLAW_DIR)
             .join("email.db");
-        
+
         match EmailDb::new(&db_path).await {
             Ok(db) => {
                 let mut email_db = self.email_db.write().await;
@@ -350,7 +359,16 @@ impl EmailGateway {
 
         // Spawn a dedicated blocking thread for IMAP operations
         std::thread::spawn(move || {
-            run_email_gateway_blocking(gateway, config, access_token, shutdown_flag, generation, my_generation, rt_handle, email_db);
+            run_email_gateway_blocking(
+                gateway,
+                config,
+                access_token,
+                shutdown_flag,
+                generation,
+                my_generation,
+                rt_handle,
+                email_db,
+            );
         });
 
         Ok(())
@@ -418,7 +436,12 @@ impl EmailGateway {
     }
 
     pub async fn check_gmail_auth(workspace_path: &str) -> bool {
-        let token_path = format!("{}/{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR, TOKEN_FILE_NAME);
+        let token_path = format!(
+            "{}/{}/{}",
+            workspace_path,
+            crate::commands::TEAMCLAW_DIR,
+            TOKEN_FILE_NAME
+        );
         std::path::Path::new(&token_path).exists()
     }
 
@@ -437,8 +460,7 @@ impl EmailGateway {
                         .map_err(|e| format!("TLS error: {}", e))?;
                     // Use connect_imap_with_id so the ID command (if needed) is sent
                     // at the raw TLS level before the imap::Client is created.
-                    let client =
-                        connect_imap_with_id(server.as_str(), port, &tls, &config_clone)?;
+                    let client = connect_imap_with_id(server.as_str(), port, &tls, &config_clone)?;
                     let mut session = client
                         .login(&username, &password)
                         .map_err(|e| format!("IMAP login failed: {}", e.0))?;
@@ -476,7 +498,10 @@ fn run_email_gateway_blocking(
     let mut backoff_secs: u64 = 2;
     let max_backoff: u64 = 60;
 
-    println!("[Email] Starting email gateway gen={} for provider: {:?}", my_generation, config.provider);
+    println!(
+        "[Email] Starting email gateway gen={} for provider: {:?}",
+        my_generation, config.provider
+    );
 
     // Generate account key for database operations
     let account_key = match config.provider {
@@ -492,12 +517,25 @@ fn run_email_gateway_blocking(
         }
         // Check if a newer generation has started (restart happened while we were in IDLE)
         if generation.load(Ordering::SeqCst) != my_generation {
-            println!("[Email] Generation mismatch (mine={}, current={}), exiting stale thread",
-                my_generation, generation.load(Ordering::SeqCst));
+            println!(
+                "[Email] Generation mismatch (mine={}, current={}), exiting stale thread",
+                my_generation,
+                generation.load(Ordering::SeqCst)
+            );
             break;
         }
 
-        match handle_imap_connection(&gateway, &config, access_token.as_deref(), &shutdown_flag, &generation, my_generation, &rt_handle, email_db.as_ref(), &account_key) {
+        match handle_imap_connection(
+            &gateway,
+            &config,
+            access_token.as_deref(),
+            &shutdown_flag,
+            &generation,
+            my_generation,
+            &rt_handle,
+            email_db.as_ref(),
+            &account_key,
+        ) {
             Ok(()) => {
                 println!("[Email] Connection ended normally");
                 backoff_secs = 2;
@@ -730,11 +768,9 @@ fn handle_imap_connection(
                 .authenticate("XOAUTH2", &auth)
                 .map_err(|e| format!("Gmail XOAUTH2 auth failed: {}", e.0))?
         }
-        EmailProvider::Custom => {
-            client
-                .login(&config.username, &config.password)
-                .map_err(|e| format!("IMAP login failed: {}", e.0))?
-        }
+        EmailProvider::Custom => client
+            .login(&config.username, &config.password)
+            .map_err(|e| format!("IMAP login failed: {}", e.0))?,
     };
 
     println!("[Email] IMAP authenticated successfully");
@@ -789,8 +825,13 @@ fn handle_imap_connection(
                     Ok(max_uid) => {
                         println!("[Email] Initial UID watermark from server: {} (all existing messages will be skipped)", max_uid);
                         // Store in database for next time
-                        if let Err(e) = rt_handle.block_on(db.update_uid_watermark(account_key, max_uid)) {
-                            println!("[Email] Warning: failed to store uid_watermark in db: {}", e);
+                        if let Err(e) =
+                            rt_handle.block_on(db.update_uid_watermark(account_key, max_uid))
+                        {
+                            println!(
+                                "[Email] Warning: failed to store uid_watermark in db: {}",
+                                e
+                            );
                         }
                         max_uid
                     }
@@ -805,7 +846,10 @@ fn handle_imap_connection(
         // No database available, fallback to old behavior
         match get_max_uid(&mut session) {
             Ok(max_uid) => {
-                println!("[Email] Initial UID watermark: {} (all existing messages will be skipped)", max_uid);
+                println!(
+                    "[Email] Initial UID watermark: {} (all existing messages will be skipped)",
+                    max_uid
+                );
                 max_uid
             }
             Err(e) => {
@@ -826,8 +870,11 @@ fn handle_imap_connection(
         }
         // Stale generation check: if a newer start() was called, exit this thread
         if generation.load(Ordering::SeqCst) != my_generation {
-            println!("[Email] Stale generation detected in IMAP loop (mine={}, current={}), exiting",
-                my_generation, generation.load(Ordering::SeqCst));
+            println!(
+                "[Email] Stale generation detected in IMAP loop (mine={}, current={}), exiting",
+                my_generation,
+                generation.load(Ordering::SeqCst)
+            );
             break;
         }
 
@@ -836,8 +883,9 @@ fn handle_imap_connection(
             println!("[Email] Entering IDLE...");
 
             let idle_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let mut idle_handle =
-                    session.idle().map_err(|e| format!("IDLE init failed: {}", e))?;
+                let mut idle_handle = session
+                    .idle()
+                    .map_err(|e| format!("IDLE init failed: {}", e))?;
                 idle_handle.set_keepalive(std::time::Duration::from_secs(IDLE_TIMEOUT_SECS));
                 idle_handle
                     .wait_keepalive()
@@ -847,8 +895,11 @@ fn handle_imap_connection(
 
             // After IDLE returns, immediately check if we're still the active generation
             if generation.load(Ordering::SeqCst) != my_generation {
-                println!("[Email] Stale generation after IDLE (mine={}, current={}), exiting",
-                    my_generation, generation.load(Ordering::SeqCst));
+                println!(
+                    "[Email] Stale generation after IDLE (mine={}, current={}), exiting",
+                    my_generation,
+                    generation.load(Ordering::SeqCst)
+                );
                 break;
             }
 
@@ -875,8 +926,8 @@ fn handle_imap_connection(
         } else {
             // ---- Polling path ----
             // Sleep in small increments so we can detect shutdown quickly.
-            let poll_end = std::time::Instant::now()
-                + std::time::Duration::from_secs(POLL_INTERVAL_SECS);
+            let poll_end =
+                std::time::Instant::now() + std::time::Duration::from_secs(POLL_INTERVAL_SECS);
             while std::time::Instant::now() < poll_end {
                 if shutdown_flag.load(Ordering::SeqCst) {
                     break;
@@ -890,9 +941,7 @@ fn handle_imap_connection(
 
             // After sleep, re-select INBOX to refresh server-side state
             // (NOOP could also work but SELECT is more reliable).
-            session
-                .noop()
-                .map_err(|e| format!("NOOP failed: {}", e))?;
+            session.noop().map_err(|e| format!("NOOP failed: {}", e))?;
         }
 
         if shutdown_flag.load(Ordering::SeqCst) {
@@ -938,8 +987,11 @@ fn handle_imap_connection(
         };
 
         if !new_uids.is_empty() {
-            println!("[Email] Found {} new messages (watermark={})",
-                new_uids.len(), uid_watermark);
+            println!(
+                "[Email] Found {} new messages (watermark={})",
+                new_uids.len(),
+                uid_watermark
+            );
         }
 
         for uid in new_uids {
@@ -948,8 +1000,13 @@ fn handle_imap_connection(
                 uid_watermark = uid;
                 // Persist watermark to database
                 if let Some(db) = email_db {
-                    if let Err(e) = rt_handle.block_on(db.update_uid_watermark(account_key, uid_watermark)) {
-                        println!("[Email] Warning: failed to update uid_watermark in db: {}", e);
+                    if let Err(e) =
+                        rt_handle.block_on(db.update_uid_watermark(account_key, uid_watermark))
+                    {
+                        println!(
+                            "[Email] Warning: failed to update uid_watermark in db: {}",
+                            e
+                        );
                     }
                 }
             }
@@ -958,11 +1015,14 @@ fn handle_imap_connection(
             // so a gateway restart won't pick up the same message again.
             let _ = session.uid_store(uid.to_string(), "+FLAGS (\\Seen)");
             processed_uids.insert(uid);
-            
+
             // Also persist to database for cross-session deduplication
             if let Some(db) = email_db {
                 if let Err(e) = rt_handle.block_on(db.mark_uid_processed(account_key, uid)) {
-                    println!("[Email] Warning: failed to mark uid as processed in db: {}", e);
+                    println!(
+                        "[Email] Warning: failed to mark uid as processed in db: {}",
+                        e
+                    );
                 }
             }
 
@@ -976,9 +1036,10 @@ fn handle_imap_connection(
                     // Wrap parse_email in catch_unwind to guard against panics
                     // in the mail-parser crate (e.g., "String full while decoding"
                     // when processing certain multi-byte encoded emails).
-                    let parse_result = std::panic::catch_unwind(
-                        std::panic::AssertUnwindSafe(|| parse_email(uid, body))
-                    );
+                    let parse_result =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            parse_email(uid, body)
+                        }));
 
                     let email_result = match parse_result {
                         Ok(result) => result,
@@ -1013,9 +1074,18 @@ fn handle_imap_connection(
                             );
 
                             let filter_result = check_email_filter(config, &email_msg);
-                                match filter_result {
+                            match filter_result {
                                 FilterResult::Allow => {
-                                    if let Err(e) = process_and_reply_sync(gateway, config, &email_msg, access_token, rt_handle, email_db, account_key, &gateway.pending_questions) {
+                                    if let Err(e) = process_and_reply_sync(
+                                        gateway,
+                                        config,
+                                        &email_msg,
+                                        access_token,
+                                        rt_handle,
+                                        email_db,
+                                        account_key,
+                                        &gateway.pending_questions,
+                                    ) {
                                         println!("[Email] Failed to process message: {}", e);
                                     }
                                 }
@@ -1027,7 +1097,9 @@ fn handle_imap_connection(
                                 }
                                 FilterResult::SenderNotAllowed => {
                                     println!("[Email] Sender not in allowlist: {}", email_msg.from);
-                                    if let Err(e) = send_rejection_reply_sync(config, &email_msg, access_token) {
+                                    if let Err(e) =
+                                        send_rejection_reply_sync(config, &email_msg, access_token)
+                                    {
                                         println!("[Email] Failed to send rejection: {}", e);
                                     }
                                 }
@@ -1046,24 +1118,36 @@ fn handle_imap_connection(
             // Cleanup in-memory HashSet
             if processed_uids.len() > MAX_PROCESSED_UIDS {
                 let drain_count = processed_uids.len() - MAX_PROCESSED_UIDS / 2;
-                let to_remove: Vec<u32> = processed_uids.iter().take(drain_count).copied().collect();
+                let to_remove: Vec<u32> =
+                    processed_uids.iter().take(drain_count).copied().collect();
                 for u in to_remove {
                     processed_uids.remove(&u);
                 }
             }
-            
+
             // Periodic database cleanup to prevent unbounded growth
             if let Some(db) = email_db {
                 match rt_handle.block_on(db.count_processed_uids(account_key)) {
                     Ok(count) if count > MAX_PROCESSED_UIDS => {
-                        println!("[Email] Database has {} processed UIDs, cleaning up old entries", count);
-                        if let Err(e) = rt_handle.block_on(db.cleanup_processed_uids(account_key, MAX_PROCESSED_UIDS)) {
-                            println!("[Email] Warning: failed to cleanup processed_uids in db: {}", e);
+                        println!(
+                            "[Email] Database has {} processed UIDs, cleaning up old entries",
+                            count
+                        );
+                        if let Err(e) = rt_handle
+                            .block_on(db.cleanup_processed_uids(account_key, MAX_PROCESSED_UIDS))
+                        {
+                            println!(
+                                "[Email] Warning: failed to cleanup processed_uids in db: {}",
+                                e
+                            );
                         }
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        println!("[Email] Warning: failed to count processed_uids in db: {}", e);
+                        println!(
+                            "[Email] Warning: failed to count processed_uids in db: {}",
+                            e
+                        );
                     }
                 }
             }
@@ -1274,10 +1358,7 @@ fn check_email_filter(config: &EmailConfig, email: &EmailMessage) -> FilterResul
         });
 
         if !is_allowed {
-            println!(
-                "[Email] Filter: sender {} not in allowlist",
-                email.from
-            );
+            println!("[Email] Filter: sender {} not in allowlist", email.from);
             return FilterResult::SenderNotAllowed;
         }
         return FilterResult::Allow;
@@ -1401,7 +1482,10 @@ fn resolve_email_session_key_sync(
 
         // STEP 2: Try SessionMapping subject index (for cron-initiated threads)
         if reply_like_subject && !normalized_subject.is_empty() {
-            if let Some(key) = mapping.get_email_session_by_subject(&normalized_subject).await {
+            if let Some(key) = mapping
+                .get_email_session_by_subject(&normalized_subject)
+                .await
+            {
                 println!(
                     "[Email] Session resolved by subject (SessionMapping): {} -> key {}",
                     normalized_subject, key
@@ -1414,7 +1498,9 @@ fn resolve_email_session_key_sync(
         if let Some(db) = email_db {
             // Try to find session by Message-ID (from In-Reply-To and References headers)
             for message_id in &lookup_ids {
-                if let Ok(Some(session_id)) = db.get_session_by_message_id(account_key, message_id).await {
+                if let Ok(Some(session_id)) =
+                    db.get_session_by_message_id(account_key, message_id).await
+                {
                     let key = format!("email:thread:{}", message_id);
                     println!(
                         "[Email] Session resolved by message-id index (database): {} -> session {}",
@@ -1428,7 +1514,10 @@ fn resolve_email_session_key_sync(
 
             // Fallback: try to find by subject (for emails without proper threading headers)
             if reply_like_subject && !normalized_subject.is_empty() {
-                if let Ok(Some(session_id)) = db.find_session_by_subject(account_key, &normalized_subject).await {
+                if let Ok(Some(session_id)) = db
+                    .find_session_by_subject(account_key, &normalized_subject)
+                    .await
+                {
                     // Build a thread key from the current message's ID
                     let msg_id = normalize_message_id(&email.message_id);
                     let key = if !msg_id.is_empty() {
@@ -1454,22 +1543,22 @@ fn resolve_email_session_key_sync(
 fn create_opencode_session_sync(port: u16) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
     let url = format!("http://127.0.0.1:{}/session", port);
-    
+
     // Set an explicit title to avoid OpenCode auto-generating titles that might conflict
     let now = chrono::Local::now();
     let title = format!("New Chat {}", now.format("%Y-%m-%d %H:%M:%S"));
     let body = serde_json::json!({ "title": title });
-    
+
     let resp = client
         .post(&url)
         .json(&body)
         .send()
         .map_err(|e| format!("OpenCode session create failed: {}", e))?;
-        
+
     let response_body: serde_json::Value = resp
         .json()
         .map_err(|e| format!("Failed to parse session response: {}", e))?;
-        
+
     response_body["id"]
         .as_str()
         .map(|s: &str| s.to_string())
@@ -1491,19 +1580,19 @@ fn send_to_opencode_sync(
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
     let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
-    
+
     // Build request body with optional model override
     let mut body = serde_json::json!({
         "parts": [{"type": "text", "text": message}]
     });
-    
+
     if let Some((provider_id, model_id)) = model {
         body["model"] = serde_json::json!({
             "providerID": provider_id,
             "modelID": model_id
         });
     }
-    
+
     let resp = client
         .post(&url)
         .json(&body)
@@ -1523,8 +1612,8 @@ fn send_to_opencode_sync(
         return Err(format!("OpenCode error ({}): {}", status, body_text));
     }
 
-    let body: serde_json::Value = serde_json::from_str(&body_text)
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    let body: serde_json::Value =
+        serde_json::from_str(&body_text).map_err(|e| format!("Failed to parse response: {}", e))?;
 
     // Extract text from parts where type == "text" (filter out thinking, tool_use, etc.)
     if let Some(parts) = body.get("parts").and_then(|p| p.as_array()) {
@@ -1566,17 +1655,16 @@ fn process_and_reply_sync(
     pending_questions: &Arc<super::PendingQuestionStore>,
 ) -> Result<(), String> {
     let port = gateway.opencode_port;
-    let session_key = resolve_email_session_key_sync(gateway, email, rt_handle, email_db, account_key)?
-        .unwrap_or_else(|| build_thread_session_key(email));
+    let session_key =
+        resolve_email_session_key_sync(gateway, email, rt_handle, email_db, account_key)?
+            .unwrap_or_else(|| build_thread_session_key(email));
     let _normalized_subject = normalize_subject(&email.subject).to_lowercase();
 
     // Get or create OpenCode session
     let session_id = {
         let mapping = gateway.session_mapping.clone();
         let key = session_key.clone();
-        rt_handle.block_on(async {
-            mapping.get_session(&key).await
-        })
+        rt_handle.block_on(async { mapping.get_session(&key).await })
     };
 
     let session_id = match session_id {
@@ -1603,7 +1691,10 @@ fn process_and_reply_sync(
     // Check for /answer command — routes reply to the most recent pending question
     if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&message_content) {
         if let Some(qid) = rt_handle.block_on(pending_questions.try_answer(answer_text)) {
-            println!("[Email] Question {} answered via /answer: {}", qid, answer_text);
+            println!(
+                "[Email] Question {} answered via /answer: {}",
+                qid, answer_text
+            );
         } else {
             println!("[Email] /answer command received but no pending questions");
         }
@@ -1613,11 +1704,13 @@ fn process_and_reply_sync(
     // Check if this email is a reply to a pending question
     for mid in extract_message_ids(&email.in_reply_to) {
         let normalized = normalize_message_id(&mid);
-        if let Some(entry) = rt_handle.block_on(async {
-            pending_questions.take(&normalized).await
-        }) {
+        if let Some(entry) = rt_handle.block_on(async { pending_questions.take(&normalized).await })
+        {
             let _ = entry.answer_tx.send(message_content.clone());
-            println!("[Email] Question {} answered via email reply", entry.question_id);
+            println!(
+                "[Email] Question {} answered via email reply",
+                entry.question_id
+            );
             return Ok(());
         }
     }
@@ -1626,9 +1719,7 @@ fn process_and_reply_sync(
     let model_preference = {
         let mapping = gateway.session_mapping.clone();
         let key = session_key.clone();
-        rt_handle.block_on(async {
-            mapping.get_model(&key).await
-        })
+        rt_handle.block_on(async { mapping.get_model(&key).await })
     };
 
     let model_param = model_preference
@@ -1649,9 +1740,10 @@ fn process_and_reply_sync(
                 let text = super::format_question_message(&fq.questions, &fq.question_id);
                 let outgoing_msg_id = tokio::task::spawn_blocking(move || {
                     send_reply_sync(&cfg, &reply_email, &text, at.as_deref())
-                }).await
-                    .map_err(|e| format!("Join error: {}", e))?
-                    .map_err(|e| format!("SMTP error: {}", e))?;
+                })
+                .await
+                .map_err(|e| format!("Join error: {}", e))?
+                .map_err(|e| format!("SMTP error: {}", e))?;
                 Ok(outgoing_msg_id)
             })
         }),
@@ -1668,38 +1760,51 @@ fn process_and_reply_sync(
             parts,
             model_param,
             Some(question_ctx),
-        ).await
+        )
+        .await
     })?;
 
     // Send reply
     let outgoing_message_id = send_reply_sync(config, email, &response, access_token)?;
     let incoming_message_id = normalize_message_id(&email.message_id);
     let session_id_clone = session_id.clone();
-    
+
     // Store email indexes only in database (no longer using SessionMapping's email indexes)
     rt_handle.block_on(async move {
         if let Some(db) = email_db {
             // Store incoming message thread
             if !incoming_message_id.is_empty() {
-                if let Err(e) = db.store_message_thread(
-                    account_key,
-                    &incoming_message_id,
-                    Some(&email.subject),
-                    Some(&session_id_clone)
-                ).await {
-                    println!("[Email] Warning: failed to store incoming message_id in db: {}", e);
+                if let Err(e) = db
+                    .store_message_thread(
+                        account_key,
+                        &incoming_message_id,
+                        Some(&email.subject),
+                        Some(&session_id_clone),
+                    )
+                    .await
+                {
+                    println!(
+                        "[Email] Warning: failed to store incoming message_id in db: {}",
+                        e
+                    );
                 }
             }
-            
+
             // Store outgoing message thread
             if !outgoing_message_id.is_empty() {
-                if let Err(e) = db.store_message_thread(
-                    account_key,
-                    &outgoing_message_id,
-                    Some(&email.subject),
-                    Some(&session_id_clone)
-                ).await {
-                    println!("[Email] Warning: failed to store outgoing message_id in db: {}", e);
+                if let Err(e) = db
+                    .store_message_thread(
+                        account_key,
+                        &outgoing_message_id,
+                        Some(&email.subject),
+                        Some(&session_id_clone),
+                    )
+                    .await
+                {
+                    println!(
+                        "[Email] Warning: failed to store outgoing message_id in db: {}",
+                        e
+                    );
                 }
             }
         }
@@ -1709,7 +1814,11 @@ fn process_and_reply_sync(
     Ok(())
 }
 
-fn send_rejection_reply_sync(config: &EmailConfig, email: &EmailMessage, access_token: Option<&str>) -> Result<(), String> {
+fn send_rejection_reply_sync(
+    config: &EmailConfig,
+    email: &EmailMessage,
+    access_token: Option<&str>,
+) -> Result<(), String> {
     let msg = "This is an automated response from TeamClaw. \
         Your email address is not in the allowed senders list. \
         Please contact the administrator if you believe this is an error.";
@@ -1827,13 +1936,16 @@ fn send_reply_sync(
     access_token: Option<&str>,
 ) -> Result<String, String> {
     use lettre::{
+        message::{Mailbox, Message, SinglePart},
         Transport,
-        message::{Message, SinglePart, Mailbox},
     };
 
     // Use shared helpers for SMTP params, From mailbox, and transport
     let params = resolve_smtp_params(config);
-    println!("[Email] Reply From address: {} (base: {})", params.from_email, params.base_email);
+    println!(
+        "[Email] Reply From address: {} (base: {})",
+        params.from_email, params.base_email
+    );
 
     let (from_mailbox, needs_reply_to) = build_from_mailbox(config, &params)?;
 
@@ -1940,22 +2052,32 @@ fn resolve_smtp_params(config: &EmailConfig) -> SmtpParams {
         base_email.clone()
     };
 
-    SmtpParams { server, port, base_email, from_email }
+    SmtpParams {
+        server,
+        port,
+        base_email,
+        from_email,
+    }
 }
 
 /// Build a From Mailbox with optional display name and Reply-To alias support.
 /// Returns (from_mailbox, needs_reply_to) where needs_reply_to is true when
 /// from_email differs from base_email (i.e., alias is used).
-fn build_from_mailbox(config: &EmailConfig, params: &SmtpParams) -> Result<(lettre::message::Mailbox, bool), String> {
+fn build_from_mailbox(
+    config: &EmailConfig,
+    params: &SmtpParams,
+) -> Result<(lettre::message::Mailbox, bool), String> {
     use lettre::message::Mailbox;
 
     let from_mailbox: Mailbox = if !config.display_name.trim().is_empty() {
-        let addr: lettre::Address = params.from_email
+        let addr: lettre::Address = params
+            .from_email
             .parse()
             .map_err(|e| format!("Invalid from address: {}", e))?;
         Mailbox::new(Some(config.display_name.trim().to_string()), addr)
     } else {
-        params.from_email
+        params
+            .from_email
             .parse()
             .map_err(|e| format!("Invalid from address: {}", e))?
     };
@@ -1971,8 +2093,8 @@ fn build_smtp_transport(
     access_token: Option<&str>,
 ) -> Result<lettre::SmtpTransport, String> {
     use lettre::{
-        SmtpTransport,
         transport::smtp::authentication::{Credentials, Mechanism},
+        SmtpTransport,
     };
 
     match config.provider {
@@ -2073,7 +2195,10 @@ fn is_quote_attribution(line: &str) -> bool {
     }
 
     // German: "schrieb:" / French: "a écrit :" / Spanish: "escribió:"
-    if trimmed.ends_with("schrieb:") || trimmed.contains("a écrit") || trimmed.ends_with("escribió:") {
+    if trimmed.ends_with("schrieb:")
+        || trimmed.contains("a écrit")
+        || trimmed.ends_with("escribió:")
+    {
         return true;
     }
 
@@ -2155,7 +2280,13 @@ pub async fn send_notification_email(
     let body_text = body_text.to_string();
 
     tokio::task::spawn_blocking(move || {
-        send_notification_email_sync(&config, access_token.as_deref(), &to_addr, &subject, &body_text)
+        send_notification_email_sync(
+            &config,
+            access_token.as_deref(),
+            &to_addr,
+            &subject,
+            &body_text,
+        )
     })
     .await
     .map_err(|e| format!("Email task panicked: {}", e))?
@@ -2173,19 +2304,20 @@ fn send_notification_email_sync(
     body: &str,
 ) -> Result<String, String> {
     use lettre::{
+        message::{Mailbox, Message},
         Transport,
-        message::{Message, Mailbox},
     };
 
     // Use shared helpers — same logic as gateway reply
     let params = resolve_smtp_params(config);
     let (from_mailbox, needs_reply_to) = build_from_mailbox(config, &params)?;
 
-    println!("[Email] Notification From: {} (base: {})", params.from_email, params.base_email);
+    println!(
+        "[Email] Notification From: {} (base: {})",
+        params.from_email, params.base_email
+    );
 
-    let to_mailbox: Mailbox = to
-        .parse()
-        .map_err(|e| format!("Invalid to email: {}", e))?;
+    let to_mailbox: Mailbox = to.parse().map_err(|e| format!("Invalid to email: {}", e))?;
 
     let mut builder = Message::builder()
         .from(from_mailbox)
@@ -2213,6 +2345,9 @@ fn send_notification_email_sync(
         .send(&email)
         .map_err(|e| format!("SMTP send failed: {}", e))?;
 
-    println!("[Email] Notification sent to {} (message-id: {})", to, outgoing_message_id);
+    println!(
+        "[Email] Notification sent to {} (message-id: {})",
+        to, outgoing_message_id
+    );
     Ok(normalize_message_id(&outgoing_message_id))
 }
