@@ -157,11 +157,25 @@ pub fn run() {
     let rag_state = commands::knowledge::RagState::default();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::new().targets([
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
-        ]).build())
+        .plugin(tauri_plugin_log::Builder::new()
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+            ])
+            .level(if cfg!(debug_assertions) { log::LevelFilter::Debug } else { log::LevelFilter::Info })
+            .level_for("iroh_quinn", log::LevelFilter::Warn)
+            .level_for("iroh_quinn_proto", log::LevelFilter::Warn)
+            .level_for("iroh_quinn_udp", log::LevelFilter::Warn)
+            .level_for("iroh", log::LevelFilter::Warn)
+            .level_for("tracing", log::LevelFilter::Warn)
+            .level_for("rustls", log::LevelFilter::Warn)
+            .level_for("hyper_util", log::LevelFilter::Warn)
+            .level_for("reqwest", log::LevelFilter::Warn)
+            .level_for("tao", log::LevelFilter::Warn)
+            .level_for("netwatch", log::LevelFilter::Warn)
+            .level_for("tauri_plugin_aptabase", log::LevelFilter::Warn)
+            .build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
