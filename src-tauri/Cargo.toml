@@ -99,7 +99,7 @@ dirs = "5"
 
 # HTML parsing for skills.sh scraping
 scraper = "0.20"
-md5 = "0.7"
+md5 = "0.8"
 rayon = "1.10"  # Parallel iterator for recursive skill search
 
 # MCP plugin for AI agent integration (debug only)
