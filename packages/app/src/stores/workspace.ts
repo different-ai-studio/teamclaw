@@ -107,6 +107,10 @@ interface WorkspaceState {
   // Undo stack
   undoStack: UndoOperation[];
 
+  // New workspace detection
+  isNewWorkspace: boolean;
+  setIsNewWorkspace: (value: boolean) => void;
+
   // Actions
   setWorkspace: (path: string) => Promise<void>;
   clearWorkspace: () => Promise<void>;
@@ -195,6 +199,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   targetHeading: null,
   focusedPath: null,
   undoStack: [],
+  isNewWorkspace: false,
+  setIsNewWorkspace: (value: boolean) => set({ isNewWorkspace: value }),
 
   // Set workspace and load file tree
   setWorkspace: async (path: string) => {
@@ -215,8 +221,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       await stopWatching(currentPath);
     }
 
+    // Check if this is a new workspace (no .teamclaw directory yet)
+    // Must run BEFORE set({workspacePath}) because that triggers OpenCode
+    // server start (via useOpenCodeInit hook) which creates .teamclaw
+    let detectedNewWorkspace = false;
+    if (isTauri()) {
+      try {
+        const { join } = await import("@tauri-apps/api/path");
+        const { exists } = await import("@tauri-apps/plugin-fs");
+        const teamclawDir = await join(expandedPath, ".teamclaw");
+        detectedNewWorkspace = !(await exists(teamclawDir));
+      } catch {
+        // Ignore errors — don't block workspace setup
+      }
+    }
+
     set({
       isLoadingWorkspace: true,
+      isNewWorkspace: detectedNewWorkspace,
       openCodeReady: false,
       openCodeUrl: null,
       workspacePath: expandedPath,

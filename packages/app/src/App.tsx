@@ -67,6 +67,7 @@ import { Settings } from "@/components/settings";
 import { SetupGuide } from "@/components/SetupGuide";
 import { TelemetryConsentDialog } from "@/components/telemetry/TelemetryConsentDialog";
 import { WorkspacePrompt } from "@/components/workspace";
+import { WorkspaceTypeDialog } from "@/components/workspace/WorkspaceTypeDialog";
 import { useSessionStore } from "@/stores/session";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -429,6 +430,9 @@ function AppContent() {
   const fileModeRightTab = useUIStore((s) => s.fileModeRightTab);
   const setFileModeRightTab = useUIStore((s) => s.setFileModeRightTab);
   const advancedMode = useUIStore((s) => s.advancedMode);
+  const openSettings = useUIStore((s) => s.openSettings);
+  const isNewWorkspace = useWorkspaceStore((s) => s.isNewWorkspace);
+  const setIsNewWorkspace = useWorkspaceStore((s) => s.setIsNewWorkspace);
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
   const needsTrafficLightSpacer = useNeedsTrafficLightSpacer();
@@ -770,6 +774,14 @@ function AppContent() {
           </div>
         </div>
         <VoiceInputFloatingButton />
+        <WorkspaceTypeDialog
+          open={isNewWorkspace}
+          onSelectPersonal={() => setIsNewWorkspace(false)}
+          onSelectTeam={() => {
+            setIsNewWorkspace(false);
+            openSettings('team');
+          }}
+        />
       </div>
     );
   }
@@ -897,6 +909,14 @@ function AppContent() {
         </div>
       </SidebarInset>
       <VoiceInputFloatingButton />
+      <WorkspaceTypeDialog
+        open={isNewWorkspace}
+        onSelectPersonal={() => setIsNewWorkspace(false)}
+        onSelectTeam={() => {
+          setIsNewWorkspace(false);
+          openSettings('team');
+        }}
+      />
     </>
   );
 }

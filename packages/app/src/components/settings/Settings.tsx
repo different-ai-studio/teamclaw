@@ -26,6 +26,7 @@ import { useAppVersion } from '@/lib/version'
 import { useUpdaterStore } from '@/stores/updater'
 import { buildConfig, hasAnyChannel } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
+import { useUIStore } from '@/stores/ui'
 
 // Section components
 import { LLMSection } from './LLMSection'
@@ -146,7 +147,8 @@ function UpdateButton() {
 
 export function Settings(_props?: SettingsProps) {
   const { t } = useTranslation()
-  const [activeView, setActiveView] = React.useState<SettingsSection>('general')
+  const settingsInitialSection = useUIStore(s => s.settingsInitialSection)
+  const [activeView, setActiveView] = React.useState<SettingsSection>(settingsInitialSection ?? 'general')
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false)
   const appVersion = useAppVersion()
   const teamMode = useTeamModeStore(s => s.teamMode)

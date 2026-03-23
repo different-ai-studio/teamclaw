@@ -547,7 +547,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={openSettings}
+            onClick={() => openSettings()}
           >
             <Settings className="h-4 w-4" />
           </Button>

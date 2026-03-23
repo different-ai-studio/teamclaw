@@ -181,7 +181,7 @@ export function ShortcutsPanel() {
                 variant="ghost"
                 size="sm"
                 className="mt-1.5 h-6 text-[11px] gap-1 text-muted-foreground"
-                onClick={openSettings}
+                onClick={() => openSettings()}
               >
                 <Plus className="h-3 w-3" />
                 {t("settings.shortcuts.addShortcut", "Add Shortcut")}

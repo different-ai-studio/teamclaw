@@ -97,7 +97,15 @@
     "selectWorkspace": "选择工作区",
     "webMode": "Web 模式",
     "enterPath": "输入工作区路径",
-    "clickToSelect": "点击选择文件夹"
+    "clickToSelect": "点击选择文件夹",
+    "typeDialog": {
+      "title": "你打算怎么使用这个工作区？",
+      "subtitle": "你随时可以在设置中更改",
+      "personal": "个人使用",
+      "personalDesc": "独立工作，无需同步",
+      "team": "团队协作",
+      "teamDesc": "加入团队，同步共享资源"
+    }
   },
   "fileExplorer": {
     "newFile": "新建文件",

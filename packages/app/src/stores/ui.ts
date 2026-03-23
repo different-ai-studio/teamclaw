@@ -10,13 +10,16 @@ export type LayoutMode = 'task' | 'file'
 // Right panel tab in file mode
 export type FileModeRightTab = 'shortcuts' | 'tasks' | 'changes' | 'files' | 'agent'
 
+export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
+
 interface UIState {
   currentView: View
   layoutMode: LayoutMode
   fileModeRightTab: FileModeRightTab
   spotlightMode: boolean
+  settingsInitialSection: SettingsSection | null
   setView: (view: View) => void
-  openSettings: () => void
+  openSettings: (section?: SettingsSection) => void
   closeSettings: () => void
   setLayoutMode: (mode: LayoutMode) => void
   toggleLayoutMode: () => void
@@ -32,12 +35,13 @@ export const useUIStore = create<UIState>((set, get) => ({
   layoutMode: 'task',
   fileModeRightTab: 'agent',
   spotlightMode: false,
+  settingsInitialSection: null,
 
   setView: (view) => set({ currentView: view }),
 
-  openSettings: () => set({ currentView: 'settings' }),
+  openSettings: (section) => set({ currentView: 'settings', settingsInitialSection: section ?? null }),
 
-  closeSettings: () => set({ currentView: 'chat' }),
+  closeSettings: () => set({ currentView: 'chat', settingsInitialSection: null }),
 
   setLayoutMode: (mode) => set({ layoutMode: mode }),
 

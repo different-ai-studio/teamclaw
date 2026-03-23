@@ -97,7 +97,15 @@
     "webMode": "Web Mode",
     "enterPath": "Enter workspace path",
     "clickToSelect": "Click to select a folder",
-    "selectFolder": "Select Folder"
+    "selectFolder": "Select Folder",
+    "typeDialog": {
+      "title": "How will you use this workspace?",
+      "subtitle": "You can change this anytime in settings",
+      "personal": "Personal",
+      "personalDesc": "Work independently, no sync needed",
+      "team": "Team",
+      "teamDesc": "Join a team, sync shared resources"
+    }
   },
   "fileExplorer": {
     "newFile": "New File",
