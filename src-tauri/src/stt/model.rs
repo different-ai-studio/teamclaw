@@ -23,6 +23,7 @@ pub fn load_model(models_dir: &Path, model_name: &str) -> Result<WhisperContext,
 }
 
 /// List .bin files in the models directory (candidates for Whisper GGML models).
+#[allow(dead_code)]
 pub fn list_models(models_dir: &Path) -> Result<Vec<String>, String> {
     if !models_dir.exists() {
         return Ok(Vec::new());
