@@ -160,21 +160,23 @@ pub async fn oss_create_team(
         }
     }
 
-    // Upload initial members.json to _meta/
-    let members = vec![serde_json::json!({
-        "nodeId": node_id,
-        "name": owner_name,
-        "role": "owner",
-        "joinedAt": chrono::Utc::now().to_rfc3339(),
-    })];
-    let members_json = serde_json::json!({
-        "schemaVersion": 1,
-        "members": members,
-    });
-    let members_bytes = serde_json::to_vec_pretty(&members_json)
-        .map_err(|e| format!("Failed to serialize members.json: {e}"))?;
-    let meta_key = format!("teams/{}/_meta/members.json", team_id);
-    manager.s3_put(&meta_key, &members_bytes).await?;
+    // Upload initial members manifest to _team/members.json
+    let owner_member = TeamMember {
+        node_id: node_id.clone(),
+        name: owner_name.clone(),
+        role: MemberRole::Owner,
+        label: String::new(),
+        platform: String::new(),
+        arch: String::new(),
+        hostname: String::new(),
+        added_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let manifest = TeamManifest {
+        owner_node_id: node_id.clone(),
+        members: vec![owner_member],
+    };
+    manager.upload_members_manifest(&manifest).await
+        .map_err(|e| format!("Failed to upload members manifest: {}", e))?;
 
     // Upload team.json to _meta/
     let team_json = serde_json::json!({
@@ -245,12 +247,23 @@ pub async fn oss_join_team(
         "teamSecret": team_secret,
         "nodeId": node_id,
     });
-    let resp = manager.call_fc("/token", &body).await?;
+    let resp = manager.call_fc("/token", &body).await
+        .map_err(|_| "Ticket 不正确，请检查后重试".to_string())?;
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
 
     let role: MemberRole = serde_json::from_str(&format!("\"{}\"", resp.role))
         .unwrap_or(MemberRole::Editor);
     manager.set_role(role.clone());
+
+    // Two-step NodeId validation: check device is in the members manifest
+    match manager.check_member_authorized(&node_id).await {
+        Ok(_authorized_role) => {
+            // Device is authorized, proceed with sync
+        }
+        Err(_) => {
+            return Err("你的设备未被添加到团队中，请联系团队 Owner".to_string());
+        }
+    }
 
     // Run initial sync
     manager.initial_sync().await?;
