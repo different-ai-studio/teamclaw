@@ -113,6 +113,10 @@ pub async fn oss_create_team(
     let node_id = get_or_create_node_id(&workspace_path)?;
     let team_secret = generate_team_secret()?;
 
+    // Scaffold teamclaw-team directory with default structure
+    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    super::team::scaffold_team_dir(&team_dir)?;
+
     // Create a temporary manager with empty team_id to call FC /register
     let mut manager = OssSyncManager::new(
         String::new(), // team_id not yet known
@@ -389,7 +393,7 @@ pub async fn oss_restore_sync(
 
     Ok(OssTeamInfo {
         team_id,
-        team_secret: None,
+        team_secret: Some(team_secret),
         team_name,
         owner_name,
         role,
@@ -401,12 +405,16 @@ pub async fn oss_leave_team(
     state: State<'_, OssSyncState>,
     workspace_path: String,
 ) -> Result<(), String> {
-    // Prevent owner from leaving — must transfer ownership first
+    // Prevent owner from leaving if there are other members
     {
         let guard = state.manager.lock().await;
         if let Some(ref mgr) = *guard {
             if mgr.role() == MemberRole::Owner {
-                return Err("团队创建者不能离开团队，请先转让管理员角色".to_string());
+                if let Ok(Some(manifest)) = mgr.download_members_manifest().await {
+                    if manifest.members.len() > 1 {
+                        return Err("团队还有其他成员，请先移除所有成员或转让管理员角色后再离开".to_string());
+                    }
+                }
             }
         }
     }

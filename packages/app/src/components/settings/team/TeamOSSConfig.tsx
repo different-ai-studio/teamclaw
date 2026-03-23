@@ -142,6 +142,8 @@ export function TeamOSSConfig() {
     }
   }, [workspacePath, joinTeamId, joinTeamSecret, joinTeam, teamMembersStore])
 
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
+
   const handleLeaveTeam = useCallback(async () => {
     if (!workspacePath) return
     setLeaving(true)
@@ -151,6 +153,7 @@ export function TeamOSSConfig() {
       // error is set in the store
     } finally {
       setLeaving(false)
+      setShowLeaveConfirm(false)
     }
   }, [workspacePath, leaveTeam])
 
@@ -308,15 +311,15 @@ export function TeamOSSConfig() {
               </div>
               {teamInfo.teamSecret && (
                 <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
-                  <span className="text-muted-foreground">团队密钥</span>
-                  <div className="flex items-center gap-1.5">
-                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                  <span className="shrink-0 text-muted-foreground">团队密钥</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs max-w-[180px]">
                       {showSecret ? teamInfo.teamSecret : '••••••••••••'}
                     </code>
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-6 w-6"
+                      className="h-6 w-6 shrink-0"
                       onClick={() => setShowSecret(!showSecret)}
                     >
                       {showSecret ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
@@ -324,7 +327,7 @@ export function TeamOSSConfig() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-6 w-6"
+                      className="h-6 w-6 shrink-0"
                       onClick={() => copyToClipboard(teamInfo.teamSecret!)}
                     >
                       <Copy className="h-3 w-3" />
@@ -421,16 +424,39 @@ export function TeamOSSConfig() {
           )}
 
           <div className="pt-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLeaveTeam}
-              disabled={leaving}
-              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-            >
-              <LogOut className="mr-1.5 h-3.5 w-3.5" />
-              {leaving ? '离开中...' : '离开团队'}
-            </Button>
+            {!showLeaveConfirm ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowLeaveConfirm(true)}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="mr-1.5 h-3.5 w-3.5" />
+                离开团队
+              </Button>
+            ) : (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+                <p className="text-sm text-destructive">确定要离开团队吗？本地团队配置将被清除。</p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleLeaveTeam}
+                    disabled={leaving}
+                  >
+                    {leaving ? '离开中...' : '确认离开'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowLeaveConfirm(false)}
+                    disabled={leaving}
+                  >
+                    取消
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

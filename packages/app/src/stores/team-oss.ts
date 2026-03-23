@@ -122,6 +122,9 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
       })
       set({ connected: true, teamInfo: info, error: null })
+      // Refresh file tree so the new teamclaw-team directory appears
+      const { useWorkspaceStore } = await import('@/stores/workspace')
+      await useWorkspaceStore.getState().refreshFileTree()
       return info
     } catch (e) {
       set({ error: String(e) })
@@ -136,6 +139,9 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
       })
       set({ connected: true, teamInfo: info, error: null })
+      // Refresh file tree so the new teamclaw-team directory appears
+      const { useWorkspaceStore } = await import('@/stores/workspace')
+      await useWorkspaceStore.getState().refreshFileTree()
       return info
     } catch (e) {
       set({ error: String(e) })
@@ -144,14 +150,19 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   },
 
   leaveTeam: async (workspacePath) => {
-    await invoke('oss_leave_team', { workspacePath })
-    set({
-      connected: false,
-      teamInfo: null,
-      syncStatus: null,
-      members: [],
-      error: null,
-    })
+    try {
+      await invoke('oss_leave_team', { workspacePath })
+      set({
+        connected: false,
+        teamInfo: null,
+        syncStatus: null,
+        members: [],
+        error: null,
+      })
+    } catch (e) {
+      set({ error: String(e) })
+      throw e
+    }
   },
 
   syncNow: async (workspacePath) => {

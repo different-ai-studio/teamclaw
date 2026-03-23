@@ -211,6 +211,36 @@ fn write_team_config_to_file(
 /// Subfolder inside workspace where the team repo is cloned (not workspace root)
 pub const TEAM_REPO_DIR: &str = "teamclaw-team";
 
+/// Scaffold the teamclaw-team directory with default structure if it doesn't exist or is empty.
+pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
+    let team_path = Path::new(team_dir);
+
+    let is_empty = !team_path.exists()
+        || team_path
+            .read_dir()
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(true);
+
+    if !is_empty {
+        return Ok(());
+    }
+
+    let dirs = ["skills", ".mcp", "knowledge", "_feedback"];
+    for d in &dirs {
+        std::fs::create_dir_all(team_path.join(d))
+            .map_err(|e| format!("Failed to create {}: {}", d, e))?;
+    }
+
+    let readme_path = team_path.join("README.md");
+    if !readme_path.exists() {
+        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n";
+        std::fs::write(&readme_path, readme)
+            .map_err(|e| format!("Failed to write README.md: {}", e))?;
+    }
+
+    Ok(())
+}
+
 fn get_team_repo_path(workspace_path: &str) -> String {
     let p = Path::new(workspace_path).join(TEAM_REPO_DIR);
     p.to_string_lossy().to_string()

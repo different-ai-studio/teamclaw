@@ -950,19 +950,23 @@ impl OssSyncManager {
 // Members Manifest S3 Operations
 // ---------------------------------------------------------------------------
 
-const MEMBERS_MANIFEST_KEY: &str = "_team/members.json";
-
 impl OssSyncManager {
+    fn members_manifest_key(&self) -> String {
+        format!("teams/{}/_meta/members.json", self.team_id)
+    }
+
     /// Upload members manifest to S3
     pub async fn upload_members_manifest(&self, manifest: &TeamManifest) -> Result<(), String> {
         let json = serde_json::to_string_pretty(manifest)
             .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
-        self.s3_put(MEMBERS_MANIFEST_KEY, json.as_bytes()).await
+        let key = self.members_manifest_key();
+        self.s3_put(&key, json.as_bytes()).await
     }
 
     /// Download members manifest from S3
     pub async fn download_members_manifest(&self) -> Result<Option<TeamManifest>, String> {
-        match self.s3_get(MEMBERS_MANIFEST_KEY).await {
+        let key = self.members_manifest_key();
+        match self.s3_get(&key).await {
             Ok(data) => {
                 let manifest: TeamManifest = serde_json::from_slice(&data)
                     .map_err(|e| format!("Failed to parse manifest: {}", e))?;
@@ -1064,9 +1068,18 @@ pub fn write_oss_config(workspace_path: &str, config: &OssTeamConfig) -> Result<
     let oss_value =
         serde_json::to_value(config).map_err(|e| format!("Failed to serialize oss config: {e}"))?;
 
-    json.as_object_mut()
-        .ok_or_else(|| "teamclaw.json root is not an object".to_string())?
-        .insert("oss".to_string(), oss_value);
+    // Merge new config into existing oss object to preserve fields like nodeId
+    let root = json.as_object_mut()
+        .ok_or_else(|| "teamclaw.json root is not an object".to_string())?;
+    if let Some(existing_oss) = root.get_mut("oss").and_then(|v| v.as_object_mut()) {
+        if let Some(new_obj) = oss_value.as_object() {
+            for (k, v) in new_obj {
+                existing_oss.insert(k.clone(), v.clone());
+            }
+        }
+    } else {
+        root.insert("oss".to_string(), oss_value);
+    }
 
     // Ensure parent dir exists
     if let Some(parent) = config_path.parent() {

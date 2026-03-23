@@ -182,31 +182,8 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
     files
 }
 
-/// Scaffold the teamclaw-team directory with default structure if it doesn't exist or is empty.
-fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
-    let team_path = Path::new(team_dir);
-
-    let need_scaffold = !team_path.exists() || collect_files(team_path, team_path).is_empty();
-
-    if !need_scaffold {
-        return Ok(());
-    }
-
-    let dirs = ["skills", ".mcp", "knowledge", "_feedback"];
-    for d in &dirs {
-        std::fs::create_dir_all(team_path.join(d))
-            .map_err(|e| format!("Failed to create {}: {}", d, e))?;
-    }
-
-    let readme_path = team_path.join("README.md");
-    if !readme_path.exists() {
-        let readme = "# TeamClaw Team Drive\n\nShared team resources synced via P2P.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n";
-        std::fs::write(&readme_path, readme)
-            .map_err(|e| format!("Failed to write README.md: {}", e))?;
-    }
-
-    Ok(())
-}
+// Re-use shared scaffold from team.rs
+use super::team::scaffold_team_dir;
 
 // ─── Create / Join (iroh-docs) ──────────────────────────────────────────
 
@@ -988,6 +965,20 @@ pub async fn p2p_disconnect_source(
         .map_err(|e| e.to_string())?
         .clone()
         .ok_or("No workspace path set")?;
+
+    // Prevent owner from disconnecting if there are other members
+    if let Ok(Some(config)) = read_p2p_config(&workspace_path) {
+        let guard = iroh_state.lock().await;
+        if let Some(node) = guard.as_ref() {
+            let my_node_id = get_node_id(node);
+            if config.owner_node_id.as_deref() == Some(&my_node_id)
+                && config.allowed_members.len() > 1
+            {
+                return Err("团队还有其他成员，请先移除所有成员或转让管理员角色后再断开".to_string());
+            }
+        }
+        drop(guard);
+    }
 
     // Close active doc
     let mut guard = iroh_state.lock().await;

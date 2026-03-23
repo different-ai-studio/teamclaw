@@ -168,15 +168,14 @@ pub async fn unified_team_add_member(
         Some("oss") => {
             let guard = oss_state.manager.lock().await;
             let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
-            // Check caller role via manifest
-            let caller_node_id = manager.node_id().to_string();
-            let manifest = manager.download_members_manifest().await?
-                .ok_or("No members manifest found")?;
-            require_manager_role(&manifest, &caller_node_id).await?;
-            drop(guard);
-            // Re-acquire to call add_member
-            let guard = oss_state.manager.lock().await;
-            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            // Check caller role: use manifest if available, fall back to manager role
+            let manifest = manager.download_members_manifest().await?;
+            if let Some(ref m) = manifest {
+                let caller_node_id = manager.node_id().to_string();
+                require_manager_role(m, &caller_node_id).await?;
+            } else if !can_manage_members(&manager.role()) {
+                return Err("Insufficient permissions: Owner or Editor role required".to_string());
+            }
             manager.add_member(member).await
         }
         #[cfg(feature = "p2p")]

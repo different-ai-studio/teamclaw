@@ -250,6 +250,8 @@ export function TeamP2PConfig() {
       await tauriInvoke('p2p_join_drive', { ticket: joinTicketInput.trim(), label: '' })
       setJoinTicketInput('')
       await loadSyncStatus()
+      // Refresh file tree so the new teamclaw-team directory appears
+      useWorkspaceStore.getState().refreshFileTree()
       // Load unified members after successful join
       await teamMembersStore.loadMembers()
       await teamMembersStore.loadMyRole()
@@ -286,6 +288,8 @@ export function TeamP2PConfig() {
         llmModelName: buildConfig.team.llm.modelName || null,
       })
       await loadSyncStatus()
+      // Refresh file tree so the new teamclaw-team directory appears
+      useWorkspaceStore.getState().refreshFileTree()
       if (workspacePath) {
         const store = useTeamModeStore.getState()
         await store.loadTeamConfig(workspacePath)
