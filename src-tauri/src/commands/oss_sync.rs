@@ -115,6 +115,14 @@ impl OssSyncManager {
         &self.team_id
     }
 
+    pub fn node_id(&self) -> &str {
+        &self.node_id
+    }
+
+    pub fn workspace_path(&self) -> &str {
+        &self.workspace_path
+    }
+
     pub fn set_credentials(&mut self, creds: OssCredentials, oss: OssConfig) {
         self.s3_client = Some(Self::create_s3_client(&creds, &oss));
         self.credentials = Some(creds);

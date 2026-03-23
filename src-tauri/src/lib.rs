@@ -460,6 +460,11 @@ pub fn run() {
             commands::oss_commands::oss_update_members,
             commands::oss_commands::oss_reset_team_secret,
             commands::oss_commands::oss_get_team_config,
+            commands::team_unified::unified_team_get_members,
+            commands::team_unified::unified_team_add_member,
+            commands::team_unified::unified_team_remove_member,
+            commands::team_unified::unified_team_update_member_role,
+            commands::team_unified::unified_team_get_my_role,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

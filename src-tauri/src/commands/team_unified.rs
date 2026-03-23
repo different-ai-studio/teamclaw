@@ -1,6 +1,7 @@
 // src-tauri/src/commands/team_unified.rs
 
 use serde::{Deserialize, Serialize};
+use tauri::State;
 
 // --- Shared Types ---
 
@@ -99,4 +100,227 @@ pub fn find_member_role(manifest: &TeamManifest, node_id: &str) -> Option<Member
         .iter()
         .find(|m| m.node_id == node_id)
         .map(|m| m.role.clone())
+}
+
+// --- Unified Tauri Commands ---
+
+/// Helper: check that caller has Owner or Editor role by looking up their NodeId in the manifest.
+/// Returns Err if they lack the required role.
+async fn require_manager_role(
+    manifest: &TeamManifest,
+    caller_node_id: &str,
+) -> Result<(), String> {
+    let role = find_member_role(manifest, caller_node_id)
+        .ok_or_else(|| "Your device is not in the team manifest".to_string())?;
+    if !can_manage_members(&role) {
+        return Err("Insufficient permissions: Owner or Editor role required".to_string());
+    }
+    Ok(())
+}
+
+/// Get the list of team members from the active sync mode.
+/// - OSS: downloads members manifest from S3
+/// - P2P: reads from p2p config's allowed_members
+#[tauri::command]
+pub async fn unified_team_get_members(
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    oss_state: State<'_, super::oss_sync::OssSyncState>,
+    #[cfg(feature = "p2p")]
+    iroh_state: State<'_, super::p2p_state::IrohState>,
+) -> Result<Vec<TeamMember>, String> {
+    let workspace_path = super::team::get_workspace_path(&opencode_state)?;
+    let status = super::team::check_team_status(&workspace_path);
+
+    match status.mode.as_deref() {
+        Some("oss") => {
+            let guard = oss_state.manager.lock().await;
+            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            let manifest = manager.download_members_manifest().await?
+                .ok_or("No members manifest found")?;
+            Ok(manifest.members)
+        }
+        #[cfg(feature = "p2p")]
+        Some("p2p") => {
+            let _ = iroh_state;
+            let config = super::team_p2p::read_p2p_config(&workspace_path)?
+                .unwrap_or_default();
+            Ok(config.allowed_members)
+        }
+        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        None => Err("No active team mode".to_string()),
+    }
+}
+
+/// Add a member to the active team.
+/// Validates NodeId format, checks caller role, then adds member.
+#[tauri::command]
+pub async fn unified_team_add_member(
+    member: TeamMember,
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    oss_state: State<'_, super::oss_sync::OssSyncState>,
+    #[cfg(feature = "p2p")]
+    iroh_state: State<'_, super::p2p_state::IrohState>,
+) -> Result<(), String> {
+    validate_node_id(&member.node_id)?;
+
+    let workspace_path = super::team::get_workspace_path(&opencode_state)?;
+    let status = super::team::check_team_status(&workspace_path);
+
+    match status.mode.as_deref() {
+        Some("oss") => {
+            let guard = oss_state.manager.lock().await;
+            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            // Check caller role via manifest
+            let caller_node_id = manager.node_id().to_string();
+            let manifest = manager.download_members_manifest().await?
+                .ok_or("No members manifest found")?;
+            require_manager_role(&manifest, &caller_node_id).await?;
+            drop(guard);
+            // Re-acquire to call add_member
+            let guard = oss_state.manager.lock().await;
+            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            manager.add_member(member).await
+        }
+        #[cfg(feature = "p2p")]
+        Some("p2p") => {
+            let guard = iroh_state.lock().await;
+            let node = guard.as_ref().ok_or("P2P node not running")?;
+            let caller_node_id = super::team_p2p::get_node_id(node);
+            drop(guard);
+            let team_dir = format!("{}/teamclaw-team", workspace_path);
+            super::team_p2p::add_member_to_team(
+                &workspace_path,
+                &team_dir,
+                &caller_node_id,
+                member,
+            )
+        }
+        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        None => Err("No active team mode".to_string()),
+    }
+}
+
+/// Remove a member from the active team.
+/// Checks caller role before removing.
+#[tauri::command]
+pub async fn unified_team_remove_member(
+    node_id: String,
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    oss_state: State<'_, super::oss_sync::OssSyncState>,
+    #[cfg(feature = "p2p")]
+    iroh_state: State<'_, super::p2p_state::IrohState>,
+) -> Result<(), String> {
+    let workspace_path = super::team::get_workspace_path(&opencode_state)?;
+    let status = super::team::check_team_status(&workspace_path);
+
+    match status.mode.as_deref() {
+        Some("oss") => {
+            let guard = oss_state.manager.lock().await;
+            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            let caller_node_id = manager.node_id().to_string();
+            let manifest = manager.download_members_manifest().await?
+                .ok_or("No members manifest found")?;
+            require_manager_role(&manifest, &caller_node_id).await?;
+            drop(guard);
+            let guard = oss_state.manager.lock().await;
+            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            manager.remove_member(&node_id).await
+        }
+        #[cfg(feature = "p2p")]
+        Some("p2p") => {
+            let guard = iroh_state.lock().await;
+            let node = guard.as_ref().ok_or("P2P node not running")?;
+            let caller_node_id = super::team_p2p::get_node_id(node);
+            drop(guard);
+            let team_dir = format!("{}/teamclaw-team", workspace_path);
+            super::team_p2p::remove_member_from_team(
+                &workspace_path,
+                &team_dir,
+                &caller_node_id,
+                &node_id,
+            )
+        }
+        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        None => Err("No active team mode".to_string()),
+    }
+}
+
+/// Update a team member's role.
+/// Checks caller role before updating.
+#[tauri::command]
+pub async fn unified_team_update_member_role(
+    node_id: String,
+    role: MemberRole,
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    oss_state: State<'_, super::oss_sync::OssSyncState>,
+    #[cfg(feature = "p2p")]
+    iroh_state: State<'_, super::p2p_state::IrohState>,
+) -> Result<(), String> {
+    let workspace_path = super::team::get_workspace_path(&opencode_state)?;
+    let status = super::team::check_team_status(&workspace_path);
+
+    match status.mode.as_deref() {
+        Some("oss") => {
+            let guard = oss_state.manager.lock().await;
+            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            let caller_node_id = manager.node_id().to_string();
+            let manifest = manager.download_members_manifest().await?
+                .ok_or("No members manifest found")?;
+            require_manager_role(&manifest, &caller_node_id).await?;
+            drop(guard);
+            let guard = oss_state.manager.lock().await;
+            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            manager.update_member_role(&node_id, role).await
+        }
+        #[cfg(feature = "p2p")]
+        Some("p2p") => {
+            let guard = iroh_state.lock().await;
+            let node = guard.as_ref().ok_or("P2P node not running")?;
+            let caller_node_id = super::team_p2p::get_node_id(node);
+            drop(guard);
+            let team_dir = format!("{}/teamclaw-team", workspace_path);
+            super::team_p2p::update_member_role(
+                &workspace_path,
+                &team_dir,
+                &caller_node_id,
+                &node_id,
+                role,
+            )
+        }
+        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        None => Err("No active team mode".to_string()),
+    }
+}
+
+/// Get the current device's role in the active team.
+#[tauri::command]
+pub async fn unified_team_get_my_role(
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    oss_state: State<'_, super::oss_sync::OssSyncState>,
+    #[cfg(feature = "p2p")]
+    iroh_state: State<'_, super::p2p_state::IrohState>,
+) -> Result<MemberRole, String> {
+    let workspace_path = super::team::get_workspace_path(&opencode_state)?;
+    let status = super::team::check_team_status(&workspace_path);
+
+    match status.mode.as_deref() {
+        Some("oss") => {
+            let guard = oss_state.manager.lock().await;
+            let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
+            let my_node_id = manager.node_id().to_string();
+            let manifest = manager.download_members_manifest().await?
+                .ok_or("No members manifest found")?;
+            find_member_role(&manifest, &my_node_id)
+                .ok_or_else(|| "This device is not in the team manifest".to_string())
+        }
+        #[cfg(feature = "p2p")]
+        Some("p2p") => {
+            let _ = iroh_state;
+            let config = super::team_p2p::read_p2p_config(&workspace_path)?
+                .ok_or("No P2P config found")?;
+            config.role.ok_or_else(|| "Role not set in P2P config".to_string())
+        }
+        Some(mode) => Err(format!("Member management not supported for mode: {}", mode)),
+        None => Err("No active team mode".to_string()),
+    }
 }
