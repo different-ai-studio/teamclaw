@@ -23,7 +23,6 @@ interface LeaderboardStats {
 interface MemberLeaderboardExport {
   memberId: string
   memberName: string
-  deviceId: string
   exportedAt: string
   updateAt: string
   workspaces: Record<string, LeaderboardStats>  // workspace path -> stats
@@ -53,12 +52,12 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
     const load = async () => {
       if (!isTauri()) return
       try {
-        const [leaderboardResult, deviceId] = await Promise.all([
+        const [leaderboardResult, nodeId] = await Promise.all([
           tauriInvoke<TeamLeaderboard>("telemetry_get_team_leaderboard"),
-          tauriInvoke<string>("telemetry_get_device_id"),
+          tauriInvoke<string>("get_device_node_id"),
         ])
         setLeaderboard(leaderboardResult)
-        setCurrentDeviceId(deviceId)
+        setCurrentDeviceId(nodeId)
       } catch {
         // Ignore errors
       }
@@ -83,7 +82,7 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
   // Calculate current user's rank
   const currentMember = React.useMemo(() => {
     if (!leaderboard?.members || !currentDeviceId) return null
-    return leaderboard.members.find((m) => m.deviceId === currentDeviceId)
+    return leaderboard.members.find((m) => m.memberId === currentDeviceId)
   }, [leaderboard, currentDeviceId])
 
   const ranks = React.useMemo(() => {
@@ -114,20 +113,20 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
       (a, b) => b.aggregated.totalFeedbacks - a.aggregated.totalFeedbacks
     )
 
-    const tokenRank = tokenSorted.findIndex((m) => m.deviceId === currentDeviceId) + 1
-    const feedbackRank = feedbackSorted.findIndex((m) => m.deviceId === currentDeviceId) + 1
+    const tokenRank = tokenSorted.findIndex((m) => m.memberId === currentDeviceId) + 1
+    const feedbackRank = feedbackSorted.findIndex((m) => m.memberId === currentDeviceId) + 1
 
     // Overall rank based on average of token and feedback ranks
     const memberRanks = membersWithAggregated.map((m) => {
-      const tRank = tokenSorted.findIndex((x) => x.deviceId === m.deviceId) + 1
-      const fRank = feedbackSorted.findIndex((x) => x.deviceId === m.deviceId) + 1
+      const tRank = tokenSorted.findIndex((x) => x.memberId === m.memberId) + 1
+      const fRank = feedbackSorted.findIndex((x) => x.memberId === m.memberId) + 1
       return {
-        deviceId: m.deviceId,
+        memberId: m.memberId,
         avgRank: (tRank + fRank) / 2,
       }
     })
     memberRanks.sort((a, b) => a.avgRank - b.avgRank)
-    const overallRank = memberRanks.findIndex((m) => m.deviceId === currentDeviceId) + 1
+    const overallRank = memberRanks.findIndex((m) => m.memberId === currentDeviceId) + 1
 
     return {
       tokenRank,

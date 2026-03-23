@@ -82,6 +82,7 @@
     "global-shortcut:allow-register",
     "global-shortcut:allow-is-registered",
     "process:allow-restart",
-    "aptabase:allow-track-event"
+    "aptabase:allow-track-event",
+    "log:default"
   ]
 }

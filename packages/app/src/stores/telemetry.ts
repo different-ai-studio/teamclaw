@@ -23,7 +23,6 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 interface TelemetryState {
   // State
   consent: TelemetryConsent
-  deviceId: string | null
   isInitialized: boolean
   feedbackCache: Map<string, FeedbackRating> // messageId -> rating
   starRatingCache: Map<string, StarRating> // messageId -> 1-5
@@ -121,7 +120,6 @@ async function ensureSessionMessagesLoaded(sessionId: string): Promise<void> {
 
 export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   consent: 'undecided',
-  deviceId: null,
   isInitialized: false,
   feedbackCache: new Map(),
   starRatingCache: new Map(),
@@ -134,14 +132,10 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     }
 
     try {
-      const [consent, deviceId] = await Promise.all([
-        invoke<string>('telemetry_get_consent'),
-        invoke<string>('telemetry_get_device_id'),
-      ])
+      const consent = await invoke<string>('telemetry_get_consent')
 
       set({
         consent: consent as TelemetryConsent,
-        deviceId,
         isInitialized: true,
       })
 

@@ -208,26 +208,46 @@ impl OssSyncManager {
         let url = format!("{}{}", self.fc_endpoint, path);
         let client = reqwest::Client::new();
 
-        let response = client
-            .post(&url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| format!("FC request to {path} failed: {e}"))?;
+        let max_retries = 3u32;
+        let mut attempt = 0u32;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response
-                .text()
+        loop {
+            let response = client
+                .post(&url)
+                .json(body)
+                .send()
                 .await
-                .unwrap_or_else(|_| "unknown".to_string());
-            return Err(format!("FC request to {path} returned {status}: {text}"));
-        }
+                .map_err(|e| format!("FC request to {path} failed: {e}"))?;
 
-        response
-            .json::<FcResponse>()
-            .await
-            .map_err(|e| format!("FC response parse error for {path}: {e}"))
+            if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                attempt += 1;
+                if attempt > max_retries {
+                    return Err(format!(
+                        "FC request to {path} rate-limited after {max_retries} retries"
+                    ));
+                }
+                let delay_secs = 2u64.pow(attempt); // 2s, 4s, 8s
+                warn!(
+                    "FC request to {path} returned 429, retrying in {delay_secs}s (attempt {attempt}/{max_retries})"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                continue;
+            }
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "unknown".to_string());
+                return Err(format!("FC request to {path} returned {status}: {text}"));
+            }
+
+            return response
+                .json::<FcResponse>()
+                .await
+                .map_err(|e| format!("FC response parse error for {path}: {e}"));
+        }
     }
 
     // -----------------------------------------------------------------------

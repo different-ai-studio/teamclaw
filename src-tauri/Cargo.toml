@@ -75,8 +75,8 @@ tree-sitter-typescript = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-go = "0.23"
 thiserror = "2"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing = { version = "0.1", features = ["log"] }
+tauri-plugin-log = "2"
 
 # P2P team sync (optional; enable with p2p feature; off by default on Windows build)
 iroh = { version = "0.96", optional = true }

@@ -7,13 +7,39 @@ use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use super::team_unified::{MemberRole, TeamMember, TeamManifest};
 
-use iroh::Endpoint;
+use iroh::{Endpoint, SecretKey};
 use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::BlobsProtocol;
 use iroh_gossip::net::Gossip;
 
 /// Default storage path for iroh node state
 const IROH_STORAGE_DIR: &str = ".teamclaw/iroh";
+/// Filename for the persisted Ed25519 secret key
+const SECRET_KEY_FILE: &str = "secret_key";
+
+/// Load or generate a persistent Ed25519 secret key at `storage_path/secret_key`.
+fn load_or_create_secret_key(storage_path: &Path) -> Result<SecretKey, String> {
+    let key_path = storage_path.join(SECRET_KEY_FILE);
+
+    if key_path.exists() {
+        let bytes = std::fs::read(&key_path)
+            .map_err(|e| format!("Failed to read secret key: {}", e))?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| "Secret key file has invalid length (expected 32 bytes)".to_string())?;
+        return Ok(SecretKey::from_bytes(&bytes));
+    }
+
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| format!("Failed to generate random bytes: {}", e))?;
+    let key = SecretKey::from_bytes(&bytes);
+    std::fs::create_dir_all(storage_path)
+        .map_err(|e| format!("Failed to create iroh storage dir: {}", e))?;
+    std::fs::write(&key_path, key.to_bytes())
+        .map_err(|e| format!("Failed to write secret key: {}", e))?;
+    Ok(key)
+}
 
 /// Wraps an iroh endpoint with blobs, gossip, and docs for P2P team file sync.
 pub struct IrohNode {
@@ -45,7 +71,9 @@ impl IrohNode {
             .await
             .map_err(|e| format!("Failed to create iroh blob store: {}", e))?;
 
+        let secret_key = load_or_create_secret_key(storage_path)?;
         let endpoint = Endpoint::builder()
+            .secret_key(secret_key)
             .bind()
             .await
             .map_err(|e| format!("Failed to bind iroh endpoint: {}", e))?;

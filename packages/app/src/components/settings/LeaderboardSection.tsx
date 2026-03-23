@@ -38,7 +38,6 @@ interface LeaderboardStats {
 interface MemberLeaderboardExport {
   memberId: string
   memberName: string
-  deviceId: string
   exportedAt: string
   updateAt: string
   workspaces: Record<string, LeaderboardStats>  // workspace path -> stats

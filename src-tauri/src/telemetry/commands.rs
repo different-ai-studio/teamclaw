@@ -52,13 +52,6 @@ fn dirs_next() -> Option<std::path::PathBuf> {
 
 // ─── Tauri Commands ──────────────────────────────────────────────────────
 
-#[tauri::command]
-pub async fn telemetry_get_device_id(
-    state: tauri::State<'_, TelemetryState>,
-) -> Result<String, String> {
-    let db = get_db(&state).await?;
-    db.get_device_id().await
-}
 
 #[tauri::command]
 pub async fn telemetry_get_consent(
@@ -186,7 +179,6 @@ pub async fn telemetry_get_reports(
 pub struct MemberFeedbackExport {
     pub member_id: String,
     pub member_name: String,
-    pub device_id: String,
     pub exported_at: String,
     pub summary: FeedbackSummary,
 }
@@ -241,14 +233,12 @@ pub async fn telemetry_export_team_feedback(
         .map_err(|e| format!("Failed to create _feedback dir: {}", e))?;
 
     let summary = db.export_feedback_summary().await?;
-    let device_id = db.get_device_id().await.unwrap_or_default();
 
     let member_name = device_info.hostname.clone();
-    
+
     let export = MemberFeedbackExport {
         member_id: node_id.clone(),
         member_name: member_name.clone(),
-        device_id,
         exported_at: chrono::Utc::now().to_rfc3339(),
         summary,
     };
@@ -366,7 +356,6 @@ pub async fn telemetry_get_team_feedback_summary(
 pub struct MemberLeaderboardExport {
     pub member_id: String,
     pub member_name: String,
-    pub device_id: String,
     pub exported_at: String,
     pub update_at: String,
     /// Workspace path -> stats mapping
@@ -441,7 +430,6 @@ pub async fn telemetry_export_leaderboard(
         session_count: local_stats.sessions.total,
     };
     
-    let device_id = db.get_device_id().await.unwrap_or_default();
     let member_name = device_info.hostname.clone();
     let safe_filename = member_name
         .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
@@ -468,7 +456,6 @@ pub async fn telemetry_export_leaderboard(
     let export = MemberLeaderboardExport {
         member_id: node_id.clone(),
         member_name: member_name.clone(),
-        device_id,
         exported_at: now.clone(),
         update_at: now,
         workspaces,

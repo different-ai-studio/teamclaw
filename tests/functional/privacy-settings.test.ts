@@ -4,7 +4,6 @@
  * Tests the Privacy & Telemetry section in Settings:
  * - Navigation to the section
  * - Consent toggle visibility and state
- * - Device ID display
  * - Sync Now button behavior
  * - Sync status display
  */
@@ -94,18 +93,6 @@ describe('Privacy & Telemetry Settings', () => {
     const screenshot = await takeScreenshot('/tmp/privacy-toggle-state.png');
     expect(screenshot).toBeTruthy();
     console.log('✓ Consent toggle state updated (screenshot saved)');
-  }, 30_000);
-
-  it('should display masked device ID', async () => {
-    if (!appReady) return;
-
-    // Device ID should be visible in the Device Information section
-    const win = await getWindowInfo();
-    expect(win.isVisible).toBe(true);
-
-    const screenshot = await takeScreenshot('/tmp/privacy-device-id.png');
-    expect(screenshot).toBeTruthy();
-    console.log('✓ Device ID displayed in masked format');
   }, 30_000);
 
   it('should show Sync Now button when consent is granted', async () => {

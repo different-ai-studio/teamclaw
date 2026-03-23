@@ -112,18 +112,6 @@ impl TelemetryDb {
         let conn = self.conn.lock().await;
 
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS device (
-                id TEXT PRIMARY KEY,
-                app_version TEXT NOT NULL,
-                platform TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )",
-            (),
-        )
-        .await
-        .map_err(|e| format!("Failed to create device table: {}", e))?;
-
-        conn.execute(
             "CREATE TABLE IF NOT EXISTS message_feedbacks (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
@@ -214,43 +202,6 @@ impl TelemetryDb {
         .ok();
 
         Ok(())
-    }
-
-    // ─── Device ──────────────────────────────────────────────────────────
-
-    /// Get or create the device ID.
-    pub async fn get_device_id(&self) -> Result<String, String> {
-        let conn = self.conn.lock().await;
-
-        // Try to get existing device ID
-        let mut rows = conn
-            .query("SELECT id FROM device LIMIT 1", ())
-            .await
-            .map_err(|e| format!("Failed to query device: {}", e))?;
-
-        if let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| format!("Failed to read device row: {}", e))?
-        {
-            return row
-                .get::<String>(0)
-                .map_err(|e| format!("Failed to read device id: {}", e));
-        }
-
-        // Generate a new device ID
-        let device_id = nanoid::nanoid!();
-        let app_version = env!("CARGO_PKG_VERSION").to_string();
-        let platform = std::env::consts::OS.to_string();
-
-        conn.execute(
-            "INSERT INTO device (id, app_version, platform) VALUES (?1, ?2, ?3)",
-            params![device_id.clone(), app_version, platform],
-        )
-        .await
-        .map_err(|e| format!("Failed to insert device: {}", e))?;
-
-        Ok(device_id)
     }
 
     // ─── Consent ─────────────────────────────────────────────────────────

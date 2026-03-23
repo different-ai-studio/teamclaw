@@ -37,7 +37,6 @@ describe('telemetryStore', () => {
     const state = useTelemetryStore.getState()
     expect(state.consent).toBe('undecided')
     expect(state.isInitialized).toBe(false)
-    expect(state.deviceId).toBeNull()
   })
 
   it('init sets isInitialized to true in non-tauri env', async () => {

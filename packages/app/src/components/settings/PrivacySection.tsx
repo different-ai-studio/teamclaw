@@ -1,13 +1,12 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Shield, Monitor } from 'lucide-react'
+import { Shield } from 'lucide-react'
 import { useTelemetryStore } from '@/stores/telemetry'
 import { cn } from '@/lib/utils'
 
 export function PrivacySection() {
   const { t } = useTranslation()
   const consent = useTelemetryStore((s) => s.consent)
-  const deviceId = useTelemetryStore((s) => s.deviceId)
   const setConsent = useTelemetryStore((s) => s.setConsent)
 
   const isGranted = consent === 'granted'
@@ -15,11 +14,6 @@ export function PrivacySection() {
   const handleToggleConsent = React.useCallback(async () => {
     await setConsent(isGranted ? 'denied' : 'granted')
   }, [isGranted, setConsent])
-
-  // Mask device ID for display
-  const maskedDeviceId = deviceId
-    ? `${deviceId.slice(0, 6)}...${deviceId.slice(-4)}`
-    : '—'
 
   return (
     <div className="space-y-6">
@@ -69,17 +63,6 @@ export function PrivacySection() {
         </div>
       </div>
 
-      {/* Device Info */}
-      <div className="rounded-lg border p-4 space-y-3">
-        <p className="font-medium flex items-center gap-2">
-          <Monitor className="h-4 w-4 text-muted-foreground" />
-          {t('settings.privacy.deviceInfo', 'Device Information')}
-        </p>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <span className="text-muted-foreground">{t('settings.privacy.deviceId', 'Device ID')}</span>
-          <span className="font-mono text-xs">{maskedDeviceId}</span>
-        </div>
-      </div>
     </div>
   )
 }

@@ -10,22 +10,6 @@ mod stt;
 mod rag;
 mod telemetry;
 
-/// Initialize tracing subscriber for logging
-fn init_tracing() {
-    use tracing_subscriber::{fmt, EnvFilter};
-    
-    // Default to WARN level, can be overridden with RUST_LOG env var
-    // This reduces noise in production while allowing debug when needed
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("warn"));
-    
-    fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_line_number(false)
-        .init();
-}
 
 /// Get the mtime of the user's shell profile file as a u64 (seconds since epoch).
 /// Returns 0 if the file doesn't exist or can't be read.
@@ -158,8 +142,6 @@ pub fn run() {
     #[cfg(debug_assertions)]
     eprintln!("[Startup] fix_path_env: {:.1}ms", startup_t0.elapsed().as_secs_f64() * 1000.0);
 
-    // Initialize tracing/logging
-    init_tracing();
 
     // Create a Tokio runtime and register it with Tauri BEFORE plugin initialization.
     // tauri-plugin-aptabase calls tokio::spawn during init (start_polling),
@@ -172,6 +154,11 @@ pub fn run() {
     let rag_state = commands::knowledge::RagState::default();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_log::Builder::new().targets([
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+        ]).build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -418,7 +405,6 @@ pub fn run() {
             commands::local_stats::write_local_stats,
             commands::local_stats::update_local_stats,
             commands::local_stats::reset_local_stats,
-            telemetry::commands::telemetry_get_device_id,
             telemetry::commands::telemetry_get_consent,
             telemetry::commands::telemetry_set_consent,
             telemetry::commands::telemetry_set_feedback,
