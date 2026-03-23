@@ -7,6 +7,10 @@ TeamClaw supports 4 team sync modes (OSS/S3, P2P, WebDAV, Git). The team member 
 - OSS has only `Owner | Member` roles with no device-level identity
 - No unified flow for creating teams, inviting members, or managing roles
 
+## Scope
+
+This iteration covers **OSS (S3) and P2P modes only**. WebDAV and Git (Legacy) modes are out of scope — the unified commands do not need dispatch branches for them.
+
 ## Goal
 
 Unify the team management experience across OSS and P2P modes with a consistent flow:
@@ -120,6 +124,8 @@ Both modes use the same JSON structure:
 - NodeId format check (valid hex string)
 - No duplicate NodeId in existing members
 - Cannot add another Owner (only one owner allowed)
+
+**Authorization:** Backend derives caller's role from local NodeId lookup in manifest. Only Owner and Editor can add members.
 
 **Backend:**
 - Append to members manifest
