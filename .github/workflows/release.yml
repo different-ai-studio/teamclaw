@@ -15,6 +15,15 @@ jobs:
   release-macos:
     permissions:
       contents: write
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            opencode_asset: opencode-darwin-arm64.zip
+            opencode_binary: opencode-aarch64-apple-darwin
+          - target: x86_64-apple-darwin
+            opencode_asset: opencode-darwin-x64.zip
+            opencode_binary: opencode-x86_64-apple-darwin
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +68,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.7
@@ -69,6 +78,7 @@ jobs:
         with:
           workspaces: |
             ./src-tauri -> target
+          key: ${{ matrix.target }}
 
       # Parallel: pnpm install + frontend build, opencode download, certificate import
       - name: Build all (parallel)
@@ -95,12 +105,12 @@ jobs:
             set -e
             OPENCODE_VERSION=$(gh release view --repo anomalyco/opencode --json tagName -q '.tagName')
             echo "Downloading opencode ${OPENCODE_VERSION}..."
-            gh release download "$OPENCODE_VERSION" --repo anomalyco/opencode --pattern "opencode-darwin-arm64.zip" --dir /tmp
-            unzip -o /tmp/opencode-darwin-arm64.zip -d /tmp/opencode-extract
-            mv /tmp/opencode-extract/opencode src-tauri/binaries/opencode-aarch64-apple-darwin
-            chmod +x src-tauri/binaries/opencode-aarch64-apple-darwin
-            xattr -cr src-tauri/binaries/opencode-aarch64-apple-darwin
-            codesign --force --sign - src-tauri/binaries/opencode-aarch64-apple-darwin
+            gh release download "$OPENCODE_VERSION" --repo anomalyco/opencode --pattern "${{ matrix.opencode_asset }}" --dir /tmp
+            unzip -o /tmp/${{ matrix.opencode_asset }} -d /tmp/opencode-extract
+            mv /tmp/opencode-extract/opencode src-tauri/binaries/${{ matrix.opencode_binary }}
+            chmod +x src-tauri/binaries/${{ matrix.opencode_binary }}
+            xattr -cr src-tauri/binaries/${{ matrix.opencode_binary }}
+            codesign --force --sign - src-tauri/binaries/${{ matrix.opencode_binary }}
             echo "opencode ${OPENCODE_VERSION} ready"
           ) > /tmp/opencode.log 2>&1 &
           PID_OPENCODE=$!
@@ -173,7 +183,7 @@ jobs:
             ```
 
             ### macOS (manual)
-            1. Download the `.dmg` file below
+            1. Download the `.dmg` file below (choose `aarch64` for Apple Silicon, `x64` for Intel)
             2. Open the DMG and drag TeamClaw to Applications
             3. Before opening, run in Terminal:
                ```
@@ -187,7 +197,7 @@ jobs:
             Download and run the `.exe` installer below.
           releaseDraft: false
           prerelease: false
-          args: "--target aarch64-apple-darwin"
+          args: "--target ${{ matrix.target }}"
 
   # Windows job uploads artifacts to the same GitHub Release created by macOS job
   release-windows:

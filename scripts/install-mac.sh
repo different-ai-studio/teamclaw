@@ -7,14 +7,31 @@ MOUNT_POINT="/Volumes/${APP_NAME}"
 
 echo "Installing ${APP_NAME}..."
 
-# Get latest release DMG URL
+# Detect architecture
+ARCH=$(uname -m)
+case "$ARCH" in
+  arm64)
+    DMG_PATTERN="aarch64.dmg"
+    echo "Detected Apple Silicon (arm64)"
+    ;;
+  x86_64)
+    DMG_PATTERN="x64.dmg"
+    echo "Detected Intel (x86_64)"
+    ;;
+  *)
+    echo "Error: Unsupported architecture: $ARCH"
+    exit 1
+    ;;
+esac
+
+# Get matching DMG URL from latest release
 DMG_URL=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" \
-  | grep -o '"browser_download_url":\s*"[^"]*\.dmg"' \
+  | grep -o '"browser_download_url":\s*"[^"]*'"${DMG_PATTERN}"'"' \
   | head -1 \
   | cut -d'"' -f4)
 
 if [ -z "$DMG_URL" ]; then
-  echo "Error: Could not find DMG in latest release"
+  echo "Error: Could not find ${DMG_PATTERN} in latest release"
   exit 1
 fi
 
