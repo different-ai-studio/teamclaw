@@ -95,7 +95,7 @@ gethostname = "1.1.0"
 # ClawHub skill registry
 zip = "2"
 urlencoding = "2"
-dirs = "5"
+dirs = "6"
 
 # HTML parsing for skills.sh scraping
 scraper = "0.20"
