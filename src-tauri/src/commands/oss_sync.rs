@@ -341,7 +341,7 @@ impl OssSyncManager {
         Ok(keys)
     }
 
-    async fn s3_delete(&self, key: &str) -> Result<(), String> {
+    pub async fn s3_delete(&self, key: &str) -> Result<(), String> {
         let client = self.client()?;
         let bucket = self.bucket()?;
 
@@ -793,6 +793,20 @@ impl OssSyncManager {
                         let _ = manager.persist_local_snapshot(doc_type);
                     }
 
+                    // List pending applications for owners/editors
+                    if manager.role() == MemberRole::Owner || manager.role() == MemberRole::Editor {
+                        match manager.list_applications().await {
+                            Ok(apps) => {
+                                if let Some(handle) = &manager.app_handle {
+                                    let _ = handle.emit("oss-applications-updated", &apps);
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Failed to list applications: {}", e);
+                            }
+                        }
+                    }
+
                     manager.syncing = false;
                     let now = Utc::now().to_rfc3339();
                     manager.last_sync_at = Some(now);
@@ -1045,6 +1059,46 @@ impl OssSyncManager {
         }
 
         self.upload_members_manifest(&manifest).await
+    }
+
+    /// List pending applications from S3.
+    /// Also performs orphan cleanup: deletes applications for nodeIds already in manifest.
+    pub async fn list_applications(&self) -> Result<Vec<TeamApplication>, String> {
+        let prefix = format!("teams/{}/_meta/applications/", self.team_id);
+        let keys = self.s3_list(&prefix).await?;
+
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Load current manifest for orphan check
+        let manifest = self.download_members_manifest().await?.unwrap_or(TeamManifest {
+            owner_node_id: String::new(),
+            members: vec![],
+        });
+        let member_ids: HashSet<&str> = manifest.members.iter().map(|m| m.node_id.as_str()).collect();
+
+        let mut applications = Vec::new();
+        for key in &keys {
+            let data = match self.s3_get(key).await {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let app: TeamApplication = match serde_json::from_slice(&data) {
+                Ok(a) => a,
+                Err(_) => continue,
+            };
+
+            // Orphan cleanup: if nodeId is already a member, delete the application file
+            if member_ids.contains(app.node_id.as_str()) {
+                let _ = self.s3_delete(key).await;
+                continue;
+            }
+
+            applications.push(app);
+        }
+
+        Ok(applications)
     }
 
     /// Check if a node_id is in the members manifest

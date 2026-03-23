@@ -476,6 +476,7 @@ pub fn run() {
             commands::oss_commands::oss_apply_team,
             commands::oss_commands::oss_get_pending_application,
             commands::oss_commands::oss_cancel_application,
+            commands::oss_commands::oss_approve_application,
             commands::team_unified::unified_team_get_members,
             commands::team_unified::unified_team_add_member,
             commands::team_unified::unified_team_remove_member,

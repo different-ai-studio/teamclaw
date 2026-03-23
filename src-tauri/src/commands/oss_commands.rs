@@ -633,3 +633,39 @@ pub async fn oss_get_pending_application(workspace_path: String) -> Result<Optio
 pub async fn oss_cancel_application(workspace_path: String) -> Result<(), String> {
     clear_pending_application(&workspace_path)
 }
+
+#[tauri::command]
+pub async fn oss_approve_application(
+    state: State<'_, OssSyncState>,
+    node_id: String,
+    name: String,
+    _email: String,
+    role: String,
+) -> Result<(), String> {
+    let guard = state.manager.lock().await;
+    let manager = guard
+        .as_ref()
+        .ok_or_else(|| "OSS sync not active".to_string())?;
+
+    // Add to members manifest (add_member takes a TeamMember struct)
+    let member_role: MemberRole =
+        serde_json::from_str(&format!("\"{}\"", role)).unwrap_or(MemberRole::Editor);
+    let member = TeamMember {
+        node_id: node_id.clone(),
+        name: name.clone(),
+        role: member_role,
+        label: String::new(),
+        platform: String::new(),
+        arch: String::new(),
+        hostname: String::new(),
+        added_at: chrono::Utc::now().to_rfc3339(),
+    };
+    manager.add_member(member).await?;
+
+    // Delete application file from S3
+    let app_key = format!("teams/{}/_meta/applications/{}.json", manager.team_id(), node_id);
+    let _ = manager.s3_delete(&app_key).await;
+
+    info!("Approved application for nodeId: {node_id}");
+    Ok(())
+}
