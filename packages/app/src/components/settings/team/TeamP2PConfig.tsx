@@ -24,7 +24,6 @@ import { useTeamModeStore } from '@/stores/team-mode'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
-import { AddMemberInput } from '@/components/settings/AddMemberInput'
 import type { DeviceInfo, TeamMember } from '@/lib/git/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -153,12 +152,10 @@ export function TeamP2PConfig() {
 
   // Device identity & allowlist state
   const [deviceInfo, setDeviceInfo] = React.useState<DeviceInfo | null>(null)
-  const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
   const [joinApprovalPending, setJoinApprovalPending] = React.useState(false)
   const [confirmAction, setConfirmAction] = React.useState<'create' | 'join' | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState(false)
 
-  const ownerNodeId = syncStatus?.ownerNodeId ?? syncStatus?.members?.[0]?.nodeId ?? null
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
   const isConnected = syncStatus?.connected ?? false
@@ -444,45 +441,7 @@ export function TeamP2PConfig() {
                   </div>
                 </div>
 
-                <TeamMemberList
-                  members={allowedMembers}
-                  ownerNodeId={ownerNodeId ?? ''}
-                  isOwner={isOwner}
-                  onRemove={async (nodeId) => {
-                    try {
-                      await tauriInvoke('team_remove_member', { nodeId })
-                      await loadSyncStatus()
-                    } catch (err) {
-                      setP2pError(err instanceof Error ? err.message : String(err))
-                    }
-                  }}
-                  onRoleChange={async (nodeId, newRole) => {
-                    try {
-                      await tauriInvoke('team_update_member_role', { nodeId, role: newRole })
-                      await loadSyncStatus()
-                    } catch (err) {
-                      setP2pError(err instanceof Error ? err.message : String(err))
-                    }
-                  }}
-                />
-
-                {isOwner && (
-                  <div className="pt-2 border-t">
-                    <p className="text-xs font-medium text-muted-foreground mb-2">{t('settings.team.addMember', 'Add Member')}</p>
-                    <AddMemberInput
-                      onAdd={async (nodeId, name, role) => {
-                        setAddMemberError(null)
-                        try {
-                          await tauriInvoke('team_add_member', { nodeId, name, role })
-                          await loadSyncStatus()
-                        } catch (err) {
-                          setAddMemberError(err instanceof Error ? err.message : String(err))
-                        }
-                      }}
-                      error={addMemberError}
-                    />
-                  </div>
-                )}
+                <TeamMemberList />
               </div>
             </SettingCard>
           )}

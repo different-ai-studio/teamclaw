@@ -1,14 +1,16 @@
-import { UserMinus, Shield, Pencil, Eye } from 'lucide-react'
+import { useEffect } from 'react'
+import { UserMinus, Shield, Pencil, Eye, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { TeamMember } from '@/lib/git/types'
+import { useTeamMembersStore } from '../../stores/team-members'
+import { AddMemberInput } from './AddMemberInput'
 
 function truncateId(id: string): string {
   if (id.length <= 16) return id
   return `${id.slice(0, 8)}...${id.slice(-8)}`
 }
 
-function RoleBadge({ role, isOwner }: { role?: string; isOwner: boolean }) {
-  if (isOwner) {
+function RoleBadge({ role }: { role?: string }) {
+  if (role === 'owner') {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 px-1.5 py-0.5 rounded">
         <Shield className="h-3 w-3" />
@@ -32,72 +34,125 @@ function RoleBadge({ role, isOwner }: { role?: string; isOwner: boolean }) {
   )
 }
 
-export function TeamMemberList({
-  members,
-  ownerNodeId,
-  isOwner,
-  onRemove,
-  onRoleChange,
-}: {
-  members: TeamMember[]
-  ownerNodeId: string
-  isOwner: boolean
-  onRemove: (nodeId: string) => void
-  onRoleChange?: (nodeId: string, newRole: 'editor' | 'viewer') => void
-}) {
+export function TeamMemberList() {
+  const {
+    members,
+    myRole,
+    loading,
+    error,
+    loadMembers,
+    loadMyRole,
+    addMember,
+    removeMember,
+    updateMemberRole,
+    canManageMembers,
+  } = useTeamMembersStore()
+
+  useEffect(() => {
+    loadMembers()
+    loadMyRole()
+  }, [])
+
+  const isManager = canManageMembers()
+  const isOwner = myRole === 'owner'
+
+  const handleAdd = async (nodeId: string, name: string, role: string, label: string) => {
+    await addMember({
+      nodeId,
+      name,
+      label,
+      role: role as 'editor' | 'viewer',
+      platform: '',
+      arch: '',
+      hostname: '',
+      addedAt: new Date().toISOString(),
+    })
+  }
+
   return (
-    <div className="space-y-2">
-      {members.map((member) => {
-        const isMemberOwner = member.nodeId === ownerNodeId
-        return (
-          <div
-            key={member.nodeId}
-            className="flex items-center justify-between bg-muted/50 rounded-md p-3"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium truncate">{member.name || member.label || member.hostname}</p>
-                <RoleBadge role={member.role} isOwner={isMemberOwner} />
+    <div className="space-y-4">
+      {loading && (
+        <p className="text-sm text-muted-foreground">Loading members...</p>
+      )}
+      {error && (
+        <p className="text-xs text-destructive">{error}</p>
+      )}
+      <div className="space-y-2">
+        {members.map((member) => {
+          const isMemberOwner = member.role === 'owner'
+          // Editors cannot remove or demote the owner
+          const canActOnMember = isManager && !isMemberOwner && !(myRole === 'editor' && isMemberOwner)
+
+          return (
+            <div
+              key={member.nodeId}
+              className="flex items-center justify-between bg-muted/50 rounded-md p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium truncate">
+                    {member.name || member.hostname}
+                  </p>
+                  <RoleBadge role={member.role} />
+                </div>
+                {member.label && (
+                  <p className="text-xs text-muted-foreground truncate">{member.label}</p>
+                )}
+                <p className="text-xs font-mono text-muted-foreground truncate">
+                  {truncateId(member.nodeId)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {member.platform} {member.arch} · {member.hostname}
+                </p>
               </div>
-              <p className="text-xs font-mono text-muted-foreground truncate">
-                {truncateId(member.nodeId)}
-              </p>
-              <p className="text-[10px] text-muted-foreground">
-                {member.platform} {member.arch} · {member.hostname}
-              </p>
+              <div className="flex items-center gap-1">
+                {canActOnMember && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 text-muted-foreground"
+                    onClick={() =>
+                      updateMemberRole(
+                        member.nodeId,
+                        member.role === 'viewer' ? 'editor' : 'viewer'
+                      )
+                    }
+                    aria-label="Toggle role"
+                  >
+                    {member.role === 'viewer' ? (
+                      <Pencil className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                    {member.role === 'viewer' ? 'Set Editor' : 'Set Viewer'}
+                  </Button>
+                )}
+                {canActOnMember && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 text-destructive hover:text-destructive"
+                    onClick={() => removeMember(member.nodeId)}
+                    aria-label="Remove"
+                  >
+                    <UserMinus className="h-4 w-4" />
+                    Remove
+                  </Button>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              {isOwner && !isMemberOwner && onRoleChange && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 text-muted-foreground"
-                  onClick={() => onRoleChange(
-                    member.nodeId,
-                    member.role === 'viewer' ? 'editor' : 'viewer'
-                  )}
-                  aria-label="Toggle role"
-                >
-                  {member.role === 'viewer' ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  {member.role === 'viewer' ? 'Set Editor' : 'Set Viewer'}
-                </Button>
-              )}
-              {isOwner && !isMemberOwner && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 text-destructive hover:text-destructive"
-                  onClick={() => onRemove(member.nodeId)}
-                  aria-label="Remove"
-                >
-                  <UserMinus className="h-4 w-4" />
-                  Remove
-                </Button>
-              )}
-            </div>
+          )
+        })}
+      </div>
+      {isManager && (
+        <div className="pt-2 border-t border-border">
+          <div className="flex items-center gap-1.5 mb-2">
+            <UserPlus className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Add Member</span>
           </div>
-        )
-      })}
+          <AddMemberInput onAdd={handleAdd} error={error} />
+        </div>
+      )}
     </div>
   )
 }
