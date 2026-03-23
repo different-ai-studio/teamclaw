@@ -5,6 +5,7 @@ import { useTeamOssStore } from '@/stores/team-oss'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
+import { ApplicationDialog } from './ApplicationDialog'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { invoke } from '@tauri-apps/api/core'
 import type { DeviceInfo } from '@/lib/git/types'
@@ -66,6 +67,10 @@ export function TeamOSSConfig() {
     createSnapshot,
     cleanupUpdates,
     cleanup,
+    applyToTeam,
+    pendingApplication,
+    loadPendingApplication,
+    cancelApplication,
   } = useTeamOssStore()
 
   const teamMembersStore = useTeamMembersStore()
@@ -87,6 +92,8 @@ export function TeamOSSConfig() {
   const [snapshotLoading, setSnapshotLoading] = useState<string | null>(null)
   const [cleanupLoading, setCleanupLoading] = useState<string | null>(null)
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null)
+  const [showApplicationDialog, setShowApplicationDialog] = useState(false)
+  const [applicationTeamName, setApplicationTeamName] = useState('')
 
   useEffect(() => {
     if (workspacePath) {
@@ -104,6 +111,12 @@ export function TeamOSSConfig() {
       loadSyncStatus(workspacePath)
     }
   }, [workspacePath, connected, loadSyncStatus])
+
+  useEffect(() => {
+    if (workspacePath && !connected) {
+      loadPendingApplication(workspacePath)
+    }
+  }, [workspacePath, connected, loadPendingApplication])
 
   const handleCreateTeam = useCallback(async () => {
     if (!workspacePath) return
@@ -124,23 +137,49 @@ export function TeamOSSConfig() {
     if (!workspacePath) return
     setJoining(true)
     try {
-      await joinTeam({ workspacePath, teamId: joinTeamId, teamSecret: joinTeamSecret })
-      setJoinTeamId('')
-      setJoinTeamSecret('')
-      // Load unified members after successful join
-      await teamMembersStore.loadMembers()
-      await teamMembersStore.loadMyRole()
+      const result = await joinTeam({ workspacePath, teamId: joinTeamId, teamSecret: joinTeamSecret })
+      if (result?.status === 'not_member') {
+        // Show application dialog
+        setApplicationTeamName(result.teamName || 'Unknown Team')
+        setShowApplicationDialog(true)
+      } else {
+        // Joined successfully
+        setJoinTeamId('')
+        setJoinTeamSecret('')
+        await teamMembersStore.loadMembers()
+        await teamMembersStore.loadMyRole()
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('not been added') || msg.includes('未被添加')) {
-        useTeamOssStore.setState({ error: 'Your device has not been added to the team. Please contact the team Owner' })
-      } else {
-        useTeamOssStore.setState({ error: msg || 'Invalid ticket, please check and try again' })
-      }
+      useTeamOssStore.setState({ error: msg || 'Invalid ticket, please check and try again' })
     } finally {
       setJoining(false)
     }
   }, [workspacePath, joinTeamId, joinTeamSecret, joinTeam, teamMembersStore])
+
+  const handleSubmitApplication = useCallback(async (name: string, email: string, note: string) => {
+    if (!workspacePath) return
+    await applyToTeam({
+      workspacePath,
+      teamId: joinTeamId,
+      teamSecret: joinTeamSecret,
+      name,
+      email,
+      note,
+    })
+    setShowApplicationDialog(false)
+  }, [workspacePath, joinTeamId, joinTeamSecret, applyToTeam])
+
+  const handleCancelApplication = useCallback(async () => {
+    if (!workspacePath) return
+    await cancelApplication(workspacePath)
+  }, [workspacePath, cancelApplication])
+
+  useEffect(() => {
+    if (pendingApplication && !connected) {
+      setJoinTeamId(pendingApplication.teamId)
+    }
+  }, [pendingApplication, connected])
 
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
 
@@ -266,6 +305,27 @@ export function TeamOSSConfig() {
                   className="bg-background/50"
                 />
               </div>
+              {pendingApplication && (
+                <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 flex items-start gap-2">
+                  <span className="text-base leading-none mt-0.5">⏳</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-green-600 dark:text-green-400">
+                      申请已提交，等待 Owner 审批
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      点击「加入团队」可重新检查审批状态
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 h-7 text-xs text-muted-foreground"
+                    onClick={handleCancelApplication}
+                  >
+                    取消申请
+                  </Button>
+                </div>
+              )}
               <Button
                 onClick={handleJoinTeam}
                 disabled={joining || !joinTeamId || !joinTeamSecret}
@@ -459,6 +519,14 @@ export function TeamOSSConfig() {
             )}
           </div>
         </>
+      )}
+
+      {showApplicationDialog && (
+        <ApplicationDialog
+          teamName={applicationTeamName}
+          onSubmit={handleSubmitApplication}
+          onCancel={() => setShowApplicationDialog(false)}
+        />
       )}
 
       {/* Error display */}
