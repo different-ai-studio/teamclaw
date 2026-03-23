@@ -79,7 +79,7 @@ function getS3Client() {
       accessKeyId: ACCESS_KEY_ID(),
       secretAccessKey: ACCESS_KEY_SECRET(),
     },
-    forcePathStyle: true,
+    forcePathStyle: false,
   });
 }
 
@@ -300,7 +300,18 @@ async function handleResetSecret(body) {
 // FC HTTP handler
 // ---------------------------------------------------------------------------
 export async function handler(event, context) {
-  const { path, httpMethod, body: rawBody, headers } = event;
+  // FC 3.0 HTTP trigger passes a Buffer, parse it first
+  if (Buffer.isBuffer(event)) {
+    event = JSON.parse(event.toString());
+  } else if (typeof event === "string") {
+    event = JSON.parse(event);
+  }
+  // Support both FC 2.0 and FC 3.0 event formats
+  const path = event.rawPath || event.path;
+  const httpMethod =
+    event.requestContext?.http?.method || event.httpMethod;
+  const rawBody = event.body;
+  const headers = event.headers;
 
   // Rate limiting
   const ip =
@@ -334,7 +345,7 @@ export async function handler(event, context) {
         return json(404, { error: "Not found" });
     }
   } catch (err) {
-    console.error(`[error] ${path}:`, err.message);
+    console.error(`[error] ${path}:`, err.message, err.name, err.Code, err.$metadata);
     return json(500, { error: "Internal server error" });
   }
 }

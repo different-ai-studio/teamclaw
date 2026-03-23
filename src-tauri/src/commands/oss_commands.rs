@@ -1,14 +1,12 @@
 use crate::commands::oss_types::*;
 use crate::commands::oss_sync::*;
-use crate::commands::team::TEAM_REPO_DIR;
 use crate::commands::TEAMCLAW_DIR;
 
 use serde_json::Value;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 use tauri::State;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,6 +108,7 @@ pub async fn oss_create_team(
     team_name: String,
     owner_name: String,
     owner_email: String,
+    fc_endpoint: String,
 ) -> Result<OssTeamInfo, String> {
     let node_id = get_or_create_node_id(&workspace_path)?;
     let team_secret = generate_team_secret()?;
@@ -119,7 +118,7 @@ pub async fn oss_create_team(
         String::new(), // team_id not yet known
         node_id.clone(),
         team_secret.clone(),
-        "https://teamclaw-fc.cn-shanghai.fcapp.run".to_string(),
+        fc_endpoint.clone(),
         workspace_path.clone(),
         Duration::from_secs(300),
         Some(app_handle.clone()),
@@ -134,18 +133,20 @@ pub async fn oss_create_team(
         "ownerEmail": owner_email,
     });
 
+    info!("oss_create_team: calling FC /register...");
     let resp = manager.call_fc("/register", &body).await?;
     let team_id = resp
         .team_id
         .clone()
         .ok_or_else(|| "FC /register did not return a teamId".to_string())?;
+    info!("oss_create_team: FC /register returned team_id={team_id}");
 
     // Update manager with returned team_id and credentials
     manager = OssSyncManager::new(
         team_id.clone(),
         node_id.clone(),
         team_secret.clone(),
-        "https://teamclaw-fc.cn-shanghai.fcapp.run".to_string(),
+        fc_endpoint.clone(),
         workspace_path.clone(),
         Duration::from_secs(300),
         Some(app_handle.clone()),
@@ -154,11 +155,13 @@ pub async fn oss_create_team(
     manager.set_role(TeamRole::Owner);
 
     // Scan existing team_dir for content, do initial upload
+    info!("oss_create_team: uploading local changes...");
     for doc_type in DocType::all() {
         if let Err(e) = manager.upload_local_changes(doc_type).await {
             warn!("Initial upload for {:?} failed: {}", doc_type, e);
         }
     }
+    info!("oss_create_team: local changes uploaded");
 
     // Upload initial members.json to _meta/
     let members = vec![serde_json::json!({
@@ -174,7 +177,9 @@ pub async fn oss_create_team(
     let members_bytes = serde_json::to_vec_pretty(&members_json)
         .map_err(|e| format!("Failed to serialize members.json: {e}"))?;
     let meta_key = format!("teams/{}/_meta/members.json", team_id);
+    info!("oss_create_team: uploading members.json...");
     manager.s3_put(&meta_key, &members_bytes).await?;
+    info!("oss_create_team: members.json uploaded");
 
     // Upload team.json to _meta/
     let team_json = serde_json::json!({
@@ -188,13 +193,15 @@ pub async fn oss_create_team(
     let team_bytes = serde_json::to_vec_pretty(&team_json)
         .map_err(|e| format!("Failed to serialize team.json: {e}"))?;
     let team_key = format!("teams/{}/_meta/team.json", team_id);
+    info!("oss_create_team: uploading team.json...");
     manager.s3_put(&team_key, &team_bytes).await?;
+    info!("oss_create_team: team.json uploaded, saving config...");
 
     // Save config
     let config = OssTeamConfig {
         enabled: true,
         team_id: team_id.clone(),
-        fc_endpoint: "https://teamclaw-fc.cn-shanghai.fcapp.run".to_string(),
+        fc_endpoint: fc_endpoint.clone(),
         last_sync_at: None,
         poll_interval_secs: 300,
     };
@@ -226,6 +233,7 @@ pub async fn oss_join_team(
     workspace_path: String,
     team_id: String,
     team_secret: String,
+    fc_endpoint: String,
 ) -> Result<OssTeamInfo, String> {
     let node_id = get_or_create_node_id(&workspace_path)?;
 
@@ -234,7 +242,7 @@ pub async fn oss_join_team(
         team_id.clone(),
         node_id.clone(),
         team_secret.clone(),
-        "https://teamclaw-fc.cn-shanghai.fcapp.run".to_string(),
+        fc_endpoint.clone(),
         workspace_path.clone(),
         Duration::from_secs(300),
         Some(app_handle.clone()),
@@ -275,7 +283,7 @@ pub async fn oss_join_team(
     let config = OssTeamConfig {
         enabled: true,
         team_id: team_id.clone(),
-        fc_endpoint: "https://teamclaw-fc.cn-shanghai.fcapp.run".to_string(),
+        fc_endpoint: fc_endpoint.clone(),
         last_sync_at: None,
         poll_interval_secs: 300,
     };
@@ -384,6 +392,16 @@ pub async fn oss_leave_team(
     state: State<'_, OssSyncState>,
     workspace_path: String,
 ) -> Result<(), String> {
+    // Prevent owner from leaving — must transfer ownership first
+    {
+        let guard = state.manager.lock().await;
+        if let Some(ref mgr) = *guard {
+            if mgr.role() == TeamRole::Owner {
+                return Err("团队创建者不能离开团队，请先转让管理员角色".to_string());
+            }
+        }
+    }
+
     // Stop poll loop
     {
         let mut poll_guard = state.poll_handle.lock().await;
@@ -516,7 +534,7 @@ pub async fn oss_update_members(
 #[tauri::command]
 pub async fn oss_reset_team_secret(
     state: State<'_, OssSyncState>,
-    workspace_path: String,
+    _workspace_path: String,
 ) -> Result<String, String> {
     let new_secret = generate_team_secret()?;
 

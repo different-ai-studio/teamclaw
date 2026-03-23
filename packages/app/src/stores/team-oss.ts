@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { buildConfig } from '@/lib/build-config'
 
 interface OssTeamInfo {
   teamId: string
@@ -115,15 +116,31 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   },
 
   createTeam: async (params) => {
-    const info = await invoke<OssTeamInfo>('oss_create_team', params)
-    set({ connected: true, teamInfo: info, error: null })
-    return info
+    try {
+      const info = await invoke<OssTeamInfo>('oss_create_team', {
+        ...params,
+        fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+      })
+      set({ connected: true, teamInfo: info, error: null })
+      return info
+    } catch (e) {
+      set({ error: String(e) })
+      throw e
+    }
   },
 
   joinTeam: async (params) => {
-    const info = await invoke<OssTeamInfo>('oss_join_team', params)
-    set({ connected: true, teamInfo: info, error: null })
-    return info
+    try {
+      const info = await invoke<OssTeamInfo>('oss_join_team', {
+        ...params,
+        fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+      })
+      set({ connected: true, teamInfo: info, error: null })
+      return info
+    } catch (e) {
+      set({ error: String(e) })
+      throw e
+    }
   },
 
   leaveTeam: async (workspacePath) => {
