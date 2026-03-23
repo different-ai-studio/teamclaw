@@ -178,7 +178,8 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_aptabase::Builder::new("A-US-9094113207").build())
+        // NOTE: aptabase is registered in the setup() closure below so that
+        // the Tokio runtime is available when its internal `tokio::spawn` runs.
         .plugin({
             // Configure global shortcuts for Spotlight.
             // Errors in shortcut registration should not abort app startup, so we
@@ -477,6 +478,10 @@ pub fn run() {
         .setup(|app| {
             #[cfg(debug_assertions)]
             let setup_t0 = std::time::Instant::now();
+
+            // Register aptabase here (inside setup) so the Tokio runtime is available
+            // for its internal `tokio::spawn` polling loop.
+            app.handle().plugin(tauri_plugin_aptabase::Builder::new("A-US-9094113207").build())?;
 
             // Start RAG HTTP API server for MCP bridge
             let rag_state_handle = app.handle().state::<commands::knowledge::RagState>();
