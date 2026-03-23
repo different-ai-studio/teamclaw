@@ -124,7 +124,7 @@ rdev = "0.5"
 
 # macOS native APIs for traffic light control
 [target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.24"
+cocoa = "0.26"
 objc = "0.2"
 objc2 = "0.6"
 objc2-web-kit = { version = "0.3", features = ["WKWebViewConfiguration", "WKWebView"] }
