@@ -354,6 +354,7 @@ pub fn run() {
             commands::git::git_add,
             commands::git::git_status,
             commands::git::git_diff,
+            commands::git::git_checkout_file,
             commands::git::git_show_file,
             commands::team::get_team_status,
             commands::team::team_check_git_installed,

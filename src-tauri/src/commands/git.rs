@@ -264,7 +264,20 @@ pub fn git_diff(path: String, file: Option<String>, staged: Option<bool>) -> Res
     run_git(&args, &path)
 }
 
-/// 1.9 - Get file content from a git ref (e.g. HEAD)
+/// 1.9 - Restore (revert) a file to its last committed state
+///
+/// Runs `git checkout -- <file>` to discard working-tree changes.
+#[tauri::command]
+pub fn git_checkout_file(path: String, file: String) -> Result<GitCommandResult, String> {
+    let result = run_git(&["checkout", "--", &file], &path)?;
+    if result.success {
+        Ok(result)
+    } else {
+        Err(format!("git checkout failed: {}", result.stderr.trim()))
+    }
+}
+
+/// 1.10 - Get file content from a git ref (e.g. HEAD)
 ///
 /// Runs `git show <ref>:<file>` to retrieve the content of a file
 /// at a specific commit. Used for git gutter decorations (comparing
