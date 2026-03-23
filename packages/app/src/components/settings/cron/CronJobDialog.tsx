@@ -10,6 +10,7 @@ import {
   Timer,
   Zap,
   Send,
+  GitBranch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -460,6 +461,35 @@ export function CronJobDialog({
                   {t('settings.cron.timeoutHint', 'Max time for AI to respond. Auto-aborts if exceeded (30-900s, default 180s).')}
                 </p>
               </div>
+
+              {/* Worktree isolation */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium">{t('settings.cron.useWorktree', 'Run in isolated worktree')}</label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.cron.useWorktreeDesc', 'Execute in a temporary git worktree copy')}
+                  </p>
+                </div>
+                <ToggleSwitch
+                  enabled={form.useWorktree}
+                  onChange={(v) => update({ useWorktree: v })}
+                />
+              </div>
+
+              {form.useWorktree && (
+                <div className="space-y-2 pl-4 border-l-2 border-muted">
+                  <label className="text-sm font-medium flex items-center gap-1.5">
+                    <GitBranch className="h-3.5 w-3.5" />
+                    {t('settings.cron.worktreeBranch', 'Branch')}
+                  </label>
+                  <Input
+                    value={form.worktreeBranch}
+                    onChange={(e) => update({ worktreeBranch: e.target.value })}
+                    placeholder={t('settings.cron.worktreeBranchPlaceholder', 'main')}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Section 4: Delivery */}

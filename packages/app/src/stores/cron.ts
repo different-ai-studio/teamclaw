@@ -18,6 +18,8 @@ export interface CronPayload {
   message: string
   model?: string // "provider/model"
   timeoutSeconds?: number // Max seconds for AI to respond (default: 180)
+  useWorktree?: boolean
+  worktreeBranch?: string
 }
 
 export type DeliveryMode = 'announce' | 'none'
@@ -57,6 +59,7 @@ export interface CronRunRecord {
   responseSummary?: string
   deliveryStatus?: string
   error?: string
+  worktreePath?: string
 }
 
 export interface CreateCronJobRequest {

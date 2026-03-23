@@ -1111,7 +1111,11 @@
       "newJob": "New Job",
       "noJobs": "No scheduled jobs yet",
       "noJobsDesc": "Create your first automated task to have your AI agent perform actions on a schedule. For example, check your approval platform every 30 minutes.",
-      "createFirstJob": "Create Your First Job"
+      "createFirstJob": "Create Your First Job",
+      "useWorktree": "Run in isolated worktree",
+      "useWorktreeDesc": "Execute in a temporary git worktree copy",
+      "worktreeBranch": "Branch",
+      "worktreeBranchPlaceholder": "main"
     },
     "team": {
       "checkingWorkspace": "Checking workspace...",
