@@ -72,7 +72,7 @@ tantivy = "0.22"
 tree-sitter = "0.23"
 tree-sitter-rust = "0.23"
 tree-sitter-typescript = "0.23"
-tree-sitter-python = "0.23"
+tree-sitter-python = "0.25"
 tree-sitter-go = "0.23"
 thiserror = "2"
 tracing = { version = "0.1", features = ["log"] }
