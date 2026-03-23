@@ -18,7 +18,7 @@ export function UpdateDialogContainer() {
   const { update, checkForUpdates, installUpdate, restart } = useUpdaterStore()
   const [dismissed, setDismissed] = useState(false)
 
-  // Check for updates on app startup (3s delay)
+  // Check for updates on app startup (3s delay) and every 4 hours
   useEffect(() => {
     if (typeof window === "undefined" || !(window as unknown as { __TAURI__: unknown }).__TAURI__) {
       return
@@ -28,7 +28,14 @@ export function UpdateDialogContainer() {
       checkForUpdates(true)
     }, 3000)
 
-    return () => clearTimeout(timer)
+    const interval = setInterval(() => {
+      checkForUpdates(true)
+    }, 4 * 60 * 60 * 1000)
+
+    return () => {
+      clearTimeout(timer)
+      clearInterval(interval)
+    }
   }, [checkForUpdates])
 
   // Reset dismissed state when a new check starts
