@@ -98,7 +98,7 @@ urlencoding = "2"
 dirs = "5"
 
 # HTML parsing for skills.sh scraping
-scraper = "0.20"
+scraper = "0.26"
 md5 = "0.7"
 rayon = "1.10"  # Parallel iterator for recursive skill search
 
