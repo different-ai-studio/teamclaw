@@ -62,7 +62,7 @@ jobs:
           targets: aarch64-apple-darwin
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -240,7 +240,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
