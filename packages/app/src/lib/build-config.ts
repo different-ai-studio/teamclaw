@@ -75,7 +75,6 @@ const fallback: BuildConfig = {
   defaults: { locale: 'zh-CN', theme: 'system' },
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function deepMerge(base: any, override: any): any {
   if (!override) return base
   const result = { ...base }

@@ -124,6 +124,7 @@ export function KookChannel() {
 
   const handleKookDeleteGuild = (guildId: string) => {
     setKookLocalConfig(prev => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [guildId]: _, ...rest } = prev.guilds
       return { ...prev, guilds: rest }
     })
@@ -165,6 +166,7 @@ export function KookChannel() {
     setKookLocalConfig(prev => {
       const guild = prev.guilds[guildId]
       if (!guild) return prev
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [channelId]: _, ...restChannels } = guild.channels
       return {
         ...prev,

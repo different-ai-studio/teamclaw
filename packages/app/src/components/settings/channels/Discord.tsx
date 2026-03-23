@@ -119,7 +119,7 @@ export function DiscordChannel() {
       if (isRunning) {
         setHasChanges(true)
       }
-    } catch (err) {
+    } catch {
       // Error is handled by the store
     }
   }
@@ -138,7 +138,7 @@ export function DiscordChannel() {
         await saveDiscordConfig(localConfig)
         await startGateway()
       }
-    } catch (err) {
+    } catch {
       // Error is handled by the store
     }
   }
@@ -159,6 +159,7 @@ export function DiscordChannel() {
 
   const handleDeleteGuild = (guildId: string) => {
     setLocalConfig(prev => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [guildId]: _, ...rest } = prev.guilds
       return { ...prev, guilds: rest }
     })
@@ -200,6 +201,7 @@ export function DiscordChannel() {
     setLocalConfig(prev => {
       const guild = prev.guilds[guildId]
       if (!guild) return prev
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [channelId]: _, ...restChannels } = guild.channels
       return {
         ...prev,

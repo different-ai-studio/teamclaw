@@ -36,7 +36,7 @@ export const PromptSection = React.memo(function PromptSection() {
         t('settings.prompt.saveSuccess', 'System prompt saved successfully'),
         { duration: 2000 }
       )
-    } catch (error) {
+    } catch {
       toast.error(
         t('settings.prompt.saveError', 'Failed to save system prompt'),
         { duration: 3000 }

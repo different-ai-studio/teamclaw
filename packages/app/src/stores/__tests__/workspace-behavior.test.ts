@@ -12,7 +12,7 @@ vi.mock('@/components/viewers/UnsupportedFileViewer', () => ({
 }));
 
 // Import after mocks
-import { useWorkspaceStore, WORKSPACE_STORAGE_KEY } from '../workspace';
+import { useWorkspaceStore } from '../workspace';
 import type { FileNode } from '../workspace';
 
 // ── Tests ────────────────────────────────────────────────────────────────────

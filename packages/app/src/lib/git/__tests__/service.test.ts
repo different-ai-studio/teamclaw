@@ -1,4 +1,4 @@
-// @ts-nocheck - Test file requires vitest runtime
+// Test file - vitest globals (describe, it, expect) provided by vitest/globals type config
 import { vi } from 'vitest'
 import { GitService, GitStatus, normalizePath, pathsEqual, isChildPath } from '../service'
 import { getOpenCodeClient } from '@/lib/opencode/client'

@@ -40,8 +40,6 @@ export function SessionDiffPanel({ diff, compact: _compact }: SessionDiffPanelPr
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const openTab = useTabsStore(s => s.openTab)
 
-  if (diff.length === 0) return null
-
   const toggleFile = (file: string) => {
     const newExpanded = new Set(expandedFiles)
     if (newExpanded.has(file)) {
@@ -101,6 +99,8 @@ export function SessionDiffPanel({ diff, compact: _compact }: SessionDiffPanelPr
       })
     }
   }, [workspacePath, t])
+
+  if (diff.length === 0) return null
 
   const totalAdditions = diff.reduce((sum, d) => sum + d.additions, 0)
   const totalDeletions = diff.reduce((sum, d) => sum + d.deletions, 0)

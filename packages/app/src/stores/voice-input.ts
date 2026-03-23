@@ -28,7 +28,7 @@ export const useVoiceInputStore = create<VoiceInputState>((set, get) => ({
     catch { return true; }
   })(),
   setVoiceEnabled: (v) => {
-    try { localStorage.setItem(VOICE_ENABLED_KEY, String(v)); } catch {}
+    try { localStorage.setItem(VOICE_ENABLED_KEY, String(v)); } catch { /* intentionally empty */ }
     set({ voiceEnabled: v });
   },
   lastTranscript: null,

@@ -21,7 +21,6 @@ if (import.meta.env.DEV) {
         ? event.payload
         : event.payload?.code
       try {
-        // eslint-disable-next-line no-eval
         const result = (0, eval)(code)
         // Use global emit so app-level listener in Rust receives it
         await emit('execute-js-response', {

@@ -83,14 +83,6 @@ export function ContextUsageBadge() {
     const session = sessions.find((s) => s.id === activeSessionId);
     if (!session) return { percentage: 0, totalTokens: 0, contextSize: DEFAULT_CONTEXT_SIZE };
 
-    // Sum input tokens from all messages (input tokens represent context consumed)
-    let total = 0;
-    for (const msg of session.messages) {
-      if (msg.tokens) {
-        total += msg.tokens.input + (msg.tokens.cache?.read || 0);
-      }
-    }
-
     // Get context window size for current model
     const modelId = currentModelKey?.split("/").slice(1).join("/") || "";
     const ctxSize = getContextWindowSize(modelId);

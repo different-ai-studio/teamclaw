@@ -73,7 +73,7 @@ export class OpenCodeClient {
         headers: this.getHeaders(),
         body: body ? JSON.stringify(body) : undefined,
       })
-    } catch (error) {
+    } catch {
       throw new Error(`Cannot connect to OpenCode server (${this.baseUrl}). Please make sure OpenCode server is running.`)
     }
 

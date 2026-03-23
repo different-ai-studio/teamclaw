@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { 
-  ensureGitignoreEntries, 
-  parseGitignore, 
-  TEAMCLAW_GITIGNORE_ENTRIES 
+import {
+  ensureGitignoreEntries,
+  parseGitignore,
 } from '../gitignore-manager'
 
 // Mock Tauri FS API

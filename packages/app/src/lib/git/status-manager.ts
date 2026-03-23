@@ -2,9 +2,9 @@ import { GitService } from '@/lib/git/service'
 
 // 简单的事件发射器实现
 class SimpleEventEmitter {
-  private listeners: Map<string, Function[]> = new Map()
+  private listeners: Map<string, ((...args: unknown[]) => void)[]> = new Map()
 
-  on(event: string, listener: Function): void {
+  on(event: string, listener: (...args: unknown[]) => void): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, [])
     }
@@ -18,7 +18,7 @@ class SimpleEventEmitter {
     }
   }
 
-  off(event: string, listener: Function): void {
+  off(event: string, listener: (...args: unknown[]) => void): void {
     const eventListeners = this.listeners.get(event)
     if (eventListeners) {
       const index = eventListeners.indexOf(listener)

@@ -562,6 +562,7 @@ export function FeishuChannel() {
   }
 
   const handleDeleteFeishuChat = (chatId: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { [chatId]: _, ...rest } = feishuLocalConfig.chats
     updateFeishuLocalConfig({ chats: rest })
     setDeleteFeishuChatConfirm(null)

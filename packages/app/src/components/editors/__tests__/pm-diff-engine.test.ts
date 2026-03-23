@@ -117,18 +117,6 @@ function bold(text: string) {
   return schema.text(text, [schema.marks.bold.create()]);
 }
 
-function italic(text: string) {
-  return schema.text(text, [schema.marks.italic.create()]);
-}
-
-function bulletList(...items: ReturnType<typeof listItem>[]) {
-  return schema.node("bulletList", null, items);
-}
-
-function listItem(...content: ReturnType<typeof p>[]) {
-  return schema.node("listItem", null, content);
-}
-
 function taskList(...items: ReturnType<typeof taskItem>[]) {
   return schema.node("taskList", null, items);
 }

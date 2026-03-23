@@ -117,7 +117,6 @@ describe('session store', () => {
     client.loadAllMessages = vi.fn().mockResolvedValue([])
 
     // setActiveSession is async but we just test the state change
-    const store = useSessionStore.getState()
     // Directly set for this test to avoid full async chain
     useSessionStore.setState({ activeSessionId: 'sess-1' })
 

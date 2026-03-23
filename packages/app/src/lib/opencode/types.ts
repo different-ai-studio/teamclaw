@@ -37,11 +37,9 @@ export interface Session {
   }
 }
 
-export interface SessionListItem extends Session {}
+export type SessionListItem = Session
 
-export interface CreateSessionRequest {
-  // OpenCode creates session with empty body
-}
+export type CreateSessionRequest = Record<string, never>
 
 // Message Types
 export interface Message {

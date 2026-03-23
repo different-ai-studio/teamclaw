@@ -29,7 +29,6 @@ import { createToolHandlers } from '@/stores/session-sse-tool-handlers'
 import { sessionLookupCache } from '@/stores/session-cache'
 import { sessionDataCache } from '@/stores/session-data-cache'
 import { externalReloadingSessions } from '@/stores/session-internals'
-import { useStreamingStore } from '@/stores/streaming'
 
 describe('session-sse-tool-handlers', () => {
   let state: Record<string, unknown>
