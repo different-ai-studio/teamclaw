@@ -221,24 +221,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       await stopWatching(currentPath);
     }
 
-    // Check if this is a new workspace (no .teamclaw directory yet)
-    // Must run BEFORE set({workspacePath}) because that triggers OpenCode
-    // server start (via useOpenCodeInit hook) which creates .teamclaw
-    let detectedNewWorkspace = false;
+    // Pre-cache Tauri fs modules so the .teamclaw check after set() runs
+    // without extra async import delay (avoids race with OpenCode preloader)
+    let cachedJoin: typeof import("@tauri-apps/api/path")["join"] | null = null;
+    let cachedExists: typeof import("@tauri-apps/plugin-fs")["exists"] | null = null;
     if (isTauri()) {
       try {
-        const { join } = await import("@tauri-apps/api/path");
-        const { exists } = await import("@tauri-apps/plugin-fs");
-        const teamclawDir = await join(expandedPath, ".teamclaw");
-        detectedNewWorkspace = !(await exists(teamclawDir));
-      } catch {
-        // Ignore errors — don't block workspace setup
-      }
+        const [pathMod, fsMod] = await Promise.all([
+          import("@tauri-apps/api/path"),
+          import("@tauri-apps/plugin-fs"),
+        ]);
+        cachedJoin = pathMod.join;
+        cachedExists = fsMod.exists;
+      } catch { /* ignore */ }
     }
 
     set({
       isLoadingWorkspace: true,
-      isNewWorkspace: detectedNewWorkspace,
       openCodeReady: false,
       openCodeUrl: null,
       workspacePath: expandedPath,
@@ -255,6 +254,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       focusedPath: null,
       undoStack: [],
     });
+
+    // Check if this is a new workspace (no .teamclaw directory yet)
+    // Runs right after set() using pre-cached imports to minimize delay
+    // before OpenCode server creates .teamclaw
+    if (cachedJoin && cachedExists) {
+      try {
+        const teamclawDir = await cachedJoin(expandedPath, ".teamclaw");
+        const dirExists = await cachedExists(teamclawDir);
+        if (!dirExists) {
+          set({ isNewWorkspace: true });
+        }
+      } catch { /* ignore */ }
+    }
 
     // Reset advancedMode to default until new workspace config is loaded
     try {
