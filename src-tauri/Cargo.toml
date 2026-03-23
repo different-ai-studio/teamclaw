@@ -111,7 +111,7 @@ aws-config = "1"
 loro = "1"
 
 # WebDAV team sync dependencies
-quick-xml = "0.36"
+quick-xml = "0.39"
 aes-gcm = "0.10"
 pbkdf2 = { version = "0.12", features = ["simple"] }
 hex = "0.4"
