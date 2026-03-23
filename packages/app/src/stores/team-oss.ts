@@ -46,6 +46,24 @@ interface OssTeamConfig {
   pollIntervalSecs: number
 }
 
+interface OssJoinResult {
+  status: 'joined' | 'not_member'
+  // When status === 'joined', all OssTeamInfo fields are present
+  teamId?: string
+  teamSecret?: string
+  teamName?: string
+  ownerName?: string
+  role?: string
+  // When status === 'not_member'
+  nodeId?: string
+}
+
+interface PendingApplication {
+  teamId: string
+  fcEndpoint: string
+  appliedAt: string
+}
+
 interface TeamOssState {
   // State
   connected: boolean
@@ -55,6 +73,7 @@ interface TeamOssState {
   members: TeamMember[]
   error: string | null
   _unlisten: UnlistenFn | null
+  pendingApplication: PendingApplication | null
 
   // Actions
   initialize: (workspacePath: string) => Promise<void>
@@ -68,7 +87,7 @@ interface TeamOssState {
     workspacePath: string
     teamId: string
     teamSecret: string
-  }) => Promise<OssTeamInfo>
+  }) => Promise<OssJoinResult>
   leaveTeam: (workspacePath: string) => Promise<void>
   syncNow: (workspacePath: string) => Promise<void>
   loadSyncStatus: (workspacePath: string) => Promise<void>
@@ -76,6 +95,16 @@ interface TeamOssState {
   cleanupUpdates: (workspacePath: string, docType: string) => Promise<CleanupResult>
   updateMembers: (workspacePath: string, members: TeamMember[]) => Promise<void>
   resetTeamSecret: (workspacePath: string) => Promise<string>
+  applyToTeam: (params: {
+    workspacePath: string
+    teamId: string
+    teamSecret: string
+    name: string
+    email: string
+    note: string
+  }) => Promise<void>
+  loadPendingApplication: (workspacePath: string) => Promise<void>
+  cancelApplication: (workspacePath: string) => Promise<void>
   cleanup: () => void
 }
 
@@ -88,6 +117,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   members: [],
   error: null,
   _unlisten: null,
+  pendingApplication: null,
 
   initialize: async (workspacePath) => {
     try {
@@ -108,6 +138,12 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
           teamId: config.teamId,
         })
         set({ connected: true, teamInfo: info })
+      } else {
+        // Check for pending application
+        const pending = await invoke<PendingApplication | null>('oss_get_pending_application', { workspacePath })
+        if (pending) {
+          set({ pendingApplication: pending })
+        }
       }
     } catch (e) {
       console.error('OSS sync init failed:', e)
@@ -134,15 +170,28 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
 
   joinTeam: async (params) => {
     try {
-      const info = await invoke<OssTeamInfo>('oss_join_team', {
+      const result = await invoke<OssJoinResult>('oss_join_team', {
         ...params,
         fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
       })
-      set({ connected: true, teamInfo: info, error: null })
-      // Refresh file tree so the new teamclaw-team directory appears
+
+      if (result.status === 'not_member') {
+        // Not a member — return result so UI can open application dialog
+        return result
+      }
+
+      // Joined successfully
+      const info: OssTeamInfo = {
+        teamId: result.teamId!,
+        teamSecret: result.teamSecret,
+        teamName: result.teamName!,
+        ownerName: result.ownerName!,
+        role: result.role!,
+      }
+      set({ connected: true, teamInfo: info, error: null, pendingApplication: null })
       const { useWorkspaceStore } = await import('@/stores/workspace')
       await useWorkspaceStore.getState().refreshFileTree()
-      return info
+      return result
     } catch (e) {
       set({ error: String(e) })
       throw e
@@ -199,6 +248,42 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
 
   resetTeamSecret: async (workspacePath) => {
     return await invoke<string>('oss_reset_team_secret', { workspacePath })
+  },
+
+  applyToTeam: async (params) => {
+    try {
+      await invoke('oss_apply_team', {
+        ...params,
+        fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+      })
+      const pending: PendingApplication = {
+        teamId: params.teamId,
+        fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+        appliedAt: new Date().toISOString(),
+      }
+      set({ pendingApplication: pending, error: null })
+    } catch (e) {
+      set({ error: String(e) })
+      throw e
+    }
+  },
+
+  loadPendingApplication: async (workspacePath) => {
+    try {
+      const pending = await invoke<PendingApplication | null>('oss_get_pending_application', { workspacePath })
+      set({ pendingApplication: pending })
+    } catch {
+      // ignore
+    }
+  },
+
+  cancelApplication: async (workspacePath) => {
+    try {
+      await invoke('oss_cancel_application', { workspacePath })
+      set({ pendingApplication: null })
+    } catch (e) {
+      set({ error: String(e) })
+    }
   },
 
   cleanup: () => {
