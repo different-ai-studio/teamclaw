@@ -21,6 +21,7 @@ pub mod oss_commands;
 #[cfg(feature = "p2p")]
 pub mod team_p2p;
 pub mod p2p_state;
+pub mod team_unified;
 pub mod updater;
 pub mod webview;
 
