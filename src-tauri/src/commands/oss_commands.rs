@@ -151,7 +151,7 @@ pub async fn oss_create_team(
         Some(app_handle.clone()),
     );
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
-    manager.set_role(TeamRole::Owner);
+    manager.set_role(MemberRole::Owner);
 
     // Scan existing team_dir for content, do initial upload
     for doc_type in DocType::all() {
@@ -215,7 +215,7 @@ pub async fn oss_create_team(
         team_secret: Some(team_secret),
         team_name,
         owner_name,
-        role: "owner".to_string(),
+        role: MemberRole::Owner,
     })
 }
 
@@ -248,10 +248,9 @@ pub async fn oss_join_team(
     let resp = manager.call_fc("/token", &body).await?;
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
 
-    let role = resp.role.clone();
-    if role == "owner" {
-        manager.set_role(TeamRole::Owner);
-    }
+    let role: MemberRole = serde_json::from_str(&format!("\"{}\"", resp.role))
+        .unwrap_or(MemberRole::Editor);
+    manager.set_role(role.clone());
 
     // Run initial sync
     manager.initial_sync().await?;
@@ -333,10 +332,9 @@ pub async fn oss_restore_sync(
     let resp = manager.call_fc("/token", &body).await?;
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
 
-    let role = resp.role.clone();
-    if role == "owner" {
-        manager.set_role(TeamRole::Owner);
-    }
+    let role: MemberRole = serde_json::from_str(&format!("\"{}\"", resp.role))
+        .unwrap_or(MemberRole::Editor);
+    manager.set_role(role.clone());
 
     // Restore from local snapshots, then pull remote
     for doc_type in DocType::all() {

@@ -34,7 +34,7 @@ pub struct OssSyncManager {
     team_id: String,
     node_id: String,
     team_secret: String,
-    role: TeamRole,
+    role: MemberRole,
     known_files: HashMap<DocType, HashSet<String>>,
 
     poll_interval: Duration,
@@ -94,7 +94,7 @@ impl OssSyncManager {
             team_id,
             node_id,
             team_secret,
-            role: TeamRole::Member,
+            role: MemberRole::Editor,
             known_files,
             poll_interval,
             workspace_path,
@@ -122,7 +122,7 @@ impl OssSyncManager {
         self.connected = true;
     }
 
-    pub fn set_role(&mut self, role: TeamRole) {
+    pub fn set_role(&mut self, role: MemberRole) {
         self.role = role;
     }
 
@@ -183,13 +183,8 @@ impl OssSyncManager {
         self.oss_config = Some(resp.oss.clone());
         self.s3_client = Some(Self::create_s3_client(&resp.credentials, &resp.oss));
 
-        if let Ok(role) = resp.role.as_str() {
-            if role == "owner" {
-                self.role = TeamRole::Owner;
-            } else {
-                self.role = TeamRole::Member;
-            }
-        }
+        self.role = serde_json::from_str(&format!("\"{}\"", resp.role))
+            .unwrap_or(MemberRole::Editor);
 
         info!("OSS STS token refreshed successfully");
         Ok(())
@@ -928,6 +923,92 @@ impl OssSyncManager {
             next_sync_at,
             docs,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Members Manifest S3 Operations
+// ---------------------------------------------------------------------------
+
+const MEMBERS_MANIFEST_KEY: &str = "_team/members.json";
+
+impl OssSyncManager {
+    /// Upload members manifest to S3
+    pub async fn upload_members_manifest(&self, manifest: &TeamManifest) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(manifest)
+            .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
+        self.s3_put(MEMBERS_MANIFEST_KEY, json.as_bytes()).await
+    }
+
+    /// Download members manifest from S3
+    pub async fn download_members_manifest(&self) -> Result<Option<TeamManifest>, String> {
+        match self.s3_get(MEMBERS_MANIFEST_KEY).await {
+            Ok(data) => {
+                let manifest: TeamManifest = serde_json::from_slice(&data)
+                    .map_err(|e| format!("Failed to parse manifest: {}", e))?;
+                Ok(Some(manifest))
+            }
+            Err(e) if e.contains("NoSuchKey") || e.contains("not found") => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Add a member to the manifest and upload
+    pub async fn add_member(&self, member: TeamMember) -> Result<(), String> {
+        let mut manifest = self.download_members_manifest().await?
+            .unwrap_or_else(|| TeamManifest {
+                owner_node_id: self.node_id.clone(),
+                members: vec![],
+            });
+
+        if manifest.members.iter().any(|m| m.node_id == member.node_id) {
+            return Err("This device already exists in the team".to_string());
+        }
+
+        manifest.members.push(member);
+        self.upload_members_manifest(&manifest).await
+    }
+
+    /// Remove a member from the manifest and upload
+    pub async fn remove_member(&self, node_id: &str) -> Result<(), String> {
+        let mut manifest = self.download_members_manifest().await?
+            .ok_or("No members manifest found")?;
+
+        if manifest.owner_node_id == node_id {
+            return Err("Cannot remove the team Owner".to_string());
+        }
+
+        manifest.members.retain(|m| m.node_id != node_id);
+        self.upload_members_manifest(&manifest).await
+    }
+
+    /// Update a member's role in the manifest and upload
+    pub async fn update_member_role(&self, node_id: &str, role: MemberRole) -> Result<(), String> {
+        let mut manifest = self.download_members_manifest().await?
+            .ok_or("No members manifest found")?;
+
+        if manifest.owner_node_id == node_id && role != MemberRole::Owner {
+            return Err("Cannot change the Owner's role".to_string());
+        }
+
+        if let Some(member) = manifest.members.iter_mut().find(|m| m.node_id == node_id) {
+            member.role = role;
+        } else {
+            return Err("Member not found".to_string());
+        }
+
+        self.upload_members_manifest(&manifest).await
+    }
+
+    /// Check if a node_id is in the members manifest
+    pub async fn check_member_authorized(&self, node_id: &str) -> Result<MemberRole, String> {
+        let manifest = self.download_members_manifest().await?
+            .ok_or("No members manifest found")?;
+
+        manifest.members.iter()
+            .find(|m| m.node_id == node_id)
+            .map(|m| m.role.clone())
+            .ok_or("Your device has not been added to the team. Please contact the team Owner".to_string())
     }
 }
 

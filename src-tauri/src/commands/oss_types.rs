@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub use super::team_unified::{MemberRole, TeamMember, TeamManifest};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OssCredentials {
@@ -36,7 +38,7 @@ pub struct OssTeamInfo {
     pub team_secret: Option<String>,
     pub team_name: String,
     pub owner_name: String,
-    pub role: String,
+    pub role: MemberRole,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,15 +65,6 @@ pub struct DocSyncStatus {
 pub struct CleanupResult {
     pub deleted_count: u32,
     pub freed_bytes: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TeamMember {
-    pub node_id: String,
-    pub name: String,
-    pub role: String,
-    pub joined_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,8 +106,3 @@ impl DocType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TeamRole {
-    Owner,
-    Member,
-}
