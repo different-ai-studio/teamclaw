@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
+use super::team_unified::{MemberRole, TeamMember, TeamManifest};
 
 use iroh::Endpoint;
 use iroh_blobs::store::fs::FsStore;
@@ -837,34 +838,6 @@ pub fn check_join_authorization(team_dir: &str, joiner_node_id: &str) -> Result<
 
 // ─── P2P Configuration ────────────────────────────────────────────────────
 
-/// Role-based permission level for a team member.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum MemberRole {
-    Owner,
-    #[default]
-    #[serde(alias = "member")]
-    Editor,
-    Viewer,
-}
-
-/// A team member entry in the allowlist.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TeamMember {
-    pub node_id: String,
-    /// Human-readable display name for this member (e.g. "Alice", "Bob")
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub role: MemberRole,
-    pub label: String,
-    pub platform: String,
-    pub arch: String,
-    pub hostname: String,
-    pub added_at: String,
-}
-
 /// A subscribed P2P ticket entry (kept for backward compat).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -963,14 +936,6 @@ pub fn write_p2p_config(
 }
 
 // ─── Team Members Manifest ───────────────────────────────────────────────
-
-/// The `_team/members.json` manifest stored in the team drive.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TeamManifest {
-    pub owner_node_id: String,
-    pub members: Vec<TeamMember>,
-}
 
 /// Write the team members manifest to `<team_dir>/_team/members.json`.
 pub fn write_members_manifest(

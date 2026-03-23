@@ -9,13 +9,16 @@ use serde::{Deserialize, Serialize};
 pub enum MemberRole {
     Owner,
     #[default]
+    #[serde(alias = "member")]
     Editor,
     Viewer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamMember {
     pub node_id: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub role: MemberRole,
@@ -32,6 +35,7 @@ pub struct TeamMember {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamManifest {
     pub owner_node_id: String,
     pub members: Vec<TeamMember>,
