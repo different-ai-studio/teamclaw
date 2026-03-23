@@ -130,7 +130,7 @@ objc2 = "0.6"
 objc2-web-kit = { version = "0.3", features = ["WKWebViewConfiguration", "WKWebView"] }
 
 [dev-dependencies]
-wiremock = "0.5"
+wiremock = "0.6"
 
 [profile.release]
 # Use unwind so catch_unwind in email.rs and deps (e.g. html2md) work; abort would conflict.
