@@ -223,3 +223,21 @@ export interface WebDavSyncResult {
 }
 
 export type TeamSyncMode = 'git' | 'p2p' | 'webdav' | 'oss' | null
+
+// Unified team management types
+export interface TeamCreateResult {
+  teamId: string | null
+  ticket: string
+}
+
+export interface TeamJoinResult {
+  success: boolean
+  role: 'owner' | 'editor' | 'viewer'
+  members: TeamMember[]
+}
+
+export type TeamJoinErrorType =
+  | 'InvalidTicket'
+  | 'DeviceNotRegistered'
+  | 'AlreadyInTeam'
+  | 'SyncError'
