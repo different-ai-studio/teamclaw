@@ -14,18 +14,20 @@ export function AddMemberInput({
   onAdd,
   error,
 }: {
-  onAdd: (nodeId: string, name: string, role: string) => void
+  onAdd: (nodeId: string, name: string, role: string, label: string) => void
   error?: string | null
 }) {
   const [nodeId, setNodeId] = React.useState('')
   const [name, setName] = React.useState('')
+  const [label, setLabel] = React.useState('')
   const [role, setRole] = React.useState<'editor' | 'viewer'>('editor')
 
   const handleSubmit = () => {
     if (nodeId.trim()) {
-      onAdd(nodeId.trim(), name.trim(), role)
+      onAdd(nodeId.trim(), name.trim(), role, label.trim())
       setNodeId('')
       setName('')
+      setLabel('')
       setRole('editor')
     }
   }
@@ -40,26 +42,30 @@ export function AddMemberInput({
             placeholder="Member name (e.g. Alice)"
             className="h-9 text-sm"
           />
-          <div className="flex gap-1.5">
-            <Input
-              value={nodeId}
-              onChange={(e) => setNodeId(e.target.value)}
-              placeholder="Paste member's Device ID"
-              className="h-9 font-mono text-xs flex-1"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && nodeId.trim()) handleSubmit()
-              }}
-            />
-            <Select value={role} onValueChange={(v) => setRole(v as 'editor' | 'viewer')}>
-              <SelectTrigger className="h-9 w-[120px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="editor">Editor</SelectItem>
-                <SelectItem value="viewer">Viewer</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <Input
+            value={nodeId}
+            onChange={(e) => setNodeId(e.target.value)}
+            placeholder="Paste member's Device ID"
+            className="h-9 font-mono text-xs"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && nodeId.trim()) handleSubmit()
+            }}
+          />
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Label / Remark (optional)"
+            className="h-9 text-sm"
+          />
+          <Select value={role} onValueChange={(v) => setRole(v as 'editor' | 'viewer')}>
+            <SelectTrigger className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="editor">Editor</SelectItem>
+              <SelectItem value="viewer">Viewer</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <Button
           onClick={handleSubmit}
