@@ -398,7 +398,7 @@ pub async fn telemetry_export_leaderboard(
 
     #[cfg(feature = "p2p")]
     {
-        let db = get_db(&state).await?;
+        let _db = get_db(&state).await?;
 
         let guard = iroh_state.lock().await;
         let node = guard.as_ref().ok_or("P2P node not running")?;

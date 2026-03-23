@@ -433,6 +433,7 @@ pub fn parse_memory_file(filename: &str, raw: &str) -> MemoryRecord {
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 pub async fn rag_list_memories(workspace_path: String) -> Result<Vec<MemoryRecord>, String> {
     let memory_dir = PathBuf::from(&workspace_path).join("knowledge/memory");
 
@@ -460,6 +461,7 @@ pub async fn rag_list_memories(workspace_path: String) -> Result<Vec<MemoryRecor
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 pub async fn rag_save_memory(
     workspace_path: String,
     filename: String,
@@ -488,6 +490,7 @@ pub async fn rag_save_memory(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 pub async fn rag_delete_memory(
     workspace_path: String,
     filename: String,
@@ -517,6 +520,7 @@ pub async fn rag_delete_memory(
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn trigger_memory_index(
     workspace_path: &str,
     rel_path: &str,

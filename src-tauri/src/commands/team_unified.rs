@@ -43,12 +43,14 @@ pub struct TeamManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TeamCreateResult {
     pub team_id: Option<String>,
     pub ticket: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TeamJoinResult {
     pub success: bool,
     pub role: MemberRole,
@@ -57,6 +59,7 @@ pub struct TeamJoinResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "message")]
+#[allow(dead_code)]
 pub enum TeamJoinError {
     InvalidTicket(String),
     DeviceNotRegistered(String),

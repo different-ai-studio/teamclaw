@@ -1,5 +1,9 @@
 use crate::commands::oss_sync::*;
 use crate::commands::oss_types::*;
+use crate::commands::p2p_state::IrohState;
+#[cfg(feature = "p2p")]
+use crate::commands::team_p2p::get_node_id;
+#[allow(unused_imports)]
 use crate::commands::TEAMCLAW_DIR;
 
 use serde_json::Value;
@@ -12,57 +16,19 @@ use tracing::{info, warn};
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Get or create a stable node ID for this device, stored in teamclaw.json under oss.nodeId.
-fn get_or_create_node_id(workspace_path: &str) -> Result<String, String> {
-    let config_path = Path::new(workspace_path)
-        .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
-
-    let mut json: Value = if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?
-    } else {
-        Value::Object(serde_json::Map::new())
-    };
-
-    // Check if oss.nodeId already exists
-    if let Some(oss) = json.get("oss") {
-        if let Some(Value::String(node_id)) = oss.get("nodeId") {
-            if !node_id.is_empty() {
-                return Ok(node_id.clone());
-            }
-        }
+/// Get the P2P node ID to use as the unified device identity.
+async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, String> {
+    let guard = iroh_state.lock().await;
+    #[cfg(feature = "p2p")]
+    {
+        let node = guard.as_ref().ok_or("P2P node not running. Please wait for the app to fully initialize.")?;
+        Ok(get_node_id(node))
     }
-
-    // Generate a new node ID
-    let node_id = nanoid::nanoid!(21);
-
-    // Save it to teamclaw.json
-    let root = json
-        .as_object_mut()
-        .ok_or_else(|| "teamclaw.json root is not an object".to_string())?;
-
-    if !root.contains_key("oss") {
-        root.insert("oss".to_string(), Value::Object(serde_json::Map::new()));
+    #[cfg(not(feature = "p2p"))]
+    {
+        let _ = guard;
+        Err("P2P feature is not enabled".to_string())
     }
-
-    root.get_mut("oss")
-        .and_then(|v| v.as_object_mut())
-        .ok_or_else(|| "oss key is not an object".to_string())?
-        .insert("nodeId".to_string(), Value::String(node_id.clone()));
-
-    // Ensure parent dir exists
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {e}"))?;
-    }
-
-    let output = serde_json::to_string_pretty(&json)
-        .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
-    std::fs::write(&config_path, output)
-        .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
-
-    Ok(node_id)
 }
 
 fn parse_doc_type(s: &str) -> Result<DocType, String> {
@@ -100,6 +66,7 @@ fn generate_team_secret() -> Result<String, String> {
 #[tauri::command]
 pub async fn oss_create_team(
     state: State<'_, OssSyncState>,
+    iroh_state: State<'_, IrohState>,
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_name: String,
@@ -107,7 +74,7 @@ pub async fn oss_create_team(
     owner_email: String,
     fc_endpoint: String,
 ) -> Result<OssTeamInfo, String> {
-    let node_id = get_or_create_node_id(&workspace_path)?;
+    let node_id = get_p2p_node_id(&iroh_state).await?;
     let team_secret = generate_team_secret()?;
 
     // Scaffold teamclaw-team directory with default structure
@@ -232,13 +199,14 @@ pub async fn oss_create_team(
 #[tauri::command]
 pub async fn oss_join_team(
     state: State<'_, OssSyncState>,
+    iroh_state: State<'_, IrohState>,
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_id: String,
     team_secret: String,
     fc_endpoint: String,
 ) -> Result<OssTeamInfo, String> {
-    let node_id = get_or_create_node_id(&workspace_path)?;
+    let node_id = get_p2p_node_id(&iroh_state).await?;
 
     // Create manager and call FC /token
     let mut manager = OssSyncManager::new(
@@ -259,7 +227,7 @@ pub async fn oss_join_team(
     let resp = manager
         .call_fc("/token", &body)
         .await
-        .map_err(|_| "Ticket 不正确，请检查后重试".to_string())?;
+        .map_err(|e| format!("FC /token failed: {e}"))?;
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
 
     let role: MemberRole =
@@ -326,12 +294,13 @@ pub async fn oss_join_team(
 #[tauri::command]
 pub async fn oss_restore_sync(
     state: State<'_, OssSyncState>,
+    iroh_state: State<'_, IrohState>,
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_id: String,
 ) -> Result<OssTeamInfo, String> {
     let team_secret = load_team_secret(&team_id)?;
-    let node_id = get_or_create_node_id(&workspace_path)?;
+    let node_id = get_p2p_node_id(&iroh_state).await?;
 
     // Read existing config for fc_endpoint and poll_interval
     let config = read_oss_config(&workspace_path)

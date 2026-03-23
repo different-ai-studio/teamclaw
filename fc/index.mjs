@@ -133,12 +133,18 @@ function memberPolicy(teamId, nodeId) {
     Statement: [
       {
         Effect: "Allow",
-        Action: ["oss:GetObject", "oss:ListObjects"],
+        Action: ["oss:GetObject"],
         Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*`,
       },
       {
+        Effect: "Allow",
+        Action: ["oss:ListObjects"],
+        Resource: `acs:oss:*:*:${BUCKET()}`,
+        Condition: { StringLike: { "oss:Prefix": [`teams/${teamId}/*`] } },
+      },
+      {
         Effect: "Deny",
-        Action: ["oss:GetObject", "oss:ListObjects"],
+        Action: ["oss:GetObject"],
         Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/_registry/*`,
       },
       {
@@ -229,7 +235,8 @@ async function handleRegister(body) {
   console.log(`[register] Created team teamId=${teamId} nodeId=${ownerNodeId}`);
 
   const policy = ownerPolicy(teamId, ownerNodeId);
-  const credentials = await assumeRole(`owner-${ownerNodeId}`, policy);
+  const hashedId = createHash("sha256").update(ownerNodeId).digest("hex").slice(0, 16);
+  const credentials = await assumeRole(`owner-${hashedId}`, policy);
 
   return json(200, {
     teamId,
@@ -260,7 +267,9 @@ async function handleToken(body) {
   const policy = isOwner
     ? ownerPolicy(teamId, nodeId)
     : memberPolicy(teamId, nodeId);
-  const sessionName = `${role}-${nodeId}`;
+  // RoleSessionName max 32 chars, alphanumeric + '-_.'
+  const hashedId = createHash("sha256").update(nodeId).digest("hex").slice(0, 16);
+  const sessionName = `${role}-${hashedId}`;
   const credentials = await assumeRole(sessionName, policy);
 
   console.log(`[token] Issued ${role} token for teamId=${teamId} nodeId=${nodeId}`);

@@ -135,7 +135,7 @@ export function TeamOSSConfig() {
       if (msg.includes('not been added') || msg.includes('未被添加')) {
         useTeamOssStore.setState({ error: 'Your device has not been added to the team. Please contact the team Owner' })
       } else {
-        useTeamOssStore.setState({ error: 'Invalid ticket, please check and try again' })
+        useTeamOssStore.setState({ error: msg || 'Invalid ticket, please check and try again' })
       }
     } finally {
       setJoining(false)

@@ -157,11 +157,29 @@ pub fn run() {
     let rag_state = commands::knowledge::RagState::default();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::new().targets([
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
-        ]).build())
+        .plugin(tauri_plugin_log::Builder::new()
+            .level(log::LevelFilter::Info)
+            .filter(|metadata| {
+                // Suppress noisy third-party crate logs
+                let target = metadata.target();
+                !(target.starts_with("tracing::span")
+                    || target.starts_with("iroh_relay")
+                    || target.starts_with("iroh_base")
+                    || target.starts_with("iroh_net_report")
+                    || target.starts_with("iroh_quinn")
+                    || target.starts_with("hyper_util")
+                    || target.starts_with("hyper::")
+                    || target.starts_with("tauri_plugin_aptabase")
+                    || target.starts_with("reqwest")
+                    || target.starts_with("hickory_")
+                    || target.starts_with("netwatch")
+                    || target.starts_with("portmapper"))
+            })
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+            ]).build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
