@@ -381,8 +381,7 @@ pub async fn join_team_drive(
     .await
     .map_err(|e| format!("Failed to write author meta: {}", e))?;
 
-    // Sync MCP configs
-    let _ = crate::commands::team::sync_team_mcp_configs(workspace_path);
+    // MCP configs are auto-discovered via hot reload from teamclaw-team/.mcp/
 
     let namespace_id = doc.id().to_string();
 
@@ -987,7 +986,11 @@ async fn disk_to_doc_watcher(
                             let key = rel_path;
                             if let Ok(content) = std::fs::read(path) {
                                 // Iroh rejects empty blobs; use a single newline as placeholder
-                                let content = if content.is_empty() { vec![b'\n'] } else { content };
+                                let content = if content.is_empty() {
+                                    vec![b'\n']
+                                } else {
+                                    content
+                                };
                                 if let Err(e) = doc.set_bytes(author, key.clone(), content).await {
                                     eprintln!("[P2P] Failed to sync local change '{}': {}", key, e);
                                 }
@@ -1090,6 +1093,33 @@ pub struct P2pConfig {
     pub seed_url: Option<String>,
     #[serde(default)]
     pub team_secret: Option<String>,
+}
+
+/// Clear the p2p field from .teamclaw/teamclaw.json and remove teamclaw-team/ directory.
+/// Preserves iroh keys, llm config, and other fields in teamclaw.json.
+fn clear_p2p_and_team_dir(workspace_path: &str) -> Result<(), String> {
+    let config_path = Path::new(workspace_path)
+        .join(crate::commands::TEAMCLAW_DIR)
+        .join("teamclaw.json");
+    if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                obj.remove("p2p");
+            }
+            std::fs::write(&config_path, serde_json::to_string_pretty(&json).unwrap())
+                .map_err(|e| format!("Failed to write teamclaw.json: {}", e))?;
+        }
+    }
+
+    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    if Path::new(&team_dir).exists() {
+        std::fs::remove_dir_all(&team_dir)
+            .map_err(|e| format!("Failed to remove team directory: {}", e))?;
+    }
+
+    Ok(())
 }
 
 /// Read P2P config from teamclaw.json in the workspace.
@@ -1241,17 +1271,7 @@ pub async fn p2p_leave_team(
     }
     drop(guard);
 
-    // Remove local team data
-    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
-    if Path::new(&teamclaw_dir).exists() {
-        std::fs::remove_dir_all(&teamclaw_dir)
-            .map_err(|e| format!("Failed to remove .teamclaw directory: {}", e))?;
-    }
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
-    if Path::new(&team_dir).exists() {
-        std::fs::remove_dir_all(&team_dir)
-            .map_err(|e| format!("Failed to remove team directory: {}", e))?;
-    }
+    clear_p2p_and_team_dir(&workspace_path)?;
 
     Ok(())
 }
@@ -1295,19 +1315,7 @@ pub async fn p2p_disconnect_source(
     }
     drop(guard);
 
-    // Remove .teamclaw directory (contains teamclaw.json, iroh data, etc.)
-    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
-    if Path::new(&teamclaw_dir).exists() {
-        std::fs::remove_dir_all(&teamclaw_dir)
-            .map_err(|e| format!("Failed to remove .teamclaw directory: {}", e))?;
-    }
-
-    // Remove teamclaw-team directory
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
-    if Path::new(&team_dir).exists() {
-        std::fs::remove_dir_all(&team_dir)
-            .map_err(|e| format!("Failed to remove team directory: {}", e))?;
-    }
+    clear_p2p_and_team_dir(&workspace_path)?;
 
     Ok(())
 }
@@ -1352,17 +1360,7 @@ pub async fn p2p_dissolve_team(
     }
     drop(guard);
 
-    // Clean up local data
-    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
-    if Path::new(&teamclaw_dir).exists() {
-        std::fs::remove_dir_all(&teamclaw_dir)
-            .map_err(|e| format!("Failed to remove .teamclaw directory: {}", e))?;
-    }
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
-    if Path::new(&team_dir).exists() {
-        std::fs::remove_dir_all(&team_dir)
-            .map_err(|e| format!("Failed to remove team directory: {}", e))?;
-    }
+    clear_p2p_and_team_dir(&workspace_path)?;
 
     Ok(())
 }

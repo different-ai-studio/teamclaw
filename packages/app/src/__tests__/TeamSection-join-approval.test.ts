@@ -106,10 +106,7 @@ describe('TeamSection Join Approval Status', () => {
       await new Promise(r => setTimeout(r, 50))
     })
 
-    // Default join mode is 'seed'; switch to 'ticket' mode to get the ticket input
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /LAN \(ticket\)/i }))
-    })
+    // Default join mode is 'ticket', ticket input is already visible
 
     // Enter a ticket and click Join
     await waitFor(() => {
@@ -163,10 +160,7 @@ describe('TeamSection Join Approval Status', () => {
       await new Promise(r => setTimeout(r, 50))
     })
 
-    // Default join mode is 'seed'; switch to 'ticket' mode to get the ticket input
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /LAN \(ticket\)/i }))
-    })
+    // Default join mode is 'ticket', ticket input is already visible
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/ticket/i)).toBeDefined()
