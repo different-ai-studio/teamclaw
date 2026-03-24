@@ -1084,6 +1084,66 @@ pub fn read_members_manifest(team_dir: &str) -> Result<Option<TeamManifest>, Str
     Ok(Some(manifest))
 }
 
+// ─── Leave Team (member) ─────────────────────────────────────────────────
+
+/// Leave the team as a non-owner member.
+/// Writes a leave tombstone to the P2P doc so the owner is notified,
+/// then disconnects and removes all local team data.
+#[tauri::command]
+pub async fn p2p_leave_team(
+    iroh_state: tauri::State<'_, IrohState>,
+    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+) -> Result<(), String> {
+    let workspace_path = opencode_state
+        .workspace_path
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No workspace path set")?;
+
+    // Owner must use p2p_dissolve_team instead
+    let config = read_p2p_config(&workspace_path)?.unwrap_or_default();
+    if config.role == Some(MemberRole::Owner) {
+        return Err("Team owners cannot leave — use Dissolve Team to end the team".to_string());
+    }
+
+    // Write leave tombstone so the owner's sync detects the departure
+    let mut guard = iroh_state.lock().await;
+    if let Some(node) = guard.as_mut() {
+        let my_node_id = get_node_id(node);
+        if let Some(doc) = &node.active_doc {
+            let leave_key = format!("_team/left/{}", my_node_id);
+            let _ = doc
+                .set_bytes(
+                    node.author,
+                    leave_key,
+                    chrono::Utc::now().to_rfc3339().into_bytes(),
+                )
+                .await;
+            // Brief pause to let tombstone propagate
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        }
+        if let Some(doc) = node.active_doc.take() {
+            let _ = doc.leave().await;
+        }
+    }
+    drop(guard);
+
+    // Remove local team data
+    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
+    if Path::new(&teamclaw_dir).exists() {
+        std::fs::remove_dir_all(&teamclaw_dir)
+            .map_err(|e| format!("Failed to remove .teamclaw directory: {}", e))?;
+    }
+    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    if Path::new(&team_dir).exists() {
+        std::fs::remove_dir_all(&team_dir)
+            .map_err(|e| format!("Failed to remove team directory: {}", e))?;
+    }
+
+    Ok(())
+}
+
 // ─── Disconnect ─────────────────────────────────────────────────────────
 
 #[tauri::command]

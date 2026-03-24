@@ -432,6 +432,8 @@ pub fn run() {
             commands::team_p2p::p2p_join_drive,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_disconnect_source,
+            #[cfg(feature = "p2p")]
+            commands::team_p2p::p2p_leave_team,
             commands::team_p2p::p2p_dissolve_team,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_reconnect,

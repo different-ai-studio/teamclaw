@@ -163,6 +163,8 @@ export function TeamP2PConfig() {
   }>>([])
   const [applicationsLoading, setApplicationsLoading] = React.useState(false)
   const [approveRoles, setApproveRoles] = React.useState<Record<string, 'editor' | 'viewer'>>({})
+  const [confirmLeave, setConfirmLeave] = React.useState(false)
+  const [leaveLoading, setLeaveLoading] = React.useState(false)
 
   // Seed-based join flow
   const [joinMode, setJoinMode] = React.useState<'seed' | 'ticket'>('seed')
@@ -458,13 +460,31 @@ export function TeamP2PConfig() {
       await tauriInvoke('p2p_disconnect_source')
       setSyncStatus(null)
       useTeamModeStore.setState({ myRole: null })
-      // Clear frontend team mode state
       if (workspacePath) {
         const store = useTeamModeStore.getState()
         await store.clearTeamMode(workspacePath)
       }
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const doLeaveTeam = async () => {
+    setConfirmLeave(false)
+    setLeaveLoading(true)
+    setP2pError(null)
+    try {
+      await tauriInvoke('p2p_leave_team')
+      setSyncStatus(null)
+      useTeamModeStore.setState({ myRole: null })
+      if (workspacePath) {
+        const store = useTeamModeStore.getState()
+        await store.clearTeamMode(workspacePath)
+      }
+    } catch (err) {
+      setP2pError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLeaveLoading(false)
     }
   }
 
@@ -512,10 +532,17 @@ export function TeamP2PConfig() {
                     </p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" className="gap-1 text-destructive hover:text-destructive" onClick={handleP2pDisconnect}>
-                  <Unlink className="h-3 w-3" />
-                  {t('settings.team.disconnect', 'Disconnect')}
-                </Button>
+                {isOwner ? (
+                  <Button variant="outline" size="sm" className="gap-1 text-destructive hover:text-destructive" onClick={handleP2pDisconnect} disabled={leaveLoading}>
+                    <Unlink className="h-3 w-3" />
+                    {t('settings.team.disconnect', 'Disconnect')}
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" className="gap-1 text-destructive hover:text-destructive" onClick={() => setConfirmLeave(true)} disabled={leaveLoading}>
+                    {leaveLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Unlink className="h-3 w-3" />}
+                    {t('settings.team.leaveTeam', 'Leave Team')}
+                  </Button>
+                )}
               </div>
             </div>
           </SettingCard>
@@ -1079,6 +1106,29 @@ export function TeamP2PConfig() {
             </Button>
             <Button variant="destructive" onClick={handleConfirmOverwrite} className="gap-2">
               {t('common.continue', 'Continue')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave Team Confirmation Dialog */}
+      <Dialog open={confirmLeave} onOpenChange={(open) => { if (!open) setConfirmLeave(false) }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="text-red-700 dark:text-red-300">
+              {t('settings.team.leaveTeamTitle', 'Leave this team?')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('settings.team.leaveTeamDesc', 'You will be removed from the team. The owner will be notified. Your local team data will be deleted and you will need a new invite to rejoin.')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmLeave(false)}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button variant="destructive" onClick={doLeaveTeam} className="gap-2">
+              <Unlink className="h-3.5 w-3.5" />
+              {t('settings.team.confirmLeave', 'Leave Team')}
             </Button>
           </DialogFooter>
         </DialogContent>
