@@ -19,6 +19,7 @@ import {
   Share2,
 } from 'lucide-react'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
+import { toast } from 'sonner'
 import { buildConfig } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useTeamMembersStore } from '@/stores/team-members'
@@ -414,6 +415,24 @@ export function TeamP2PConfig() {
       fetchApplications()
     }
   }, [isOwner, syncStatus?.seedUrl, syncStatus?.namespaceId, syncStatus?.teamSecret, fetchApplications])
+
+  // Listen for member-left events emitted by the Rust backend
+  React.useEffect(() => {
+    if (!isTauri()) return
+    let unlisten: (() => void) | undefined
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen<{ nodeId: string; name: string }>('team:member-left', (event) => {
+        const { name, nodeId } = event.payload
+        toast.info(
+          t('settings.team.memberLeftNotice', '{{name}} left the team', {
+            name: name || nodeId.slice(0, 8),
+          })
+        )
+        loadSyncStatus()
+      }).then((u) => { unlisten = u })
+    })
+    return () => { unlisten?.() }
+  }, [loadSyncStatus, t])
 
   const handleSaveSeedConfig = async () => {
     setSeedConfigSaving(true)

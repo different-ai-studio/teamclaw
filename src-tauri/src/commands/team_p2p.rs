@@ -225,6 +225,7 @@ pub async fn create_team(
     team_name: Option<String>,
     owner_name: Option<String>,
     owner_email: Option<String>,
+    app_handle: Option<tauri::AppHandle>,
 ) -> Result<String, String> {
     scaffold_team_dir(team_dir)?;
 
@@ -311,6 +312,7 @@ pub async fn create_team(
         Arc::new(Mutex::new(MemberRole::Owner)),
         node_id_for_sync,
         Some(node_id.clone()),
+        app_handle,
     );
 
     node.active_doc = Some(doc);
@@ -338,6 +340,7 @@ pub async fn join_team_drive(
     ticket_str: &str,
     team_dir: &str,
     workspace_path: &str,
+    app_handle: Option<tauri::AppHandle>,
 ) -> Result<String, String> {
     use std::str::FromStr;
 
@@ -408,6 +411,7 @@ pub async fn join_team_drive(
         Arc::new(Mutex::new(joiner_role.clone())),
         node_id_for_sync,
         manifest_owner.clone(),
+        app_handle,
     );
 
     node.active_doc = Some(doc);
@@ -523,7 +527,7 @@ pub async fn rotate_namespace(
     }
 
     // Re-create as owner
-    create_team(node, team_dir, workspace_path, None, None, None, None, None, None).await
+    create_team(node, team_dir, workspace_path, None, None, None, None, None, None, None).await
 }
 
 // ─── Background Sync Tasks ──────────────────────────────────────────────
@@ -535,9 +539,10 @@ fn start_sync_tasks(
     store: &FsStore,
     team_dir: &str,
     suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
-    my_role: Arc<Mutex<MemberRole>>, // NEW
-    my_node_id: String,              // NEW
-    owner_node_id: Option<String>,   // NEW
+    my_role: Arc<Mutex<MemberRole>>,
+    my_node_id: String,
+    owner_node_id: Option<String>,
+    app_handle: Option<tauri::AppHandle>,
 ) {
     let blobs_store: iroh_blobs::api::Store = store.clone().into();
     let team_dir_a = team_dir.to_string();
@@ -547,7 +552,7 @@ fn start_sync_tasks(
     // Task A: remote doc changes → disk
     let my_node_id_a = my_node_id.clone();
     tokio::spawn(async move {
-        doc_to_disk_watcher(doc_a, blobs_store, team_dir_a, suppressed_a, my_node_id_a, owner_node_id).await;
+        doc_to_disk_watcher(doc_a, blobs_store, team_dir_a, suppressed_a, my_node_id_a, owner_node_id, app_handle).await;
     });
 
     // Task B: local disk changes → doc (with blob store for skills counting)
@@ -605,6 +610,7 @@ async fn doc_to_disk_watcher(
     suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
     my_node_id: String,
     owner_node_id: Option<String>,
+    app_handle: Option<tauri::AppHandle>,
 ) {
     use futures_lite::StreamExt;
     use iroh_docs::engine::LiveEvent;
@@ -701,6 +707,19 @@ async fn doc_to_disk_watcher(
                             .strip_suffix("/teamclaw-team")
                             .unwrap_or(&team_dir)
                             .to_string();
+                        // Look up member name before removing (for notification)
+                        let leaving_name = node_to_role
+                            .keys()
+                            .find(|k| *k == &leaving_node_id)
+                            .and_then(|_| read_members_manifest(&team_dir).ok().flatten())
+                            .and_then(|m| {
+                                m.members
+                                    .into_iter()
+                                    .find(|mem| mem.node_id == leaving_node_id)
+                                    .map(|mem| mem.name)
+                            })
+                            .unwrap_or_else(|| leaving_node_id[..8.min(leaving_node_id.len())].to_string());
+
                         match remove_member_from_team(
                             &workspace_path,
                             &team_dir,
@@ -718,6 +737,17 @@ async fn doc_to_disk_watcher(
                                             member.role.clone(),
                                         );
                                     }
+                                }
+                                // Emit Tauri event so the owner's UI can show a notification
+                                if let Some(ref app) = app_handle {
+                                    use tauri::Emitter;
+                                    let _ = app.emit(
+                                        "team:member-left",
+                                        serde_json::json!({
+                                            "nodeId": leaving_node_id,
+                                            "name": leaving_name,
+                                        }),
+                                    );
                                 }
                             }
                             Err(e) => {
@@ -1585,6 +1615,7 @@ pub async fn p2p_check_team_dir(
 
 #[tauri::command]
 pub async fn p2p_create_team(
+    app: tauri::AppHandle,
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
@@ -1615,6 +1646,7 @@ pub async fn p2p_create_team(
         team_name,
         owner_name,
         owner_email,
+        Some(app),
     )
     .await
 }
@@ -1638,7 +1670,7 @@ pub async fn p2p_publish_drive(
 
     // If no active doc, create a team (first-time publish)
     if node.active_doc.is_none() {
-        return create_team(node, &team_dir, &workspace_path, None, None, None, None, None, None).await;
+        return create_team(node, &team_dir, &workspace_path, None, None, None, None, None, None, None).await;
     }
 
     // Otherwise, sync current files into existing doc and return saved ticket
@@ -1652,6 +1684,7 @@ pub async fn p2p_publish_drive(
 
 #[tauri::command]
 pub async fn p2p_join_drive(
+    app: tauri::AppHandle,
     ticket: String,
     #[allow(unused_variables)] label: String,
     iroh_state: tauri::State<'_, IrohState>,
@@ -1668,12 +1701,13 @@ pub async fn p2p_join_drive(
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
     let team_dir = format!("{}/teamclaw-team", workspace_path);
-    join_team_drive(node, &ticket, &team_dir, &workspace_path).await
+    join_team_drive(node, &ticket, &team_dir, &workspace_path, Some(app)).await
 }
 
 /// Reconnect to an existing team document on app restart.
 #[tauri::command]
 pub async fn p2p_reconnect(
+    app: tauri::AppHandle,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
@@ -1725,6 +1759,7 @@ pub async fn p2p_reconnect(
         Arc::new(Mutex::new(my_role)),
         my_node_id,
         config.owner_node_id.clone(),
+        Some(app),
     );
 
     node.active_doc = Some(doc);
