@@ -33,7 +33,6 @@ interface MCPState {
   serverTools: Record<string, string[]>  // serverName -> tool names
   isLoading: boolean
   error: string | null
-  hasChanges: boolean  // Track if there are unsaved changes that need OpenCode restart
   testingServers: Record<string, boolean>  // Track which servers are being tested
   testResults: Record<string, MCPTestResult>  // Store test results
 
@@ -47,7 +46,6 @@ interface MCPState {
   toggleServer: (name: string, enabled: boolean) => Promise<void>
   testServer: (name: string) => Promise<void>
   clearError: () => void
-  setHasChanges: (hasChanges: boolean) => void
   clearTestResult: (name: string) => void
   syncFromFile: () => Promise<void>
 }
@@ -58,14 +56,13 @@ export const useMCPStore = create<MCPState>((set) => ({
   serverTools: {},
   isLoading: false,
   error: null,
-  hasChanges: false,
   testingServers: {},
   testResults: {},
 
   loadConfig: async () => {
     await withAsync(set, async () => {
       const config = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
-      set({ servers: config, hasChanges: false })
+      set({ servers: config })
     })
   },
 
@@ -99,7 +96,7 @@ export const useMCPStore = create<MCPState>((set) => ({
     await withAsync(set, async () => {
       await invoke('add_mcp_server', { name, serverConfig: config })
       const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
-      set({ servers: updatedConfig, hasChanges: true })
+      set({ servers: updatedConfig })
     }, { rethrow: true })
   },
 
@@ -107,7 +104,7 @@ export const useMCPStore = create<MCPState>((set) => ({
     await withAsync(set, async () => {
       await invoke('update_mcp_server', { name, serverConfig: config })
       const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
-      set({ servers: updatedConfig, hasChanges: true })
+      set({ servers: updatedConfig })
     }, { rethrow: true })
   },
 
@@ -115,7 +112,7 @@ export const useMCPStore = create<MCPState>((set) => ({
     await withAsync(set, async () => {
       await invoke('remove_mcp_server', { name })
       const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
-      set({ servers: updatedConfig, hasChanges: true })
+      set({ servers: updatedConfig })
     }, { rethrow: true })
   },
 
@@ -123,7 +120,7 @@ export const useMCPStore = create<MCPState>((set) => ({
     await withAsync(set, async () => {
       await invoke('toggle_mcp_server', { name, enabled })
       const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
-      set({ servers: updatedConfig, hasChanges: true })
+      set({ servers: updatedConfig })
     }, { rethrow: true })
   },
 
@@ -154,8 +151,6 @@ export const useMCPStore = create<MCPState>((set) => ({
 
   clearError: () => set({ error: null }),
   
-  setHasChanges: (hasChanges: boolean) => set({ hasChanges }),
-
   clearTestResult: (name: string) => {
     set((state) => {
       const newResults = { ...state.testResults }
