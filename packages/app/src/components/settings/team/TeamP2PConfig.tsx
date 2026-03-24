@@ -214,21 +214,23 @@ export function TeamP2PConfig() {
 
   React.useEffect(() => {
     if (!isTauri()) return
+    let cancelled = false
     ;(async () => {
-      try {
-        const info = await tauriInvoke<DeviceInfo>('get_device_info')
-        setDeviceInfo(info)
-      } catch {
-        // P2P node may not be running
+      // Retry loop: P2P node may still be initializing
+      for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
+        try {
+          const info = await tauriInvoke<DeviceInfo>('get_device_info')
+          setDeviceInfo(info)
+          await tauriInvoke('p2p_reconnect')
+          break // success
+        } catch {
+          // P2P node not ready yet, wait and retry
+          await new Promise((r) => setTimeout(r, 1500))
+        }
       }
-      // Try to reconnect to existing team doc
-      try {
-        await tauriInvoke('p2p_reconnect')
-      } catch {
-        // No team to reconnect or node not ready
-      }
-      await loadSyncStatus()
+      if (!cancelled) await loadSyncStatus()
     })()
+    return () => { cancelled = true }
   }, [loadSyncStatus])
 
   const formatLastSync = (isoString: string | null) => {
