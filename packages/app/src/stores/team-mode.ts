@@ -71,13 +71,19 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   })(),
 
   loadTeamConfig: async (_workspacePath: string) => {
+    // teamMode is driven by OSS connected state
+    const { useTeamOssStore } = await import('./team-oss')
+    const ossConnected = useTeamOssStore.getState().connected
+
     const status = await fetchTeamStatus()
-    if (status?.active && status.llm) {
-      const config: TeamModelConfig = {
-        baseUrl: status.llm.baseUrl,
-        model: status.llm.model,
-        modelName: status.llm.modelName || status.llm.model,
-      }
+    const hasLlm = status?.active && status.llm
+
+    if (ossConnected) {
+      const config = hasLlm ? {
+        baseUrl: status!.llm!.baseUrl,
+        model: status!.llm!.model,
+        modelName: status!.llm!.modelName || status!.llm!.model,
+      } : null
       set({ teamMode: true, teamModelConfig: config })
     } else {
       const wasTeamMode = get().teamMode

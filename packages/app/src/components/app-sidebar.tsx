@@ -8,7 +8,7 @@ import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useTabsStore } from "@/stores/tabs"
 import { useCronStore } from "@/stores/cron"
-import { useTeamOssStore } from "@/stores/team-oss"
+import { useTeamModeStore } from "@/stores/team-mode"
 import {
   Sidebar,
   SidebarContent,
@@ -229,7 +229,7 @@ function WorkspaceSelectorButton() {
   const workspaceName = useWorkspaceStore(s => s.workspaceName)
   const isLoadingWorkspace = useWorkspaceStore(s => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
-  const ossConnected = useTeamOssStore(s => s.connected)
+  const teamMode = useTeamModeStore(s => s.teamMode)
   const [isSelecting, setIsSelecting] = React.useState(false)
 
   const handleOpenFolder = async () => {
@@ -277,7 +277,7 @@ function WorkspaceSelectorButton() {
           <span className="truncate text-xs" data-testid="workspace-name">
             {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
           </span>
-          {ossConnected && workspaceName && (
+          {teamMode && workspaceName && (
             <span className="shrink-0 text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1 py-0.5 rounded">
               团队
             </span>

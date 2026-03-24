@@ -26,7 +26,6 @@ import { useAppVersion } from '@/lib/version'
 import { useUpdaterStore } from '@/stores/updater'
 import { buildConfig, hasAnyChannel } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
-import { useTeamOssStore } from '@/stores/team-oss'
 import { useUIStore } from '@/stores/ui'
 
 // Section components
@@ -152,7 +151,7 @@ export function Settings(_props?: SettingsProps) {
   const [activeView, setActiveView] = React.useState<SettingsSection>(settingsInitialSection ?? 'general')
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false)
   const appVersion = useAppVersion()
-  const ossConnected = useTeamOssStore(s => s.connected)
+  const teamMode = useTeamModeStore(s => s.teamMode)
   const devUnlocked = useTeamModeStore(s => s.devUnlocked)
   const setDevUnlocked = useTeamModeStore(s => s.setDevUnlocked)
   const devClickCount = React.useRef(0)
@@ -274,7 +273,7 @@ export function Settings(_props?: SettingsProps) {
         </ScrollArea>
 
         {/* Team Ranking Card */}
-        {ossConnected && (
+        {teamMode && (
           <div className="px-3 pb-2">
             <TeamRankingCard onClick={() => setActiveView('leaderboard')} />
           </div>
