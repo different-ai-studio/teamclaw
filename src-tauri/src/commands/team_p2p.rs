@@ -1774,29 +1774,28 @@ pub async fn p2p_reconnect(
         return Ok(());
     }
 
-    // Try to open the existing document from local storage
-    let namespace_id = namespace_id_str
-        .parse::<iroh_docs::NamespaceId>()
-        .map_err(|e| format!("Invalid namespace ID: {}", e))?;
-
-    let doc = match node.docs.open(namespace_id).await {
-        Ok(Some(doc)) => doc,
-        _ => {
-            // Doc not in local storage — try re-importing from saved ticket
-            if let Some(ref ticket_str) = config.doc_ticket {
-                eprintln!("[P2P] Doc not found locally, re-importing from saved ticket");
-                let ticket = ticket_str
-                    .trim()
-                    .parse::<iroh_docs::DocTicket>()
-                    .map_err(|_| "Invalid saved ticket".to_string())?;
-                node.docs
-                    .import(ticket)
-                    .await
-                    .map_err(|e| format!("Failed to re-import doc: {}", e))?
-            } else {
-                return Err("Team document not found and no ticket to re-import".to_string());
-            }
-        }
+    // Always re-import from saved ticket to register for network sync.
+    // docs.open() only loads locally and does NOT accept incoming sync requests.
+    let doc = if let Some(ref ticket_str) = config.doc_ticket {
+        eprintln!("[P2P] Reconnecting via ticket import");
+        let ticket = ticket_str
+            .trim()
+            .parse::<iroh_docs::DocTicket>()
+            .map_err(|_| "Invalid saved ticket".to_string())?;
+        node.docs
+            .import(ticket)
+            .await
+            .map_err(|e| format!("Failed to import doc: {}", e))?
+    } else {
+        // Fallback: try opening from local storage (won't accept remote sync)
+        let namespace_id = namespace_id_str
+            .parse::<iroh_docs::NamespaceId>()
+            .map_err(|e| format!("Invalid namespace ID: {}", e))?;
+        node.docs
+            .open(namespace_id)
+            .await
+            .map_err(|e| format!("Failed to open doc: {}", e))?
+            .ok_or("Team document not found")?
     };
 
     // Start background sync
