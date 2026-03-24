@@ -71,26 +71,25 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   })(),
 
   loadTeamConfig: async (_workspacePath: string) => {
-    // teamMode is driven by OSS connected state
-    const { useTeamOssStore } = await import('./team-oss')
-    const ossConnected = useTeamOssStore.getState().connected
-
     const status = await fetchTeamStatus()
-    const hasLlm = status?.active && status.llm
-
-    if (ossConnected) {
-      const config = hasLlm ? {
-        baseUrl: status!.llm!.baseUrl,
-        model: status!.llm!.model,
-        modelName: status!.llm!.modelName || status!.llm!.model,
-      } : null
-      set({ teamMode: true, teamModelConfig: config })
-    } else {
-      const wasTeamMode = get().teamMode
-      set({ teamMode: false, teamModelConfig: null })
-      if (wasTeamMode) {
-        await get().clearTeamMode(_workspacePath)
+    if (status?.active && status.llm) {
+      const config: TeamModelConfig = {
+        baseUrl: status.llm.baseUrl,
+        model: status.llm.model,
+        modelName: status.llm.modelName || status.llm.model,
       }
+      set({ teamModelConfig: config })
+    } else {
+      set({ teamModelConfig: null })
+    }
+
+    // Sync teamMode from OSS configured state (true even when offline)
+    const { useTeamOssStore } = await import('./team-oss')
+    const ossConfigured = useTeamOssStore.getState().configured
+    const wasTeamMode = get().teamMode
+    set({ teamMode: ossConfigured })
+    if (wasTeamMode && !ossConfigured) {
+      await get().clearTeamMode(_workspacePath)
     }
     // Load user's role (non-critical)
     try {
@@ -294,3 +293,15 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     } catch { /* ignore */ }
   },
 }))
+
+// Subscribe to OSS configured state changes — keep teamMode in sync
+// configured = local config exists, true even when offline
+import('./team-oss').then(({ useTeamOssStore }) => {
+  let prevConfigured = useTeamOssStore.getState().configured
+  useTeamOssStore.subscribe((state) => {
+    if (state.configured !== prevConfigured) {
+      prevConfigured = state.configured
+      useTeamModeStore.setState({ teamMode: state.configured })
+    }
+  })
+})
