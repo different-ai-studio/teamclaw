@@ -1261,6 +1261,9 @@
       "inviteCodePlaceholder": "邀请码 *（成员加入时使用）",
       "wanJoinLabel": "【公网加入】",
       "lanJoinLabel": "【局域网加入】",
+      "seedFailedConfirm": "无法连接种子服务器。团队已创建，但仅支持局域网使用。\n\n公网加入（Team ID + 邀请码）在种子服务器恢复前不可用。\n\n是否继续？",
+      "lanJoinHint": "加入前，请先让团队管理员添加你的设备 ID，否则将被拒绝。",
+      "seedJoinPendingDesc": "加入申请已提交，等待管理员审核。审核通过后，再次点击「加入」即可连接。",
       "repoGuide": {
         "title": "如何构建团队共享仓库",
         "intro": "团队共享仓库用于集中管理 Agent Skills、MCP 配置和知识文档。请按以下结构创建仓库，以便 TeamClaw 正确同步。",

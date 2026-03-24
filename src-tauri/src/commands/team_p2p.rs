@@ -50,9 +50,9 @@ pub struct IrohNode {
     gossip: Gossip,
     docs: iroh_docs::protocol::Docs,
     router: iroh::protocol::Router,
-    author: iroh_docs::AuthorId,
+    pub(crate) author: iroh_docs::AuthorId,
     /// Currently active team document (set after create/join)
-    active_doc: Option<iroh_docs::api::Doc>,
+    pub(crate) active_doc: Option<iroh_docs::api::Doc>,
     /// Paths being written by remote sync — suppresses fs watcher feedback loop
     suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
 }
@@ -1029,10 +1029,13 @@ async fn disk_to_doc_watcher(
 // ─── Authorization ──────────────────────────────────────────────────────
 
 /// Check if a device is authorized to join the team by reading `_team/members.json`.
-/// Returns Ok(()) if authorized or if no manifest exists (backwards compatibility).
+/// Rejects if manifest is missing or if the joiner is not listed.
 pub fn check_join_authorization(team_dir: &str, joiner_node_id: &str) -> Result<(), String> {
     match read_members_manifest(team_dir)? {
-        None => Ok(()), // No manifest = backwards compatible, allow all
+        None => Err(format!(
+            "Not authorized — no members manifest found. Share your Device ID with the team owner: {}",
+            joiner_node_id
+        )),
         Some(manifest) => {
             if manifest.members.iter().any(|m| m.node_id == joiner_node_id) {
                 Ok(())
@@ -1771,17 +1774,29 @@ pub async fn p2p_reconnect(
         return Ok(());
     }
 
-    // Try to open the existing document from local storage
-    let namespace_id = namespace_id_str
-        .parse::<iroh_docs::NamespaceId>()
-        .map_err(|e| format!("Invalid namespace ID: {}", e))?;
-
-    let doc = node
-        .docs
-        .open(namespace_id)
-        .await
-        .map_err(|e| format!("Failed to open doc: {}", e))?
-        .ok_or("Team document not found in local storage")?;
+    // Always re-import from saved ticket to register for network sync.
+    // docs.open() only loads locally and does NOT accept incoming sync requests.
+    let doc = if let Some(ref ticket_str) = config.doc_ticket {
+        eprintln!("[P2P] Reconnecting via ticket import");
+        let ticket = ticket_str
+            .trim()
+            .parse::<iroh_docs::DocTicket>()
+            .map_err(|_| "Invalid saved ticket".to_string())?;
+        node.docs
+            .import(ticket)
+            .await
+            .map_err(|e| format!("Failed to import doc: {}", e))?
+    } else {
+        // Fallback: try opening from local storage (won't accept remote sync)
+        let namespace_id = namespace_id_str
+            .parse::<iroh_docs::NamespaceId>()
+            .map_err(|e| format!("Invalid namespace ID: {}", e))?;
+        node.docs
+            .open(namespace_id)
+            .await
+            .map_err(|e| format!("Failed to open doc: {}", e))?
+            .ok_or("Team document not found")?
+    };
 
     // Start background sync
     let team_dir = format!("{}/teamclaw-team", workspace_path);

@@ -136,12 +136,22 @@ pub async fn unified_team_add_member(
     match status.mode.as_deref() {
         #[cfg(feature = "p2p")]
         Some("p2p") => {
-            let guard = iroh_state.lock().await;
-            let node = guard.as_ref().ok_or("P2P node not running")?;
+            let mut guard = iroh_state.lock().await;
+            let node = guard.as_mut().ok_or("P2P node not running")?;
             let caller_node_id = super::team_p2p::get_node_id(node);
-            drop(guard);
             let team_dir = format!("{}/teamclaw-team", workspace_path);
-            super::team_p2p::add_member_to_team(&workspace_path, &team_dir, &caller_node_id, member)
+            super::team_p2p::add_member_to_team(&workspace_path, &team_dir, &caller_node_id, member)?;
+            // Push updated members.json to Iroh doc immediately (don't rely on fs watcher)
+            if let Some(ref doc) = node.active_doc {
+                let manifest_path = format!("{}/{}", team_dir, "_team/members.json");
+                if let Ok(content) = std::fs::read(&manifest_path) {
+                    let _ = doc
+                        .set_bytes(node.author, "_team/members.json", content)
+                        .await;
+                }
+            }
+            drop(guard);
+            Ok(())
         }
         Some(mode) => Err(format!(
             "Member management not supported for mode: {}",
@@ -165,17 +175,27 @@ pub async fn unified_team_remove_member(
     match status.mode.as_deref() {
         #[cfg(feature = "p2p")]
         Some("p2p") => {
-            let guard = iroh_state.lock().await;
-            let node = guard.as_ref().ok_or("P2P node not running")?;
+            let mut guard = iroh_state.lock().await;
+            let node = guard.as_mut().ok_or("P2P node not running")?;
             let caller_node_id = super::team_p2p::get_node_id(node);
-            drop(guard);
             let team_dir = format!("{}/teamclaw-team", workspace_path);
             super::team_p2p::remove_member_from_team(
                 &workspace_path,
                 &team_dir,
                 &caller_node_id,
                 &node_id,
-            )
+            )?;
+            // Push updated members.json to Iroh doc immediately
+            if let Some(ref doc) = node.active_doc {
+                let manifest_path = format!("{}/{}", team_dir, "_team/members.json");
+                if let Ok(content) = std::fs::read(&manifest_path) {
+                    let _ = doc
+                        .set_bytes(node.author, "_team/members.json", content)
+                        .await;
+                }
+            }
+            drop(guard);
+            Ok(())
         }
         Some(mode) => Err(format!(
             "Member management not supported for mode: {}",

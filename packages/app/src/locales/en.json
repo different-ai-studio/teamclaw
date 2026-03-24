@@ -1237,6 +1237,9 @@
       "inviteCodePlaceholder": "Invite code * (members use this to join)",
       "wanJoinLabel": "[Internet Join]",
       "lanJoinLabel": "[LAN Join]",
+      "seedFailedConfirm": "Cannot connect to seed server. The team has been created for LAN use only.\n\nInternet join (Team ID + invite code) will not work until the seed server is available.\n\nContinue?",
+      "lanJoinHint": "Before joining, ask the team owner to add your Device ID. Otherwise you will be rejected.",
+      "seedJoinPendingDesc": "Your join request has been submitted. The team owner will review your application. Once approved, click \"Join\" again to connect.",
       "repoGuide": {
         "title": "How to set up a team repository",
         "intro": "A shared repository for your team to centrally manage Agent Skills, MCP configurations, and knowledge documents. Use the structure below so TeamClaw can sync correctly.",

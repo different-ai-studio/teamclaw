@@ -170,7 +170,7 @@ export function TeamP2PConfig() {
   const [leaveLoading, setLeaveLoading] = React.useState(false)
 
   // Seed-based join flow
-  const [joinMode, setJoinMode] = React.useState<'seed' | 'ticket'>('seed')
+  const [joinMode, setJoinMode] = React.useState<'seed' | 'ticket'>('ticket')
   const [seedUrl, setSeedUrl] = React.useState(buildConfig.team.seedUrl || '')
   const [teamId, setTeamId] = React.useState('')
   const [teamSecret, setTeamSecret] = React.useState('')
@@ -218,21 +218,23 @@ export function TeamP2PConfig() {
 
   React.useEffect(() => {
     if (!isTauri()) return
+    let cancelled = false
     ;(async () => {
-      try {
-        const info = await tauriInvoke<DeviceInfo>('get_device_info')
-        setDeviceInfo(info)
-      } catch {
-        // P2P node may not be running
+      // Retry loop: P2P node may still be initializing
+      for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
+        try {
+          const info = await tauriInvoke<DeviceInfo>('get_device_info')
+          setDeviceInfo(info)
+          await tauriInvoke('p2p_reconnect')
+          break // success
+        } catch {
+          // P2P node not ready yet, wait and retry
+          await new Promise((r) => setTimeout(r, 1500))
+        }
       }
-      // Try to reconnect to existing team doc
-      try {
-        await tauriInvoke('p2p_reconnect')
-      } catch {
-        // No team to reconnect or node not ready
-      }
-      await loadSyncStatus()
+      if (!cancelled) await loadSyncStatus()
     })()
+    return () => { cancelled = true }
   }, [loadSyncStatus])
 
   const formatLastSync = (isoString: string | null) => {
@@ -287,9 +289,13 @@ export function TeamP2PConfig() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('not been added') || msg.includes('not authorized') || msg.includes('未被添加')) {
+      if (msg.includes('not been added') || msg.includes('not authorized') || msg.includes('Not authorized') || msg.includes('未被添加')) {
         setJoinApprovalPending(true)
-        setP2pError('Your device has not been added to the team. Ask the team Owner to add your Device ID, then try again.')
+        if (joinMode === 'seed') {
+          setP2pError(t('settings.team.seedJoinPendingDesc', 'Your join request has been submitted. The team owner will review your application. Once approved, click "Join" again to connect.'))
+        } else {
+          setP2pError(t('settings.team.notAuthorizedDesc', 'Your device is not in the team allowlist. Please send your Device ID below to the team owner, and ask them to add you via "Add Member". Once added, try joining again.'))
+        }
       } else {
         setP2pError(msg)
       }
@@ -357,22 +363,38 @@ export function TeamP2PConfig() {
       const seedBase = (buildConfig.team.seedUrl || '').replace(/\/$/, '')
       const inviteCode = createInviteCode.trim()
       if (seedBase && inviteCode) {
-        const status = await tauriInvoke<{ namespaceId?: string; docTicket?: string }>('p2p_sync_status').catch(() => null)
-        const nsId = status?.namespaceId
-        const ticket = status?.docTicket
+        const status = await tauriInvoke<Record<string, unknown>>('p2p_sync_status').catch(() => null)
+        const nsId = (status as any)?.namespaceId
+        const ticket = (status as any)?.docTicket
         if (nsId && ticket) {
-          const resp = await fetch(`${seedBase}/admin/teams`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ticket, label: nsId, teamSecret: inviteCode }),
-          }).catch(() => null)
-          if (resp?.ok || resp?.status === 409) {
+          let seedOk = false
+          try {
+            const resp = await fetch(`${seedBase}/admin/teams`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ticket, label: nsId, teamSecret: inviteCode }),
+            })
+            seedOk = resp.ok || resp.status === 409
+          } catch { /* network error */ }
+
+          if (seedOk) {
             await tauriInvoke('p2p_save_seed_config', { seedUrl: seedBase, teamSecret: inviteCode })
             await loadSyncStatus()
+          } else {
+            // Seed registration failed — ask user whether to continue LAN-only
+            const continueWithLan = window.confirm(
+              t('settings.team.seedFailedConfirm',
+                'Cannot connect to seed server. The team has been created for LAN use only.\n\nInternet join (Team ID + invite code) will not work until the seed server is available.\n\nContinue?')
+            )
+            if (!continueWithLan) {
+              // Rollback: disconnect the team
+              await tauriInvoke('p2p_disconnect_source').catch(() => {})
+              setSyncStatus(null)
+              return
+            }
           }
         }
       }
-      setShowShareBox(true)
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -414,7 +436,7 @@ export function TeamP2PConfig() {
   }
 
   const fetchApplications = React.useCallback(async () => {
-    const sUrl = syncStatus?.seedUrl
+    const sUrl = syncStatus?.seedUrl || buildConfig.team.seedUrl
     const nsId = syncStatus?.namespaceId
     const secret = syncStatus?.teamSecret
     if (!sUrl || !nsId || !secret) return
@@ -688,78 +710,17 @@ export function TeamP2PConfig() {
             </SettingCard>
           )}
 
-          {/* Seed Connection Card (Owner) */}
-          {isOwner && (
+          {/* Pending Applications (Owner, when seed connected) */}
+          {isOwner && syncStatus?.seedUrl && (
             <SettingCard>
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-orange-100 dark:bg-orange-900/30">
-                    <Link className="h-5 w-5 text-orange-700 dark:text-orange-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{t('settings.team.seedConnection', 'Seed Node')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {syncStatus?.seedUrl
-                        ? syncStatus.seedUrl
-                        : t('settings.team.seedConnectionDesc', 'Connect to seed node to manage join requests')}
-                    </p>
-                  </div>
-                </div>
-
-                {!syncStatus?.seedUrl ? (
-                  <div className="space-y-2">
-                    <Input
-                      value={seedConfigUrl}
-                      onChange={(e) => setSeedConfigUrl(e.target.value)}
-                      placeholder={t('settings.team.seedUrlPlaceholder', 'Seed node URL (e.g. https://seed.example.com)')}
-                      className="h-9 text-sm"
-                      disabled={seedConfigSaving}
-                    />
-                    <Input
-                      value={seedConfigSecret}
-                      onChange={(e) => setSeedConfigSecret(e.target.value)}
-                      placeholder={t('settings.team.teamSecretPlaceholder', 'Team secret')}
-                      className="h-9 text-sm"
-                      type="password"
-                      disabled={seedConfigSaving}
-                    />
-                    <Button
-                      onClick={handleSaveSeedConfig}
-                      disabled={seedConfigSaving || !seedConfigUrl.trim() || !seedConfigSecret.trim()}
-                      className="gap-2"
-                      size="sm"
-                    >
-                      {seedConfigSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link className="h-3 w-3" />}
-                      {t('settings.team.connectSeed', 'Connect')}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {/* Invite code for owner to share */}
-                    {syncStatus?.teamSecret && (
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          {t('settings.team.inviteCode', 'Invite Code')}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <code className="flex-1 bg-muted rounded-md px-3 py-2 text-xs font-mono break-all select-all">
-                            {syncStatus.teamSecret}
-                          </code>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="shrink-0 gap-1"
-                            onClick={() => copyToClipboard(syncStatus!.teamSecret!, t('common.copied', 'Copied'))}
-                          >
-                            <Copy className="h-3 w-3" />
-                            {t('common.copy', 'Copy')}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    {/* Pending Applications */}
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-orange-100 dark:bg-orange-900/30">
+                      <Clock className="h-5 w-5 text-orange-700 dark:text-orange-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">
                         {t('settings.team.pendingApplications', 'Pending Applications')}
                         {applications.length > 0 && (
                           <span className="ml-2 rounded-full bg-orange-100 dark:bg-orange-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700 dark:text-orange-300">
@@ -767,121 +728,110 @@ export function TeamP2PConfig() {
                           </span>
                         )}
                       </p>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="gap-1 text-xs h-6 px-2"
-                        onClick={fetchApplications}
-                        disabled={applicationsLoading}
-                      >
-                        {applicationsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                      </Button>
                     </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 text-xs h-6 px-2"
+                    onClick={fetchApplications}
+                    disabled={applicationsLoading}
+                  >
+                    {applicationsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  </Button>
+                </div>
 
-                    {applications.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-2">{t('settings.team.noApplications', 'No pending applications')}</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {applications.map((app) => (
-                          <div key={app.nodeId} className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{app.name || app.nodeId}</p>
-                                {app.email && <p className="text-xs text-muted-foreground truncate">{app.email}</p>}
-                                <p className="text-[10px] text-muted-foreground">{app.platform} · {app.hostname}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Select
-                                value={approveRoles[app.nodeId] ?? 'editor'}
-                                onValueChange={(v) => setApproveRoles((prev) => ({ ...prev, [app.nodeId]: v as 'editor' | 'viewer' }))}
-                              >
-                                <SelectTrigger className="h-7 text-xs w-24">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="editor">{t('settings.team.roleEditor', 'Editor')}</SelectItem>
-                                  <SelectItem value="viewer">{t('settings.team.roleViewer', 'Viewer')}</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <div className="flex gap-1 ml-auto">
-                                <Button
-                                  size="sm"
-                                  className="h-7 px-2 text-xs gap-1"
-                                  onClick={async () => {
-                                    const role = approveRoles[app.nodeId] ?? 'editor'
-                                    try {
-                                      // 1. Add to P2P team with selected role
-                                      const { invoke: inv } = await import('@tauri-apps/api/core')
-                                      await inv('unified_team_add_member', {
-                                        member: {
-                                          nodeId: app.nodeId,
-                                          name: app.name,
-                                          role,
-                                          label: app.hostname,
-                                          platform: app.platform,
-                                          arch: app.arch,
-                                          hostname: app.hostname,
-                                          addedAt: new Date().toISOString(),
-                                        }
-                                      })
-                                      // 2. Approve on seed (remove from pending)
-                                      const base = syncStatus!.seedUrl!.replace(/\/$/, '')
-                                      await fetch(`${base}/teams/${syncStatus!.namespaceId}/applications/${app.nodeId}/approve`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ teamSecret: syncStatus!.teamSecret }),
-                                      })
-                                      setApproveRoles((prev) => { const n = { ...prev }; delete n[app.nodeId]; return n })
-                                      await fetchApplications()
-                                      await loadSyncStatus()
-                                    } catch (err) {
-                                      setP2pError(err instanceof Error ? err.message : String(err))
-                                    }
-                                  }}
-                                >
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  {t('settings.team.approve', 'Approve')}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive"
-                                  onClick={async () => {
-                                    try {
-                                      const base = syncStatus!.seedUrl!.replace(/\/$/, '')
-                                      await fetch(`${base}/teams/${syncStatus!.namespaceId}/applications/${app.nodeId}/reject`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ teamSecret: syncStatus!.teamSecret }),
-                                      })
-                                      await fetchApplications()
-                                    } catch (err) {
-                                      setP2pError(err instanceof Error ? err.message : String(err))
-                                    }
-                                  }}
-                                >
-                                  {t('settings.team.reject', 'Reject')}
-                                </Button>
-                              </div>
-                            </div>
+                {applications.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-1">{t('settings.team.noApplications', 'No pending applications')}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {applications.map((app) => (
+                      <div key={app.nodeId} className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{app.name || app.nodeId}</p>
+                            {app.email && <p className="text-xs text-muted-foreground truncate">{app.email}</p>}
+                            <p className="text-[10px] text-muted-foreground">{app.platform} · {app.hostname}</p>
                           </div>
-                        ))}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={approveRoles[app.nodeId] ?? 'editor'}
+                            onValueChange={(v) => setApproveRoles((prev) => ({ ...prev, [app.nodeId]: v as 'editor' | 'viewer' }))}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-24">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="editor">{t('settings.team.roleEditor', 'Editor')}</SelectItem>
+                              <SelectItem value="viewer">{t('settings.team.roleViewer', 'Viewer')}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <div className="flex gap-1 ml-auto">
+                            <Button
+                              size="sm"
+                              className="h-7 px-2 text-xs gap-1"
+                              onClick={async () => {
+                                const role = approveRoles[app.nodeId] ?? 'editor'
+                                try {
+                                  const { invoke: inv } = await import('@tauri-apps/api/core')
+                                  await inv('unified_team_add_member', {
+                                    member: {
+                                      nodeId: app.nodeId,
+                                      name: app.name,
+                                      role,
+                                      label: app.hostname,
+                                      platform: app.platform,
+                                      arch: app.arch,
+                                      hostname: app.hostname,
+                                      addedAt: new Date().toISOString(),
+                                    }
+                                  })
+                                  const base = (syncStatus!.seedUrl || buildConfig.team.seedUrl || '').replace(/\/$/, '')
+                                  if (base) {
+                                    await fetch(`${base}/teams/${syncStatus!.namespaceId}/applications/${app.nodeId}/approve`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ teamSecret: syncStatus!.teamSecret }),
+                                    }).catch(() => {})
+                                  }
+                                  setApproveRoles((prev) => { const n = { ...prev }; delete n[app.nodeId]; return n })
+                                  await fetchApplications()
+                                  await loadSyncStatus()
+                                } catch (err) {
+                                  setP2pError(err instanceof Error ? err.message : String(err))
+                                }
+                              }}
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              {t('settings.team.approve', 'Approve')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive"
+                              onClick={async () => {
+                                try {
+                                  const base = (syncStatus!.seedUrl || buildConfig.team.seedUrl || '').replace(/\/$/, '')
+                                  if (base) {
+                                    await fetch(`${base}/teams/${syncStatus!.namespaceId}/applications/${app.nodeId}/reject`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ teamSecret: syncStatus!.teamSecret }),
+                                    }).catch(() => {})
+                                  }
+                                  await fetchApplications()
+                                } catch (err) {
+                                  setP2pError(err instanceof Error ? err.message : String(err))
+                                }
+                              }}
+                            >
+                              {t('settings.team.reject', 'Reject')}
+                            </Button>
+                          </div>
+                        </div>
                       </div>
-                    )}
-
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1 text-xs text-muted-foreground mt-1"
-                      onClick={() => {
-                        setSeedConfigUrl(syncStatus?.seedUrl || '')
-                        setSeedConfigSecret('')
-                        tauriInvoke('p2p_save_seed_config', { seedUrl: null, teamSecret: null }).then(() => loadSyncStatus())
-                      }}
-                    >
-                      {t('settings.team.disconnectSeed', 'Change seed connection')}
-                    </Button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -903,30 +853,6 @@ export function TeamP2PConfig() {
               <TeamMemberList />
             </div>
           </SettingCard>
-
-          {/* My Device ID */}
-          {deviceInfo && (
-            <SettingCard>
-              <div className="space-y-2">
-                <p className="text-sm font-medium">{t('settings.team.deviceId', 'Device ID')}</p>
-                <p className="text-xs text-muted-foreground">{t('settings.team.deviceIdDesc', 'Your unique device identifier for team membership')}</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-muted rounded-md px-3 py-2 text-xs font-mono break-all select-all">
-                    {deviceInfo.nodeId}
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 gap-1"
-                    onClick={() => copyToClipboard(deviceInfo.nodeId, t('common.copied', 'Copied'))}
-                  >
-                    <Copy className="h-3 w-3" />
-                    {t('common.copy', 'Copy')}
-                  </Button>
-                </div>
-              </div>
-            </SettingCard>
-          )}
 
           {/* Dissolve Team (Owner only) */}
           {isOwner && (
@@ -1110,36 +1036,48 @@ export function TeamP2PConfig() {
                   </Button>
                 </div>
               ) : (
-                <div className="flex gap-2">
-                  <Input
-                    value={joinTicketInput}
-                    onChange={(e) => setJoinTicketInput(e.target.value)}
-                    placeholder={t('settings.team.p2pJoinPlaceholder', 'Paste a P2P ticket here...')}
-                    className="h-11"
-                    disabled={joinLoading}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && joinTicketInput.trim()) {
-                        handleJoin()
-                      }
-                    }}
-                  />
-                  <Button
-                    onClick={handleJoin}
-                    disabled={joinLoading || !joinTicketInput.trim()}
-                    className="gap-2 shrink-0"
-                  >
-                    {joinLoading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {t('settings.team.joining', 'Joining...')}
-                      </>
-                    ) : (
-                      <>
-                        <Link className="h-4 w-4" />
-                        {t('settings.team.join', 'Join')}
-                      </>
-                    )}
-                  </Button>
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <Input
+                      value={joinTicketInput}
+                      onChange={(e) => setJoinTicketInput(e.target.value)}
+                      placeholder={t('settings.team.p2pJoinPlaceholder', 'Paste a P2P ticket here...')}
+                      className="h-11"
+                      disabled={joinLoading}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && joinTicketInput.trim()) {
+                          handleJoin()
+                        }
+                      }}
+                    />
+                    <Button
+                      onClick={handleJoin}
+                      disabled={joinLoading || !joinTicketInput.trim()}
+                      className="gap-2 shrink-0"
+                    >
+                      {joinLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          {t('settings.team.joining', 'Joining...')}
+                        </>
+                      ) : (
+                        <>
+                          <Link className="h-4 w-4" />
+                          {t('settings.team.join', 'Join')}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  {/* Device ID + reminder for LAN join */}
+                  {deviceInfo && (
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        <AlertCircle className="h-3 w-3 inline mr-1" />
+                        {t('settings.team.lanJoinHint', 'Before joining, ask the team owner to add your Device ID. Otherwise you will be rejected.')}
+                      </p>
+                      <DeviceIdDisplay nodeId={deviceInfo.nodeId} />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1163,16 +1101,6 @@ export function TeamP2PConfig() {
         </>
       )}
 
-      {/* Device ID Section */}
-      {deviceInfo && (
-        <SettingCard>
-          <div className="space-y-3">
-            <p className="text-sm font-medium">{t('settings.team.deviceId', 'Device ID')}</p>
-            <p className="text-xs text-muted-foreground">{t('settings.team.deviceIdDesc', 'Your unique device identifier for team membership')}</p>
-            <DeviceIdDisplay nodeId={deviceInfo.nodeId} />
-          </div>
-        </SettingCard>
-      )}
 
       {/* Shared Content Info */}
       <SettingCard className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-blue-200 dark:border-blue-800">
