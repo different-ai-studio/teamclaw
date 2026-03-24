@@ -173,6 +173,21 @@ pub async fn telemetry_save_report(
 }
 
 #[tauri::command]
+pub async fn telemetry_track(
+    state: tauri::State<'_, TelemetryState>,
+    app_handle: tauri::AppHandle,
+    event_name: String,
+    props: Option<serde_json::Value>,
+) -> Result<(), String> {
+    let db = get_db(&state).await?;
+    let consent = db.get_consent().await.unwrap_or_default();
+    if consent == "granted" {
+        let _ = app_handle.track_event(&event_name, props);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn telemetry_get_reports(
     state: tauri::State<'_, TelemetryState>,
     limit: Option<i64>,

@@ -162,8 +162,25 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         await new Promise((r) => setTimeout(r, 500))
       }
 
-      // Connect provider with key and select model
+      // Connect provider with key
       await providerStore.connectProvider(TEAM_PROVIDER_ID, apiKey)
+
+      // Wait for OpenCode to register the team custom provider before selecting the model.
+      // PATCH /config returns 500 if the model isn't in OpenCode's provider registry yet.
+      const { getOpenCodeClient } = await import('@/lib/opencode/client')
+      let client: ReturnType<typeof getOpenCodeClient> | null = null
+      try { client = getOpenCodeClient() } catch { /* not initialized */ }
+      if (client) {
+        const deadline = Date.now() + 10_000
+        while (Date.now() < deadline) {
+          try {
+            const result = await client.getProviders()
+            if (result.connected.includes(TEAM_PROVIDER_ID)) break
+          } catch { /* server still initializing */ }
+          await new Promise((r) => setTimeout(r, 500))
+        }
+      }
+
       await providerStore.selectModel(TEAM_PROVIDER_ID, teamModelConfig.model, teamModelConfig.modelName)
       await providerStore.refreshConfiguredProviders()
 

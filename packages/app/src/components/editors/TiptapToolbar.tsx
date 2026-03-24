@@ -37,6 +37,7 @@ import {
   Heading3,
   Image,
   Table,
+  FileCode,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -52,26 +53,53 @@ interface TiptapToolbarProps {
   editor: Editor | null;
   isDark?: boolean;
   onImageUpload?: () => void;
+  rawMode?: boolean;
+  onToggleRaw?: () => void;
 }
 
 export function TiptapToolbar({
   editor,
   isDark = false,
   onImageUpload,
+  rawMode = false,
+  onToggleRaw,
 }: TiptapToolbarProps) {
+  const sourceToggle = onToggleRaw && (
+    <>
+      <div className="flex-1" />
+      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={onToggleRaw}
+        className={cn('h-8 w-8', rawMode && 'bg-accent')}
+        title={rawMode ? 'Visual mode' : 'Source mode'}
+      >
+        <FileCode className="h-4 w-4" />
+      </Button>
+    </>
+  );
+
+  const containerClass = cn(
+    'flex items-center gap-1 p-2 border-b',
+    isDark ? 'bg-[#1e1e1e] border-border' : 'bg-white border-border',
+  );
+
+  // In raw mode, show minimal toolbar with just the source toggle
+  if (rawMode) {
+    return (
+      <div className={containerClass}>
+        {sourceToggle}
+      </div>
+    );
+  }
+
   if (!editor) {
     return null;
   }
 
   return (
-    <div
-      className={cn(
-        'flex items-center gap-1 p-2 border-b',
-        isDark
-          ? 'bg-[#1e1e1e] border-border'
-          : 'bg-white border-border',
-      )}
-    >
+    <div className={containerClass}>
       {/* Undo/Redo */}
       <Button
         variant="ghost"
@@ -384,6 +412,9 @@ export function TiptapToolbar({
           </Button>
         </>
       )}
+
+      {/* Source mode toggle - pushed to right */}
+      {sourceToggle}
     </div>
   );
 }

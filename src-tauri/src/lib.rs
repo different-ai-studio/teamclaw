@@ -468,6 +468,7 @@ pub fn run() {
             telemetry::commands::telemetry_set_star_rating,
             telemetry::commands::telemetry_remove_star_rating,
             telemetry::commands::telemetry_save_report,
+            telemetry::commands::telemetry_track,
             telemetry::commands::telemetry_get_reports,
             telemetry::commands::telemetry_export_team_feedback,
             telemetry::commands::telemetry_get_team_feedback_summary,

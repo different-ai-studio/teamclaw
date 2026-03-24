@@ -77,7 +77,7 @@ async function renderAndSwitchToTicketMode() {
   })
   // Default join mode is 'seed'; switch to 'ticket' mode to get the ticket input
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /use ticket instead/i }))
+    fireEvent.click(screen.getByRole('button', { name: /LAN \(ticket\)/i }))
   })
 }
 

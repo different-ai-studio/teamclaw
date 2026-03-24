@@ -60,6 +60,12 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
     const { t } = useTranslation();
     const [isProcessingImage, setIsProcessingImage] = useState(false);
     const [isReady, setIsReady] = useState(false);
+    const [rawMode, setRawMode] = useState(false);
+    const [rawContent, setRawContent] = useState(content);
+    const rawModeRef = useRef(rawMode);
+    rawModeRef.current = rawMode;
+    const rawContentRef = useRef(rawContent);
+    rawContentRef.current = rawContent;
     const previousContentRef = useRef(content);
     const onChangeRef = useRef(onChange);
     onChangeRef.current = onChange;
@@ -132,6 +138,13 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
     // Apply agent change with diff-based highlighting, then scroll to first change
     const applyAgentChange = useCallback(
       async (newMarkdown: string) => {
+        // In raw mode, just update the text content directly
+        if (rawModeRef.current) {
+          setRawContent(newMarkdown);
+          previousContentRef.current = newMarkdown;
+          return;
+        }
+
         if (!editor || !isReady) return;
 
         // Get old doc for diffing
@@ -211,6 +224,7 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
       () => ({
         applyAgentChange,
         getMarkdown: () => {
+          if (rawModeRef.current) return rawContentRef.current;
           if (!editor) return "";
           return unresolveMarkdownImages(editor.getMarkdown(), filePath);
         },
@@ -220,9 +234,17 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
 
     // Sync content when prop changes (external updates from FileEditor)
     useEffect(() => {
-      if (!isReady || !editor) return;
+      if (!isReady) return;
       if (content !== previousContentRef.current) {
         previousContentRef.current = content;
+
+        // In raw mode, just update the text directly
+        if (rawMode) {
+          setRawContent(content);
+          return;
+        }
+
+        if (!editor) return;
         let cancelled = false;
         const sync = async () => {
           const resolved = await resolveMarkdownImages(content, filePath);
@@ -266,7 +288,35 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
           cancelled = true;
         };
       }
-    }, [content, editor, filePath, isReady]);
+    }, [content, editor, filePath, isReady, rawMode]);
+
+    // Toggle between WYSIWYG and raw source mode
+    const handleToggleRaw = useCallback(async () => {
+      if (!editor) return;
+      if (!rawMode) {
+        // WYSIWYG → raw: extract current markdown
+        const md = unresolveMarkdownImages(editor.getMarkdown(), filePath);
+        setRawContent(md);
+        setRawMode(true);
+      } else {
+        // raw → WYSIWYG: push raw content back into editor
+        const resolved = await resolveMarkdownImages(rawContent, filePath);
+        editor.commands.setContent(resolved, { contentType: "markdown" });
+        previousContentRef.current = rawContent;
+        setRawMode(false);
+      }
+    }, [editor, rawMode, rawContent, filePath]);
+
+    // Handle raw textarea changes
+    const handleRawChange = useCallback(
+      (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setRawContent(val);
+        previousContentRef.current = val;
+        onChangeRef.current?.(val);
+      },
+      [],
+    );
 
     // Handle image paste - upload to _assets and insert as Image node
     const handleImagePaste = useCallback(
@@ -429,32 +479,51 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
           isDark ? "bg-[#1e1e1e]" : "bg-background",
         )}
       >
-        {!readOnly && (
+        {(!readOnly || rawMode) && (
           <div className="flex-shrink-0">
             <TiptapToolbar
               editor={editor}
               isDark={isDark}
-              onImageUpload={handleImageUpload}
+              onImageUpload={!rawMode ? handleImageUpload : undefined}
+              rawMode={rawMode}
+              onToggleRaw={handleToggleRaw}
             />
           </div>
         )}
-        <TiptapSearchBar editor={editor} />
+        {!rawMode && <TiptapSearchBar editor={editor} />}
         <div
           className={cn(
             "flex-1 overflow-auto flex flex-col",
             isDark ? "bg-[#1e1e1e]" : "bg-white",
           )}
         >
-          {isProcessingImage && (
-            <div className="absolute top-2 right-2 z-10 text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded">
-              {t("editor.uploadingImage", "Uploading image...")}
-            </div>
+          {rawMode ? (
+            <textarea
+              value={rawContent}
+              onChange={handleRawChange}
+              readOnly={readOnly}
+              spellCheck={false}
+              className={cn(
+                "flex-1 w-full h-full resize-none p-4 font-mono text-sm leading-relaxed focus:outline-none",
+                isDark
+                  ? "bg-[#1e1e1e] text-[#d4d4d4]"
+                  : "bg-white text-foreground",
+              )}
+            />
+          ) : (
+            <>
+              {isProcessingImage && (
+                <div className="absolute top-2 right-2 z-10 text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded">
+                  {t("editor.uploadingImage", "Uploading image...")}
+                </div>
+              )}
+              <EditorContent
+                editor={editor}
+                className="flex-1 [&_.tiptap]:min-h-full"
+              />
+              {editor && !readOnly && <TableBubbleMenu editor={editor} />}
+            </>
           )}
-          <EditorContent
-            editor={editor}
-            className="flex-1 [&_.tiptap]:min-h-full"
-          />
-          {editor && !readOnly && <TableBubbleMenu editor={editor} />}
         </div>
       </div>
     );

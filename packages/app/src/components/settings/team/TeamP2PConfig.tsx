@@ -150,8 +150,10 @@ export function TeamP2PConfig() {
   const [createLoading, setCreateLoading] = React.useState(false)
   const [showCreateForm, setShowCreateForm] = React.useState(false)
   const [createTeamName, setCreateTeamName] = React.useState('')
+  const [createInviteCode, setCreateInviteCode] = React.useState('')
   const [createOwnerName, setCreateOwnerName] = React.useState('')
   const [createOwnerEmail, setCreateOwnerEmail] = React.useState('')
+  const [, setShowShareBox] = React.useState(false)
   const [dissolveLoading, setDissolveLoading] = React.useState(false)
   const [confirmDissolve, setConfirmDissolve] = React.useState(false)
 
@@ -343,7 +345,6 @@ export function TeamP2PConfig() {
         llmModelName: buildConfig.team.llm.modelName || null,
       })
       await loadSyncStatus()
-      // Refresh file tree so the new teamclaw-team directory appears
       useWorkspaceStore.getState().refreshFileTree()
       if (workspacePath) {
         const store = useTeamModeStore.getState()
@@ -352,6 +353,26 @@ export function TeamP2PConfig() {
           await store.applyTeamModelToOpenCode(workspacePath)
         }
       }
+      // Auto-register on seed if invite code + seed URL provided
+      const seedBase = (buildConfig.team.seedUrl || '').replace(/\/$/, '')
+      const inviteCode = createInviteCode.trim()
+      if (seedBase && inviteCode) {
+        const status = await tauriInvoke<{ namespaceId?: string; docTicket?: string }>('p2p_sync_status').catch(() => null)
+        const nsId = status?.namespaceId
+        const ticket = status?.docTicket
+        if (nsId && ticket) {
+          const resp = await fetch(`${seedBase}/admin/teams`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticket, label: nsId, teamSecret: inviteCode }),
+          }).catch(() => null)
+          if (resp?.ok || resp?.status === 409) {
+            await tauriInvoke('p2p_save_seed_config', { seedUrl: seedBase, teamSecret: inviteCode })
+            await loadSyncStatus()
+          }
+        }
+      }
+      setShowShareBox(true)
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -440,14 +461,42 @@ export function TeamP2PConfig() {
 
   const handleSaveSeedConfig = async () => {
     setSeedConfigSaving(true)
+    setP2pError(null)
     try {
+      const base = seedConfigUrl.trim().replace(/\/$/, '')
+      const secret = seedConfigSecret.trim()
+      const ticket = syncStatus?.docTicket
+      const nsId = syncStatus?.namespaceId
+
+      if (!ticket || !nsId) {
+        setP2pError('No active team doc. Create a team first.')
+        return
+      }
+
+      // Register this team on the seed node
+      const resp = await fetch(`${base}/admin/teams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket, label: nsId, teamSecret: secret }),
+      })
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '')
+        // 409 = already registered, that's fine
+        if (resp.status !== 409) {
+          setP2pError(`Seed registration failed: ${body || resp.statusText}`)
+          return
+        }
+      }
+
       await tauriInvoke('p2p_save_seed_config', {
-        seedUrl: seedConfigUrl.trim() || null,
-        teamSecret: seedConfigSecret.trim() || null,
+        seedUrl: base || null,
+        teamSecret: secret || null,
       })
       await loadSyncStatus()
       setSeedConfigUrl('')
       setSeedConfigSecret('')
+    } catch (err) {
+      setP2pError(err instanceof Error ? err.message : 'Failed to connect to seed node')
     } finally {
       setSeedConfigSaving(false)
     }
@@ -570,79 +619,71 @@ export function TeamP2PConfig() {
             </div>
           </SettingCard>
 
-          {/* Ticket Card (Owner) */}
-          {isOwner && docTicket && (
+          {/* Share Info Card (Owner) */}
+          {isOwner && (syncStatus?.namespaceId || docTicket) && (
             <SettingCard>
               <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-violet-100 dark:bg-violet-900/30">
-                    <Share2 className="h-5 w-5 text-violet-700 dark:text-violet-400" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-violet-100 dark:bg-violet-900/30">
+                      <Share2 className="h-5 w-5 text-violet-700 dark:text-violet-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{t('settings.team.p2pTicketTitle', 'Team Invite Info')}</p>
+                      <p className="text-xs text-muted-foreground">{t('settings.team.p2pTicketDesc', 'Share with members to join')}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium">{t('settings.team.p2pTicketTitle', 'Team Ticket')}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.team.p2pTicketDesc', 'Share this with team members to join')}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-muted rounded-md p-3 text-xs font-mono break-all select-all">
-                    {docTicket}
-                  </code>
                   <Button
                     variant="outline"
                     size="sm"
                     className="shrink-0 gap-1"
-                    onClick={() => copyToClipboard(docTicket, 'Copied')}
+                    onClick={() => {
+                      const lines: string[] = []
+                      if (syncStatus?.namespaceId && syncStatus?.teamSecret) {
+                        lines.push(t('settings.team.wanJoinLabel', '【公网加入】'))
+                        lines.push(`Team ID: ${syncStatus.namespaceId}`)
+                        lines.push(`${t('settings.team.inviteCode', 'Invite Code')}: ${syncStatus.teamSecret}`)
+                      }
+                      if (docTicket) {
+                        if (lines.length) lines.push('')
+                        lines.push(t('settings.team.lanJoinLabel', '【局域网加入】'))
+                        lines.push(`Ticket: ${docTicket}`)
+                      }
+                      copyToClipboard(lines.join('\n'), t('common.copied', 'Copied'))
+                    }}
                   >
                     <Copy className="h-3 w-3" />
-                    {t('common.copy', 'Copy')}
+                    {t('common.copy', 'Copy All')}
                   </Button>
                 </div>
 
-                <div className="flex items-center gap-2 pt-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1 text-xs text-muted-foreground"
-                    disabled={rotateLoading}
-                    onClick={handleRotateTicket}
-                  >
-                    {rotateLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                    {t('settings.team.regenerateTicket', 'Regenerate Ticket')}
-                  </Button>
-                  <span className="text-[10px] text-muted-foreground">{t('settings.team.regenerateTicketHint', 'Use if ticket was leaked. All members must re-join.')}</span>
+                <div className="bg-muted rounded-md p-3 text-xs font-mono space-y-1 select-all">
+                  {syncStatus?.namespaceId && syncStatus?.teamSecret && (
+                    <>
+                      <p className="text-muted-foreground font-sans font-medium not-italic">{t('settings.team.wanJoinLabel', '【公网加入】')}</p>
+                      <p>Team ID: <span className="break-all">{syncStatus.namespaceId}</span></p>
+                      <p>{t('settings.team.inviteCode', 'Invite Code')}: {syncStatus.teamSecret}</p>
+                    </>
+                  )}
+                  {docTicket && (
+                    <>
+                      {syncStatus?.namespaceId && <p className="pt-1" />}
+                      <p className="text-muted-foreground font-sans font-medium not-italic">{t('settings.team.lanJoinLabel', '【局域网加入】')}</p>
+                      <p className="break-all">Ticket: {docTicket}</p>
+                    </>
+                  )}
                 </div>
-              </div>
-            </SettingCard>
-          )}
 
-          {/* Team ID Card (Owner) */}
-          {isOwner && syncStatus?.namespaceId && (
-            <SettingCard>
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
-                    <GitBranch className="h-5 w-5 text-blue-700 dark:text-blue-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{t('settings.team.teamId', 'Team ID')}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.team.teamIdDesc', 'Share with your seed node admin to register this team')}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-muted rounded-md p-3 text-xs font-mono break-all select-all">
-                    {syncStatus.namespaceId}
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 gap-1"
-                    onClick={() => copyToClipboard(syncStatus!.namespaceId!, 'Copied')}
-                  >
-                    <Copy className="h-3 w-3" />
-                    {t('common.copy', 'Copy')}
-                  </Button>
-                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-xs text-muted-foreground"
+                  disabled={rotateLoading}
+                  onClick={handleRotateTicket}
+                >
+                  {rotateLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  {t('settings.team.regenerateTicket', 'Regenerate Ticket')}
+                </Button>
               </div>
             </SettingCard>
           )}
@@ -694,6 +735,28 @@ export function TeamP2PConfig() {
                   </div>
                 ) : (
                   <div className="space-y-3">
+                    {/* Invite code for owner to share */}
+                    {syncStatus?.teamSecret && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          {t('settings.team.inviteCode', 'Invite Code')}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 bg-muted rounded-md px-3 py-2 text-xs font-mono break-all select-all">
+                            {syncStatus.teamSecret}
+                          </code>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 gap-1"
+                            onClick={() => copyToClipboard(syncStatus!.teamSecret!, t('common.copied', 'Copied'))}
+                          >
+                            <Copy className="h-3 w-3" />
+                            {t('common.copy', 'Copy')}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {/* Pending Applications */}
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -826,20 +889,41 @@ export function TeamP2PConfig() {
           )}
 
           {/* Team Members Section */}
-          {allowedMembers.length > 0 && (
-            <SettingCard>
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-green-100 dark:bg-green-900/30">
-                    <Users className="h-5 w-5 text-green-700 dark:text-green-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{t('settings.team.members', 'Team Members')}</p>
-                    <p className="text-xs text-muted-foreground">{allowedMembers.length} {t('settings.team.membersCount', 'members')}</p>
-                  </div>
+          <SettingCard>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-green-100 dark:bg-green-900/30">
+                  <Users className="h-5 w-5 text-green-700 dark:text-green-400" />
                 </div>
+                <div>
+                  <p className="text-sm font-medium">{t('settings.team.members', 'Team Members')}</p>
+                  <p className="text-xs text-muted-foreground">{allowedMembers.length} {t('settings.team.membersCount', 'members')}</p>
+                </div>
+              </div>
+              <TeamMemberList />
+            </div>
+          </SettingCard>
 
-                <TeamMemberList />
+          {/* My Device ID */}
+          {deviceInfo && (
+            <SettingCard>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">{t('settings.team.deviceId', 'Device ID')}</p>
+                <p className="text-xs text-muted-foreground">{t('settings.team.deviceIdDesc', 'Your unique device identifier for team membership')}</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-muted rounded-md px-3 py-2 text-xs font-mono break-all select-all">
+                    {deviceInfo.nodeId}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1"
+                    onClick={() => copyToClipboard(deviceInfo.nodeId, t('common.copied', 'Copied'))}
+                  >
+                    <Copy className="h-3 w-3" />
+                    {t('common.copy', 'Copy')}
+                  </Button>
+                </div>
               </div>
             </SettingCard>
           )}
@@ -898,11 +982,19 @@ export function TeamP2PConfig() {
                     placeholder={t('settings.team.teamNamePlaceholder', 'Team name *')}
                     className="h-9 text-sm"
                     disabled={createLoading}
+                    autoFocus
+                  />
+                  <Input
+                    value={createInviteCode}
+                    onChange={(e) => setCreateInviteCode(e.target.value)}
+                    placeholder={t('settings.team.inviteCodePlaceholder', 'Invite code * (members use this to join)')}
+                    className="h-9 text-sm"
+                    disabled={createLoading}
                   />
                   <Input
                     value={createOwnerName}
                     onChange={(e) => setCreateOwnerName(e.target.value)}
-                    placeholder={t('settings.team.ownerNamePlaceholder', 'Your name *')}
+                    placeholder={t('settings.team.ownerNamePlaceholder', 'Contact name (optional)')}
                     className="h-9 text-sm"
                     disabled={createLoading}
                   />
@@ -916,7 +1008,7 @@ export function TeamP2PConfig() {
                   <div className="flex gap-2">
                     <Button
                       onClick={handleCreateTeam}
-                      disabled={createLoading || !createTeamName.trim()}
+                      disabled={createLoading || !createTeamName.trim() || !createInviteCode.trim()}
                       className="gap-2"
                     >
                       {createLoading ? (
@@ -952,31 +1044,33 @@ export function TeamP2PConfig() {
                     <p className="text-sm font-medium">{t('settings.team.p2pJoinTitle', 'Join Team')}</p>
                     <p className="text-xs text-muted-foreground">
                       {joinMode === 'seed'
-                        ? t('settings.team.p2pJoinSeedDesc', 'Connect via seed node with invite code')
-                        : t('settings.team.p2pJoinDesc', 'Connect to a team drive using a ticket')}
+                        ? t('settings.team.p2pJoinSeedDesc', 'Internet — join with Team ID + invite code')
+                        : t('settings.team.p2pJoinDesc', 'Local network — join directly with a ticket')}
                     </p>
                   </div>
                 </div>
                 {/* Mode toggle */}
                 <button
                   onClick={() => setJoinMode(joinMode === 'seed' ? 'ticket' : 'seed')}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2 shrink-0"
                 >
                   {joinMode === 'seed'
-                    ? t('settings.team.useTicket', 'Use ticket instead')
-                    : t('settings.team.useSeed', 'Use invite code instead')}
+                    ? t('settings.team.useTicket', 'LAN (ticket)')
+                    : t('settings.team.useSeed', 'Internet (invite code)')}
                 </button>
               </div>
 
               {joinMode === 'seed' ? (
                 <div className="space-y-3">
-                  <Input
-                    value={seedUrl}
-                    onChange={(e) => setSeedUrl(e.target.value)}
-                    placeholder={t('settings.team.seedUrlPlaceholder', 'Seed node URL (e.g. https://seed.example.com)')}
-                    className="h-9 text-sm"
-                    disabled={joinLoading}
-                  />
+                  {!buildConfig.team.seedUrl && (
+                    <Input
+                      value={seedUrl}
+                      onChange={(e) => setSeedUrl(e.target.value)}
+                      placeholder={t('settings.team.seedUrlPlaceholder', 'Seed node URL (e.g. https://seed.example.com)')}
+                      className="h-9 text-sm"
+                      disabled={joinLoading}
+                    />
+                  )}
                   <Input
                     value={teamId}
                     onChange={(e) => setTeamId(e.target.value)}

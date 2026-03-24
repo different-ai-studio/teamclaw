@@ -35,6 +35,10 @@ vi.mock('@/stores/session-cache', () => ({
   updateSessionCache: vi.fn(),
 }))
 
+vi.mock('@/stores/telemetry', () => ({
+  trackEvent: vi.fn(),
+}))
+
 vi.mock('@/stores/session-internals', () => ({
   busySessions: new Set(),
   clearMessageTimeout: vi.fn(),

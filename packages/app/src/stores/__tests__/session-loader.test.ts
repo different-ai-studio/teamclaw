@@ -48,6 +48,10 @@ vi.mock('@/lib/opencode/sse', () => ({
   clearAllChildSessions: vi.fn(),
 }))
 
+vi.mock('@/stores/telemetry', () => ({
+  trackEvent: vi.fn(),
+}))
+
 // Stub localStorage (jsdom may not provide it for all environments)
 vi.stubGlobal('localStorage', {
   getItem: vi.fn(() => null),

@@ -274,6 +274,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       useUIStore.setState({ advancedMode: false });
     } catch { /* ignore */ }
 
+    // Reset team mode state — each workspace has its own team config
+    try {
+      const { useTeamModeStore } = await import("./team-mode");
+      useTeamModeStore.setState({
+        teamMode: false,
+        teamModelConfig: null,
+        teamApiKey: null,
+        _appliedConfigKey: null,
+        myRole: null,
+      });
+    } catch { /* ignore */ }
+
     // Persist workspace path for auto-restore on next launch
     try {
       localStorage.setItem(WORKSPACE_STORAGE_KEY, expandedPath);
@@ -353,6 +365,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     } catch {
       /* ignore storage errors */
     }
+
+    // Reset team mode state
+    try {
+      const { useTeamModeStore } = await import("./team-mode");
+      useTeamModeStore.setState({
+        teamMode: false,
+        teamModelConfig: null,
+        teamApiKey: null,
+        _appliedConfigKey: null,
+        myRole: null,
+      });
+    } catch { /* ignore */ }
 
     set({
       workspacePath: null,

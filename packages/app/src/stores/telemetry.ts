@@ -18,6 +18,14 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return tauriInvoke<T>(cmd, args)
 }
 
+export async function trackEvent(eventName: string, props?: Record<string, unknown>): Promise<void> {
+  try {
+    await invoke('telemetry_track', { eventName, props: props ?? null })
+  } catch {
+    // Non-critical — ignore failures
+  }
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────
 
 interface TelemetryState {

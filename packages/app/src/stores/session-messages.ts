@@ -20,6 +20,7 @@ import {
   useStreamingStore,
   cleanupAllChildSessions,
 } from "@/stores/streaming";
+import { trackEvent } from "@/stores/telemetry";
 import { syncSetSessionId } from "@/lib/opencode/sse";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
 
@@ -143,6 +144,8 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         }));
         return;
       }
+
+      trackEvent('message_sent');
 
       const now = Date.now();
 

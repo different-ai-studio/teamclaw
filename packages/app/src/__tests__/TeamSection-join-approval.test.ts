@@ -108,7 +108,7 @@ describe('TeamSection Join Approval Status', () => {
 
     // Default join mode is 'seed'; switch to 'ticket' mode to get the ticket input
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /use ticket instead/i }))
+      fireEvent.click(screen.getByRole('button', { name: /LAN \(ticket\)/i }))
     })
 
     // Enter a ticket and click Join
@@ -165,7 +165,7 @@ describe('TeamSection Join Approval Status', () => {
 
     // Default join mode is 'seed'; switch to 'ticket' mode to get the ticket input
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /use ticket instead/i }))
+      fireEvent.click(screen.getByRole('button', { name: /LAN \(ticket\)/i }))
     })
 
     await waitFor(() => {

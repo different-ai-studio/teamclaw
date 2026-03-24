@@ -23,6 +23,7 @@ import {
   useStreamingStore,
   cleanupAllChildSessions,
 } from "@/stores/streaming";
+import { trackEvent } from "@/stores/telemetry";
 import { sessionDataCache } from "./session-data-cache";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
@@ -177,6 +178,8 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         const newSession = await client.createSession();
 
         const session = convertSession(newSession);
+
+        trackEvent('session_started');
 
         // Track as self-created so SSE handler skips the full reload
         selfCreatedSessionIds.add(session.id);
