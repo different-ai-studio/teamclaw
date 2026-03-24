@@ -9,6 +9,7 @@ import type {
   Project,
   Command,
   MCPStatusMap,
+  MCPServerConfig,
 } from './types'
 
 // Re-export Command type for convenience
@@ -501,6 +502,18 @@ export class OpenCodeClient {
   // MCP APIs
   async getMCPStatus(): Promise<MCPStatusMap> {
     return this.request<MCPStatusMap>('GET', '/mcp')
+  }
+
+  async addMCPServer(name: string, config: MCPServerConfig): Promise<MCPStatusMap> {
+    return this.request<MCPStatusMap>('POST', '/mcp', { name, config })
+  }
+
+  async connectMCP(name: string): Promise<boolean> {
+    return this.request<boolean>('POST', `/mcp/${encodeURIComponent(name)}/connect`)
+  }
+
+  async disconnectMCP(name: string): Promise<boolean> {
+    return this.request<boolean>('POST', `/mcp/${encodeURIComponent(name)}/disconnect`)
   }
 
   async getToolIds(): Promise<string[]> {
