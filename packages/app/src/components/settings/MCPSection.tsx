@@ -5,7 +5,6 @@ import {
   Loader2,
   X,
   Plus,
-  RefreshCw,
   Trash2,
   Edit2,
   AlertCircle,
@@ -15,11 +14,8 @@ import {
   Shield,
 } from 'lucide-react'
 
-import { invoke } from '@tauri-apps/api/core'
 import { useMCPStore, type MCPServerConfig } from '@/stores/mcp'
 import { useDepsStore } from '@/stores/deps'
-import { useWorkspaceStore } from '@/stores/workspace'
-import { initOpenCodeClient } from '@/lib/opencode/client'
 import type { MCPServerStatus } from '@/lib/opencode/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -271,7 +267,6 @@ export const MCPSection = React.memo(function MCPSection() {
   const serverTools = useMCPStore((s) => s.serverTools)
   const isLoading = useMCPStore((s) => s.isLoading)
   const error = useMCPStore((s) => s.error)
-  const hasChanges = useMCPStore((s) => s.hasChanges)
   const loadConfig = useMCPStore((s) => s.loadConfig)
   const loadRuntimeStatus = useMCPStore((s) => s.loadRuntimeStatus)
   const loadTools = useMCPStore((s) => s.loadTools)
@@ -279,14 +274,10 @@ export const MCPSection = React.memo(function MCPSection() {
   const updateServer = useMCPStore((s) => s.updateServer)
   const removeServer = useMCPStore((s) => s.removeServer)
   const toggleServer = useMCPStore((s) => s.toggleServer)
-  const setHasChanges = useMCPStore((s) => s.setHasChanges)
   const clearError = useMCPStore((s) => s.clearError)
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingServer, setEditingServer] = React.useState<{ name: string; config: MCPServerConfig } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = React.useState<string | null>(null)
-  const [isRestarting, setIsRestarting] = React.useState(false)
-  const [restartError, setRestartError] = React.useState<string | null>(null)
 
   // Load config on mount
   React.useEffect(() => {
@@ -327,35 +318,6 @@ export const MCPSection = React.memo(function MCPSection() {
     await toggleServer(name, enabled)
   }
 
-  const handleRestartOpenCode = async () => {
-    if (!workspacePath) {
-      setRestartError(t('settings.mcp.noWorkspace', 'No workspace selected'))
-      return
-    }
-
-    setIsRestarting(true)
-    setRestartError(null)
-    try {
-      await invoke('stop_opencode')
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const status = await invoke<{ url: string }>('start_opencode', {
-        config: { workspace_path: workspacePath },
-      })
-      initOpenCodeClient({ baseUrl: status.url })
-      setHasChanges(false)
-      // Reload runtime status and tools after restart
-      setTimeout(() => {
-        loadRuntimeStatus()
-        loadTools()
-      }, 3000)
-    } catch (err) {
-      console.error('Failed to restart OpenCode:', err)
-      setRestartError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setIsRestarting(false)
-    }
-  }
-
   const allEntries = Object.entries(servers).sort(([a], [b]) => a.localeCompare(b))
   const inherentEntries = allEntries.filter(([name]) => INHERENT_MCP_NAMES.has(name))
   const customEntries = allEntries.filter(([name]) => !INHERENT_MCP_NAMES.has(name))
@@ -369,46 +331,6 @@ export const MCPSection = React.memo(function MCPSection() {
         description={t('settings.mcp.description', 'Manage Model Context Protocol server connections')}
         iconColor="text-orange-500"
       />
-
-      {/* Restart Warning */}
-      {hasChanges && (
-        <SettingCard className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border-amber-200 dark:border-amber-800">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-medium text-amber-900 dark:text-amber-100">
-                {t('settings.mcp.configChanged', 'Configuration Changed')}
-              </p>
-              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                {t('settings.mcp.restartToApply', 'Restart OpenCode to apply the new MCP configuration.')}
-              </p>
-              {restartError && (
-                <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-                  {t('common.error', 'Error')}: {restartError}
-                </p>
-              )}
-            </div>
-            <Button
-              size="sm"
-              onClick={handleRestartOpenCode}
-              disabled={isRestarting || !workspacePath}
-              className="gap-2"
-            >
-              {isRestarting ? (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {t('settings.mcp.restarting', 'Restarting...')}
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-3 w-3" />
-                  {t('settings.mcp.restart', 'Restart')}
-                </>
-              )}
-            </Button>
-          </div>
-        </SettingCard>
-      )}
 
       {/* Error Message */}
       {error && (

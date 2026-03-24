@@ -12,7 +12,6 @@ vi.mock('@/stores/mcp', () => ({
       serverTools: {},
       isLoading: false,
       error: null,
-      hasChanges: false,
       loadConfig: vi.fn(),
       loadRuntimeStatus: vi.fn(),
       loadTools: vi.fn(),
@@ -20,7 +19,6 @@ vi.mock('@/stores/mcp', () => ({
       updateServer: vi.fn(),
       removeServer: vi.fn(),
       toggleServer: vi.fn(),
-      setHasChanges: vi.fn(),
       clearError: vi.fn(),
     }
     return sel(state)
@@ -32,14 +30,7 @@ vi.mock('@/stores/deps', () => ({
     return sel(state)
   }),
 }))
-vi.mock('@/stores/workspace', () => ({
-  useWorkspaceStore: vi.fn((sel: (s: any) => any) => {
-    const state = { workspacePath: '/test' }
-    return sel(state)
-  }),
-}))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('@/lib/opencode/client', () => ({ initOpenCodeClient: vi.fn() }))
 vi.mock('@/lib/utils', () => ({ cn: (...a: string[]) => a.join(' ') }))
 vi.mock('../shared', () => ({
   SettingCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
