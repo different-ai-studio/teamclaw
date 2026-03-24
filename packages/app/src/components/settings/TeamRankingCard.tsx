@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Trophy, Flame, MessageSquareHeart, ChevronRight } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
-import { useTeamModeStore } from '@/stores/team-mode'
+import { useTeamOssStore } from '@/stores/team-oss'
 
 async function tauriInvoke<T>(
   cmd: string,
@@ -46,7 +46,7 @@ interface TeamRankingCardProps {
 export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
   const [leaderboard, setLeaderboard] = React.useState<TeamLeaderboard | null>(null)
   const [currentDeviceId, setCurrentDeviceId] = React.useState<string | null>(null)
-  const teamMode = useTeamModeStore((s) => s.teamMode)
+  const ossConnected = useTeamOssStore((s) => s.connected)
 
   React.useEffect(() => {
     const load = async () => {
@@ -73,11 +73,11 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
 
   // Clear leaderboard data when team mode is disabled
   React.useEffect(() => {
-    if (!teamMode) {
+    if (!ossConnected) {
       setLeaderboard(null)
       setCurrentDeviceId(null)
     }
-  }, [teamMode])
+  }, [ossConnected])
 
   // Calculate current user's rank
   const currentMember = React.useMemo(() => {
