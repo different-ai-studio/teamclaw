@@ -22,8 +22,9 @@ const ALWAYS_IGNORED_NAMES = new Set([
 const DEV_ONLY_NAMES = new Set([".teamclaw", ".opencode"])
 
 function isIgnoredName(name: string): boolean {
+  if (useTeamModeStore.getState().devUnlocked) return false
   if (ALWAYS_IGNORED_NAMES.has(name)) return true
-  if (DEV_ONLY_NAMES.has(name) && !useTeamModeStore.getState().devUnlocked) return true
+  if (DEV_ONLY_NAMES.has(name)) return true
   return false
 }
 

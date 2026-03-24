@@ -149,7 +149,8 @@
     "noSessionsFound": "未找到会话",
     "currentWorkspace": "当前：{{path}}",
     "loadMore": "加载更多",
-    "loadingMore": "加载中..."
+    "loadingMore": "加载中...",
+    "settings": "设置"
   },
   "setup": {
     "title": "需要设置",

@@ -149,7 +149,8 @@
     "noSessionsFound": "No sessions found",
     "currentWorkspace": "Current: {{path}}",
     "loadMore": "Load More",
-    "loadingMore": "Loading..."
+    "loadingMore": "Loading...",
+    "settings": "Settings"
   },
   "setup": {
     "title": "Setup Required",

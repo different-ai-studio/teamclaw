@@ -66,6 +66,7 @@ interface PendingApplication {
 
 interface TeamOssState {
   // State
+  configured: boolean // local config exists (oss.enabled), true even when offline
   connected: boolean
   syncing: boolean
   syncStatus: SyncStatus | null
@@ -110,6 +111,7 @@ interface TeamOssState {
 
 export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   // initial state
+  configured: false,
   connected: false,
   syncing: false,
   syncStatus: null,
@@ -133,11 +135,17 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
 
       const config = await invoke<OssTeamConfig | null>('oss_get_team_config', { workspacePath })
       if (config?.enabled) {
-        const info = await invoke<OssTeamInfo>('oss_restore_sync', {
-          workspacePath,
-          teamId: config.teamId,
-        })
-        set({ connected: true, teamInfo: info })
+        set({ configured: true })
+        try {
+          const info = await invoke<OssTeamInfo>('oss_restore_sync', {
+            workspacePath,
+            teamId: config.teamId,
+          })
+          set({ connected: true, teamInfo: info })
+        } catch (e) {
+          // Offline or restore failed — still configured, just not connected
+          console.warn('OSS restore failed (offline?):', e)
+        }
       } else {
         // Check for pending application
         const pending = await invoke<PendingApplication | null>('oss_get_pending_application', { workspacePath })
@@ -157,7 +165,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         ...params,
         fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
       })
-      set({ connected: true, teamInfo: info, error: null })
+      set({ configured: true, connected: true, teamInfo: info, error: null })
       // Refresh file tree so the new teamclaw-team directory appears
       const { useWorkspaceStore } = await import('@/stores/workspace')
       await useWorkspaceStore.getState().refreshFileTree()
@@ -188,7 +196,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         ownerName: result.ownerName!,
         role: result.role!,
       }
-      set({ connected: true, teamInfo: info, error: null, pendingApplication: null })
+      set({ configured: true, connected: true, teamInfo: info, error: null, pendingApplication: null })
       const { useWorkspaceStore } = await import('@/stores/workspace')
       await useWorkspaceStore.getState().refreshFileTree()
       return result
@@ -202,6 +210,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     try {
       await invoke('oss_leave_team', { workspacePath })
       set({
+        configured: false,
         connected: false,
         teamInfo: null,
         syncStatus: null,

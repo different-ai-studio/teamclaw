@@ -78,13 +78,18 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         model: status.llm.model,
         modelName: status.llm.modelName || status.llm.model,
       }
-      set({ teamMode: true, teamModelConfig: config })
+      set({ teamModelConfig: config })
     } else {
-      const wasTeamMode = get().teamMode
-      set({ teamMode: false, teamModelConfig: null })
-      if (wasTeamMode) {
-        await get().clearTeamMode(_workspacePath)
-      }
+      set({ teamModelConfig: null })
+    }
+
+    // Sync teamMode from OSS configured state (true even when offline)
+    const { useTeamOssStore } = await import('./team-oss')
+    const ossConfigured = useTeamOssStore.getState().configured
+    const wasTeamMode = get().teamMode
+    set({ teamMode: ossConfigured })
+    if (wasTeamMode && !ossConfigured) {
+      await get().clearTeamMode(_workspacePath)
     }
     // Load user's role (non-critical)
     try {
@@ -288,3 +293,15 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     } catch { /* ignore */ }
   },
 }))
+
+// Subscribe to OSS configured state changes — keep teamMode in sync
+// configured = local config exists, true even when offline
+import('./team-oss').then(({ useTeamOssStore }) => {
+  let prevConfigured = useTeamOssStore.getState().configured
+  useTeamOssStore.subscribe((state) => {
+    if (state.configured !== prevConfigured) {
+      prevConfigured = state.configured
+      useTeamModeStore.setState({ teamMode: state.configured })
+    }
+  })
+})

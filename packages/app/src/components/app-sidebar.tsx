@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, Settings, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Pencil, Ellipsis, Clock } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Pencil, Ellipsis, Clock } from "lucide-react"
 
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
@@ -8,6 +8,7 @@ import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useTabsStore } from "@/stores/tabs"
 import { useCronStore } from "@/stores/cron"
+import { useTeamModeStore } from "@/stores/team-mode"
 import {
   Sidebar,
   SidebarContent,
@@ -228,6 +229,7 @@ function WorkspaceSelectorButton() {
   const workspaceName = useWorkspaceStore(s => s.workspaceName)
   const isLoadingWorkspace = useWorkspaceStore(s => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
+  const teamMode = useTeamModeStore(s => s.teamMode)
   const [isSelecting, setIsSelecting] = React.useState(false)
 
   const handleOpenFolder = async () => {
@@ -263,12 +265,14 @@ function WorkspaceSelectorButton() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground max-w-[140px]"
+          className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground max-w-[180px]"
           disabled={isLoading}
           onClick={handleOpenFolder}
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          ) : teamMode && workspaceName ? (
+            <Users className="h-4 w-4 shrink-0 text-blue-500" />
           ) : (
             <FolderOpen className="h-4 w-4 shrink-0" />
           )}
@@ -566,11 +570,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <div className="flex items-center justify-between">
           <Button
             variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => openSettings()}
           >
-            <Settings className="h-4 w-4" />
+            {t('sidebar.settings', '设置')}
           </Button>
           <WorkspaceSelectorButton />
         </div>
