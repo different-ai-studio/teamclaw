@@ -9,11 +9,14 @@ import { ApplicationDialog } from './ApplicationDialog'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { invoke } from '@tauri-apps/api/core'
 import type { DeviceInfo } from '@/lib/git/types'
+import { useTeamModeStore } from '@/stores/team-mode'
 import {
   Cloud,
   Copy,
   Eye,
   EyeOff,
+  KeyRound,
+  Loader2,
   LogOut,
   RefreshCw,
   Shield,
@@ -40,6 +43,69 @@ function SettingCard({
       </div>
       {children}
     </div>
+  )
+}
+
+function TeamApiKeyCard() {
+  const teamApiKey = useTeamModeStore((s) => s.teamApiKey)
+  const setTeamApiKey = useTeamModeStore((s) => s.setTeamApiKey)
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const [keyInput, setKeyInput] = useState(teamApiKey || '')
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const key = keyInput.trim() || null
+      await setTeamApiKey(key, workspacePath || undefined)
+      if (!key) setKeyInput('')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <SettingCard title="API Key" icon={KeyRound}>
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          可选。留空则使用设备 ID 作为身份验证密钥。
+        </p>
+        <div className="flex items-center gap-2">
+          <Input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="留空使用设备 ID"
+            className="h-9 text-sm bg-background/50"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave()
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 h-9"
+            disabled={saving}
+            onClick={handleSave}
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '保存'}
+          </Button>
+          {teamApiKey && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 h-9 text-xs text-muted-foreground"
+              onClick={async () => {
+                setKeyInput('')
+                await setTeamApiKey(null, workspacePath || undefined)
+              }}
+            >
+              使用设备 ID
+            </Button>
+          )}
+        </div>
+      </div>
+    </SettingCard>
   )
 }
 
@@ -404,6 +470,8 @@ export function TeamOSSConfig() {
               </div>
             </div>
           </SettingCard>
+
+          <TeamApiKeyCard />
 
           <SettingCard title="团队成员">
             <TeamMemberList />
