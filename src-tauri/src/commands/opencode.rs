@@ -1178,9 +1178,11 @@ async fn check_mcp_servers_ready(port: u16) -> bool {
     }
 }
 
-/// Check if OpenCode server is healthy
+/// Check if OpenCode server is healthy.
+/// Uses `/session` (the first endpoint the frontend calls) instead of `/project`
+/// to ensure the session API is fully initialized before declaring ready.
 async fn check_server_health(port: u16) -> bool {
-    let url = format!("http://127.0.0.1:{}/project", port);
+    let url = format!("http://127.0.0.1:{}/session", port);
     match reqwest::get(&url).await {
         Ok(resp) => resp.status().is_success(),
         Err(_) => false,
