@@ -164,6 +164,9 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       const info = await invoke<OssTeamInfo>('oss_create_team', {
         ...params,
         fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
+        llmModel: buildConfig.team.llm.model || null,
+        llmModelName: buildConfig.team.llm.modelName || null,
       })
       set({ configured: true, connected: true, teamInfo: info, error: null })
       // Refresh file tree so the new teamclaw-team directory appears
@@ -181,6 +184,9 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       const result = await invoke<OssJoinResult>('oss_join_team', {
         ...params,
         fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
+        llmModel: buildConfig.team.llm.model || null,
+        llmModelName: buildConfig.team.llm.modelName || null,
       })
 
       if (result.status === 'not_member') {

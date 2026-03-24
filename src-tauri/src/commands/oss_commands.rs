@@ -73,9 +73,18 @@ pub async fn oss_create_team(
     owner_name: String,
     owner_email: String,
     fc_endpoint: String,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
 ) -> Result<OssTeamInfo, String> {
     let node_id = get_p2p_node_id(&iroh_state).await?;
     let team_secret = generate_team_secret()?;
+
+    // Write LLM config to .teamclaw/teamclaw.json
+    let llm_config =
+        super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    super::team::write_llm_config(&workspace_path, Some(&llm_config))?;
+    info!("oss_create_team: wrote LLM config to .teamclaw/teamclaw.json");
 
     // Scaffold teamclaw-team directory with default structure
     let team_dir = format!("{}/teamclaw-team", workspace_path);
@@ -205,6 +214,9 @@ pub async fn oss_join_team(
     team_id: String,
     team_secret: String,
     fc_endpoint: String,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
 ) -> Result<OssJoinResult, String> {
     let node_id = get_p2p_node_id(&iroh_state).await?;
 
@@ -268,6 +280,11 @@ pub async fn oss_join_team(
     if !std::path::Path::new(&team_dir).exists() {
         super::team::scaffold_team_dir(&team_dir)?;
     }
+
+    // Write LLM config to .teamclaw/teamclaw.json
+    let llm_config =
+        super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    super::team::write_llm_config(&workspace_path, Some(&llm_config))?;
 
     // Run initial sync
     manager.initial_sync().await?;
