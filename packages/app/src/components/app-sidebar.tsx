@@ -296,17 +296,6 @@ function WorkspaceSelectorButton() {
           <span className="truncate text-xs" data-testid="workspace-name">
             {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
           </span>
-          {teamMode && workspaceName && (
-            <span className={cn(
-              "shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1",
-              p2pConnected
-                ? "text-green-600 dark:text-green-400 bg-green-500/10"
-                : "text-amber-600 dark:text-amber-400 bg-amber-500/10"
-            )}>
-              <span className={cn("h-1.5 w-1.5 rounded-full", p2pConnected ? "bg-green-500" : "bg-amber-500")} />
-              {t('sidebar.teamTag', 'Team')}
-            </span>
-          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent side="top">
