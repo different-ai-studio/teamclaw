@@ -72,15 +72,16 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
   loadTeamConfig: async (_workspacePath: string) => {
     const status = await fetchTeamStatus()
+    const teamMode = !!status?.active
     if (status?.active && status.llm) {
       const config: TeamModelConfig = {
         baseUrl: status.llm.baseUrl,
         model: status.llm.model,
         modelName: status.llm.modelName || status.llm.model,
       }
-      set({ teamModelConfig: config })
+      set({ teamMode, teamModelConfig: config })
     } else {
-      set({ teamModelConfig: null })
+      set({ teamMode, teamModelConfig: null })
     }
 
     // Team mode is determined by P2P sync status

@@ -193,6 +193,10 @@ export function TeamP2PConfig() {
   const [confirmAction, setConfirmAction] = React.useState<'create' | 'join' | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState(false)
 
+  /** Latest create/join impls for checkTeamDirAndConfirm (must not use stale useCallback([]) closure). */
+  const doCreateTeamRef = React.useRef<() => Promise<void>>(async () => {})
+  const doJoinTeamRef = React.useRef<() => Promise<void>>(async () => {})
+
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
   const isConnected = syncStatus?.connected ?? false
@@ -247,22 +251,6 @@ export function TeamP2PConfig() {
       return isoString
     }
   }
-
-  // ─── P2P: check existing team dir before create/join ────────────────────
-
-  const checkTeamDirAndConfirm = React.useCallback(async (action: 'create' | 'join') => {
-    try {
-      const result = await tauriInvoke<{ exists: boolean; hasMembers: boolean }>('p2p_check_team_dir')
-      if (result.exists) {
-        setConfirmAction(action)
-        return
-      }
-    } catch {
-      // If check fails, proceed anyway
-    }
-    if (action === 'create') doCreateTeam()
-    else doJoinTeam()
-  }, [])
 
   const handleConfirmOverwrite = () => {
     const action = confirmAction
@@ -341,8 +329,6 @@ export function TeamP2PConfig() {
     }
   }
 
-  const handleJoin = () => checkTeamDirAndConfirm('join')
-
   const doCreateTeam = async () => {
     if (!createTeamName.trim()) return
     setCreateLoading(true)
@@ -373,7 +359,25 @@ export function TeamP2PConfig() {
     }
   }
 
-  const handleCreateTeam = () => checkTeamDirAndConfirm('create')
+  doCreateTeamRef.current = doCreateTeam
+  doJoinTeamRef.current = doJoinTeam
+
+  const checkTeamDirAndConfirm = React.useCallback(async (action: 'create' | 'join') => {
+    try {
+      const result = await tauriInvoke<{ exists: boolean; hasMembers: boolean }>('p2p_check_team_dir')
+      if (result.exists) {
+        setConfirmAction(action)
+        return
+      }
+    } catch {
+      // If check fails, proceed anyway
+    }
+    if (action === 'create') await doCreateTeamRef.current()
+    else await doJoinTeamRef.current()
+  }, [])
+
+  const handleJoin = () => { void checkTeamDirAndConfirm('join') }
+  const handleCreateTeam = () => { void checkTeamDirAndConfirm('create') }
 
   const handleRotateTicket = async () => {
     setRotateLoading(true)
