@@ -151,7 +151,7 @@ export const KnowledgeConfigPanel = React.memo(function KnowledgeConfigPanel() {
                     min="0"
                     max="1"
                     value={localConfig.autoInjectThreshold}
-                    onChange={(e) => updateConfig({ autoInjectThreshold: parseFloat(e.target.value) || 0.7 })}
+                    onChange={(e) => updateConfig({ autoInjectThreshold: parseFloat(e.target.value) || 0.4 })}
                   />
                 </FormField>
 

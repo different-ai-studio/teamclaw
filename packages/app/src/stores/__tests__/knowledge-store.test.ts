@@ -280,7 +280,7 @@ describe('Knowledge Store', () => {
       rerankTopK: 20,
       fileWatcherEnabled: false,
       autoInjectEnabled: false,
-      autoInjectThreshold: 0.7,
+      autoInjectThreshold: 0.4,
       autoInjectTopK: 3,
       autoInjectMaxTokens: 2000,
     }

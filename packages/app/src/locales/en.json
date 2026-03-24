@@ -609,7 +609,7 @@
           "enable": "Enable Auto Inject",
           "enableDesc": "Automatically retrieve knowledge base before each conversation",
           "threshold": "Similarity Threshold",
-          "thresholdDesc": "Only inject chunks with similarity above this threshold (0-1), recommended 0.7. If no chunks meet the threshold, nothing will be injected.",
+          "thresholdDesc": "Only inject chunks with similarity above this threshold (0-1), recommended 0.4. If no chunks meet the threshold, nothing will be injected.",
           "topKDesc": "Maximum number of knowledge chunks to inject (recommended 3-5)",
           "maxTokens": "Token Limit",
           "maxTokensDesc": "Maximum tokens for injected content (recommended 2000), will be truncated if exceeded",
