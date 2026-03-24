@@ -8,6 +8,7 @@ import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useTabsStore } from "@/stores/tabs"
 import { useCronStore } from "@/stores/cron"
+import { useTeamModeStore } from "@/stores/team-mode"
 import {
   Sidebar,
   SidebarContent,
@@ -228,6 +229,7 @@ function WorkspaceSelectorButton() {
   const workspaceName = useWorkspaceStore(s => s.workspaceName)
   const isLoadingWorkspace = useWorkspaceStore(s => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
+  const teamMode = useTeamModeStore(s => s.teamMode)
   const [isSelecting, setIsSelecting] = React.useState(false)
 
   const handleOpenFolder = async () => {
@@ -263,7 +265,7 @@ function WorkspaceSelectorButton() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground max-w-[140px]"
+          className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground max-w-[180px]"
           disabled={isLoading}
           onClick={handleOpenFolder}
         >
@@ -275,6 +277,11 @@ function WorkspaceSelectorButton() {
           <span className="truncate text-xs" data-testid="workspace-name">
             {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
           </span>
+          {teamMode && workspaceName && (
+            <span className="shrink-0 text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1 py-0.5 rounded">
+              团队
+            </span>
+          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent side="top">
@@ -566,11 +573,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <div className="flex items-center justify-between">
           <Button
             variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => openSettings()}
           >
-            <Settings className="h-4 w-4" />
+            <Settings className="h-3.5 w-3.5 mr-1" />
+            {t('sidebar.settings', '设置')}
           </Button>
           <WorkspaceSelectorButton />
         </div>
