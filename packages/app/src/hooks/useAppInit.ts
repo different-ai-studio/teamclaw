@@ -267,6 +267,44 @@ export function useGitReposInit() {
 // Cron session IDs (for sidebar filtering)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// P2P auto-reconnect (team mode)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function useP2pAutoReconnect() {
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
+  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+
+  useEffect(() => {
+    if (!workspacePath || !openCodeReady || !isTauri()) return;
+
+    // Delay P2P reconnect so it doesn't compete with app startup
+    const timer = setTimeout(async () => {
+      try {
+        const { useTeamModeStore } = await import("@/stores/team-mode");
+        if (!useTeamModeStore.getState().teamMode) return;
+
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("p2p_reconnect");
+
+        // Update connection status
+        const status = await invoke<{ connected?: boolean; role?: string }>("p2p_sync_status").catch(() => null);
+        if (status) {
+          useTeamModeStore.setState({
+            p2pConnected: status.connected ?? false,
+            myRole: (status.role as 'owner' | 'editor' | 'viewer') ?? null,
+          });
+        }
+        console.log("[P2P] Auto-reconnect completed");
+      } catch (err) {
+        console.warn("[P2P] Auto-reconnect failed (non-critical):", err);
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [workspacePath, openCodeReady]);
+}
+
 export function useCronInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
