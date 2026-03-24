@@ -68,10 +68,15 @@ describe("useAutoSave", () => {
       await vi.advanceTimersByTimeAsync(1100);
     });
 
-    expect(mockWriteTextFile).toHaveBeenCalledWith(
-      "/test/file.md",
-      "modified content",
-    );
+    // doSave is async; switch to real timers so waitFor can observe completion
+    vi.useRealTimers();
+    await waitFor(() => {
+      expect(mockWriteTextFile).toHaveBeenCalledWith(
+        "/test/file.md",
+        "modified content",
+      );
+    });
+    vi.useFakeTimers();
   });
 
   // 9.2
@@ -119,9 +124,13 @@ describe("useAutoSave", () => {
       await vi.advanceTimersByTimeAsync(1100);
     });
 
-    // Should save with latest content
-    expect(mockWriteTextFile).toHaveBeenCalledTimes(1);
-    expect(mockWriteTextFile).toHaveBeenCalledWith("/test/file.md", "v3");
+    // doSave is async; switch to real timers so waitFor can observe completion
+    vi.useRealTimers();
+    await waitFor(() => {
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(1);
+      expect(mockWriteTextFile).toHaveBeenCalledWith("/test/file.md", "v3");
+    });
+    vi.useFakeTimers();
   });
 
   // 9.3

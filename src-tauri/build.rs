@@ -8,7 +8,8 @@ fn main() {
     let with_exe = format!("{}.exe", binary_name);
     let exists = std::path::Path::new(&binary_name).exists()
         || (target_triple.contains("windows") && std::path::Path::new(&with_exe).exists());
-    if !exists {
+    let in_ci = std::env::var("CI").is_ok();
+    if !exists && !in_ci {
         let hint = if target_triple.contains("windows") {
             ".\\src-tauri\\binaries\\download-opencode.ps1"
         } else {
