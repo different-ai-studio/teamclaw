@@ -49,6 +49,7 @@ interface MCPState {
   clearError: () => void
   setHasChanges: (hasChanges: boolean) => void
   clearTestResult: (name: string) => void
+  syncFromFile: () => Promise<void>
 }
 
 export const useMCPStore = create<MCPState>((set) => ({
@@ -161,5 +162,55 @@ export const useMCPStore = create<MCPState>((set) => ({
       delete newResults[name]
       return { testResults: newResults }
     })
+  },
+
+  syncFromFile: async () => {
+    try {
+      const newConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
+      const oldConfig = useMCPStore.getState().servers
+
+      let client
+      try {
+        client = getOpenCodeClient()
+      } catch {
+        // Client not initialized, just update local state
+        set({ servers: newConfig })
+        return
+      }
+
+      const oldNames = new Set(Object.keys(oldConfig))
+      const newNames = new Set(Object.keys(newConfig))
+      const ops: Promise<unknown>[] = []
+
+      // Removed servers → disconnect
+      for (const name of oldNames) {
+        if (!newNames.has(name)) {
+          ops.push(client.disconnectMCP(name).catch(() => {}))
+        }
+      }
+
+      // Added servers → add to runtime
+      for (const name of newNames) {
+        if (!oldNames.has(name) && newConfig[name].enabled !== false) {
+          ops.push(client.addMCPServer(name, newConfig[name]).catch(() => {}))
+        }
+      }
+
+      // Changed servers → disconnect + connect
+      for (const name of newNames) {
+        if (oldNames.has(name) && JSON.stringify(oldConfig[name]) !== JSON.stringify(newConfig[name])) {
+          ops.push(
+            client.disconnectMCP(name).catch(() => {})
+              .then(() => client.connectMCP(name).catch(() => {}))
+          )
+        }
+      }
+
+      await Promise.all(ops)
+      const runtimeStatus = await client.getMCPStatus().catch(() => ({} as Record<string, import('@/lib/opencode/types').MCPRuntimeStatus>))
+      set({ servers: newConfig, runtimeStatus })
+    } catch (error) {
+      console.error('[MCP] syncFromFile failed:', error)
+    }
   },
 }))
