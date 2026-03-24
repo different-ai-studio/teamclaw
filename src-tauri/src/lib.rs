@@ -445,6 +445,8 @@ pub fn run() {
             commands::team_p2p::save_p2p_config,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_skills_leaderboard,
+            #[cfg(feature = "p2p")]
+            commands::team_p2p::p2p_save_seed_config,
             commands::deps::check_dependencies,
             commands::deps::install_dependency,
             commands::env_vars::env_var_set,

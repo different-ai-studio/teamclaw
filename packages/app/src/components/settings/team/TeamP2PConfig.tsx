@@ -147,6 +147,15 @@ export function TeamP2PConfig() {
   const [dissolveLoading, setDissolveLoading] = React.useState(false)
   const [confirmDissolve, setConfirmDissolve] = React.useState(false)
 
+  const [seedConfigUrl, setSeedConfigUrl] = React.useState('')
+  const [seedConfigSecret, setSeedConfigSecret] = React.useState('')
+  const [seedConfigSaving, setSeedConfigSaving] = React.useState(false)
+  const [applications, setApplications] = React.useState<Array<{
+    nodeId: string; name: string; email: string; note: string;
+    platform: string; arch: string; hostname: string; appliedAt: string
+  }>>([])
+  const [applicationsLoading, setApplicationsLoading] = React.useState(false)
+
   // Seed-based join flow
   const [joinMode, setJoinMode] = React.useState<'seed' | 'ticket'>('seed')
   const [seedUrl, setSeedUrl] = React.useState('')
@@ -163,6 +172,8 @@ export function TeamP2PConfig() {
     lastSyncAt: string | null
     members: TeamMember[]
     ownerNodeId: string | null
+    seedUrl: string | null
+    teamSecret: string | null
   } | null>(null)
 
   // Device identity & allowlist state
@@ -310,6 +321,8 @@ export function TeamP2PConfig() {
           return
         }
         await joinWithTicket(data.ticket)
+        // Persist seed URL + team secret for future owner operations
+        await tauriInvoke('p2p_save_seed_config', { seedUrl: base, teamSecret: teamSecret.trim() || null })
       } catch (err) {
         setP2pError(err instanceof Error ? err.message : 'Failed to connect to seed node')
         setJoinLoading(false)
@@ -361,6 +374,49 @@ export function TeamP2PConfig() {
       setP2pError(err instanceof Error ? err.message : String(err))
     } finally {
       setRotateLoading(false)
+    }
+  }
+
+  const fetchApplications = React.useCallback(async () => {
+    const sUrl = syncStatus?.seedUrl
+    const nsId = syncStatus?.namespaceId
+    const secret = syncStatus?.teamSecret
+    if (!sUrl || !nsId || !secret) return
+    setApplicationsLoading(true)
+    try {
+      const base = sUrl.replace(/\/$/, '')
+      const resp = await fetch(`${base}/teams/${nsId}/applications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamSecret: secret }),
+      })
+      if (resp.ok) {
+        const data = await resp.json()
+        setApplications(data.applications || [])
+      }
+    } catch { /* ignore */ } finally {
+      setApplicationsLoading(false)
+    }
+  }, [syncStatus?.seedUrl, syncStatus?.namespaceId, syncStatus?.teamSecret])
+
+  React.useEffect(() => {
+    if (isOwner && syncStatus?.seedUrl && syncStatus?.namespaceId && syncStatus?.teamSecret) {
+      fetchApplications()
+    }
+  }, [isOwner, syncStatus?.seedUrl, syncStatus?.namespaceId, syncStatus?.teamSecret, fetchApplications])
+
+  const handleSaveSeedConfig = async () => {
+    setSeedConfigSaving(true)
+    try {
+      await tauriInvoke('p2p_save_seed_config', {
+        seedUrl: seedConfigUrl.trim() || null,
+        teamSecret: seedConfigSecret.trim() || null,
+      })
+      await loadSyncStatus()
+      setSeedConfigUrl('')
+      setSeedConfigSecret('')
+    } finally {
+      setSeedConfigSaving(false)
     }
   }
 
@@ -498,6 +554,199 @@ export function TeamP2PConfig() {
                   </Button>
                   <span className="text-[10px] text-muted-foreground">{t('settings.team.regenerateTicketHint', 'Use if ticket was leaked. All members must re-join.')}</span>
                 </div>
+              </div>
+            </SettingCard>
+          )}
+
+          {/* Team ID Card (Owner) */}
+          {isOwner && syncStatus?.namespaceId && (
+            <SettingCard>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
+                    <GitBranch className="h-5 w-5 text-blue-700 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{t('settings.team.teamId', 'Team ID')}</p>
+                    <p className="text-xs text-muted-foreground">{t('settings.team.teamIdDesc', 'Share with your seed node admin to register this team')}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-muted rounded-md p-3 text-xs font-mono break-all select-all">
+                    {syncStatus.namespaceId}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1"
+                    onClick={() => copyToClipboard(syncStatus!.namespaceId!, 'Copied')}
+                  >
+                    <Copy className="h-3 w-3" />
+                    {t('common.copy', 'Copy')}
+                  </Button>
+                </div>
+              </div>
+            </SettingCard>
+          )}
+
+          {/* Seed Connection Card (Owner) */}
+          {isOwner && (
+            <SettingCard>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-orange-100 dark:bg-orange-900/30">
+                    <Link className="h-5 w-5 text-orange-700 dark:text-orange-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{t('settings.team.seedConnection', 'Seed Node')}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {syncStatus?.seedUrl
+                        ? syncStatus.seedUrl
+                        : t('settings.team.seedConnectionDesc', 'Connect to seed node to manage join requests')}
+                    </p>
+                  </div>
+                </div>
+
+                {!syncStatus?.seedUrl ? (
+                  <div className="space-y-2">
+                    <Input
+                      value={seedConfigUrl}
+                      onChange={(e) => setSeedConfigUrl(e.target.value)}
+                      placeholder={t('settings.team.seedUrlPlaceholder', 'Seed node URL (e.g. https://seed.example.com)')}
+                      className="h-9 text-sm"
+                      disabled={seedConfigSaving}
+                    />
+                    <Input
+                      value={seedConfigSecret}
+                      onChange={(e) => setSeedConfigSecret(e.target.value)}
+                      placeholder={t('settings.team.teamSecretPlaceholder', 'Team secret')}
+                      className="h-9 text-sm"
+                      type="password"
+                      disabled={seedConfigSaving}
+                    />
+                    <Button
+                      onClick={handleSaveSeedConfig}
+                      disabled={seedConfigSaving || !seedConfigUrl.trim() || !seedConfigSecret.trim()}
+                      className="gap-2"
+                      size="sm"
+                    >
+                      {seedConfigSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link className="h-3 w-3" />}
+                      {t('settings.team.connectSeed', 'Connect')}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Pending Applications */}
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {t('settings.team.pendingApplications', 'Pending Applications')}
+                        {applications.length > 0 && (
+                          <span className="ml-2 rounded-full bg-orange-100 dark:bg-orange-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700 dark:text-orange-300">
+                            {applications.length}
+                          </span>
+                        )}
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1 text-xs h-6 px-2"
+                        onClick={fetchApplications}
+                        disabled={applicationsLoading}
+                      >
+                        {applicationsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                      </Button>
+                    </div>
+
+                    {applications.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2">{t('settings.team.noApplications', 'No pending applications')}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {applications.map((app) => (
+                          <div key={app.nodeId} className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{app.name || app.nodeId}</p>
+                                {app.email && <p className="text-xs text-muted-foreground truncate">{app.email}</p>}
+                                <p className="text-[10px] text-muted-foreground">{app.platform} · {app.hostname}</p>
+                              </div>
+                              <div className="flex gap-1 shrink-0">
+                                <Button
+                                  size="sm"
+                                  className="h-7 px-2 text-xs gap-1"
+                                  onClick={async () => {
+                                    try {
+                                      // 1. Add to P2P team
+                                      const { invoke: inv } = await import('@tauri-apps/api/core')
+                                      await inv('unified_team_add_member', {
+                                        member: {
+                                          nodeId: app.nodeId,
+                                          name: app.name,
+                                          role: 'editor',
+                                          label: app.hostname,
+                                          platform: app.platform,
+                                          arch: app.arch,
+                                          hostname: app.hostname,
+                                          addedAt: new Date().toISOString(),
+                                        }
+                                      })
+                                      // 2. Approve on seed (remove from pending)
+                                      const base = syncStatus!.seedUrl!.replace(/\/$/, '')
+                                      await fetch(`${base}/teams/${syncStatus!.namespaceId}/applications/${app.nodeId}/approve`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ teamSecret: syncStatus!.teamSecret }),
+                                      })
+                                      await fetchApplications()
+                                      await loadSyncStatus()
+                                    } catch (err) {
+                                      setP2pError(err instanceof Error ? err.message : String(err))
+                                    }
+                                  }}
+                                >
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  {t('settings.team.approve', 'Approve')}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive"
+                                  onClick={async () => {
+                                    try {
+                                      const base = syncStatus!.seedUrl!.replace(/\/$/, '')
+                                      await fetch(`${base}/teams/${syncStatus!.namespaceId}/applications/${app.nodeId}/reject`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ teamSecret: syncStatus!.teamSecret }),
+                                      })
+                                      await fetchApplications()
+                                    } catch (err) {
+                                      setP2pError(err instanceof Error ? err.message : String(err))
+                                    }
+                                  }}
+                                >
+                                  {t('settings.team.reject', 'Reject')}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1 text-xs text-muted-foreground mt-1"
+                      onClick={() => {
+                        setSeedConfigUrl(syncStatus?.seedUrl || '')
+                        setSeedConfigSecret('')
+                        tauriInvoke('p2p_save_seed_config', { seedUrl: null, teamSecret: null }).then(() => loadSyncStatus())
+                      }}
+                    >
+                      {t('settings.team.disconnectSeed', 'Change seed connection')}
+                    </Button>
+                  </div>
+                )}
               </div>
             </SettingCard>
           )}

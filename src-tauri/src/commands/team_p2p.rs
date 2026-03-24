@@ -976,6 +976,8 @@ pub struct P2pConfig {
     /// Seed node URL for team discovery and applications
     #[serde(default)]
     pub seed_url: Option<String>,
+    #[serde(default)]
+    pub team_secret: Option<String>,
 }
 
 /// Read P2P config from teamclaw.json in the workspace.
@@ -1690,6 +1692,8 @@ pub async fn p2p_sync_status(
         last_sync_at: config.last_sync_at,
         members: config.allowed_members,
         owner_node_id: config.owner_node_id,
+        seed_url: config.seed_url,
+        team_secret: config.team_secret,
     })
 }
 
@@ -1703,6 +1707,32 @@ pub struct P2pSyncStatus {
     pub last_sync_at: Option<String>,
     pub members: Vec<TeamMember>,
     pub owner_node_id: Option<String>,
+    pub seed_url: Option<String>,
+    pub team_secret: Option<String>,
+}
+
+#[tauri::command]
+pub async fn p2p_save_seed_config(
+    seed_url: Option<String>,
+    team_secret: Option<String>,
+    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+) -> Result<(), String> {
+    let workspace_path = opencode_state
+        .workspace_path
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No workspace path set")?;
+
+    let mut config = read_p2p_config(&workspace_path)?.unwrap_or_default();
+    if let Some(url) = seed_url {
+        config.seed_url = if url.is_empty() { None } else { Some(url) };
+    }
+    if let Some(secret) = team_secret {
+        config.team_secret = if secret.is_empty() { None } else { Some(secret) };
+    }
+    write_p2p_config(&workspace_path, Some(&config))?;
+    Ok(())
 }
 
 // ─── Skills Contribution Tracking ────────────────────────────────────────

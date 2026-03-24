@@ -7,7 +7,10 @@
 //   GET  /health                                     — node status
 //   GET  /node-id                                    — seed node ID
 //   POST /teams/:id/ticket  { "teamSecret": "..." }  — get DocTicket
-//   POST /teams/:id/apply   { "teamSecret": "...", "nodeId": "...", ... }
+//   POST /teams/:id/apply        { "teamSecret": "...", "nodeId": "...", ... }
+//   POST /teams/:id/applications { "teamSecret": "..." }  — list pending applications
+//   POST /teams/:id/applications/:nid/approve { "teamSecret": "..." }
+//   POST /teams/:id/applications/:nid/reject  { "teamSecret": "..." }
 //
 // Admin endpoints (require `Authorization: Bearer <API_KEY>`):
 //   POST   /admin/teams  { "ticket": "...", "label": "...", "teamSecret": "..." }
@@ -740,6 +743,98 @@ async fn handle_reset_secret(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+// ─── Owner Application Endpoints ────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OwnerApplicationRequest {
+    team_secret: String,
+}
+
+/// POST /teams/:id/applications — list pending applications (requires team secret)
+async fn handle_owner_list_applications(
+    State(state): State<Arc<AppState>>,
+    AxumPath(namespace_id): AxumPath<String>,
+    Json(body): Json<OwnerApplicationRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state
+        .verify_team_secret(&namespace_id, &body.team_secret)
+        .await
+        .map_err(|s| match s {
+            StatusCode::NOT_FOUND => json_err(s, "Team not found"),
+            _ => json_err(s, "Invalid team secret"),
+        })?;
+
+    let apps = load_applications(&state.data_dir, &namespace_id);
+    Ok(Json(serde_json::json!({ "applications": apps })))
+}
+
+/// POST /teams/:id/applications/:node_id/approve — approve application (requires team secret)
+async fn handle_owner_approve_application(
+    State(state): State<Arc<AppState>>,
+    AxumPath((namespace_id, node_id)): AxumPath<(String, String)>,
+    Json(body): Json<OwnerApplicationRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state
+        .verify_team_secret(&namespace_id, &body.team_secret)
+        .await
+        .map_err(|s| match s {
+            StatusCode::NOT_FOUND => json_err(s, "Team not found"),
+            _ => json_err(s, "Invalid team secret"),
+        })?;
+
+    let mut apps = load_applications(&state.data_dir, &namespace_id);
+    let app = apps.iter().find(|a| a.node_id == node_id).cloned();
+
+    let app = app.ok_or_else(|| json_err(StatusCode::NOT_FOUND, "Application not found"))?;
+
+    apps.retain(|a| a.node_id != node_id);
+    save_applications(&state.data_dir, &namespace_id, &apps)
+        .map_err(|e| json_err(StatusCode::INTERNAL_SERVER_ERROR, &e))?;
+
+    eprintln!(
+        "[seed:{}] Owner approved application: {}",
+        &namespace_id[..8],
+        &node_id
+    );
+
+    Ok(Json(serde_json::to_value(&app).unwrap_or_default()))
+}
+
+/// POST /teams/:id/applications/:node_id/reject — reject application (requires team secret)
+async fn handle_owner_reject_application(
+    State(state): State<Arc<AppState>>,
+    AxumPath((namespace_id, node_id)): AxumPath<(String, String)>,
+    Json(body): Json<OwnerApplicationRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state
+        .verify_team_secret(&namespace_id, &body.team_secret)
+        .await
+        .map_err(|s| match s {
+            StatusCode::NOT_FOUND => json_err(s, "Team not found"),
+            _ => json_err(s, "Invalid team secret"),
+        })?;
+
+    let mut apps = load_applications(&state.data_dir, &namespace_id);
+    let before = apps.len();
+    apps.retain(|a| a.node_id != node_id);
+
+    if apps.len() == before {
+        return Err(json_err(StatusCode::NOT_FOUND, "Application not found"));
+    }
+
+    save_applications(&state.data_dir, &namespace_id, &apps)
+        .map_err(|e| json_err(StatusCode::INTERNAL_SERVER_ERROR, &e))?;
+
+    eprintln!(
+        "[seed:{}] Owner rejected application: {}",
+        &namespace_id[..8],
+        &node_id
+    );
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 // ─── Admin Endpoints ────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize)]
@@ -927,6 +1022,18 @@ async fn main() {
         .route("/teams/{namespace_id}/ticket", post(handle_get_ticket))
         .route("/teams/{namespace_id}/apply", post(handle_apply))
         .route("/teams/{namespace_id}/reset-secret", post(handle_reset_secret))
+        .route(
+            "/teams/{namespace_id}/applications",
+            post(handle_owner_list_applications),
+        )
+        .route(
+            "/teams/{namespace_id}/applications/{node_id}/approve",
+            post(handle_owner_approve_application),
+        )
+        .route(
+            "/teams/{namespace_id}/applications/{node_id}/reject",
+            post(handle_owner_reject_application),
+        )
         // Admin endpoints
         .route("/admin/teams", post(handle_admin_add_team))
         .route("/admin/teams", get(handle_admin_list_teams))
@@ -956,6 +1063,9 @@ async fn main() {
     eprintln!("[seed]     POST /teams/:id/ticket");
     eprintln!("[seed]     POST /teams/:id/apply");
     eprintln!("[seed]     POST /teams/:id/reset-secret");
+    eprintln!("[seed]     POST /teams/:id/applications");
+    eprintln!("[seed]     POST /teams/:id/applications/:nid/approve");
+    eprintln!("[seed]     POST /teams/:id/applications/:nid/reject");
     eprintln!("[seed]   Admin (requires Bearer token):");
     eprintln!("[seed]     POST   /admin/teams");
     eprintln!("[seed]     GET    /admin/teams");
