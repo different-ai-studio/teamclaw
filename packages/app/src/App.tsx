@@ -42,6 +42,7 @@ import {
   useChannelGatewayInit,
   useGitReposInit,
   useCronInit,
+  useP2pAutoReconnect,
 
   useExternalLinkHandler,
   useTauriBodyClass,
@@ -445,6 +446,7 @@ function AppContent() {
   useChannelGatewayInit();
   useGitReposInit();
   useCronInit();
+  useP2pAutoReconnect();
   useMCPFileWatcher(workspacePath);
   useExternalLinkHandler();
   useLayoutModeShortcut();

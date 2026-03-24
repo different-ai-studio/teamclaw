@@ -289,7 +289,7 @@ function WorkspaceSelectorButton() {
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
           ) : teamMode && workspaceName ? (
-            <Users className="h-4 w-4 shrink-0 text-blue-500" />
+            <Users className={cn("h-4 w-4 shrink-0", p2pConnected ? "text-blue-500" : "text-muted-foreground")} />
           ) : (
             <FolderOpen className="h-4 w-4 shrink-0" />
           )}

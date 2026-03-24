@@ -140,7 +140,12 @@ pub async fn unified_team_add_member(
             let node = guard.as_mut().ok_or("P2P node not running")?;
             let caller_node_id = super::team_p2p::get_node_id(node);
             let team_dir = format!("{}/teamclaw-team", workspace_path);
-            super::team_p2p::add_member_to_team(&workspace_path, &team_dir, &caller_node_id, member)?;
+            super::team_p2p::add_member_to_team(
+                &workspace_path,
+                &team_dir,
+                &caller_node_id,
+                member,
+            )?;
             // Push updated members.json to Iroh doc immediately (don't rely on fs watcher)
             if let Some(ref doc) = node.active_doc {
                 let manifest_path = format!("{}/{}", team_dir, "_team/members.json");
