@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, Settings, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Pencil, Ellipsis } from "lucide-react"
+import { Search, SquarePen, Settings, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Pencil, Ellipsis, Clock } from "lucide-react"
 
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
@@ -134,6 +134,8 @@ export function SidebarIconGroup({ className }: { className?: string }) {
   const { toggleSidebar } = useSidebar()
   const createSession = useSessionStore(s => s.createSession)
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
+  const showCronSessions = useCronStore(s => s.showCronSessions)
+  const toggleShowCronSessions = useCronStore(s => s.toggleShowCronSessions)
   const [isCreating, setIsCreating] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
   
@@ -185,6 +187,21 @@ export function SidebarIconGroup({ className }: { className?: string }) {
           title={hasWorkspace ? "Search (⌘K)" : t('sidebar.selectWorkspaceFirst', 'Please select a workspace first')}
         >
           <Search className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "h-7 w-7 transition-colors disabled:opacity-40",
+            showCronSessions
+              ? "text-foreground bg-muted"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          disabled={!hasWorkspace}
+          onClick={toggleShowCronSessions}
+          title={showCronSessions ? t('sidebar.showAllSessions', 'Show all sessions') : t('sidebar.showCronSessions', 'Show scheduled sessions')}
+        >
+          <Clock className="h-4 w-4" />
         </Button>
         <Button
           variant="ghost"
@@ -327,16 +344,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const updateSessionTitle = useSessionStore(s => s.updateSessionTitle)
   const loadMoreSessions = useSessionStore(s => s.loadMoreSessions)
   const cronSessionIds = useCronStore(s => s.cronSessionIds)
+  const showCronSessions = useCronStore(s => s.showCronSessions)
 
   // Rename state
   const [renamingSessionId, setRenamingSessionId] = React.useState<string | null>(null)
 
-  // UI-level pagination: filter out cron sessions, then slice to visible count
+  // UI-level pagination: filter by cron toggle, then slice to visible count
   const sessions = React.useMemo(
     () => allSessions
-      .filter(s => !cronSessionIds.has(s.id) || s.id === activeSessionId)
+      .filter(s => showCronSessions
+        ? cronSessionIds.has(s.id)
+        : !cronSessionIds.has(s.id) || s.id === activeSessionId
+      )
       .slice(0, visibleSessionCount),
-    [allSessions, cronSessionIds, activeSessionId, visibleSessionCount],
+    [allSessions, cronSessionIds, showCronSessions, activeSessionId, visibleSessionCount],
   )
   
   const openSettings = useUIStore(s => s.openSettings)

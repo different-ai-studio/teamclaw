@@ -93,6 +93,8 @@ interface CronState {
 
   // All session IDs created by cron (for filtering in session list)
   cronSessionIds: Set<string>
+  // Toggle to show only cron sessions in the session list
+  showCronSessions: boolean
 
   // Run history for the currently viewed job
   selectedJobId: string | null
@@ -113,6 +115,7 @@ interface CronState {
   refreshDelivery: () => Promise<void>
   clearError: () => void
   setSelectedJobId: (jobId: string | null) => void
+  toggleShowCronSessions: () => void
 }
 
 export const useCronStore = create<CronState>((set, get) => ({
@@ -122,6 +125,7 @@ export const useCronStore = create<CronState>((set, get) => ({
   isInitialized: false,
 
   cronSessionIds: new Set<string>(),
+  showCronSessions: false,
 
   selectedJobId: null,
   runs: [],
@@ -249,6 +253,7 @@ export const useCronStore = create<CronState>((set, get) => ({
 
   clearError: () => set({ error: null }),
   setSelectedJobId: (jobId: string | null) => set({ selectedJobId: jobId }),
+  toggleShowCronSessions: () => set(s => ({ showCronSessions: !s.showCronSessions })),
 }))
 
 // ==================== Helpers ====================

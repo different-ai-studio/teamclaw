@@ -118,11 +118,15 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
   const allSessions = useSessionStore(s => s.sessions)
   const activeSessionId = useSessionStore(s => s.activeSessionId)
   const cronSessionIds = useCronStore(s => s.cronSessionIds)
+  const showCronSessions = useCronStore(s => s.showCronSessions)
 
-  // Filter out cron-created sessions (unless it's the currently active one)
+  // Filter sessions by cron toggle
   const sessions = useMemo(
-    () => allSessions.filter(s => !cronSessionIds.has(s.id) || s.id === activeSessionId),
-    [allSessions, cronSessionIds, activeSessionId],
+    () => allSessions.filter(s => showCronSessions
+      ? cronSessionIds.has(s.id)
+      : !cronSessionIds.has(s.id) || s.id === activeSessionId
+    ),
+    [allSessions, cronSessionIds, showCronSessions, activeSessionId],
   )
   const isLoading = useSessionStore(s => s.isLoading)
   const highlightedSessionIds = useSessionStore(s => s.highlightedSessionIds)
