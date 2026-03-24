@@ -527,13 +527,63 @@ pub fn run() {
             // Initialize iroh P2P node in background (non-blocking)
             #[cfg(feature = "p2p")]
             {
-                let iroh_state = app.handle().state::<commands::p2p_state::IrohState>().inner().clone();
+                let app_handle_p2p = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
+                    let iroh_state = app_handle_p2p.state::<commands::p2p_state::IrohState>().inner().clone();
                     match commands::team_p2p::IrohNode::new_default().await {
                         Ok(node) => {
                             *iroh_state.lock().await = Some(node);
                             #[cfg(debug_assertions)]
                             eprintln!("[P2P] iroh node started");
+
+                            // Auto-reconnect: wait for workspace_path, then reconnect
+                            let app_rc = app_handle_p2p.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let oc_state = app_rc.state::<commands::opencode::OpenCodeState>();
+                                let iroh_st = app_rc.state::<commands::p2p_state::IrohState>().inner().clone();
+                                // Poll until workspace_path is set (max 30s)
+                                let mut workspace = None;
+                                for _ in 0..60 {
+                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                    if let Ok(guard) = oc_state.workspace_path.lock() {
+                                        if let Some(ref ws) = *guard {
+                                            workspace = Some(ws.clone());
+                                            break;
+                                        }
+                                    }
+                                }
+                                let Some(ws) = workspace else { return };
+                                let config = match commands::team_p2p::read_p2p_config(&ws).ok().flatten() {
+                                    Some(c) if c.enabled && c.doc_ticket.is_some() => c,
+                                    _ => return,
+                                };
+                                let mut guard = iroh_st.lock().await;
+                                let Some(node) = guard.as_mut() else { return };
+                                if node.active_doc.is_some() { return }
+                                let Some(ref ticket_str) = config.doc_ticket else { return };
+                                eprintln!("[P2P] Auto-reconnecting via ticket import");
+                                let ticket = match ticket_str.trim().parse::<iroh_docs::DocTicket>() {
+                                    Ok(t) => t,
+                                    Err(_) => { eprintln!("[P2P] Auto-reconnect: invalid ticket"); return }
+                                };
+                                match node.docs.import(ticket).await {
+                                    Ok(doc) => {
+                                        let team_dir = format!("{}/teamclaw-team", ws);
+                                        let my_role = config.role.clone().unwrap_or(commands::team_unified::MemberRole::Editor);
+                                        let my_node_id = commands::team_p2p::get_node_id(node);
+                                        commands::team_p2p::start_sync_tasks(
+                                            &doc, node.author, &node.store, &team_dir,
+                                            node.suppressed_paths.clone(),
+                                            std::sync::Arc::new(tokio::sync::Mutex::new(my_role)),
+                                            my_node_id, config.owner_node_id.clone(),
+                                            Some(app_rc.clone()),
+                                        );
+                                        node.active_doc = Some(doc);
+                                        eprintln!("[P2P] Auto-reconnect successful");
+                                    }
+                                    Err(e) => eprintln!("[P2P] Auto-reconnect import failed: {}", e),
+                                }
+                            });
                         }
                         Err(e) => {
                             eprintln!("[P2P] Failed to start iroh node (P2P disabled): {}", e);
@@ -541,9 +591,6 @@ pub fn run() {
                     }
                 });
             }
-
-            // Team sync will be triggered from the frontend after workspace is set,
-            // since workspace_path is not available at setup time.
             // The frontend calls team_sync_repo on startup when team config is enabled.
 
             #[cfg(debug_assertions)]

@@ -45,16 +45,16 @@ fn load_or_create_secret_key(storage_path: &Path) -> Result<SecretKey, String> {
 pub struct IrohNode {
     #[allow(dead_code)]
     endpoint: Endpoint,
-    store: FsStore,
+    pub(crate) store: FsStore,
     #[allow(dead_code)]
     gossip: Gossip,
-    docs: iroh_docs::protocol::Docs,
+    pub(crate) docs: iroh_docs::protocol::Docs,
     router: iroh::protocol::Router,
     pub(crate) author: iroh_docs::AuthorId,
     /// Currently active team document (set after create/join)
     pub(crate) active_doc: Option<iroh_docs::api::Doc>,
     /// Paths being written by remote sync — suppresses fs watcher feedback loop
-    suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
+    pub(crate) suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
 }
 
 impl IrohNode {
@@ -545,7 +545,7 @@ pub async fn rotate_namespace(
 // ─── Background Sync Tasks ──────────────────────────────────────────────
 
 /// Start background tasks for bidirectional sync between doc and filesystem.
-fn start_sync_tasks(
+pub(crate) fn start_sync_tasks(
     doc: &iroh_docs::api::Doc,
     author: iroh_docs::AuthorId,
     store: &FsStore,
