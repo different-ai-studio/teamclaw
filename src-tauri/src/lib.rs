@@ -285,7 +285,6 @@ pub fn run() {
         .manage(<commands::p2p_state::IrohState>::default())
         .manage(commands::spotlight::SpotlightState::default())
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
-        .manage(commands::oss_sync::OssSyncState::default())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::show_in_folder,
@@ -433,6 +432,7 @@ pub fn run() {
             commands::team_p2p::p2p_join_drive,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_disconnect_source,
+            commands::team_p2p::p2p_dissolve_team,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_reconnect,
             #[cfg(feature = "p2p")]
@@ -495,21 +495,6 @@ pub fn run() {
             commands::team_webdav::webdav_import_config,
             commands::team_webdav::webdav_get_status,
             commands::team_webdav::get_team_mode,
-            commands::oss_commands::oss_create_team,
-            commands::oss_commands::oss_join_team,
-            commands::oss_commands::oss_restore_sync,
-            commands::oss_commands::oss_leave_team,
-            commands::oss_commands::oss_sync_now,
-            commands::oss_commands::oss_get_sync_status,
-            commands::oss_commands::oss_create_snapshot,
-            commands::oss_commands::oss_cleanup_updates,
-            commands::oss_commands::oss_update_members,
-            commands::oss_commands::oss_reset_team_secret,
-            commands::oss_commands::oss_get_team_config,
-            commands::oss_commands::oss_apply_team,
-            commands::oss_commands::oss_get_pending_application,
-            commands::oss_commands::oss_cancel_application,
-            commands::oss_commands::oss_approve_application,
             commands::team_unified::unified_team_get_members,
             commands::team_unified::unified_team_add_member,
             commands::team_unified::unified_team_remove_member,

@@ -140,6 +140,18 @@ export function TeamP2PConfig() {
   const [joinTicketInput, setJoinTicketInput] = React.useState('')
   const [joinLoading, setJoinLoading] = React.useState(false)
   const [createLoading, setCreateLoading] = React.useState(false)
+  const [showCreateForm, setShowCreateForm] = React.useState(false)
+  const [createTeamName, setCreateTeamName] = React.useState('')
+  const [createOwnerName, setCreateOwnerName] = React.useState('')
+  const [createOwnerEmail, setCreateOwnerEmail] = React.useState('')
+  const [dissolveLoading, setDissolveLoading] = React.useState(false)
+  const [confirmDissolve, setConfirmDissolve] = React.useState(false)
+
+  // Seed-based join flow
+  const [joinMode, setJoinMode] = React.useState<'seed' | 'ticket'>('seed')
+  const [seedUrl, setSeedUrl] = React.useState('')
+  const [teamId, setTeamId] = React.useState('')
+  const [teamSecret, setTeamSecret] = React.useState('')
   const [rotateLoading, setRotateLoading] = React.useState(false)
 
   // Sync status from backend
@@ -239,23 +251,21 @@ export function TeamP2PConfig() {
 
   // ─── P2P Join flow ──────────────────────────────────────────────────────
 
-  const doJoinTeam = async () => {
-    if (!joinTicketInput.trim()) return
-
+  const joinWithTicket = async (ticket: string) => {
     setJoinLoading(true)
     setP2pError(null)
     setJoinApprovalPending(false)
 
     try {
-      await tauriInvoke('p2p_join_drive', { ticket: joinTicketInput.trim(), label: '' })
+      await tauriInvoke('p2p_join_drive', { ticket: ticket.trim(), label: '' })
       setJoinTicketInput('')
+      setSeedUrl('')
+      setTeamId('')
+      setTeamSecret('')
       await loadSyncStatus()
-      // Refresh file tree so the new teamclaw-team directory appears
       useWorkspaceStore.getState().refreshFileTree()
-      // Load unified members after successful join
       await teamMembersStore.loadMembers()
       await teamMembersStore.loadMyRole()
-      // Reload team config so LLM section switches to team mode
       if (workspacePath) {
         const store = useTeamModeStore.getState()
         await store.loadTeamConfig(workspacePath)
@@ -267,22 +277,57 @@ export function TeamP2PConfig() {
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('not been added') || msg.includes('not authorized') || msg.includes('未被添加')) {
         setJoinApprovalPending(true)
-        setP2pError('Your device has not been added to the team. Please contact the team Owner')
+        setP2pError('Your device has not been added to the team. Ask the team Owner to add your Device ID, then try again.')
       } else {
-        setP2pError('Invalid ticket, please check and try again')
+        setP2pError(msg)
       }
     } finally {
       setJoinLoading(false)
     }
   }
 
+  const doJoinTeam = async () => {
+    if (joinMode === 'ticket') {
+      if (!joinTicketInput.trim()) return
+      await joinWithTicket(joinTicketInput.trim())
+    } else {
+      // Seed-based flow: fetch ticket from seed node, then join
+      if (!seedUrl.trim() || !teamId.trim() || !teamSecret.trim()) return
+      setJoinLoading(true)
+      setP2pError(null)
+      setJoinApprovalPending(false)
+      try {
+        const base = seedUrl.trim().replace(/\/$/, '')
+        const resp = await fetch(`${base}/teams/${teamId.trim()}/ticket`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamSecret: teamSecret.trim() }),
+        })
+        const data = await resp.json()
+        if (!resp.ok || !data.ticket) {
+          setP2pError(data.error || 'Failed to fetch ticket from seed node')
+          setJoinLoading(false)
+          return
+        }
+        await joinWithTicket(data.ticket)
+      } catch (err) {
+        setP2pError(err instanceof Error ? err.message : 'Failed to connect to seed node')
+        setJoinLoading(false)
+      }
+    }
+  }
+
   const handleJoin = () => checkTeamDirAndConfirm('join')
 
   const doCreateTeam = async () => {
+    if (!createTeamName.trim()) return
     setCreateLoading(true)
     setP2pError(null)
     try {
       await tauriInvoke<string>('p2p_create_team', {
+        teamName: createTeamName.trim() || null,
+        ownerName: createOwnerName.trim() || null,
+        ownerEmail: createOwnerEmail.trim() || null,
         llmBaseUrl: buildConfig.team.llm.baseUrl || null,
         llmModel: buildConfig.team.llm.model || null,
         llmModelName: buildConfig.team.llm.modelName || null,
@@ -316,6 +361,25 @@ export function TeamP2PConfig() {
       setP2pError(err instanceof Error ? err.message : String(err))
     } finally {
       setRotateLoading(false)
+    }
+  }
+
+  const doDissolveTeam = async () => {
+    setConfirmDissolve(false)
+    setDissolveLoading(true)
+    setP2pError(null)
+    try {
+      await tauriInvoke('p2p_dissolve_team')
+      setSyncStatus(null)
+      useTeamModeStore.setState({ myRole: null })
+      if (workspacePath) {
+        const store = useTeamModeStore.getState()
+        await store.clearTeamMode(workspacePath)
+      }
+    } catch (err) {
+      setP2pError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDissolveLoading(false)
     }
   }
 
@@ -457,6 +521,26 @@ export function TeamP2PConfig() {
             </SettingCard>
           )}
 
+          {/* Dissolve Team (Owner only) */}
+          {isOwner && (
+            <SettingCard className="border-red-200 dark:border-red-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-red-700 dark:text-red-300">{t('settings.team.dissolveTeam', 'Dissolve Team')}</p>
+                  <p className="text-xs text-muted-foreground">{t('settings.team.dissolveTeamDesc', 'Permanently dissolve this team. All members will be disconnected.')}</p>
+                </div>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={dissolveLoading}
+                  onClick={() => setConfirmDissolve(true)}
+                >
+                  {dissolveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('settings.team.dissolveTeam', 'Dissolve Team')}
+                </Button>
+              </div>
+            </SettingCard>
+          )}
+
           {/* API Key Override */}
           <TeamApiKeyCard />
         </>
@@ -474,74 +558,173 @@ export function TeamP2PConfig() {
                 </div>
                 <div>
                   <p className="text-sm font-medium">{t('settings.team.createTeam', 'Create Team')}</p>
-                  <p className="text-xs text-muted-foreground">{t('settings.team.createTeamDesc', 'Start a new team drive and get a ticket to share with others')}</p>
+                  <p className="text-xs text-muted-foreground">{t('settings.team.createTeamDesc', 'Start a new team and get an invite code to share')}</p>
                 </div>
               </div>
 
-              <Button
-                onClick={handleCreateTeam}
-                disabled={createLoading}
-                className="gap-2"
-              >
-                {createLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t('settings.team.creating', 'Creating...')}
-                  </>
-                ) : (
-                  <>
-                    <Share2 className="h-4 w-4" />
-                    {t('settings.team.createTeamDrive', 'Create Team Drive')}
-                  </>
-                )}
-              </Button>
+              {!showCreateForm ? (
+                <Button onClick={() => setShowCreateForm(true)} className="gap-2">
+                  <Share2 className="h-4 w-4" />
+                  {t('settings.team.createTeamDrive', 'Create Team')}
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <Input
+                    value={createTeamName}
+                    onChange={(e) => setCreateTeamName(e.target.value)}
+                    placeholder={t('settings.team.teamNamePlaceholder', 'Team name *')}
+                    className="h-9 text-sm"
+                    disabled={createLoading}
+                  />
+                  <Input
+                    value={createOwnerName}
+                    onChange={(e) => setCreateOwnerName(e.target.value)}
+                    placeholder={t('settings.team.ownerNamePlaceholder', 'Your name *')}
+                    className="h-9 text-sm"
+                    disabled={createLoading}
+                  />
+                  <Input
+                    value={createOwnerEmail}
+                    onChange={(e) => setCreateOwnerEmail(e.target.value)}
+                    placeholder={t('settings.team.ownerEmailPlaceholder', 'Contact email (optional)')}
+                    className="h-9 text-sm"
+                    disabled={createLoading}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleCreateTeam}
+                      disabled={createLoading || !createTeamName.trim()}
+                      className="gap-2"
+                    >
+                      {createLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          {t('settings.team.creating', 'Creating...')}
+                        </>
+                      ) : (
+                        <>
+                          <Share2 className="h-4 w-4" />
+                          {t('settings.team.createTeamDrive', 'Create Team')}
+                        </>
+                      )}
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowCreateForm(false)} disabled={createLoading}>
+                      {t('common.cancel', 'Cancel')}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </SettingCard>
 
           {/* Join Team */}
           <SettingCard>
             <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
-                  <Link className="h-5 w-5 text-blue-700 dark:text-blue-400" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
+                    <Link className="h-5 w-5 text-blue-700 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{t('settings.team.p2pJoinTitle', 'Join Team')}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {joinMode === 'seed'
+                        ? t('settings.team.p2pJoinSeedDesc', 'Connect via seed node with invite code')
+                        : t('settings.team.p2pJoinDesc', 'Connect to a team drive using a ticket')}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium">{t('settings.team.p2pJoinTitle', 'Join Team')}</p>
-                  <p className="text-xs text-muted-foreground">{t('settings.team.p2pJoinDesc', 'Connect to a team drive using a ticket')}</p>
-                </div>
+                {/* Mode toggle */}
+                <button
+                  onClick={() => setJoinMode(joinMode === 'seed' ? 'ticket' : 'seed')}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                >
+                  {joinMode === 'seed'
+                    ? t('settings.team.useTicket', 'Use ticket instead')
+                    : t('settings.team.useSeed', 'Use invite code instead')}
+                </button>
               </div>
 
-              <div className="flex gap-2">
-                <Input
-                  value={joinTicketInput}
-                  onChange={(e) => setJoinTicketInput(e.target.value)}
-                  placeholder={t('settings.team.p2pJoinPlaceholder', 'Paste a P2P ticket here...')}
-                  className="h-11"
-                  disabled={joinLoading}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && joinTicketInput.trim()) {
-                      handleJoin()
-                    }
-                  }}
-                />
-                <Button
-                  onClick={handleJoin}
-                  disabled={joinLoading || !joinTicketInput.trim()}
-                  className="gap-2 shrink-0"
-                >
-                  {joinLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('settings.team.joining', 'Joining...')}
-                    </>
-                  ) : (
-                    <>
-                      <Link className="h-4 w-4" />
-                      {t('settings.team.join', 'Join')}
-                    </>
-                  )}
-                </Button>
-              </div>
+              {joinMode === 'seed' ? (
+                <div className="space-y-3">
+                  <Input
+                    value={seedUrl}
+                    onChange={(e) => setSeedUrl(e.target.value)}
+                    placeholder={t('settings.team.seedUrlPlaceholder', 'Seed node URL (e.g. https://seed.example.com)')}
+                    className="h-9 text-sm"
+                    disabled={joinLoading}
+                  />
+                  <Input
+                    value={teamId}
+                    onChange={(e) => setTeamId(e.target.value)}
+                    placeholder={t('settings.team.teamIdPlaceholder', 'Team ID (namespace ID)')}
+                    className="h-9 text-sm font-mono"
+                    disabled={joinLoading}
+                  />
+                  <Input
+                    value={teamSecret}
+                    onChange={(e) => setTeamSecret(e.target.value)}
+                    placeholder={t('settings.team.teamSecretPlaceholder', 'Invite code')}
+                    type="password"
+                    className="h-9 text-sm"
+                    disabled={joinLoading}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && seedUrl.trim() && teamId.trim() && teamSecret.trim()) {
+                        handleJoin()
+                      }
+                    }}
+                  />
+                  <Button
+                    onClick={handleJoin}
+                    disabled={joinLoading || !seedUrl.trim() || !teamId.trim() || !teamSecret.trim()}
+                    className="gap-2 w-full"
+                  >
+                    {joinLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {t('settings.team.joining', 'Joining...')}
+                      </>
+                    ) : (
+                      <>
+                        <Link className="h-4 w-4" />
+                        {t('settings.team.join', 'Join')}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    value={joinTicketInput}
+                    onChange={(e) => setJoinTicketInput(e.target.value)}
+                    placeholder={t('settings.team.p2pJoinPlaceholder', 'Paste a P2P ticket here...')}
+                    className="h-11"
+                    disabled={joinLoading}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && joinTicketInput.trim()) {
+                        handleJoin()
+                      }
+                    }}
+                  />
+                  <Button
+                    onClick={handleJoin}
+                    disabled={joinLoading || !joinTicketInput.trim()}
+                    className="gap-2 shrink-0"
+                  >
+                    {joinLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {t('settings.team.joining', 'Joining...')}
+                      </>
+                    ) : (
+                      <>
+                        <Link className="h-4 w-4" />
+                        {t('settings.team.join', 'Join')}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
 
               {/* Not authorized -- prompt user to contact owner */}
               {joinApprovalPending && deviceInfo && (
@@ -553,7 +736,7 @@ export function TeamP2PConfig() {
                     </p>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {t('settings.team.notAuthorizedDesc', 'Your device is not in the team allowlist. Please send your Device ID below to the team owner, and ask them to add you via "Add Member". Once added, enter the Ticket again to join.')}
+                    {t('settings.team.notAuthorizedDesc', 'Your device is not in the team allowlist. Please send your Device ID below to the team owner, and ask them to add you via "Add Member". Once added, try joining again.')}
                   </p>
                   <DeviceIdDisplay nodeId={deviceInfo.nodeId} />
                 </div>
@@ -646,6 +829,28 @@ export function TeamP2PConfig() {
             <Button variant="destructive" onClick={doDisconnect} className="gap-2">
               <Unlink className="h-3.5 w-3.5" />
               {t('settings.team.confirmDisconnect', 'Disconnect')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dissolve Team Confirmation Dialog */}
+      <Dialog open={confirmDissolve} onOpenChange={(open) => { if (!open) setConfirmDissolve(false) }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="text-red-700 dark:text-red-300">
+              {t('settings.team.dissolveTitle', 'Dissolve team?')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('settings.team.dissolveDesc', 'This will permanently dissolve the team. All members will lose access to shared content. This action cannot be undone.')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDissolve(false)}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button variant="destructive" onClick={doDissolveTeam}>
+              {t('settings.team.confirmDissolve', 'Dissolve Team')}
             </Button>
           </DialogFooter>
         </DialogContent>

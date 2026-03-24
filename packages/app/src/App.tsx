@@ -42,7 +42,7 @@ import {
   useChannelGatewayInit,
   useGitReposInit,
   useCronInit,
-  useOssSyncInit,
+
   useExternalLinkHandler,
   useTauriBodyClass,
   useSetupGuide,
@@ -445,7 +445,6 @@ function AppContent() {
   useChannelGatewayInit();
   useGitReposInit();
   useCronInit();
-  useOssSyncInit();
   useMCPFileWatcher(workspacePath);
   useExternalLinkHandler();
   useLayoutModeShortcut();

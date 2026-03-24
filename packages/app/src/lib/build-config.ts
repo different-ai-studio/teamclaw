@@ -29,9 +29,6 @@ export interface BuildConfig {
     updater: boolean
     channels: boolean | ChannelsFeatureConfig
   }
-  oss?: {
-    fcEndpoint: string
-  }
   defaults: {
     locale: string
     theme: string

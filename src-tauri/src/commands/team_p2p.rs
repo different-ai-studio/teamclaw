@@ -222,6 +222,9 @@ pub async fn create_team(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    team_name: Option<String>,
+    owner_name: Option<String>,
+    owner_email: Option<String>,
 ) -> Result<String, String> {
     scaffold_team_dir(team_dir)?;
 
@@ -234,9 +237,25 @@ pub async fn create_team(
     let node_id = get_node_id(node);
     let info = get_device_metadata();
 
+    // Write _team/team.json with team metadata
+    let team_info = serde_json::json!({
+        "teamName": team_name.as_deref().unwrap_or(""),
+        "ownerName": owner_name.as_deref().unwrap_or(""),
+        "ownerEmail": owner_email.as_deref().unwrap_or(""),
+        "ownerNodeId": &node_id,
+        "createdAt": chrono::Utc::now().to_rfc3339(),
+    });
+    let team_info_dir = Path::new(team_dir).join("_team");
+    std::fs::create_dir_all(&team_info_dir).ok();
+    std::fs::write(
+        team_info_dir.join("team.json"),
+        serde_json::to_string_pretty(&team_info).unwrap_or_default(),
+    )
+    .map_err(|e| format!("Failed to write team.json: {}", e))?;
+
     let owner_member = TeamMember {
         node_id: node_id.clone(),
-        name: String::new(),
+        name: owner_name.unwrap_or_default(),
         role: MemberRole::Owner,
         label: info.hostname.clone(),
         platform: info.platform,
@@ -504,7 +523,7 @@ pub async fn rotate_namespace(
     }
 
     // Re-create as owner
-    create_team(node, team_dir, workspace_path, None, None, None).await
+    create_team(node, team_dir, workspace_path, None, None, None, None, None, None).await
 }
 
 // ─── Background Sync Tasks ──────────────────────────────────────────────
@@ -954,6 +973,9 @@ pub struct P2pConfig {
     /// Role in the team: owner, editor, or viewer
     #[serde(default)]
     pub role: Option<MemberRole>,
+    /// Seed node URL for team discovery and applications
+    #[serde(default)]
+    pub seed_url: Option<String>,
 }
 
 /// Read P2P config from teamclaw.json in the workspace.
@@ -1107,6 +1129,61 @@ pub async fn p2p_disconnect_source(
     }
 
     // Remove teamclaw-team directory
+    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    if Path::new(&team_dir).exists() {
+        std::fs::remove_dir_all(&team_dir)
+            .map_err(|e| format!("Failed to remove team directory: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Dissolve the team. Only the owner can call this.
+/// Writes a tombstone to notify other members, then cleans up local data.
+#[tauri::command]
+pub async fn p2p_dissolve_team(
+    iroh_state: tauri::State<'_, IrohState>,
+    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+) -> Result<(), String> {
+    let workspace_path = opencode_state
+        .workspace_path
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No workspace path set")?;
+
+    // Only owner can dissolve
+    let config = read_p2p_config(&workspace_path)?.unwrap_or_default();
+    if config.role != Some(MemberRole::Owner) {
+        return Err("Only the team owner can dissolve the team".to_string());
+    }
+
+    // Write tombstone to doc so other members know team is dissolved
+    let mut guard = iroh_state.lock().await;
+    if let Some(node) = guard.as_mut() {
+        if let Some(doc) = &node.active_doc {
+            let _ = doc
+                .set_bytes(
+                    node.author,
+                    "_team/dissolved",
+                    chrono::Utc::now().to_rfc3339().into_bytes(),
+                )
+                .await;
+            // Brief pause to let tombstone propagate
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        if let Some(doc) = node.active_doc.take() {
+            let _ = doc.leave().await;
+        }
+    }
+    drop(guard);
+
+    // Clean up local data
+    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
+    if Path::new(&teamclaw_dir).exists() {
+        std::fs::remove_dir_all(&teamclaw_dir)
+            .map_err(|e| format!("Failed to remove .teamclaw directory: {}", e))?;
+    }
     let team_dir = format!("{}/teamclaw-team", workspace_path);
     if Path::new(&team_dir).exists() {
         std::fs::remove_dir_all(&team_dir)
@@ -1397,6 +1474,9 @@ pub async fn p2p_create_team(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    team_name: Option<String>,
+    owner_name: Option<String>,
+    owner_email: Option<String>,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
@@ -1418,6 +1498,9 @@ pub async fn p2p_create_team(
         llm_base_url,
         llm_model,
         llm_model_name,
+        team_name,
+        owner_name,
+        owner_email,
     )
     .await
 }
@@ -1441,7 +1524,7 @@ pub async fn p2p_publish_drive(
 
     // If no active doc, create a team (first-time publish)
     if node.active_doc.is_none() {
-        return create_team(node, &team_dir, &workspace_path, None, None, None).await;
+        return create_team(node, &team_dir, &workspace_path, None, None, None, None, None, None).await;
     }
 
     // Otherwise, sync current files into existing doc and return saved ticket
@@ -1800,9 +1883,7 @@ mod tests {
             &mut node,
             team_dir.to_str().unwrap(),
             tmp.path().to_str().unwrap(),
-            None,
-            None,
-            None,
+            None, None, None, None, None, None,
         )
         .await
         .unwrap();
@@ -2232,9 +2313,7 @@ mod tests {
             &mut node,
             team_dir.to_str().unwrap(),
             workspace,
-            None,
-            None,
-            None,
+            None, None, None, None, None, None,
         )
         .await
         .unwrap();
