@@ -64,23 +64,19 @@ export function TiptapToolbar({
   rawMode = false,
   onToggleRaw,
 }: TiptapToolbarProps) {
-  const sourceToggle = onToggleRaw && (
-    <>
-      <div className="flex-1" />
-      <Separator orientation="vertical" className="h-6 mx-1" />
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={onToggleRaw}
-        className={cn('h-8 w-8', rawMode && 'bg-accent')}
-        title={rawMode ? 'Visual mode' : 'Source mode'}
-      >
-        <FileCode className="h-4 w-4" />
-      </Button>
-    </>
+  const sourceToggleButton = onToggleRaw && (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      onClick={onToggleRaw}
+      className={cn('h-8 w-8 shrink-0', rawMode && 'bg-accent')}
+      title={rawMode ? 'Visual mode' : 'Source mode'}
+    >
+      <FileCode className="h-4 w-4" />
+    </Button>
   );
 
-  const containerClass = cn(
+  const outerClass = cn(
     'flex items-center gap-1 p-2 border-b',
     isDark ? 'bg-[#1e1e1e] border-border' : 'bg-white border-border',
   );
@@ -88,8 +84,14 @@ export function TiptapToolbar({
   // In raw mode, show minimal toolbar with just the source toggle
   if (rawMode) {
     return (
-      <div className={containerClass}>
-        {sourceToggle}
+      <div className={outerClass}>
+        <div className="flex-1" />
+        {sourceToggleButton && (
+          <>
+            <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
+            {sourceToggleButton}
+          </>
+        )}
       </div>
     );
   }
@@ -99,14 +101,16 @@ export function TiptapToolbar({
   }
 
   return (
-    <div className={containerClass}>
+    <div className={outerClass}>
+      {/* Scrollable toolbar buttons */}
+      <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
       {/* Undo/Redo */}
       <Button
         variant="ghost"
         size="icon-sm"
         onClick={() => editor.chain().focus().undo().run()}
         disabled={!editor.can().undo()}
-        className="h-8 w-8"
+        className="h-8 w-8 shrink-0"
       >
         <Undo2 className="h-4 w-4" />
       </Button>
@@ -115,12 +119,12 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().redo().run()}
         disabled={!editor.can().redo()}
-        className="h-8 w-8"
+        className="h-8 w-8 shrink-0"
       >
         <Redo2 className="h-4 w-4" />
       </Button>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
 
       {/* Heading Dropdown */}
       <DropdownMenu>
@@ -185,7 +189,7 @@ export function TiptapToolbar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
 
       {/* Lists */}
       <Button
@@ -193,7 +197,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleBulletList().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('bulletList') && 'bg-accent',
         )}
       >
@@ -204,7 +208,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('orderedList') && 'bg-accent',
         )}
       >
@@ -215,14 +219,14 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleTaskList().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('taskList') && 'bg-accent',
         )}
       >
         <CheckSquare className="h-4 w-4" />
       </Button>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
 
       {/* Formatting */}
       <Button
@@ -230,7 +234,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleBold().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('bold') && 'bg-accent',
         )}
       >
@@ -241,7 +245,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleItalic().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('italic') && 'bg-accent',
         )}
       >
@@ -252,7 +256,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleStrike().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('strike') && 'bg-accent',
         )}
       >
@@ -263,14 +267,14 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleUnderline().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('underline') && 'bg-accent',
         )}
       >
         <Underline className="h-4 w-4" />
       </Button>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
 
       {/* Code */}
       <Button
@@ -278,7 +282,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleCode().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('code') && 'bg-accent',
         )}
       >
@@ -289,14 +293,14 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('codeBlock') && 'bg-accent',
         )}
       >
         <Code2 className="h-4 w-4" />
       </Button>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
 
       {/* Link */}
       <Button
@@ -309,14 +313,14 @@ export function TiptapToolbar({
           }
         }}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('link') && 'bg-accent',
         )}
       >
         <Link className="h-4 w-4" />
       </Button>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
 
       {/* Text Alignment */}
       <Button
@@ -324,7 +328,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().setTextAlign('left').run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive({ textAlign: 'left' }) && 'bg-accent',
         )}
       >
@@ -335,7 +339,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().setTextAlign('center').run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive({ textAlign: 'center' }) && 'bg-accent',
         )}
       >
@@ -346,7 +350,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().setTextAlign('right').run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive({ textAlign: 'right' }) && 'bg-accent',
         )}
       >
@@ -357,14 +361,14 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().setTextAlign('justify').run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive({ textAlign: 'justify' }) && 'bg-accent',
         )}
       >
         <AlignJustify className="h-4 w-4" />
       </Button>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
 
       {/* Blockquote */}
       <Button
@@ -372,7 +376,7 @@ export function TiptapToolbar({
         size="icon-sm"
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('blockquote') && 'bg-accent',
         )}
       >
@@ -391,7 +395,7 @@ export function TiptapToolbar({
             .run()
         }
         className={cn(
-          'h-8 w-8',
+          'h-8 w-8 shrink-0',
           editor.isActive('table') && 'bg-accent',
         )}
       >
@@ -401,20 +405,26 @@ export function TiptapToolbar({
       {/* Image Upload */}
       {onImageUpload && (
         <>
-          <Separator orientation="vertical" className="h-6 mx-1" />
+          <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={onImageUpload}
-            className="h-8 w-8"
+            className="h-8 w-8 shrink-0"
           >
             <Image className="h-4 w-4" />
           </Button>
         </>
       )}
 
-      {/* Source mode toggle - pushed to right */}
-      {sourceToggle}
+      </div>
+      {/* Source mode toggle - always visible at right edge */}
+      {sourceToggleButton && (
+        <>
+          <Separator orientation="vertical" className="h-6 mx-1 shrink-0" />
+          {sourceToggleButton}
+        </>
+      )}
     </div>
   );
 }

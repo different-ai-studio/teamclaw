@@ -1,6 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { UserMinus, Shield, Pencil, Eye, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useTeamMembersStore } from '../../stores/team-members'
 import { AddMemberInput } from './AddMemberInput'
 
@@ -48,6 +54,8 @@ export function TeamMemberList() {
     canManageMembers,
   } = useTeamMembersStore()
 
+  const [showAddDialog, setShowAddDialog] = useState(false)
+
   useEffect(() => {
     loadMembers()
     loadMyRole()
@@ -66,6 +74,7 @@ export function TeamMemberList() {
       hostname: '',
       addedAt: new Date().toISOString(),
     })
+    setShowAddDialog(false)
   }
 
   return (
@@ -143,14 +152,31 @@ export function TeamMemberList() {
           )
         })}
       </div>
+
+      {/* Add Member Modal */}
       {isManager && (
-        <div className="pt-2 border-t border-border">
-          <div className="flex items-center gap-1.5 mb-2">
-            <UserPlus className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Add Member</span>
-          </div>
-          <AddMemberInput onAdd={handleAdd} error={error} />
-        </div>
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setShowAddDialog(true)}
+          >
+            <UserPlus className="h-4 w-4" />
+            Add Member
+          </Button>
+          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+            <DialogContent className="sm:max-w-[460px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <UserPlus className="h-5 w-5" />
+                  Add Member
+                </DialogTitle>
+              </DialogHeader>
+              <AddMemberInput onAdd={handleAdd} error={error} />
+            </DialogContent>
+          </Dialog>
+        </>
       )}
     </div>
   )

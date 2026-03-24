@@ -625,17 +625,14 @@ export function TeamP2PConfig() {
                     </p>
                   </div>
                 </div>
-                {isOwner ? (
-                  <Button variant="outline" size="sm" className="gap-1 text-destructive hover:text-destructive" onClick={handleP2pDisconnect} disabled={leaveLoading}>
-                    <Unlink className="h-3 w-3" />
-                    {t('settings.team.disconnect', 'Disconnect')}
-                  </Button>
-                ) : (
-                  <Button variant="outline" size="sm" className="gap-1 text-destructive hover:text-destructive" onClick={() => setConfirmLeave(true)} disabled={leaveLoading}>
-                    {leaveLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Unlink className="h-3 w-3" />}
-                    {t('settings.team.leaveTeam', 'Leave Team')}
-                  </Button>
-                )}
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => {
+                  if (workspacePath) {
+                    loadSyncStatus()
+                  }
+                }}>
+                  <RefreshCw className="h-3 w-3" />
+                  {t('common.refresh', 'Refresh')}
+                </Button>
               </div>
             </div>
           </SettingCard>
@@ -853,25 +850,69 @@ export function TeamP2PConfig() {
             </div>
           </SettingCard>
 
-          {/* Dissolve Team (Owner only) */}
-          {isOwner && (
-            <SettingCard className="border-red-200 dark:border-red-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-red-700 dark:text-red-300">{t('settings.team.dissolveTeam', 'Dissolve Team')}</p>
-                  <p className="text-xs text-muted-foreground">{t('settings.team.dissolveTeamDesc', 'Permanently dissolve this team. All members will be disconnected.')}</p>
+          {/* Danger Zone */}
+          <SettingCard className="border-red-200 dark:border-red-800">
+            <div className="space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
+                {t('settings.team.dangerZone', 'Danger Zone')}
+              </p>
+              {isOwner ? (
+                <>
+                  {/* Disconnect */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{t('settings.team.disconnect', 'Disconnect')}</p>
+                      <p className="text-xs text-muted-foreground">{t('settings.team.disconnectDesc', 'This will delete local team data (.teamclaw and teamclaw-team directories). This action cannot be undone.')}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 gap-1 text-destructive hover:text-destructive border-destructive/30"
+                      onClick={handleP2pDisconnect}
+                    >
+                      <Unlink className="h-3.5 w-3.5" />
+                      {t('settings.team.disconnect', 'Disconnect')}
+                    </Button>
+                  </div>
+                  <div className="border-t border-red-200 dark:border-red-800" />
+                  {/* Dissolve Team */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-red-700 dark:text-red-300">{t('settings.team.dissolveTeam', 'Dissolve Team')}</p>
+                      <p className="text-xs text-muted-foreground">{t('settings.team.dissolveTeamDesc', 'Permanently dissolve this team. All members will be disconnected.')}</p>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={dissolveLoading}
+                      onClick={() => setConfirmDissolve(true)}
+                    >
+                      {dissolveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('settings.team.dissolveTeam', 'Dissolve Team')}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                /* Leave Team (non-owner) */
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">{t('settings.team.leaveTeam', 'Leave Team')}</p>
+                    <p className="text-xs text-muted-foreground">{t('settings.team.leaveDesc', 'Leave this team and remove local team data.')}</p>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="shrink-0 gap-1"
+                    disabled={leaveLoading}
+                    onClick={() => setConfirmLeave(true)}
+                  >
+                    {leaveLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlink className="h-3.5 w-3.5" />}
+                    {t('settings.team.leaveTeam', 'Leave Team')}
+                  </Button>
                 </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={dissolveLoading}
-                  onClick={() => setConfirmDissolve(true)}
-                >
-                  {dissolveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('settings.team.dissolveTeam', 'Dissolve Team')}
-                </Button>
-              </div>
-            </SettingCard>
-          )}
+              )}
+            </div>
+          </SettingCard>
 
           {/* API Key Override */}
           <TeamApiKeyCard />

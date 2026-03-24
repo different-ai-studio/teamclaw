@@ -33,49 +33,48 @@ export function AddMemberInput({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex gap-2">
-        <div className="flex-1 flex flex-col gap-1.5">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Member name (e.g. Alice)"
-            className="h-9 text-sm"
-          />
-          <Input
-            value={nodeId}
-            onChange={(e) => setNodeId(e.target.value)}
-            placeholder="Paste member's Device ID"
-            className="h-9 font-mono text-xs"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && nodeId.trim()) handleSubmit()
-            }}
-          />
-          <Input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="Label / Remark (optional)"
-            className="h-9 text-sm"
-          />
-          <Select value={role} onValueChange={(v) => setRole(v as 'editor' | 'viewer')}>
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="editor">Editor</SelectItem>
-              <SelectItem value="viewer">Viewer</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button
-          onClick={handleSubmit}
-          disabled={!nodeId.trim()}
-          size="sm"
-          className="shrink-0 gap-1 self-end"
-        >
-          <UserPlus className="h-4 w-4" />
-          Add
-        </Button>
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-muted-foreground">Name</label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Alice"
+          className="h-9 text-sm"
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-muted-foreground">Device ID</label>
+        <Input
+          value={nodeId}
+          onChange={(e) => setNodeId(e.target.value)}
+          placeholder="Paste member's Device ID"
+          className="h-9 font-mono text-xs"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && nodeId.trim()) handleSubmit()
+          }}
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-muted-foreground">Label / Remark (optional)</label>
+        <Input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Backend team"
+          className="h-9 text-sm"
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-muted-foreground">Role</label>
+        <Select value={role} onValueChange={(v) => setRole(v as 'editor' | 'viewer')}>
+          <SelectTrigger className="h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="editor">Editor</SelectItem>
+            <SelectItem value="viewer">Viewer</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       {error && (
         <p className="text-xs text-destructive flex items-center gap-1">
@@ -83,6 +82,14 @@ export function AddMemberInput({
           {error}
         </p>
       )}
+      <Button
+        onClick={handleSubmit}
+        disabled={!nodeId.trim()}
+        className="w-full gap-2"
+      >
+        <UserPlus className="h-4 w-4" />
+        Add Member
+      </Button>
     </div>
   )
 }
