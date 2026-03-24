@@ -56,6 +56,7 @@ import {
   useFileTabSync,
   useResizablePanels,
 } from "@/hooks/useFileEditorState";
+import { useMCPFileWatcher } from "@/hooks/useMCPFileWatcher";
 
 import { AppSidebar, SidebarIconGroup } from "@/components/app-sidebar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -444,6 +445,7 @@ function AppContent() {
   useGitReposInit();
   useCronInit();
   useOssSyncInit();
+  useMCPFileWatcher(workspacePath);
   useExternalLinkHandler();
   useLayoutModeShortcut();
   usePanelAutoOpen();
