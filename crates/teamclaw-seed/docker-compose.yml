@@ -1,0 +1,14 @@
+services:
+  seed:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - seed-data:/data
+    environment:
+      # Required: set a strong random string
+      SEED_API_KEY: "${SEED_API_KEY}"
+
+volumes:
+  seed-data:

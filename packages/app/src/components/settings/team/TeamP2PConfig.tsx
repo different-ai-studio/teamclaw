@@ -155,7 +155,7 @@ export function TeamP2PConfig() {
   const [dissolveLoading, setDissolveLoading] = React.useState(false)
   const [confirmDissolve, setConfirmDissolve] = React.useState(false)
 
-  const [seedConfigUrl, setSeedConfigUrl] = React.useState('')
+  const [seedConfigUrl, setSeedConfigUrl] = React.useState(buildConfig.team.seedUrl || '')
   const [seedConfigSecret, setSeedConfigSecret] = React.useState('')
   const [seedConfigSaving, setSeedConfigSaving] = React.useState(false)
   const [applications, setApplications] = React.useState<Array<{
@@ -169,7 +169,7 @@ export function TeamP2PConfig() {
 
   // Seed-based join flow
   const [joinMode, setJoinMode] = React.useState<'seed' | 'ticket'>('seed')
-  const [seedUrl, setSeedUrl] = React.useState('')
+  const [seedUrl, setSeedUrl] = React.useState(buildConfig.team.seedUrl || '')
   const [teamId, setTeamId] = React.useState('')
   const [teamSecret, setTeamSecret] = React.useState('')
   const [rotateLoading, setRotateLoading] = React.useState(false)

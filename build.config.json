@@ -5,7 +5,8 @@
       "model": "",
       "modelName": ""
     },
-    "lockLlmConfig": false
+    "lockLlmConfig": false,
+    "seedUrl": ""
   },
   "app": {
     "name": "TeamClaw"
