@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Pencil, Ellipsis, Clock } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Pencil, Ellipsis, Clock } from "lucide-react"
 
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
@@ -271,17 +271,14 @@ function WorkspaceSelectorButton() {
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          ) : teamMode && workspaceName ? (
+            <Users className="h-4 w-4 shrink-0 text-blue-500" />
           ) : (
             <FolderOpen className="h-4 w-4 shrink-0" />
           )}
           <span className="truncate text-xs" data-testid="workspace-name">
             {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
           </span>
-          {teamMode && workspaceName && (
-            <span className="shrink-0 text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1 py-0.5 rounded">
-              团队
-            </span>
-          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent side="top">
