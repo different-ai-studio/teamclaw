@@ -545,8 +545,9 @@ fn start_sync_tasks(
     let suppressed_a = suppressed_paths.clone();
 
     // Task A: remote doc changes → disk
+    let my_node_id_a = my_node_id.clone();
     tokio::spawn(async move {
-        doc_to_disk_watcher(doc_a, blobs_store, team_dir_a, suppressed_a, owner_node_id).await;
+        doc_to_disk_watcher(doc_a, blobs_store, team_dir_a, suppressed_a, my_node_id_a, owner_node_id).await;
     });
 
     // Task B: local disk changes → doc (with blob store for skills counting)
@@ -602,6 +603,7 @@ async fn doc_to_disk_watcher(
     blobs_store: iroh_blobs::api::Store,
     team_dir: String,
     suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
+    my_node_id: String,
     owner_node_id: Option<String>,
 ) {
     use futures_lite::StreamExt;
@@ -684,6 +686,56 @@ async fn doc_to_disk_watcher(
 
                 // Resolve author → node_id
                 let writer_node_id = author_to_node.get(&author_id_str).cloned();
+
+                // Handle _team/left/<node_id>: member voluntarily left the team
+                if key.starts_with("_team/left/") {
+                    let leaving_node_id = key.trim_start_matches("_team/left/").to_string();
+                    // Verify the writer IS the departing member (not someone forging a leave)
+                    let writer_is_member = writer_node_id.as_deref() == Some(leaving_node_id.as_str());
+                    // Only auto-remove if WE are the owner
+                    let we_are_owner = owner_node_id.as_deref() == Some(my_node_id.as_str());
+
+                    if writer_is_member && we_are_owner {
+                        // workspace_path = team_dir without trailing /teamclaw-team
+                        let workspace_path = team_dir
+                            .strip_suffix("/teamclaw-team")
+                            .unwrap_or(&team_dir)
+                            .to_string();
+                        match remove_member_from_team(
+                            &workspace_path,
+                            &team_dir,
+                            &my_node_id,
+                            &leaving_node_id,
+                        ) {
+                            Ok(()) => {
+                                eprintln!("[P2P] Auto-removed departed member: {}", leaving_node_id);
+                                // Refresh role cache
+                                if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                                    node_to_role.clear();
+                                    for member in &manifest.members {
+                                        node_to_role.insert(
+                                            member.node_id.clone(),
+                                            member.role.clone(),
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[P2P] Failed to auto-remove departed member {}: {}",
+                                    leaving_node_id, e
+                                );
+                            }
+                        }
+                    }
+
+                    // Write tombstone file to disk regardless
+                    if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
+                        let file_path = Path::new(&team_dir).join(&key);
+                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                    }
+                    continue;
+                }
 
                 // Validate _team/members.json writes: only accept from owner
                 if key == "_team/members.json" {
