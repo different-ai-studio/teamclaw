@@ -21,7 +21,9 @@ async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, St
     let guard = iroh_state.lock().await;
     #[cfg(feature = "p2p")]
     {
-        let node = guard.as_ref().ok_or("P2P node not running. Please wait for the app to fully initialize.")?;
+        let node = guard
+            .as_ref()
+            .ok_or("P2P node not running. Please wait for the app to fully initialize.")?;
         Ok(get_node_id(node))
     }
     #[cfg(not(feature = "p2p"))]
@@ -256,10 +258,7 @@ pub async fn oss_join_team(
         }
         Err(_) => {
             // Not a member — return NotMember so frontend can show application dialog
-            return Ok(OssJoinResult::NotMember {
-                node_id,
-                team_name,
-            });
+            return Ok(OssJoinResult::NotMember { node_id, team_name });
         }
     }
 
@@ -605,7 +604,10 @@ pub async fn oss_apply_team(
         .map_err(|e| format!("Failed to call FC /apply: {e}"))?;
 
     if !response.status().is_success() {
-        let text = response.text().await.unwrap_or_else(|_| "unknown".to_string());
+        let text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "unknown".to_string());
         return Err(format!("FC /apply failed: {text}"));
     }
 
@@ -625,7 +627,9 @@ pub async fn oss_apply_team(
 }
 
 #[tauri::command]
-pub async fn oss_get_pending_application(workspace_path: String) -> Result<Option<PendingApplication>, String> {
+pub async fn oss_get_pending_application(
+    workspace_path: String,
+) -> Result<Option<PendingApplication>, String> {
     Ok(read_pending_application(&workspace_path))
 }
 
@@ -663,7 +667,11 @@ pub async fn oss_approve_application(
     manager.add_member(member).await?;
 
     // Delete application file from S3
-    let app_key = format!("teams/{}/_meta/applications/{}.json", manager.team_id(), node_id);
+    let app_key = format!(
+        "teams/{}/_meta/applications/{}.json",
+        manager.team_id(),
+        node_id
+    );
     let _ = manager.s3_delete(&app_key).await;
 
     info!("Approved application for nodeId: {node_id}");

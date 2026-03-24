@@ -1072,11 +1072,18 @@ impl OssSyncManager {
         }
 
         // Load current manifest for orphan check
-        let manifest = self.download_members_manifest().await?.unwrap_or(TeamManifest {
-            owner_node_id: String::new(),
-            members: vec![],
-        });
-        let member_ids: HashSet<&str> = manifest.members.iter().map(|m| m.node_id.as_str()).collect();
+        let manifest = self
+            .download_members_manifest()
+            .await?
+            .unwrap_or(TeamManifest {
+                owner_node_id: String::new(),
+                members: vec![],
+            });
+        let member_ids: HashSet<&str> = manifest
+            .members
+            .iter()
+            .map(|m| m.node_id.as_str())
+            .collect();
 
         let mut applications = Vec::new();
         for key in &keys {
@@ -1205,7 +1212,10 @@ pub fn delete_team_secret(team_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn write_pending_application(workspace_path: &str, pending: &PendingApplication) -> Result<(), String> {
+pub fn write_pending_application(
+    workspace_path: &str,
+    pending: &PendingApplication,
+) -> Result<(), String> {
     let config_path = Path::new(workspace_path)
         .join(TEAMCLAW_DIR)
         .join("teamclaw.json");
@@ -1221,9 +1231,12 @@ pub fn write_pending_application(workspace_path: &str, pending: &PendingApplicat
     let pending_value = serde_json::to_value(pending)
         .map_err(|e| format!("Failed to serialize pending application: {e}"))?;
 
-    let root = json.as_object_mut()
+    let root = json
+        .as_object_mut()
         .ok_or_else(|| "teamclaw.json root is not an object".to_string())?;
-    let oss = root.entry("oss").or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let oss = root
+        .entry("oss")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
     if let Some(oss_obj) = oss.as_object_mut() {
         oss_obj.insert("pendingApplication".to_string(), pending_value);
     }
