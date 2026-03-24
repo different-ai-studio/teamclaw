@@ -284,6 +284,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         _appliedConfigKey: null,
         myRole: null,
       });
+      // Load team config immediately so sidebar shows team tag on startup
+      useTeamModeStore.getState().loadTeamConfig(expandedPath).catch(() => {});
     } catch { /* ignore */ }
 
     // Persist workspace path for auto-restore on next launch
