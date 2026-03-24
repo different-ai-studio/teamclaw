@@ -230,7 +230,24 @@ function WorkspaceSelectorButton() {
   const isLoadingWorkspace = useWorkspaceStore(s => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
   const teamMode = useTeamModeStore(s => s.teamMode)
+  const p2pConnected = useTeamModeStore(s => s.p2pConnected)
   const [isSelecting, setIsSelecting] = React.useState(false)
+
+  // Poll P2P connection status when in team mode
+  React.useEffect(() => {
+    if (!teamMode || !isTauri()) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        const status = await invoke<{ connected?: boolean }>('p2p_sync_status')
+        if (!cancelled) useTeamModeStore.setState({ p2pConnected: status?.connected ?? false })
+      } catch { /* ignore */ }
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [teamMode])
 
   const handleOpenFolder = async () => {
     if (!isTauri()) {
@@ -279,6 +296,17 @@ function WorkspaceSelectorButton() {
           <span className="truncate text-xs" data-testid="workspace-name">
             {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
           </span>
+          {teamMode && workspaceName && (
+            <span className={cn(
+              "shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1",
+              p2pConnected
+                ? "text-green-600 dark:text-green-400 bg-green-500/10"
+                : "text-amber-600 dark:text-amber-400 bg-amber-500/10"
+            )}>
+              <span className={cn("h-1.5 w-1.5 rounded-full", p2pConnected ? "bg-green-500" : "bg-amber-500")} />
+              {t('sidebar.teamTag', 'Team')}
+            </span>
+          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent side="top">

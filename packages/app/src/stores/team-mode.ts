@@ -24,6 +24,7 @@ interface TeamModeState {
   _appliedConfigKey: string | null // fingerprint of last applied config to avoid redundant apply
   devUnlocked: boolean // hidden dev mode: unlocks model selector & hidden dirs in team mode
   myRole: 'owner' | 'editor' | 'viewer' | null
+  p2pConnected: boolean
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
   applyTeamModelToOpenCode: (workspacePath: string) => Promise<void>
@@ -62,6 +63,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   _appliedConfigKey: null,
   devUnlocked: false,
   myRole: null,
+  p2pConnected: false,
   teamApiKey: (() => {
     try {
       return localStorage.getItem(TEAM_API_KEY_STORAGE) || null
@@ -72,23 +74,28 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
   loadTeamConfig: async (_workspacePath: string) => {
     const status = await fetchTeamStatus()
-    if (status?.active && status.llm) {
-      const config: TeamModelConfig = {
-        baseUrl: status.llm.baseUrl,
-        model: status.llm.model,
-        modelName: status.llm.modelName || status.llm.model,
+    if (status?.active) {
+      set({ teamMode: true })
+      if (status.llm) {
+        const config: TeamModelConfig = {
+          baseUrl: status.llm.baseUrl,
+          model: status.llm.model,
+          modelName: status.llm.modelName || status.llm.model,
+        }
+        set({ teamModelConfig: config })
       }
-      set({ teamModelConfig: config })
     } else {
-      set({ teamModelConfig: null })
+      set({ teamMode: false, teamModelConfig: null })
     }
 
     // Team mode is determined by P2P sync status
-    // Load user's role (non-critical)
+    // Load user's role and P2P connection status (non-critical)
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       const role = await invoke<string | null>('unified_team_get_my_role')
       set({ myRole: role as any })
+      const syncStatus = await invoke<{ connected?: boolean }>('p2p_sync_status').catch(() => null)
+      set({ p2pConnected: syncStatus?.connected ?? false })
     } catch {
       // Non-critical, role can be loaded later
     }
