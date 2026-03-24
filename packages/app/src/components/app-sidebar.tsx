@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, Settings, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Pencil, Ellipsis, Clock } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Pencil, Ellipsis, Clock } from "lucide-react"
 
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
@@ -577,7 +577,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => openSettings()}
           >
-            <Settings className="h-3.5 w-3.5 mr-1" />
             {t('sidebar.settings', '设置')}
           </Button>
           <WorkspaceSelectorButton />
