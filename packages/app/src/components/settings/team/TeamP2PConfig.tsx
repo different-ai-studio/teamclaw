@@ -206,7 +206,10 @@ export function TeamP2PConfig() {
     try {
       const status = await tauriInvoke<typeof syncStatus>('p2p_sync_status')
       setSyncStatus(status)
-      useTeamModeStore.setState({ myRole: (status?.role as 'owner' | 'editor' | 'viewer') ?? null })
+      useTeamModeStore.setState({
+        myRole: (status?.role as 'owner' | 'editor' | 'viewer') ?? null,
+        p2pConnected: status?.connected ?? false,
+      })
     } catch {
       // may not be available
     }
