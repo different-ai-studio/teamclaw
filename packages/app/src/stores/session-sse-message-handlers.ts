@@ -34,7 +34,9 @@ type SessionGet = () => SessionState;
 const completionRetryCount = new Map<string, number>();
 
 // Debug logging — off by default; enable via: localStorage.setItem('debug-streaming', '1')
-const DEBUG = () => localStorage.getItem('debug-streaming') === '1';
+const DEBUG = () => {
+  try { return localStorage.getItem('debug-streaming') === '1' } catch { return false }
+};
 
 export function createMessageHandlers(set: SessionSet, get: SessionGet) {
   return {

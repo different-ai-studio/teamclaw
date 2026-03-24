@@ -54,10 +54,7 @@ pub enum OssJoinResult {
         info: OssTeamInfo,
     },
     #[serde(rename = "not_member")]
-    NotMember {
-        node_id: String,
-        team_name: String,
-    },
+    NotMember { node_id: String, team_name: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
