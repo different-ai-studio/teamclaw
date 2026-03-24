@@ -1053,7 +1053,13 @@ async fn main() {
             "/admin/teams/{namespace_id}/applications/{node_id}",
             delete(handle_admin_reject_application),
         )
-        .with_state(state.clone());
+        .with_state(state.clone())
+        .layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any),
+        );
 
     let addr = format!("0.0.0.0:{}", config.port);
     eprintln!("[seed] HTTP API at http://{}", addr);
