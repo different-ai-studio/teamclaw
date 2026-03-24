@@ -1774,20 +1774,41 @@ pub async fn p2p_reconnect(
         return Ok(());
     }
 
-    // Always re-import from saved ticket to register for network sync.
+    let my_node_id = get_node_id(node);
+    let is_owner = config
+        .owner_node_id
+        .as_deref()
+        .map_or(false, |owner| owner == my_node_id);
+
+    // Re-import from saved ticket to register for network sync.
     // docs.open() only loads locally and does NOT accept incoming sync requests.
-    let doc = if let Some(ref ticket_str) = config.doc_ticket {
-        eprintln!("[P2P] Reconnecting via ticket import");
-        let ticket = ticket_str
-            .trim()
-            .parse::<iroh_docs::DocTicket>()
-            .map_err(|_| "Invalid saved ticket".to_string())?;
-        node.docs
-            .import(ticket)
-            .await
-            .map_err(|e| format!("Failed to import doc: {}", e))?
+    // However, if we are the owner the ticket contains our own address — importing
+    // it would make iroh attempt to connect to ourselves. In that case fall back to
+    // docs.open() which is sufficient because joiners will connect to us via their
+    // copy of the ticket.
+    let doc = if !is_owner {
+        if let Some(ref ticket_str) = config.doc_ticket {
+            eprintln!("[P2P] Reconnecting via ticket import");
+            let ticket = ticket_str
+                .trim()
+                .parse::<iroh_docs::DocTicket>()
+                .map_err(|_| "Invalid saved ticket".to_string())?;
+            node.docs
+                .import(ticket)
+                .await
+                .map_err(|e| format!("Failed to import doc: {}", e))?
+        } else {
+            let namespace_id = namespace_id_str
+                .parse::<iroh_docs::NamespaceId>()
+                .map_err(|e| format!("Invalid namespace ID: {}", e))?;
+            node.docs
+                .open(namespace_id)
+                .await
+                .map_err(|e| format!("Failed to open doc: {}", e))?
+                .ok_or("Team document not found")?
+        }
     } else {
-        // Fallback: try opening from local storage (won't accept remote sync)
+        eprintln!("[P2P] Owner reconnect — opening doc locally (skip self-connect)");
         let namespace_id = namespace_id_str
             .parse::<iroh_docs::NamespaceId>()
             .map_err(|e| format!("Invalid namespace ID: {}", e))?;
@@ -1801,7 +1822,6 @@ pub async fn p2p_reconnect(
     // Start background sync
     let team_dir = format!("{}/teamclaw-team", workspace_path);
     let my_role = config.role.clone().unwrap_or(MemberRole::Editor);
-    let my_node_id = get_node_id(node);
     start_sync_tasks(
         &doc,
         node.author,
