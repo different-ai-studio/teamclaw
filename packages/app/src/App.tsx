@@ -42,6 +42,7 @@ import {
   useChannelGatewayInit,
   useGitReposInit,
   useCronInit,
+  useOssSyncInit,
   useP2pAutoReconnect,
 
   useExternalLinkHandler,
@@ -446,6 +447,7 @@ function AppContent() {
   useChannelGatewayInit();
   useGitReposInit();
   useCronInit();
+  useOssSyncInit();
   useP2pAutoReconnect();
   useMCPFileWatcher(workspacePath);
   useExternalLinkHandler();

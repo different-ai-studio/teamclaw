@@ -73,10 +73,16 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   })(),
 
   loadTeamConfig: async (_workspacePath: string) => {
+    // teamMode = p2p.enabled || ossConfigured
     const status = await fetchTeamStatus()
-    if (status?.active) {
+    const { useTeamOssStore } = await import('./team-oss')
+    const ossConfigured = useTeamOssStore.getState().configured
+    const p2pActive = !!status?.active
+    const isTeamMode = p2pActive || ossConfigured
+
+    if (isTeamMode) {
       set({ teamMode: true })
-      if (status.llm) {
+      if (status?.llm) {
         const config: TeamModelConfig = {
           baseUrl: status.llm.baseUrl,
           model: status.llm.model,
@@ -87,8 +93,6 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     } else {
       set({ teamMode: false, teamModelConfig: null })
     }
-
-    // Team mode is determined by P2P sync status
     // Load user's role and P2P connection status (non-critical)
     try {
       const { invoke } = await import('@tauri-apps/api/core')
@@ -315,3 +319,21 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   },
 }))
 
+// Subscribe to OSS configured state changes — teamMode = p2p.enabled || ossConfigured
+import('./team-oss').then(({ useTeamOssStore }) => {
+  let prevConfigured = useTeamOssStore.getState().configured
+  useTeamOssStore.subscribe((state) => {
+    if (state.configured !== prevConfigured) {
+      prevConfigured = state.configured
+      if (state.configured) {
+        useTeamModeStore.setState({ teamMode: true })
+      } else {
+        // OSS disconnected — only clear teamMode if P2P is also not active
+        const p2pActive = useTeamModeStore.getState().p2pConnected
+        if (!p2pActive) {
+          useTeamModeStore.setState({ teamMode: false })
+        }
+      }
+    }
+  })
+})

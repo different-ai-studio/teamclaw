@@ -83,6 +83,9 @@ iroh = { version = "0.96", optional = true }
 iroh-blobs = { version = "0.98", features = ["fs-store"], optional = true }
 iroh-docs = { version = "0.96", optional = true }
 iroh-gossip = { version = "0.96", optional = true }
+aws-sdk-s3 = "1"
+aws-config = "1"
+loro = "1"
 filetime = "0.2"
 arboard = "3"
 futures-lite = "2"

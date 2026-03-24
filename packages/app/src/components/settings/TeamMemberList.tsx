@@ -1,12 +1,6 @@
-import { useEffect, useState } from 'react'
-import { UserMinus, Shield, Pencil, Eye, UserPlus } from 'lucide-react'
+import { useEffect } from 'react'
+import { UserMinus, Shield, Pencil, Eye, UserPlus, Clock, UserCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { useTeamMembersStore } from '../../stores/team-members'
 import { AddMemberInput } from './AddMemberInput'
 
@@ -52,13 +46,17 @@ export function TeamMemberList() {
     removeMember,
     updateMemberRole,
     canManageMembers,
+    applications,
+    approveApplication,
+    listenForApplications,
+    cleanupApplicationsListener,
   } = useTeamMembersStore()
-
-  const [showAddDialog, setShowAddDialog] = useState(false)
 
   useEffect(() => {
     loadMembers()
     loadMyRole()
+    listenForApplications()
+    return () => cleanupApplicationsListener()
   }, [])
 
   const isManager = canManageMembers()
@@ -74,7 +72,6 @@ export function TeamMemberList() {
       hostname: '',
       addedAt: new Date().toISOString(),
     })
-    setShowAddDialog(false)
   }
 
   return (
@@ -84,6 +81,43 @@ export function TeamMemberList() {
       )}
       {error && (
         <p className="text-xs text-destructive">{error}</p>
+      )}
+      {/* Pending Applications */}
+      {isManager && applications.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-amber-500" />
+            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">
+              待审批 ({applications.length})
+            </span>
+          </div>
+          {applications.map((app) => (
+            <div
+              key={app.nodeId}
+              className="flex items-center justify-between bg-amber-500/5 border border-amber-500/20 rounded-md p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">{app.name}</p>
+                <p className="text-xs text-muted-foreground">{app.email}</p>
+                {app.note && (
+                  <p className="text-xs text-muted-foreground mt-0.5">备注: {app.note}</p>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  {app.platform} · {app.arch} · {new Date(app.appliedAt).toLocaleDateString()}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 text-green-600 border-green-500/30 hover:bg-green-500/10"
+                onClick={() => approveApplication(app)}
+              >
+                <UserCheck className="mr-1 h-3.5 w-3.5" />
+                通过
+              </Button>
+            </div>
+          ))}
+        </div>
       )}
       <div className="space-y-2">
         {members.map((member) => {
@@ -152,31 +186,14 @@ export function TeamMemberList() {
           )
         })}
       </div>
-
-      {/* Add Member Modal */}
       {isManager && (
-        <>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setShowAddDialog(true)}
-          >
-            <UserPlus className="h-4 w-4" />
-            Add Member
-          </Button>
-          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-            <DialogContent className="sm:max-w-[460px]">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <UserPlus className="h-5 w-5" />
-                  Add Member
-                </DialogTitle>
-              </DialogHeader>
-              <AddMemberInput onAdd={handleAdd} error={error} />
-            </DialogContent>
-          </Dialog>
-        </>
+        <div className="pt-2 border-t border-border">
+          <div className="flex items-center gap-1.5 mb-2">
+            <UserPlus className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Add Member</span>
+          </div>
+          <AddMemberInput onAdd={handleAdd} error={error} />
+        </div>
       )}
     </div>
   )
