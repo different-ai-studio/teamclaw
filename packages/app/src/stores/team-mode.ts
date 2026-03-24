@@ -201,6 +201,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
   setDevUnlocked: (unlocked: boolean) => {
     set({ devUnlocked: unlocked })
+    // Refresh file tree so hidden files appear/disappear
+    import('./workspace').then(({ useWorkspaceStore }) => {
+      useWorkspaceStore.getState().refreshFileTree()
+    })
   },
 
   clearTeamMode: async (workspacePath?: string) => {
