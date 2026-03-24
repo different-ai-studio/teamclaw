@@ -29,6 +29,13 @@ import type { DeviceInfo, TeamMember } from '@/lib/git/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -155,6 +162,7 @@ export function TeamP2PConfig() {
     platform: string; arch: string; hostname: string; appliedAt: string
   }>>([])
   const [applicationsLoading, setApplicationsLoading] = React.useState(false)
+  const [approveRoles, setApproveRoles] = React.useState<Record<string, 'editor' | 'viewer'>>({})
 
   // Seed-based join flow
   const [joinMode, setJoinMode] = React.useState<'seed' | 'ticket'>('seed')
@@ -669,19 +677,34 @@ export function TeamP2PConfig() {
                                 {app.email && <p className="text-xs text-muted-foreground truncate">{app.email}</p>}
                                 <p className="text-[10px] text-muted-foreground">{app.platform} · {app.hostname}</p>
                               </div>
-                              <div className="flex gap-1 shrink-0">
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={approveRoles[app.nodeId] ?? 'editor'}
+                                onValueChange={(v) => setApproveRoles((prev) => ({ ...prev, [app.nodeId]: v as 'editor' | 'viewer' }))}
+                              >
+                                <SelectTrigger className="h-7 text-xs w-24">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="editor">{t('settings.team.roleEditor', 'Editor')}</SelectItem>
+                                  <SelectItem value="viewer">{t('settings.team.roleViewer', 'Viewer')}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <div className="flex gap-1 ml-auto">
                                 <Button
                                   size="sm"
                                   className="h-7 px-2 text-xs gap-1"
                                   onClick={async () => {
+                                    const role = approveRoles[app.nodeId] ?? 'editor'
                                     try {
-                                      // 1. Add to P2P team
+                                      // 1. Add to P2P team with selected role
                                       const { invoke: inv } = await import('@tauri-apps/api/core')
                                       await inv('unified_team_add_member', {
                                         member: {
                                           nodeId: app.nodeId,
                                           name: app.name,
-                                          role: 'editor',
+                                          role,
                                           label: app.hostname,
                                           platform: app.platform,
                                           arch: app.arch,
@@ -696,6 +719,7 @@ export function TeamP2PConfig() {
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ teamSecret: syncStatus!.teamSecret }),
                                       })
+                                      setApproveRoles((prev) => { const n = { ...prev }; delete n[app.nodeId]; return n })
                                       await fetchApplications()
                                       await loadSyncStatus()
                                     } catch (err) {
