@@ -201,6 +201,44 @@ pub async fn oss_create_team(
 
     info!("OSS team created: {team_id}");
 
+    // Fire-and-forget: register team + owner key in LiteLLM via FC
+    {
+        let fc_endpoint = team_endpoint.clone();
+        let fc_team_id = team_id.clone();
+        let fc_team_secret = team_secret.clone();
+        let fc_team_name = team_name.clone();
+        let fc_node_id = node_id.clone();
+        let fc_owner_name = owner_name.clone();
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            // Setup team in LiteLLM
+            let setup_body = serde_json::json!({
+                "teamId": fc_team_id,
+                "teamSecret": fc_team_secret,
+                "teamName": fc_team_name,
+            });
+            match client.post(format!("{}/ai/setup-team", fc_endpoint))
+                .json(&setup_body).send().await
+            {
+                Ok(r) => tracing::info!("LiteLLM setup-team: status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM setup-team failed: {e}"),
+            }
+            // Add owner key
+            let member_body = serde_json::json!({
+                "teamId": fc_team_id,
+                "teamSecret": fc_team_secret,
+                "nodeId": fc_node_id,
+                "memberName": fc_owner_name,
+            });
+            match client.post(format!("{}/ai/add-member", fc_endpoint))
+                .json(&member_body).send().await
+            {
+                Ok(r) => tracing::info!("LiteLLM add-member (owner): status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM add-member (owner) failed: {e}"),
+            }
+        });
+    }
+
     Ok(OssTeamInfo {
         team_id,
         team_secret: Some(team_secret),
@@ -315,6 +353,28 @@ pub async fn oss_join_team(
     start_poll_loop(&state).await;
 
     info!("Joined OSS team: {team_id}");
+
+    // Fire-and-forget: create LiteLLM key for joining member via FC
+    {
+        let fc_endpoint = team_endpoint.clone();
+        let fc_team_id = team_id.clone();
+        let fc_team_secret = team_secret.clone();
+        let fc_node_id = node_id.clone();
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            let body = serde_json::json!({
+                "teamId": fc_team_id,
+                "teamSecret": fc_team_secret,
+                "nodeId": fc_node_id,
+            });
+            match client.post(format!("{}/ai/add-member", fc_endpoint))
+                .json(&body).send().await
+            {
+                Ok(r) => tracing::info!("LiteLLM add-member (join): status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM add-member (join) failed: {e}"),
+            }
+        });
+    }
 
     Ok(OssJoinResult::Joined {
         info: OssTeamInfo {

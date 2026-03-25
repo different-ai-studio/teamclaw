@@ -783,6 +783,18 @@ fn inherent_skills() -> Vec<InherentSkill> {
                 "../../../packages/app/src/lib/skills/using-superpowers/SKILL.md"
             ),
         },
+        InherentSkill {
+            dirname: "ai-keys",
+            content: include_str!("../../../packages/app/src/lib/skills/ai-keys/SKILL.md"),
+        },
+        InherentSkill {
+            dirname: "ai-usage",
+            content: include_str!("../../../packages/app/src/lib/skills/ai-usage/SKILL.md"),
+        },
+        InherentSkill {
+            dirname: "ai-manage",
+            content: include_str!("../../../packages/app/src/lib/skills/ai-manage/SKILL.md"),
+        },
     ]
 }
 
