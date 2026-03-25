@@ -15,6 +15,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { cn, openExternalUrl } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -38,7 +39,7 @@ const KOOK_WIZARD_STEPS = [
     titleKey: 'settings.channels.kook.wizardIntroTitle',
     title: 'Welcome to KOOK Setup',
     descKey: 'settings.channels.kook.wizardIntroDesc',
-    description: "Let's connect your KOOK bot to TeamClaw in a few simple steps.",
+    description: `Let's connect your KOOK bot to ${buildConfig.app.name} in a few simple steps.`,
   },
   {
     id: 'create-bot',
@@ -137,9 +138,9 @@ export function KookSetupWizard({
             </div>
 
             <div className="text-center space-y-2">
-              <h3 className="text-lg font-semibold">{t('settings.channels.kook.connectTitle', 'Connect KOOK to TeamClaw')}</h3>
+              <h3 className="text-lg font-semibold">{t('settings.channels.kook.connectTitle', { defaultValue: 'Connect KOOK to {{appName}}', appName: buildConfig.app.name })}</h3>
               <p className="text-sm text-muted-foreground">
-                {t('settings.channels.kook.connectDesc', "This wizard will guide you through creating a KOOK bot and connecting it to TeamClaw. You'll be able to interact with AI directly from KOOK servers and DMs.")}
+                {t('settings.channels.kook.connectDesc', { defaultValue: "This wizard will guide you through creating a KOOK bot and connecting it to {{appName}}. You'll be able to interact with AI directly from KOOK servers and DMs.", appName: buildConfig.app.name })}
               </p>
             </div>
 
@@ -177,7 +178,7 @@ export function KookSetupWizard({
                   <ol className="list-decimal list-inside space-y-2 text-orange-800 dark:text-orange-200">
                     <li>{t('settings.channels.kook.createBotStep1', 'Go to the KOOK Developer Portal')}</li>
                     <li>{t('settings.channels.kook.createBotStep2', 'Click "Create Application"')}</li>
-                    <li>{t('settings.channels.kook.createBotStep3', 'Enter a name (e.g., "TeamClaw Bot") and icon')}</li>
+                    <li>{t('settings.channels.kook.createBotStep3', { defaultValue: 'Enter a name (e.g., "{{appName}} Bot") and icon', appName: buildConfig.app.name })}</li>
                     <li>{t('settings.channels.kook.createBotStep4', 'Select "Bot" type')}</li>
                     <li>{t('settings.channels.kook.createBotStep5', 'Click "Create"')}</li>
                   </ol>

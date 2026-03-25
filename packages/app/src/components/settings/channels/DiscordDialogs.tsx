@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { cn, openExternalUrl, copyToClipboard as copyToClipboardUtil } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -36,7 +37,7 @@ import { ToggleSwitch } from './shared'
 
 // Setup Wizard Component - steps built with t() inside component
 const getDiscordWizardSteps = (t: (key: string, options?: Record<string, unknown>) => string) => [
-  { id: 'intro', title: t('settings.channels.discord.welcome', { defaultValue: 'Welcome to Discord Setup' }), description: t('settings.channels.discord.welcomeDesc', { defaultValue: "Let's connect your Discord bot to TeamClaw in a few simple steps." }) },
+  { id: 'intro', title: t('settings.channels.discord.welcome', { defaultValue: 'Welcome to Discord Setup' }), description: t('settings.channels.discord.welcomeDesc', { defaultValue: "Let's connect your Discord bot to {{appName}} in a few simple steps.", appName: buildConfig.app.name }) },
   { id: 'create-app', title: t('settings.channels.discord.createApp', { defaultValue: 'Create Discord Application' }), description: t('settings.channels.discord.createAppDesc', { defaultValue: 'First, we need to create a Discord application and bot.' }) },
   { id: 'get-token', title: t('settings.channels.discord.getToken', { defaultValue: 'Get Your Bot Token' }), description: t('settings.channels.discord.getTokenDesc', { defaultValue: "Copy your bot's secret token to authenticate." }) },
   { id: 'permissions', title: t('settings.channels.discord.permissions', { defaultValue: 'Configure Permissions' }), description: t('settings.channels.discord.permissionsDesc', { defaultValue: 'Set up the required permissions for your bot.' }) },
@@ -119,9 +120,9 @@ export function SetupWizard({
             </div>
 
             <div className="text-center space-y-2">
-              <h3 className="text-lg font-semibold">{t('settings.channels.discord.connectTitle', 'Connect Discord to TeamClaw')}</h3>
+              <h3 className="text-lg font-semibold">{t('settings.channels.discord.connectTitle', { defaultValue: 'Connect Discord to {{appName}}', appName: buildConfig.app.name })}</h3>
               <p className="text-sm text-muted-foreground">
-                This wizard will guide you through creating a Discord bot and connecting it to TeamClaw.
+                {`This wizard will guide you through creating a Discord bot and connecting it to ${buildConfig.app.name}.`}
                 You'll be able to interact with AI directly from Discord channels and DMs.
               </p>
             </div>
@@ -161,7 +162,7 @@ export function SetupWizard({
                     <ol className="list-decimal list-inside space-y-2 text-blue-800 dark:text-blue-200">
                       <li>{t('settings.channels.discord.createBotStep1', 'Go to the Discord Developer Portal')}</li>
                       <li>{t('settings.channels.discord.createBotStep2', 'Click "New Application"')}</li>
-                      <li>{t('settings.channels.discord.createBotStep3', 'Enter a name (e.g., "TeamClaw Bot") and create')}</li>
+                      <li>{t('settings.channels.discord.createBotStep3', { defaultValue: 'Enter a name (e.g., "{{appName}} Bot") and create', appName: buildConfig.app.name })}</li>
                       <li>{t('settings.channels.discord.createBotStep4', 'Navigate to "Bot" in the left sidebar')}</li>
                       <li>{t('settings.channels.discord.createBotStep5', 'Click "Add Bot" to create a bot user')}</li>
                     </ol>

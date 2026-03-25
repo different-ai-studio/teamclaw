@@ -11,6 +11,7 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog'
 import { useTelemetryStore } from '@/stores/telemetry'
+import { buildConfig } from '@/lib/build-config'
 
 interface TelemetryConsentDialogProps {
   open: boolean
@@ -41,10 +42,10 @@ export function TelemetryConsentDialog({
             <BarChart3 className="h-6 w-6 text-primary" />
           </div>
           <AlertDialogTitle className="text-center">
-            帮助改善 TeamClaw
+            {`帮助改善 ${buildConfig.app.name}`}
           </AlertDialogTitle>
           <AlertDialogDescription className="text-center">
-            允许 TeamClaw 收集匿名使用数据，帮助我们改善 Agent 质量。
+            {`允许 ${buildConfig.app.name} 收集匿名使用数据，帮助我们改善 Agent 质量。`}
           </AlertDialogDescription>
         </AlertDialogHeader>
 

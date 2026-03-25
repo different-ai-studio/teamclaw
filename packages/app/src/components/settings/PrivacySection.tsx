@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Shield } from 'lucide-react'
 import { useTelemetryStore } from '@/stores/telemetry'
 import { cn } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 
 export function PrivacySection() {
   const { t } = useTranslation()
@@ -24,7 +25,7 @@ export function PrivacySection() {
           {t('settings.privacy.title', 'Privacy & Telemetry')}
         </h3>
         <p className="text-sm text-muted-foreground mt-1">
-          {t('settings.privacy.description', 'Control anonymous usage data collection to help improve TeamClaw.')}
+          {t('settings.privacy.description', { defaultValue: 'Control anonymous usage data collection to help improve {{appName}}.', appName: buildConfig.app.name })}
         </p>
       </div>
 

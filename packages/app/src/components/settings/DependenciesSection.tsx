@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { useDepsStore } from '@/stores/deps'
 import type { DependencyInfo } from '@/stores/deps'
 
@@ -164,7 +165,7 @@ export function DependenciesSection() {
         <SectionHeader
           icon={Package}
           title={t('settings.deps.title', 'Dependencies')}
-          description={t('settings.deps.description', 'External tools required by TeamClaw')}
+          description={t('settings.deps.description', { defaultValue: 'External tools required by {{appName}}', appName: buildConfig.app.name })}
           iconColor="text-teal-500"
         />
         <SettingCard>
@@ -181,7 +182,7 @@ export function DependenciesSection() {
       <SectionHeader
         icon={Package}
         title={t('settings.deps.title', 'Dependencies')}
-        description={t('settings.deps.description', 'External tools required by TeamClaw')}
+        description={t('settings.deps.description', { defaultValue: 'External tools required by {{appName}}', appName: buildConfig.app.name })}
         iconColor="text-teal-500"
       />
 

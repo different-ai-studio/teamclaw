@@ -47,7 +47,7 @@ import {
 
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
-    throw new Error('Team feature requires TeamClaw desktop app (Tauri not available)')
+    throw new Error(`Team feature requires ${buildConfig.app.name} desktop app (Tauri not available)`)
   }
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<T>(cmd, args)

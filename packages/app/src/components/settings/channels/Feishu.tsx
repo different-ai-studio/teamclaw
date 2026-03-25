@@ -20,6 +20,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { cn, openExternalUrl } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -48,7 +49,7 @@ const FEISHU_WIZARD_STEPS = [
     titleKey: 'settings.channels.feishu.wizardIntroTitle',
     title: 'Welcome to Feishu Setup',
     descKey: 'settings.channels.feishu.wizardIntroDesc',
-    description: "Let's connect your Feishu bot to TeamClaw in a few simple steps.",
+    description: `Let's connect your Feishu bot to ${buildConfig.app.name} in a few simple steps.`,
   },
   {
     id: 'create-app',
@@ -144,9 +145,9 @@ function FeishuSetupWizard({
             </div>
 
             <div className="text-center space-y-2">
-              <h3 className="text-lg font-semibold">{t('settings.channels.feishu.connectTitle', 'Connect Feishu to TeamClaw')}</h3>
+              <h3 className="text-lg font-semibold">{t('settings.channels.feishu.connectTitle', { defaultValue: 'Connect Feishu to {{appName}}', appName: buildConfig.app.name })}</h3>
               <p className="text-sm text-muted-foreground">
-                {t('settings.channels.feishu.connectDesc', "This wizard will guide you through creating a Feishu app and connecting it to TeamClaw. You'll be able to interact with AI directly from Feishu chats.")}
+                {t('settings.channels.feishu.connectDesc', { defaultValue: "This wizard will guide you through creating a Feishu app and connecting it to {{appName}}. You'll be able to interact with AI directly from Feishu chats.", appName: buildConfig.app.name })}
               </p>
             </div>
 
@@ -184,7 +185,7 @@ function FeishuSetupWizard({
                   <ol className="list-decimal list-inside space-y-2 text-blue-800 dark:text-blue-200">
                     <li>{t('settings.channels.feishu.createAppStep1', 'Go to the Feishu Developer Portal')}</li>
                     <li>{t('settings.channels.feishu.createAppStep2', 'Click "Create Custom App"')}</li>
-                    <li>{t('settings.channels.feishu.createAppStep3', 'Enter a name (e.g., "TeamClaw Bot") and description')}</li>
+                    <li>{t('settings.channels.feishu.createAppStep3', { defaultValue: 'Enter a name (e.g., "{{appName}} Bot") and description', appName: buildConfig.app.name })}</li>
                     <li>{t('settings.channels.feishu.createAppStep4', 'Select your organization')}</li>
                     <li>{t('settings.channels.feishu.createAppStep5', 'Click "Create"')}</li>
                   </ol>

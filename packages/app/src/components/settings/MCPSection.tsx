@@ -18,6 +18,7 @@ import { useMCPStore, type MCPServerConfig } from '@/stores/mcp'
 import { useDepsStore } from '@/stores/deps'
 import type { MCPServerStatus } from '@/lib/opencode/types'
 import { cn } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -379,7 +380,7 @@ export const MCPSection = React.memo(function MCPSection() {
               {t('settings.mcp.inherentMCP')}
             </span>
             <div className="flex-1 h-px bg-blue-200/60 dark:bg-blue-800/40" />
-            <span className="text-xs text-muted-foreground">{t('settings.mcp.managedByTeamClaw')}</span>
+            <span className="text-xs text-muted-foreground">{t('settings.mcp.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
           </div>
           {inherentEntries.map(([name, config]) => {
             const runtime = runtimeStatus[name]

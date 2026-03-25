@@ -9,6 +9,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
 import { cn, isTauri } from "@/lib/utils";
+import { buildConfig } from "@/lib/build-config";
 import {
   AlertTriangle,
   Terminal,
@@ -524,7 +525,7 @@ function AppContent() {
                 />
               </>
             )}
-            <span className="font-medium">TeamClaw</span>
+            <span className="font-medium">{buildConfig.app.name}</span>
           </header>
           <div className="flex-1 overflow-hidden">
             <WorkspacePrompt />
@@ -554,7 +555,7 @@ function AppContent() {
                 />
               </>
             )}
-            <span className="font-medium">TeamClaw</span>
+            <span className="font-medium">{buildConfig.app.name}</span>
           </header>
           <div className="flex-1 overflow-hidden flex flex-col items-center justify-center gap-6 p-8">
             <div className="flex flex-col items-center gap-4 text-center max-w-lg">
@@ -629,7 +630,7 @@ function AppContent() {
           {/* Layout toggle - before TeamClaw */}
           {advancedMode && <LayoutToggleButton />}
 
-          <span className="text-sm font-medium">TeamClaw</span>
+          <span className="text-sm font-medium">{buildConfig.app.name}</span>
           <Separator
             orientation="vertical"
             className="data-[orientation=vertical]:h-4 mx-2"

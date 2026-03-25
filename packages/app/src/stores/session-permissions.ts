@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getOpenCodeClient } from "@/lib/opencode/client";
 import { isTauri } from "@/lib/utils";
+import { buildConfig } from "@/lib/build-config";
 import { notificationService } from "@/lib/notification-service";
 import { shouldAutoAuthorize } from "@/lib/permission-policy";
 import type { PermissionAskedEvent } from "@/lib/opencode/types";
@@ -229,7 +230,7 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
 
         notificationService.send(
           "action_required",
-          "TeamClaw - Authorization required",
+          `${buildConfig.app.name} - Authorization required`,
           `${sessionTitle} \u2014 requesting ${permissionType} permission`,
           event.sessionID,
           async () => {

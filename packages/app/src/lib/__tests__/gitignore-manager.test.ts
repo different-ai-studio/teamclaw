@@ -77,7 +77,7 @@ describe('gitignore-manager', () => {
 
       expect(writeTextFile).toHaveBeenCalledWith(
         '/workspace/.gitignore',
-        expect.stringContaining('# TeamClaw system directories')
+        expect.stringContaining('system directories')
       )
     })
 

@@ -41,7 +41,7 @@ describe('EmailSetupWizard', () => {
       <EmailSetupWizard open={true} onOpenChange={vi.fn()} onConfigSave={vi.fn()} />
     )
     expect(screen.getByText('Welcome to Email Setup')).toBeTruthy()
-    expect(screen.getByText('Connect Email to TeamClaw')).toBeTruthy()
+    expect(screen.getByText(/Connect Email to/)).toBeTruthy()
   })
 
   it('navigates to provider step on Next click', () => {

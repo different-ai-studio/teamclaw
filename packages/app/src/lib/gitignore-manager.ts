@@ -1,11 +1,12 @@
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
 import { join } from '@tauri-apps/api/path'
+import { buildConfig } from '@/lib/build-config'
 
 /**
  * Default entries that should be in workspace .gitignore
  */
 export const TEAMCLAW_GITIGNORE_ENTRIES = [
-  '# TeamClaw system directories',
+  `# ${buildConfig.app.name} system directories`,
   '.teamclaw/',
   '.opencode/',
 ]
@@ -68,7 +69,7 @@ export async function ensureGitignoreEntries(workspacePath: string): Promise<voi
     if (!existingContent.endsWith('\n')) {
       newContent += '\n'
     }
-    newContent += '\n# TeamClaw system directories\n'
+    newContent += `\n# ${buildConfig.app.name} system directories\n`
     newContent += missingEntries.join('\n') + '\n'
 
     await writeTextFile(gitignorePath, newContent)

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useDepsStore, type DependencyInfo } from '@/stores/deps'
+import { buildConfig } from '@/lib/build-config'
 
 export type { DependencyInfo }
 
@@ -592,7 +593,7 @@ export function SetupGuide({ onContinue }: SetupGuideProps) {
   }
 
   const phaseDescription = {
-    overview: t('setup.intro', 'TeamClaw needs a few tools to work properly. Install the missing dependencies to get started.'),
+    overview: t('setup.intro', { defaultValue: '{{appName}} needs a few tools to work properly. Install the missing dependencies to get started.', appName: buildConfig.app.name }),
     customize: t('setup.customizeIntro', 'Choose which dependencies to install. Required tools are pre-selected.'),
     installing: t('setup.installingIntro', 'Please wait while dependencies are being installed...'),
     results: t('setup.resultsIntro', 'Installation has finished. See the results below.'),

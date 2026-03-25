@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -41,7 +42,7 @@ const WECHAT_WIZARD_STEPS = [
     titleKey: 'settings.channels.wechat.wizardIntroTitle',
     title: 'Welcome to WeChat Setup',
     descKey: 'settings.channels.wechat.wizardIntroDesc',
-    description: "Let's connect your WeChat account to TeamClaw via ClawBot.",
+    description: `Let's connect your WeChat account to ${buildConfig.app.name} via ClawBot.`,
   },
   {
     id: 'scan',
@@ -177,7 +178,7 @@ function WeChatSetupWizard({
             </div>
 
             <div className="text-center space-y-2">
-              <h3 className="text-lg font-semibold">{t('settings.channels.wechat.connectTitle', 'Connect WeChat to TeamClaw')}</h3>
+              <h3 className="text-lg font-semibold">{t('settings.channels.wechat.connectTitle', { defaultValue: 'Connect WeChat to {{appName}}', appName: buildConfig.app.name })}</h3>
               <p className="text-sm text-muted-foreground">
                 {t('settings.channels.wechat.connectDesc', "This wizard will connect your WeChat account via ClawBot. You'll scan a QR code with WeChat on your iPhone to log in.")}
               </p>

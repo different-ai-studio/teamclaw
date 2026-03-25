@@ -13,6 +13,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
+import { buildConfig } from "@/lib/build-config";
 import { useUpdaterStore } from "@/stores/updater";
 import { useAppVersion } from "@/lib/version";
 import { Button } from "@/components/ui/button";
@@ -49,11 +50,11 @@ export const AboutSection = React.memo(function AboutSection() {
           <div className="flex items-center gap-4">
             <img
               src="/logo-64.png"
-              alt="TeamClaw Logo"
+              alt={`${buildConfig.app.name} Logo`}
               className="h-14 w-14 object-contain"
             />
             <div>
-              <h4 className="font-semibold text-lg">TeamClaw</h4>
+              <h4 className="font-semibold text-lg">{buildConfig.app.name}</h4>
               <p className="text-sm text-muted-foreground">
                 Version {appVersion}
               </p>
@@ -214,10 +215,10 @@ export const AboutSection = React.memo(function AboutSection() {
         <p className="text-sm text-muted-foreground flex items-center justify-center gap-1">
           {t("settings.about.madeWith", "Made with")}{" "}
           <Heart className="h-4 w-4 text-red-500 fill-red-500" />{" "}
-          {t("settings.about.byTeam", "by TeamClaw Team")}
+          {t("settings.about.byTeam", { defaultValue: "by {{appName}} Team", appName: buildConfig.app.name })}
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          &copy; 2024 TeamClaw. All rights reserved.
+          &copy; 2024 {buildConfig.app.name}. All rights reserved.
         </p>
       </div>
     </div>
