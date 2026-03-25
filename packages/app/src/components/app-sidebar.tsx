@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Pencil, Ellipsis, Clock } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock } from "lucide-react"
 
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
@@ -9,6 +9,7 @@ import { useWorkspaceStore } from "@/stores/workspace"
 import { useTabsStore } from "@/stores/tabs"
 import { useCronStore } from "@/stores/cron"
 import { useTeamModeStore } from "@/stores/team-mode"
+import { useTeamOssStore } from "@/stores/team-oss"
 import {
   Sidebar,
   SidebarContent,
@@ -231,6 +232,8 @@ function WorkspaceSelectorButton() {
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
   const teamMode = useTeamModeStore(s => s.teamMode)
   const p2pConnected = useTeamModeStore(s => s.p2pConnected)
+  const ossConfigured = useTeamOssStore(s => s.configured)
+  const ossConnected = useTeamOssStore(s => s.connected)
   const [isSelecting, setIsSelecting] = React.useState(false)
 
   // Poll P2P connection status when in team mode
@@ -288,6 +291,8 @@ function WorkspaceSelectorButton() {
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          ) : teamMode && workspaceName && ossConfigured ? (
+            <Cloud className={cn("h-4 w-4 shrink-0", ossConnected ? "text-blue-500" : "text-muted-foreground")} />
           ) : teamMode && workspaceName ? (
             <Users className={cn("h-4 w-4 shrink-0", p2pConnected ? "text-blue-500" : "text-muted-foreground")} />
           ) : (

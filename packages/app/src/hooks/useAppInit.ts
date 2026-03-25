@@ -325,12 +325,12 @@ export function useOssSyncInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const initialize = useTeamOssStore((s) => s.initialize);
   const cleanup = useTeamOssStore((s) => s.cleanup);
-  const hasInitialized = useRef(false);
 
   useEffect(() => {
-    if (!workspacePath || !isTauri() || hasInitialized.current) return;
-    hasInitialized.current = true;
+    if (!workspacePath || !isTauri()) return;
 
+    // Clean up previous workspace listener, reset state, then re-initialize
+    cleanup();
     initialize(workspacePath).catch((err: unknown) => {
       console.warn("[App] OSS sync init failed (non-critical):", err);
     });

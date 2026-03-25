@@ -75,8 +75,15 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   loadTeamConfig: async (_workspacePath: string) => {
     // teamMode = p2p.enabled || ossConfigured
     const status = await fetchTeamStatus()
-    const { useTeamOssStore } = await import('./team-oss')
-    const ossConfigured = useTeamOssStore.getState().configured
+    // Check OSS config directly from backend to avoid stale store state on workspace switch
+    let ossConfigured = false
+    if (isTauri()) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        const ossConfig = await invoke<{ enabled?: boolean } | null>('oss_get_team_config', { workspacePath: _workspacePath })
+        ossConfigured = !!ossConfig?.enabled
+      } catch { /* ignore */ }
+    }
     const p2pActive = !!status?.active
     const isTeamMode = p2pActive || ossConfigured
 
