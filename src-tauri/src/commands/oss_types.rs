@@ -101,6 +101,7 @@ pub struct CleanupResult {
 pub struct OssTeamConfig {
     pub enabled: bool,
     pub team_id: String,
+    #[serde(alias = "fcEndpoint")]
     pub team_endpoint: String,
     #[serde(default)]
     pub force_path_style: bool,
