@@ -1,3 +1,5 @@
+import { appShortName } from '@/lib/build-config'
+
 // Mock localStorage BEFORE importing i18n (i18n.init calls getUserLanguage which uses localStorage)
 const mockLocalStorage = (() => {
   let store: { [key: string]: string } = {};
@@ -43,7 +45,7 @@ describe('i18n Functions', () => {
   test('should change language and persist in localStorage', async () => {
     const newLanguage = 'zh-CN';
     changeLanguage(newLanguage);
-    expect(localStorage.getItem('teamclaw-language')).toBe(newLanguage);
+    expect(localStorage.getItem(`${appShortName}-language`)).toBe(newLanguage);
     await i18n.changeLanguage(newLanguage);
     expect(i18n.language).toBe(newLanguage);
   });

@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { isTauri } from '@/lib/utils';
+import { appShortName } from '@/lib/build-config';
 
 /** Map UI locale (e.g. en, zh-CN) to Whisper language code. Returns undefined for auto-detect. */
 function uiLocaleToWhisperLang(): string | undefined {
-  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('teamclaw-language') : null;
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(`${appShortName}-language`) : null;
   const lang = stored || (typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en');
   if (lang.startsWith('zh')) return 'zh';
   if (lang.startsWith('en')) return 'en';

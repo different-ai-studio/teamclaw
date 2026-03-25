@@ -30,7 +30,7 @@ import {
   moveItem,
   readFileContent,
 } from "./file-tree-operations";
-import { TEAM_REPO_DIR } from "@/lib/build-config";
+import { TEAM_REPO_DIR, appShortName } from "@/lib/build-config";
 
 // Flattened tree node for virtualization
 interface FlatTreeNode {
@@ -498,7 +498,7 @@ export function FileTree({
     (e: React.DragEvent, path: string) => {
       setDragSourcePath(path);
       e.dataTransfer.setData("text/plain", path);
-      e.dataTransfer.setData("application/x-teamclaw-filepath", path);
+      e.dataTransfer.setData(`application/x-${appShortName}-filepath`, path);
       e.dataTransfer.effectAllowed = "copyMove";
     },
     [],

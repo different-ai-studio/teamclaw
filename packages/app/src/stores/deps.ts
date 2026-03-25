@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
+import { appShortName } from '@/lib/build-config'
 
 export interface DependencyInfo {
   name: string
@@ -33,7 +34,7 @@ interface DepInstallProgressEvent {
 
 // ─── Persistent setup status ─────────────────────────────────────────────────
 
-const DEPS_SETUP_KEY = 'teamclaw-deps-setup-status'
+const DEPS_SETUP_KEY = `${appShortName}-deps-setup-status`
 /** Re-check interval: 24 hours */
 const RECHECK_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -121,13 +122,13 @@ interface DepsState {
 
 
 /**
- * Debug: set localStorage.setItem('teamclaw-debug-force-setup', '1') to force
+ * Debug: set localStorage.setItem(`${appShortName}-debug-force-setup`, '1') to force
  * SetupGuide to show in browser dev mode with mock dependency data.
- * Remove the key to disable: localStorage.removeItem('teamclaw-debug-force-setup')
+ * Remove the key to disable: localStorage.removeItem(`${appShortName}-debug-force-setup`)
  */
 const isDebugForceSetup = () => {
   try {
-    return localStorage.getItem('teamclaw-debug-force-setup') === '1'
+    return localStorage.getItem(`${appShortName}-debug-force-setup`) === '1'
   } catch {
     return false
   }

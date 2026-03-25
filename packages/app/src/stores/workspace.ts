@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { UNSUPPORTED_BINARY_EXTENSIONS } from "@/components/viewers/UnsupportedFileViewer";
 import { isTauri } from '@/lib/utils'
 import { ensureGitignoreEntries } from '@/lib/gitignore-manager'
-import { TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
+import { appShortName, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from './team-mode'
 
 // Directories to hide from file tree (system directories)
@@ -152,7 +152,7 @@ function getFolderName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-export const WORKSPACE_STORAGE_KEY = "teamclaw-workspace-path";
+export const WORKSPACE_STORAGE_KEY = `${appShortName}-workspace-path`;
 
 // Update only the target node's children, creating new references only along
 // the path from root to target. Siblings and unrelated subtrees keep their

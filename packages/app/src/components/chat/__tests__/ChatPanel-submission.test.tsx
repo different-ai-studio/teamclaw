@@ -261,8 +261,8 @@ describe('ChatPanel submission flow', () => {
 
       // Empty state shows suggestions
       expect(screen.getByText('Start a New Chat')).toBeDefined();
-      expect(screen.getByText('Create a slide')).toBeDefined();
-      expect(screen.getByText('Create a promotional poster')).toBeDefined();
+      expect(screen.getByText('Analyze data')).toBeDefined();
+      expect(screen.getByText('Write a report')).toBeDefined();
       expect(screen.getByText('Add a new skill')).toBeDefined();
     });
   });

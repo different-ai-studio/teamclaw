@@ -1,3 +1,4 @@
+import { appShortName } from '@/lib/build-config'
 import { create } from 'zustand'
 import type {
   TelemetryConsent,
@@ -512,10 +513,10 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 
 /**
  * Expose telemetry store for debugging in browser console.
- * Usage: window.__TEAMCLAW_TELEMETRY__.generateAllSessionReports()
+ * Usage: window[`__${appShortName}_TELEMETRY__`].generateAllSessionReports()
  */
 if (typeof window !== 'undefined') {
-  (window as unknown as { __TEAMCLAW_TELEMETRY__: TelemetryState }).__TEAMCLAW_TELEMETRY__ = useTelemetryStore.getState()
+  (window as any)[`__${appShortName.toUpperCase()}_TELEMETRY__`] = useTelemetryStore.getState()
 }
 
 // ─── Team Feedback & Leaderboard Export ──────────────────────────────────

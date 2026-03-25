@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { GitStatus } from '@/lib/git/service'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
+import { appShortName } from '@/lib/build-config'
 
 // Default color scheme for Git statuses
 const DEFAULT_STATUS_COLORS: Record<GitStatus, string> = {
@@ -15,7 +16,7 @@ const DEFAULT_STATUS_COLORS: Record<GitStatus, string> = {
 }
 
 // Storage key for persisting settings
-const STORAGE_KEY = 'teamclaw-git-settings'
+const STORAGE_KEY = `${appShortName}-git-settings`
 
 interface GitSettingsState {
   /** Whether to show Git status indicators in the file tree */

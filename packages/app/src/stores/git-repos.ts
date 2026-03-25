@@ -3,9 +3,10 @@ import type { GitRepo, GitRepoConfig, RepoSyncStatus } from '@/lib/git/types'
 import { gitManager } from '@/lib/git/manager'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
+import { appShortName } from '@/lib/build-config'
 
 // Storage key for persisting repo state
-const STORAGE_KEY = 'teamclaw-git-repos'
+const STORAGE_KEY = `${appShortName}-git-repos`
 
 interface GitReposState {
   /** Whether git CLI is available on the system */

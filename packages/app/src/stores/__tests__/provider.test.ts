@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { appShortName } from '@/lib/build-config'
 
 const mockGetProviders = vi.fn().mockResolvedValue({ all: [], connected: [] })
 const mockGetConfigProviders = vi.fn().mockResolvedValue({ providers: [] })
@@ -62,7 +63,7 @@ describe('useProviderStore', () => {
     const { useProviderStore } = await import('@/stores/provider')
     await useProviderStore.getState().selectModel('openai', 'gpt-4', 'GPT-4')
     expect(useProviderStore.getState().currentModelKey).toBe('openai/gpt-4')
-    expect(localStorage.getItem('teamclaw-selected-model')).toBe('openai/gpt-4')
+    expect(localStorage.getItem(`${appShortName}-selected-model`)).toBe('openai/gpt-4')
   })
 
   it('refreshProviders calls client and updates state', async () => {

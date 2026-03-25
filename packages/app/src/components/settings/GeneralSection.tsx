@@ -30,7 +30,7 @@ import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
 import { getPermissionPolicy, setPermissionPolicy, type PermissionPolicy } from '@/lib/permission-policy'
 import { PermissionBatchSection } from './PermissionBatchSection'
 import { useSuggestionsStore } from '@/stores/suggestions'
-import { buildConfig } from '@/lib/build-config'
+import { appShortName, buildConfig } from '@/lib/build-config'
 import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -70,7 +70,7 @@ export const GeneralSection = React.memo(function GeneralSection() {
   const { t } = useTranslation()
   const [theme, setThemeState] = React.useState(getStoredTheme)
   const [language, setLanguage] = React.useState(() => {
-    const storedLang = localStorage.getItem('teamclaw-language');
+    const storedLang = localStorage.getItem(`${appShortName}-language`);
     if (storedLang === 'zh') return 'zh-CN';
     return storedLang || (navigator.language.startsWith('zh') ? 'zh-CN' : 'en');
   })
@@ -92,14 +92,14 @@ export const GeneralSection = React.memo(function GeneralSection() {
   const [autoSave, setAutoSave] = React.useState(true)
   const [notificationLevel, setNotificationLevelState] = React.useState(() => {
     try {
-      const stored = localStorage.getItem('teamclaw-notification-level')
+      const stored = localStorage.getItem(`${appShortName}-notification-level`)
       if (stored === 'all' || stored === 'important' || stored === 'mute') return stored
     } catch { /* ignore */ }
     return 'important'
   })
   const setNotificationLevel = React.useCallback((level: string) => {
     setNotificationLevelState(level)
-    try { localStorage.setItem('teamclaw-notification-level', level) } catch { /* ignore */ }
+    try { localStorage.setItem(`${appShortName}-notification-level`, level) } catch { /* ignore */ }
   }, [])
   const [permissionPolicy, setPermissionPolicyState] = React.useState<PermissionPolicy>(getPermissionPolicy)
   const handlePermissionPolicyChange = React.useCallback((value: string) => {
@@ -180,7 +180,7 @@ export const GeneralSection = React.memo(function GeneralSection() {
     onValueChange={(value) => {
       setLanguage(value);
       i18next.changeLanguage(value);
-      localStorage.setItem('teamclaw-language', value);
+      localStorage.setItem(`${appShortName}-language`, value);
     }}
   >
     <SelectTrigger className="h-11">

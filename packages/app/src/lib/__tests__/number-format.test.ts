@@ -10,9 +10,10 @@ vi.stubGlobal('localStorage', {
 })
 
 import { formatNumber, formatCurrency, formatPercentage } from '../number-format'
+import { appShortName } from '@/lib/build-config'
 
 beforeEach(() => {
-  store['teamclaw-language'] = 'en'
+  store[`${appShortName}-language`] = 'en'
 })
 
 describe('number-format', () => {

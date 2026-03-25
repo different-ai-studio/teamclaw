@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useWorkspaceStore, WORKSPACE_STORAGE_KEY } from "../workspace";
 import type { FileNode } from "../workspace";
+import { appShortName } from "@/lib/build-config";
 
 describe("Workspace store (W-03, W-14)", () => {
   beforeEach(() => {
@@ -10,8 +11,8 @@ describe("Workspace store (W-03, W-14)", () => {
     });
   });
 
-  it("W-03: uses teamclaw-workspace-path for localStorage persistence", () => {
-    expect(WORKSPACE_STORAGE_KEY).toBe("teamclaw-workspace-path");
+  it("W-03: uses dynamic appShortName for localStorage persistence", () => {
+    expect(WORKSPACE_STORAGE_KEY).toBe(`${appShortName}-workspace-path`);
   });
 
   it("W-14: flattenVisibleFileTree returns visible file paths in order", () => {

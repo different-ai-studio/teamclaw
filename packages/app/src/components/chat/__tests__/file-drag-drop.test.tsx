@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { ChatInputArea } from '../ChatInputArea';
+import { appShortName } from '@/lib/build-config';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -105,7 +106,7 @@ const defaultProps = {
 function dropFile(form: HTMLElement, filePath: string) {
   const dataTransfer = new MockDataTransfer();
   dataTransfer.setData('text/plain', filePath);
-  dataTransfer.setData('application/x-teamclaw-filepath', filePath);
+  dataTransfer.setData(`application/x-${appShortName}-filepath`, filePath);
 
   fireEvent.dragOver(form, { dataTransfer });
   fireEvent.drop(form, { dataTransfer });

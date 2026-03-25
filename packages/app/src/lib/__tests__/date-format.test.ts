@@ -10,9 +10,10 @@ vi.stubGlobal('localStorage', {
 })
 
 import { formatDate, formatTime, formatDateTime, formatRelativeDate, formatSessionDate, formatRelativeTime } from '../date-format'
+import { appShortName } from '@/lib/build-config'
 
 beforeEach(() => {
-  store['teamclaw-language'] = 'en'
+  store[`${appShortName}-language`] = 'en'
 })
 
 describe('date-format', () => {
