@@ -41,7 +41,8 @@ interface TeamMember {
 interface OssTeamConfig {
   enabled: boolean
   teamId: string
-  fcEndpoint: string
+  teamEndpoint: string
+  forcePathStyle: boolean
   lastSyncAt: string | null
   pollIntervalSecs: number
 }
@@ -60,7 +61,7 @@ interface OssJoinResult {
 
 interface PendingApplication {
   teamId: string
-  fcEndpoint: string
+  teamEndpoint: string
   appliedAt: string
 }
 
@@ -163,7 +164,8 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     try {
       const info = await invoke<OssTeamInfo>('oss_create_team', {
         ...params,
-        fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+        teamEndpoint: buildConfig.s3?.teamEndpoint ?? '',
+        forcePathStyle: buildConfig.s3?.forcePathStyle ?? false,
         llmBaseUrl: buildConfig.team.llm.baseUrl || null,
         llmModel: buildConfig.team.llm.model || null,
         llmModelName: buildConfig.team.llm.modelName || null,
@@ -183,7 +185,8 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     try {
       const result = await invoke<OssJoinResult>('oss_join_team', {
         ...params,
-        fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+        teamEndpoint: buildConfig.s3?.teamEndpoint ?? '',
+        forcePathStyle: buildConfig.s3?.forcePathStyle ?? false,
         llmBaseUrl: buildConfig.team.llm.baseUrl || null,
         llmModel: buildConfig.team.llm.model || null,
         llmModelName: buildConfig.team.llm.modelName || null,
@@ -269,11 +272,12 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     try {
       await invoke('oss_apply_team', {
         ...params,
-        fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+        teamEndpoint: buildConfig.s3?.teamEndpoint ?? '',
+        forcePathStyle: buildConfig.s3?.forcePathStyle ?? false,
       })
       const pending: PendingApplication = {
         teamId: params.teamId,
-        fcEndpoint: buildConfig.oss?.fcEndpoint ?? '',
+        teamEndpoint: buildConfig.s3?.teamEndpoint ?? '',
         appliedAt: new Date().toISOString(),
       }
       set({ pendingApplication: pending, error: null })
@@ -305,7 +309,17 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     const { _unlisten } = get()
     if (_unlisten) {
       _unlisten()
-      set({ _unlisten: null })
     }
+    set({
+      _unlisten: null,
+      configured: false,
+      connected: false,
+      syncing: false,
+      syncStatus: null,
+      teamInfo: null,
+      members: [],
+      error: null,
+      pendingApplication: null,
+    })
   },
 }))

@@ -101,7 +101,9 @@ pub struct CleanupResult {
 pub struct OssTeamConfig {
     pub enabled: bool,
     pub team_id: String,
-    pub fc_endpoint: String,
+    pub team_endpoint: String,
+    #[serde(default)]
+    pub force_path_style: bool,
     pub last_sync_at: Option<String>,
     pub poll_interval_secs: u64,
 }
@@ -110,7 +112,7 @@ pub struct OssTeamConfig {
 #[serde(rename_all = "camelCase")]
 pub struct PendingApplication {
     pub team_id: String,
-    pub fc_endpoint: String,
+    pub team_endpoint: String,
     pub applied_at: String,
 }
 
