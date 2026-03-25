@@ -68,7 +68,7 @@ type ConnectionState =
 
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
-    throw new Error('Team feature requires TeamClaw desktop app (Tauri not available)')
+    throw new Error(`Team feature requires ${buildConfig.app.name} desktop app (Tauri not available)`)
   }
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<T>(cmd, args)
@@ -644,7 +644,7 @@ export function TeamGitConfig() {
           <CollapsibleContent>
             <div className="mt-4 pt-4 border-t space-y-4 text-sm text-muted-foreground">
               <p>
-                {t('settings.team.repoGuide.intro', 'A shared repository for your team to centrally manage Agent Skills, MCP configurations, and knowledge documents. Use the structure below so TeamClaw can sync correctly.')}
+                {t('settings.team.repoGuide.intro', { defaultValue: 'A shared repository for your team to centrally manage Agent Skills, MCP configurations, and knowledge documents. Use the structure below so {{appName}} can sync correctly.', appName: buildConfig.app.name })}
               </p>
               <div>
                 <h5 className="font-medium text-foreground mb-1.5">
@@ -678,7 +678,7 @@ export function TeamGitConfig() {
                   {t('settings.team.repoGuide.usageTitle', 'Usage')}
                 </h5>
                 <ol className="list-decimal list-inside space-y-1">
-                  <li>{t('settings.team.repoGuide.usage1', 'Clone the repo; TeamClaw will create a teamclaw-team folder in your workspace.')}</li>
+                  <li>{t('settings.team.repoGuide.usage1', { defaultValue: 'Clone the repo; {{appName}} will create a teamclaw-team folder in your workspace.', appName: buildConfig.app.name })}</li>
                   <li>{t('settings.team.repoGuide.usage2', 'Whitelist .gitignore: only the three directories are tracked.')}</li>
                   <li>{t('settings.team.repoGuide.usage3', 'In Cursor, use @ to reference Skills and Knowledge.')}</li>
                 </ol>

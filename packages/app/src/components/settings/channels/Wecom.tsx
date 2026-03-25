@@ -15,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { cn, openExternalUrl } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -42,7 +43,7 @@ const WECOM_WIZARD_STEPS = [
     titleKey: 'settings.channels.wecom.wizardIntroTitle',
     title: 'Welcome to WeCom Setup',
     descKey: 'settings.channels.wecom.wizardIntroDesc',
-    description: "Let's connect your WeCom AI bot to TeamClaw in a few simple steps.",
+    description: `Let's connect your WeCom AI bot to ${buildConfig.app.name} in a few simple steps.`,
   },
   {
     id: 'create-bot',
@@ -131,9 +132,9 @@ function WeComSetupWizard({
             </div>
 
             <div className="text-center space-y-2">
-              <h3 className="text-lg font-semibold">{t('settings.channels.wecom.connectTitle', 'Connect WeCom to TeamClaw')}</h3>
+              <h3 className="text-lg font-semibold">{t('settings.channels.wecom.connectTitle', { defaultValue: 'Connect WeCom to {{appName}}', appName: buildConfig.app.name })}</h3>
               <p className="text-sm text-muted-foreground">
-                {t('settings.channels.wecom.connectDesc', "This wizard will guide you through creating a WeCom AI bot and connecting it to TeamClaw. You'll be able to interact with AI directly from WeCom chats.")}
+                {t('settings.channels.wecom.connectDesc', { defaultValue: "This wizard will guide you through creating a WeCom AI bot and connecting it to {{appName}}. You'll be able to interact with AI directly from WeCom chats.", appName: buildConfig.app.name })}
               </p>
             </div>
 

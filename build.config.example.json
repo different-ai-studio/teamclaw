@@ -24,8 +24,9 @@
       "wechat": true
     }
   },
-  "oss": {
-    "fcEndpoint": "https://cloud.ucar.cc"
+  "s3": {
+    "teamEndpoint": "https://cloud.ucar.cc",
+    "forcePathStyle": false
   },
   "defaults": {
     "locale": "zh-CN",

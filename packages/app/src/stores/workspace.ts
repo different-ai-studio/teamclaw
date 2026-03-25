@@ -277,13 +277,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // Reset team mode state — each workspace has its own team config
     try {
       const { useTeamModeStore } = await import("./team-mode");
+      const { useTeamOssStore } = await import("./team-oss");
+      // Reset OSS store first so loadTeamConfig reads clean state
+      useTeamOssStore.getState().cleanup();
       useTeamModeStore.setState({
         teamMode: false,
         teamModelConfig: null,
         teamApiKey: null,
         _appliedConfigKey: null,
         myRole: null,
+        p2pConnected: false,
       });
+      // Load team config immediately so sidebar shows team tag on startup
+      useTeamModeStore.getState().loadTeamConfig(expandedPath).catch(() => {});
     } catch { /* ignore */ }
 
     // Persist workspace path for auto-restore on next launch

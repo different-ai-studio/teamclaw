@@ -3,6 +3,7 @@ import { homeDir } from '@tauri-apps/api/path'
 import type { SkillWithSource, SkillSource } from './types'
 import { INHERENT_SKILL_NAMES } from './types'
 import type { ClawHubLockfile } from '@/lib/clawhub/types'
+import { buildConfig } from '@/lib/build-config'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -297,7 +298,7 @@ export function getSourceDirHint(source: SkillSource): string {
     case 'team':
       return 'opencode.json → skills.paths'
     case 'builtin':
-      return '.opencode/skills/ (TeamClaw 内置)'
+      return `.opencode/skills/ (${buildConfig.app.name} 内置)`
     case 'personal':
       return ''
     case 'global-opencode':

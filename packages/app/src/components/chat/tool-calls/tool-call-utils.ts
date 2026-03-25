@@ -100,7 +100,9 @@ export function isEditTool(toolName: string): boolean {
     name === "edit_file" ||
     name === "editfile" ||
     name === "str_replace" ||
-    name === "strreplace"
+    name === "strreplace" ||
+    name === "apply_patch" ||
+    name === "applypatch"
   );
 }
 
@@ -217,6 +219,51 @@ export function extractFilePath(args: Record<string, unknown> | undefined): stri
   if (!args) return "";
   const path =
     args.path || args.file || args.filePath || args.filepath ||
-    args.file_path || args.filename || "";
+    args.file_path || args.filename || args.target_file || args.targetFile || "";
   return String(path);
+}
+
+const PATCH_ARG_KEYS = [
+  "patch",
+  "diff",
+  "unifiedDiff",
+  "unified_diff",
+  "udiff",
+] as const;
+
+/**
+ * Extract raw patch / unified-diff text from apply_patch (and similar) tool arguments.
+ */
+export function extractPatchTextFromToolArgs(
+  args: Record<string, unknown> | undefined,
+): string | null {
+  if (!args) return null;
+
+  for (const k of PATCH_ARG_KEYS) {
+    const v = args[k];
+    if (typeof v === "string" && v.trim().length > 0) return v;
+  }
+
+  const content = args.content;
+  if (typeof content === "string" && content.trim().length > 0) {
+    const t = content.trim();
+    if (
+      t.startsWith("diff --git") ||
+      t.includes("*** Begin Patch") ||
+      t.startsWith("--- ") ||
+      t.includes("\n@@")
+    ) {
+      return content;
+    }
+  }
+
+  for (const v of Object.values(args)) {
+    if (typeof v !== "string" || v.trim().length === 0) continue;
+    const t = v.trim();
+    if (t.startsWith("diff --git") || t.includes("*** Begin Patch")) {
+      return v;
+    }
+  }
+
+  return null;
 }

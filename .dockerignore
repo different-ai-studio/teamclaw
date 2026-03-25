@@ -1,0 +1,14 @@
+node_modules/
+dist/
+target/
+**/target/
+.git/
+.claude/
+.vscode/
+*.log
+deploy/
+*.md
+src/
+src-tauri/gen/
+src-tauri/icons/
+src-tauri/capabilities/

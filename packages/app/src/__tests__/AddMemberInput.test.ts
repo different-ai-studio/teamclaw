@@ -31,7 +31,7 @@ describe('AddMemberInput', () => {
     const { AddMemberInput } = await import('../components/settings/AddMemberInput')
     render(React.createElement(AddMemberInput, { onAdd }))
 
-    const nameInput = screen.getByPlaceholderText(/member name/i)
+    const nameInput = screen.getByPlaceholderText(/alice/i)
     fireEvent.change(nameInput, { target: { value: 'Alice' } })
 
     const idInput = screen.getByPlaceholderText(/device id/i)

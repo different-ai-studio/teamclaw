@@ -111,3 +111,6 @@ scripts/ship-pr.sh
 
 # Stress test reports
 tests/stress/reports/
+
+sre/
+.superpowers/

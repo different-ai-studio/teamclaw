@@ -293,17 +293,21 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
     // Toggle between WYSIWYG and raw source mode
     const handleToggleRaw = useCallback(async () => {
       if (!editor) return;
-      if (!rawMode) {
-        // WYSIWYG → raw: extract current markdown
-        const md = unresolveMarkdownImages(editor.getMarkdown(), filePath);
-        setRawContent(md);
-        setRawMode(true);
-      } else {
-        // raw → WYSIWYG: push raw content back into editor
-        const resolved = await resolveMarkdownImages(rawContent, filePath);
-        editor.commands.setContent(resolved, { contentType: "markdown" });
-        previousContentRef.current = rawContent;
-        setRawMode(false);
+      try {
+        if (!rawMode) {
+          // WYSIWYG → raw: extract current markdown
+          const md = unresolveMarkdownImages(editor.getMarkdown(), filePath);
+          setRawContent(md);
+          setRawMode(true);
+        } else {
+          // raw → WYSIWYG: push raw content back into editor
+          const resolved = await resolveMarkdownImages(rawContent, filePath);
+          editor.commands.setContent(resolved, { contentType: "markdown" });
+          previousContentRef.current = rawContent;
+          setRawMode(false);
+        }
+      } catch (err) {
+        console.error("[TiptapMarkdownEditor] toggleRaw failed:", err);
       }
     }, [editor, rawMode, rawContent, filePath]);
 

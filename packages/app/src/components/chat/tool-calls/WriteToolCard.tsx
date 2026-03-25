@@ -21,6 +21,7 @@ import {
   useToolCallTimeout,
 } from "./tool-call-utils";
 import { parseSingleFileDiff, type DiffLine } from "@/components/diff/diff-ast";
+import { ToolCallDiffBody } from "./ToolCallDiffBody";
 
 // Generate unified diff for new file (empty before)
 function generateNewFileDiff(content: string, filePath: string): string {
@@ -191,45 +192,8 @@ export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
         )}
       </div>
 
-      {/* Unified diff view for new file - all lines merged without hunk grouping */}
       {isExpanded && diffData && diffData.lines.length > 0 && (
-        <div className="border-t border-border bg-background max-h-[400px] overflow-y-auto">
-          {diffData.lines.map((line, index) => (
-            <div
-              key={index}
-              className={cn(
-                "flex font-mono text-[11px] leading-5",
-                line.type === "added" && "bg-green-500/5 dark:bg-green-500/10",
-                line.type === "removed" && "bg-red-500/5 dark:bg-red-500/10",
-                line.type === "context" && "bg-transparent",
-              )}
-            >
-              {/* Old line number */}
-              <span className="w-10 text-right pr-2 select-none text-muted-foreground/40 shrink-0 text-[10px]">
-                {line.oldLineNumber ?? ""}
-              </span>
-              {/* New line number */}
-              <span className="w-10 text-right pr-2 select-none text-muted-foreground/40 shrink-0 text-[10px]">
-                {line.newLineNumber ?? ""}
-              </span>
-              {/* Change indicator */}
-              <span
-                className={cn(
-                  "w-4 text-center select-none shrink-0 text-[10px]",
-                  line.type === "added" && "text-green-600 dark:text-green-500",
-                  line.type === "removed" && "text-red-600 dark:text-red-500",
-                  line.type === "context" && "text-muted-foreground/30",
-                )}
-              >
-                {line.type === "added" ? "+" : line.type === "removed" ? "−" : " "}
-              </span>
-              {/* Content */}
-              <span className="flex-1 whitespace-pre-wrap break-all pl-1 text-foreground/90">
-                {line.content}
-              </span>
-            </div>
-          ))}
-        </div>
+        <ToolCallDiffBody lines={diffData.lines} />
       )}
 
       {/* Loading placeholder when no content yet */}

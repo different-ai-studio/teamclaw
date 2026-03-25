@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getOpenCodeClient } from "@/lib/opencode/client";
 import { notificationService } from "@/lib/notification-service";
+import { buildConfig } from "@/lib/build-config";
 import type {
   QuestionAskedEvent,
 } from "@/lib/opencode/types";
@@ -115,7 +116,7 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
 
         notificationService.send(
           "action_required",
-          "TeamClaw - \u9700\u8981\u56de\u7b54",
+          `${buildConfig.app.name} - \u9700\u8981\u56de\u7b54`,
           `${sessionTitle} \u2014 AI \u6709\u95ee\u9898\u9700\u8981\u4f60\u56de\u7b54`,
           event.sessionId,
           async () => {

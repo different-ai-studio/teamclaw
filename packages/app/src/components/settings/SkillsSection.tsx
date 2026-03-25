@@ -27,6 +27,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { initOpenCodeClient } from '@/lib/opencode/client'
 import { cn } from '@/lib/utils'
+import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -729,7 +730,7 @@ ${skillContent.trim()}`
                         {t('settings.skills.inherentSkills', 'Inherent Skills')}
                       </span>
                       <div className="flex-1 h-px bg-blue-200/60 dark:bg-blue-800/40" />
-                      <span className="text-xs text-muted-foreground">{t('settings.skills.managedByTeamClaw', 'Managed by TeamClaw')}</span>
+                      <span className="text-xs text-muted-foreground">{t('settings.skills.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
                     </div>
                     {builtinSkills.map(renderSkillCard)}
                   </div>

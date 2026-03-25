@@ -535,6 +535,7 @@ fn sync_team_mcp_configs_from_dir(
 }
 
 /// Scan .mcp/*.json from the workspace and merge into opencode.json (legacy: when team repo was at workspace root).
+#[allow(dead_code)]
 pub fn sync_team_mcp_configs(workspace_path: &str) -> Result<usize, String> {
     sync_team_mcp_configs_from_dir(workspace_path, workspace_path)
 }

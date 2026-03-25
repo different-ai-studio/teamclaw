@@ -23,6 +23,7 @@ vi.mock('@/hooks/useAppInit', () => ({
   useChannelGatewayInit: vi.fn(),
   useGitReposInit: vi.fn(),
   useCronInit: vi.fn(),
+  useP2pAutoReconnect: vi.fn(),
   useOssSyncInit: vi.fn(),
   useExternalLinkHandler: vi.fn(),
   useTauriBodyClass: vi.fn(),

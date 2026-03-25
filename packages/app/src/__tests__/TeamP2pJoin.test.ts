@@ -69,21 +69,17 @@ beforeEach(() => {
   }
 })
 
-async function renderAndSwitchToTicketMode() {
-  // TeamSection now renders TeamP2PConfig directly (no tab switcher)
+async function renderTeamSection() {
+  // TeamSection renders TeamP2PConfig directly; default joinMode is 'ticket'
   const { TeamSection } = await import('../components/settings/TeamSection')
   await act(async () => {
     render(React.createElement(TeamSection))
-  })
-  // Default join mode is 'seed'; switch to 'ticket' mode to get the ticket input
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /LAN \(ticket\)/i }))
   })
 }
 
 describe('TeamP2P Join Flow', () => {
   it('shows ticket input and Join button in P2P tab', async () => {
-    await renderAndSwitchToTicketMode()
+    await renderTeamSection()
 
     expect(screen.getByPlaceholderText(/ticket/i)).toBeDefined()
     expect(screen.getByRole('button', { name: /join/i })).toBeDefined()
@@ -92,7 +88,7 @@ describe('TeamP2P Join Flow', () => {
   it('shows inline error for invalid ticket', async () => {
     joinResult = new Error('Invalid ticket format')
 
-    await renderAndSwitchToTicketMode()
+    await renderTeamSection()
 
     // Wait for init effects
     await act(async () => {

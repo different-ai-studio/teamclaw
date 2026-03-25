@@ -47,7 +47,7 @@ import {
 
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
-    throw new Error('Team feature requires TeamClaw desktop app (Tauri not available)')
+    throw new Error(`Team feature requires ${buildConfig.app.name} desktop app (Tauri not available)`)
   }
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<T>(cmd, args)
@@ -153,13 +153,9 @@ export function TeamP2PConfig() {
   const [createInviteCode, setCreateInviteCode] = React.useState('')
   const [createOwnerName, setCreateOwnerName] = React.useState('')
   const [createOwnerEmail, setCreateOwnerEmail] = React.useState('')
-  const [, setShowShareBox] = React.useState(false)
   const [dissolveLoading, setDissolveLoading] = React.useState(false)
   const [confirmDissolve, setConfirmDissolve] = React.useState(false)
 
-  const [seedConfigUrl, setSeedConfigUrl] = React.useState(buildConfig.team.seedUrl || '')
-  const [seedConfigSecret, setSeedConfigSecret] = React.useState('')
-  const [seedConfigSaving, setSeedConfigSaving] = React.useState(false)
   const [applications, setApplications] = React.useState<Array<{
     nodeId: string; name: string; email: string; note: string;
     platform: string; arch: string; hostname: string; appliedAt: string
@@ -206,7 +202,10 @@ export function TeamP2PConfig() {
     try {
       const status = await tauriInvoke<typeof syncStatus>('p2p_sync_status')
       setSyncStatus(status)
-      useTeamModeStore.setState({ myRole: (status?.role as 'owner' | 'editor' | 'viewer') ?? null })
+      useTeamModeStore.setState({
+        myRole: (status?.role as 'owner' | 'editor' | 'viewer') ?? null,
+        p2pConnected: status?.connected ?? false,
+      })
     } catch {
       // may not be available
     }
@@ -459,11 +458,12 @@ export function TeamP2PConfig() {
     }
   }, [isOwner, syncStatus?.seedUrl, syncStatus?.namespaceId, syncStatus?.teamSecret, fetchApplications])
 
-  // Listen for member-left events emitted by the Rust backend
+  // Listen for team events emitted by the Rust backend
   React.useEffect(() => {
     if (!isTauri()) return
-    let unlisten: (() => void) | undefined
+    const unlisteners: (() => void)[] = []
     import('@tauri-apps/api/event').then(({ listen }) => {
+      // Member voluntarily left (owner side)
       listen<{ nodeId: string; name: string }>('team:member-left', (event) => {
         const { name, nodeId } = event.payload
         toast.info(
@@ -472,53 +472,42 @@ export function TeamP2PConfig() {
           })
         )
         loadSyncStatus()
-      }).then((u) => { unlisten = u })
-    })
-    return () => { unlisten?.() }
-  }, [loadSyncStatus, t])
+      }).then((u) => { unlisteners.push(u) })
 
-  const handleSaveSeedConfig = async () => {
-    setSeedConfigSaving(true)
-    setP2pError(null)
-    try {
-      const base = seedConfigUrl.trim().replace(/\/$/, '')
-      const secret = seedConfigSecret.trim()
-      const ticket = syncStatus?.docTicket
-      const nsId = syncStatus?.namespaceId
+      // Members list changed (any member side)
+      listen('team:members-changed', () => {
+        loadSyncStatus()
+      }).then((u) => { unlisteners.push(u) })
 
-      if (!ticket || !nsId) {
-        setP2pError('No active team doc. Create a team first.')
-        return
-      }
-
-      // Register this team on the seed node
-      const resp = await fetch(`${base}/admin/teams`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticket, label: nsId, teamSecret: secret }),
-      })
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => '')
-        // 409 = already registered, that's fine
-        if (resp.status !== 409) {
-          setP2pError(`Seed registration failed: ${body || resp.statusText}`)
-          return
+      // We have been kicked from the team
+      listen('team:kicked', () => {
+        toast.error(t('settings.team.kickedNotice', 'You have been removed from the team'))
+        setSyncStatus(null)
+        useTeamModeStore.setState({ myRole: null })
+        if (workspacePath) {
+          useTeamModeStore.getState().clearTeamMode(workspacePath)
         }
-      }
+      }).then((u) => { unlisteners.push(u) })
 
-      await tauriInvoke('p2p_save_seed_config', {
-        seedUrl: base || null,
-        teamSecret: secret || null,
-      })
-      await loadSyncStatus()
-      setSeedConfigUrl('')
-      setSeedConfigSecret('')
-    } catch (err) {
-      setP2pError(err instanceof Error ? err.message : 'Failed to connect to seed node')
-    } finally {
-      setSeedConfigSaving(false)
-    }
-  }
+      // Team has been dissolved by the owner
+      listen('team:dissolved', () => {
+        toast.error(t('settings.team.dissolvedNotice', 'The team has been dissolved by the owner'))
+        setSyncStatus(null)
+        useTeamModeStore.setState({ myRole: null })
+        if (workspacePath) {
+          useTeamModeStore.getState().clearTeamMode(workspacePath)
+        }
+      }).then((u) => { unlisteners.push(u) })
+
+      // Our role has changed
+      listen<{ role: string }>('team:role-changed', (event) => {
+        const { role } = event.payload
+        toast.info(t('settings.team.roleChangedNotice', 'Your role has been changed to {{role}}', { role }))
+        loadSyncStatus()
+      }).then((u) => { unlisteners.push(u) })
+    })
+    return () => { unlisteners.forEach((u) => u()) }
+  }, [loadSyncStatus, t, workspacePath])
 
   const doDissolveTeam = async () => {
     setConfirmDissolve(false)
@@ -622,17 +611,14 @@ export function TeamP2PConfig() {
                     </p>
                   </div>
                 </div>
-                {isOwner ? (
-                  <Button variant="outline" size="sm" className="gap-1 text-destructive hover:text-destructive" onClick={handleP2pDisconnect} disabled={leaveLoading}>
-                    <Unlink className="h-3 w-3" />
-                    {t('settings.team.disconnect', 'Disconnect')}
-                  </Button>
-                ) : (
-                  <Button variant="outline" size="sm" className="gap-1 text-destructive hover:text-destructive" onClick={() => setConfirmLeave(true)} disabled={leaveLoading}>
-                    {leaveLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Unlink className="h-3 w-3" />}
-                    {t('settings.team.leaveTeam', 'Leave Team')}
-                  </Button>
-                )}
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => {
+                  if (workspacePath) {
+                    loadSyncStatus()
+                  }
+                }}>
+                  <RefreshCw className="h-3 w-3" />
+                  {t('common.refresh', 'Refresh')}
+                </Button>
               </div>
             </div>
           </SettingCard>
@@ -850,25 +836,69 @@ export function TeamP2PConfig() {
             </div>
           </SettingCard>
 
-          {/* Dissolve Team (Owner only) */}
-          {isOwner && (
-            <SettingCard className="border-red-200 dark:border-red-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-red-700 dark:text-red-300">{t('settings.team.dissolveTeam', 'Dissolve Team')}</p>
-                  <p className="text-xs text-muted-foreground">{t('settings.team.dissolveTeamDesc', 'Permanently dissolve this team. All members will be disconnected.')}</p>
+          {/* Danger Zone */}
+          <SettingCard className="border-red-200 dark:border-red-800">
+            <div className="space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
+                {t('settings.team.dangerZone', 'Danger Zone')}
+              </p>
+              {isOwner ? (
+                <>
+                  {/* Disconnect */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{t('settings.team.disconnect', 'Disconnect')}</p>
+                      <p className="text-xs text-muted-foreground">{t('settings.team.disconnectDesc', 'This will delete local team data (.teamclaw and teamclaw-team directories). This action cannot be undone.')}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 gap-1 text-destructive hover:text-destructive border-destructive/30"
+                      onClick={handleP2pDisconnect}
+                    >
+                      <Unlink className="h-3.5 w-3.5" />
+                      {t('settings.team.disconnect', 'Disconnect')}
+                    </Button>
+                  </div>
+                  <div className="border-t border-red-200 dark:border-red-800" />
+                  {/* Dissolve Team */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-red-700 dark:text-red-300">{t('settings.team.dissolveTeam', 'Dissolve Team')}</p>
+                      <p className="text-xs text-muted-foreground">{t('settings.team.dissolveTeamDesc', 'Permanently dissolve this team. All members will be disconnected.')}</p>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={dissolveLoading}
+                      onClick={() => setConfirmDissolve(true)}
+                    >
+                      {dissolveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('settings.team.dissolveTeam', 'Dissolve Team')}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                /* Leave Team (non-owner) */
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">{t('settings.team.leaveTeam', 'Leave Team')}</p>
+                    <p className="text-xs text-muted-foreground">{t('settings.team.leaveDesc', 'Leave this team and remove local team data.')}</p>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="shrink-0 gap-1"
+                    disabled={leaveLoading}
+                    onClick={() => setConfirmLeave(true)}
+                  >
+                    {leaveLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlink className="h-3.5 w-3.5" />}
+                    {t('settings.team.leaveTeam', 'Leave Team')}
+                  </Button>
                 </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={dissolveLoading}
-                  onClick={() => setConfirmDissolve(true)}
-                >
-                  {dissolveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('settings.team.dissolveTeam', 'Dissolve Team')}
-                </Button>
-              </div>
-            </SettingCard>
-          )}
+              )}
+            </div>
+          </SettingCard>
 
           {/* API Key Override */}
           <TeamApiKeyCard />

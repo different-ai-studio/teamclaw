@@ -1,13 +1,17 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM rust:1.82-slim AS builder
+FROM rust:1.89-slim AS builder
 
 WORKDIR /app
+
 COPY . .
 
-RUN cargo build --release -p teamclaw-seed
+# 配置国内 Cargo 镜像（rsproxy.cn）
+RUN cp .cargo/config.toml /usr/local/cargo/config.toml
+
+RUN cargo build --release -j 1
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 

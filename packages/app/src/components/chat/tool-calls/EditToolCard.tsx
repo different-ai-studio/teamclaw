@@ -12,11 +12,14 @@ import { PermissionApprovalBar } from "./PermissionApprovalBar";
 import {
   statusConfig,
   extractFilePath,
+  extractPatchTextFromToolArgs,
   getFileExtension,
   getLanguageName,
   getFileName,
 } from "./tool-call-utils";
 import { parseSingleFileDiff, type DiffLine } from "@/components/diff/diff-ast";
+import { tryParseToolPatchForUI } from "@/components/diff/parse-tool-patch";
+import { ToolCallDiffBody } from "./ToolCallDiffBody";
 
 // Generate unified diff from before/after strings
 function generateUnifiedDiff(before: string, after: string, filePath: string): string {
@@ -120,50 +123,71 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
 
   const args = toolCall.arguments as Record<string, unknown>;
   const filePath = extractFilePath(args);
+  const patchText = extractPatchTextFromToolArgs(args);
   const oldStr = String(args?.old_string || args?.oldString || "");
   const newStr = String(args?.new_string || args?.newString || "");
-  const ext = getFileExtension(filePath);
-  const langName = getLanguageName(ext);
   const config = statusConfig[toolCall.status];
   const StatusIcon = config.icon;
 
-  // Generate unified diff and parse into structured format
+  // Generate unified diff and parse into structured format (str-replace edit or raw patch)
   const diffData = useMemo(() => {
-    if (!oldStr && !newStr) return null;
     try {
-      const diffText = generateUnifiedDiff(oldStr, newStr, filePath || "file");
-      const parsed = parseSingleFileDiff(diffText, filePath || "file");
-      if (!parsed) return null;
+      if (oldStr || newStr) {
+        const diffText = generateUnifiedDiff(oldStr, newStr, filePath || "file");
+        const parsed = parseSingleFileDiff(diffText, filePath || "file");
+        if (!parsed) return null;
 
-      // Merge all hunks into a single list of lines
-      const allLines: DiffLine[] = [];
-      for (const hunk of parsed.hunks) {
-        allLines.push(...hunk.lines);
+        const allLines: DiffLine[] = [];
+        for (const hunk of parsed.hunks) {
+          allLines.push(...hunk.lines);
+        }
+
+        return {
+          lines: allLines,
+          additions: parsed.addedCount,
+          deletions: parsed.removedCount,
+          headerPath: filePath || "file",
+          copyText: newStr,
+        };
       }
 
-      return {
-        lines: allLines,
-        additions: parsed.addedCount,
-        deletions: parsed.removedCount,
-      };
+      if (patchText) {
+        const parsed = tryParseToolPatchForUI(patchText, filePath);
+        if (!parsed || parsed.lines.length === 0) return null;
+
+        return {
+          lines: parsed.lines,
+          additions: parsed.additions,
+          deletions: parsed.deletions,
+          headerPath: filePath || parsed.filePath || "file",
+          copyText: patchText,
+        };
+      }
     } catch (error) {
       console.error("[EditToolCard] Failed to generate diff:", error);
       return null;
     }
-  }, [oldStr, newStr, filePath]);
+    return null;
+  }, [oldStr, newStr, filePath, patchText]);
+
+  const headerPath = diffData?.headerPath ?? filePath;
+  const ext = getFileExtension(headerPath);
+  const langName = getLanguageName(ext);
 
   const handleCopy = async () => {
-    await copyToClipboard(newStr);
+    const text = diffData?.copyText ?? newStr;
+    if (!text) return;
+    await copyToClipboard(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleOpenFile = useCallback(() => {
-    if (!filePath) return;
+    if (!headerPath) return;
     const fullPath =
-      filePath.startsWith("/") ? filePath : `${workspacePath}/${filePath}`;
+      headerPath.startsWith("/") ? headerPath : `${workspacePath}/${headerPath}`;
     selectFile(fullPath);
-  }, [filePath, workspacePath, selectFile]);
+  }, [headerPath, workspacePath, selectFile]);
 
   const handleToggleExpand = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -176,9 +200,9 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
       <div
         className={cn(
           "flex items-center gap-2 px-3 py-2 bg-muted/50 transition-colors select-none hover:bg-muted/70",
-          filePath ? "cursor-pointer" : "",
+          headerPath ? "cursor-pointer" : "",
         )}
-        onClick={filePath ? handleOpenFile : handleToggleExpand}
+        onClick={headerPath ? handleOpenFile : handleToggleExpand}
       >
         <ChevronRight
           size={14}
@@ -189,15 +213,15 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
           onClick={handleToggleExpand}
         />
         <FileEdit size={14} className="text-muted-foreground shrink-0" />
-        {filePath && (
+        {headerPath && (
           <span
             className="text-xs text-foreground truncate flex-1 cursor-pointer font-mono"
-            title={filePath}
+            title={headerPath}
           >
-            {getFileName(filePath)}
+            {getFileName(headerPath)}
           </span>
         )}
-        {!filePath && <span className="flex-1" />}
+        {!headerPath && <span className="flex-1" />}
         <span className="text-[10px] text-muted-foreground">{langName}</span>
         {diffData && diffData.additions > 0 && (
           <span className="text-[10px] text-green-600 dark:text-green-500">+{diffData.additions}</span>
@@ -215,7 +239,7 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
         <button
           onClick={handleCopy}
           className="p-1 rounded hover:bg-background transition-colors"
-          title="Copy new content"
+          title="Copy patch or new content"
         >
           {copied ? (
             <CheckCheck size={12} className="text-foreground" />
@@ -229,49 +253,12 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
         />
       </div>
 
-      {/* Unified diff view - all lines merged without hunk grouping */}
       {isExpanded && diffData && diffData.lines.length > 0 && (
-        <div className="border-t border-border bg-background max-h-[400px] overflow-y-auto">
-          {diffData.lines.map((line, index) => (
-            <div
-              key={index}
-              className={cn(
-                "flex font-mono text-[11px] leading-5",
-                line.type === "added" && "bg-green-500/5 dark:bg-green-500/10",
-                line.type === "removed" && "bg-red-500/5 dark:bg-red-500/10",
-                line.type === "context" && "bg-transparent",
-              )}
-            >
-              {/* Old line number */}
-              <span className="w-10 text-right pr-2 select-none text-muted-foreground/40 shrink-0 text-[10px]">
-                {line.oldLineNumber ?? ""}
-              </span>
-              {/* New line number */}
-              <span className="w-10 text-right pr-2 select-none text-muted-foreground/40 shrink-0 text-[10px]">
-                {line.newLineNumber ?? ""}
-              </span>
-              {/* Change indicator */}
-              <span
-                className={cn(
-                  "w-4 text-center select-none shrink-0 text-[10px]",
-                  line.type === "added" && "text-green-600 dark:text-green-500",
-                  line.type === "removed" && "text-red-600 dark:text-red-500",
-                  line.type === "context" && "text-muted-foreground/30",
-                )}
-              >
-                {line.type === "added" ? "+" : line.type === "removed" ? "−" : " "}
-              </span>
-              {/* Content */}
-              <span className="flex-1 whitespace-pre-wrap break-all pl-1 text-foreground/90">
-                {line.content}
-              </span>
-            </div>
-          ))}
-        </div>
+        <ToolCallDiffBody lines={diffData.lines} />
       )}
 
       {/* Fallback: show error if diff generation failed but we have content */}
-      {isExpanded && (oldStr || newStr) && !diffData && (
+      {isExpanded && (oldStr || newStr || patchText) && !diffData && (
         <div className="p-3 text-xs text-muted-foreground italic">
           Unable to generate diff view
         </div>

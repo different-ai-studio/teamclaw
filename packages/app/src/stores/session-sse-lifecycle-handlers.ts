@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { notificationService } from "@/lib/notification-service";
+import { buildConfig } from "@/lib/build-config";
 import { getOpenCodeClient } from "@/lib/opencode/client";
 import type {
   SessionErrorEvent,
@@ -496,7 +497,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
           console.log("[SessionIdle] Sending notification for main session:", sessionTitle);
           notificationService.send(
             "task_completed",
-            `TeamClaw - ${sessionTitle}`,
+            `${buildConfig.app.name} - ${sessionTitle}`,
             contentPreview,
             event.sessionId,
             async () => {
@@ -584,7 +585,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
       const errorSessionId = event.sessionId || activeSessionId || "";
       notificationService.send(
         "action_required",
-        `TeamClaw - ${sessionTitle}`,
+        `${buildConfig.app.name} - ${sessionTitle}`,
         errorPreview,
         errorSessionId,
         async () => {

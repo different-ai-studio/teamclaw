@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Pencil, Ellipsis, Clock } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock } from "lucide-react"
 
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
@@ -9,6 +9,7 @@ import { useWorkspaceStore } from "@/stores/workspace"
 import { useTabsStore } from "@/stores/tabs"
 import { useCronStore } from "@/stores/cron"
 import { useTeamModeStore } from "@/stores/team-mode"
+import { useTeamOssStore } from "@/stores/team-oss"
 import {
   Sidebar,
   SidebarContent,
@@ -230,7 +231,26 @@ function WorkspaceSelectorButton() {
   const isLoadingWorkspace = useWorkspaceStore(s => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
   const teamMode = useTeamModeStore(s => s.teamMode)
+  const p2pConnected = useTeamModeStore(s => s.p2pConnected)
+  const ossConfigured = useTeamOssStore(s => s.configured)
+  const ossConnected = useTeamOssStore(s => s.connected)
   const [isSelecting, setIsSelecting] = React.useState(false)
+
+  // Poll P2P connection status when in team mode
+  React.useEffect(() => {
+    if (!teamMode || !isTauri()) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        const status = await invoke<{ connected?: boolean }>('p2p_sync_status')
+        if (!cancelled) useTeamModeStore.setState({ p2pConnected: status?.connected ?? false })
+      } catch { /* ignore */ }
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [teamMode])
 
   const handleOpenFolder = async () => {
     if (!isTauri()) {
@@ -271,8 +291,10 @@ function WorkspaceSelectorButton() {
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          ) : teamMode && workspaceName && ossConfigured ? (
+            <Cloud className={cn("h-4 w-4 shrink-0", ossConnected ? "text-blue-500" : "text-muted-foreground")} />
           ) : teamMode && workspaceName ? (
-            <Users className="h-4 w-4 shrink-0 text-blue-500" />
+            <Users className={cn("h-4 w-4 shrink-0", p2pConnected ? "text-blue-500" : "text-muted-foreground")} />
           ) : (
             <FolderOpen className="h-4 w-4 shrink-0" />
           )}

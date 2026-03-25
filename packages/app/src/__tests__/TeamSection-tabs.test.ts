@@ -29,41 +29,38 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: mockInvoke,
 }))
 
-// Mock Tauri event API to prevent transformCallback errors
+// Mock Tauri event API
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }))
 
-// Mock plugin-fs to prevent import errors
+// Mock plugin-fs
 vi.mock('@tauri-apps/plugin-fs', () => ({
   readTextFile: vi.fn(async () => ''),
   exists: vi.fn(async () => false),
 }))
 
-// Mock window.__TAURI__ to simulate desktop environment
 beforeEach(() => {
   vi.clearAllMocks()
   ;(window as unknown as { __TAURI__: unknown }).__TAURI__ = {}
   ;(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
     invoke: mockInvoke,
-    transformCallback: vi.fn((_callback: unknown) => {
-      const id = Math.random()
-      return id
-    }),
+    transformCallback: vi.fn(() => Math.random()),
   }
 })
 
-describe('TeamSection (no tab switcher)', () => {
-  it('renders without any tabs (tab switcher was removed)', async () => {
+describe('TeamSection tab switcher', () => {
+  it('renders two tabs: P2P and S3', async () => {
     const { TeamSection } = await import('../components/settings/TeamSection')
 
     await act(async () => {
       render(React.createElement(TeamSection))
     })
 
-    // The tab switcher no longer exists — no tab roles should be present
     const tabs = screen.queryAllByRole('tab')
-    expect(tabs.length).toBe(0)
+    expect(tabs.length).toBe(2)
+    expect(tabs[0].textContent).toBe('P2P')
+    expect(tabs[1].textContent).toBe('S3')
   })
 
   it('renders a heading for the Team section', async () => {
@@ -73,21 +70,19 @@ describe('TeamSection (no tab switcher)', () => {
       render(React.createElement(TeamSection))
     })
 
-    // SectionHeader renders an h3 with the team title
     const headings = screen.getAllByRole('heading')
     expect(headings.length).toBeGreaterThan(0)
   })
 
-  it('renders P2P config content directly without tab navigation', async () => {
+  it('P2P tab is selected by default', async () => {
     const { TeamSection } = await import('../components/settings/TeamSection')
 
     await act(async () => {
       render(React.createElement(TeamSection))
     })
 
-    // P2P content is always visible — no S3 or WebDAV tabs exist
     const tabs = screen.queryAllByRole('tab')
-    expect(tabs.every(t => !t.textContent?.includes('S3'))).toBe(true)
-    expect(tabs.every(t => !t.textContent?.includes('WebDAV'))).toBe(true)
+    const p2pTab = tabs.find(t => t.textContent === 'P2P')
+    expect(p2pTab?.getAttribute('aria-selected')).toBe('true')
   })
 })
