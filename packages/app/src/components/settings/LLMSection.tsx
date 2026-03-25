@@ -14,6 +14,9 @@ import {
   ChevronRight,
   Zap,
   Settings,
+  ExternalLink,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useProviderStore } from '@/stores/provider'
@@ -43,7 +46,11 @@ export const LLMSection = React.memo(function LLMSection() {
   const configuredProviders = useProviderStore((s) => s.configuredProviders)
   const refreshProviders = useProviderStore((s) => s.refreshProviders)
   const refreshConfiguredProviders = useProviderStore((s) => s.refreshConfiguredProviders)
+  const authMethods = useProviderStore((s) => s.authMethods)
+  const refreshAuthMethods = useProviderStore((s) => s.refreshAuthMethods)
   const connectProvider = useProviderStore((s) => s.connectProvider)
+  const connectProviderOAuth = useProviderStore((s) => s.connectProviderOAuth)
+  const completeOAuthCallback = useProviderStore((s) => s.completeOAuthCallback)
   const initAll = useProviderStore((s) => s.initAll)
   const customProviderIds = useProviderStore((s) => s.customProviderIds)
   const refreshCustomProviderIds = useProviderStore((s) => s.refreshCustomProviderIds)
@@ -79,6 +86,12 @@ export const LLMSection = React.memo(function LLMSection() {
   const [deletingProviderId, setDeletingProviderId] = React.useState<string | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
 
+  // OAuth flow state
+  const [oauthPending, setOAuthPending] = React.useState(false)
+  const [oauthInstructions, setOAuthInstructions] = React.useState('')
+  const [oauthUrl, setOAuthUrl] = React.useState('')
+  const [oauthCodeCopied, setOAuthCodeCopied] = React.useState(false)
+
   // Disconnect confirmation state
   const [disconnectingProviderId, setDisconnectingProviderId] = React.useState<string | null>(null)
   const [disconnectingProviderName, setDisconnectingProviderName] = React.useState<string>('')
@@ -91,6 +104,7 @@ export const LLMSection = React.memo(function LLMSection() {
   React.useEffect(() => {
     refreshProviders()
     refreshConfiguredProviders()
+    refreshAuthMethods()
     if (workspacePath) {
       refreshCustomProviderIds(workspacePath)
     }
@@ -118,10 +132,18 @@ export const LLMSection = React.memo(function LLMSection() {
     }
   }
 
+  const getProviderOAuthMethodIndex = (providerId: string): number => {
+    const methods = authMethods[providerId] || []
+    return methods.findIndex((m) => m.type === 'oauth')
+  }
+
   const handleConnectClick = (providerId: string, providerName: string) => {
     setConnectingProviderId(providerId)
     setConnectingProviderName(providerName)
     setApiKeyInput('')
+    setOAuthPending(false)
+    setOAuthInstructions('')
+    setOAuthUrl('')
     setConnectDialogOpen(true)
   }
 
@@ -135,6 +157,42 @@ export const LLMSection = React.memo(function LLMSection() {
       await restartOpenCodeAndRefresh()
     }
     setIsConnecting(false)
+  }
+
+  const handleOAuthLogin = async () => {
+    const methodIndex = getProviderOAuthMethodIndex(connectingProviderId)
+    if (methodIndex === -1) return
+    setIsConnecting(true)
+    const result = await connectProviderOAuth(connectingProviderId, methodIndex)
+    if (result.status !== 'pending') {
+      setIsConnecting(false)
+      return
+    }
+    // Open browser and show instructions
+    const { open } = await import('@tauri-apps/plugin-shell')
+    await open(result.url)
+    setOAuthUrl(result.url)
+    setOAuthInstructions(result.instructions)
+    setOAuthPending(true)
+    setIsConnecting(false)
+    // For Device Flow ("auto"), sidecar polls internally — kick off callback in background
+    completeOAuthCallback(connectingProviderId, methodIndex).then((success) => {
+      if (success) {
+        setConnectDialogOpen(false)
+        setOAuthPending(false)
+        restartOpenCodeAndRefresh()
+      }
+    })
+  }
+
+  const handleCopyOAuthCode = async () => {
+    // Extract code from instructions (e.g. "Enter code: XXXX-YYYY")
+    const match = oauthInstructions.match(/[A-Z0-9]{4}-[A-Z0-9]{4}/)
+    if (match) {
+      await navigator.clipboard.writeText(match[0])
+      setOAuthCodeCopied(true)
+      setTimeout(() => setOAuthCodeCopied(false), 2000)
+    }
   }
 
   const handleProviderClick = (providerId: string, configured: boolean, providerName: string) => {
@@ -531,66 +589,130 @@ export const LLMSection = React.memo(function LLMSection() {
       ) : null}
 
       {/* Connect Provider Dialog */}
-      <Dialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen}>
+      <Dialog open={connectDialogOpen} onOpenChange={(open) => {
+        if (!open) { setOAuthPending(false); setOAuthInstructions(''); setOAuthUrl('') }
+        setConnectDialogOpen(open)
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('settings.llm.connectTitle', { provider: connectingProviderName, defaultValue: `Connect ${connectingProviderName}` })}</DialogTitle>
             <DialogDescription>
-              {t('settings.llm.connectDescription', 'Enter your API key to connect this provider. Your key is stored locally.')}
+              {oauthPending
+                ? t('settings.llm.oauthWaiting', 'Browser opened. Complete authorization and return here.')
+                : getProviderOAuthMethodIndex(connectingProviderId) !== -1
+                  ? t('settings.llm.connectDescriptionOAuth', 'Connect via your browser subscription or enter an API key.')
+                  : t('settings.llm.connectDescription', 'Enter your API key to connect this provider. Your key is stored locally.')}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium flex items-center gap-2">
-                <Key className="h-4 w-4 text-muted-foreground" />
-                {t('settings.llm.apiKey', 'API Key')}
-              </label>
-              <div className="relative">
-                <Input
-                  type="password"
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder={t('settings.llm.apiKeyPlaceholder', 'sk-...')}
-                  className="h-11 pr-10"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && apiKeyInput.trim()) {
-                      handleConnectSubmit()
-                    }
-                  }}
-                />
-                <Shield className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+
+          {oauthPending ? (
+            /* OAuth Device Flow — waiting for user to complete in browser */
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
+                <p className="text-sm font-medium">{oauthInstructions}</p>
+                {/[A-Z0-9]{4}-[A-Z0-9]{4}/.test(oauthInstructions) && (
+                  <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyOAuthCode}>
+                    {oauthCodeCopied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    {oauthCodeCopied ? t('settings.llm.copied', 'Copied!') : t('settings.llm.copyCode', 'Copy code')}
+                  </Button>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Shield className="h-3 w-3" />
-                {t('settings.llm.apiKeyPrivacy', 'Your API key is stored locally and never sent to our servers.')}
-              </p>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                {t('settings.llm.oauthPolling', 'Waiting for authorization...')}
+              </div>
+              <Button variant="outline" size="sm" className="gap-2 w-full" onClick={async () => {
+                const { open } = await import('@tauri-apps/plugin-shell')
+                open(oauthUrl)
+              }}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                {t('settings.llm.reopenBrowser', 'Re-open browser')}
+              </Button>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              {/* OAuth login button — shown when provider supports OAuth */}
+              {getProviderOAuthMethodIndex(connectingProviderId) !== -1 && (
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    className="w-full h-11 gap-2 justify-center"
+                    onClick={handleOAuthLogin}
+                    disabled={isConnecting}
+                  >
+                    {isConnecting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ExternalLink className="h-4 w-4" />
+                    )}
+                    {t('settings.llm.loginWithBrowser', 'Login with browser')}
+                  </Button>
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">{t('settings.llm.or', 'or')}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* API Key input */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Key className="h-4 w-4 text-muted-foreground" />
+                  {t('settings.llm.apiKey', 'API Key')}
+                </label>
+                <div className="relative">
+                  <Input
+                    type="password"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder={t('settings.llm.apiKeyPlaceholder', 'sk-...')}
+                    className="h-11 pr-10"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && apiKeyInput.trim()) {
+                        handleConnectSubmit()
+                      }
+                    }}
+                  />
+                  <Shield className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                </div>
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Shield className="h-3 w-3" />
+                  {t('settings.llm.apiKeyPrivacy', 'Your API key is stored locally and never sent to our servers.')}
+                </p>
+              </div>
+            </div>
+          )}
+
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setConnectDialogOpen(false)}
+              onClick={() => { setOAuthPending(false); setConnectDialogOpen(false) }}
               disabled={isConnecting}
             >
               {t('common.cancel', 'Cancel')}
             </Button>
-            <Button
-              onClick={handleConnectSubmit}
-              disabled={isConnecting || !apiKeyInput.trim()}
-              className="gap-2"
-            >
-              {isConnecting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t('settings.llm.connecting', 'Connecting...')}
-                </>
-              ) : (
-                <>
-                  <Link className="h-4 w-4" />
-                  {t('settings.llm.connect', 'Connect')}
-                </>
-              )}
-            </Button>
+            {!oauthPending && (
+              <Button
+                onClick={handleConnectSubmit}
+                disabled={isConnecting || !apiKeyInput.trim()}
+                className="gap-2"
+              >
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t('settings.llm.connecting', 'Connecting...')}
+                  </>
+                ) : (
+                  <>
+                    <Link className="h-4 w-4" />
+                    {t('settings.llm.connect', 'Connect')}
+                  </>
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

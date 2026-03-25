@@ -19,6 +19,12 @@ function tryGetClient() {
   }
 }
 
+export interface ProviderAuthMethod {
+  type: 'oauth' | 'api'
+  label: string
+  prompts?: unknown[]
+}
+
 // A model option available for selection in the ChatPanel
 export interface ModelOption {
   id: string
@@ -55,6 +61,9 @@ export interface ProviderState {
   // Currently selected model (from GET /config)
   currentModelKey: string | null // format: "providerId/modelId"
 
+  // Auth methods per provider (from GET /provider/auth)
+  authMethods: Record<string, ProviderAuthMethod[]>
+
   // Custom provider IDs (defined in opencode.json)
   customProviderIds: string[]
 
@@ -64,6 +73,13 @@ export interface ProviderState {
   _disconnectedIds: Set<string>
 
   // Actions
+  refreshAuthMethods: () => Promise<void>
+  connectProviderOAuth: (providerId: string, methodIndex: number) => Promise<
+    { status: 'pending'; url: string; instructions: string; methodType: 'auto' | 'code' } |
+    { status: 'success' } |
+    { status: 'error'; message: string }
+  >
+  completeOAuthCallback: (providerId: string, methodIndex: number, code?: string) => Promise<boolean>
   refreshProviders: () => Promise<void>
   refreshConfiguredProviders: () => Promise<void>
   refreshCurrentModel: () => Promise<void>
@@ -80,6 +96,7 @@ export interface ProviderState {
 
 export const useProviderStore = create<ProviderState>((set, get) => ({
   // Initial state
+  authMethods: {},
   providers: [],
   providersLoading: false,
   configuredProviders: [],
@@ -88,6 +105,51 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   currentModelKey: null,
   customProviderIds: [],
   _disconnectedIds: new Set<string>(),
+
+  refreshAuthMethods: async () => {
+    const client = tryGetClient()
+    if (!client) return
+    try {
+      const methods = await client.getAuthMethods()
+      set({ authMethods: methods })
+    } catch (err) {
+      console.error('Failed to load auth methods:', err)
+    }
+  },
+
+  // Initiate OAuth for a provider. Returns pending state with url+instructions for the UI to show.
+  connectProviderOAuth: async (providerId, methodIndex) => {
+    const client = tryGetClient()
+    if (!client) return { status: 'error', message: 'OpenCode not connected' }
+    try {
+      const result = await client.oauthAuthorize(providerId, methodIndex)
+      if (!result) return { status: 'error', message: 'Provider does not support OAuth' }
+      return { status: 'pending', url: result.url, instructions: result.instructions, methodType: result.method }
+    } catch (err) {
+      return { status: 'error', message: err instanceof Error ? err.message : 'Unknown error' }
+    }
+  },
+
+  // Poll/wait for OAuth callback to complete (call after opening browser).
+  // For Device Flow (methodType:"auto") the sidecar polls GitHub internally; this call blocks until done.
+  completeOAuthCallback: async (providerId, methodIndex, code) => {
+    const client = tryGetClient()
+    if (!client) return false
+    try {
+      await client.oauthCallback(providerId, methodIndex, code)
+      set((state) => {
+        const newDisconnected = new Set(state._disconnectedIds)
+        newDisconnected.delete(providerId)
+        return { _disconnectedIds: newDisconnected }
+      })
+      toast.success('Provider connected', { description: `Successfully connected ${providerId}` })
+      await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
+      return true
+    } catch (err) {
+      toast.error('OAuth login failed', { description: err instanceof Error ? err.message : 'Unknown error' })
+      return false
+    }
+  },
 
   // Refresh all available providers (GET /provider)
   // Response: { all: ProviderObj[], connected: string[], default: Record<string,string> }

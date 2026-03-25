@@ -452,6 +452,27 @@ export class OpenCodeClient {
     return this.request<boolean>('DELETE', `/auth/${providerId}`)
   }
 
+  // Get available auth methods for all providers (GET /provider/auth)
+  // Returns Record<providerId, ProviderAuthMethod[]>
+  async getAuthMethods(): Promise<Record<string, Array<{ type: 'oauth' | 'api'; label: string; prompts?: unknown[] }>>> {
+    return this.request('GET', '/provider/auth')
+  }
+
+  // Initiate OAuth authorization for a provider (POST /provider/:id/oauth/authorize)
+  async oauthAuthorize(
+    providerId: string,
+    method: number,
+    inputs?: Record<string, string>,
+  ): Promise<{ url: string; method: 'auto' | 'code'; instructions: string } | undefined> {
+    return this.request('POST', `/provider/${encodeURIComponent(providerId)}/oauth/authorize`, { method, inputs })
+  }
+
+  // Complete OAuth callback (POST /provider/:id/oauth/callback)
+  // For Device Flow (method:"auto"), sidecar polls internally — just call and wait.
+  async oauthCallback(providerId: string, method: number, code?: string): Promise<boolean> {
+    return this.request<boolean>('POST', `/provider/${encodeURIComponent(providerId)}/oauth/callback`, { method, ...(code ? { code } : {}) })
+  }
+
   // Project APIs
   async getProject(): Promise<Project> {
     return this.request<Project>('GET', '/project')
