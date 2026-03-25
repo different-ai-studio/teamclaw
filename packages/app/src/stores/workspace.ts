@@ -2,10 +2,11 @@ import { create } from "zustand";
 import { UNSUPPORTED_BINARY_EXTENSIONS } from "@/components/viewers/UnsupportedFileViewer";
 import { isTauri } from '@/lib/utils'
 import { ensureGitignoreEntries } from '@/lib/gitignore-manager'
+import { TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from './team-mode'
 
 // Directories to hide from file tree (system directories)
-const HIDDEN_DIRECTORIES = new Set(['.teamclaw', '.opencode'])
+const HIDDEN_DIRECTORIES = new Set([TEAMCLAW_DIR, '.opencode'])
 
 // Start watching a directory for file changes
 async function startWatching(path: string): Promise<boolean> {
@@ -260,7 +261,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // before OpenCode server creates .teamclaw
     if (cachedJoin && cachedExists) {
       try {
-        const teamclawDir = await cachedJoin(expandedPath, ".teamclaw");
+        const teamclawDir = await cachedJoin(expandedPath, TEAMCLAW_DIR);
         const dirExists = await cachedExists(teamclawDir);
         if (!dirExists) {
           set({ isNewWorkspace: true });
@@ -446,8 +447,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         )
         .sort((a, b) => {
           // Always put teamclaw-team first
-          if (a.name === 'teamclaw-team' && b.name !== 'teamclaw-team') return -1;
-          if (b.name === 'teamclaw-team' && a.name !== 'teamclaw-team') return 1;
+          if (a.name === TEAM_REPO_DIR && b.name !== TEAM_REPO_DIR) return -1;
+          if (b.name === TEAM_REPO_DIR && a.name !== TEAM_REPO_DIR) return 1;
           
           // Then directories before files
           if (a.type !== b.type) {

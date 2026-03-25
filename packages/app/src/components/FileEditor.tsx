@@ -22,6 +22,7 @@ import {
   Eye,
 } from "lucide-react";
 import { cn, isTauri } from "@/lib/utils";
+import { TEAM_REPO_DIR } from "@/lib/build-config";
 import { getEditorType } from "@/components/editors/utils";
 import { UNSUPPORTED_BINARY_EXTENSIONS } from "@/components/viewers/UnsupportedFileViewer";
 import { supportsPreview } from "@/components/editors/utils";
@@ -334,7 +335,7 @@ export function FileEditor({
 }) {
   const { t } = useTranslation();
   const myRole = useTeamModeStore((s) => s.myRole)
-  const isTeamFile = filePath?.includes('/teamclaw-team/') ?? false
+  const isTeamFile = filePath?.includes(`/${TEAM_REPO_DIR}/`) ?? false
   const isViewerReadOnly = isTeamFile && myRole === 'viewer'
   const targetLine = useWorkspaceStore((s) => s.targetLine);
   const targetHeading = useWorkspaceStore((s) => s.targetHeading);

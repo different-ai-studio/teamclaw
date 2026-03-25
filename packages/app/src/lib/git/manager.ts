@@ -9,10 +9,9 @@ import type {
   RepoSource,
   RepoResourceType,
 } from './types'
+import { TEAMCLAW_DIR } from '@/lib/build-config'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
-
-const TEAMCLAW_DIR = '.teamclaw'
 const GIT_DIR = 'git'
 const TEAM_DIR = 'team'
 const PERSONAL_DIR = 'personal'

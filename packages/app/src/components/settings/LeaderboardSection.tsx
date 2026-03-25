@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Trophy, Flame, MessageSquareHeart, RefreshCw, Loader2 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
+import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 
 async function tauriInvoke<T>(
@@ -105,7 +106,7 @@ export function LeaderboardSection() {
       setLeaderboard(result)
       
       // Trigger teamclaw-team-synced event to update TeamRankingCard
-      window.dispatchEvent(new CustomEvent('teamclaw-team-synced'))
+      window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
       console.log('[leaderboard] Triggered teamclaw-team-synced event')
     } catch (err) {
       console.error('[leaderboard] Refresh failed:', err)
@@ -123,8 +124,8 @@ export function LeaderboardSection() {
     const handler = () => {
       load()
     }
-    window.addEventListener("teamclaw-team-synced", handler)
-    return () => window.removeEventListener("teamclaw-team-synced", handler)
+    window.addEventListener(TEAM_SYNCED_EVENT, handler)
+    return () => window.removeEventListener(TEAM_SYNCED_EVENT, handler)
   }, [load])
 
   // Aggregate stats from all workspaces for each member

@@ -21,7 +21,7 @@ import {
   BookOpen,
 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { buildConfig, TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -233,7 +233,7 @@ export function TeamGitConfig() {
         return
       }
 
-      window.dispatchEvent(new CustomEvent('teamclaw-team-synced'))
+      window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
 
       const now = new Date().toISOString()
       const updatedConfig: TeamConfig = {

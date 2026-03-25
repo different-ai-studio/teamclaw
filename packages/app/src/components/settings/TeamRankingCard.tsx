@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Trophy, Flame, MessageSquareHeart, ChevronRight } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
+import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
 
 async function tauriInvoke<T>(
@@ -67,8 +68,8 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
     const handler = () => {
       load()
     }
-    window.addEventListener("teamclaw-team-synced", handler)
-    return () => window.removeEventListener("teamclaw-team-synced", handler)
+    window.addEventListener(TEAM_SYNCED_EVENT, handler)
+    return () => window.removeEventListener(TEAM_SYNCED_EVENT, handler)
   }, [])
 
   // Clear leaderboard data when team mode is disabled

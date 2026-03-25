@@ -30,9 +30,7 @@ import {
   moveItem,
   readFileContent,
 } from "./file-tree-operations";
-
-// Constant for the teamclaw-team directory name
-const TEAMCLAW_TEAM_DIR = "teamclaw-team";
+import { TEAM_REPO_DIR } from "@/lib/build-config";
 
 // Flattened tree node for virtualization
 interface FlatTreeNode {
@@ -811,7 +809,7 @@ export function FileTree({
     statusColors,
     isRenaming: renamingPath === node.path,
     isDragOver: dragOverPath === node.path,
-    isTeamClawTeam: node.name === TEAMCLAW_TEAM_DIR && node.type === "directory" && level === 0,
+    isTeamClawTeam: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0,
     onSelectFile: selectFile,
     onSelectFileRange: selectFileRange,
     onToggleFileSelection: toggleFileSelection,

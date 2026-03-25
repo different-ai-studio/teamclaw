@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -191,8 +192,8 @@ export const SkillsSection = React.memo(function SkillsSection() {
 
   React.useEffect(() => {
     const onTeamSynced = () => loadSkills()
-    window.addEventListener('teamclaw-team-synced', onTeamSynced)
-    return () => window.removeEventListener('teamclaw-team-synced', onTeamSynced)
+    window.addEventListener(TEAM_SYNCED_EVENT, onTeamSynced)
+    return () => window.removeEventListener(TEAM_SYNCED_EVENT, onTeamSynced)
   }, [loadSkills])
 
   const restartOpenCodeInstance = React.useCallback(

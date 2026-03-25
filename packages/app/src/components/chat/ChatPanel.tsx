@@ -11,6 +11,7 @@ import { useProviderStore, getSelectedModelOption } from "@/stores/provider";
 import { useTeamModeStore } from "@/stores/team-mode";
 import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
+import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
@@ -155,7 +156,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
       unlisten = await listen<{ path: string; kind: string }>('file-change', (event) => {
-        if (!event.payload.path.includes('.teamclaw/teamclaw.json')) return;
+        if (!event.payload.path.includes(`${TEAMCLAW_DIR}/${CONFIG_FILE_NAME}`)) return;
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(async () => {
           console.log('[TeamMode] teamclaw.json changed, reloading team config');
@@ -194,7 +195,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
       unlisten = await listen<{ path: string; kind: string }>('file-change', (event) => {
-        if (!event.payload.path.includes('teamclaw-team/.shortcuts.json')) return;
+        if (!event.payload.path.includes(`${TEAM_REPO_DIR}/.shortcuts.json`)) return;
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(async () => {
           console.log('[TeamShortcuts] .shortcuts.json changed, reloading');

@@ -1,13 +1,13 @@
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
 import { join } from '@tauri-apps/api/path'
-import { buildConfig } from '@/lib/build-config'
+import { buildConfig, TEAMCLAW_DIR } from '@/lib/build-config'
 
 /**
  * Default entries that should be in workspace .gitignore
  */
 export const TEAMCLAW_GITIGNORE_ENTRIES = [
   `# ${buildConfig.app.name} system directories`,
-  '.teamclaw/',
+  `${TEAMCLAW_DIR}/`,
   '.opencode/',
 ]
 

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { cn } from '@/lib/utils';
+import { TEAM_REPO_DIR } from '@/lib/build-config';
 import { useTeamModeStore } from '@/stores/team-mode';
 import { getFileIcon } from '@/lib/file-icons';
 import { getGitStatusIndicator, getGitStatusTextColor } from '@/lib/git-status-utils';
@@ -209,7 +210,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   const { t } = useTranslation();
   const isDirectory = node.type === "directory";
   const myRole = useTeamModeStore((s) => s.myRole)
-  const isTeamFile = node.path.includes('/teamclaw-team/')
+  const isTeamFile = node.path.includes(`/${TEAM_REPO_DIR}/`)
   const isViewerRestricted = isTeamFile && myRole === 'viewer'
 
   const handleClick = (e: React.MouseEvent) => {

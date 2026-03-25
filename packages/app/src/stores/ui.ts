@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
+import { TEAMCLAW_DIR, CONFIG_FILE_NAME } from '@/lib/build-config'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 type View = 'chat' | 'settings'
@@ -92,9 +93,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     // Persist to teamclaw.json
     if (workspacePath) {
       import('@tauri-apps/api/path').then(({ join }) =>
-        join(workspacePath, '.teamclaw', 'teamclaw.json').then((configPath) =>
+        join(workspacePath, TEAMCLAW_DIR, CONFIG_FILE_NAME).then((configPath) =>
           import('@tauri-apps/plugin-fs').then(({ readTextFile, writeTextFile, exists, mkdir }) =>
-            join(workspacePath, '.teamclaw').then((teamclawDir) =>
+            join(workspacePath, TEAMCLAW_DIR).then((teamclawDir) =>
               exists(teamclawDir).then((dirExists) => {
                 const writeConfig = () =>
                   exists(configPath).then((fileExists) => {
@@ -129,7 +130,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     try {
       const { join } = await import('@tauri-apps/api/path')
       const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
-      const configPath = await join(workspacePath, '.teamclaw', 'teamclaw.json')
+      const configPath = await join(workspacePath, TEAMCLAW_DIR, CONFIG_FILE_NAME)
       const fileExists = await exists(configPath)
       if (!fileExists) {
         set({ advancedMode: false })

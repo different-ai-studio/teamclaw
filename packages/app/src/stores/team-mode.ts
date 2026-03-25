@@ -5,11 +5,11 @@ import {
 } from '@/lib/opencode/config'
 import { useProviderStore } from './provider'
 import { isTauri } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { buildConfig, TEAM_API_KEY_STORAGE_KEY } from '@/lib/build-config'
 
 
 const TEAM_PROVIDER_ID = 'team'
-const TEAM_API_KEY_STORAGE = 'teamclaw-team-api-key'
+const TEAM_API_KEY_STORAGE = TEAM_API_KEY_STORAGE_KEY
 
 export interface TeamModelConfig {
   baseUrl: string
