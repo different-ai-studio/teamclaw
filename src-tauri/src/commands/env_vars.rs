@@ -5,7 +5,7 @@ use tauri::State;
 use super::opencode::OpenCodeState;
 
 /// Keyring service name prefix for all TeamClaw environment variables.
-pub(crate) const KEYRING_SERVICE_PREFIX: &str = "teamclaw.env";
+pub(crate) const KEYRING_SERVICE_PREFIX: &str = concat!(env!("APP_SHORT_NAME"), ".env");
 
 /// A single environment variable entry (key + description, no value).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,7 +24,7 @@ pub(crate) fn keyring_service(key: &str) -> String {
 
 /// Get the teamclaw.json path inside the workspace.
 fn get_teamclaw_json_path(workspace_path: &str) -> String {
-    format!("{}/{}/teamclaw.json", workspace_path, super::TEAMCLAW_DIR)
+    format!("{}/{}/{}", workspace_path, super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME)
 }
 
 /// Read the envVars index from teamclaw.json (preserving all other fields).

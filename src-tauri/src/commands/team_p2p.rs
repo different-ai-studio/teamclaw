@@ -13,7 +13,7 @@ use iroh_blobs::BlobsProtocol;
 use iroh_gossip::net::Gossip;
 
 /// Default storage path for iroh node state
-const IROH_STORAGE_DIR: &str = ".teamclaw/iroh";
+const IROH_STORAGE_DIR: &str = concat!(".", env!("APP_SHORT_NAME"), "/iroh");
 /// Filename for the persisted Ed25519 secret key
 const SECRET_KEY_FILE: &str = "secret_key";
 

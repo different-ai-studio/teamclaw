@@ -208,8 +208,8 @@ fn write_team_config_to_file(
         .map_err(|e| format!("Failed to write teamclaw.json: {}", e))
 }
 
-/// Subfolder inside workspace where the team repo is cloned (not workspace root)
-pub const TEAM_REPO_DIR: &str = "teamclaw-team";
+// Re-export TEAM_REPO_DIR from parent so existing `crate::commands::team::TEAM_REPO_DIR` paths work.
+pub use super::TEAM_REPO_DIR;
 
 /// Scaffold the teamclaw-team directory with default structure if it doesn't exist or is empty.
 pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {

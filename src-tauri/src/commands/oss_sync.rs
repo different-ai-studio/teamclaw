@@ -14,7 +14,7 @@ use tauri::Emitter;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-const KEYRING_SERVICE: &str = "teamclaw-oss";
+const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), "-oss");
 const TOKEN_REFRESH_MARGIN_SECS: i64 = 300; // refresh 5 min before expiry
 
 // ---------------------------------------------------------------------------

@@ -126,7 +126,7 @@ impl Default for WebDavManagedState {
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
-const KEYRING_SERVICE: &str = "teamclaw-webdav";
+const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), "-webdav");
 const PBKDF2_ITERATIONS: u32 = 600_000;
 const MIN_PASSWORD_LEN: usize = 8;
 
@@ -135,7 +135,7 @@ const MIN_PASSWORD_LEN: usize = 8;
 pub fn read_webdav_config(workspace_path: &str) -> Option<WebDavConfig> {
     let config_path = Path::new(workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
     let content = fs::read_to_string(&config_path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
     let webdav_value = json.get("webdav")?;
@@ -147,7 +147,7 @@ pub fn write_webdav_config(workspace_path: &str, config: &WebDavConfig) -> Resul
     fs::create_dir_all(&teamclaw_dir)
         .map_err(|e| format!("Failed to create .teamclaw dir: {e}"))?;
 
-    let config_path = teamclaw_dir.join("teamclaw.json");
+    let config_path = teamclaw_dir.join(super::CONFIG_FILE_NAME);
     let mut json: serde_json::Value = if config_path.exists() {
         let content = fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
