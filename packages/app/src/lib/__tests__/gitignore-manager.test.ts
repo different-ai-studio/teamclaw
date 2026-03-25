@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { TEAMCLAW_DIR } from '@/lib/build-config'
 import {
   ensureGitignoreEntries,
   parseGitignore,
@@ -24,9 +25,9 @@ describe('gitignore-manager', () => {
 
   describe('parseGitignore', () => {
     it('should parse gitignore content into lines', () => {
-      const content = '# Comment\n.teamclaw/\n.opencode/\n'
+      const content = `# Comment\n${TEAMCLAW_DIR}/\n.opencode/\n`
       const result = parseGitignore(content)
-      expect(result).toEqual(['# Comment', '.teamclaw/', '.opencode/'])
+      expect(result).toEqual(['# Comment', `${TEAMCLAW_DIR}/`, '.opencode/'])
     })
 
     it('should handle empty content', () => {
@@ -43,7 +44,7 @@ describe('gitignore-manager', () => {
       
       expect(writeTextFile).toHaveBeenCalledWith(
         '/workspace/.gitignore',
-        expect.stringContaining('.teamclaw/')
+        expect.stringContaining(`${TEAMCLAW_DIR}/`)
       )
     })
 
@@ -56,13 +57,13 @@ describe('gitignore-manager', () => {
       const writtenContent = vi.mocked(writeTextFile).mock.calls[0][1]
       expect(writtenContent).toContain('# Existing')
       expect(writtenContent).toContain('node_modules/')
-      expect(writtenContent).toContain('.teamclaw/')
-      expect(writtenContent.indexOf('# Existing')).toBeLessThan(writtenContent.indexOf('.teamclaw/'))
+      expect(writtenContent).toContain(`${TEAMCLAW_DIR}/`)
+      expect(writtenContent.indexOf('# Existing')).toBeLessThan(writtenContent.indexOf(`${TEAMCLAW_DIR}/`))
     })
 
     it('should not duplicate entries with different formatting', async () => {
       vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue('.teamclaw\n.opencode\n')  // No trailing slashes
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLAW_DIR}\n.opencode\n`)  // No trailing slashes
 
       await ensureGitignoreEntries('/workspace')
 
@@ -83,7 +84,7 @@ describe('gitignore-manager', () => {
 
     it('should not duplicate existing entries', async () => {
       vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue('.teamclaw/\n.opencode/\n')
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLAW_DIR}/\n.opencode/\n`)
       
       await ensureGitignoreEntries('/workspace')
       

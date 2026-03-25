@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { TEAM_REPO_DIR } from '@/lib/build-config'
 
 const mockExists = vi.fn()
 const mockReadTextFile = vi.fn()
@@ -32,7 +33,7 @@ describe('team-shortcuts loader', () => {
     const result = await loadTeamShortcutsFile('/workspace')
     
     expect(result).toBeNull()
-    expect(mockExists).toHaveBeenCalledWith('/workspace/teamclaw-team/.shortcuts.json')
+    expect(mockExists).toHaveBeenCalledWith(`/workspace/${TEAM_REPO_DIR}/.shortcuts.json`)
   })
 
   it('parses valid shortcuts file', async () => {

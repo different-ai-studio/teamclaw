@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { CONFIG_FILE_NAME } from '@/lib/build-config'
 import { useUIStore } from '../ui'
 
 // Mock Tauri modules
@@ -55,7 +56,7 @@ describe('UI Store - advancedMode', () => {
     expect(useUIStore.getState().advancedMode).toBe(false)
   })
 
-  it('loadAdvancedMode reads true from valid teamclaw.json', async () => {
+  it(`loadAdvancedMode reads true from valid ${CONFIG_FILE_NAME}`, async () => {
     const { exists, readTextFile } = await import('@tauri-apps/plugin-fs')
     vi.mocked(exists).mockResolvedValue(true)
     vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ advancedMode: true }))

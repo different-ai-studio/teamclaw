@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { TEAM_REPO_DIR } from "@/lib/build-config"
 import { loadAllSkills, getSourceDirHint } from "../skill-loader"
 
 const mockExists = vi.fn()
@@ -34,7 +35,7 @@ describe("skill-loader dynamic team paths (from opencode.json)", () => {
   })
 
   it("loads team skills from paths listed in opencode.json", async () => {
-    const teamDir = `${workspacePath}/teamclaw-team/skills`
+    const teamDir = `${workspacePath}/${TEAM_REPO_DIR}/skills`
 
     mockExists.mockImplementation((path: string) => {
       if (path === `${workspacePath}/opencode.json`) return Promise.resolve(true)
@@ -44,7 +45,7 @@ describe("skill-loader dynamic team paths (from opencode.json)", () => {
     })
     mockReadTextFile.mockImplementation((path: string) => {
       if (path === `${workspacePath}/opencode.json`)
-        return Promise.resolve(opencodejson(["teamclaw-team/skills"]))
+        return Promise.resolve(opencodejson([`${TEAM_REPO_DIR}/skills`]))
       if (path.includes("my-team-skill"))
         return Promise.resolve("# my-team-skill\n")
       return Promise.resolve("")
