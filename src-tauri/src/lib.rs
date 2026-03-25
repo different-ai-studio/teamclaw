@@ -195,6 +195,7 @@ pub fn run() {
                 // Suppress noisy third-party crate logs
                 let target = metadata.target();
                 !(target.starts_with("tracing::span")
+                    || target.starts_with("iroh::")
                     || target.starts_with("iroh_relay")
                     || target.starts_with("iroh_base")
                     || target.starts_with("iroh_net_report")
