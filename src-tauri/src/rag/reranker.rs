@@ -162,10 +162,11 @@ impl CompassReranker {
     }
 
     fn get_api_key(&self) -> Result<&str> {
-        self.api_key.as_deref().filter(|k| !k.is_empty()).context(
+        self.api_key.as_deref().filter(|k| !k.is_empty()).with_context(|| format!(
             "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=compass). \
-                 Set it in .teamclaw/rag-config.json or opencode.json mcp.rag.environment.",
-        )
+                 Set it in {}/rag-config.json or opencode.json mcp.rag.environment.",
+            crate::commands::TEAMCLAW_DIR
+        ))
     }
 
     async fn rerank_internal(
@@ -285,10 +286,11 @@ impl LangSearchReranker {
     }
 
     fn get_api_key(&self) -> Result<&str> {
-        self.api_key.as_deref().filter(|k| !k.is_empty()).context(
+        self.api_key.as_deref().filter(|k| !k.is_empty()).with_context(|| format!(
             "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=langsearch). \
-                 Set it in .teamclaw/rag-config.json or opencode.json mcp.rag.environment.",
-        )
+                 Set it in {}/rag-config.json or opencode.json mcp.rag.environment.",
+            crate::commands::TEAMCLAW_DIR
+        ))
     }
 
     async fn rerank_internal(

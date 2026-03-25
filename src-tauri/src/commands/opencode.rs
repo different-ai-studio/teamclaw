@@ -724,7 +724,7 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
             .as_array_mut()
             .ok_or("skills.paths is not an array")?;
 
-        let inherent_path = "teamclaw-team/skills";
+        let inherent_path = concat!(env!("APP_SHORT_NAME"), "-team/skills");
 
         let already_present = paths.iter().any(|v| v.as_str() == Some(inherent_path));
         if !already_present {
@@ -1483,7 +1483,7 @@ pub async fn write_opencode_allowlist(
 fn last_workspace_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     std::path::PathBuf::from(home)
-        .join(".teamclaw")
+        .join(super::TEAMCLAW_DIR)
         .join("last-workspace.json")
 }
 

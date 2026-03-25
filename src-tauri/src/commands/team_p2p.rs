@@ -246,7 +246,7 @@ pub async fn create_team(
     let llm_config =
         crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
     crate::commands::team::write_llm_config(workspace_path, Some(&llm_config))?;
-    println!("[Team P2P] Wrote LLM config to .teamclaw/teamclaw.json");
+    println!("[Team P2P] Wrote LLM config to {}/{}", super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME);
 
     let node_id = get_node_id(node);
     let info = get_device_metadata();
@@ -1226,7 +1226,7 @@ async fn doc_to_disk_watcher(
                     if writer_is_member && we_are_owner {
                         // workspace_path = team_dir without trailing /teamclaw-team
                         let workspace_path = team_dir
-                            .strip_suffix("/teamclaw-team")
+                            .strip_suffix(&format!("/{}", super::TEAM_REPO_DIR))
                             .unwrap_or(&team_dir)
                             .to_string();
                         // Look up member name before removing (for notification)
@@ -1664,20 +1664,20 @@ pub struct P2pConfig {
 fn clear_p2p_and_team_dir(workspace_path: &str) -> Result<(), String> {
     let config_path = Path::new(workspace_path)
         .join(crate::commands::TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
     if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+            .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
         if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(obj) = json.as_object_mut() {
                 obj.remove("p2p");
             }
             std::fs::write(&config_path, serde_json::to_string_pretty(&json).unwrap())
-                .map_err(|e| format!("Failed to write teamclaw.json: {}", e))?;
+                .map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))?;
         }
     }
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     if Path::new(&team_dir).exists() {
         std::fs::remove_dir_all(&team_dir)
             .map_err(|e| format!("Failed to remove team directory: {}", e))?;
@@ -1689,9 +1689,10 @@ fn clear_p2p_and_team_dir(workspace_path: &str) -> Result<(), String> {
 /// Read P2P config from teamclaw.json in the workspace.
 pub fn read_p2p_config(workspace_path: &str) -> Result<Option<P2pConfig>, String> {
     let config_path = format!(
-        "{}/{}/teamclaw.json",
+        "{}/{}/{}",
         workspace_path,
-        crate::commands::TEAMCLAW_DIR
+        crate::commands::TEAMCLAW_DIR,
+        super::CONFIG_FILE_NAME
     );
 
     if !Path::new(&config_path).exists() {
@@ -1699,10 +1700,10 @@ pub fn read_p2p_config(workspace_path: &str) -> Result<Option<P2pConfig>, String
     }
 
     let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+        .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
 
     let json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse teamclaw.json: {}", e))?;
+        .map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))?;
 
     match json.get("p2p") {
         Some(p2p_val) => {
@@ -1718,13 +1719,13 @@ pub fn read_p2p_config(workspace_path: &str) -> Result<Option<P2pConfig>, String
 pub fn write_p2p_config(workspace_path: &str, config: Option<&P2pConfig>) -> Result<(), String> {
     let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
     let _ = std::fs::create_dir_all(&teamclaw_dir);
-    let config_path = format!("{}/teamclaw.json", teamclaw_dir);
+    let config_path = format!("{}/{}", teamclaw_dir, super::CONFIG_FILE_NAME);
 
     let mut json: serde_json::Value = if Path::new(&config_path).exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+            .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
         serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse teamclaw.json: {}", e))?
+            .map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))?
     } else {
         serde_json::json!({
             "$schema": "https://opencode.ai/config.json"
@@ -1735,11 +1736,11 @@ pub fn write_p2p_config(workspace_path: &str, config: Option<&P2pConfig>) -> Res
         let p2p_val = serde_json::to_value(p2p_config)
             .map_err(|e| format!("Failed to serialize p2p config: {}", e))?;
         json.as_object_mut()
-            .ok_or("teamclaw.json is not an object")?
+            .ok_or_else(|| format!("{} is not an object", super::CONFIG_FILE_NAME))?
             .insert("p2p".to_string(), p2p_val);
     } else {
         json.as_object_mut()
-            .ok_or("teamclaw.json is not an object")?
+            .ok_or_else(|| format!("{} is not an object", super::CONFIG_FILE_NAME))?
             .remove("p2p");
     }
 
@@ -1747,7 +1748,7 @@ pub fn write_p2p_config(workspace_path: &str, config: Option<&P2pConfig>) -> Res
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
     std::fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write teamclaw.json: {}", e))
+        .map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
 // ─── Team Members Manifest ───────────────────────────────────────────────
@@ -1967,7 +1968,7 @@ pub fn add_member_to_team(
     eprintln!("[Team] P2P config written with {} members", config.allowed_members.len());
 
     write_members_manifest(team_dir, caller_node_id, &config.allowed_members)?;
-    eprintln!("[Team] members.json written to {}/teamclaw-team/_team/members.json", workspace_path);
+    eprintln!("[Team] members.json written to {}/{}/_team/members.json", workspace_path, super::TEAM_REPO_DIR);
 
     // Verify the write
     match read_members_manifest(team_dir) {
@@ -2088,14 +2089,14 @@ pub async fn team_add_member(
         added_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     add_member_to_team(&workspace_path, &team_dir, &caller_id, member)?;
 
     // Also write updated manifest into the doc so it syncs
     let guard = iroh_state.lock().await;
     if let Some(node) = guard.as_ref() {
         if let Some(doc) = &node.active_doc {
-            let manifest_path = format!("{}/teamclaw-team/_team/members.json", workspace_path);
+            let manifest_path = format!("{}/{}/_team/members.json", workspace_path, super::TEAM_REPO_DIR);
             match std::fs::read(&manifest_path) {
                 Ok(content) => {
                     if let Err(e) = doc
@@ -2140,14 +2141,14 @@ pub async fn team_remove_member(
     let caller_id = get_node_id(node);
     drop(guard);
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     remove_member_from_team(&workspace_path, &team_dir, &caller_id, &node_id)?;
 
     // Also write updated manifest into the doc so it syncs
     let guard = iroh_state.lock().await;
     if let Some(node) = guard.as_ref() {
         if let Some(doc) = &node.active_doc {
-            let manifest_path = format!("{}/teamclaw-team/_team/members.json", workspace_path);
+            let manifest_path = format!("{}/{}/_team/members.json", workspace_path, super::TEAM_REPO_DIR);
             match std::fs::read(&manifest_path) {
                 Ok(content) => {
                     if let Err(e) = doc
@@ -2193,7 +2194,7 @@ pub async fn team_update_member_role(
     let caller_node_id = get_node_id(node);
     drop(guard);
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     update_member_role(
         &workspace_path,
         &team_dir,
@@ -2206,7 +2207,7 @@ pub async fn team_update_member_role(
     let guard = iroh_state.lock().await;
     if let Some(node) = guard.as_ref() {
         if let Some(doc) = &node.active_doc {
-            let manifest_path = format!("{}/teamclaw-team/_team/members.json", workspace_path);
+            let manifest_path = format!("{}/{}/_team/members.json", workspace_path, super::TEAM_REPO_DIR);
             if let Ok(content) = std::fs::read(&manifest_path) {
                 let _ = doc
                     .set_bytes(node.author, "_team/members.json", content)
@@ -2233,7 +2234,7 @@ pub async fn p2p_check_team_dir(
         .clone()
         .ok_or("No workspace path set")?;
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     let exists = Path::new(&team_dir).exists();
     let has_members = Path::new(&team_dir)
         .join("_team")
@@ -2268,7 +2269,7 @@ pub async fn p2p_create_team(
     let mut guard = iroh_state.lock().await;
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     create_team(
         node,
         &team_dir,
@@ -2299,7 +2300,7 @@ pub async fn p2p_publish_drive(
     let mut guard = iroh_state.lock().await;
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
 
     // If no active doc, create a team (first-time publish)
     if node.active_doc.is_none() {
@@ -2345,7 +2346,7 @@ pub async fn p2p_join_drive(
     let mut guard = iroh_state.lock().await;
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     join_team_drive(node, &ticket, &team_dir, &workspace_path, Some(app)).await
 }
 
@@ -2404,7 +2405,7 @@ pub async fn p2p_reconnect(
         .await
         .map_err(|e| format!("Failed to import doc: {}", e))?;
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
 
     // Re-check authorization on reconnect (except for owner)
     if !is_owner {
@@ -2477,7 +2478,7 @@ pub async fn p2p_rotate_ticket(
     let mut guard = iroh_state.lock().await;
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     rotate_namespace(node, &team_dir, &workspace_path).await
 }
 
@@ -2736,7 +2737,7 @@ mod tests {
     async fn test_join_with_invalid_ticket_returns_error() {
         let tmp = tempfile::tempdir().unwrap();
         let mut node = IrohNode::new(tmp.path()).await.unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let result = join_team_drive(
@@ -2760,7 +2761,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
 
         // Create a team dir with some skill files
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         let skills_dir = team_dir.join(".claude").join("skills").join("test-skill");
         std::fs::create_dir_all(&skills_dir).unwrap();
         std::fs::write(skills_dir.join("SKILL.md"), "# Test Skill\nHello").unwrap();
@@ -2831,7 +2832,7 @@ mod tests {
     #[test]
     fn test_sync_detects_removal() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let member_id = "was-a-member-789";
@@ -2881,7 +2882,7 @@ mod tests {
     #[test]
     fn test_join_authorized_succeeds() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let joiner_id = "joiner-node-123";
@@ -2916,7 +2917,7 @@ mod tests {
     #[test]
     fn test_join_unauthorized_fails() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let members = vec![TeamMember {
@@ -2945,7 +2946,7 @@ mod tests {
     #[test]
     fn test_join_no_manifest_succeeds() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let result = check_join_authorization(team_dir.to_str().unwrap(), "any-node-id");
@@ -2959,7 +2960,7 @@ mod tests {
     fn test_remove_member_succeeds() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-123";
@@ -3011,7 +3012,7 @@ mod tests {
     fn test_remove_self_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-123";
@@ -3042,7 +3043,7 @@ mod tests {
     fn test_remove_member_non_owner_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let config = P2pConfig {
@@ -3066,7 +3067,7 @@ mod tests {
     fn test_add_member_succeeds_for_owner() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-node-123";
@@ -3116,7 +3117,7 @@ mod tests {
     fn test_add_member_fails_for_non_owner() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let config = P2pConfig {
@@ -3150,7 +3151,7 @@ mod tests {
     fn test_add_duplicate_member_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-123";
@@ -3192,7 +3193,7 @@ mod tests {
     async fn test_create_team_sets_owner() {
         let tmp = tempfile::tempdir().unwrap();
 
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         let skills_dir = team_dir.join(".claude").join("skills").join("test-skill");
         std::fs::create_dir_all(&skills_dir).unwrap();
         std::fs::write(skills_dir.join("SKILL.md"), "# Test Skill").unwrap();
@@ -3237,7 +3238,7 @@ mod tests {
     #[test]
     fn test_write_and_read_members_manifest() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-node-id-123";
@@ -3361,9 +3362,10 @@ mod tests {
 
         // Verify other config keys are preserved
         let config_path = format!(
-            "{}/{}/teamclaw.json",
+            "{}/{}/{}",
             workspace,
-            crate::commands::TEAMCLAW_DIR
+            crate::commands::TEAMCLAW_DIR,
+            super::CONFIG_FILE_NAME
         );
         let content = std::fs::read_to_string(&config_path).unwrap();
         let mut json: serde_json::Value = serde_json::from_str(&content).unwrap();

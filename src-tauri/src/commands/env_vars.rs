@@ -36,8 +36,8 @@ fn read_teamclaw_json(workspace_path: &str) -> Result<serde_json::Value, String>
         }));
     }
     let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse teamclaw.json: {}", e))
+        .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
 /// Write the full teamclaw.json back (preserving all other fields).
@@ -46,8 +46,8 @@ fn write_teamclaw_json(workspace_path: &str, json: &serde_json::Value) -> Result
     let _ = std::fs::create_dir_all(&teamclaw_dir);
     let path = get_teamclaw_json_path(workspace_path);
     let content = serde_json::to_string_pretty(json)
-        .map_err(|e| format!("Failed to serialize teamclaw.json: {}", e))?;
-    std::fs::write(&path, content).map_err(|e| format!("Failed to write teamclaw.json: {}", e))
+        .map_err(|e| format!("Failed to serialize {}: {}", super::CONFIG_FILE_NAME, e))?;
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
 /// Read the envVars array from the JSON value.

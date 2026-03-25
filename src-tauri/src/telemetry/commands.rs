@@ -31,7 +31,7 @@ async fn get_db(state: &TelemetryState) -> Result<TelemetryDb, String> {
 
     // Initialize the database
     let home = dirs_next().ok_or("Failed to determine home directory")?;
-    let db_path = home.join(".teamclaw").join("telemetry.db");
+    let db_path = home.join(crate::commands::TEAMCLAW_DIR).join("telemetry.db");
     let db = TelemetryDb::new(&db_path).await?;
     *db_lock = Some(db.clone());
     Ok(db)
@@ -249,7 +249,7 @@ pub async fn telemetry_export_team_feedback(
             .map_err(|e| e.to_string())?
             .clone()
             .ok_or("Workspace path not set")?;
-        let team_dir = std::path::Path::new(&workspace_path).join("teamclaw-team");
+        let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
         if !team_dir.exists() {
             return Ok(());
         }
@@ -298,7 +298,7 @@ pub async fn telemetry_get_team_feedback_summary(
         .clone()
         .ok_or("Workspace path not set")?;
     let feedback_dir = std::path::Path::new(&workspace_path)
-        .join("teamclaw-team")
+        .join(crate::commands::TEAM_REPO_DIR)
         .join("_feedback");
 
     let mut members: Vec<MemberFeedbackExport> = Vec::new();
@@ -427,7 +427,7 @@ pub async fn telemetry_export_leaderboard(
             .map_err(|e| e.to_string())?
             .clone()
             .ok_or("Workspace path not set")?;
-        let team_dir = std::path::Path::new(&workspace_path).join("teamclaw-team");
+        let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
         if !team_dir.exists() {
             return Ok(());
         }
@@ -438,13 +438,13 @@ pub async fn telemetry_export_leaderboard(
 
         // Read local stats from current workspace's .teamclaw/stats.json
         let stats_path = std::path::Path::new(&workspace_path)
-            .join(".teamclaw")
+            .join(crate::commands::TEAMCLAW_DIR)
             .join("stats.json");
         let local_stats = if stats_path.exists() {
             let content = std::fs::read_to_string(&stats_path)
-                .map_err(|e| format!("Failed to read .teamclaw/stats.json: {}", e))?;
+                .map_err(|e| format!("Failed to read {}/stats.json: {}", crate::commands::TEAMCLAW_DIR, e))?;
             serde_json::from_str::<crate::commands::local_stats::LocalStats>(&content)
-                .map_err(|e| format!("Failed to parse .teamclaw/stats.json: {}", e))?
+                .map_err(|e| format!("Failed to parse {}/stats.json: {}", crate::commands::TEAMCLAW_DIR, e))?
         } else {
             // If stats.json doesn't exist, use default
             crate::commands::local_stats::LocalStats::default()
@@ -539,7 +539,7 @@ pub async fn telemetry_get_team_leaderboard(
         .clone()
         .ok_or("Workspace path not set")?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
-        .join("teamclaw-team")
+        .join(crate::commands::TEAM_REPO_DIR)
         .join(".leaderboard");
 
     let mut members: Vec<MemberLeaderboardExport> = Vec::new();
@@ -576,7 +576,7 @@ pub async fn telemetry_get_member_aggregated_stats(
         .clone()
         .ok_or("Workspace path not set")?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
-        .join("teamclaw-team")
+        .join(crate::commands::TEAM_REPO_DIR)
         .join(".leaderboard");
 
     let safe_filename = member_name

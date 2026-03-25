@@ -142,9 +142,10 @@ pub fn get_workspace_path(opencode_state: &OpenCodeState) -> Result<String, Stri
 /// Read team config from teamclaw.json
 fn read_team_config_from_file(workspace_path: &str) -> Result<Option<TeamConfig>, String> {
     let config_path = format!(
-        "{}/{}/teamclaw.json",
+        "{}/{}/{}",
         workspace_path,
-        crate::commands::TEAMCLAW_DIR
+        crate::commands::TEAMCLAW_DIR,
+        super::CONFIG_FILE_NAME
     );
 
     if !Path::new(&config_path).exists() {
@@ -152,10 +153,10 @@ fn read_team_config_from_file(workspace_path: &str) -> Result<Option<TeamConfig>
     }
 
     let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+        .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
 
     let json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse teamclaw.json: {}", e))?;
+        .map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))?;
 
     match json.get("team") {
         Some(team_val) => {
@@ -174,14 +175,14 @@ fn write_team_config_to_file(
 ) -> Result<(), String> {
     let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
     let _ = std::fs::create_dir_all(&teamclaw_dir);
-    let config_path = format!("{}/teamclaw.json", teamclaw_dir);
+    let config_path = format!("{}/{}", teamclaw_dir, super::CONFIG_FILE_NAME);
 
     // Read existing config or create empty object
     let mut json: serde_json::Value = if Path::new(&config_path).exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+            .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
         serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse teamclaw.json: {}", e))?
+            .map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))?
     } else {
         serde_json::json!({
             "$schema": "https://opencode.ai/config.json"
@@ -193,11 +194,11 @@ fn write_team_config_to_file(
         let team_val = serde_json::to_value(team_config)
             .map_err(|e| format!("Failed to serialize team config: {}", e))?;
         json.as_object_mut()
-            .ok_or("teamclaw.json is not an object")?
+            .ok_or_else(|| format!("{} is not an object", super::CONFIG_FILE_NAME))?
             .insert("team".to_string(), team_val);
     } else {
         json.as_object_mut()
-            .ok_or("teamclaw.json is not an object")?
+            .ok_or_else(|| format!("{} is not an object", super::CONFIG_FILE_NAME))?
             .remove("team");
     }
 
@@ -205,7 +206,7 @@ fn write_team_config_to_file(
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
     std::fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write teamclaw.json: {}", e))
+        .map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
 // Re-export TEAM_REPO_DIR from parent so existing `crate::commands::team::TEAM_REPO_DIR` paths work.
@@ -269,13 +270,13 @@ pub fn build_llm_config(
 pub fn write_llm_config(workspace_path: &str, config: Option<&LlmConfig>) -> Result<(), String> {
     let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
     let _ = std::fs::create_dir_all(&teamclaw_dir);
-    let config_path = format!("{}/teamclaw.json", teamclaw_dir);
+    let config_path = format!("{}/{}", teamclaw_dir, super::CONFIG_FILE_NAME);
 
     let mut json: serde_json::Value = if Path::new(&config_path).exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+            .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
         serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse teamclaw.json: {}", e))?
+            .map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))?
     } else {
         serde_json::json!({
             "$schema": "https://opencode.ai/config.json"
@@ -286,11 +287,11 @@ pub fn write_llm_config(workspace_path: &str, config: Option<&LlmConfig>) -> Res
         let llm_val = serde_json::to_value(llm_config)
             .map_err(|e| format!("Failed to serialize llm config: {}", e))?;
         json.as_object_mut()
-            .ok_or("teamclaw.json is not an object")?
+            .ok_or_else(|| format!("{} is not an object", super::CONFIG_FILE_NAME))?
             .insert("llm".to_string(), llm_val);
     } else {
         json.as_object_mut()
-            .ok_or("teamclaw.json is not an object")?
+            .ok_or_else(|| format!("{} is not an object", super::CONFIG_FILE_NAME))?
             .remove("llm");
     }
 
@@ -298,7 +299,7 @@ pub fn write_llm_config(workspace_path: &str, config: Option<&LlmConfig>) -> Res
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
     std::fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write teamclaw.json: {}", e))
+        .map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
 /// Single source of truth: check whether this workspace has an active team mode.
@@ -306,7 +307,7 @@ pub fn write_llm_config(workspace_path: &str, config: Option<&LlmConfig>) -> Res
 pub fn check_team_status(workspace_path: &str) -> TeamStatus {
     let config_path = Path::new(workspace_path)
         .join(crate::commands::TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
 
     let json = match std::fs::read_to_string(&config_path)
         .ok()
@@ -375,12 +376,12 @@ pub fn check_team_status(workspace_path: &str) -> TeamStatus {
 pub fn write_team_mode(workspace_path: &str, mode: Option<&str>) -> Result<(), String> {
     let teamclaw_dir = Path::new(workspace_path).join(crate::commands::TEAMCLAW_DIR);
     std::fs::create_dir_all(&teamclaw_dir)
-        .map_err(|e| format!("Failed to create .teamclaw: {}", e))?;
+        .map_err(|e| format!("Failed to create {}: {}", super::TEAMCLAW_DIR, e))?;
 
-    let config_path = teamclaw_dir.join("teamclaw.json");
+    let config_path = teamclaw_dir.join(super::CONFIG_FILE_NAME);
     let mut json: serde_json::Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {}", e))?;
+            .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
         serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
     } else {
         serde_json::json!({})
@@ -396,7 +397,7 @@ pub fn write_team_mode(workspace_path: &str, mode: Option<&str>) -> Result<(), S
     let content = serde_json::to_string_pretty(&json)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
     std::fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write teamclaw.json: {}", e))
+        .map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
 /// The whitelist .gitignore content
@@ -669,7 +670,7 @@ pub async fn team_init_repo(
     // Write LLM config to .teamclaw/teamclaw.json
     let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name);
     write_llm_config(&workspace_path, Some(&llm_config))?;
-    println!("[Team Init] Wrote LLM config to .teamclaw/teamclaw.json");
+    println!("[Team Init] Wrote LLM config to {}/{}", super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME);
 
     // Sync .mcp/ from team dir into workspace opencode.json
     match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {

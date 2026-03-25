@@ -86,10 +86,10 @@ pub async fn oss_create_team(
     // Write LLM config to .teamclaw/teamclaw.json
     let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
     super::team::write_llm_config(&workspace_path, Some(&llm_config))?;
-    info!("oss_create_team: wrote LLM config to .teamclaw/teamclaw.json");
+    info!("oss_create_team: wrote LLM config to {}/{}", super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME);
 
     // Scaffold teamclaw-team directory with default structure
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     super::team::scaffold_team_dir(&team_dir)?;
 
     // Create a temporary manager with empty team_id to call FC /register
@@ -280,7 +280,7 @@ pub async fn oss_join_team(
     }
 
     // Scaffold teamclaw-team directory
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     if !std::path::Path::new(&team_dir).exists() {
         super::team::scaffold_team_dir(&team_dir)?;
     }
@@ -340,7 +340,7 @@ pub async fn oss_restore_sync(
 
     // Read existing config for team_endpoint and poll_interval
     let config = read_oss_config(&workspace_path)
-        .ok_or_else(|| "No OSS config found in teamclaw.json".to_string())?;
+        .ok_or_else(|| format!("No OSS config found in {}", super::CONFIG_FILE_NAME))?;
 
     let mut manager = OssSyncManager::new(
         team_id.clone(),
@@ -449,22 +449,22 @@ pub async fn oss_leave_team(
     // Disable OSS in teamclaw.json
     let config_path = Path::new(&workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
 
     if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to read {}: {e}", super::CONFIG_FILE_NAME))?;
         let mut json: Value = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to parse {}: {e}", super::CONFIG_FILE_NAME))?;
 
         if let Some(obj) = json.as_object_mut() {
             obj.remove("oss");
         }
 
         let output = serde_json::to_string_pretty(&json)
-            .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to serialize {}: {e}", super::CONFIG_FILE_NAME))?;
         std::fs::write(&config_path, output)
-            .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to write {}: {e}", super::CONFIG_FILE_NAME))?;
     }
 
     info!("Left OSS team");

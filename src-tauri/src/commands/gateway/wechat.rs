@@ -447,9 +447,10 @@ impl WeChatGateway {
         };
         let config = self.config.read().await.clone();
         let path = format!(
-            "{}/{}/teamclaw.json",
+            "{}/{}/{}",
             workspace_path,
-            crate::commands::TEAMCLAW_DIR
+            crate::commands::TEAMCLAW_DIR,
+            crate::commands::CONFIG_FILE_NAME
         );
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,

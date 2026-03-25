@@ -1137,7 +1137,7 @@ impl OssSyncManager {
 pub fn read_oss_config(workspace_path: &str) -> Option<OssTeamConfig> {
     let config_path = Path::new(workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
 
     let content = std::fs::read_to_string(&config_path).ok()?;
     let json: Value = serde_json::from_str(&content).ok()?;
@@ -1148,12 +1148,12 @@ pub fn read_oss_config(workspace_path: &str) -> Option<OssTeamConfig> {
 pub fn write_oss_config(workspace_path: &str, config: &OssTeamConfig) -> Result<(), String> {
     let config_path = Path::new(workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
 
     let mut json: Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?
+            .map_err(|e| format!("Failed to read {}: {e}", super::CONFIG_FILE_NAME))?;
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse {}: {e}", super::CONFIG_FILE_NAME))?
     } else {
         Value::Object(serde_json::Map::new())
     };
@@ -1164,7 +1164,7 @@ pub fn write_oss_config(workspace_path: &str, config: &OssTeamConfig) -> Result<
     // Merge new config into existing oss object to preserve fields like nodeId
     let root = json
         .as_object_mut()
-        .ok_or_else(|| "teamclaw.json root is not an object".to_string())?;
+        .ok_or_else(|| format!("{} root is not an object", super::CONFIG_FILE_NAME))?;
     if let Some(existing_oss) = root.get_mut("oss").and_then(|v| v.as_object_mut()) {
         if let Some(new_obj) = oss_value.as_object() {
             for (k, v) in new_obj {
@@ -1181,10 +1181,10 @@ pub fn write_oss_config(workspace_path: &str, config: &OssTeamConfig) -> Result<
     }
 
     let output = serde_json::to_string_pretty(&json)
-        .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to serialize {}: {e}", super::CONFIG_FILE_NAME))?;
 
     std::fs::write(&config_path, output)
-        .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to write {}: {e}", super::CONFIG_FILE_NAME))?;
 
     Ok(())
 }
@@ -1221,12 +1221,12 @@ pub fn write_pending_application(
 ) -> Result<(), String> {
     let config_path = Path::new(workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
 
     let mut json: Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?
+            .map_err(|e| format!("Failed to read {}: {e}", super::CONFIG_FILE_NAME))?;
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse {}: {e}", super::CONFIG_FILE_NAME))?
     } else {
         Value::Object(serde_json::Map::new())
     };
@@ -1236,7 +1236,7 @@ pub fn write_pending_application(
 
     let root = json
         .as_object_mut()
-        .ok_or_else(|| "teamclaw.json root is not an object".to_string())?;
+        .ok_or_else(|| format!("{} root is not an object", super::CONFIG_FILE_NAME))?;
     let oss = root
         .entry("oss")
         .or_insert_with(|| Value::Object(serde_json::Map::new()));
@@ -1249,9 +1249,9 @@ pub fn write_pending_application(
     }
 
     let output = serde_json::to_string_pretty(&json)
-        .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to serialize {}: {e}", super::CONFIG_FILE_NAME))?;
     std::fs::write(&config_path, output)
-        .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to write {}: {e}", super::CONFIG_FILE_NAME))?;
 
     Ok(())
 }
@@ -1259,7 +1259,7 @@ pub fn write_pending_application(
 pub fn read_pending_application(workspace_path: &str) -> Option<PendingApplication> {
     let config_path = Path::new(workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
 
     let content = std::fs::read_to_string(&config_path).ok()?;
     let json: Value = serde_json::from_str(&content).ok()?;
@@ -1270,25 +1270,25 @@ pub fn read_pending_application(workspace_path: &str) -> Option<PendingApplicati
 pub fn clear_pending_application(workspace_path: &str) -> Result<(), String> {
     let config_path = Path::new(workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
 
     if !config_path.exists() {
         return Ok(());
     }
 
     let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to read {}: {e}", super::CONFIG_FILE_NAME))?;
     let mut json: Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to parse {}: {e}", super::CONFIG_FILE_NAME))?;
 
     if let Some(oss) = json.get_mut("oss").and_then(|v| v.as_object_mut()) {
         oss.remove("pendingApplication");
     }
 
     let output = serde_json::to_string_pretty(&json)
-        .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to serialize {}: {e}", super::CONFIG_FILE_NAME))?;
     std::fs::write(&config_path, output)
-        .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to write {}: {e}", super::CONFIG_FILE_NAME))?;
 
     Ok(())
 }

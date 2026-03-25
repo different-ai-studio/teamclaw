@@ -113,7 +113,7 @@ fn fix_path_env() {
     // Try cache first
     let home = std::env::var("HOME").unwrap_or_default();
     let cache_path = std::path::PathBuf::from(&home)
-        .join(".teamclaw")
+        .join(commands::TEAMCLAW_DIR)
         .join("cached-path.txt");
     let profile_mtime = get_shell_profile_mtime(&shell, &home);
 
