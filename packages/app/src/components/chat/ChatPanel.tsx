@@ -69,8 +69,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   const customSuggestions = useSuggestionsStore(s => s.customSuggestions);
   const builtInSuggestions = [
-    t("chat.suggestions.slide", "Create a slide"),
-    t("chat.suggestions.poster", "Create a promotional poster"),
+    t("chat.suggestions.analyze", "Analyze data"),
+    t("chat.suggestions.report", "Write a report"),
     t("chat.suggestions.skill", "Add a new skill"),
   ];
   const suggestions = [...builtInSuggestions, ...customSuggestions];

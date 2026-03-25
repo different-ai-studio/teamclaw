@@ -35,7 +35,8 @@ import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // Theme helpers
-const THEME_STORAGE_KEY = 'teamclaw-theme'
+const THEME_STORAGE_KEY = `${buildConfig.app.shortName ?? 'teamclaw'}-theme`
+const DEFAULT_THEME = buildConfig.defaults?.theme || 'system'
 
 function applyTheme(theme: string) {
   const root = document.documentElement
@@ -56,9 +57,9 @@ function applyTheme(theme: string) {
 
 function getStoredTheme(): string {
   try {
-    return localStorage.getItem(THEME_STORAGE_KEY) || 'system'
+    return localStorage.getItem(THEME_STORAGE_KEY) || DEFAULT_THEME
   } catch {
-    return 'system'
+    return DEFAULT_THEME
   }
 }
 
@@ -308,8 +309,8 @@ function ChatSuggestionsCard() {
   }, [handleAdd])
 
   const builtInSuggestions = [
-    t('chat.suggestions.slide', 'Create a slide'),
-    t('chat.suggestions.poster', 'Create a promotional poster'),
+    t('chat.suggestions.analyze', 'Analyze data'),
+    t('chat.suggestions.report', 'Write a report'),
     t('chat.suggestions.skill', 'Add a new skill'),
   ]
 

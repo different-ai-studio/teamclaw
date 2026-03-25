@@ -10,7 +10,8 @@
   },
   "app": {
     "name": "TeamClaw",
-    "shortName": "teamclaw"
+    "shortName": "tc",
+    "uiVariant": "default"
   },
   "features": {
     "advancedMode": true,

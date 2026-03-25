@@ -91,8 +91,10 @@ export default defineConfig({
     },
   },
   define: {
-    // Client reads VITE_* via import.meta.env (e.g. VITE_UI_VARIANT in lib/ui-variant.ts).
     __BUILD_CONFIG__: JSON.stringify(buildConfig),
+    // Inject build config defaults into import.meta.env so they work without .env files
+    'import.meta.env.VITE_UI_VARIANT': JSON.stringify((buildConfig as any).app?.uiVariant ?? ''),
+    'import.meta.env.VITE_LOCALE': JSON.stringify((buildConfig as any).defaults?.locale ?? ''),
   },
   // Prevent vite from obscuring rust errors
   clearScreen: false,

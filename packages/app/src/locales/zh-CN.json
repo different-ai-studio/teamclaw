@@ -61,8 +61,8 @@
     "agent": "助手",
     "startNewChat": "开始新对话",
     "suggestions": {
-      "slide": "创建幻灯片",
-      "poster": "创建宣传海报",
+      "analyze": "分析数据",
+      "report": "撰写报告",
       "skill": "添加新技能"
     },
     "askAboutFile": "询问关于文件的问题",
@@ -332,7 +332,10 @@
       "noCustomSuggestions": "暂无自定义建议",
       "builtInSuggestions": "内置建议",
       "advancedMode": "高级模式",
-      "advancedModeDesc": "启用 Code 模式、Changes 和 Files 面板"
+      "advancedModeDesc": "启用 Code 模式、Changes 和 Files 面板",
+      "notifAll": "全部",
+      "notifImportant": "仅重要通知",
+      "notifMute": "静音"
     },
     "about": {
       "title": "关于",
@@ -1426,6 +1429,47 @@
       "analyticsDisabled": "分析已禁用",
       "deviceInfo": "设备信息",
       "deviceId": "设备 ID"
+    },
+    "voice": {
+      "title": "离线语音输入",
+      "description": "下载 Whisper 模型以进行离线语音转文字。较小的模型速度更快、占用空间更少；较大的模型准确度更高。",
+      "webHint": "语音模型设置仅在桌面应用中可用。",
+      "enableVoice": "启用语音输入",
+      "enableVoiceDesc": "显示语音输入按钮并允许语音快捷方式。",
+      "models": "语音识别模型",
+      "loading": "加载中...",
+      "installed": "已安装",
+      "download": "下载",
+      "downloading": "下载中...",
+      "delete": "删除",
+      "confirmDelete": "确定要删除此离线语音模型吗？"
+    },
+    "update": {
+      "check": "检查更新",
+      "checking": "检查中",
+      "downloading": "下载中",
+      "upToDate": "已是最新",
+      "install": "安装"
+    },
+    "leaderboard": {
+      "title": "团队排行榜",
+      "members": "位成员",
+      "refresh": "刷新",
+      "noData": "暂无排行榜数据。完成会话或提供反馈后，您的统计数据将自动同步。",
+      "activeUsers": "活跃用户",
+      "totalFeedbacks": "总反馈数",
+      "totalTokens": "总 Token 数",
+      "totalCost": "总费用",
+      "rank": "#",
+      "member": "成员",
+      "tokenRank": "Token 排名",
+      "feedbackRank": "反馈排名",
+      "feedbacks": "条反馈",
+      "tokenUsage": "Token 用量",
+      "feedbackCount": "反馈数",
+      "teamRanking": "团队排名",
+      "clickToView": "点击查看",
+      "you": "你"
     }
   },
   "skillssh": {
