@@ -24,6 +24,7 @@ export interface BuildConfig {
   }
   app: {
     name: string
+    shortName?: string
   }
   features: {
     advancedMode: boolean
@@ -73,7 +74,7 @@ const fallback: BuildConfig = {
     llm: { baseUrl: '', model: '', modelName: '', supportsVision: false },
     lockLlmConfig: false,
   },
-  app: { name: 'TeamClaw' },
+  app: { name: 'TeamClaw', shortName: 'teamclaw' },
   features: { advancedMode: true, teamMode: true, updater: true, channels: { ...allChannelsEnabled } },
   defaults: { locale: 'zh-CN', theme: 'system' },
 }
@@ -100,3 +101,14 @@ function deepMerge(base: any, override: any): any {
 export const buildConfig: BuildConfig = typeof __BUILD_CONFIG__ !== 'undefined' && __BUILD_CONFIG__
   ? deepMerge(fallback, __BUILD_CONFIG__) as BuildConfig
   : fallback
+
+function deriveShortName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+}
+
+export const appShortName: string = buildConfig.app.shortName ?? deriveShortName(buildConfig.app.name)
+export const TEAMCLAW_DIR = `.${appShortName}`
+export const TEAM_REPO_DIR = `${appShortName}-team`
+export const CONFIG_FILE_NAME = `${appShortName}.json`
+export const TEAM_SYNCED_EVENT = `${appShortName}-team-synced`
+export const TEAM_API_KEY_STORAGE_KEY = `${appShortName}-team-api-key`

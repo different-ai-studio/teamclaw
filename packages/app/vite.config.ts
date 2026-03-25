@@ -46,6 +46,20 @@ const envConfig = buildEnv ? readJSON(path.join(rootDir, `build.config.${buildEn
 const localConfig = readJSON(path.join(rootDir, 'build.config.local.json'))
 const buildConfig = deepMerge(baseConfig || {}, envConfig, localConfig)
 
+// Derive shortName if not explicitly set
+if (!(buildConfig as any).app?.shortName) {
+  const app = (buildConfig as any).app || ((buildConfig as any).app = {})
+  app.shortName = (app.name || 'TeamClaw')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toLowerCase()
+}
+
+// Validate shortName
+const sn = (buildConfig as any).app?.shortName as string | undefined
+if (!sn || sn.length > 20 || !/^[a-z0-9]+$/.test(sn)) {
+  throw new Error(`app.shortName must be 1-20 chars, [a-z0-9] only, got: '${sn}'`)
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
