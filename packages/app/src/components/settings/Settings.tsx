@@ -26,33 +26,13 @@ import { useAppVersion } from '@/lib/version'
 import { useUpdaterStore } from '@/stores/updater'
 import { buildConfig, hasAnyChannel } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
-import { useUIStore } from '@/stores/ui'
-
-// Section components
-import { LLMSection } from './LLMSection'
-import { GeneralSection } from './GeneralSection'
-import { PromptSection } from './PromptSection'
-import { MCPSection } from './MCPSection'
-import { SkillsSection } from './SkillsSection'
-import { ChannelsSection } from './ChannelsSection'
-import { DependenciesSection } from './DependenciesSection'
-import { TeamSection } from './TeamSection'
-import { CronSection } from './CronSection'
-import { EnvVarsSection } from './EnvVarsSection'
-import { TokenUsageSection } from './TokenUsageSection'
-import { PrivacySection } from './PrivacySection'
-import { KnowledgeSection } from './KnowledgeSection'
-import { PermissionManagementSection } from './PermissionManagementSection'
-import { VoiceSection } from './VoiceSection'
-import { LeaderboardSection } from './LeaderboardSection'
+import { useUIStore, type SettingsSection } from '@/stores/ui'
 import { TeamRankingCard } from './TeamRankingCard'
-import { ShortcutsSection } from '@/components/shortcuts/ShortcutsSection'
+import { SettingsSectionBody } from './section-registry'
 
 interface SettingsProps {
   onClose?: () => void
 }
-
-type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
 interface Section {
   id: SettingsSection
@@ -85,26 +65,6 @@ const advancedSections: Section[] = [
   { id: 'deps', label: 'Dependencies', labelKey: 'settings.nav.deps', icon: Package, color: 'text-teal-500' },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield, color: 'text-slate-500' },
 ]
-
-const sectionComponents: Record<SettingsSection, React.ComponentType> = {
-  llm: LLMSection,
-  general: GeneralSection,
-  voice: VoiceSection,
-  prompt: PromptSection,
-  mcp: MCPSection,
-  channels: ChannelsSection,
-  automation: CronSection,
-  team: TeamSection,
-  envVars: EnvVarsSection,
-  skills: SkillsSection,
-  knowledge: KnowledgeSection,
-  deps: DependenciesSection,
-  tokenUsage: TokenUsageSection,
-  privacy: PrivacySection,
-  permissions: PermissionManagementSection,
-  leaderboard: LeaderboardSection,
-  shortcuts: ShortcutsSection,
-}
 
 function UpdateButton() {
   const { t } = useTranslation()
@@ -302,13 +262,7 @@ export function Settings(_props?: SettingsProps) {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden bg-muted/5">
-        <ScrollArea className="h-full">
-          <div className="max-w-2xl mx-auto p-8">
-            {React.createElement(sectionComponents[activeView])}
-          </div>
-        </ScrollArea>
-      </div>
+      <SettingsSectionBody section={activeView} />
     </div>
   )
 }

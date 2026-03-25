@@ -12,15 +12,22 @@ export type FileModeRightTab = 'shortcuts' | 'tasks' | 'changes' | 'files' | 'ag
 
 export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
+/** Sections that can be opened in the main column from the workspace sidebar strip. */
+export type EmbeddedSidebarSettingsSection = 'automation' | 'skills'
+
 interface UIState {
   currentView: View
   layoutMode: LayoutMode
   fileModeRightTab: FileModeRightTab
   spotlightMode: boolean
   settingsInitialSection: SettingsSection | null
+  /** When set, main column shows this settings section (workspace UI variant only). */
+  embeddedSettingsSection: EmbeddedSidebarSettingsSection | null
   setView: (view: View) => void
   openSettings: (section?: SettingsSection) => void
   closeSettings: () => void
+  openEmbeddedSettingsSection: (section: EmbeddedSidebarSettingsSection) => void
+  closeEmbeddedSettingsSection: () => void
   setLayoutMode: (mode: LayoutMode) => void
   toggleLayoutMode: () => void
   setFileModeRightTab: (tab: FileModeRightTab) => void
@@ -36,12 +43,21 @@ export const useUIStore = create<UIState>((set, get) => ({
   fileModeRightTab: 'agent',
   spotlightMode: false,
   settingsInitialSection: null,
+  embeddedSettingsSection: null,
 
   setView: (view) => set({ currentView: view }),
 
-  openSettings: (section) => set({ currentView: 'settings', settingsInitialSection: section ?? null }),
+  openSettings: (section) => set({
+    currentView: 'settings',
+    settingsInitialSection: section ?? null,
+    embeddedSettingsSection: null,
+  }),
 
-  closeSettings: () => set({ currentView: 'chat', settingsInitialSection: null }),
+  closeSettings: () => set({ currentView: 'chat', settingsInitialSection: null, embeddedSettingsSection: null }),
+
+  openEmbeddedSettingsSection: (section) => set({ embeddedSettingsSection: section }),
+
+  closeEmbeddedSettingsSection: () => set({ embeddedSettingsSection: null }),
 
   setLayoutMode: (mode) => set({ layoutMode: mode }),
 

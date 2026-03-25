@@ -77,6 +77,7 @@ export default defineConfig({
     },
   },
   define: {
+    // Client reads VITE_* via import.meta.env (e.g. VITE_UI_VARIANT in lib/ui-variant.ts).
     __BUILD_CONFIG__: JSON.stringify(buildConfig),
   },
   // Prevent vite from obscuring rust errors

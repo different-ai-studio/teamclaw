@@ -62,7 +62,14 @@ import {
 import { useMCPFileWatcher } from "@/hooks/useMCPFileWatcher";
 import { useTeamModeStore } from "@/stores/team-mode";
 
-import { AppSidebar, SidebarIconGroup } from "@/components/app-sidebar";
+import {
+  AppSidebar,
+  SidebarIconGroup,
+  SidebarCollapseToggle,
+  SidebarSecondarySessionActions,
+} from "@/components/app-sidebar";
+import { SettingsSectionBody } from "@/components/settings/section-registry";
+import { isWorkspaceUIVariant } from "@/lib/ui-variant";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { VoiceInputFloatingButton } from "@/components/voice/VoiceInputFloatingButton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -436,10 +443,38 @@ function AppContent() {
   const setFileModeRightTab = useUIStore((s) => s.setFileModeRightTab);
   const advancedMode = useUIStore((s) => s.advancedMode);
   const openSettings = useUIStore((s) => s.openSettings);
+  const embeddedSettingsSection = useUIStore((s) => s.embeddedSettingsSection);
+  const closeEmbeddedSettingsSection = useUIStore(
+    (s) => s.closeEmbeddedSettingsSection,
+  );
   const isNewWorkspace = useWorkspaceStore((s) => s.isNewWorkspace);
   const setIsNewWorkspace = useWorkspaceStore((s) => s.setIsNewWorkspace);
-  const { state } = useSidebar();
+  const { state, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
+  /** Workspace UI: Shortcuts docks left of chat; other panel tabs use the right column. */
+  const shortcutsLeftDock =
+    isWorkspaceUIVariant() && isPanelOpen && activeTab === "shortcuts";
+  const showRightWorkspacePanel = isPanelOpen && !shortcutsLeftDock;
   const isCollapsed = state === "collapsed";
+  /** Native traffic lights sit over the left column; spare inset header when Shortcuts owns that strip. */
+  const collapsedInsetLeading = isCollapsed ? (
+    shortcutsLeftDock && isWorkspaceUIVariant() ? null : (
+      <>
+        {!shortcutsLeftDock && <TrafficLights />}
+        {isWorkspaceUIVariant() ? (
+          <>
+            <SidebarCollapseToggle className="mr-0.5" />
+            <SidebarSecondarySessionActions className="mr-2" newChatOnly />
+          </>
+        ) : (
+          <SidebarIconGroup className="mr-2" />
+        )}
+        <Separator
+          orientation="vertical"
+          className="data-[orientation=vertical]:h-4 mr-2"
+        />
+      </>
+    )
+  ) : null;
   const needsTrafficLightSpacer = useNeedsTrafficLightSpacer();
   const [isRefreshingMessages, setIsRefreshingMessages] = useState(false);
 
@@ -458,6 +493,33 @@ function AppContent() {
   useFileTabSync();
   const { rightPanelWidth, handleRightPanelResize } = useResizablePanels();
 
+  /** When Shortcuts opens in workspace UI, hide the main sidebar first; restore prior expansion when it closes. */
+  const restoreSidebarAfterShortcutsRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!isWorkspaceUIVariant()) {
+      restoreSidebarAfterShortcutsRef.current = null;
+      return;
+    }
+    if (shortcutsLeftDock) {
+      if (restoreSidebarAfterShortcutsRef.current === null) {
+        // Remember whether to re-expand when Shortcuts closes; collapse only if needed.
+        restoreSidebarAfterShortcutsRef.current = sidebarOpen;
+        if (sidebarOpen) {
+          setSidebarOpen(false);
+        }
+      } else if (sidebarOpen) {
+        // User expanded the session sidebar while Shortcuts is open — exit Shortcuts.
+        closePanel();
+      }
+    } else {
+      const shouldExpand = restoreSidebarAfterShortcutsRef.current === true;
+      restoreSidebarAfterShortcutsRef.current = null;
+      if (shouldExpand) {
+        setSidebarOpen(true);
+      }
+    }
+  }, [shortcutsLeftDock, sidebarOpen, setSidebarOpen, closePanel]);
+
   // Full-screen loading overlay when OpenCode server is starting/restarting
   const showConnectingOverlay =
     workspacePath && !openCodeReady && !openCodeError && isTauri();
@@ -475,16 +537,7 @@ function AppContent() {
             className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 bg-background px-4"
             data-tauri-drag-region
           >
-            {isCollapsed && (
-              <>
-                <TrafficLights />
-                <SidebarIconGroup className="mr-2" />
-                <Separator
-                  orientation="vertical"
-                  className="data-[orientation=vertical]:h-4 mr-2"
-                />
-              </>
-            )}
+            {collapsedInsetLeading}
             <Button
               variant="ghost"
               size="icon"
@@ -515,16 +568,7 @@ function AppContent() {
             className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 bg-background px-4"
             data-tauri-drag-region
           >
-            {isCollapsed && (
-              <>
-                <TrafficLights />
-                <SidebarIconGroup className="mr-2" />
-                <Separator
-                  orientation="vertical"
-                  className="data-[orientation=vertical]:h-4 mr-2"
-                />
-              </>
-            )}
+            {collapsedInsetLeading}
             <span className="font-medium">{buildConfig.app.name}</span>
           </header>
           <div className="flex-1 overflow-hidden">
@@ -545,16 +589,7 @@ function AppContent() {
             className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 bg-background px-4"
             data-tauri-drag-region
           >
-            {isCollapsed && (
-              <>
-                <TrafficLights />
-                <SidebarIconGroup className="mr-2" />
-                <Separator
-                  orientation="vertical"
-                  className="data-[orientation=vertical]:h-4 mr-2"
-                />
-              </>
-            )}
+            {collapsedInsetLeading}
             <span className="font-medium">{buildConfig.app.name}</span>
           </header>
           <div className="flex-1 overflow-hidden flex flex-col items-center justify-center gap-6 p-8">
@@ -800,62 +835,114 @@ function AppContent() {
       {showConnectingOverlay && <ConnectingOverlay />}
       <AppSidebar />
       <SidebarInset className="flex flex-row h-svh overflow-hidden relative">
-        {/* Left column: header + main content */}
+        {isWorkspaceUIVariant() && (
+          <div
+            className={cn(
+              "shrink-0 overflow-hidden border-border bg-background transition-[width,opacity,transform] duration-500 ease-out",
+              shortcutsLeftDock
+                ? "w-(--sidebar-width) translate-x-0 border-r opacity-100"
+                : "pointer-events-none w-0 -translate-x-4 border-r-0 opacity-0",
+            )}
+          >
+            <div className="flex h-full w-(--sidebar-width) flex-col overflow-hidden bg-background">
+              {shortcutsLeftDock && (
+                <>
+                  <div
+                    className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-background px-2"
+                    data-tauri-drag-region
+                  >
+                    <TrafficLights />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 rounded-lg"
+                      onClick={() => closePanel()}
+                      title={t("shortcuts.backToSidebar", "Back to sidebar")}
+                      aria-label={t(
+                        "shortcuts.backToSidebar",
+                        "Back to sidebar",
+                      )}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="min-w-0 truncate text-sm font-medium">
+                      {t("navigation.shortcuts", "Shortcuts")}
+                    </span>
+                    <div className="min-w-0 flex-1" data-tauri-drag-region />
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-hidden">
+                    <RightPanel todos={todos} diff={sessionDiff} />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Main column: header + main content */}
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           {/* Header with breadcrumb - sticky */}
           <header
             className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 bg-background px-4"
             data-tauri-drag-region
           >
-            {/* When sidebar is collapsed: show traffic light spacer + icon group */}
-            {isCollapsed && (
+            {collapsedInsetLeading}
+
+            {embeddedSettingsSection ? (
               <>
-                <TrafficLights />
-                <SidebarIconGroup className="mr-2" />
-                <Separator
-                  orientation="vertical"
-                  className="data-[orientation=vertical]:h-4 mr-2"
-                />
+                {advancedMode && <LayoutToggleButton />}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 rounded-lg"
+                  onClick={closeEmbeddedSettingsSection}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="min-w-0 truncate text-sm font-medium">
+                  {embeddedSettingsSection === "automation"
+                    ? t("settings.nav.automation", "Automation")
+                    : t("settings.nav.skills", "Skills")}
+                </span>
+                <div className="min-w-0 flex-1" />
+              </>
+            ) : (
+              <>
+                {advancedMode && <LayoutToggleButton />}
+                <span className="min-w-0 truncate text-sm">
+                  {activeSession?.title || t("chat.newChat", "New Chat")}
+                </span>
+                {activeSession && (
+                  <button
+                    onClick={async () => {
+                      setIsRefreshingMessages(true);
+                      await reloadActiveSessionMessages();
+                      setIsRefreshingMessages(false);
+                    }}
+                    className="ml-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    title={t("chat.refreshMessages", "Refresh messages")}
+                  >
+                    <RotateCw
+                      className={cn(
+                        "h-3.5 w-3.5",
+                        isRefreshingMessages && "animate-spin",
+                      )}
+                    />
+                  </button>
+                )}
               </>
             )}
 
-            {/* Layout mode toggle - before TeamClaw */}
-            {advancedMode && <LayoutToggleButton />}
-
-            <span className="min-w-0 truncate text-sm">
-              {activeSession?.title || t("chat.newChat", "New Chat")}
-            </span>
-
-            {/* Refresh messages button */}
-            {activeSession && (
-              <button
-                onClick={async () => {
-                  setIsRefreshingMessages(true);
-                  await reloadActiveSessionMessages();
-                  setIsRefreshingMessages(false);
-                }}
-                className="shrink-0 ml-1 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title={t("chat.refreshMessages", "Refresh messages")}
-              >
-                <RotateCw
-                  className={cn(
-                    "h-3.5 w-3.5",
-                    isRefreshingMessages && "animate-spin",
-                  )}
+            {/* Panel tabs - right side of header (Shortcuts lives in sidebar when workspace UI variant) */}
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              {!isWorkspaceUIVariant() && (
+                <HeaderPanelTab
+                  icon={Bookmark}
+                  label={t("navigation.shortcuts", "Shortcuts")}
+                  count={0}
+                  isActive={isPanelOpen && activeTab === "shortcuts"}
+                  onClick={() => isPanelOpen && activeTab === "shortcuts" ? closePanel() : openPanel("shortcuts")}
                 />
-              </button>
-            )}
-
-            {/* Panel tabs - right side of header */}
-            <div className="ml-auto flex items-center gap-0.5">
-              {/* Panel tabs */}
-              <HeaderPanelTab
-                icon={Bookmark}
-                label={t("navigation.shortcuts", "Shortcuts")}
-                count={0}
-                isActive={isPanelOpen && activeTab === "shortcuts"}
-                onClick={() => isPanelOpen && activeTab === "shortcuts" ? closePanel() : openPanel("shortcuts")}
-              />
+              )}
               <HeaderPanelTab
                 icon={ListTodo}
                 label={t("navigation.tasks", "Tasks")}
@@ -887,7 +974,7 @@ function AppContent() {
               )}
               {isPanelOpen && (
                 <button
-                  className="ml-1 p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded"
+                  className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   onClick={closePanel}
                 >
                   <X className="h-4 w-4" />
@@ -896,22 +983,29 @@ function AppContent() {
             </div>
           </header>
 
-          {/* Main content - Chat or File Preview */}
-          <div className="relative overflow-hidden flex-1">
-            <MainContent />
+          {/* Main content - Chat, file preview, or embedded settings section */}
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            {embeddedSettingsSection ? (
+              <SettingsSectionBody section={embeddedSettingsSection} />
+            ) : (
+              <MainContent />
+            )}
           </div>
         </div>
 
-        {/* Right Panel - full height, border-l runs top to bottom */}
+        {/* Right Panel - full height (Shortcuts use left dock in workspace UI) */}
         <div
-          className={`border-l bg-background overflow-hidden transition-[width,opacity,transform] duration-500 ease-out shrink-0 ${
-            isPanelOpen
-              ? "w-72 opacity-100 translate-x-0"
-              : "w-0 opacity-0 translate-x-4"
-          }`}
+          className={cn(
+            "shrink-0 overflow-hidden border-l border-border bg-background transition-[width,opacity,transform] duration-500 ease-out",
+            showRightWorkspacePanel
+              ? "w-72 translate-x-0 opacity-100"
+              : "pointer-events-none w-0 translate-x-4 border-l-0 opacity-0",
+          )}
         >
-          <div className="w-72 h-full">
-            <RightPanel todos={todos} diff={sessionDiff} />
+          <div className="h-full w-72">
+            {showRightWorkspacePanel && (
+              <RightPanel todos={todos} diff={sessionDiff} />
+            )}
           </div>
         </div>
       </SidebarInset>
@@ -979,7 +1073,7 @@ function App() {
           <SidebarProvider
             style={
               {
-                "--sidebar-width": "260px",
+                "--sidebar-width": "320px",
               } as React.CSSProperties
             }
           >

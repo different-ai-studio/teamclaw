@@ -49,7 +49,8 @@
     "agent": "助手",
     "changes": "变更",
     "tasks": "任务",
-    "session": "会话"
+    "session": "会话",
+    "shortcuts": "快捷方式"
   },
   "chat": {
     "title": "聊天",

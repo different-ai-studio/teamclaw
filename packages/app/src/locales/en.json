@@ -49,7 +49,8 @@
     "agent": "Agent",
     "changes": "Changes",
     "tasks": "Tasks",
-    "session": "Session"
+    "session": "Session",
+    "shortcuts": "Shortcuts"
   },
   "chat": {
     "title": "Chat",

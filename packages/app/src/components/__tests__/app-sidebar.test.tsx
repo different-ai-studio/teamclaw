@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import React from 'react'
+
+const uiVariantMocks = vi.hoisted(() => ({ workspaceShell: false }))
 
 // Mock i18n
 vi.mock('react-i18next', () => ({
@@ -45,6 +47,9 @@ vi.mock('@/stores/ui', () => ({
     sel({
       openSettings: vi.fn(),
       closeSettings: vi.fn(),
+      embeddedSettingsSection: null,
+      openEmbeddedSettingsSection: vi.fn(),
+      closeEmbeddedSettingsSection: vi.fn(),
     }),
 }))
 
@@ -56,6 +61,10 @@ vi.mock('@/stores/workspace', () => ({
       isLoadingWorkspace: false,
       clearSelection: vi.fn(),
       setWorkspace: vi.fn(),
+      isPanelOpen: false,
+      activeTab: 'tasks',
+      openPanel: vi.fn(),
+      closePanel: vi.fn(),
     }),
 }))
 
@@ -67,6 +76,10 @@ vi.mock('@/stores/tabs', () => ({
 }))
 
 // Mock sidebar UI components
+vi.mock('@/lib/ui-variant', () => ({
+  isWorkspaceUIVariant: () => uiVariantMocks.workspaceShell,
+}))
+
 vi.mock('@/components/ui/sidebar', () => ({
   Sidebar: ({ children, ...props }: any) => <div data-testid="sidebar" {...props}>{children}</div>,
   SidebarContent: ({ children }: any) => <div>{children}</div>,
@@ -78,7 +91,7 @@ vi.mock('@/components/ui/sidebar', () => ({
     <button onClick={onClick} {...props}>{children}</button>
   ),
   SidebarMenuItem: ({ children }: any) => <div>{children}</div>,
-  useSidebar: () => ({ toggleSidebar: vi.fn() }),
+  useSidebar: () => ({ toggleSidebar: vi.fn(), state: 'expanded' }),
 }))
 
 vi.mock('@/components/ui/traffic-lights', () => ({
@@ -118,6 +131,7 @@ import { AppSidebar } from '@/components/app-sidebar'
 describe('AppSidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    uiVariantMocks.workspaceShell = false
   })
 
   it('renders session titles in sidebar', () => {
@@ -139,5 +153,13 @@ describe('AppSidebar', () => {
     const buttons = screen.getAllByRole('button')
     // Should have session buttons + settings + workspace selector + sidebar toggle + search + new chat
     expect(buttons.length).toBeGreaterThan(2)
+  })
+
+  it('with workspace UI variant shows Shortcuts above Automation and Skills', () => {
+    uiVariantMocks.workspaceShell = true
+    render(<AppSidebar />)
+    expect(screen.getByText('Shortcuts')).toBeDefined()
+    expect(screen.getByText('Automation')).toBeDefined()
+    expect(screen.getByText('Skills')).toBeDefined()
   })
 })

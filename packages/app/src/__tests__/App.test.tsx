@@ -42,6 +42,14 @@ vi.mock('@/hooks/useFileEditorState', () => ({
 vi.mock('@/components/app-sidebar', () => ({
   AppSidebar: () => <div data-testid="sidebar">sidebar</div>,
   SidebarIconGroup: () => null,
+  SidebarCollapseToggle: () => null,
+  SidebarSecondarySessionActions: () => null,
+}))
+vi.mock('@/components/settings/section-registry', () => ({
+  SettingsSectionBody: () => <div data-testid="settings-section-body" />,
+}))
+vi.mock('@/lib/ui-variant', () => ({
+  isWorkspaceUIVariant: () => false,
 }))
 vi.mock('@/components/chat/ChatPanel', () => ({ ChatPanel: () => <div>chat</div> }))
 vi.mock('@/components/voice/VoiceInputFloatingButton', () => ({ VoiceInputFloatingButton: () => null }))
@@ -69,9 +77,14 @@ vi.mock('@/stores/ui', () => ({
   useUIStore: Object.assign(
     vi.fn((sel: (s: any) => any) => {
       const state = {
-        currentView: 'main', closeSettings: vi.fn(), layoutMode: 'task',
+        currentView: 'chat', closeSettings: vi.fn(), layoutMode: 'task',
         fileModeRightTab: 'agent', setFileModeRightTab: vi.fn(),
         spotlightMode: false, toggleLayoutMode: vi.fn(),
+        embeddedSettingsSection: null,
+        closeEmbeddedSettingsSection: vi.fn(),
+        openEmbeddedSettingsSection: vi.fn(),
+        advancedMode: false,
+        openSettings: vi.fn(),
       }
       return sel(state)
     }),

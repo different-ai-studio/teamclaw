@@ -3,6 +3,10 @@
 interface ImportMetaEnv {
   /** Build-time locale selection: 'en' | 'zh-CN' | 'all' | undefined */
   readonly VITE_LOCALE?: string;
+  /**
+   * App shell preset: unset / empty / "default" = classic; "workspace" = quick Automation/Skills in sidebar + embedded section panels.
+   */
+  readonly VITE_UI_VARIANT?: string;
 }
 
 interface ImportMeta {
