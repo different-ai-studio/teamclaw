@@ -68,7 +68,7 @@ impl Default for RagConfig {
             rerank_top_k: 20,
             file_watcher_enabled: true,
             auto_inject_enabled: true,
-            auto_inject_threshold: 0.7,
+            auto_inject_threshold: 0.4,
             auto_inject_top_k: 3,
             auto_inject_max_tokens: 2000,
         }

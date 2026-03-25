@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { homeDir, join } from '@tauri-apps/api/path'
+import { dirname, homeDir, join } from '@tauri-apps/api/path'
 import { mkdir, exists } from '@tauri-apps/plugin-fs'
 import type {
   GitCommandResult,
@@ -116,21 +116,6 @@ export class GitManager {
     }
   }
 
-  /** Ensure team directories exist under <workspace>/.teamclaw/team/ */
-  async ensureTeamDirs(workspacePath: string): Promise<void> {
-    const teamBase = await join(workspacePath, TEAMCLAW_DIR, TEAM_DIR)
-    const dirs = [
-      teamBase,
-      await join(teamBase, 'skills'),
-      await join(teamBase, 'documents'),
-    ]
-    for (const dir of dirs) {
-      if (!(await exists(dir))) {
-        await mkdir(dir, { recursive: true })
-      }
-    }
-  }
-
   // ─── Git Operations ────────────────────────────────────────────────────
 
   /** Clone a git repository */
@@ -211,7 +196,11 @@ export class GitManager {
       }
     }
 
-    // Clone
+    // Clone (create parent only when needed; avoids empty .teamclaw/team/ when unused)
+    const parent = await dirname(localPath)
+    if (!(await exists(parent))) {
+      await mkdir(parent, { recursive: true })
+    }
     const result = await this.clone(url, localPath, true)
     return { action: 'cloned', result }
   }
@@ -344,9 +333,6 @@ export class GitManager {
     onProgress?: (repoId: string, status: 'syncing' | 'synced' | 'error', error?: string) => void
   ): Promise<void> {
     await this.ensureDirectoryStructure()
-    if (workspacePath) {
-      await this.ensureTeamDirs(workspacePath)
-    }
 
     const repos = await this.buildRepoList(workspacePath)
     for (const repo of repos) {
