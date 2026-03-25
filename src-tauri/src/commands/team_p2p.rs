@@ -2,7 +2,7 @@
 
 use super::team_unified::{MemberRole, TeamManifest, TeamMember};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -189,6 +189,8 @@ pub async fn get_device_node_id(iroh_state: tauri::State<'_, IrohState>) -> Resu
 // ─── File Helpers ────────────────────────────────────────────────────────
 
 /// Collect all files recursively from a directory, returning (relative_path, content) pairs.
+const MAX_SYNC_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+
 fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut files = Vec::new();
     if !dir.exists() {
@@ -199,6 +201,17 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
         .filter_map(|e| e.ok())
     {
         if entry.file_type().is_file() {
+            // Skip files larger than MAX_SYNC_FILE_SIZE to avoid memory spikes
+            if let Ok(meta) = entry.metadata() {
+                if meta.len() > MAX_SYNC_FILE_SIZE {
+                    eprintln!(
+                        "[P2P] Skipping large file ({} MB): {}",
+                        meta.len() / (1024 * 1024),
+                        entry.path().display()
+                    );
+                    continue;
+                }
+            }
             if let Ok(content) = std::fs::read(entry.path()) {
                 if let Ok(rel) = entry.path().strip_prefix(base) {
                     files.push((rel.to_string_lossy().to_string(), content));
@@ -300,6 +313,8 @@ pub async fn create_team(
     let ticket_str = ticket.to_string();
     let namespace_id = doc.id().to_string();
 
+    eprintln!("[Team] Created team doc namespace={}", &namespace_id[..10.min(namespace_id.len())]);
+
     // Start background sync
     let team_dir_owned = team_dir.to_string();
     let node_id_for_sync = node_id.clone();
@@ -313,6 +328,11 @@ pub async fn create_team(
         node_id_for_sync,
         Some(node_id.clone()),
         app_handle,
+        node.router.endpoint().clone(),
+        None, // ticket not needed for owner — peers connect to us
+        None, // seed_endpoint resolved later on reconnect
+        HashMap::new(), // no cached peers yet for new team
+        Some(workspace_path.to_string()),
     );
 
     node.active_doc = Some(doc);
@@ -354,21 +374,45 @@ pub async fn join_team_drive(
         .await
         .map_err(|e| format!("Failed to import doc: {}", e))?;
 
-    // Wait for initial sync
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-
-    // Read all entries and write to disk (need manifest for authorization check)
-    let file_count = write_doc_entries_to_disk(&doc, &node.store, team_dir).await?;
-
-    // Check authorization against the downloaded manifest.
-    // If not authorized, close the doc and clean up downloaded files.
+    // Poll for members.json to appear (up to 15s), instead of a fixed 3s wait.
+    // The manifest is required for authorization — if it never arrives, reject.
     let joiner_node_id = get_node_id(node);
-    if let Err(auth_err) = check_join_authorization(team_dir, &joiner_node_id) {
-        // Close the imported doc — do not keep syncing
+    let mut file_count = 0;
+    let mut authorized = false;
+    for attempt in 1..=15 {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Write whatever entries have synced so far
+        file_count = write_doc_entries_to_disk(&doc, &node.store, team_dir).await.unwrap_or(0);
+
+        // Check if members.json exists and we're authorized
+        match check_join_authorization(team_dir, &joiner_node_id) {
+            Ok(()) => {
+                eprintln!("[P2P] Authorized after {}s", attempt);
+                authorized = true;
+                break;
+            }
+            Err(ref e) if e.contains("no members manifest") && attempt < 15 => {
+                // Manifest not synced yet — keep waiting
+                eprintln!("[P2P] Waiting for manifest... ({}s)", attempt);
+                continue;
+            }
+            Err(auth_err) => {
+                // Either we're explicitly not in the list, or timed out
+                let _ = doc.close().await;
+                let _ = std::fs::remove_dir_all(team_dir);
+                return Err(auth_err);
+            }
+        }
+    }
+
+    if !authorized {
         let _ = doc.close().await;
-        // Clean up downloaded files
         let _ = std::fs::remove_dir_all(team_dir);
-        return Err(auth_err);
+        return Err(format!(
+            "Timed out waiting for team manifest. Ensure the team owner is online. Your Device ID: {}",
+            joiner_node_id
+        ));
     }
 
     // Write author→node mapping so stats can resolve AuthorId back to NodeId
@@ -398,6 +442,29 @@ pub async fn join_team_drive(
         .unwrap_or(MemberRole::Editor);
     let manifest_owner = manifest.map(|m| m.owner_node_id);
 
+    // Reconcile offline edits (primarily for re-join scenarios)
+    let is_owner = manifest_owner.as_deref() == Some(&joiner_node_id);
+    if let Err(e) = reconcile_disk_and_doc(
+        &doc,
+        &node.store,
+        node.author,
+        team_dir,
+        is_owner,
+        &joiner_role,
+    )
+    .await
+    {
+        eprintln!("[P2P] Reconcile failed: {} (continuing)", e);
+    }
+
+    // Resolve seed endpoint if seed_url is configured
+    let existing_config = read_p2p_config(workspace_path)?.unwrap_or_default();
+    let seed_ep = if let Some(ref seed_url) = existing_config.seed_url {
+        resolve_seed_endpoint(seed_url, workspace_path, &existing_config).await
+    } else {
+        None
+    };
+
     // Start background sync
     let team_dir_owned = team_dir.to_string();
     let node_id_for_sync = joiner_node_id.clone();
@@ -411,6 +478,11 @@ pub async fn join_team_drive(
         node_id_for_sync,
         manifest_owner.clone(),
         app_handle,
+        node.router.endpoint().clone(),
+        Some(ticket_str.to_string()),
+        seed_ep,
+        HashMap::new(), // no cached peers yet for new joiner
+        Some(workspace_path.to_string()),
     );
 
     node.active_doc = Some(doc);
@@ -482,6 +554,116 @@ async fn write_doc_entries_to_disk(
     Ok(file_count)
 }
 
+/// Reconcile local files with iroh doc at startup.
+/// Uploads local-only files, downloads remote-only files.
+/// For conflicts (both differ), local wins (local-first rule).
+async fn reconcile_disk_and_doc(
+    doc: &iroh_docs::api::Doc,
+    store: &FsStore,
+    author: iroh_docs::AuthorId,
+    team_dir: &str,
+    is_owner: bool,
+    role: &MemberRole,
+) -> Result<(usize, usize), String> {
+    use futures_lite::StreamExt;
+
+    let blobs_store: iroh_blobs::api::Store = store.clone().into();
+    let team_path = Path::new(team_dir);
+    let mut uploaded = 0usize;
+    let mut downloaded = 0usize;
+
+    // 1. Collect local files
+    let local_files = collect_files(team_path, team_path);
+    let mut local_map: std::collections::HashMap<String, Vec<u8>> =
+        local_files.into_iter().collect();
+
+    // 2. Collect doc entries and reconcile
+    let query = iroh_docs::store::Query::single_latest_per_key().build();
+    let entries = doc
+        .get_many(query)
+        .await
+        .map_err(|e| format!("Failed to query doc: {}", e))?;
+    let mut entries = std::pin::pin!(entries);
+
+    while let Some(Ok(entry)) = entries.next().await {
+        let key = String::from_utf8_lossy(entry.key()).to_string();
+
+        // Skip internal keys
+        if key.starts_with("_meta/") {
+            local_map.remove(&key);
+            continue;
+        }
+
+        if let Some(local_content) = local_map.remove(&key) {
+            // Both exist — check if they differ
+            let local_hash = iroh_blobs::Hash::new(&local_content);
+            if local_hash != entry.content_hash() {
+                // Local wins: upload local version
+                if *role != MemberRole::Viewer {
+                    if key == "_team/members.json" && !is_owner {
+                        continue;
+                    }
+                    let content = if local_content.is_empty() {
+                        vec![b'\n']
+                    } else {
+                        local_content
+                    };
+                    if let Err(e) = doc.set_bytes(author, key.clone(), content).await {
+                        eprintln!("[P2P][reconcile] Failed to upload {}: {}", key, e);
+                    } else {
+                        eprintln!("[P2P][reconcile] Conflict -> local wins: {}", key);
+                        uploaded += 1;
+                    }
+                }
+            }
+        } else {
+            // Remote only — download to disk
+            if entry.content_len() == 0 {
+                continue;
+            }
+            if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
+                let file_path = team_path.join(&key);
+                if let Some(parent) = file_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(e) = std::fs::write(&file_path, &content) {
+                    eprintln!("[P2P][reconcile] Failed to write {}: {}", key, e);
+                } else {
+                    downloaded += 1;
+                }
+            }
+        }
+    }
+
+    // 3. Local-only files — upload to doc
+    if *role != MemberRole::Viewer {
+        for (key, content) in &local_map {
+            if key.starts_with("_meta/") {
+                continue;
+            }
+            if key == "_team/members.json" && !is_owner {
+                continue;
+            }
+            let content = if content.is_empty() {
+                vec![b'\n']
+            } else {
+                content.clone()
+            };
+            if let Err(e) = doc.set_bytes(author, key.clone(), content).await {
+                eprintln!("[P2P][reconcile] Failed to upload {}: {}", key, e);
+            } else {
+                uploaded += 1;
+            }
+        }
+    }
+
+    eprintln!(
+        "[P2P][reconcile] Done: {} uploaded, {} downloaded",
+        uploaded, downloaded
+    );
+    Ok((uploaded, downloaded))
+}
+
 /// Publish (re-sync) current files into the active doc.
 /// Used when the user manually triggers a sync or after file changes.
 pub async fn publish_team_drive(
@@ -543,6 +725,173 @@ pub async fn rotate_namespace(
 
 // ─── Background Sync Tasks ──────────────────────────────────────────────
 
+/// Fetch the seed node's iroh EndpointAddr via its HTTP API.
+/// Returns None on any failure (timeout, parse error, seed unreachable).
+async fn fetch_seed_endpoint(seed_url: &str) -> Option<iroh::EndpointAddr> {
+    let url = format!("{}/node-id", seed_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+
+    let resp = client.get(&url).send().await.ok()?;
+    let json: serde_json::Value = resp.json().await.ok()?;
+
+    let node_id_str = json.get("nodeId")?.as_str()?;
+    let id = node_id_str.parse::<iroh::EndpointId>().ok()?;
+
+    let mut addrs = std::collections::BTreeSet::new();
+
+    if let Some(relay) = json.get("relayUrl").and_then(|v| v.as_str()) {
+        if let Ok(url) = relay.parse::<iroh::RelayUrl>() {
+            addrs.insert(iroh::TransportAddr::Relay(url));
+        }
+    }
+
+    if let Some(arr) = json.get("addrs").and_then(|v| v.as_array()) {
+        for addr_val in arr {
+            if let Some(addr_str) = addr_val.as_str() {
+                if let Ok(sock) = addr_str.parse::<std::net::SocketAddr>() {
+                    addrs.insert(iroh::TransportAddr::Ip(sock));
+                }
+            }
+        }
+    }
+
+    if addrs.is_empty() {
+        return None;
+    }
+
+    eprintln!(
+        "[P2P] Fetched seed endpoint: {} ({} addrs)",
+        &node_id_str[..10.min(node_id_str.len())],
+        addrs.len()
+    );
+    Some(iroh::EndpointAddr { id, addrs })
+}
+
+/// Build seed EndpointAddr from cached config fields.
+fn build_seed_addr_from_cache(config: &P2pConfig) -> Option<iroh::EndpointAddr> {
+    let node_id_str = config.seed_iroh_node_id.as_ref()?;
+    let id = node_id_str.parse::<iroh::EndpointId>().ok()?;
+    let mut addrs = std::collections::BTreeSet::new();
+    if let Some(ref relay) = config.seed_iroh_relay_url {
+        if let Ok(url) = relay.parse::<iroh::RelayUrl>() {
+            addrs.insert(iroh::TransportAddr::Relay(url));
+        }
+    }
+    if let Some(ref addr_list) = config.seed_iroh_addrs {
+        for addr_str in addr_list {
+            if let Ok(sock) = addr_str.parse::<std::net::SocketAddr>() {
+                addrs.insert(iroh::TransportAddr::Ip(sock));
+            }
+        }
+    }
+    if addrs.is_empty() {
+        return None;
+    }
+    Some(iroh::EndpointAddr { id, addrs })
+}
+
+/// Save seed endpoint info to P2pConfig cache.
+fn cache_seed_endpoint(
+    workspace_path: &str,
+    addr: &iroh::EndpointAddr,
+) -> Result<(), String> {
+    let mut cfg = read_p2p_config(workspace_path)?.unwrap_or_default();
+    cfg.seed_iroh_node_id = Some(addr.id.to_string());
+    cfg.seed_iroh_relay_url = addr.addrs.iter().find_map(|a| {
+        if let iroh::TransportAddr::Relay(url) = a {
+            Some(url.to_string())
+        } else {
+            None
+        }
+    });
+    cfg.seed_iroh_addrs = Some(
+        addr.addrs
+            .iter()
+            .filter_map(|a| {
+                if let iroh::TransportAddr::Ip(sock) = a {
+                    Some(sock.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect(),
+    );
+    write_p2p_config(workspace_path, Some(&cfg))
+}
+
+/// Resolve the seed endpoint: try fresh HTTP fetch, fallback to cache.
+async fn resolve_seed_endpoint(
+    seed_url: &str,
+    workspace_path: &str,
+    config: &P2pConfig,
+) -> Option<iroh::EndpointAddr> {
+    match fetch_seed_endpoint(seed_url).await {
+        Some(addr) => {
+            let _ = cache_seed_endpoint(workspace_path, &addr);
+            Some(addr)
+        }
+        None => {
+            eprintln!("[P2P] Seed fetch failed, using cached endpoint");
+            build_seed_addr_from_cache(config)
+        }
+    }
+}
+
+/// Collect known peer addresses from ticket + endpoint cache + members manifest.
+async fn collect_sync_peers(
+    ep: &Endpoint,
+    ticket_peers: &[iroh::EndpointAddr],
+    team_dir: &str,
+    seed_endpoint: Option<&iroh::EndpointAddr>,
+    cached_peer_addrs: &HashMap<String, Vec<String>>,
+) -> Vec<iroh::EndpointAddr> {
+    let mut peers = Vec::new();
+    // 1. Seed (highest priority — always online)
+    if let Some(seed) = seed_endpoint {
+        peers.push(seed.clone());
+    }
+    // 2. Ticket peers (owner's address)
+    for tp in ticket_peers {
+        if !peers.iter().any(|p| p.id == tp.id) {
+            peers.push(tp.clone());
+        }
+    }
+    // 3. Members from manifest — try live info first, fall back to cached addrs
+    if let Ok(Some(manifest)) = read_members_manifest(team_dir) {
+        for member in &manifest.members {
+            if peers.iter().any(|p| p.id.to_string() == member.node_id) {
+                continue;
+            }
+            if let Ok(id) = member.node_id.parse::<iroh::EndpointId>() {
+                // Try live endpoint info first
+                let mut addrs = std::collections::BTreeSet::new();
+                if let Some(info) = ep.remote_info(id).await {
+                    for addr_info in info.addrs() {
+                        addrs.insert(addr_info.addr().clone());
+                    }
+                }
+                // Fall back to cached addresses if live info is empty
+                if addrs.is_empty() {
+                    if let Some(cached) = cached_peer_addrs.get(&member.node_id) {
+                        for addr_str in cached {
+                            if let Ok(sock) = addr_str.parse::<std::net::SocketAddr>() {
+                                addrs.insert(iroh::TransportAddr::Ip(sock));
+                            }
+                        }
+                    }
+                }
+                if !addrs.is_empty() {
+                    peers.push(iroh::EndpointAddr { id, addrs });
+                }
+            }
+        }
+    }
+    peers
+}
+
 /// Start background tasks for bidirectional sync between doc and filesystem.
 fn start_sync_tasks(
     doc: &iroh_docs::api::Doc,
@@ -554,6 +903,11 @@ fn start_sync_tasks(
     my_node_id: String,
     owner_node_id: Option<String>,
     app_handle: Option<tauri::AppHandle>,
+    endpoint: Endpoint,
+    doc_ticket: Option<String>,
+    seed_endpoint: Option<iroh::EndpointAddr>,
+    cached_peer_addrs: HashMap<String, Vec<String>>,
+    workspace_path: Option<String>,
 ) {
     let blobs_store: iroh_blobs::api::Store = store.clone().into();
     let team_dir_a = team_dir.to_string();
@@ -592,6 +946,148 @@ fn start_sync_tasks(
         )
         .await;
     });
+
+    // Task C: event-driven + fallback periodic sync.
+    // Listens for NeighborUp/SyncFinished events to register new peers with gossip,
+    // and falls back to a periodic sync every 5 minutes for resilience.
+    let doc_c = doc.clone();
+    let _doc_c2 = doc.clone();
+    let team_dir_c = team_dir.to_string();
+    let seed_ep = seed_endpoint;
+    let mut cached_addrs = cached_peer_addrs;
+    let ws_path = workspace_path;
+    tokio::spawn(async move {
+        use futures_lite::StreamExt;
+        use iroh_docs::engine::LiveEvent;
+        let seed_ref = seed_ep.as_ref();
+
+        // Parse ticket peers (the owner's address for joiners).
+        let mut ticket_peers: Vec<iroh::EndpointAddr> = Vec::new();
+        if let Some(ref ticket_str) = doc_ticket {
+            if let Ok(ticket) = ticket_str.trim().parse::<iroh_docs::DocTicket>() {
+                ticket_peers = ticket.nodes;
+            }
+        }
+
+        let ep = endpoint;
+
+        // Do an initial sync shortly after startup
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        {
+            let peers = collect_sync_peers(&ep, &ticket_peers, &team_dir_c, seed_ref, &cached_addrs).await;
+            if !peers.is_empty() {
+                if let Err(e) = doc_c.start_sync(peers.clone()).await {
+                    eprintln!("[P2P][sync] Initial sync failed: {}", e);
+                } else {
+                    eprintln!(
+                        "[P2P][sync] Initial sync triggered with {} peers",
+                        peers.len()
+                    );
+                }
+            }
+        }
+
+        // Subscribe to doc events for NeighborUp
+        let mut events = match doc_c.subscribe().await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[P2P][sync] Failed to subscribe for sync events: {}", e);
+                return;
+            }
+        };
+
+        // Fallback timer: sync every 5 minutes
+        let mut fallback = tokio::time::interval(std::time::Duration::from_secs(300));
+        fallback.tick().await; // skip first immediate tick
+
+        loop {
+            tokio::select! {
+                event = events.next() => {
+                    match event {
+                        Some(Ok(LiveEvent::NeighborUp(peer_key))) => {
+                            // New peer appeared in gossip — trigger sync with them
+                            let peer_id: iroh::EndpointId = peer_key.into();
+                            eprintln!("[P2P][sync] NeighborUp: {}", &peer_id.to_string()[..10]);
+                            if let Some(info) = ep.remote_info(peer_id).await {
+                                let mut addrs = std::collections::BTreeSet::new();
+                                for addr_info in info.addrs() {
+                                    addrs.insert(addr_info.addr().clone());
+                                }
+                                if !addrs.is_empty() {
+                                    let peer_addr = iroh::EndpointAddr { id: peer_id, addrs };
+                                    let _ = doc_c.start_sync(vec![peer_addr]).await;
+                                }
+                            }
+                        }
+                        Some(Ok(LiveEvent::SyncFinished(ev))) => {
+                            if let Ok(details) = &ev.result {
+                                if details.entries_received > 0 || details.entries_sent > 0 {
+                                    eprintln!(
+                                        "[P2P][sync] SyncFinished peer={} sent={} recv={}",
+                                        &ev.peer.to_string()[..10],
+                                        details.entries_sent,
+                                        details.entries_received
+                                    );
+                                }
+                            }
+                            // Cache the peer's address for future LAN reconnection
+                            let peer_id: iroh::EndpointId = ev.peer.into();
+                            if let Some(info) = ep.remote_info(peer_id).await {
+                                let addrs: Vec<String> = info.addrs()
+                                    .filter_map(|a| match a.addr() {
+                                        iroh::TransportAddr::Ip(sock) => Some(sock.to_string()),
+                                        _ => None, // skip relay addrs
+                                    })
+                                    .collect();
+                                if !addrs.is_empty() {
+                                    cached_addrs.insert(peer_id.to_string(), addrs);
+                                }
+                            }
+                        }
+                        Some(Err(_)) | None => {
+                            // Stream ended or error — break out
+                            eprintln!("[P2P][sync] Event stream ended");
+                            break;
+                        }
+                        _ => {} // Ignore other events
+                    }
+                }
+                _ = fallback.tick() => {
+                    // Fallback: sync with all known peers every 5 minutes
+                    let peers = collect_sync_peers(&ep, &ticket_peers, &team_dir_c, seed_ref, &cached_addrs).await;
+                    if !peers.is_empty() {
+                        // Update cache from collected peers (IP addrs only)
+                        for peer in &peers {
+                            let addrs: Vec<String> = peer.addrs.iter()
+                                .filter_map(|a| match a {
+                                    iroh::TransportAddr::Ip(sock) => Some(sock.to_string()),
+                                    _ => None,
+                                })
+                                .collect();
+                            if !addrs.is_empty() {
+                                cached_addrs.insert(peer.id.to_string(), addrs);
+                            }
+                        }
+                        // Persist cached addrs to config
+                        if let Some(ref ws) = ws_path {
+                            if let Ok(Some(mut cfg)) = read_p2p_config(ws) {
+                                cfg.cached_peer_addrs = cached_addrs.clone();
+                                let _ = write_p2p_config(ws, Some(&cfg));
+                            }
+                        }
+                        match doc_c.start_sync(peers.clone()).await {
+                            Ok(()) => eprintln!(
+                                "[P2P][sync] Fallback sync with {} peers",
+                                peers.len()
+                            ),
+                            Err(e) => eprintln!("[P2P][sync] Fallback sync failed: {}", e),
+                        }
+                    }
+                }
+            }
+        }
+    });
+
 }
 
 /// Write content to a file path while suppressing fs watcher feedback.
@@ -612,11 +1108,11 @@ async fn write_and_suppress(
         eprintln!("[P2P] Failed to write '{}': {}", file_path.display(), e);
     }
 
-    // Remove suppression after a short delay
+    // Remove suppression after a delay (3s to avoid feedback loops on rapid saves)
     let suppressed_clone = suppressed_paths.clone();
     let file_path_clone = file_path.to_path_buf();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         let mut suppressed = suppressed_clone.lock().await;
         suppressed.remove(&file_path_clone);
     });
@@ -684,11 +1180,16 @@ async fn doc_to_disk_watcher(
                 content_status,
                 ..
             } => {
+                let key_preview = String::from_utf8_lossy(entry.key()).to_string();
+                eprintln!(
+                    "[P2P][doc→disk] InsertRemote key={} status={:?} len={}",
+                    key_preview, content_status, entry.content_len()
+                );
                 if content_status != iroh_docs::ContentStatus::Complete {
                     continue;
                 }
 
-                let key = String::from_utf8_lossy(entry.key()).to_string();
+                let key = key_preview;
                 let author_id_str = entry.author().to_string();
 
                 // Update author map if this is an _meta/authors/ entry
@@ -791,6 +1292,21 @@ async fn doc_to_disk_watcher(
                     continue;
                 }
 
+                // Handle _team/dissolved: owner dissolved the team
+                if key == "_team/dissolved" {
+                    let we_are_owner = owner_node_id.as_deref() == Some(my_node_id.as_str());
+                    if !we_are_owner {
+                        eprintln!("[P2P] Team has been dissolved by owner — disconnecting");
+                        if let Some(ref app) = app_handle {
+                            use tauri::Emitter;
+                            let _ = app.emit("team:dissolved", serde_json::json!({}));
+                        }
+                        // Stop watching — the frontend will handle cleanup
+                        break;
+                    }
+                    continue;
+                }
+
                 // Validate _team/members.json writes: only accept from owner
                 if key == "_team/members.json" {
                     let is_owner_write = match (&writer_node_id, &owner_node_id) {
@@ -814,6 +1330,37 @@ async fn doc_to_disk_watcher(
                             node_to_role.clear();
                             for member in &manifest.members {
                                 node_to_role.insert(member.node_id.clone(), member.role.clone());
+                            }
+
+                            // Notify UI that the member list changed
+                            if let Some(ref app) = app_handle {
+                                use tauri::Emitter;
+                                let _ = app.emit("team:members-changed", serde_json::json!({}));
+                            }
+
+                            // Check if we've been kicked (not in the list anymore)
+                            let still_member = manifest.members.iter().any(|m| m.node_id == my_node_id);
+                            let we_are_owner = owner_node_id.as_deref() == Some(my_node_id.as_str());
+                            if !still_member && !we_are_owner {
+                                eprintln!("[P2P] We have been removed from the team — disconnecting");
+                                if let Some(ref app) = app_handle {
+                                    use tauri::Emitter;
+                                    let _ = app.emit("team:kicked", serde_json::json!({
+                                        "nodeId": my_node_id,
+                                    }));
+                                }
+                                // Stop watching — the frontend will handle cleanup
+                                break;
+                            }
+
+                            // Check if our role changed and notify
+                            if let Some(my_member) = manifest.members.iter().find(|m| m.node_id == my_node_id) {
+                                if let Some(ref app) = app_handle {
+                                    use tauri::Emitter;
+                                    let _ = app.emit("team:role-changed", serde_json::json!({
+                                        "role": my_member.role,
+                                    }));
+                                }
                             }
                         }
                     }
@@ -843,11 +1390,15 @@ async fn doc_to_disk_watcher(
                 // Normal write
                 let file_path = Path::new(&team_dir).join(&key);
                 if entry.content_len() == 0 {
+                    eprintln!("[P2P][doc→disk] Deleting: {}", key);
                     let _ = std::fs::remove_file(&file_path);
                 } else if let Ok(content) =
                     blobs_store.blobs().get_bytes(entry.content_hash()).await
                 {
+                    eprintln!("[P2P][doc→disk] Writing: {} ({} bytes)", key, content.len());
                     write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                } else {
+                    eprintln!("[P2P][doc→disk] Failed to get blob for: {}", key);
                 }
             }
             LiveEvent::ContentReady { hash } => {
@@ -991,6 +1542,7 @@ async fn disk_to_doc_watcher(
                                 } else {
                                     content
                                 };
+                                eprintln!("[P2P][disk→doc] Syncing: {} ({} bytes)", key, content.len());
                                 if let Err(e) = doc.set_bytes(author, key.clone(), content).await {
                                     eprintln!("[P2P] Failed to sync local change '{}': {}", key, e);
                                 }
@@ -1093,6 +1645,18 @@ pub struct P2pConfig {
     pub seed_url: Option<String>,
     #[serde(default)]
     pub team_secret: Option<String>,
+    /// Cached seed node iroh endpoint ID (hex string)
+    #[serde(default)]
+    pub seed_iroh_node_id: Option<String>,
+    /// Cached seed node relay URL
+    #[serde(default)]
+    pub seed_iroh_relay_url: Option<String>,
+    /// Cached seed node direct socket addresses
+    #[serde(default)]
+    pub seed_iroh_addrs: Option<Vec<String>>,
+    /// Cached peer addresses for LAN reconnection (node_id → list of socket addrs)
+    #[serde(default)]
+    pub cached_peer_addrs: HashMap<String, Vec<String>>,
 }
 
 /// Clear the p2p field from .teamclaw/teamclaw.json and remove teamclaw-team/ directory.
@@ -1392,10 +1956,28 @@ pub fn add_member_to_team(
         return Err("Member already exists".to_string());
     }
 
+    eprintln!(
+        "[Team] Adding member node_id={} to team (total will be {})",
+        &member.node_id,
+        config.allowed_members.len() + 1
+    );
+
     config.allowed_members.push(member);
     write_p2p_config(workspace_path, Some(&config))?;
+    eprintln!("[Team] P2P config written with {} members", config.allowed_members.len());
 
     write_members_manifest(team_dir, caller_node_id, &config.allowed_members)?;
+    eprintln!("[Team] members.json written to {}/teamclaw-team/_team/members.json", workspace_path);
+
+    // Verify the write
+    match read_members_manifest(team_dir) {
+        Ok(Some(m)) => eprintln!(
+            "[Team] Verified: members.json has {} members",
+            m.members.len()
+        ),
+        Ok(None) => eprintln!("[Team] ERROR: members.json not found after write!"),
+        Err(e) => eprintln!("[Team] ERROR: failed to re-read members.json: {}", e),
+    }
 
     Ok(())
 }
@@ -1514,12 +2096,27 @@ pub async fn team_add_member(
     if let Some(node) = guard.as_ref() {
         if let Some(doc) = &node.active_doc {
             let manifest_path = format!("{}/teamclaw-team/_team/members.json", workspace_path);
-            if let Ok(content) = std::fs::read(&manifest_path) {
-                let _ = doc
-                    .set_bytes(node.author, "_team/members.json", content)
-                    .await;
+            match std::fs::read(&manifest_path) {
+                Ok(content) => {
+                    if let Err(e) = doc
+                        .set_bytes(node.author, "_team/members.json", content)
+                        .await
+                    {
+                        eprintln!("[Team] Failed to write members.json to iroh doc: {}", e);
+                        return Err(format!("Member added locally but failed to sync: {}", e));
+                    }
+                    eprintln!("[Team] Updated members.json synced to iroh doc");
+                }
+                Err(e) => {
+                    eprintln!("[Team] Failed to read members.json from disk: {}", e);
+                    return Err(format!("Member added but manifest file unreadable: {}", e));
+                }
             }
+        } else {
+            eprintln!("[Team] WARNING: No active doc — manifest won't sync to peers");
         }
+    } else {
+        eprintln!("[Team] WARNING: No iroh node — manifest won't sync to peers");
     }
 
     Ok(())
@@ -1551,10 +2148,18 @@ pub async fn team_remove_member(
     if let Some(node) = guard.as_ref() {
         if let Some(doc) = &node.active_doc {
             let manifest_path = format!("{}/teamclaw-team/_team/members.json", workspace_path);
-            if let Ok(content) = std::fs::read(&manifest_path) {
-                let _ = doc
-                    .set_bytes(node.author, "_team/members.json", content)
-                    .await;
+            match std::fs::read(&manifest_path) {
+                Ok(content) => {
+                    if let Err(e) = doc
+                        .set_bytes(node.author, "_team/members.json", content)
+                        .await
+                    {
+                        eprintln!("[Team] Failed to write members.json to iroh doc: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[Team] Failed to read members.json from disk: {}", e);
+                }
             }
         }
     }
@@ -1764,7 +2369,7 @@ pub async fn p2p_reconnect(
         _ => return Ok(()), // No team to reconnect to
     };
 
-    let namespace_id_str = config.namespace_id.as_ref().unwrap();
+    let _namespace_id_str = config.namespace_id.as_ref().unwrap();
 
     let mut guard = iroh_state.lock().await;
     let node = guard.as_mut().ok_or("P2P node not running")?;
@@ -1780,48 +2385,60 @@ pub async fn p2p_reconnect(
         .as_deref()
         .map_or(false, |owner| owner == my_node_id);
 
-    // Re-import from saved ticket to register for network sync.
-    // docs.open() only loads locally and does NOT accept incoming sync requests.
-    // However, if we are the owner the ticket contains our own address — importing
-    // it would make iroh attempt to connect to ourselves. In that case fall back to
-    // docs.open() which is sufficient because joiners will connect to us via their
-    // copy of the ticket.
-    let doc = if !is_owner {
-        if let Some(ref ticket_str) = config.doc_ticket {
-            eprintln!("[P2P] Reconnecting via ticket import");
-            let ticket = ticket_str
-                .trim()
-                .parse::<iroh_docs::DocTicket>()
-                .map_err(|_| "Invalid saved ticket".to_string())?;
-            node.docs
-                .import(ticket)
-                .await
-                .map_err(|e| format!("Failed to import doc: {}", e))?
-        } else {
-            let namespace_id = namespace_id_str
-                .parse::<iroh_docs::NamespaceId>()
-                .map_err(|e| format!("Invalid namespace ID: {}", e))?;
-            node.docs
-                .open(namespace_id)
-                .await
-                .map_err(|e| format!("Failed to open doc: {}", e))?
-                .ok_or("Team document not found")?
+    // MUST use docs.import(ticket) — docs.open() does NOT accept incoming sync.
+    // Without ticket import, this node is invisible to peers on LAN.
+    let ticket_str = config.doc_ticket.as_ref().ok_or_else(|| {
+        "No saved ticket — cannot reconnect. Please rejoin the team.".to_string()
+    })?;
+    eprintln!(
+        "[P2P] Reconnecting via ticket import (is_owner={})",
+        is_owner
+    );
+    let ticket = ticket_str
+        .trim()
+        .parse::<iroh_docs::DocTicket>()
+        .map_err(|_| "Invalid saved ticket — please rejoin the team.".to_string())?;
+    let doc = node
+        .docs
+        .import(ticket)
+        .await
+        .map_err(|e| format!("Failed to import doc: {}", e))?;
+
+    let team_dir = format!("{}/teamclaw-team", workspace_path);
+
+    // Re-check authorization on reconnect (except for owner)
+    if !is_owner {
+        if let Err(auth_err) = check_join_authorization(&team_dir, &my_node_id) {
+            let _ = doc.close().await;
+            clear_p2p_and_team_dir(&workspace_path)?;
+            return Err(format!("Reconnect rejected: {}", auth_err));
         }
+    }
+
+    let my_role = config.role.clone().unwrap_or(MemberRole::Editor);
+
+    // Reconcile offline edits before starting watchers
+    if let Err(e) = reconcile_disk_and_doc(
+        &doc,
+        &node.store,
+        node.author,
+        &team_dir,
+        is_owner,
+        &my_role,
+    )
+    .await
+    {
+        eprintln!("[P2P] Reconcile failed: {} (continuing)", e);
+    }
+
+    // Resolve seed endpoint (refresh cache, fallback to cached)
+    let seed_ep = if let Some(ref seed_url) = config.seed_url {
+        resolve_seed_endpoint(seed_url, &workspace_path, &config).await
     } else {
-        eprintln!("[P2P] Owner reconnect — opening doc locally (skip self-connect)");
-        let namespace_id = namespace_id_str
-            .parse::<iroh_docs::NamespaceId>()
-            .map_err(|e| format!("Invalid namespace ID: {}", e))?;
-        node.docs
-            .open(namespace_id)
-            .await
-            .map_err(|e| format!("Failed to open doc: {}", e))?
-            .ok_or("Team document not found")?
+        None
     };
 
     // Start background sync
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
-    let my_role = config.role.clone().unwrap_or(MemberRole::Editor);
     start_sync_tasks(
         &doc,
         node.author,
@@ -1832,6 +2449,11 @@ pub async fn p2p_reconnect(
         my_node_id,
         config.owner_node_id.clone(),
         Some(app),
+        node.router.endpoint().clone(),
+        config.doc_ticket.clone(),
+        seed_ep,
+        config.cached_peer_addrs.clone(),
+        Some(workspace_path.clone()),
     );
 
     node.active_doc = Some(doc);
@@ -1902,6 +2524,20 @@ pub async fn p2p_sync_status(
     let config = read_p2p_config(&workspace_path)?.unwrap_or_default();
     let guard = iroh_state.lock().await;
     let has_active_doc = guard.as_ref().map_or(false, |n| n.active_doc.is_some());
+    // Diagnostic: log active doc namespace vs config namespace
+    if let Some(node) = guard.as_ref() {
+        if let Some(doc) = &node.active_doc {
+            let active_ns = doc.id().to_string();
+            let config_ns = config.namespace_id.as_deref().unwrap_or("none");
+            eprintln!(
+                "[Team] Active doc namespace={}, config namespace={}",
+                &active_ns[..10.min(active_ns.len())],
+                &config_ns[..10.min(config_ns.len())]
+            );
+        } else {
+            eprintln!("[Team] WARNING: No active doc in sync_status check");
+        }
+    }
 
     Ok(P2pSyncStatus {
         connected: has_active_doc,

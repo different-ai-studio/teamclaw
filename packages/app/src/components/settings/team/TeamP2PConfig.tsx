@@ -153,13 +153,9 @@ export function TeamP2PConfig() {
   const [createInviteCode, setCreateInviteCode] = React.useState('')
   const [createOwnerName, setCreateOwnerName] = React.useState('')
   const [createOwnerEmail, setCreateOwnerEmail] = React.useState('')
-  const [, setShowShareBox] = React.useState(false)
   const [dissolveLoading, setDissolveLoading] = React.useState(false)
   const [confirmDissolve, setConfirmDissolve] = React.useState(false)
 
-  const [seedConfigUrl, setSeedConfigUrl] = React.useState(buildConfig.team.seedUrl || '')
-  const [seedConfigSecret, setSeedConfigSecret] = React.useState('')
-  const [seedConfigSaving, setSeedConfigSaving] = React.useState(false)
   const [applications, setApplications] = React.useState<Array<{
     nodeId: string; name: string; email: string; note: string;
     platform: string; arch: string; hostname: string; appliedAt: string
@@ -462,11 +458,12 @@ export function TeamP2PConfig() {
     }
   }, [isOwner, syncStatus?.seedUrl, syncStatus?.namespaceId, syncStatus?.teamSecret, fetchApplications])
 
-  // Listen for member-left events emitted by the Rust backend
+  // Listen for team events emitted by the Rust backend
   React.useEffect(() => {
     if (!isTauri()) return
-    let unlisten: (() => void) | undefined
+    const unlisteners: (() => void)[] = []
     import('@tauri-apps/api/event').then(({ listen }) => {
+      // Member voluntarily left (owner side)
       listen<{ nodeId: string; name: string }>('team:member-left', (event) => {
         const { name, nodeId } = event.payload
         toast.info(
@@ -475,53 +472,42 @@ export function TeamP2PConfig() {
           })
         )
         loadSyncStatus()
-      }).then((u) => { unlisten = u })
-    })
-    return () => { unlisten?.() }
-  }, [loadSyncStatus, t])
+      }).then((u) => { unlisteners.push(u) })
 
-  const handleSaveSeedConfig = async () => {
-    setSeedConfigSaving(true)
-    setP2pError(null)
-    try {
-      const base = seedConfigUrl.trim().replace(/\/$/, '')
-      const secret = seedConfigSecret.trim()
-      const ticket = syncStatus?.docTicket
-      const nsId = syncStatus?.namespaceId
+      // Members list changed (any member side)
+      listen('team:members-changed', () => {
+        loadSyncStatus()
+      }).then((u) => { unlisteners.push(u) })
 
-      if (!ticket || !nsId) {
-        setP2pError('No active team doc. Create a team first.')
-        return
-      }
-
-      // Register this team on the seed node
-      const resp = await fetch(`${base}/admin/teams`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticket, label: nsId, teamSecret: secret }),
-      })
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => '')
-        // 409 = already registered, that's fine
-        if (resp.status !== 409) {
-          setP2pError(`Seed registration failed: ${body || resp.statusText}`)
-          return
+      // We have been kicked from the team
+      listen('team:kicked', () => {
+        toast.error(t('settings.team.kickedNotice', 'You have been removed from the team'))
+        setSyncStatus(null)
+        useTeamModeStore.setState({ myRole: null })
+        if (workspacePath) {
+          useTeamModeStore.getState().clearTeamMode(workspacePath)
         }
-      }
+      }).then((u) => { unlisteners.push(u) })
 
-      await tauriInvoke('p2p_save_seed_config', {
-        seedUrl: base || null,
-        teamSecret: secret || null,
-      })
-      await loadSyncStatus()
-      setSeedConfigUrl('')
-      setSeedConfigSecret('')
-    } catch (err) {
-      setP2pError(err instanceof Error ? err.message : 'Failed to connect to seed node')
-    } finally {
-      setSeedConfigSaving(false)
-    }
-  }
+      // Team has been dissolved by the owner
+      listen('team:dissolved', () => {
+        toast.error(t('settings.team.dissolvedNotice', 'The team has been dissolved by the owner'))
+        setSyncStatus(null)
+        useTeamModeStore.setState({ myRole: null })
+        if (workspacePath) {
+          useTeamModeStore.getState().clearTeamMode(workspacePath)
+        }
+      }).then((u) => { unlisteners.push(u) })
+
+      // Our role has changed
+      listen<{ role: string }>('team:role-changed', (event) => {
+        const { role } = event.payload
+        toast.info(t('settings.team.roleChangedNotice', 'Your role has been changed to {{role}}', { role }))
+        loadSyncStatus()
+      }).then((u) => { unlisteners.push(u) })
+    })
+    return () => { unlisteners.forEach((u) => u()) }
+  }, [loadSyncStatus, t, workspacePath])
 
   const doDissolveTeam = async () => {
     setConfirmDissolve(false)
