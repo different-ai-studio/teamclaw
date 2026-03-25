@@ -163,6 +163,34 @@ impl SeedNode {
     fn node_id(&self) -> String {
         self.router.endpoint().addr().id.to_string()
     }
+
+    fn endpoint_addr_json(&self) -> serde_json::Value {
+        let addr = self.router.endpoint().addr();
+        let node_id = addr.id.to_string();
+        let relay_url = addr.addrs.iter().find_map(|a| {
+            if let iroh::TransportAddr::Relay(url) = a {
+                Some(url.to_string())
+            } else {
+                None
+            }
+        });
+        let addrs: Vec<String> = addr
+            .addrs
+            .iter()
+            .filter_map(|a| {
+                if let iroh::TransportAddr::Ip(sock) = a {
+                    Some(sock.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        serde_json::json!({
+            "nodeId": node_id,
+            "relayUrl": relay_url,
+            "addrs": addrs,
+        })
+    }
 }
 
 fn load_or_create_secret_key(storage_path: &Path) -> Result<SecretKey, String> {
@@ -298,6 +326,7 @@ async fn blob_sync_loop(
     namespace_id: String,
     doc: iroh_docs::api::Doc,
     stats: Arc<Mutex<TeamStats>>,
+    endpoint: Endpoint,
 ) {
     use futures_lite::StreamExt;
     use iroh_docs::engine::LiveEvent;
@@ -349,8 +378,34 @@ async fn blob_sync_loop(
             }
             LiveEvent::NeighborUp(node_id) => {
                 eprintln!("[seed:{}] Peer connected: {}", ns_short, node_id);
-                let mut s = stats.lock().await;
-                s.peers_seen += 1;
+                {
+                    let mut s = stats.lock().await;
+                    s.peers_seen += 1;
+                }
+                // Trigger sync with the new peer
+                let peer_id: iroh::EndpointId = node_id.into();
+                if let Some(info) = endpoint.remote_info(peer_id).await {
+                    let mut addrs = std::collections::BTreeSet::new();
+                    for addr_info in info.addrs() {
+                        addrs.insert(addr_info.addr().clone());
+                    }
+                    if !addrs.is_empty() {
+                        let peer_addr = iroh::EndpointAddr { id: peer_id, addrs };
+                        match doc.start_sync(vec![peer_addr]).await {
+                            Ok(()) => eprintln!(
+                                "[seed:{}] Triggered sync with {}",
+                                ns_short,
+                                &node_id.to_string()[..10]
+                            ),
+                            Err(e) => eprintln!(
+                                "[seed:{}] Failed to sync with {}: {}",
+                                ns_short,
+                                &node_id.to_string()[..10],
+                                e
+                            ),
+                        }
+                    }
+                }
             }
             LiveEvent::NeighborDown(node_id) => {
                 eprintln!("[seed:{}] Peer disconnected: {}", ns_short, node_id);
@@ -435,7 +490,7 @@ impl AppState {
         let stats = Arc::new(Mutex::new(TeamStats::default()));
         let stats_clone = stats.clone();
         let ns_clone = namespace_id.clone();
-        let handle = tokio::spawn(blob_sync_loop(ns_clone, doc, stats_clone));
+        let handle = tokio::spawn(blob_sync_loop(ns_clone, doc, stats_clone, self.node.router.endpoint().clone()));
 
         let active = ActiveTeam {
             entry: entry.clone(),
@@ -563,7 +618,7 @@ impl AppState {
                 let stats = Arc::new(Mutex::new(TeamStats::default()));
                 let stats_clone = stats.clone();
                 let ns_clone = ns.clone();
-                let handle = tokio::spawn(blob_sync_loop(ns_clone, doc, stats_clone));
+                let handle = tokio::spawn(blob_sync_loop(ns_clone, doc, stats_clone, self.node.router.endpoint().clone()));
 
                 let active = ActiveTeam {
                     entry: entry.clone(),
@@ -618,9 +673,7 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> Json<serde_json::V
 }
 
 async fn handle_node_id(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "nodeId": state.node.node_id(),
-    }))
+    Json(state.node.endpoint_addr_json())
 }
 
 /// POST /teams/:id/ticket — get DocTicket (requires team secret)
