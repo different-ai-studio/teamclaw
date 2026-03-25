@@ -72,7 +72,7 @@ impl IrohNode {
             .map_err(|e| format!("Failed to create iroh blob store: {}", e))?;
 
         let secret_key = load_or_create_secret_key(storage_path)?;
-        let endpoint = Endpoint::builder()
+        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
             .secret_key(secret_key)
             .bind()
             .await
