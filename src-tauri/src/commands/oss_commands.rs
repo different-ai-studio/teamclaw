@@ -74,7 +74,8 @@ pub async fn oss_create_team(
     team_name: String,
     owner_name: String,
     owner_email: String,
-    fc_endpoint: String,
+    team_endpoint: String,
+    force_path_style: bool,
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
@@ -96,7 +97,8 @@ pub async fn oss_create_team(
         String::new(), // team_id not yet known
         node_id.clone(),
         team_secret.clone(),
-        fc_endpoint.clone(),
+        team_endpoint.clone(),
+        force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
         Some(app_handle.clone()),
@@ -124,7 +126,8 @@ pub async fn oss_create_team(
         team_id.clone(),
         node_id.clone(),
         team_secret.clone(),
-        fc_endpoint.clone(),
+        team_endpoint.clone(),
+        force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
         Some(app_handle.clone()),
@@ -181,7 +184,8 @@ pub async fn oss_create_team(
     let config = OssTeamConfig {
         enabled: true,
         team_id: team_id.clone(),
-        fc_endpoint: fc_endpoint.clone(),
+        team_endpoint: team_endpoint.clone(),
+        force_path_style,
         last_sync_at: None,
         poll_interval_secs: 300,
     };
@@ -214,7 +218,8 @@ pub async fn oss_join_team(
     workspace_path: String,
     team_id: String,
     team_secret: String,
-    fc_endpoint: String,
+    team_endpoint: String,
+    force_path_style: bool,
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
@@ -226,7 +231,8 @@ pub async fn oss_join_team(
         team_id.clone(),
         node_id.clone(),
         team_secret.clone(),
-        fc_endpoint.clone(),
+        team_endpoint.clone(),
+        force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
         Some(app_handle.clone()),
@@ -290,7 +296,8 @@ pub async fn oss_join_team(
     let config = OssTeamConfig {
         enabled: true,
         team_id: team_id.clone(),
-        fc_endpoint: fc_endpoint.clone(),
+        team_endpoint: team_endpoint.clone(),
+        force_path_style,
         last_sync_at: None,
         poll_interval_secs: 300,
     };
@@ -331,7 +338,7 @@ pub async fn oss_restore_sync(
     let team_secret = load_team_secret(&team_id)?;
     let node_id = get_p2p_node_id(&iroh_state).await?;
 
-    // Read existing config for fc_endpoint and poll_interval
+    // Read existing config for team_endpoint and poll_interval
     let config = read_oss_config(&workspace_path)
         .ok_or_else(|| "No OSS config found in teamclaw.json".to_string())?;
 
@@ -339,7 +346,8 @@ pub async fn oss_restore_sync(
         team_id.clone(),
         node_id.clone(),
         team_secret.clone(),
-        config.fc_endpoint.clone(),
+        config.team_endpoint.clone(),
+        config.force_path_style,
         workspace_path.clone(),
         Duration::from_secs(config.poll_interval_secs),
         Some(app_handle.clone()),
@@ -584,7 +592,8 @@ pub async fn oss_apply_team(
     workspace_path: String,
     team_id: String,
     team_secret: String,
-    fc_endpoint: String,
+    team_endpoint: String,
+    #[allow(unused)] force_path_style: bool,
     name: String,
     email: String,
     note: String,
@@ -610,7 +619,7 @@ pub async fn oss_apply_team(
         "hostname": hostname,
     });
 
-    let url = format!("{}/apply", fc_endpoint);
+    let url = format!("{}/apply", team_endpoint);
     let response = client
         .post(&url)
         .json(&body)
@@ -629,7 +638,7 @@ pub async fn oss_apply_team(
     // Save pending application state locally
     let pending = PendingApplication {
         team_id: team_id.clone(),
-        fc_endpoint,
+        team_endpoint,
         applied_at: chrono::Utc::now().to_rfc3339(),
     };
     write_pending_application(&workspace_path, &pending)?;

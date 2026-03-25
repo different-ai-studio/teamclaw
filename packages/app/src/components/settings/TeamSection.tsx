@@ -85,18 +85,30 @@ function SectionHeader({
 // ─── Hook: detect which sync method is active ───────────────────────────────
 
 function useActiveSyncMethod(): TeamTab | null {
+  const ossConfigured = useTeamOssStore((s) => s.configured)
   const ossConnected = useTeamOssStore((s) => s.connected)
   const [p2pConnected, setP2pConnected] = React.useState(false)
+  const [p2pConfigured, setP2pConfigured] = React.useState(false)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   React.useEffect(() => {
-    invoke<{ connected: boolean }>('p2p_sync_status')
-      .then((s) => setP2pConnected(s?.connected ?? false))
-      .catch(() => setP2pConnected(false))
+    invoke<{ connected: boolean; namespaceId?: string | null }>('p2p_sync_status')
+      .then((s) => {
+        setP2pConnected(s?.connected ?? false)
+        // P2P is configured if it has a namespace (team was created/joined)
+        setP2pConfigured(!!s?.namespaceId)
+      })
+      .catch(() => {
+        setP2pConnected(false)
+        setP2pConfigured(false)
+      })
   }, [workspacePath])
 
+  // Prefer connected state, fall back to configured state
   if (p2pConnected) return 'p2p'
   if (ossConnected) return 's3'
+  if (p2pConfigured) return 'p2p'
+  if (ossConfigured) return 's3'
   return null
 }
 
@@ -108,9 +120,7 @@ export function TeamSection() {
   const activeSyncMethod = useActiveSyncMethod()
 
   React.useEffect(() => {
-    if (activeSyncMethod) {
-      setActiveTab(activeSyncMethod)
-    }
+    setActiveTab(activeSyncMethod ?? 'p2p')
   }, [activeSyncMethod])
 
   const disabledTabs = React.useMemo(() => {

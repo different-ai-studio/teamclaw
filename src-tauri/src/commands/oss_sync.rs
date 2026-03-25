@@ -25,7 +25,8 @@ pub struct OssSyncManager {
     s3_client: Option<aws_sdk_s3::Client>,
     credentials: Option<OssCredentials>,
     oss_config: Option<OssConfig>,
-    fc_endpoint: String,
+    team_endpoint: String,
+    force_path_style: bool,
 
     skills_doc: loro::LoroDoc,
     mcp_doc: loro::LoroDoc,
@@ -71,7 +72,8 @@ impl OssSyncManager {
         team_id: String,
         node_id: String,
         team_secret: String,
-        fc_endpoint: String,
+        team_endpoint: String,
+        force_path_style: bool,
         workspace_path: String,
         poll_interval: Duration,
         app_handle: Option<tauri::AppHandle>,
@@ -88,7 +90,8 @@ impl OssSyncManager {
             s3_client: None,
             credentials: None,
             oss_config: None,
-            fc_endpoint,
+            team_endpoint,
+            force_path_style,
             skills_doc: loro::LoroDoc::new(),
             mcp_doc: loro::LoroDoc::new(),
             knowledge_doc: loro::LoroDoc::new(),
@@ -126,7 +129,7 @@ impl OssSyncManager {
     }
 
     pub fn set_credentials(&mut self, creds: OssCredentials, oss: OssConfig) {
-        self.s3_client = Some(Self::create_s3_client(&creds, &oss));
+        self.s3_client = Some(Self::create_s3_client(&creds, &oss, self.force_path_style));
         self.credentials = Some(creds);
         self.oss_config = Some(oss);
         self.connected = true;
@@ -148,7 +151,7 @@ impl OssSyncManager {
     // S3 Client
     // -----------------------------------------------------------------------
 
-    fn create_s3_client(creds: &OssCredentials, config: &OssConfig) -> aws_sdk_s3::Client {
+    fn create_s3_client(creds: &OssCredentials, config: &OssConfig, force_path_style: bool) -> aws_sdk_s3::Client {
         let credentials = aws_sdk_s3::config::Credentials::new(
             &creds.access_key_id,
             &creds.access_key_secret,
@@ -162,7 +165,7 @@ impl OssSyncManager {
             .endpoint_url(&config.endpoint)
             .region(aws_sdk_s3::config::Region::new(config.region.clone()))
             .credentials_provider(credentials)
-            .force_path_style(false)
+            .force_path_style(force_path_style)
             .build();
 
         aws_sdk_s3::Client::from_conf(s3_config)
@@ -196,7 +199,7 @@ impl OssSyncManager {
 
         self.credentials = Some(resp.credentials.clone());
         self.oss_config = Some(resp.oss.clone());
-        self.s3_client = Some(Self::create_s3_client(&resp.credentials, &resp.oss));
+        self.s3_client = Some(Self::create_s3_client(&resp.credentials, &resp.oss, self.force_path_style));
 
         self.role =
             serde_json::from_str(&format!("\"{}\"", resp.role)).unwrap_or(MemberRole::Editor);
@@ -206,7 +209,7 @@ impl OssSyncManager {
     }
 
     pub async fn call_fc(&self, path: &str, body: &Value) -> Result<FcResponse, String> {
-        let url = format!("{}{}", self.fc_endpoint, path);
+        let url = format!("{}{}", self.team_endpoint, path);
         let client = reqwest::Client::new();
 
         let max_retries = 3u32;

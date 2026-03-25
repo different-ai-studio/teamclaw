@@ -31,8 +31,9 @@ export interface BuildConfig {
     updater: boolean
     channels: boolean | ChannelsFeatureConfig
   }
-  oss?: {
-    fcEndpoint: string
+  s3?: {
+    teamEndpoint: string
+    forcePathStyle?: boolean
   }
   defaults: {
     locale: string
