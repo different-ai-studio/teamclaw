@@ -290,3 +290,124 @@ impl IdentityRegistry {
         Ok(results)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::telemetry::db::TelemetryDb;
+    use tempfile::TempDir;
+
+    async fn setup() -> (IdentityRegistry, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let db = TelemetryDb::new(&db_path).await.unwrap();
+        (IdentityRegistry::new(db), tmp)
+    }
+
+    #[tokio::test]
+    async fn test_resolve_or_register_creates_new_user() {
+        let (registry, _tmp) = setup().await;
+        let result = registry
+            .resolve_or_register("discord", "123", "Alice")
+            .await
+            .unwrap();
+        assert!(result.is_new);
+        assert_eq!(result.display_name, "Alice");
+        assert!(result.uid.starts_with("u_"));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_returns_existing_user() {
+        let (registry, _tmp) = setup().await;
+        let first = registry
+            .resolve_or_register("discord", "123", "Alice")
+            .await
+            .unwrap();
+        let second = registry
+            .resolve_or_register("discord", "123", "Alice")
+            .await
+            .unwrap();
+        assert!(!second.is_new);
+        assert_eq!(first.uid, second.uid);
+    }
+
+    #[tokio::test]
+    async fn test_bind_multiple_platforms_to_same_user() {
+        let (registry, _tmp) = setup().await;
+        let user = registry
+            .resolve_or_register("discord", "123", "Alice")
+            .await
+            .unwrap();
+
+        registry
+            .bind("feishu", "ou_abc", &user.uid, "Alice")
+            .await
+            .unwrap();
+
+        let from_feishu = registry.resolve("feishu", "ou_abc").await.unwrap().unwrap();
+        assert_eq!(from_feishu.uid, user.uid);
+    }
+
+    #[tokio::test]
+    async fn test_list_users() {
+        let (registry, _tmp) = setup().await;
+        registry
+            .resolve_or_register("discord", "1", "Alice")
+            .await
+            .unwrap();
+        registry
+            .resolve_or_register("feishu", "2", "Bob")
+            .await
+            .unwrap();
+
+        let users = registry.list_users().await.unwrap();
+        assert_eq!(users.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_audit_recording() {
+        let (registry, _tmp) = setup().await;
+        let user = registry
+            .resolve_or_register("discord", "123", "Alice")
+            .await
+            .unwrap();
+
+        let audit_id = registry
+            .record_audit(
+                "discord:channel:guild:chan",
+                Some(&user.uid),
+                "discord",
+                "123",
+                Some("Alice"),
+                Some("Hello world"),
+            )
+            .await
+            .unwrap();
+
+        registry
+            .update_audit_usage(&audit_id, 100, 50, 0.01, Some("[\"bash\"]"))
+            .await
+            .unwrap();
+
+        let usage = registry.get_usage_by_user().await.unwrap();
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0].0, user.uid); // uid
+        assert_eq!(usage[0].2, 100);      // tokens_input
+    }
+
+    #[tokio::test]
+    async fn test_get_mappings_for_user() {
+        let (registry, _tmp) = setup().await;
+        let user = registry
+            .resolve_or_register("discord", "123", "Alice")
+            .await
+            .unwrap();
+        registry
+            .bind("feishu", "ou_abc", &user.uid, "Alice-feishu")
+            .await
+            .unwrap();
+
+        let mappings = registry.get_mappings_for_user(&user.uid).await.unwrap();
+        assert_eq!(mappings.len(), 2);
+    }
+}
