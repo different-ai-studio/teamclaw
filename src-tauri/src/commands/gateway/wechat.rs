@@ -869,6 +869,7 @@ impl WeChatGateway {
             parts,
             model,
             Some(question_ctx),
+            None,
         )
         .await
         {

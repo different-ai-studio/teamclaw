@@ -1554,7 +1554,7 @@ async fn send_to_opencode(
     println!("[Feishu] Sending message asynchronously with permission auto-approval");
 
     // Use async send with permission auto-approval
-    super::send_message_async_with_approval(port, session_id, parts, model, question_ctx).await
+    super::send_message_async_with_approval(port, session_id, parts, model, question_ctx, None).await
 }
 
 /// Reply to a Feishu message. Returns the reply message_id on success.

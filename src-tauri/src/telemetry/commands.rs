@@ -22,6 +22,36 @@ impl Default for TelemetryState {
     }
 }
 
+use super::identity::IdentityRegistry;
+
+/// Managed state for IdentityRegistry (lazily initialized alongside TelemetryDb).
+pub struct IdentityState {
+    pub registry: Arc<Mutex<Option<IdentityRegistry>>>,
+}
+
+impl Default for IdentityState {
+    fn default() -> Self {
+        Self {
+            registry: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+/// Helper to get IdentityRegistry, initializing from TelemetryDb if needed.
+pub async fn get_identity_registry(
+    telemetry_state: &TelemetryState,
+    identity_state: &IdentityState,
+) -> Result<IdentityRegistry, String> {
+    let mut reg_lock = identity_state.registry.lock().await;
+    if let Some(ref reg) = *reg_lock {
+        return Ok(reg.clone());
+    }
+    let db = get_db(telemetry_state).await?;
+    let registry = IdentityRegistry::new(db);
+    *reg_lock = Some(registry.clone());
+    Ok(registry)
+}
+
 /// Helper to get the db, initializing it if needed.
 async fn get_db(state: &TelemetryState) -> Result<TelemetryDb, String> {
     let mut db_lock = state.db.lock().await;
@@ -196,6 +226,53 @@ pub async fn telemetry_get_reports(
     let db = get_db(&state).await?;
     db.get_reports(limit.unwrap_or(50), offset.unwrap_or(0))
         .await
+}
+
+// ─── Identity Commands ───────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn identity_list_users(
+    telemetry_state: tauri::State<'_, TelemetryState>,
+    identity_state: tauri::State<'_, IdentityState>,
+) -> Result<Vec<super::identity::InternalUser>, String> {
+    let registry = get_identity_registry(&telemetry_state, &identity_state).await?;
+    registry.list_users().await
+}
+
+#[tauri::command]
+pub async fn identity_bind(
+    telemetry_state: tauri::State<'_, TelemetryState>,
+    identity_state: tauri::State<'_, IdentityState>,
+    platform: String,
+    external_id: String,
+    uid: String,
+    display_name: String,
+) -> Result<(), String> {
+    let registry = get_identity_registry(&telemetry_state, &identity_state).await?;
+    registry.bind(&platform, &external_id, &uid, &display_name).await
+}
+
+#[tauri::command]
+pub async fn identity_get_usage(
+    telemetry_state: tauri::State<'_, TelemetryState>,
+    identity_state: tauri::State<'_, IdentityState>,
+) -> Result<serde_json::Value, String> {
+    let registry = get_identity_registry(&telemetry_state, &identity_state).await?;
+    let usage = registry.get_usage_by_user().await?;
+    let result: Vec<serde_json::Value> = usage
+        .into_iter()
+        .map(|(uid, name, input, output, cost, count)| {
+            serde_json::json!({
+                "uid": uid,
+                "display_name": name,
+                "tokens_input": input,
+                "tokens_output": output,
+                "total_cost": cost,
+                "message_count": count,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!(result))
 }
 
 // ─── Team Feedback Export/Aggregate ─────────────────────────────────────

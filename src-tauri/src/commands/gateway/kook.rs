@@ -1058,6 +1058,7 @@ impl KookGateway {
             parts,
             model,
             question_ctx,
+            None,
         )
         .await
     }

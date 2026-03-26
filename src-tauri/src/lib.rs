@@ -271,6 +271,7 @@ pub fn run() {
         .manage(commands::cron::CronState::default())
         .manage(rag_state)
         .manage(telemetry::commands::TelemetryState::default())
+        .manage(telemetry::commands::IdentityState::default())
         .manage(crate::stt::SttState::default())
         .manage({
             #[allow(unused_mut)]
@@ -489,6 +490,9 @@ pub fn run() {
             telemetry::commands::telemetry_export_leaderboard,
             telemetry::commands::telemetry_get_team_leaderboard,
             telemetry::commands::telemetry_get_member_aggregated_stats,
+            telemetry::commands::identity_list_users,
+            telemetry::commands::identity_bind,
+            telemetry::commands::identity_get_usage,
             commands::webview::webview_eval_js,
             commands::webview::webview_create,
             commands::webview::webview_close,

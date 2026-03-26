@@ -1760,6 +1760,7 @@ fn process_and_reply_sync(
             parts,
             model_param,
             Some(question_ctx),
+            None,
         )
         .await
     })?;

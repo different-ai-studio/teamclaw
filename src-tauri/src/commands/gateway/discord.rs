@@ -579,6 +579,7 @@ impl DiscordHandler {
             parts,
             model,
             question_ctx,
+            None,
         )
         .await
     }

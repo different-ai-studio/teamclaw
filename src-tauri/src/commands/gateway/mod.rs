@@ -41,6 +41,14 @@ use tauri::State;
 
 use crate::commands::opencode::OpenCodeState;
 
+/// Identity of the person who sent a message through a gateway channel.
+#[derive(Debug, Clone)]
+pub struct ChannelSender {
+    pub platform: String,
+    pub external_id: String,
+    pub display_name: String,
+}
+
 pub const MAX_PROCESSED_MESSAGES: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,7 +244,9 @@ pub async fn send_message_async_with_approval(
     parts: Vec<serde_json::Value>,
     model: Option<(String, String)>,
     question_ctx: Option<QuestionContext>,
+    sender: Option<&ChannelSender>,
 ) -> Result<String, String> {
+    let _ = sender; // accepted but unused for now
     let client = reqwest::Client::new();
 
     // Step 1: Connect to SSE FIRST to avoid missing events
