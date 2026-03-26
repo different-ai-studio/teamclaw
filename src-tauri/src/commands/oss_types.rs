@@ -145,3 +145,11 @@ impl DocType {
         [DocType::Skills, DocType::Mcp, DocType::Knowledge]
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSyncStatus {
+    pub path: String,
+    pub doc_type: String,
+    pub status: String, // "synced" | "modified" | "new"
+}

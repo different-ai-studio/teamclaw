@@ -559,6 +559,60 @@ impl OssSyncManager {
         changed
     }
 
+    pub fn get_files_sync_status(
+        &self,
+        doc_type: Option<DocType>,
+    ) -> Result<Vec<FileSyncStatus>, String> {
+        let doc_types = match doc_type {
+            Some(dt) => vec![dt],
+            None => DocType::all().to_vec(),
+        };
+
+        let mut result = Vec::new();
+
+        for dt in doc_types {
+            let dir = self.team_dir.join(dt.dir_name());
+            let local_files = Self::scan_local_files(&dir)?;
+            let doc = self.get_doc(dt);
+            let files_map = doc.get_map("files");
+
+            for (path, content) in &local_files {
+                let local_hash = Self::compute_hash(content);
+
+                let status = match files_map.get(path) {
+                    Some(loro::ValueOrContainer::Container(loro::Container::Map(entry_map))) => {
+                        let deep = entry_map.get_deep_value();
+                        if let loro::LoroValue::Map(entry) = deep {
+                            let deleted = match entry.get("deleted") {
+                                Some(loro::LoroValue::Bool(b)) => *b,
+                                _ => false,
+                            };
+                            if deleted {
+                                "new"
+                            } else {
+                                match entry.get("hash") {
+                                    Some(loro::LoroValue::String(h)) if h.as_ref() == local_hash => "synced",
+                                    _ => "modified",
+                                }
+                            }
+                        } else {
+                            "new"
+                        }
+                    }
+                    _ => "new",
+                };
+
+                result.push(FileSyncStatus {
+                    path: format!("{}/{}", dt.dir_name(), path),
+                    doc_type: dt.path().to_string(),
+                    status: status.to_string(),
+                });
+            }
+        }
+
+        Ok(result)
+    }
+
     fn write_doc_to_disk(&self, doc_type: DocType) -> Result<(), String> {
         let doc = self.get_doc(doc_type);
         let dir = self.team_dir.join(doc_type.dir_name());
