@@ -26,12 +26,14 @@ interface TeamModeState {
   myRole: 'owner' | 'editor' | 'viewer' | null
   p2pConnected: boolean
   p2pConfigured: boolean
+  p2pFileSyncStatusMap: Record<string, 'synced' | 'modified' | 'new'>
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
   applyTeamModelToOpenCode: (workspacePath: string) => Promise<void>
   setTeamApiKey: (key: string | null, workspacePath?: string) => Promise<void>
   clearTeamMode: (workspacePath?: string) => Promise<void>
   setDevUnlocked: (unlocked: boolean) => void
+  loadP2pFileSyncStatus: () => Promise<void>
 }
 
 interface TeamStatusResponse {
@@ -73,6 +75,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       return null
     }
   })(),
+  p2pFileSyncStatusMap: {},
 
   loadTeamConfig: async (_workspacePath: string) => {
     // teamMode = p2p.enabled || ossConfigured
@@ -111,6 +114,9 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       set({ myRole: role as any })
       const syncStatus = await invoke<{ connected?: boolean; namespaceId?: string | null }>('p2p_sync_status').catch(() => null)
       set({ p2pConnected: syncStatus?.connected ?? false, p2pConfigured: !!syncStatus?.namespaceId })
+      if (syncStatus?.connected) {
+        get().loadP2pFileSyncStatus()
+      }
     } catch {
       // Non-critical, role can be loaded later
     }
@@ -239,12 +245,27 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     })
   },
 
+  loadP2pFileSyncStatus: async () => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const statuses = await invoke<Array<{ path: string; docType: string; status: 'synced' | 'modified' | 'new' }>>('p2p_get_files_sync_status')
+      const map: Record<string, 'synced' | 'modified' | 'new'> = {}
+      for (const s of statuses) {
+        map[s.path] = s.status
+      }
+      set({ p2pFileSyncStatusMap: map })
+    } catch (e) {
+      console.debug('[team-mode] loadP2pFileSyncStatus skipped:', e)
+    }
+  },
+
   clearTeamMode: async (workspacePath?: string) => {
     // When LLM config is locked via build config, prevent exiting team mode
     if (buildConfig.team.lockLlmConfig) return
 
     // Set state immediately to trigger UI updates
-    set({ teamMode: false, teamModelConfig: null, _appliedConfigKey: null })
+    set({ teamMode: false, teamModelConfig: null, _appliedConfigKey: null, p2pFileSyncStatusMap: {} })
 
     try {
       localStorage.removeItem(TEAM_API_KEY_STORAGE)
