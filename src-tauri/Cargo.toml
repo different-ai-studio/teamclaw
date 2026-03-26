@@ -66,7 +66,7 @@ whisper-rs = { version = "0.15", optional = true }
 
 # RAG dependencies
 anyhow = "1"
-pulldown-cmark = "0.12"
+pulldown-cmark = "0.13"
 sha2 = "0.10"
 walkdir = "2"
 tantivy = "0.22"
