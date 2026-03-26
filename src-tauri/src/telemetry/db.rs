@@ -82,6 +82,11 @@ pub struct TelemetryDb {
 }
 
 impl TelemetryDb {
+    /// Get a locked reference to the database connection.
+    pub async fn conn(&self) -> tokio::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().await
+    }
+
     /// Create a new TelemetryDb at the given path (e.g. ~/.teamclaw/telemetry.db).
     pub async fn new(db_path: &Path) -> Result<Self, String> {
         // Ensure parent directory exists
