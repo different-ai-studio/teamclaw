@@ -26,6 +26,7 @@ import {
   startOpenCode,
   hasPreloadFor,
 } from "@/lib/opencode/preloader";
+import { appShortName } from "@/lib/build-config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OpenCode server start / workspace restore
@@ -41,7 +42,7 @@ export function useOpenCodeInit() {
   useEffect(() => {
     if (!workspacePath) {
       try {
-        const savedPath = localStorage.getItem("teamclaw-workspace-path");
+        const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
         if (savedPath) {
           console.log("[App] Restoring workspace from last session:", savedPath);
           setWorkspace(savedPath);
@@ -398,7 +399,7 @@ export function useSetupGuide(openCodeReady: boolean) {
   useEffect(() => {
     const debugForceSetup = (() => {
       try {
-        return localStorage.getItem("teamclaw-debug-force-setup") === "1";
+        return localStorage.getItem(`${appShortName}-debug-force-setup`) === "1";
       } catch {
         return false;
       }
@@ -470,7 +471,7 @@ export function useTelemetryConsent(showSetupGuide: boolean) {
 export function useOpenCodePreload() {
   useEffect(() => {
     if (!isTauri()) return;
-    const savedPath = localStorage.getItem("teamclaw-workspace-path");
+    const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
     if (savedPath) {
       console.log("[Preload] Starting OpenCode for:", savedPath);
       startOpenCode(savedPath).catch((err) =>

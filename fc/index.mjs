@@ -19,6 +19,10 @@ const REGION = () => process.env.REGION || "cn-hangzhou";
 const ENDPOINT = () =>
   process.env.ENDPOINT || "https://oss-cn-hangzhou.aliyuncs.com";
 
+// LiteLLM proxy
+const LITELLM_URL = () => process.env.LITELLM_URL || "https://ai.ucar.cc";
+const LITELLM_MASTER_KEY = () => process.env.LITELLM_MASTER_KEY || "";
+
 // ---------------------------------------------------------------------------
 // Rate limiting — in-memory, per IP, 10 req/min
 // ---------------------------------------------------------------------------
@@ -339,6 +343,233 @@ async function handleApply(body) {
 }
 
 // ---------------------------------------------------------------------------
+// LiteLLM helpers
+// ---------------------------------------------------------------------------
+async function litellmFetch(path, method, body) {
+  const url = `${LITELLM_URL()}${path}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${LITELLM_MASTER_KEY()}`,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  try {
+    return { ok: res.ok, status: res.status, data: JSON.parse(text) };
+  } catch {
+    return { ok: res.ok, status: res.status, data: text };
+  }
+}
+
+/**
+ * Verify teamSecret and optionally check owner identity.
+ * Returns { auth, isOwner } or a json error response.
+ */
+async function verifyTeam(teamId, teamSecret, requireOwnerNodeId) {
+  if (!teamId || !teamSecret) {
+    return { error: json(400, { error: "Missing teamId or teamSecret" }) };
+  }
+  const auth = await ossGet(`teams/${teamId}/_registry/auth.json`);
+  if (!auth) {
+    return { error: json(404, { error: "Team not found" }) };
+  }
+  if (sha256(teamSecret) !== auth.teamSecretHash) {
+    return { error: json(403, { error: "Invalid team secret" }) };
+  }
+  if (requireOwnerNodeId && requireOwnerNodeId !== auth.ownerNodeId) {
+    return { error: json(403, { error: "Only the owner can perform this action" }) };
+  }
+  return { auth, isOwner: (nodeId) => nodeId === auth.ownerNodeId };
+}
+
+// ---------------------------------------------------------------------------
+// LiteLLM route handlers
+// ---------------------------------------------------------------------------
+
+/** POST /ai/setup-team — create a LiteLLM team for this teamclaw team */
+async function handleAiSetupTeam(body) {
+  const { teamId, teamSecret, teamName } = body;
+  const v = await verifyTeam(teamId, teamSecret);
+  if (v.error) return v.error;
+
+  const litellmTeamId = `tc-${teamId}`;
+  const res = await litellmFetch("/team/new", "POST", {
+    team_id: litellmTeamId,
+    team_alias: teamName || teamId,
+  });
+
+  if (!res.ok && res.status !== 409) {
+    console.error(`[ai/setup-team] LiteLLM error:`, res.data);
+    return json(502, { error: "Failed to create LiteLLM team", detail: res.data });
+  }
+
+  console.log(`[ai/setup-team] Created LiteLLM team ${litellmTeamId}`);
+  return json(200, { success: true, litellmTeamId });
+}
+
+/** POST /ai/add-member — create a LiteLLM API key for a team member */
+async function handleAiAddMember(body) {
+  const { teamId, teamSecret, nodeId, memberName } = body;
+  if (!nodeId) return json(400, { error: "Missing nodeId" });
+  const v = await verifyTeam(teamId, teamSecret);
+  if (v.error) return v.error;
+
+  const litellmTeamId = `tc-${teamId}`;
+  const keyAlias = `${memberName || "member"}-${nodeId.slice(0, 8)}`;
+  const keyValue = `sk-tc-${nodeId.slice(0, 40)}`;
+
+  const res = await litellmFetch("/key/generate", "POST", {
+    key: keyValue,
+    team_id: litellmTeamId,
+    key_alias: keyAlias,
+  });
+
+  if (!res.ok) {
+    console.error(`[ai/add-member] LiteLLM error:`, res.data);
+    return json(502, { error: "Failed to create LiteLLM key", detail: res.data });
+  }
+
+  console.log(`[ai/add-member] Created key for ${nodeId.slice(0, 8)} in team ${litellmTeamId}`);
+  return json(200, { success: true, key: keyValue, keyAlias });
+}
+
+/** POST /ai/remove-member — delete a member's LiteLLM API key */
+async function handleAiRemoveMember(body) {
+  const { teamId, teamSecret, ownerNodeId, nodeId } = body;
+  if (!nodeId) return json(400, { error: "Missing nodeId" });
+  const v = await verifyTeam(teamId, teamSecret, ownerNodeId);
+  if (v.error) return v.error;
+
+  // Find the key by alias pattern
+  const keyValue = `sk-tc-${nodeId.slice(0, 40)}`;
+  const res = await litellmFetch("/key/delete", "POST", { keys: [keyValue] });
+
+  if (!res.ok) {
+    console.error(`[ai/remove-member] LiteLLM error:`, res.data);
+    return json(502, { error: "Failed to delete LiteLLM key", detail: res.data });
+  }
+
+  console.log(`[ai/remove-member] Deleted key for ${nodeId.slice(0, 8)}`);
+  return json(200, { success: true });
+}
+
+/** POST /ai/keys — list all LiteLLM keys for this team */
+async function handleAiKeys(body) {
+  const { teamId, teamSecret } = body;
+  const v = await verifyTeam(teamId, teamSecret);
+  if (v.error) return v.error;
+
+  const litellmTeamId = `tc-${teamId}`;
+  const res = await litellmFetch(`/team/info?team_id=${litellmTeamId}`, "GET");
+
+  if (!res.ok) {
+    console.error(`[ai/keys] LiteLLM error:`, res.data);
+    return json(502, { error: "Failed to fetch team info", detail: res.data });
+  }
+
+  const keys = (res.data.keys || []).map((k) => ({
+    key: k.token ? `${k.token.slice(0, 10)}...` : "",
+    alias: k.key_alias || "",
+    spend: k.spend || 0,
+    created_at: k.created_at || "",
+  }));
+
+  return json(200, { teamId: litellmTeamId, keys });
+}
+
+/** POST /ai/usage — get team or individual spend and usage.
+ *  - Any member can query their own usage by passing their nodeId.
+ *  - Owner can query any member's usage or omit nodeId for team-wide view.
+ */
+async function handleAiUsage(body) {
+  const { teamId, teamSecret, nodeId, startDate, endDate } = body;
+  const v = await verifyTeam(teamId, teamSecret);
+  if (v.error) return v.error;
+
+  const litellmTeamId = `tc-${teamId}`;
+  const start = startDate || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const end = endDate || new Date().toISOString().slice(0, 10);
+
+  // If nodeId is provided, query individual key spend
+  if (nodeId) {
+    const keyValue = `sk-tc-${nodeId.slice(0, 40)}`;
+    const keyRes = await litellmFetch(
+      `/key/info`,
+      "POST",
+      { key: keyValue }
+    );
+
+    if (!keyRes.ok) {
+      console.error(`[ai/usage] LiteLLM key/info error:`, keyRes.data);
+      return json(502, { error: "Failed to fetch key info", detail: keyRes.data });
+    }
+
+    const info = keyRes.data.info || keyRes.data;
+    return json(200, {
+      teamId: litellmTeamId,
+      nodeId,
+      startDate: start,
+      endDate: end,
+      spend: info.spend || 0,
+      maxBudget: info.max_budget || null,
+      keyAlias: info.key_alias || "",
+    });
+  }
+
+  // Team-wide usage (all members)
+  // First get all keys for the team to show per-member breakdown
+  const teamRes = await litellmFetch(`/team/info?team_id=${litellmTeamId}`, "GET");
+
+  const members = [];
+  let totalSpend = 0;
+  if (teamRes.ok) {
+    for (const k of teamRes.data.keys || []) {
+      const spend = k.spend || 0;
+      totalSpend += spend;
+      members.push({
+        alias: k.key_alias || "",
+        spend,
+      });
+    }
+  }
+
+  return json(200, {
+    teamId: litellmTeamId,
+    startDate: start,
+    endDate: end,
+    totalSpend,
+    members,
+  });
+}
+
+/** POST /ai/budget — set team budget (owner only) */
+async function handleAiBudget(body) {
+  const { teamId, teamSecret, ownerNodeId, maxBudget } = body;
+  const v = await verifyTeam(teamId, teamSecret, ownerNodeId);
+  if (v.error) return v.error;
+
+  if (maxBudget === undefined || maxBudget === null) {
+    return json(400, { error: "Missing maxBudget" });
+  }
+
+  const litellmTeamId = `tc-${teamId}`;
+  const res = await litellmFetch("/team/update", "POST", {
+    team_id: litellmTeamId,
+    max_budget: Number(maxBudget),
+  });
+
+  if (!res.ok) {
+    console.error(`[ai/budget] LiteLLM error:`, res.data);
+    return json(502, { error: "Failed to update budget", detail: res.data });
+  }
+
+  console.log(`[ai/budget] Set budget $${maxBudget} for team ${litellmTeamId}`);
+  return json(200, { success: true, maxBudget: Number(maxBudget) });
+}
+
+// ---------------------------------------------------------------------------
 // FC HTTP handler
 // ---------------------------------------------------------------------------
 export async function handler(event, context) {
@@ -385,6 +616,18 @@ export async function handler(event, context) {
         return await handleResetSecret(body);
       case "/apply":
         return await handleApply(body);
+      case "/ai/setup-team":
+        return await handleAiSetupTeam(body);
+      case "/ai/add-member":
+        return await handleAiAddMember(body);
+      case "/ai/remove-member":
+        return await handleAiRemoveMember(body);
+      case "/ai/keys":
+        return await handleAiKeys(body);
+      case "/ai/usage":
+        return await handleAiUsage(body);
+      case "/ai/budget":
+        return await handleAiBudget(body);
       default:
         return json(404, { error: "Not found" });
     }

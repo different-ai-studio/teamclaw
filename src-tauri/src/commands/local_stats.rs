@@ -92,14 +92,14 @@ impl Default for StarRatings {
 
 fn get_stats_path(workspace_path: &str) -> PathBuf {
     PathBuf::from(workspace_path)
-        .join(".teamclaw")
+        .join(super::TEAMCLAW_DIR)
         .join("stats.json")
 }
 
 fn ensure_teamclaw_dir(workspace_path: &str) -> Result<(), String> {
-    let teamclaw_dir = PathBuf::from(workspace_path).join(".teamclaw");
+    let teamclaw_dir = PathBuf::from(workspace_path).join(super::TEAMCLAW_DIR);
     std::fs::create_dir_all(&teamclaw_dir)
-        .map_err(|e| format!("Failed to create .teamclaw directory: {}", e))
+        .map_err(|e| format!("Failed to create {} directory: {}", super::TEAMCLAW_DIR, e))
 }
 
 // ─── Tauri Commands ──────────────────────────────────────────────────────

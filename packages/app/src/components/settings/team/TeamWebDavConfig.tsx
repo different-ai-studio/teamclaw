@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { WebDavSyncStatus, WebDavSyncResult } from '@/lib/git/types'
+import { TEAM_REPO_DIR } from '@/lib/build-config'
 
 function SettingCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -97,7 +98,7 @@ export function TeamWebDavConfig() {
       const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = blobUrl
-      a.download = 'teamclaw-team-webdav.json'
+      a.download = `${TEAM_REPO_DIR}-webdav.json`
       a.click()
       URL.revokeObjectURL(blobUrl)
       setShowExport(false)
@@ -143,7 +144,7 @@ export function TeamWebDavConfig() {
               <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://dav.example.com/teamclaw-team/"
+                placeholder={`https://dav.example.com/${TEAM_REPO_DIR}/`}
               />
             </div>
 

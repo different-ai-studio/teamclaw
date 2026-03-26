@@ -266,7 +266,9 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
             }
             
             // Determine target cursor position with a robust strategy
+            // eslint-disable-next-line no-useless-assignment
             let targetNode: Node | null = null
+            // eslint-disable-next-line no-useless-assignment
             let targetOffset = 0
             
             // Strategy 1: If previous sibling is a text node, place cursor at its end

@@ -80,7 +80,9 @@ impl RagConfig {
     /// Priority: .teamclaw/rag-config.json > defaults
     /// If no config file exists, creates one with default values
     pub async fn load_from_workspace(workspace_path: &Path) -> anyhow::Result<Self> {
-        let rag_config_path = workspace_path.join(".teamclaw/rag-config.json");
+        let rag_config_path = workspace_path
+            .join(crate::commands::TEAMCLAW_DIR)
+            .join("rag-config.json");
         if rag_config_path.exists() {
             let content = tokio::fs::read_to_string(&rag_config_path).await?;
             let config: RagConfig = serde_json::from_str(&content)?;
@@ -106,7 +108,7 @@ impl RagConfig {
 
     /// Save config to .teamclaw/rag-config.json
     pub async fn save_to_workspace(&self, workspace_path: &Path) -> anyhow::Result<()> {
-        let teamclaw_dir = workspace_path.join(".teamclaw");
+        let teamclaw_dir = workspace_path.join(crate::commands::TEAMCLAW_DIR);
         tokio::fs::create_dir_all(&teamclaw_dir).await?;
 
         let config_path = teamclaw_dir.join("rag-config.json");
@@ -118,12 +120,16 @@ impl RagConfig {
 
     /// Get database path for workspace
     pub fn db_path(&self, workspace_path: &Path) -> PathBuf {
-        workspace_path.join(".teamclaw/knowledge.db")
+        workspace_path
+            .join(crate::commands::TEAMCLAW_DIR)
+            .join("knowledge.db")
     }
 
     /// Get BM25 index path for workspace
     pub fn bm25_index_path(&self, workspace_path: &Path) -> PathBuf {
-        workspace_path.join(".teamclaw/bm25_index")
+        workspace_path
+            .join(crate::commands::TEAMCLAW_DIR)
+            .join("bm25_index")
     }
 
     /// Get knowledge directory paths

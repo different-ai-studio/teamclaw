@@ -1,6 +1,8 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Trophy, Flame, MessageSquareHeart, RefreshCw, Loader2 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
+import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 
 async function tauriInvoke<T>(
@@ -58,14 +60,10 @@ interface MemberStats {
   isCurrentUser?: boolean
 }
 
-const COLUMNS = [
-  { key: 'token', label: 'Token Usage', icon: Flame, color: 'text-amber-500' },
-  { key: 'feedback', label: 'Feedback Count', icon: MessageSquareHeart, color: 'text-pink-500' },
-] as const
-
 // ── Component ──────────────────────────────────────────────────────────
 
 export function LeaderboardSection() {
+  const { t } = useTranslation()
   const [leaderboard, setLeaderboard] = React.useState<TeamLeaderboard | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -105,7 +103,7 @@ export function LeaderboardSection() {
       setLeaderboard(result)
       
       // Trigger teamclaw-team-synced event to update TeamRankingCard
-      window.dispatchEvent(new CustomEvent('teamclaw-team-synced'))
+      window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
       console.log('[leaderboard] Triggered teamclaw-team-synced event')
     } catch (err) {
       console.error('[leaderboard] Refresh failed:', err)
@@ -123,8 +121,8 @@ export function LeaderboardSection() {
     const handler = () => {
       load()
     }
-    window.addEventListener("teamclaw-team-synced", handler)
-    return () => window.removeEventListener("teamclaw-team-synced", handler)
+    window.addEventListener(TEAM_SYNCED_EVENT, handler)
+    return () => window.removeEventListener(TEAM_SYNCED_EVENT, handler)
   }, [load])
 
   // Aggregate stats from all workspaces for each member
@@ -197,9 +195,9 @@ export function LeaderboardSection() {
             <Trophy className="h-4.5 w-4.5 text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold">Team Leaderboard</h2>
+            <h2 className="text-lg font-semibold">{t('settings.leaderboard.title', 'Team Leaderboard')}</h2>
             <p className="text-xs text-muted-foreground">
-              {memberStats.length} members
+              {memberStats.length} {t('settings.leaderboard.members', 'members')}
             </p>
           </div>
         </div>
@@ -217,7 +215,7 @@ export function LeaderboardSection() {
           ) : (
             <RefreshCw className="h-3.5 w-3.5" />
           )}
-          Refresh
+          {t('settings.leaderboard.refresh', 'Refresh')}
         </Button>
       </div>
 
@@ -227,7 +225,7 @@ export function LeaderboardSection() {
 
       {memberStats.length === 0 && !loading && (
         <p className="text-sm text-muted-foreground">
-          No leaderboard data yet. Your stats will be automatically synced when you complete sessions or provide feedback.
+          {t('settings.leaderboard.noData', 'No leaderboard data yet. Your stats will be automatically synced when you complete sessions or provide feedback.')}
         </p>
       )}
 
@@ -235,10 +233,10 @@ export function LeaderboardSection() {
       {memberStats.length > 0 && (
         <div className="grid grid-cols-4 gap-3">
           {[
-            { label: 'Active Users', value: teamSummary.activeUsers, icon: '👥' },
-            { label: 'Total Feedbacks', value: teamSummary.totalFeedbacks, icon: '💬' },
-            { label: 'Total Tokens', value: formatTokens(teamSummary.totalTokens), icon: '🔥' },
-            { label: 'Total Cost', value: `$${teamSummary.totalCost.toFixed(2)}`, icon: '💰' },
+            { label: t('settings.leaderboard.activeUsers', 'Active Users'), value: teamSummary.activeUsers, icon: '👥' },
+            { label: t('settings.leaderboard.totalFeedbacks', 'Total Feedbacks'), value: teamSummary.totalFeedbacks, icon: '💬' },
+            { label: t('settings.leaderboard.totalTokens', 'Total Tokens'), value: formatTokens(teamSummary.totalTokens), icon: '🔥' },
+            { label: t('settings.leaderboard.totalCost', 'Total Cost'), value: `$${teamSummary.totalCost.toFixed(2)}`, icon: '💰' },
           ].map((item) => (
             <div
               key={item.label}
@@ -258,11 +256,11 @@ export function LeaderboardSection() {
           <div className="rounded-xl border bg-card overflow-hidden">
             {/* Table header */}
             <div className="grid grid-cols-[40px_1fr_80px_100px_120px] items-center gap-2 px-4 py-2.5 bg-muted/30 border-b text-[11px] font-medium text-muted-foreground">
-              <span className="text-center">#</span>
-              <span>Member</span>
-              <span className="text-center">Token Rank</span>
-              <span className="text-center">Feedback Rank</span>
-              <span className="text-right">Total Tokens</span>
+              <span className="text-center">{t('settings.leaderboard.rank', '#')}</span>
+              <span>{t('settings.leaderboard.member', 'Member')}</span>
+              <span className="text-center">{t('settings.leaderboard.tokenRank', 'Token Rank')}</span>
+              <span className="text-center">{t('settings.leaderboard.feedbackRank', 'Feedback Rank')}</span>
+              <span className="text-right">{t('settings.leaderboard.totalTokens', 'Total Tokens')}</span>
             </div>
 
             {/* Rows - sorted by overall performance (average of ranks) */}
@@ -315,7 +313,7 @@ export function LeaderboardSection() {
                           {member.name}
                           {member.isCurrentUser && (
                             <span className="ml-1.5 text-[10px] font-medium text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded-full">
-                              You
+                              {t('settings.leaderboard.you', 'You')}
                             </span>
                           )}
                         </span>
@@ -334,7 +332,7 @@ export function LeaderboardSection() {
                         {formatTokens(member.totalTokens)}
                       </span>
                       <div className="text-[10px] text-muted-foreground">
-                        {member.totalFeedbacks} feedbacks
+                        {member.totalFeedbacks} {t('settings.leaderboard.feedbacks', 'feedbacks')}
                       </div>
                     </div>
                   </div>
@@ -344,7 +342,10 @@ export function LeaderboardSection() {
 
           {/* Column legend */}
           <div className="flex items-center justify-center gap-6 text-[11px] text-muted-foreground">
-            {COLUMNS.map((col) => {
+            {[
+              { key: 'token', label: t('settings.leaderboard.tokenUsage', 'Token Usage'), icon: Flame, color: 'text-amber-500' },
+              { key: 'feedback', label: t('settings.leaderboard.feedbackCount', 'Feedback Count'), icon: MessageSquareHeart, color: 'text-pink-500' },
+            ].map((col) => {
               const Icon = col.icon
               return (
                 <div key={col.key} className="flex items-center gap-1.5">

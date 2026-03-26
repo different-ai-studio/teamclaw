@@ -58,7 +58,7 @@
     "@tiptap/extension-link": "^3.19.0",
     "@tiptap/extension-table": "^3.19.0",
     "@tiptap/extension-task-item": "^3.19.0",
-    "@tiptap/extension-task-list": "^3.19.0",
+    "@tiptap/extension-task-list": "^3.20.5",
     "@tiptap/extension-text-align": "^3.19.0",
     "@tiptap/extension-underline": "^3.19.0",
     "@tiptap/markdown": "^3.19.0",
@@ -74,7 +74,7 @@
     "js-yaml": "^4.1.1",
     "lucide-react": "^0.469.0",
     "nanoid": "^5.0.9",
-    "pdfjs-dist": "5.4.296",
+    "pdfjs-dist": "5.5.207",
     "qrcode.react": "^4.2.0",
     "radix-ui": "^1.4.3",
     "react": "^19.0.0",
@@ -91,7 +91,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
-    "@eslint/js": "^9.18.0",
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/react": "^16.3.2",
     "@testing-library/react-hooks": "^8.0.1",

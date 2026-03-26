@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use notify_debouncer_full::{
     new_debouncer,
-    notify::{RecommendedWatcher, RecursiveMode, Watcher},
-    DebounceEventResult, Debouncer, FileIdMap,
+    notify::{RecommendedWatcher, RecursiveMode},
+    DebounceEventResult, Debouncer, RecommendedCache,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use crate::rag::indexer::Indexer;
 
 pub struct KnowledgeWatcher {
-    _debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
+    _debouncer: Debouncer<RecommendedWatcher, RecommendedCache>,
     _knowledge_dirs: Vec<PathBuf>,
 }
 
@@ -55,7 +55,6 @@ impl KnowledgeWatcher {
         // Watch all knowledge directories
         for knowledge_dir in &knowledge_dirs {
             debouncer
-                .watcher()
                 .watch(&knowledge_dir, RecursiveMode::Recursive)
                 .with_context(|| {
                     format!("Failed to watch knowledge directory: {:?}", knowledge_dir)

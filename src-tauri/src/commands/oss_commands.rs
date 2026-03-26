@@ -86,10 +86,14 @@ pub async fn oss_create_team(
     // Write LLM config to .teamclaw/teamclaw.json
     let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
     super::team::write_llm_config(&workspace_path, Some(&llm_config))?;
-    info!("oss_create_team: wrote LLM config to .teamclaw/teamclaw.json");
+    info!(
+        "oss_create_team: wrote LLM config to {}/{}",
+        super::TEAMCLAW_DIR,
+        super::CONFIG_FILE_NAME
+    );
 
     // Scaffold teamclaw-team directory with default structure
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     super::team::scaffold_team_dir(&team_dir)?;
 
     // Create a temporary manager with empty team_id to call FC /register
@@ -201,6 +205,50 @@ pub async fn oss_create_team(
 
     info!("OSS team created: {team_id}");
 
+    // Fire-and-forget: register team + owner key in LiteLLM via FC
+    {
+        let fc_endpoint = team_endpoint.clone();
+        let fc_team_id = team_id.clone();
+        let fc_team_secret = team_secret.clone();
+        let fc_team_name = team_name.clone();
+        let fc_node_id = node_id.clone();
+        let fc_owner_name = owner_name.clone();
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            // Setup team in LiteLLM
+            let setup_body = serde_json::json!({
+                "teamId": fc_team_id,
+                "teamSecret": fc_team_secret,
+                "teamName": fc_team_name,
+            });
+            match client
+                .post(format!("{}/ai/setup-team", fc_endpoint))
+                .json(&setup_body)
+                .send()
+                .await
+            {
+                Ok(r) => tracing::info!("LiteLLM setup-team: status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM setup-team failed: {e}"),
+            }
+            // Add owner key
+            let member_body = serde_json::json!({
+                "teamId": fc_team_id,
+                "teamSecret": fc_team_secret,
+                "nodeId": fc_node_id,
+                "memberName": fc_owner_name,
+            });
+            match client
+                .post(format!("{}/ai/add-member", fc_endpoint))
+                .json(&member_body)
+                .send()
+                .await
+            {
+                Ok(r) => tracing::info!("LiteLLM add-member (owner): status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM add-member (owner) failed: {e}"),
+            }
+        });
+    }
+
     Ok(OssTeamInfo {
         team_id,
         team_secret: Some(team_secret),
@@ -280,7 +328,7 @@ pub async fn oss_join_team(
     }
 
     // Scaffold teamclaw-team directory
-    let team_dir = format!("{}/teamclaw-team", workspace_path);
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     if !std::path::Path::new(&team_dir).exists() {
         super::team::scaffold_team_dir(&team_dir)?;
     }
@@ -316,6 +364,31 @@ pub async fn oss_join_team(
 
     info!("Joined OSS team: {team_id}");
 
+    // Fire-and-forget: create LiteLLM key for joining member via FC
+    {
+        let fc_endpoint = team_endpoint.clone();
+        let fc_team_id = team_id.clone();
+        let fc_team_secret = team_secret.clone();
+        let fc_node_id = node_id.clone();
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            let body = serde_json::json!({
+                "teamId": fc_team_id,
+                "teamSecret": fc_team_secret,
+                "nodeId": fc_node_id,
+            });
+            match client
+                .post(format!("{}/ai/add-member", fc_endpoint))
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) => tracing::info!("LiteLLM add-member (join): status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM add-member (join) failed: {e}"),
+            }
+        });
+    }
+
     Ok(OssJoinResult::Joined {
         info: OssTeamInfo {
             team_id,
@@ -340,7 +413,7 @@ pub async fn oss_restore_sync(
 
     // Read existing config for team_endpoint and poll_interval
     let config = read_oss_config(&workspace_path)
-        .ok_or_else(|| "No OSS config found in teamclaw.json".to_string())?;
+        .ok_or_else(|| format!("No OSS config found in {}", super::CONFIG_FILE_NAME))?;
 
     let mut manager = OssSyncManager::new(
         team_id.clone(),
@@ -449,22 +522,22 @@ pub async fn oss_leave_team(
     // Disable OSS in teamclaw.json
     let config_path = Path::new(&workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
 
     if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to read {}: {e}", super::CONFIG_FILE_NAME))?;
         let mut json: Value = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to parse {}: {e}", super::CONFIG_FILE_NAME))?;
 
         if let Some(obj) = json.as_object_mut() {
             obj.remove("oss");
         }
 
         let output = serde_json::to_string_pretty(&json)
-            .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to serialize {}: {e}", super::CONFIG_FILE_NAME))?;
         std::fs::write(&config_path, output)
-            .map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to write {}: {e}", super::CONFIG_FILE_NAME))?;
     }
 
     info!("Left OSS team");

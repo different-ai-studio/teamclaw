@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
+import { appShortName } from '@/lib/build-config'
 
-const STORAGE_KEY = 'teamclaw-custom-suggestions'
+const STORAGE_KEY = `${appShortName}-custom-suggestions`
 
 interface SuggestionsState {
   customSuggestions: string[]

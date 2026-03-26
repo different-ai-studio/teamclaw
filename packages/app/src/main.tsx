@@ -5,10 +5,11 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import './styles/globals.css'
 import './stores/dev-expose'
 import './lib/i18n'; // Initialize i18n
+import { appShortName, buildConfig } from './lib/build-config'
 
 // Apply persisted theme immediately to prevent flash of wrong theme
 ;(() => {
-  const theme = localStorage.getItem('teamclaw-theme') || 'system'
+  const theme = localStorage.getItem(`${appShortName}-theme`) || buildConfig.defaults?.theme || 'system'
   const root = document.documentElement
   if (theme === 'dark') {
     root.classList.add('dark')

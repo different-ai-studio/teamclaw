@@ -252,7 +252,7 @@ impl WeComGateway {
         });
         ws_sink
             .send(tokio_tungstenite::tungstenite::Message::Text(
-                subscribe_msg.to_string(),
+                subscribe_msg.to_string().into(),
             ))
             .await
             .map_err(|e| format!("Failed to send subscribe: {}", e))?;
@@ -295,7 +295,7 @@ impl WeComGateway {
             loop {
                 tokio::select! {
                     _ = tokio::time::sleep(std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS)) => {
-                        let ping = tokio_tungstenite::tungstenite::Message::Ping(vec![]);
+                        let ping = tokio_tungstenite::tungstenite::Message::Ping(vec![].into());
                         if let Err(e) = ws_sink_hb.lock().await.send(ping).await {
                             eprintln!("[WeCom] Heartbeat ping failed: {}", e);
                             break;
@@ -778,11 +778,23 @@ impl WeComGateway {
         session_key: &str,
         message: &str,
         image_url: Option<&str>,
-        _original: &WeComMsgCallback,
+        original: &WeComMsgCallback,
         req_id: &str,
         ws_sink: &WsSink,
         question_ctx: Option<&super::QuestionContext>,
     ) -> Result<(), String> {
+        // Extract sender identity from WeCom message
+        let userid = original
+            .from
+            .as_ref()
+            .map(|f| f.userid.as_str())
+            .unwrap_or("unknown");
+        let channel_sender = super::ChannelSender {
+            platform: "wecom".to_string(),
+            external_id: userid.to_string(),
+            display_name: userid.to_string(),
+        };
+
         // Get or create session
         let model = self.session_mapping.get_model(session_key).await;
         let model_tuple = model
@@ -839,6 +851,20 @@ impl WeComGateway {
 
         if parts.is_empty() {
             return Err("No content to send".to_string());
+        }
+
+        // Inject sender identity prefix into the first text part
+        for part in parts.iter_mut() {
+            if part.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                    let prefixed = format!(
+                        "[{}/{}] {}",
+                        channel_sender.display_name, channel_sender.platform, text
+                    );
+                    part["text"] = serde_json::Value::String(prefixed);
+                }
+                break;
+            }
         }
 
         // Stream OpenCode response to WeCom (retry with new session if prompt_async fails)
@@ -1418,7 +1444,7 @@ impl WeComGateway {
             .lock()
             .await
             .send(tokio_tungstenite::tungstenite::Message::Text(
-                reply.to_string(),
+                reply.to_string().into(),
             ))
             .await
             .map_err(|e| format!("Failed to send reply: {}", e))
@@ -1451,7 +1477,7 @@ impl WeComGateway {
             .lock()
             .await
             .send(tokio_tungstenite::tungstenite::Message::Text(
-                reply.to_string(),
+                reply.to_string().into(),
             ))
             .await
             .map_err(|e| format!("Failed to send reply: {}", e))

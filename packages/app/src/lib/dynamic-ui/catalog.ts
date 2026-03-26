@@ -1,12 +1,13 @@
 import { createCatalog, generateCatalogPrompt } from "@json-render/core"
 import { z } from "zod"
+import { appShortName } from "@/lib/build-config"
 
 /**
  * 定义可供 AI 使用的组件目录
  * 这些组件基于项目中现有的 shadcn/ui 组件
  */
 export const uiCatalog = createCatalog({
-  name: "teamclaw-ui",
+  name: `${appShortName}-ui`,
   components: {
     // 布局组件
     Card: {

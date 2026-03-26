@@ -25,8 +25,15 @@ pub mod team_webdav;
 pub mod updater;
 pub mod webview;
 
+/// The short application name, injected at compile time via `build.rs`.
+#[allow(dead_code)]
+pub const APP_SHORT_NAME: &str = env!("APP_SHORT_NAME");
 /// Directory name for all TeamClaw local config/data files, created under the workspace root.
-pub const TEAMCLAW_DIR: &str = ".teamclaw";
+pub const TEAMCLAW_DIR: &str = concat!(".", env!("APP_SHORT_NAME"));
+/// Subfolder inside workspace where the team repo is cloned.
+pub const TEAM_REPO_DIR: &str = concat!(env!("APP_SHORT_NAME"), "-team");
+/// Config file name (e.g. `teamclaw.json`).
+pub const CONFIG_FILE_NAME: &str = concat!(env!("APP_SHORT_NAME"), ".json");
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {

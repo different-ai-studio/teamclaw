@@ -11,6 +11,8 @@ vi.mock('@/stores/provider', () => ({
       providersLoading: false,
       configuredProviders: [],
       customProviderIds: [],
+      authMethods: {},
+      refreshAuthMethods: vi.fn(),
       refreshProviders: vi.fn(),
       refreshConfiguredProviders: vi.fn(),
       refreshCustomProviderIds: vi.fn(),

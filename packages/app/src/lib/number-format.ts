@@ -1,8 +1,10 @@
+import { appShortName } from '@/lib/build-config'
+
 /**
  * Format a number according to the current locale
  */
 export const formatNumber = (num: number, options: Intl.NumberFormatOptions = {}): string => {
-  const lang = localStorage.getItem('teamclaw-language') || 'en';
+  const lang = localStorage.getItem(`${appShortName}-language`) || 'en';
   
   // Default options if none provided
   const defaultOptions: Intl.NumberFormatOptions = {};
@@ -16,8 +18,8 @@ export const formatNumber = (num: number, options: Intl.NumberFormatOptions = {}
  * Format a number as currency according to the current locale
  */
 export const formatCurrency = (num: number, currency: string = 'USD', options: Intl.NumberFormatOptions = {}): string => {
-  const lang = localStorage.getItem('teamclaw-language') || 'en';
-  
+  const lang = localStorage.getItem(`${appShortName}-language`) || 'en';
+
   // Default currency options
   const defaultOptions: Intl.NumberFormatOptions = {
     style: 'currency',
@@ -33,8 +35,8 @@ export const formatCurrency = (num: number, currency: string = 'USD', options: I
  * Format a percentage according to the current locale
  */
 export const formatPercentage = (num: number, options: Intl.NumberFormatOptions = {}): string => {
-  const lang = localStorage.getItem('teamclaw-language') || 'en';
-  
+  const lang = localStorage.getItem(`${appShortName}-language`) || 'en';
+
   // Default percentage options
   const defaultOptions: Intl.NumberFormatOptions = {
     style: 'percent',

@@ -1,11 +1,13 @@
 // --- Permission Policy ---
 // Global permission policy configuration for controlling permission request behavior.
-// Persisted in localStorage under 'teamclaw-permission-policy'.
+// Persisted in localStorage under '${appShortName}-permission-policy'.
+
+import { appShortName } from "@/lib/build-config";
 
 export type PermissionPolicy = "ask" | "batch" | "bypass";
 
-const PERMISSION_POLICY_KEY = "teamclaw-permission-policy";
-const PERMISSION_BATCH_DONE_KEY = "teamclaw-permission-batch-done";
+const PERMISSION_POLICY_KEY = `${appShortName}-permission-policy`;
+const PERMISSION_BATCH_DONE_KEY = `${appShortName}-permission-batch-done`;
 const DEFAULT_POLICY: PermissionPolicy = "ask";
 const VALID_POLICIES: ReadonlySet<string> = new Set(["ask", "batch", "bypass"]);
 

@@ -98,6 +98,7 @@ export class GitService {
       return gitStatuses
     } catch (error) {
       console.error('Failed to get Git status:', error)
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`Git status query failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }

@@ -1,6 +1,8 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Trophy, Flame, MessageSquareHeart, ChevronRight } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
+import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
 
 async function tauriInvoke<T>(
@@ -44,6 +46,7 @@ interface TeamRankingCardProps {
 }
 
 export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
+  const { t } = useTranslation()
   const [leaderboard, setLeaderboard] = React.useState<TeamLeaderboard | null>(null)
   const [currentDeviceId, setCurrentDeviceId] = React.useState<string | null>(null)
   const teamMode = useTeamModeStore((s) => s.teamMode)
@@ -67,8 +70,8 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
     const handler = () => {
       load()
     }
-    window.addEventListener("teamclaw-team-synced", handler)
-    return () => window.removeEventListener("teamclaw-team-synced", handler)
+    window.addEventListener(TEAM_SYNCED_EVENT, handler)
+    return () => window.removeEventListener(TEAM_SYNCED_EVENT, handler)
   }, [])
 
   // Clear leaderboard data when team mode is disabled
@@ -139,8 +142,8 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
   const { overallRank, totalMembers, tokenRank, feedbackRank } = ranks
 
   const stats = [
-    { label: 'Token Usage', rank: tokenRank, icon: Flame, color: 'text-amber-300' },
-    { label: 'Feedback Count', rank: feedbackRank, icon: MessageSquareHeart, color: 'text-pink-300' },
+    { label: t('settings.leaderboard.tokenUsage', 'Token Usage'), rank: tokenRank, icon: Flame, color: 'text-amber-300' },
+    { label: t('settings.leaderboard.feedbackCount', 'Feedback Count'), rank: feedbackRank, icon: MessageSquareHeart, color: 'text-pink-300' },
   ]
 
   if (totalMembers === 0) {
@@ -160,8 +163,8 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
             <Trophy className="h-5 w-5 text-white/50" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white/90">Team Ranking</p>
-            <p className="text-xs text-white/50 mt-0.5">Click to view</p>
+            <p className="text-sm font-medium text-white/90">{t('settings.leaderboard.teamRanking', 'Team Ranking')}</p>
+            <p className="text-xs text-white/50 mt-0.5">{t('settings.leaderboard.clickToView', 'Click to view')}</p>
           </div>
           <ChevronRight className="h-4 w-4 text-white/30 group-hover:text-white/70 transition-colors" />
         </div>
@@ -195,7 +198,7 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
               / {totalMembers}
             </span>
           </div>
-          <p className="text-xs text-white/50 mt-1">Team Ranking</p>
+          <p className="text-xs text-white/50 mt-1">{t('settings.leaderboard.teamRanking', 'Team Ranking')}</p>
         </div>
         <ChevronRight className="h-4 w-4 text-white/30 group-hover:text-white/70 transition-colors" />
       </div>

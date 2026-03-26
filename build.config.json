@@ -9,7 +9,9 @@
     "seedUrl": "http://localhost:9090"
   },
   "app": {
-    "name": "TeamClaw"
+    "name": "TeamClaw",
+    "shortName": "teamclaw",
+    "uiVariant": "default"
   },
   "features": {
     "advancedMode": true,

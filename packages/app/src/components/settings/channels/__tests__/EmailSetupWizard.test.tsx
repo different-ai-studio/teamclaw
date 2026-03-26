@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (_k: string, d?: string) => d ?? _k, i18n: { language: 'en', changeLanguage: vi.fn() } }),
+  useTranslation: () => ({ t: (_k: string, d?: string | Record<string, unknown>) => typeof d === 'string' ? d : (d?.defaultValue as string) ?? _k, i18n: { language: 'en', changeLanguage: vi.fn() } }),
 }))
 vi.mock('@/lib/utils', () => ({ cn: (...a: string[]) => a.join(' '), openExternalUrl: vi.fn() }))
 vi.mock('@/components/ui/button', () => ({

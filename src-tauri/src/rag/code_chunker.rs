@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use tree_sitter::{Language, Parser, Query, QueryCursor};
+use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 
 /// Code chunk with metadata
 #[derive(Debug, Clone)]
@@ -161,12 +161,12 @@ fn extract_chunks(
     _language: &Language,
 ) -> Result<Vec<CodeChunk>> {
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+    let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
 
     let mut chunks = Vec::new();
     let capture_names = query.capture_names();
 
-    for match_ in matches {
+    while let Some(match_) = matches.next() {
         let mut chunk_type = String::new();
         let mut name = String::new();
         let mut start_byte = 0;

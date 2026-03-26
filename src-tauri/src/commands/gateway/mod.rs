@@ -41,6 +41,15 @@ use tauri::State;
 
 use crate::commands::opencode::OpenCodeState;
 
+/// Identity of the person who sent a message through a gateway channel.
+#[derive(Debug, Clone)]
+pub struct ChannelSender {
+    pub platform: String,
+    #[allow(dead_code)]
+    pub external_id: String,
+    pub display_name: String,
+}
+
 pub const MAX_PROCESSED_MESSAGES: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,7 +245,23 @@ pub async fn send_message_async_with_approval(
     parts: Vec<serde_json::Value>,
     model: Option<(String, String)>,
     question_ctx: Option<QuestionContext>,
+    sender: Option<&ChannelSender>,
 ) -> Result<String, String> {
+    // Inject sender identity prefix into the first text part
+    let mut parts = parts;
+    if let Some(sender) = sender {
+        for part in parts.iter_mut() {
+            if part.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                    let prefixed =
+                        format!("[{}/{}] {}", sender.display_name, sender.platform, text);
+                    part["text"] = serde_json::Value::String(prefixed);
+                }
+                break; // Only prefix the first text part
+            }
+        }
+    }
+
     let client = reqwest::Client::new();
 
     // Step 1: Connect to SSE FIRST to avoid missing events
@@ -2009,7 +2034,7 @@ pub async fn test_wecom_credentials(bot_id: String, secret: String) -> Result<St
     });
 
     sink.send(tokio_tungstenite::tungstenite::Message::Text(
-        subscribe.to_string(),
+        subscribe.to_string().into(),
     ))
     .await
     .map_err(|e| format!("Send failed: {}", e))?;

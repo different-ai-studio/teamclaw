@@ -126,7 +126,7 @@ impl Default for WebDavManagedState {
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
-const KEYRING_SERVICE: &str = "teamclaw-webdav";
+const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), "-webdav");
 const PBKDF2_ITERATIONS: u32 = 600_000;
 const MIN_PASSWORD_LEN: usize = 8;
 
@@ -135,7 +135,7 @@ const MIN_PASSWORD_LEN: usize = 8;
 pub fn read_webdav_config(workspace_path: &str) -> Option<WebDavConfig> {
     let config_path = Path::new(workspace_path)
         .join(TEAMCLAW_DIR)
-        .join("teamclaw.json");
+        .join(super::CONFIG_FILE_NAME);
     let content = fs::read_to_string(&config_path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
     let webdav_value = json.get("webdav")?;
@@ -145,12 +145,12 @@ pub fn read_webdav_config(workspace_path: &str) -> Option<WebDavConfig> {
 pub fn write_webdav_config(workspace_path: &str, config: &WebDavConfig) -> Result<(), String> {
     let teamclaw_dir = Path::new(workspace_path).join(TEAMCLAW_DIR);
     fs::create_dir_all(&teamclaw_dir)
-        .map_err(|e| format!("Failed to create .teamclaw dir: {e}"))?;
+        .map_err(|e| format!("Failed to create {} dir: {e}", super::TEAMCLAW_DIR))?;
 
-    let config_path = teamclaw_dir.join("teamclaw.json");
+    let config_path = teamclaw_dir.join(super::CONFIG_FILE_NAME);
     let mut json: serde_json::Value = if config_path.exists() {
         let content = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read teamclaw.json: {e}"))?;
+            .map_err(|e| format!("Failed to read {}: {e}", super::CONFIG_FILE_NAME))?;
         serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
     } else {
         serde_json::json!({})
@@ -161,8 +161,9 @@ pub fn write_webdav_config(workspace_path: &str, config: &WebDavConfig) -> Resul
     json["webdav"] = webdav_value;
 
     let content = serde_json::to_string_pretty(&json)
-        .map_err(|e| format!("Failed to serialize teamclaw.json: {e}"))?;
-    fs::write(&config_path, content).map_err(|e| format!("Failed to write teamclaw.json: {e}"))?;
+        .map_err(|e| format!("Failed to serialize {}: {e}", super::CONFIG_FILE_NAME))?;
+    fs::write(&config_path, content)
+        .map_err(|e| format!("Failed to write {}: {e}", super::CONFIG_FILE_NAME))?;
 
     Ok(())
 }
@@ -178,7 +179,7 @@ pub fn read_sync_manifest(workspace_path: &str) -> Option<SyncManifest> {
 pub fn write_sync_manifest(workspace_path: &str, manifest: &SyncManifest) -> Result<(), String> {
     let teamclaw_dir = Path::new(workspace_path).join(TEAMCLAW_DIR);
     fs::create_dir_all(&teamclaw_dir)
-        .map_err(|e| format!("Failed to create .teamclaw dir: {e}"))?;
+        .map_err(|e| format!("Failed to create {} dir: {e}", super::TEAMCLAW_DIR))?;
     let path = teamclaw_dir.join("webdav_sync_manifest.json");
     let content = serde_json::to_string_pretty(manifest)
         .map_err(|e| format!("Failed to serialize manifest: {e}"))?;
@@ -970,11 +971,15 @@ mod tests {
     fn test_read_write_preserves_other_fields() {
         let tmp = TempDir::new().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let teamclaw_dir = tmp.path().join(".teamclaw");
+        let teamclaw_dir = tmp.path().join(super::TEAMCLAW_DIR);
         fs::create_dir_all(&teamclaw_dir).unwrap();
 
         let existing = r#"{"team": {"gitUrl": "https://github.com/org/repo", "enabled": true}}"#;
-        fs::write(teamclaw_dir.join("teamclaw.json"), existing).unwrap();
+        fs::write(
+            teamclaw_dir.join(crate::commands::CONFIG_FILE_NAME),
+            existing,
+        )
+        .unwrap();
 
         let cfg = WebDavConfig {
             url: "https://dav.example.com/team/".to_string(),
@@ -987,7 +992,7 @@ mod tests {
         };
         write_webdav_config(workspace, &cfg).unwrap();
 
-        let raw = fs::read_to_string(teamclaw_dir.join("teamclaw.json")).unwrap();
+        let raw = fs::read_to_string(teamclaw_dir.join(crate::commands::CONFIG_FILE_NAME)).unwrap();
         let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert!(json["team"]["gitUrl"].as_str().unwrap() == "https://github.com/org/repo");
         assert!(json["webdav"]["url"].as_str().unwrap() == "https://dav.example.com/team/");
@@ -995,10 +1000,12 @@ mod tests {
 
     #[test]
     fn test_parse_propfind_response() {
-        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+        let team = super::TEAM_REPO_DIR;
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav/teamclaw-team/</D:href>
+    <D:href>/dav/{team}/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/></D:resourcetype>
@@ -1007,7 +1014,7 @@ mod tests {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>/dav/teamclaw-team/README.md</D:href>
+    <D:href>/dav/{team}/README.md</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype/>
@@ -1019,7 +1026,7 @@ mod tests {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>/dav/teamclaw-team/.claude/</D:href>
+    <D:href>/dav/{team}/.claude/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/></D:resourcetype>
@@ -1027,9 +1034,11 @@ mod tests {
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
   </D:response>
-</D:multistatus>"#;
+</D:multistatus>"#
+        );
 
-        let entries = parse_propfind_response(xml, "/dav/teamclaw-team/").unwrap();
+        let base = format!("/dav/{team}/");
+        let entries = parse_propfind_response(&xml, &base).unwrap();
         assert_eq!(entries.len(), 2);
 
         let file = entries.iter().find(|e| !e.is_collection).unwrap();
@@ -1043,10 +1052,12 @@ mod tests {
 
     #[test]
     fn test_parse_propfind_empty_response() {
-        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+        let team = super::TEAM_REPO_DIR;
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav/teamclaw-team/</D:href>
+    <D:href>/dav/{team}/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/></D:resourcetype>
@@ -1054,9 +1065,11 @@ mod tests {
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
   </D:response>
-</D:multistatus>"#;
+</D:multistatus>"#
+        );
 
-        let entries = parse_propfind_response(xml, "/dav/teamclaw-team/").unwrap();
+        let base = format!("/dav/{team}/");
+        let entries = parse_propfind_response(&xml, &base).unwrap();
         assert!(entries.is_empty());
     }
 
@@ -1204,11 +1217,11 @@ mod tests {
         use crate::commands::team::check_team_status;
         let tmp = TempDir::new().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let teamclaw_dir = tmp.path().join(".teamclaw");
+        let teamclaw_dir = tmp.path().join(super::TEAMCLAW_DIR);
         fs::create_dir_all(&teamclaw_dir).unwrap();
 
         let config = r#"{"p2p": {"enabled": true}, "team": {"enabled": false}}"#;
-        fs::write(teamclaw_dir.join("teamclaw.json"), config).unwrap();
+        fs::write(teamclaw_dir.join(crate::commands::CONFIG_FILE_NAME), config).unwrap();
 
         let status = check_team_status(workspace);
         assert!(status.active);
@@ -1283,7 +1296,7 @@ mod integration_tests {
         assert_eq!(result.files_deleted, 0);
 
         let content =
-            fs::read_to_string(tmp.path().join("teamclaw-team").join("README.md")).unwrap();
+            fs::read_to_string(tmp.path().join(super::TEAM_REPO_DIR).join("README.md")).unwrap();
         assert!(content.contains("gpt-4o"));
 
         let manifest = read_sync_manifest(workspace).unwrap();
@@ -1452,7 +1465,7 @@ mod integration_tests {
         assert_eq!(r3.files_updated, 1);
 
         let content =
-            fs::read_to_string(tmp.path().join("teamclaw-team").join("README.md")).unwrap();
+            fs::read_to_string(tmp.path().join(super::TEAM_REPO_DIR).join("README.md")).unwrap();
         assert_eq!(content, "version: 2");
     }
 
@@ -1515,7 +1528,11 @@ mod integration_tests {
         sync_from_webdav(&client, &url, &auth, workspace)
             .await
             .unwrap();
-        assert!(tmp.path().join("teamclaw-team/old.txt").exists());
+        assert!(tmp
+            .path()
+            .join(super::TEAM_REPO_DIR)
+            .join("old.txt")
+            .exists());
 
         // Second sync: old.txt removed from remote
         server.reset().await;
@@ -1549,7 +1566,15 @@ mod integration_tests {
             .await
             .unwrap();
         assert_eq!(result.files_deleted, 1);
-        assert!(!tmp.path().join("teamclaw-team/old.txt").exists());
-        assert!(tmp.path().join("teamclaw-team/README.md").exists());
+        assert!(!tmp
+            .path()
+            .join(super::TEAM_REPO_DIR)
+            .join("old.txt")
+            .exists());
+        assert!(tmp
+            .path()
+            .join(super::TEAM_REPO_DIR)
+            .join("README.md")
+            .exists());
     }
 }

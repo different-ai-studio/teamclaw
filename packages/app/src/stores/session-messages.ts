@@ -23,6 +23,7 @@ import {
 import { trackEvent } from "@/stores/telemetry";
 import { syncSetSessionId } from "@/lib/opencode/sse";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
+import { appShortName } from "@/lib/build-config";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -248,7 +249,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
           : undefined;
         let systemPrompt: string | undefined;
         try {
-          const stored = localStorage.getItem('teamclaw-system-prompt');
+          const stored = localStorage.getItem(`${appShortName}-system-prompt`);
           if (stored && stored.trim()) {
             systemPrompt = stored.trim();
           }

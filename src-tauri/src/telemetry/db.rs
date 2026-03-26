@@ -82,6 +82,11 @@ pub struct TelemetryDb {
 }
 
 impl TelemetryDb {
+    /// Get a locked reference to the database connection.
+    pub async fn conn(&self) -> tokio::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().await
+    }
+
     /// Create a new TelemetryDb at the given path (e.g. ~/.teamclaw/telemetry.db).
     pub async fn new(db_path: &Path) -> Result<Self, String> {
         // Ensure parent directory exists
@@ -167,6 +172,55 @@ impl TelemetryDb {
         .await
         .map_err(|e| format!("Failed to create telemetry_consent table: {}", e))?;
 
+        // Identity: users table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users (
+                uid TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                role TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            (),
+        )
+        .await
+        .map_err(|e| format!("Failed to create users table: {}", e))?;
+
+        // Identity: external platform → internal uid mapping
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS identity_mappings (
+                platform TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                uid TEXT NOT NULL REFERENCES users(uid),
+                display_name TEXT,
+                bound_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (platform, external_id)
+            )",
+            (),
+        )
+        .await
+        .map_err(|e| format!("Failed to create identity_mappings table: {}", e))?;
+
+        // Audit: per-message usage attribution
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS audit_entries (
+                id TEXT PRIMARY KEY,
+                session_key TEXT NOT NULL,
+                uid TEXT,
+                platform TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                display_name TEXT,
+                message_preview TEXT,
+                tokens_input INTEGER DEFAULT 0,
+                tokens_output INTEGER DEFAULT 0,
+                cost REAL DEFAULT 0,
+                tools_called TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            (),
+        )
+        .await
+        .map_err(|e| format!("Failed to create audit_entries table: {}", e))?;
+
         // Migration: add star_rating column (idempotent)
         conn.execute(
             "ALTER TABLE message_feedbacks ADD COLUMN star_rating INTEGER CHECK (star_rating BETWEEN 1 AND 5)",
@@ -196,6 +250,30 @@ impl TelemetryDb {
         .ok();
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_reports_model ON session_reports(model_id)",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mappings_uid ON identity_mappings(uid)",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_uid ON audit_entries(uid)",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_entries(session_key)",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_entries(created_at)",
             (),
         )
         .await

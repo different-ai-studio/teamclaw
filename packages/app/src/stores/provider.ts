@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getOpenCodeClient } from '@/lib/opencode/client'
 import { toast } from 'sonner'
+import { appShortName } from '@/lib/build-config'
 import {
   type CustomProviderConfig,
   addCustomProviderToConfig,
@@ -451,7 +452,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     set({ currentModelKey: modelKey })
 
     // Cache in localStorage as fallback
-    localStorage.setItem('teamclaw-selected-model', modelKey)
+    localStorage.setItem(`${appShortName}-selected-model`, modelKey)
 
     const client = tryGetClient()
     if (!client) return
@@ -481,7 +482,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
 
     if (!resolvedKey || !models.find((m) => `${m.provider}/${m.id}` === resolvedKey)) {
       // Try localStorage fallback
-      const saved = localStorage.getItem('teamclaw-selected-model')
+      const saved = localStorage.getItem(`${appShortName}-selected-model`)
       if (saved && models.find((m) => `${m.provider}/${m.id}` === saved)) {
         resolvedKey = saved
       } else if (models.length > 0) {
@@ -493,7 +494,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     if (resolvedKey) {
       set({ currentModelKey: resolvedKey })
       // Sync localStorage to be consistent
-      localStorage.setItem('teamclaw-selected-model', resolvedKey)
+      localStorage.setItem(`${appShortName}-selected-model`, resolvedKey)
     }
   },
 }))

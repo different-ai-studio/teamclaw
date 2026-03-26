@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { toast } from 'sonner'
-import { buildConfig } from '@/lib/build-config'
+import { buildConfig, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -848,7 +848,7 @@ export function TeamP2PConfig() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium">{t('settings.team.disconnect', 'Disconnect')}</p>
-                      <p className="text-xs text-muted-foreground">{t('settings.team.disconnectDesc', 'This will delete local team data (.teamclaw and teamclaw-team directories). This action cannot be undone.')}</p>
+                      <p className="text-xs text-muted-foreground">{t('settings.team.disconnectDesc', { defaultValue: 'This will delete local team data ({{teamclawDir}} and {{teamRepoDir}} directories). This action cannot be undone.', teamclawDir: TEAMCLAW_DIR, teamRepoDir: TEAM_REPO_DIR })}</p>
                     </div>
                     <Button
                       variant="outline"
@@ -1167,8 +1167,8 @@ export function TeamP2PConfig() {
             </DialogTitle>
             <DialogDescription>
               {confirmAction === 'create'
-                ? t('settings.team.overwriteCreateDesc', 'A teamclaw-team directory already exists. Existing member configuration will be removed and a new team will be created. The rest of the files will be kept. Continue?')
-                : t('settings.team.overwriteJoinDesc', 'A teamclaw-team directory already exists. It will be replaced with the content from the team you are joining. Continue?')}
+                ? t('settings.team.overwriteCreateDesc', { defaultValue: 'A {{teamRepoDir}} directory already exists. Existing member configuration will be removed and a new team will be created. The rest of the files will be kept. Continue?', teamRepoDir: TEAM_REPO_DIR })
+                : t('settings.team.overwriteJoinDesc', { defaultValue: 'A {{teamRepoDir}} directory already exists. It will be replaced with the content from the team you are joining. Continue?', teamRepoDir: TEAM_REPO_DIR })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1213,7 +1213,7 @@ export function TeamP2PConfig() {
               {t('settings.team.disconnectTitle', 'Disconnect from team?')}
             </DialogTitle>
             <DialogDescription>
-              {t('settings.team.disconnectDesc', 'This will delete local team data (.teamclaw and teamclaw-team directories). This action cannot be undone.')}
+              {t('settings.team.disconnectDesc', { defaultValue: 'This will delete local team data ({{teamclawDir}} and {{teamRepoDir}} directories). This action cannot be undone.', teamclawDir: TEAMCLAW_DIR, teamRepoDir: TEAM_REPO_DIR })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

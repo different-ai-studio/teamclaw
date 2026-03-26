@@ -2,6 +2,7 @@ import { getOpenCodeClient } from "@/lib/opencode/client";
 import type { Todo, FileDiff } from "@/lib/opencode/types";
 import { notificationService } from "@/lib/notification-service";
 import { useProviderStore } from "@/stores/provider";
+import { appShortName } from "@/lib/build-config";
 import type {
   Message,
   Session,
@@ -419,7 +420,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
           if (isStillActive && detectedModel) {
             const modelKey = `${detectedModel.providerID}/${detectedModel.modelID}`;
             useProviderStore.setState({ currentModelKey: modelKey });
-            localStorage.setItem('teamclaw-selected-model', modelKey);
+            localStorage.setItem(`${appShortName}-selected-model`, modelKey);
             console.log("[Session] Synced model to provider store:", modelKey);
           }
 

@@ -21,7 +21,7 @@ import {
   BookOpen,
 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { buildConfig, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -233,7 +233,7 @@ export function TeamGitConfig() {
         return
       }
 
-      window.dispatchEvent(new CustomEvent('teamclaw-team-synced'))
+      window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
 
       const now = new Date().toISOString()
       const updatedConfig: TeamConfig = {
@@ -616,7 +616,7 @@ export function TeamGitConfig() {
           <DialogHeader>
             <DialogTitle>{t('settings.team.disconnectTitle', 'Disconnect Team Repository')}</DialogTitle>
             <DialogDescription>
-              {t('settings.team.disconnectConfirm', 'Are you sure you want to disconnect the team repository? The teamclaw-team directory and all its content will be permanently deleted.')}
+              {t('settings.team.disconnectConfirm', { defaultValue: 'Are you sure you want to disconnect the team repository? The {{teamRepoDir}} directory and all its content will be permanently deleted.', teamRepoDir: TEAM_REPO_DIR })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -678,7 +678,7 @@ export function TeamGitConfig() {
                   {t('settings.team.repoGuide.usageTitle', 'Usage')}
                 </h5>
                 <ol className="list-decimal list-inside space-y-1">
-                  <li>{t('settings.team.repoGuide.usage1', { defaultValue: 'Clone the repo; {{appName}} will create a teamclaw-team folder in your workspace.', appName: buildConfig.app.name })}</li>
+                  <li>{t('settings.team.repoGuide.usage1', { defaultValue: 'Clone the repo; {{appName}} will create a {{teamRepoDir}} folder in your workspace.', appName: buildConfig.app.name, teamRepoDir: TEAM_REPO_DIR })}</li>
                   <li>{t('settings.team.repoGuide.usage2', 'Whitelist .gitignore: only the three directories are tracked.')}</li>
                   <li>{t('settings.team.repoGuide.usage3', 'In Cursor, use @ to reference Skills and Knowledge.')}</li>
                 </ol>

@@ -1750,6 +1750,13 @@ fn process_and_reply_sync(
         store: pending_questions_clone,
     };
 
+    // Build sender identity for message prefix
+    let channel_sender = super::ChannelSender {
+        platform: "email".to_string(),
+        external_id: email.from.clone(),
+        display_name: email.from.clone(),
+    };
+
     // Send to OpenCode using async mode with permission auto-approval
     println!("[Email] Sending message asynchronously with permission auto-approval");
     let parts = vec![serde_json::json!({"type": "text", "text": &message_content})];
@@ -1760,6 +1767,7 @@ fn process_and_reply_sync(
             parts,
             model_param,
             Some(question_ctx),
+            Some(&channel_sender),
         )
         .await
     })?;

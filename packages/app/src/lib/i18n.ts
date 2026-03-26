@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { appShortName } from '@/lib/build-config';
 
 // Import translation files
 import enTranslation from '../locales/en.json';
@@ -28,7 +29,7 @@ const getUserLanguage = (): string => {
   }
 
   // Check for persisted language in localStorage
-  const persistedLang = localStorage.getItem('teamclaw-language');
+  const persistedLang = localStorage.getItem(`${appShortName}-language`);
   if (persistedLang && Object.keys(resources).includes(persistedLang)) {
     return persistedLang;
   }
@@ -63,7 +64,7 @@ export default i18n;
 export const changeLanguage = (lang: string) => {
   if (Object.keys(resources).includes(lang)) {
     i18n.changeLanguage(lang);
-    localStorage.setItem('teamclaw-language', lang); // Persist the language preference
+    localStorage.setItem(`${appShortName}-language`, lang); // Persist the language preference
   }
 };
 

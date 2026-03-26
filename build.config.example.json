@@ -9,7 +9,8 @@
     "lockLlmConfig": false
   },
   "app": {
-    "name": "TeamClaw"
+    "name": "TeamClaw",
+    "shortName": "teamclaw"
   },
   "features": {
     "advancedMode": true,

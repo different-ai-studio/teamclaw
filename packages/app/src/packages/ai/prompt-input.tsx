@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { appShortName } from "@/lib/build-config"
 import { cn } from "@/lib/utils"
 import { EditableWithFileChips } from "./editable-with-file-chips"
 
@@ -136,7 +137,7 @@ export function PromptInput({
     setIsDragging(false)
 
     // Check for file paths dragged from file tree
-    const filePath = event.dataTransfer.getData("application/x-teamclaw-filepath")
+    const filePath = event.dataTransfer.getData(`application/x-${appShortName}-filepath`)
     if (filePath) {
       onFilePathsDrop?.([filePath])
       return

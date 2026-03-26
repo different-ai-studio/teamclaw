@@ -3,6 +3,7 @@ import { Loader2, AlertTriangle, Coins } from 'lucide-react'
 import { useLocalStatsStore } from '@/stores/local-stats'
 import { formatTokenCount, formatCost } from '@/lib/format-tokens'
 import { cn } from '@/lib/utils'
+import { TEAMCLAW_DIR } from '@/lib/build-config'
 
 
 export function TokenUsageSection() {
@@ -43,7 +44,7 @@ export function TokenUsageSection() {
       {/* Stats info banner */}
       <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 px-4 py-2.5">
         <p className="text-xs text-blue-700 dark:text-blue-300">
-          💡 {t('settings.tokenUsage.statsBanner', 'Data is read from .teamclaw/stats.json in your workspace. Stats update automatically as you work.')}
+          💡 {t('settings.tokenUsage.statsBanner', { defaultValue: 'Data is read from {{teamclawDir}}/stats.json in your workspace. Stats update automatically as you work.', teamclawDir: TEAMCLAW_DIR })}
         </p>
       </div>
 

@@ -4,8 +4,9 @@ import { MessageSquareText, Sparkles, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SettingCard, SectionHeader } from './shared'
 import { toast } from 'sonner'
+import { appShortName } from '@/lib/build-config'
 
-const STORAGE_KEY = 'teamclaw-system-prompt'
+const STORAGE_KEY = `${appShortName}-system-prompt`
 
 function loadSystemPrompt(): string {
   try {

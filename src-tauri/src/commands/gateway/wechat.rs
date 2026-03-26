@@ -447,9 +447,10 @@ impl WeChatGateway {
         };
         let config = self.config.read().await.clone();
         let path = format!(
-            "{}/{}/teamclaw.json",
+            "{}/{}/{}",
             workspace_path,
-            crate::commands::TEAMCLAW_DIR
+            crate::commands::TEAMCLAW_DIR,
+            crate::commands::CONFIG_FILE_NAME
         );
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
@@ -625,10 +626,7 @@ impl WeChatGateway {
                             }
 
                             let preview: String = text.chars().take(50).collect();
-                            println!(
-                                "[WeChat] Message from {}: {}...",
-                                sender_id, preview
-                            );
+                            println!("[WeChat] Message from {}: {}...", sender_id, preview);
 
                             // Forward to OpenCode session
                             let gateway = self.clone();
@@ -681,15 +679,10 @@ impl WeChatGateway {
                     qid, answer_text
                 );
                 let _ = self
-                    .send_to_user(
-                        sender_id,
-                        &format!("✓ 已提交：{}", answer_text),
-                    )
+                    .send_to_user(sender_id, &format!("✓ 已提交：{}", answer_text))
                     .await;
             } else {
-                let _ = self
-                    .send_to_user(sender_id, "当前没有待回答的问题。")
-                    .await;
+                let _ = self.send_to_user(sender_id, "当前没有待回答的问题。").await;
             }
             return Ok(());
         }
@@ -862,12 +855,20 @@ impl WeChatGateway {
             store: pending_questions,
         };
 
+        // Build sender identity for message prefix
+        let channel_sender = super::ChannelSender {
+            platform: "wechat".to_string(),
+            external_id: sender_id.to_string(),
+            display_name: sender_id.to_string(),
+        };
+
         match super::send_message_async_with_approval(
             self.opencode_port,
             &session_id,
             parts,
             model,
             Some(question_ctx),
+            Some(&channel_sender),
         )
         .await
         {

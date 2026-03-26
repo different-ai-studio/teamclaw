@@ -24,7 +24,7 @@ jobs:
           - target: x86_64-apple-darwin
             opencode_asset: opencode-darwin-x64.zip
             opencode_binary: opencode-x86_64-apple-darwin
-    runs-on: macos-latest
+    runs-on: macos-latest-xlarge
     steps:
       - uses: actions/checkout@v4
 
@@ -171,6 +171,7 @@ jobs:
           UPDATER_GITHUB_TOKEN: ${{ secrets.UPDATER_GITHUB_TOKEN }}
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: sccache
+          CARGO_INCREMENTAL: "0"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "TeamClaw ${{ github.ref_name }}"
@@ -297,6 +298,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: sccache
+          CARGO_INCREMENTAL: "0"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "TeamClaw ${{ github.ref_name }}"

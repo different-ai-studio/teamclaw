@@ -449,7 +449,7 @@ impl KookGateway {
                         });
 
                         let mut writer = write_for_heartbeat.lock().await;
-                        if let Err(e) = writer.send(WsMessage::Text(ping.to_string())).await {
+                        if let Err(e) = writer.send(WsMessage::Text(ping.to_string().into())).await {
                             println!("[KOOK] Failed to send heartbeat: {}", e);
                             break;
                         }
@@ -999,6 +999,13 @@ impl KookGateway {
             store: pending_questions_clone,
         };
 
+        // Build sender identity for message prefix
+        let channel_sender = super::ChannelSender {
+            platform: "kook".to_string(),
+            external_id: msg.author_id.clone(),
+            display_name: msg.author_id.clone(),
+        };
+
         // Send "Thinking..." card message first
         let thinking_msg_id = self.send_thinking_card(msg).await?;
 
@@ -1009,6 +1016,7 @@ impl KookGateway {
                 &content,
                 model_param.clone(),
                 Some(question_ctx),
+                &channel_sender,
             )
             .await
         {
@@ -1046,6 +1054,7 @@ impl KookGateway {
         message: &str,
         model: Option<(String, String)>,
         question_ctx: Option<super::QuestionContext>,
+        sender: &super::ChannelSender,
     ) -> Result<String, String> {
         println!("[KOOK] Sending message asynchronously with permission auto-approval");
 
@@ -1058,6 +1067,7 @@ impl KookGateway {
             parts,
             model,
             question_ctx,
+            Some(sender),
         )
         .await
     }

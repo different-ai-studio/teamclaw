@@ -209,7 +209,7 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
 
     handleMessagePartCreated: (event: MessagePartCreatedEvent) => {
       const { activeSessionId } = get();
-      let { streamingMessageId } = useStreamingStore.getState();
+      const { streamingMessageId } = useStreamingStore.getState();
       
       if (DEBUG()) console.log("[PartCreated]", event.type, event.partId);
       
@@ -224,7 +224,6 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
             oldStreamingId: streamingMessageId,
           });
           useStreamingStore.getState().setStreaming(event.messageId, targetMessage.content || "");
-          streamingMessageId = event.messageId;
         } else {
           if (DEBUG()) console.log("[PartCreated] Ignoring part for non-streaming message:", event.messageId);
           return;
@@ -316,7 +315,7 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
 
     handleMessagePartUpdated: (event: MessagePartUpdatedEvent) => {
       const { activeSessionId } = get();
-      let { streamingMessageId } = useStreamingStore.getState();
+      const { streamingMessageId } = useStreamingStore.getState();
       
       // CRITICAL: Auto-recovery for lost streamingMessageId
       // In rapid message succession (e.g., tool call → new message), streamingMessageId
@@ -335,7 +334,6 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
             oldStreamingId: streamingMessageId,
           });
           useStreamingStore.getState().setStreaming(event.messageId, targetMessage.content || "");
-          streamingMessageId = event.messageId; // Update local variable
         } else {
           if (DEBUG()) console.log("[PartUpdated] Ignoring delta for non-streaming message:", event.messageId);
           return;

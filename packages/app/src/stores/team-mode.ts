@@ -5,11 +5,11 @@ import {
 } from '@/lib/opencode/config'
 import { useProviderStore } from './provider'
 import { isTauri } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { appShortName, buildConfig, TEAM_API_KEY_STORAGE_KEY } from '@/lib/build-config'
 
 
 const TEAM_PROVIDER_ID = 'team'
-const TEAM_API_KEY_STORAGE = 'teamclaw-team-api-key'
+const TEAM_API_KEY_STORAGE = TEAM_API_KEY_STORAGE_KEY
 
 export interface TeamModelConfig {
   baseUrl: string
@@ -129,7 +129,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       const currentModel = providerStore.currentModelKey
       if (currentModel && !currentModel.startsWith('team/')) {
         try {
-          localStorage.setItem('teamclaw-pre-team-model', currentModel)
+          localStorage.setItem(`${appShortName}-pre-team-model`, currentModel)
         } catch { /* ignore */ }
       }
 
@@ -273,7 +273,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
     // Restore previous model if available
     try {
-      const preTeamModel = localStorage.getItem('teamclaw-pre-team-model')
+      const preTeamModel = localStorage.getItem(`${appShortName}-pre-team-model`)
       const providerStore = useProviderStore.getState()
 
       // Force disconnect the team provider to remove it from the list immediately
@@ -311,7 +311,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
             await providerStore.refreshCurrentModel()
           }, 500)
         }
-        localStorage.removeItem('teamclaw-pre-team-model')
+        localStorage.removeItem(`${appShortName}-pre-team-model`)
       } else {
         // If no valid previous model, try to select the first available one
         setTimeout(async () => {

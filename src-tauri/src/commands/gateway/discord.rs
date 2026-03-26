@@ -420,6 +420,13 @@ impl DiscordHandler {
             store: pending_questions,
         };
 
+        // Build sender identity for message prefix
+        let sender = super::ChannelSender {
+            platform: "discord".to_string(),
+            external_id: msg.author.id.to_string(),
+            display_name: msg.author.name.clone(),
+        };
+
         // Send message to OpenCode (with automatic permission approval)
         let result = self
             .send_to_opencode(
@@ -428,6 +435,7 @@ impl DiscordHandler {
                 images.clone(),
                 model_param.clone(),
                 Some(question_ctx),
+                &sender,
             )
             .await;
 
@@ -492,6 +500,7 @@ impl DiscordHandler {
         images: Vec<(String, String)>,
         model: Option<(String, String)>,
         question_ctx: Option<super::QuestionContext>,
+        sender: &super::ChannelSender,
     ) -> Result<String, String> {
         // Download client for images (short timeout)
         let client = reqwest::Client::builder()
@@ -579,6 +588,7 @@ impl DiscordHandler {
             parts,
             model,
             question_ctx,
+            Some(sender),
         )
         .await
     }

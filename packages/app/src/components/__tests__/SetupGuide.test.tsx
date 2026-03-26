@@ -4,7 +4,8 @@ import React from 'react'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, fallback: string, _opts?: Record<string, unknown>) => fallback,
+    t: (_key: string, fallbackOrOpts?: string | Record<string, unknown>) =>
+      typeof fallbackOrOpts === 'string' ? fallbackOrOpts : (fallbackOrOpts?.defaultValue as string) ?? _key,
   }),
 }))
 

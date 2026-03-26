@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
+import { appShortName } from '@/lib/build-config'
 
 export interface ShortcutNode {
   id: string
@@ -29,7 +30,7 @@ interface ShortcutsState {
   setTeamNodes: (nodes: ShortcutNode[]) => void
 }
 
-const STORAGE_KEY = 'teamclaw-shortcuts'
+const STORAGE_KEY = `${appShortName}-shortcuts`
 
 function loadPersistedNodes(): ShortcutNode[] {
   const stored = loadFromStorage<{ nodes: ShortcutNode[]; version: number }>(STORAGE_KEY, { nodes: [], version: 1 })
