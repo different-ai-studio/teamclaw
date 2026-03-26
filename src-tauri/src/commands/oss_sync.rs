@@ -1068,10 +1068,10 @@ impl OssSyncManager {
         result
     }
 
-    /// Restore a specific archived version of a file to disk.
-    /// Does NOT update the Loro document — only writes the file content locally.
+    /// Restore a specific archived version of a file to both disk and the Loro
+    /// document so that the next sync cycle does not overwrite it.
     pub fn restore_file_version(
-        &self,
+        &mut self,
         doc_type: DocType,
         file_path: &str,
         version_index: u32,
@@ -1088,6 +1088,9 @@ impl OssSyncManager {
                 )
             })?;
 
+        let restored_content = version.content.clone();
+
+        // 1. Write the restored content to disk
         let dest = self
             .team_dir
             .join(doc_type.dir_name())
@@ -1098,11 +1101,41 @@ impl OssSyncManager {
                 .map_err(|e| format!("Failed to create parent directories for {}: {e}", dest.display()))?;
         }
 
-        std::fs::write(&dest, version.content.as_bytes())
+        std::fs::write(&dest, restored_content.as_bytes())
             .map_err(|e| format!("Failed to write restored file {}: {e}", dest.display()))?;
 
+        // 2. Update the Loro document so the restored content is the current
+        //    version and the previous current version is archived.
+        let doc = self.get_doc_mut(doc_type);
+        let files_map = doc.get_map("files");
+
+        Self::archive_current_version(&files_map, file_path)?;
+
+        let hash = Self::compute_hash(restored_content.as_bytes());
+        let now = chrono::Utc::now().to_rfc3339();
+        let node_id = self.node_id.clone();
+
+        let entry_map = files_map
+            .get_or_create_container(file_path, loro::LoroMap::new())
+            .map_err(|e| format!("Failed to get/create map entry for {file_path}: {e}"))?;
+        entry_map
+            .insert("content", restored_content.as_str())
+            .map_err(|e| format!("Failed to set content for {file_path}: {e}"))?;
+        entry_map
+            .insert("hash", hash.as_str())
+            .map_err(|e| format!("Failed to set hash for {file_path}: {e}"))?;
+        entry_map
+            .insert("deleted", false)
+            .map_err(|e| format!("Failed to set deleted for {file_path}: {e}"))?;
+        entry_map
+            .insert("updatedBy", node_id.as_str())
+            .map_err(|e| format!("Failed to set updatedBy for {file_path}: {e}"))?;
+        entry_map
+            .insert("updatedAt", now.as_str())
+            .map_err(|e| format!("Failed to set updatedAt for {file_path}: {e}"))?;
+
         info!(
-            "Restored version {} of {:?}/{file_path} to disk",
+            "Restored version {} of {:?}/{file_path} to disk and Loro doc",
             version_index, doc_type
         );
 

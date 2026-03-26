@@ -68,24 +68,24 @@ export function VersionedFileList({
           )}
           {filteredFiles.map((file) => {
             const isSelected =
-              selectedPath === file.filePath && selectedDocType === file.docType
-            const fileName = getFileName(file.filePath)
+              selectedPath === file.path && selectedDocType === file.docType
+            const fileName = getFileName(file.path)
             const docLabel = DOC_TYPE_LABELS[file.docType] ?? file.docType
 
             return (
               <div
-                key={`${file.docType}:${file.filePath}`}
+                key={`${file.docType}:${file.path}`}
                 className={cn(
                   'mx-1 cursor-pointer rounded-md px-3 py-2',
                   isSelected ? 'bg-accent font-medium' : 'hover:bg-accent/50'
                 )}
-                onClick={() => onSelect(file.filePath, file.docType)}
+                onClick={() => onSelect(file.path, file.docType)}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span
                     className={cn(
                       'truncate text-sm',
-                      file.isDeleted && 'line-through text-destructive'
+                      file.currentDeleted && 'line-through text-destructive'
                     )}
                   >
                     {fileName}

@@ -161,9 +161,9 @@ pub async fn team_restore_file_version(
     match mode {
         "oss" => {
             let dt = parse_doc_type(&doc_type)?;
-            let guard = oss_state.manager.lock().await;
+            let mut guard = oss_state.manager.lock().await;
             let manager = guard
-                .as_ref()
+                .as_mut()
                 .ok_or_else(|| "OSS sync not active".to_string())?;
 
             // Viewers cannot restore

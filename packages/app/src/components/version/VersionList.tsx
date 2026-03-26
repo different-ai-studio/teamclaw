@@ -67,15 +67,15 @@ export function VersionList({
           <div className="px-3 py-2 text-xs text-muted-foreground">暂无历史版本</div>
         )}
         {versions.map((version, i) => {
-          const isSelected = selectedIndex === version.versionIndex
+          const isSelected = selectedIndex === version.index
           return (
             <div
-              key={version.versionIndex}
+              key={version.index}
               className={cn(
                 'mx-1 cursor-pointer rounded-md px-3 py-2',
                 isSelected ? 'bg-accent font-medium' : 'hover:bg-accent/50'
               )}
-              onClick={() => onSelect(version.versionIndex)}
+              onClick={() => onSelect(version.index)}
             >
               <div className="text-sm">版本 {versions.length - i}</div>
               <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">

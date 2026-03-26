@@ -69,12 +69,12 @@ export function VersionHistoryTab() {
 
   const selectedVersion =
     selectedVersionIndex !== null
-      ? (fileVersions.find((v) => v.versionIndex === selectedVersionIndex) ?? null)
+      ? (fileVersions.find((v) => v.index === selectedVersionIndex) ?? null)
       : null
 
   const selectedFileInfo = selectedFile
     ? versionedFiles.find(
-        (f) => f.filePath === selectedFile.path && f.docType === selectedFile.docType,
+        (f) => f.path === selectedFile.path && f.docType === selectedFile.docType,
       )
     : null
 
@@ -109,8 +109,8 @@ export function VersionHistoryTab() {
               versions={fileVersions}
               selectedIndex={selectedVersionIndex}
               onSelect={handleVersionSelect}
-              currentUpdatedBy={selectedFileInfo?.latestUpdatedBy}
-              currentUpdatedAt={selectedFileInfo?.latestUpdatedAt}
+              currentUpdatedBy={selectedFileInfo?.latestUpdateBy}
+              currentUpdatedAt={selectedFileInfo?.latestUpdateAt}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground px-3 text-center">

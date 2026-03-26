@@ -81,12 +81,12 @@ export function VersionHistorySection() {
       ) : (
         <div className="space-y-1.5">
           {filteredFiles.map((file) => {
-            const fileName = getFileName(file.filePath)
+            const fileName = getFileName(file.path)
             const docLabel = DOC_TYPE_LABELS[file.docType] ?? file.docType
 
             return (
               <div
-                key={`${file.docType}:${file.filePath}`}
+                key={`${file.docType}:${file.path}`}
                 className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
@@ -94,7 +94,7 @@ export function VersionHistorySection() {
                     <span
                       className={cn(
                         'truncate text-sm font-medium',
-                        file.isDeleted && 'line-through text-destructive'
+                        file.currentDeleted && 'line-through text-destructive'
                       )}
                     >
                       {fileName}
@@ -105,7 +105,7 @@ export function VersionHistorySection() {
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {file.versionCount} 个版本
-                    {file.latestUpdatedBy && ` · ${file.latestUpdatedBy}`}
+                    {file.latestUpdateBy && ` · ${file.latestUpdateBy}`}
                   </div>
                 </div>
                 <Button

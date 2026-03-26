@@ -134,7 +134,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   initialize: async (workspacePath) => {
     try {
       // Listen for sync status events from Rust backend
-      const unlisten = await listen<SyncStatus>('oss-sync-status', (event) => {
+      const unlistenSync = await listen<SyncStatus>('oss-sync-status', (event) => {
         set({
           syncStatus: event.payload,
           connected: event.payload.connected,
@@ -145,7 +145,25 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
           get().loadFileSyncStatus()
         }
       })
-      set({ _unlisten: unlisten })
+
+      // Refresh per-file sync status when teamclaw-team/ files change locally,
+      // so the "modified" (orange) state is visible before the next sync poll.
+      let fileChangeTimer: ReturnType<typeof setTimeout> | null = null
+      const unlistenFileChange = await listen<{ path: string; kind: string }>('file-change', (event) => {
+        if (!event.payload.path.includes('teamclaw-team/')) return
+        if (fileChangeTimer) clearTimeout(fileChangeTimer)
+        fileChangeTimer = setTimeout(() => {
+          get().loadFileSyncStatus()
+        }, 1500)
+      })
+
+      set({
+        _unlisten: () => {
+          unlistenSync()
+          unlistenFileChange()
+          if (fileChangeTimer) clearTimeout(fileChangeTimer)
+        },
+      })
 
       const config = await invoke<OssTeamConfig | null>('oss_get_team_config', { workspacePath })
       if (config?.enabled) {

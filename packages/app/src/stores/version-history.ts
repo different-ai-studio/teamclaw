@@ -1,20 +1,21 @@
 import { create } from 'zustand'
 
 export interface FileVersion {
-  versionIndex: number
+  index: number
   content: string
+  hash: string
   updatedBy: string
   updatedAt: string
-  sizeBytes: number
+  deleted: boolean
 }
 
 export interface VersionedFileInfo {
-  filePath: string
+  path: string
   docType: string
   versionCount: number
-  latestUpdatedBy: string
-  latestUpdatedAt: string
-  isDeleted: boolean
+  latestUpdateBy: string
+  latestUpdateAt: string
+  currentDeleted: boolean
 }
 
 interface VersionHistoryState {

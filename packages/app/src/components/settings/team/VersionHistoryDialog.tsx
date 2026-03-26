@@ -28,11 +28,11 @@ export function VersionHistoryDialog({ file, onClose }: VersionHistoryDialogProp
   const [restoring, setRestoring] = useState(false)
 
   useEffect(() => {
-    selectFile(file.filePath, file.docType)
+    selectFile(file.path, file.docType)
     if (workspacePath) {
-      loadFileVersions(workspacePath, file.docType, file.filePath)
+      loadFileVersions(workspacePath, file.docType, file.path)
     }
-  }, [file.filePath, file.docType, workspacePath, selectFile, loadFileVersions])
+  }, [file.path, file.docType, workspacePath, selectFile, loadFileVersions])
 
   const handleVersionSelect = (index: number) => {
     if (index === -1) {
@@ -49,7 +49,7 @@ export function VersionHistoryDialog({ file, onClose }: VersionHistoryDialogProp
       await restoreFileVersion(
         workspacePath,
         file.docType,
-        file.filePath,
+        file.path,
         selectedVersionIndex,
       )
     } finally {
@@ -59,10 +59,10 @@ export function VersionHistoryDialog({ file, onClose }: VersionHistoryDialogProp
 
   const selectedVersion =
     selectedVersionIndex !== null
-      ? (fileVersions.find((v) => v.versionIndex === selectedVersionIndex) ?? null)
+      ? (fileVersions.find((v) => v.index === selectedVersionIndex) ?? null)
       : null
 
-  const fileName = file.filePath.split('/').pop() ?? file.filePath
+  const fileName = file.path.split('/').pop() ?? file.path
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -93,8 +93,8 @@ export function VersionHistoryDialog({ file, onClose }: VersionHistoryDialogProp
                 versions={fileVersions}
                 selectedIndex={selectedVersionIndex}
                 onSelect={handleVersionSelect}
-                currentUpdatedBy={file.latestUpdatedBy}
-                currentUpdatedAt={file.latestUpdatedAt}
+                currentUpdatedBy={file.latestUpdateBy}
+                currentUpdatedAt={file.latestUpdateAt}
               />
             )}
           </div>
