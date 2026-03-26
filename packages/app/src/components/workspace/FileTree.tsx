@@ -36,6 +36,10 @@ import { TEAM_REPO_DIR, appShortName } from "@/lib/build-config";
 interface FlatTreeNode {
   node: FileNode;
   level: number;
+  /** Display name for compact folders, e.g. "src/main/java" */
+  compactName?: string;
+  /** All directory paths in a compacted chain (for collapsing all at once) */
+  compactedPaths?: string[];
 }
 
 // Filter tree nodes recursively based on filter text.
@@ -177,13 +181,46 @@ function flattenTree(
   result: FlatTreeNode[] = [],
 ): FlatTreeNode[] {
   for (const node of nodes) {
-    result.push({ node, level });
-    if (
-      node.type === "directory" &&
-      expandedPaths.has(node.path) &&
-      node.children
-    ) {
-      flattenTree(node.children, expandedPaths, level + 1, result);
+    if (node.type === "directory" && expandedPaths.has(node.path) && node.children) {
+      // Check for compact folder chain: single directory child only
+      let current = node;
+      const nameParts = [current.name];
+      const chainPaths = [current.path];
+
+      while (
+        current.children &&
+        current.children.length === 1 &&
+        current.children[0].type === "directory" &&
+        expandedPaths.has(current.children[0].path)
+      ) {
+        current = current.children[0];
+        nameParts.push(current.name);
+        chainPaths.push(current.path);
+      }
+
+      if (nameParts.length > 1) {
+        result.push({
+          node: current,
+          level,
+          compactName: nameParts.join("/"),
+          compactedPaths: chainPaths,
+        });
+      } else {
+        result.push({ node, level });
+      }
+
+      if (current.children) {
+        flattenTree(current.children, expandedPaths, level + 1, result);
+      }
+    } else {
+      result.push({ node, level });
+      if (
+        node.type === "directory" &&
+        expandedPaths.has(node.path) &&
+        node.children
+      ) {
+        flattenTree(node.children, expandedPaths, level + 1, result);
+      }
     }
   }
   return result;
@@ -283,6 +320,14 @@ export function FileTree({
 
     return { fileGitStatusMap: fileMap, dirtyDirectories: dirtyDirs };
   }, [showGitStatus, gitStatuses, workspacePath]);
+
+  const collapseCompacted = useCallback((paths: string[]) => {
+    const nextExpanded = new Set(useWorkspaceStore.getState().expandedPaths);
+    for (const p of paths) {
+      nextExpanded.delete(p);
+    }
+    useWorkspaceStore.setState({ expandedPaths: nextExpanded });
+  }, []);
 
   // Context menu action handlers
   const handleNewFile = useCallback(
@@ -655,9 +700,13 @@ export function FileTree({
         case "ArrowLeft": {
           e.preventDefault();
           if (currentIndex === -1) break;
-          const node = flatNodes[currentIndex].node;
+          const { node, compactedPaths } = flatNodes[currentIndex];
           if (node.type === "directory" && effectiveExpandedPaths.has(node.path)) {
-            collapseDirectory(node.path);
+            if (compactedPaths && compactedPaths.length > 1) {
+              collapseCompacted(compactedPaths);
+            } else {
+              collapseDirectory(node.path);
+            }
           } else {
             // Navigate to parent directory
             const parentPath = node.path.substring(0, node.path.lastIndexOf("/"));
@@ -674,15 +723,19 @@ export function FileTree({
         case "Enter": {
           e.preventDefault();
           if (currentIndex === -1) break;
-          const node = flatNodes[currentIndex].node;
-          if (node.type === "directory") {
-            if (effectiveExpandedPaths.has(node.path)) {
-              collapseDirectory(node.path);
+          const entryNode = flatNodes[currentIndex];
+          if (entryNode.node.type === "directory") {
+            if (effectiveExpandedPaths.has(entryNode.node.path)) {
+              if (entryNode.compactedPaths && entryNode.compactedPaths.length > 1) {
+                collapseCompacted(entryNode.compactedPaths);
+              } else {
+                collapseDirectory(entryNode.node.path);
+              }
             } else {
-              expandDirectory(node.path);
+              expandDirectory(entryNode.node.path);
             }
           } else {
-            selectFile(node.path);
+            selectFile(entryNode.node.path);
           }
           break;
         }
@@ -739,6 +792,7 @@ export function FileTree({
       setFocusedPath,
       expandDirectory,
       collapseDirectory,
+      collapseCompacted,
       selectFile,
       handleDelete,
     ],
@@ -812,9 +866,12 @@ export function FileTree({
       1
     : 0;
 
-  const buildItemProps = (node: FileNode, level: number) => ({
+  const buildItemProps = (node: FileNode, level: number, compactName?: string, compactedPaths?: string[]) => ({
     node,
     level,
+    compactName,
+    compactedPaths,
+    onCollapseCompacted: collapseCompacted,
     isSelected: selectedFilesSet.has(node.path) || selectedFile === node.path,
     isFocused: focusedPath === node.path,
     isExpanded: effectiveExpandedPaths.has(node.path),
@@ -857,9 +914,9 @@ export function FileTree({
 
   const treeContent = !useVirtual ? (
     <div className="py-1">
-      {flatNodes.map(({ node, level }, index) => (
+      {flatNodes.map(({ node, level, compactName, compactedPaths }, index) => (
         <React.Fragment key={node.path}>
-          <FileTreeItem {...buildItemProps(node, level)} />
+          <FileTreeItem {...buildItemProps(node, level, compactName, compactedPaths)} />
           {creatingIn && index === creatingIndex - 1 && (
             <InlineInput
               defaultValue={
@@ -890,7 +947,7 @@ export function FileTree({
         }}
       >
         {virtualizer.getVirtualItems().map((virtualRow) => {
-          const { node, level } = flatNodes[virtualRow.index];
+          const { node, level, compactName, compactedPaths } = flatNodes[virtualRow.index];
           return (
             <div
               key={node.path}
@@ -903,7 +960,7 @@ export function FileTree({
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
-              <FileTreeItem {...buildItemProps(node, level)} />
+              <FileTreeItem {...buildItemProps(node, level, compactName, compactedPaths)} />
             </div>
           );
         })}

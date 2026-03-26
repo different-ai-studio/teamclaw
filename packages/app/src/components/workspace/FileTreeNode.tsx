@@ -148,6 +148,9 @@ export interface FileTreeItemProps {
   isDragOver: boolean;
   /** Whether this is the root teamclaw-team directory (for visual styling) */
   isTeamClawTeam?: boolean;
+  compactName?: string;
+  compactedPaths?: string[];
+  onCollapseCompacted: (paths: string[]) => void;
   onSelectFile: (path: string) => void;
   onSelectFileRange: (path: string) => void; // Shift+Click range selection
   onToggleFileSelection: (path: string) => void; // Ctrl/Cmd+Click toggle
@@ -206,17 +209,25 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   onDragOver,
   onDragLeave,
   onDrop,
+  compactName,
+  compactedPaths,
+  onCollapseCompacted,
 }: FileTreeItemProps) {
   const { t } = useTranslation();
   const isDirectory = node.type === "directory";
   const myRole = useTeamModeStore((s) => s.myRole)
   const isTeamFile = node.path.includes(`/${TEAM_REPO_DIR}/`)
   const isViewerRestricted = isTeamFile && myRole === 'viewer'
+  const displayName = compactName || node.name;
 
   const handleClick = (e: React.MouseEvent) => {
     if (isDirectory) {
       if (isExpanded) {
-        onCollapseDirectory(node.path);
+        if (compactedPaths && compactedPaths.length > 1) {
+          onCollapseCompacted(compactedPaths);
+        } else {
+          onCollapseDirectory(node.path);
+        }
       } else {
         onExpandDirectory(node.path);
       }
@@ -316,7 +327,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           hasGitChanges && isDirectory && "text-amber-500",
         )}
       >
-        {node.name}
+        {displayName}
       </span>
 
       {hasGitChanges &&
