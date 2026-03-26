@@ -185,6 +185,7 @@ export interface FileTreeItemProps {
   onDragStart: (e: React.DragEvent, path: string) => void;
   onDragOver: (e: React.DragEvent, path: string) => void;
   onDragLeave: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
   onDrop: (e: React.DragEvent, targetPath: string) => void;
   onCut: (paths: string[]) => void;
   onCopy: (paths: string[]) => void;
@@ -229,6 +230,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   onDragStart,
   onDragOver,
   onDragLeave,
+  onDragEnd,
   onDrop,
   compactName,
   compactedPaths,
@@ -297,6 +299,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       draggable
       onClick={handleClick}
       onDragStart={(e) => onDragStart(e, node.path)}
+      onDragEnd={onDragEnd}
       onDragOver={(e) => isDirectory ? onDragOver(e, node.path) : undefined}
       onDragLeave={(e) => isDirectory ? onDragLeave(e) : undefined}
       onDrop={(e) => isDirectory ? onDrop(e, node.path) : undefined}

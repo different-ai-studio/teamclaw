@@ -596,9 +596,13 @@ export function FileTree({
   }, [pasteFiles, expandDirectory, t]);
 
   // ── Drag and drop handlers ──
+  // Track drag source in a ref so Tauri event listeners can access it
+  const dragSourcePathRef = useRef<string | null>(null);
+
   const handleDragStart = useCallback(
     (e: React.DragEvent, path: string) => {
       setDragSourcePath(path);
+      dragSourcePathRef.current = path;
       e.dataTransfer.setData("text/plain", path);
       e.dataTransfer.setData(`application/x-${appShortName}-filepath`, path);
       e.dataTransfer.effectAllowed = "copyMove";
@@ -623,11 +627,20 @@ export function FileTree({
     setDragOverPath(null);
   }, []);
 
+  const handleDragEnd = useCallback(() => {
+    dragSourcePathRef.current = null;
+    setDragSourcePath(null);
+    setDragOverPath(null);
+  }, []);
+
   const handleDrop = useCallback(
     async (e: React.DragEvent, targetDirPath: string) => {
       e.preventDefault();
       setDragOverPath(null);
-      const sourcePath = e.dataTransfer.getData("text/plain");
+      // Use ref as fallback — Tauri's dragDropEnabled may prevent dataTransfer access
+      const sourcePath = e.dataTransfer.getData("text/plain") || dragSourcePathRef.current;
+      dragSourcePathRef.current = null;
+      setDragSourcePath(null);
       if (!sourcePath || sourcePath === targetDirPath) return;
       // Don't drop into own subtree
       if (targetDirPath.startsWith(sourcePath + "/")) return;
@@ -957,10 +970,12 @@ export function FileTree({
     import('@tauri-apps/api/event').then(async ({ listen }) => {
       if (cancelled) return;
 
-      // Handle file drop
+      // Handle external file drop (skip if internal drag is in progress)
       unlisteners.push(await listen<{ paths: string[]; position: { x: number; y: number } }>(
         'tauri://drag-drop',
         async (event) => {
+          // Skip external handler when an internal drag-move is active
+          if (dragSourcePathRef.current) return;
           const paths = event.payload.paths;
           if (!paths || paths.length === 0) return;
 
@@ -982,10 +997,11 @@ export function FileTree({
       ));
       if (cancelled) { unlisteners.forEach(fn => fn()); return; }
 
-      // Highlight hovered directory during external drag
+      // Highlight hovered directory during external drag (skip for internal drags)
       unlisteners.push(await listen<{ paths: string[]; position: { x: number; y: number } }>(
         'tauri://drag-over',
         (event) => {
+          if (dragSourcePathRef.current) return; // Internal drag handled by HTML5 handlers
           const el = document.elementFromPoint(event.payload.position.x, event.payload.position.y);
           const treeItem = el?.closest('[data-path]') as HTMLElement | null;
           if (treeItem) {
@@ -1105,6 +1121,7 @@ export function FileTree({
     onDragStart: handleDragStart,
     onDragOver: handleDragOver,
     onDragLeave: handleDragLeave,
+    onDragEnd: handleDragEnd,
     onDrop: handleDrop,
     onCut: handleCut,
     onCopy: handleCopy,
