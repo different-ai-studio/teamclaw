@@ -2604,6 +2604,79 @@ pub struct P2pSyncStatus {
 }
 
 #[tauri::command]
+pub async fn p2p_get_files_sync_status(
+    iroh_state: tauri::State<'_, crate::commands::p2p_state::IrohState>,
+    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+) -> Result<Vec<crate::commands::oss_types::FileSyncStatus>, String> {
+    use crate::commands::oss_types::{FileSyncStatus, SyncFileStatus};
+    use futures_lite::StreamExt;
+
+    let workspace_path = opencode_state
+        .workspace_path
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No workspace path set")?;
+
+    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
+    let team_path = std::path::Path::new(&team_dir);
+
+    let guard = iroh_state.lock().await;
+    let node = guard
+        .as_ref()
+        .ok_or_else(|| "P2P node not running".to_string())?;
+    let doc = node
+        .active_doc
+        .as_ref()
+        .ok_or_else(|| "No active team document".to_string())?;
+
+    // 1. Query all doc entries to build hash map
+    let query = iroh_docs::store::Query::single_latest_per_key().build();
+    let entries = doc
+        .get_many(query)
+        .await
+        .map_err(|e| format!("Failed to query doc: {}", e))?;
+    let mut entries = std::pin::pin!(entries);
+
+    let mut doc_hashes: std::collections::HashMap<String, iroh_blobs::Hash> =
+        std::collections::HashMap::new();
+    while let Some(Ok(entry)) = entries.next().await {
+        let key = String::from_utf8_lossy(entry.key()).to_string();
+        // Skip tombstones and metadata entries
+        if entry.content_len() == 0 || key.starts_with("_meta/") || key.starts_with("_team/") {
+            continue;
+        }
+        doc_hashes.insert(key, entry.content_hash());
+    }
+
+    // 2. Scan local files and compare
+    let local_files = collect_files(team_path, team_path);
+    let mut result = Vec::new();
+
+    for (rel_path, content) in &local_files {
+        // Skip metadata entries
+        if rel_path.starts_with("_meta/") || rel_path.starts_with("_team/") {
+            continue;
+        }
+
+        let local_hash = iroh_blobs::Hash::new(content);
+        let status = match doc_hashes.get(rel_path) {
+            Some(doc_hash) if *doc_hash == local_hash => SyncFileStatus::Synced,
+            Some(_) => SyncFileStatus::Modified,
+            None => SyncFileStatus::New,
+        };
+
+        result.push(FileSyncStatus {
+            path: rel_path.clone(),
+            doc_type: String::new(), // P2P doesn't separate by doc_type
+            status,
+        });
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn p2p_save_seed_config(
     seed_url: Option<String>,
     team_secret: Option<String>,

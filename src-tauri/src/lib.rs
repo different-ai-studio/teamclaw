@@ -443,6 +443,8 @@ pub fn run() {
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_sync_status,
             #[cfg(feature = "p2p")]
+            commands::team_p2p::p2p_get_files_sync_status,
+            #[cfg(feature = "p2p")]
             commands::team_p2p::get_p2p_config,
             #[cfg(feature = "p2p")]
             commands::team_p2p::save_p2p_config,
