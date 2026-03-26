@@ -37,13 +37,24 @@ vi.mock('@/stores/workspace', () => ({
         pushUndo: vi.fn(),
         refreshFileTree: vi.fn().mockResolvedValue(undefined),
         clearSelection: vi.fn(),
+        clipboardPaths: [],
+        clipboardMode: null,
+        setClipboard: vi.fn(),
+        pasteFiles: vi.fn().mockResolvedValue(false),
+        revealFile: vi.fn().mockResolvedValue(undefined),
       }),
     {
       getState: () => ({
         selectedFiles: [],
         fileTree: mockFileTree,
         clearSelection: vi.fn(),
+        setClipboard: vi.fn(),
+        clipboardPaths: [],
+        clipboardMode: null,
+        pasteFiles: vi.fn().mockResolvedValue(false),
       }),
+      subscribe: vi.fn(() => vi.fn()),
+      setState: vi.fn(),
     },
   ),
 }))
@@ -58,6 +69,10 @@ vi.mock('@/stores/git-settings', () => ({
     showStatusIcons: false,
     statusColors: {},
   }),
+}))
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
 }))
 
 vi.mock('@/lib/utils', () => ({
@@ -95,6 +110,7 @@ vi.mock('../file-tree-operations', () => ({
   openWithDefaultApp: vi.fn(),
   openInTerminal: vi.fn(),
   moveItem: vi.fn(),
+  copyItem: vi.fn(),
   readFileContent: vi.fn(),
 }))
 

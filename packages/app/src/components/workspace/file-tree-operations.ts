@@ -112,6 +112,49 @@ export async function moveItem(fromPath: string, toDir: string): Promise<boolean
   }
 }
 
+/** Recursively copy a file or directory to a target directory */
+export async function copyItem(sourcePath: string, targetDir: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  try {
+    const { exists, readDir, readFile, writeFile, mkdir } = await import("@tauri-apps/plugin-fs");
+    const name = sourcePath.substring(sourcePath.lastIndexOf("/") + 1);
+    let destPath = `${targetDir}/${name}`;
+
+    // Handle naming conflict: append " copy" or " copy N"
+    if (await exists(destPath)) {
+      const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+      const base = ext ? name.slice(0, -ext.length) : name;
+      let suffix = 1;
+      destPath = `${targetDir}/${base} copy${ext}`;
+      while (await exists(destPath)) {
+        suffix++;
+        destPath = `${targetDir}/${base} copy ${suffix}${ext}`;
+      }
+    }
+
+    // Check if source is a directory
+    try {
+      const entries = await readDir(sourcePath);
+      // It's a directory — create it and copy contents recursively
+      await mkdir(destPath);
+      for (const entry of entries) {
+        const childPath = `${sourcePath}/${entry.name}`;
+        const success = await copyItem(childPath, destPath);
+        if (!success) return false;
+      }
+      return true;
+    } catch {
+      // Not a directory — it's a file, copy bytes
+      const bytes = await readFile(sourcePath);
+      await writeFile(destPath, bytes);
+      return true;
+    }
+  } catch (error) {
+    console.error("[FileTree] Failed to copy item:", error);
+    return false;
+  }
+}
+
 /** Read file content for undo backup (text files only) */
 export async function readFileContent(path: string): Promise<string | undefined> {
   if (!isTauri()) return undefined;

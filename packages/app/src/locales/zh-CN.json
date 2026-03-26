@@ -130,7 +130,14 @@
     "noFilesFound": "未找到文件",
     "noFilesMatchFilter": "没有匹配的文件",
     "filterPlaceholder": "过滤文件...",
-    "revealActiveFile": "在文件树中定位"
+    "revealActiveFile": "在文件树中定位",
+    "copyFile": "复制",
+    "cutFile": "剪切",
+    "pasteFile": "粘贴",
+    "copied": "已复制 {{count}} 项",
+    "cut": "已剪切 {{count}} 项",
+    "pasted": "已粘贴",
+    "pasteFailed": "粘贴失败"
   },
   "git": {
     "modified": "已修改",

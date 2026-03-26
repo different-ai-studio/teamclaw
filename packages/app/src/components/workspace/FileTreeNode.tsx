@@ -12,6 +12,8 @@ import {
   FolderPlus,
   Trash2,
   Copy,
+  Scissors,
+  ClipboardPaste,
   ExternalLink,
   MessageSquarePlus,
   AppWindow,
@@ -172,6 +174,12 @@ export interface FileTreeItemProps {
   onDragOver: (e: React.DragEvent, path: string) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, targetPath: string) => void;
+  onCut: (paths: string[]) => void;
+  onCopy: (paths: string[]) => void;
+  onPaste: (targetDir: string) => void;
+  hasClipboard: boolean;
+  isClipboardCut: boolean;
+  clipboardPaths: string[];
 }
 
 export const FileTreeItem = React.memo(function FileTreeItem({
@@ -212,12 +220,19 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   compactName,
   compactedPaths,
   onCollapseCompacted,
+  onCut,
+  onCopy,
+  onPaste,
+  hasClipboard,
+  isClipboardCut,
+  clipboardPaths,
 }: FileTreeItemProps) {
   const { t } = useTranslation();
   const isDirectory = node.type === "directory";
   const myRole = useTeamModeStore((s) => s.myRole)
   const isTeamFile = node.path.includes(`/${TEAM_REPO_DIR}/`)
   const isViewerRestricted = isTeamFile && myRole === 'viewer'
+  const isCutTarget = clipboardPaths?.includes(node.path) && isClipboardCut;
   const displayName = compactName || node.name;
 
   const handleClick = (e: React.MouseEvent) => {
@@ -288,6 +303,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           "bg-primary/20 ring-2 ring-primary/40",
         hasGitChanges && !isSelected && !isFocused && "git-status-changed",
         isTeamClawTeam && !isSelected && !isFocused && "border-l border-blue-500/40",
+        isCutTarget && "opacity-50",
       )}
       style={{ paddingLeft: `${level * 12 + 8}px` }}
     >
@@ -396,6 +412,26 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           <Copy className="h-4 w-4" />
           {t("fileExplorer.copyRelativePath", "Copy Relative Path")}
         </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => onCopy([node.path])}>
+          <Copy className="h-4 w-4" />
+          {t("fileExplorer.copyFile", "Copy")}
+          <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+        </ContextMenuItem>
+        {!isViewerRestricted && (
+          <ContextMenuItem onClick={() => onCut([node.path])}>
+            <Scissors className="h-4 w-4" />
+            {t("fileExplorer.cutFile", "Cut")}
+            <ContextMenuShortcut>⌘X</ContextMenuShortcut>
+          </ContextMenuItem>
+        )}
+        {!isViewerRestricted && hasClipboard && isDirectory && (
+          <ContextMenuItem onClick={() => onPaste(node.path)}>
+            <ClipboardPaste className="h-4 w-4" />
+            {t("fileExplorer.pasteFile", "Paste")}
+            <ContextMenuShortcut>⌘V</ContextMenuShortcut>
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         {!isViewerRestricted && (
           <ContextMenuItem onClick={() => onRename(node.path)}>

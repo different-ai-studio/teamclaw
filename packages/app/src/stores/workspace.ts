@@ -108,6 +108,13 @@ interface WorkspaceState {
   // Undo stack
   undoStack: UndoOperation[];
 
+  // Clipboard
+  clipboardPaths: string[];
+  clipboardMode: 'copy' | 'cut' | null;
+  setClipboard: (paths: string[], mode: 'copy' | 'cut') => void;
+  clearClipboard: () => void;
+  pasteFiles: (targetDir: string) => Promise<boolean>;
+
   // New workspace detection
   isNewWorkspace: boolean;
   setIsNewWorkspace: (value: boolean) => void;
@@ -200,8 +207,46 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   targetHeading: null,
   focusedPath: null,
   undoStack: [],
+  clipboardPaths: [],
+  clipboardMode: null,
   isNewWorkspace: false,
   setIsNewWorkspace: (value: boolean) => set({ isNewWorkspace: value }),
+
+  setClipboard: (paths, mode) => set({ clipboardPaths: paths, clipboardMode: mode }),
+  clearClipboard: () => set({ clipboardPaths: [], clipboardMode: null }),
+
+  pasteFiles: async (targetDir: string) => {
+    const { clipboardPaths, clipboardMode, refreshFileTree } = get();
+    if (!clipboardPaths.length || !clipboardMode) return false;
+    if (!isTauri()) return false;
+
+    try {
+      const { copyItem, moveItem } = await import(
+        "@/components/workspace/file-tree-operations"
+      );
+
+      let allSuccess = true;
+      for (const sourcePath of clipboardPaths) {
+        // Skip copy/move into self or own subtree
+        if (targetDir === sourcePath || targetDir.startsWith(sourcePath + '/')) continue;
+        const success =
+          clipboardMode === "copy"
+            ? await copyItem(sourcePath, targetDir)
+            : await moveItem(sourcePath, targetDir);
+        if (!success) allSuccess = false;
+      }
+
+      if (clipboardMode === "cut") {
+        set({ clipboardPaths: [], clipboardMode: null });
+      }
+
+      await refreshFileTree();
+      return allSuccess;
+    } catch (error) {
+      console.error("[Workspace] Paste failed:", error);
+      return false;
+    }
+  },
 
   // Set workspace and load file tree
   setWorkspace: async (path: string) => {
@@ -254,6 +299,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       targetHeading: null,
       focusedPath: null,
       undoStack: [],
+      clipboardPaths: [],
+      clipboardMode: null,
     });
 
     // Check if this is a new workspace (no .teamclaw directory yet)
@@ -412,6 +459,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       targetHeading: null,
       focusedPath: null,
       undoStack: [],
+      clipboardPaths: [],
+      clipboardMode: null,
     });
   },
 

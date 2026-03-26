@@ -130,7 +130,14 @@
     "noFilesFound": "No files found",
     "noFilesMatchFilter": "No files match filter",
     "filterPlaceholder": "Filter files...",
-    "revealActiveFile": "Reveal Active File"
+    "revealActiveFile": "Reveal Active File",
+    "copyFile": "Copy",
+    "cutFile": "Cut",
+    "pasteFile": "Paste",
+    "copied": "Copied {{count}} item(s)",
+    "cut": "Cut {{count}} item(s)",
+    "pasted": "Pasted",
+    "pasteFailed": "Paste failed"
   },
   "git": {
     "modified": "Modified",

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, File } from "lucide-react";
 
+import { toast } from 'sonner';
 import { copyToClipboard } from '@/lib/utils';
 import { GitStatus } from "@/lib/git/service";
 import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
@@ -263,6 +264,10 @@ export function FileTree({
   const pushUndo = useWorkspaceStore(s => s.pushUndo);
   const refreshFileTree = useWorkspaceStore(s => s.refreshFileTree);
   const revealFile = useWorkspaceStore(s => s.revealFile);
+  const clipboardPaths = useWorkspaceStore(s => s.clipboardPaths);
+  const clipboardMode = useWorkspaceStore(s => s.clipboardMode);
+  const setClipboard = useWorkspaceStore(s => s.setClipboard);
+  const pasteFiles = useWorkspaceStore(s => s.pasteFiles);
 
   const { gitStatuses } = useGitStatus();
   const { showGitStatus, showStatusIcons, statusColors } =
@@ -539,6 +544,27 @@ export function FileTree({
     [workspacePath],
   );
 
+  // ── Clipboard handlers for context menu ──
+  const handleCut = useCallback((paths: string[]) => {
+    setClipboard(paths, 'cut');
+    toast.success(t('fileExplorer.cut', 'Cut {{count}} item(s)', { count: paths.length }));
+  }, [setClipboard, t]);
+
+  const handleCopy = useCallback((paths: string[]) => {
+    setClipboard(paths, 'copy');
+    toast.success(t('fileExplorer.copied', 'Copied {{count}} item(s)', { count: paths.length }));
+  }, [setClipboard, t]);
+
+  const handlePaste = useCallback(async (targetDir: string) => {
+    const success = await pasteFiles(targetDir);
+    if (success) {
+      toast.success(t('fileExplorer.pasted', 'Pasted'));
+      await expandDirectory(targetDir);
+    } else {
+      toast.error(t('fileExplorer.pasteFailed', 'Paste failed'));
+    }
+  }, [pasteFiles, expandDirectory, t]);
+
   // ── Drag and drop handlers ──
   const handleDragStart = useCallback(
     (e: React.DragEvent, path: string) => {
@@ -653,10 +679,56 @@ export function FileTree({
 
   // ── Keyboard navigation ──
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
+    async (e: React.KeyboardEvent) => {
       if (!flatNodes.length) return;
       // Don't handle keys when renaming
       if (renamingPath || creatingIn) return;
+
+      // Clipboard shortcuts
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        if (e.key === 'c') {
+          e.preventDefault();
+          const paths = selectedFiles.length > 0 ? selectedFiles : (focusedPath ? [focusedPath] : []);
+          if (paths.length > 0) {
+            setClipboard(paths, 'copy');
+            toast.success(t('fileExplorer.copied', 'Copied {{count}} item(s)', { count: paths.length }));
+          }
+          return;
+        }
+        if (e.key === 'x') {
+          e.preventDefault();
+          const paths = selectedFiles.length > 0 ? selectedFiles : (focusedPath ? [focusedPath] : []);
+          if (paths.length > 0) {
+            setClipboard(paths, 'cut');
+            toast.success(t('fileExplorer.cut', 'Cut {{count}} item(s)', { count: paths.length }));
+          }
+          return;
+        }
+        if (e.key === 'v') {
+          e.preventDefault();
+          if (clipboardPaths.length > 0 && clipboardMode) {
+            let targetDir = workspacePath;
+            if (focusedPath) {
+              const node = flatNodes.find(n => n.node.path === focusedPath);
+              if (node?.node.type === 'directory') {
+                targetDir = focusedPath;
+              } else {
+                targetDir = focusedPath.substring(0, focusedPath.lastIndexOf('/'));
+              }
+            }
+            if (targetDir) {
+              const success = await pasteFiles(targetDir);
+              if (success) {
+                toast.success(t('fileExplorer.pasted', 'Pasted'));
+                await expandDirectory(targetDir);
+              } else {
+                toast.error(t('fileExplorer.pasteFailed', 'Paste failed'));
+              }
+            }
+          }
+          return;
+        }
+      }
 
       const currentIndex = flatNodes.findIndex(
         (n) => n.node.path === focusedPath,
@@ -789,12 +861,18 @@ export function FileTree({
       creatingIn,
       effectiveExpandedPaths,
       workspacePath,
+      selectedFiles,
       setFocusedPath,
       expandDirectory,
       collapseDirectory,
       collapseCompacted,
       selectFile,
       handleDelete,
+      clipboardPaths,
+      clipboardMode,
+      setClipboard,
+      pasteFiles,
+      t,
     ],
   );
 
@@ -910,6 +988,12 @@ export function FileTree({
     onDragOver: handleDragOver,
     onDragLeave: handleDragLeave,
     onDrop: handleDrop,
+    onCut: handleCut,
+    onCopy: handleCopy,
+    onPaste: handlePaste,
+    hasClipboard: clipboardPaths.length > 0,
+    isClipboardCut: clipboardMode === 'cut',
+    clipboardPaths,
   });
 
   const treeContent = !useVirtual ? (
