@@ -2568,24 +2568,16 @@ pub async fn p2p_sync_status(
 
     let config = read_p2p_config(&workspace_path)?.unwrap_or_default();
     let guard = iroh_state.lock().await;
-    let has_active_doc = guard.as_ref().map_or(false, |n| n.active_doc.is_some());
-    // Diagnostic: log active doc namespace vs config namespace
-    if let Some(node) = guard.as_ref() {
-        if let Some(doc) = &node.active_doc {
-            let active_ns = doc.id().to_string();
-            let config_ns = config.namespace_id.as_deref().unwrap_or("none");
-            eprintln!(
-                "[Team] Active doc namespace={}, config namespace={}",
-                &active_ns[..10.min(active_ns.len())],
-                &config_ns[..10.min(config_ns.len())]
-            );
-        } else {
-            eprintln!("[Team] WARNING: No active doc in sync_status check");
+    // connected = active doc exists AND its namespace matches this workspace's config
+    let connected = guard.as_ref().map_or(false, |n| {
+        match (&n.active_doc, config.namespace_id.as_deref()) {
+            (Some(doc), Some(config_ns)) => doc.id().to_string() == config_ns,
+            _ => false,
         }
-    }
+    });
 
     Ok(P2pSyncStatus {
-        connected: has_active_doc,
+        connected,
         role: config.role,
         doc_ticket: config.doc_ticket,
         namespace_id: config.namespace_id,

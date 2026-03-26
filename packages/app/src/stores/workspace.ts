@@ -269,10 +269,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       } catch { /* ignore */ }
     }
 
-    // Reset advancedMode to default until new workspace config is loaded
+    // Reset UI to home state: close settings, switch to task/chat mode, clear tabs
     try {
       const { useUIStore } = await import("./ui");
-      useUIStore.setState({ advancedMode: false });
+      useUIStore.setState({
+        advancedMode: false,
+        currentView: 'chat',
+        layoutMode: 'task',
+        settingsInitialSection: null,
+        embeddedSettingsSection: null,
+      });
+    } catch { /* ignore */ }
+    try {
+      const { useTabsStore } = await import("./tabs");
+      useTabsStore.getState().closeAll();
     } catch { /* ignore */ }
 
     // Reset team mode state — each workspace has its own team config
@@ -288,6 +298,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         _appliedConfigKey: null,
         myRole: null,
         p2pConnected: false,
+        p2pConfigured: false,
       });
       // Load team config immediately so sidebar shows team tag on startup
       useTeamModeStore.getState().loadTeamConfig(expandedPath).catch(() => {});

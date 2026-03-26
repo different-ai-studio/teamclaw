@@ -1,6 +1,5 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { invoke } from '@tauri-apps/api/core'
 import {
   Users,
 } from 'lucide-react'
@@ -8,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { TeamP2PConfig } from './team/TeamP2PConfig'
 import { TeamOSSConfig } from './team/TeamOSSConfig'
 import { useTeamOssStore } from '@/stores/team-oss'
-import { useWorkspaceStore } from '@/stores/workspace'
+import { useTeamModeStore } from '@/stores/team-mode'
 
 // ─── Tab Switcher ────────────────────────────────────────────────────────────
 
@@ -87,22 +86,8 @@ function SectionHeader({
 function useActiveSyncMethod(): TeamTab | null {
   const ossConfigured = useTeamOssStore((s) => s.configured)
   const ossConnected = useTeamOssStore((s) => s.connected)
-  const [p2pConnected, setP2pConnected] = React.useState(false)
-  const [p2pConfigured, setP2pConfigured] = React.useState(false)
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
-
-  React.useEffect(() => {
-    invoke<{ connected: boolean; namespaceId?: string | null }>('p2p_sync_status')
-      .then((s) => {
-        setP2pConnected(s?.connected ?? false)
-        // P2P is configured if it has a namespace (team was created/joined)
-        setP2pConfigured(!!s?.namespaceId)
-      })
-      .catch(() => {
-        setP2pConnected(false)
-        setP2pConfigured(false)
-      })
-  }, [workspacePath])
+  const p2pConnected = useTeamModeStore((s) => s.p2pConnected)
+  const p2pConfigured = useTeamModeStore((s) => s.p2pConfigured)
 
   // Prefer connected state, fall back to configured state
   if (p2pConnected) return 'p2p'

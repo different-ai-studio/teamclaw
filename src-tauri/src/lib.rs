@@ -902,13 +902,18 @@ pub fn run() {
                     }
                 }
                 tauri::RunEvent::Exit => {
+                    // Kill the OpenCode sidecar synchronously.
+                    // NOTE: Do NOT use tauri::async_runtime::block_on here — the
+                    // main thread already has a tokio runtime entered (_guard),
+                    // which causes block_on to deadlock or panic, preventing
+                    // std::process::exit from ever being called.
                     let oc_state = app.state::<commands::opencode::OpenCodeState>();
-                    if let Err(e) =
-                        tauri::async_runtime::block_on(commands::opencode::shutdown_opencode(
-                            oc_state.inner(),
-                        ))
-                    {
-                        eprintln!("[OpenCode] Failed to stop sidecar on app exit: {}", e);
+                    if let Ok(mut child_guard) = oc_state.child_process.lock() {
+                        if let Some(child) = child_guard.take() {
+                            if let Err(e) = child.kill() {
+                                eprintln!("[OpenCode] Failed to stop sidecar on app exit: {}", e);
+                            }
+                        }
                     }
                     let _ = app.track_event("app_exited", None);
                     app.flush_events_blocking();
