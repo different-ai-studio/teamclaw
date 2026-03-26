@@ -25,6 +25,7 @@ interface TeamModeState {
   devUnlocked: boolean // hidden dev mode: unlocks model selector & hidden dirs in team mode
   myRole: 'owner' | 'editor' | 'viewer' | null
   p2pConnected: boolean
+  p2pConfigured: boolean
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
   applyTeamModelToOpenCode: (workspacePath: string) => Promise<void>
@@ -64,6 +65,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   devUnlocked: false,
   myRole: null,
   p2pConnected: false,
+  p2pConfigured: false,
   teamApiKey: (() => {
     try {
       return localStorage.getItem(TEAM_API_KEY_STORAGE) || null
@@ -107,8 +109,8 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       const { invoke } = await import('@tauri-apps/api/core')
       const role = await invoke<string | null>('unified_team_get_my_role')
       set({ myRole: role as any })
-      const syncStatus = await invoke<{ connected?: boolean }>('p2p_sync_status').catch(() => null)
-      set({ p2pConnected: syncStatus?.connected ?? false })
+      const syncStatus = await invoke<{ connected?: boolean; namespaceId?: string | null }>('p2p_sync_status').catch(() => null)
+      set({ p2pConnected: syncStatus?.connected ?? false, p2pConfigured: !!syncStatus?.namespaceId })
     } catch {
       // Non-critical, role can be loaded later
     }

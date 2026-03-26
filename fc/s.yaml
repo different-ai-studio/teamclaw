@@ -21,6 +21,8 @@ resources:
         BUCKET: teamclaw-team
         REGION: cn-shenzhen
         ENDPOINT: https://oss-cn-shenzhen.aliyuncs.com
+        LITELLM_URL: ${env('LITELLM_URL')}
+        LITELLM_MASTER_KEY: ${env('LITELLM_MASTER_KEY')}
       triggers:
         - triggerName: http-trigger
           triggerType: http
