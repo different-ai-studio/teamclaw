@@ -70,6 +70,20 @@
         { "path": "/**" }
       ]
     },
+    {
+      "identifier": "fs:allow-rename",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-copy-file",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "/**" }
+      ]
+    },
     "fs:default",
     "updater:default",
     "core:webview:default",
