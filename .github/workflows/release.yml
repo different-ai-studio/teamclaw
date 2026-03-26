@@ -26,7 +26,7 @@ jobs:
           - target: x86_64-apple-darwin
             opencode_asset: opencode-darwin-x64.zip
             opencode_binary: opencode-x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-latest
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
