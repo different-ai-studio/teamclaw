@@ -125,7 +125,6 @@ export function TeamOSSConfig() {
     syncStatus,
     teamInfo,
     error,
-    initialize,
     createTeam,
     joinTeam,
     leaveTeam,
@@ -133,7 +132,6 @@ export function TeamOSSConfig() {
     loadSyncStatus,
     createSnapshot,
     cleanupUpdates,
-    cleanup,
     applyToTeam,
     pendingApplication,
     loadPendingApplication,
@@ -162,12 +160,10 @@ export function TeamOSSConfig() {
   const [showApplicationDialog, setShowApplicationDialog] = useState(false)
   const [applicationTeamName, setApplicationTeamName] = useState('')
 
-  useEffect(() => {
-    if (workspacePath) {
-      initialize(workspacePath)
-    }
-    return () => cleanup()
-  }, [workspacePath, initialize, cleanup])
+  // NOTE: Do NOT call initialize/cleanup here. The OSS sync lifecycle is
+  // managed at the app level by useOssSyncInit (in useAppInit.ts).
+  // Previously this component called cleanup() on unmount, which killed
+  // the OSS connection whenever the user switched away from the S3 tab.
 
   useEffect(() => {
     invoke<DeviceInfo>('get_device_info').then(setDeviceInfo).catch(() => {})

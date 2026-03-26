@@ -37,6 +37,7 @@ export function TiptapHtmlEditor({
   const [currentContent, setCurrentContent] = useState(content);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const previousContentRef = useRef(content);
+  const isProgrammaticUpdateRef = useRef(false);
 
   const extensions = useTiptapExtensions({ imageConfig: { inline: true, allowBase64: false } })
 
@@ -45,6 +46,7 @@ export function TiptapHtmlEditor({
     content,
     editable: !readOnly,
     onUpdate: ({ editor }) => {
+      if (isProgrammaticUpdateRef.current) return;
       const html = editor.getHTML();
       setCurrentContent(html);
       onChange?.(html);
@@ -62,7 +64,9 @@ export function TiptapHtmlEditor({
       previousContentRef.current = content;
       const editorHtml = editor.getHTML();
       if (editorHtml !== content) {
+        isProgrammaticUpdateRef.current = true;
         editor.commands.setContent(content);
+        isProgrammaticUpdateRef.current = false;
         setCurrentContent(content);
       }
     }

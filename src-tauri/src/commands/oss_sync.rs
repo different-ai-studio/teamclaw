@@ -238,11 +238,19 @@ impl OssSyncManager {
                         "FC request to {path} rate-limited after {max_retries} retries"
                     ));
                 }
-                let delay_secs = 2u64.pow(attempt); // 2s, 4s, 8s
-                warn!(
-                    "FC request to {path} returned 429, retrying in {delay_secs}s (attempt {attempt}/{max_retries})"
-                );
-                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                // Exponential backoff with jitter to avoid thundering herd
+                let base_delay_ms = 2000u64 * 2u64.pow(attempt - 1); // 2s, 4s, 8s
+                let jitter_ms = (std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .subsec_nanos() as u64) % 1000; // 0-999ms jitter
+                let delay_ms = base_delay_ms + jitter_ms;
+                if attempt == 1 {
+                    warn!(
+                        "FC request to {path} returned 429, will retry up to {max_retries} times with backoff"
+                    );
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 continue;
             }
 

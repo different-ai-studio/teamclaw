@@ -70,6 +70,13 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
     const onChangeRef = useRef(onChange);
     onChangeRef.current = onChange;
 
+    // Guard flag: when true, suppress onUpdate → onChange to prevent
+    // programmatic setContent calls from being treated as user edits.
+    // Without this, the markdown round-trip (markdown → Tiptap DOM → markdown)
+    // produces slightly different output, which triggers isModified → auto-save
+    // → overwrites the file with serialized content even though the user never edited.
+    const isProgrammaticUpdateRef = useRef(false);
+
     const baseExtensions = useTiptapExtensions({
       imageConfig: { inline: false, allowBase64: true },
       extraExtensions: [
@@ -88,6 +95,10 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
       contentType: "markdown",
       editable: !readOnly,
       onUpdate: ({ editor }) => {
+        // Skip onChange for programmatic setContent calls (initial load, agent
+        // changes, external sync).  Only user-initiated edits should propagate.
+        if (isProgrammaticUpdateRef.current) return;
+
         // Get markdown content and convert asset URLs back to relative paths
         // Decorations (AgentHighlight) don't affect getMarkdown output
         const md = editor.getMarkdown();
@@ -122,7 +133,9 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
         // Resolve relative image paths to Tauri asset URLs
         const resolved = await resolveMarkdownImages(content, filePath);
         if (cancelled) return;
+        isProgrammaticUpdateRef.current = true;
         editor.commands.setContent(resolved, { contentType: "markdown" });
+        isProgrammaticUpdateRef.current = false;
         previousContentRef.current = content;
         setIsReady(true);
       };
@@ -152,7 +165,9 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
 
         // Resolve images and set content
         const resolved = await resolveMarkdownImages(newMarkdown, filePath);
+        isProgrammaticUpdateRef.current = true;
         editor.commands.setContent(resolved, { contentType: "markdown" });
+        isProgrammaticUpdateRef.current = false;
 
         // Update the tracked content reference
         previousContentRef.current = newMarkdown;
@@ -263,9 +278,11 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
             const scrollEl = editor.view.dom.closest(".overflow-auto");
             const savedScrollTop = scrollEl?.scrollTop ?? 0;
 
+            isProgrammaticUpdateRef.current = true;
             editor.commands.setContent(resolved, {
               contentType: "markdown",
             });
+            isProgrammaticUpdateRef.current = false;
 
             // Restore cursor position
             const maxPos = editor.state.doc.content.size;
