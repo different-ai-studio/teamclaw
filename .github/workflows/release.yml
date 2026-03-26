@@ -16,15 +16,18 @@ jobs:
     permissions:
       contents: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: aarch64-apple-darwin
             opencode_asset: opencode-darwin-arm64.zip
             opencode_binary: opencode-aarch64-apple-darwin
+            runner: macos-latest
           - target: x86_64-apple-darwin
             opencode_asset: opencode-darwin-x64.zip
             opencode_binary: opencode-x86_64-apple-darwin
-    runs-on: macos-latest-xlarge
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
