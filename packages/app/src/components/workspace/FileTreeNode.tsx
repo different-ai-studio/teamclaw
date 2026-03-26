@@ -17,11 +17,13 @@ import {
   ExternalLink,
   MessageSquarePlus,
   AppWindow,
+  History,
 } from "lucide-react";
 
 import { cn } from '@/lib/utils';
 import { TEAM_REPO_DIR } from '@/lib/build-config';
 import { useTeamModeStore } from '@/stores/team-mode';
+import { useTabsStore } from '@/stores/tabs';
 import { getFileIcon } from '@/lib/file-icons';
 import { getGitStatusIndicator, getGitStatusTextColor } from '@/lib/git-status-utils';
 import { GitStatus } from "@/lib/git/service";
@@ -430,6 +432,20 @@ export const FileTreeItem = React.memo(function FileTreeItem({
             <ClipboardPaste className="h-4 w-4" />
             {t("fileExplorer.pasteFile", "Paste")}
             <ContextMenuShortcut>⌘V</ContextMenuShortcut>
+          </ContextMenuItem>
+        )}
+        {!isDirectory && (
+          <ContextMenuItem
+            onClick={() => {
+              useTabsStore.getState().openTab({
+                type: "native",
+                target: "version-history",
+                label: "版本历史",
+              })
+            }}
+          >
+            <History className="h-4 w-4" />
+            版本历史
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
