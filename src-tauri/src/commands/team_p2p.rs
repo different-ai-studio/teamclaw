@@ -1006,7 +1006,7 @@ fn start_sync_tasks(
                     match event {
                         Some(Ok(LiveEvent::NeighborUp(peer_key))) => {
                             // New peer appeared in gossip — trigger sync with them
-                            let peer_id: iroh::EndpointId = peer_key.into();
+                            let peer_id: iroh::EndpointId = peer_key;
                             eprintln!("[P2P][sync] NeighborUp: {}", &peer_id.to_string()[..10]);
                             if let Some(info) = ep.remote_info(peer_id).await {
                                 let mut addrs = std::collections::BTreeSet::new();
@@ -1031,7 +1031,7 @@ fn start_sync_tasks(
                                 }
                             }
                             // Cache the peer's address for future LAN reconnection
-                            let peer_id: iroh::EndpointId = ev.peer.into();
+                            let peer_id: iroh::EndpointId = ev.peer;
                             if let Some(info) = ep.remote_info(peer_id).await {
                                 let addrs: Vec<String> = info.addrs()
                                     .filter_map(|a| match a.addr() {

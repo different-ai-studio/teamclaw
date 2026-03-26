@@ -45,6 +45,7 @@ use crate::commands::opencode::OpenCodeState;
 #[derive(Debug, Clone)]
 pub struct ChannelSender {
     pub platform: String,
+    #[allow(dead_code)]
     pub external_id: String,
     pub display_name: String,
 }

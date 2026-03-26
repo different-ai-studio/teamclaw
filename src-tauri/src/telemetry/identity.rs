@@ -9,6 +9,7 @@ pub struct InternalUser {
     pub created_at: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedIdentity {
     pub uid: String,
@@ -17,6 +18,7 @@ pub struct ResolvedIdentity {
     pub is_new: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEntry {
     pub id: String,
@@ -38,6 +40,7 @@ pub struct IdentityRegistry {
     db: TelemetryDb,
 }
 
+#[allow(dead_code)]
 impl IdentityRegistry {
     pub fn new(db: TelemetryDb) -> Self {
         Self { db }

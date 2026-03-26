@@ -26,6 +26,7 @@ pub mod updater;
 pub mod webview;
 
 /// The short application name, injected at compile time via `build.rs`.
+#[allow(dead_code)]
 pub const APP_SHORT_NAME: &str = env!("APP_SHORT_NAME");
 /// Directory name for all TeamClaw local config/data files, created under the workspace root.
 pub const TEAMCLAW_DIR: &str = concat!(".", env!("APP_SHORT_NAME"));
