@@ -120,6 +120,7 @@ log = "0.4"
 
 # Global keyboard event monitoring (double-tap Ctrl for spotlight)
 rdev = "0.5"
+sentry = "0.47.0"
 
 # macOS native APIs for traffic light control
 [target.'cfg(target_os = "macos")'.dependencies]
