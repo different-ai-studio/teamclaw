@@ -1,11 +1,14 @@
 import { useTranslation } from "react-i18next"
 import { FileQuestion } from "lucide-react"
+import { VersionHistoryTab } from "@/components/version/VersionHistoryTab"
 
 interface NativeContentProps {
   target: string
 }
 
-const nativeComponents: Record<string, React.ComponentType> = {}
+const nativeComponents: Record<string, React.ComponentType> = {
+  "version-history": VersionHistoryTab,
+}
 
 export function NativeContent({ target }: NativeContentProps) {
   const { t } = useTranslation()
