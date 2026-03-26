@@ -7,6 +7,7 @@ import { useTeamMembersStore } from '@/stores/team-members'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
 import { ApplicationDialog } from './ApplicationDialog'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
+import { VersionHistorySection } from './VersionHistorySection'
 import { invoke } from '@tauri-apps/api/core'
 import type { DeviceInfo } from '@/lib/git/types'
 import { useTeamModeStore } from '@/stores/team-mode'
@@ -561,6 +562,8 @@ export function TeamOSSConfig() {
               </div>
             </SettingCard>
           )}
+
+          <VersionHistorySection />
 
           <div className="pt-1">
             {!showLeaveConfirm ? (

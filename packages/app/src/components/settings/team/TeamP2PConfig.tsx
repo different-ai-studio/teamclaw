@@ -18,6 +18,7 @@ import {
   Copy,
   Share2,
 } from 'lucide-react'
+import { VersionHistorySection } from './VersionHistorySection'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { toast } from 'sonner'
 import { buildConfig, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
@@ -835,6 +836,9 @@ export function TeamP2PConfig() {
               <TeamMemberList />
             </div>
           </SettingCard>
+
+          {/* Version History */}
+          <VersionHistorySection />
 
           {/* Danger Zone */}
           <SettingCard className="border-red-200 dark:border-red-800">
