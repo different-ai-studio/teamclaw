@@ -80,6 +80,7 @@ import { SetupGuide } from "@/components/SetupGuide";
 import { TelemetryConsentDialog } from "@/components/telemetry/TelemetryConsentDialog";
 import { WorkspacePrompt } from "@/components/workspace";
 import { WorkspaceTypeDialog } from "@/components/workspace/WorkspaceTypeDialog";
+import { OnboardingTour, type OnboardingStep } from "@/components/onboarding";
 import { useSessionStore } from "@/stores/session";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -477,6 +478,56 @@ function AppContent() {
   ) : null;
   const needsTrafficLightSpacer = useNeedsTrafficLightSpacer();
   const [isRefreshingMessages, setIsRefreshingMessages] = useState(false);
+  const mainWorkspaceOnboardingSteps: OnboardingStep[] = [
+    {
+      target: '[data-onboarding-id="main-sidebar"]',
+      title: t("onboarding.main.sidebarTitle", "Session sidebar"),
+      description: t(
+        "onboarding.main.sidebarBody",
+        "Use the left sidebar to create a new chat, switch tasks, and find earlier conversations.",
+      ),
+    },
+    {
+      target: '[data-onboarding-id="main-chat-area"]',
+      title: t("onboarding.main.chatTitle", "Work from the chat center"),
+      description: t(
+        "onboarding.main.chatBody",
+        "Describe what you want in plain language here. Most tasks can start with a sentence instead of a command.",
+      ),
+    },
+    {
+      target: '[data-onboarding-id="workspace-panel-tabs"]',
+      title: t("onboarding.main.panelTitle", "Open the helper panels"),
+      description: t(
+        "onboarding.main.panelBody",
+        "This area opens tasks and helper panels. If advanced mode is enabled, file and change views will also appear here.",
+      ),
+    },
+    {
+      target: '[data-onboarding-id="chat-input-root"]',
+      title: t("onboarding.chatInput.inputTitle", "Describe the task here"),
+      description: t(
+        "onboarding.chatInput.inputBody",
+        "You can start with a plain sentence like asking for analysis, code changes, or a summary of the current project.",
+      ),
+    },
+    {
+      target: '[data-onboarding-id="chat-input-files"]',
+      title: t("onboarding.chatInput.filesTitle", "Attach files when useful"),
+      description: t(
+        "onboarding.chatInput.filesBody",
+        "Use this button to add files or screenshots so the assistant can work with concrete context.",
+      ),
+    },
+    {
+      target: '[data-onboarding-id="chat-input-submit"]',
+      title: t("onboarding.chatInput.submitTitle", "Send or stop here"),
+      description: t(
+        "onboarding.chatInput.submitBody",
+        "Send your request from here. If the assistant is already working, the same area lets you stop and retry.",
+      ),
+    },
+  ];
 
   // Extracted hooks — initialization, panel state, keyboard shortcuts
   const { openCodeError, setOpenCodeError, initialWorkspaceResolved } = useOpenCodeInit();
@@ -953,7 +1004,7 @@ function AppContent() {
             )}
 
             {/* Panel tabs - right side of header (Shortcuts lives in sidebar when workspace UI variant) */}
-            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            <div className="ml-auto flex shrink-0 items-center gap-0.5" data-onboarding-id="workspace-panel-tabs">
               {!isWorkspaceUIVariant() && (
                 <HeaderPanelTab
                   icon={Bookmark}
@@ -1004,7 +1055,10 @@ function AppContent() {
           </header>
 
           {/* Main content - Chat, file preview, or embedded settings section */}
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div
+            className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+            data-onboarding-id="main-chat-area"
+          >
             {embeddedSettingsSection ? (
               <SettingsSectionBody section={embeddedSettingsSection} />
             ) : (
@@ -1030,6 +1084,14 @@ function AppContent() {
         </div>
       </SidebarInset>
       <VoiceInputFloatingButton />
+      <OnboardingTour
+        id="main-workspace"
+        enabled={
+          !!workspacePath &&
+          !embeddedSettingsSection
+        }
+        steps={mainWorkspaceOnboardingSteps}
+      />
       <WorkspaceTypeDialog
         open={isNewWorkspace}
         onSelectPersonal={() => setIsNewWorkspace(false)}

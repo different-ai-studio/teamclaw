@@ -591,22 +591,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar variant="floating" {...props}>
-      {/* Header: custom traffic lights (Tauri) or spacer + icon group */}
-      <SidebarHeader 
-        className="flex-row items-center px-2 pt-1 pb-2"
-        data-tauri-drag-region
-      >
-        <TrafficLights />
-        {/* Flexible drag region */}
-        <div className="flex-1" data-tauri-drag-region />
-        {/* Icon group: workspace shell keeps only collapse in the header */}
-        {isWorkspaceUIVariant() ? <SidebarCollapseToggle /> : <SidebarIconGroup />}
-      </SidebarHeader>
+      <div className="flex h-full flex-col rounded-lg" data-onboarding-id="main-sidebar">
+        {/* Header: custom traffic lights (Tauri) or spacer + icon group */}
+        <SidebarHeader 
+          className="flex-row items-center px-2 pt-1 pb-2"
+          data-tauri-drag-region
+        >
+          <TrafficLights />
+          {/* Flexible drag region */}
+          <div className="flex-1" data-tauri-drag-region />
+          {/* Icon group: workspace shell keeps only collapse in the header */}
+          {isWorkspaceUIVariant() ? <SidebarCollapseToggle /> : <SidebarIconGroup />}
+        </SidebarHeader>
 
-      <SidebarContent>
-        {isWorkspaceUIVariant() && (
-          <div className="px-1.5 pb-0 pt-0">
-            <div className="flex flex-col gap-0.5">
+        <SidebarContent>
+          {isWorkspaceUIVariant() && (
+            <div className="px-1.5 pb-0 pt-0">
+              <div className="flex flex-col gap-0.5">
               <Button
                 variant="ghost"
                 size="sm"
@@ -651,10 +652,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               aria-hidden
             />
           </div>
-        )}
-        <SidebarGroup
-          className={cn(isWorkspaceUIVariant() && "!px-1 !pb-2 !pt-1")}
-        >
+          )}
+          <SidebarGroup
+            className={cn(isWorkspaceUIVariant() && "!px-1 !pb-2 !pt-1")}
+          >
           {isWorkspaceUIVariant() && (
             <div className="flex w-full shrink-0 flex-col pb-3 pt-0.5">
               <SidebarSecondarySessionActions
@@ -796,22 +797,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </Button>
             </div>
           )}
-        </SidebarGroup>
-      </SidebarContent>
+          </SidebarGroup>
+        </SidebarContent>
 
-      <SidebarFooter className="px-3 py-3">
-        <div className="flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => openSettings()}
-          >
-            {t('sidebar.settings', '设置')}
-          </Button>
-          <WorkspaceSelectorButton />
-        </div>
-      </SidebarFooter>
+        <SidebarFooter className="px-3 py-3">
+          <div className="flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => openSettings()}
+            >
+              {t('sidebar.settings', '设置')}
+            </Button>
+            <WorkspaceSelectorButton />
+          </div>
+        </SidebarFooter>
+      </div>
     </Sidebar>
   )
 }

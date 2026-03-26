@@ -266,6 +266,7 @@ export function ChatInputArea({
         )}
 
         <PromptInput
+          data-onboarding-id="chat-input-root"
           value={inputValue}
           onValueChange={onInputChange}
           onSubmit={handleSubmit}
@@ -381,7 +382,9 @@ export function ChatInputArea({
 
           <PromptInputFooter>
             <PromptInputTools>
-              <FileInputButton onFilesSelected={onFilesChange} />
+              <div data-onboarding-id="chat-input-files">
+                <FileInputButton onFilesSelected={onFilesChange} />
+              </div>
 
               {/* Voice input mic button */}
               {stt.isSupported && (
@@ -481,7 +484,7 @@ export function ChatInputArea({
               )}
             </PromptInputTools>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" data-onboarding-id="chat-input-submit">
               <ContextUsageBadge />
               <PromptInputSubmit
                 disabled={!inputValue.trim() && attachedFiles.length === 0 && imageFiles.length === 0}

@@ -532,6 +532,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           </>
         }
       />
-                        </div>
+    </div>
   );
 }

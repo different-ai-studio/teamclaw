@@ -86,6 +86,30 @@
     "voiceInputNoSession": "Please select or create a session first",
     "voiceInputInsertToChat": "Insert to chat"
   },
+  "onboarding": {
+    "common": {
+      "skip": "Skip",
+      "back": "Back",
+      "next": "Next",
+      "done": "Done"
+    },
+    "main": {
+      "sidebarTitle": "Session sidebar",
+      "sidebarBody": "Use the left sidebar to create a new chat, switch tasks, and find earlier conversations.",
+      "chatTitle": "Work from the chat center",
+      "chatBody": "Most tasks can start here with plain language, not a detailed command.",
+      "panelTitle": "Open the helper panels",
+      "panelBody": "This area opens tasks and helper panels. If advanced mode is enabled, file and change views will also appear here."
+    },
+    "chatInput": {
+      "inputTitle": "Describe the task here",
+      "inputBody": "You can start with a plain sentence like asking for analysis, code changes, or a summary of the current project.",
+      "filesTitle": "Attach files when useful",
+      "filesBody": "Use this button to add files or screenshots so the assistant can work with concrete context.",
+      "submitTitle": "Send or stop here",
+      "submitBody": "Send your request from here. If the assistant is already working, the same area lets you stop and retry."
+    }
+  },
   "workspace": {
     "title": "Workspace",
     "openFolder": "Open Folder",
@@ -101,8 +125,21 @@
     "startupPromptTitle": "Choose a workspace to get started",
     "startupPromptBody": "Please choose an existing workspace or create a new one before continuing.",
     "startupPromptTip": "If your last workspace still exists, TeamClaw will open it automatically next time.",
+    "startupFeatureFast": "Fast resume",
+    "startupFeatureFastDesc": "If your last workspace is still available, the app will reopen it automatically next time.",
+    "startupFeatureSafe": "Clear first step",
+    "startupFeatureSafeDesc": "Choose an existing folder if you already have a project, or create a clean workspace for a new one.",
     "selectExistingDesc": "Open an existing project or directory.",
+    "recommended": "Recommended",
+    "openExistingAction": "Open existing workspace",
+    "newProjectBadge": "New",
+    "createWorkspaceAction": "Choose location and create",
     "webMode": "Web Mode",
+    "webModeBody": "Running in web mode. Enter a workspace path so TeamClaw knows where to read and write project files.",
+    "webModeTipTitle": "Recommended",
+    "webModeTipBody": "Use an absolute path for the smoothest setup, especially when the server runs in a different environment.",
+    "webModeAccessTitle": "Access check",
+    "webModeAccessBody": "Make sure the OpenCode server has permission to access this directory before continuing.",
     "enterPath": "Enter workspace path",
     "clickToSelect": "Click to select a folder",
     "selectFolder": "Select Folder",
