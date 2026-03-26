@@ -23,6 +23,8 @@ pub mod team_p2p;
 pub mod team_unified;
 pub mod team_webdav;
 pub mod updater;
+pub mod version_commands;
+pub mod version_store;
 pub mod version_types;
 pub mod webview;
 

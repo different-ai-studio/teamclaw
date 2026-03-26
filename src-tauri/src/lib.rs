@@ -284,6 +284,7 @@ pub fn run() {
         .manage(commands::spotlight::SpotlightState::default())
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
         .manage(commands::oss_sync::OssSyncState::default())
+        .manage(commands::version_commands::VersionStoreState::default())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::show_in_folder,
@@ -464,6 +465,9 @@ pub fn run() {
             commands::oss_commands::oss_get_pending_application,
             commands::oss_commands::oss_cancel_application,
             commands::oss_commands::oss_approve_application,
+            commands::version_commands::team_list_file_versions,
+            commands::version_commands::team_list_all_versioned_files,
+            commands::version_commands::team_restore_file_version,
             commands::deps::check_dependencies,
             commands::deps::install_dependency,
             commands::env_vars::env_var_set,
