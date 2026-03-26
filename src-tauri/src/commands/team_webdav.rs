@@ -974,7 +974,7 @@ mod tests {
         fs::create_dir_all(&teamclaw_dir).unwrap();
 
         let existing = r#"{"team": {"gitUrl": "https://github.com/org/repo", "enabled": true}}"#;
-        fs::write(teamclaw_dir.join(super::CONFIG_FILE_NAME), existing).unwrap();
+        fs::write(teamclaw_dir.join(crate::commands::CONFIG_FILE_NAME), existing).unwrap();
 
         let cfg = WebDavConfig {
             url: "https://dav.example.com/team/".to_string(),
@@ -987,7 +987,7 @@ mod tests {
         };
         write_webdav_config(workspace, &cfg).unwrap();
 
-        let raw = fs::read_to_string(teamclaw_dir.join(super::CONFIG_FILE_NAME)).unwrap();
+        let raw = fs::read_to_string(teamclaw_dir.join(crate::commands::CONFIG_FILE_NAME)).unwrap();
         let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert!(json["team"]["gitUrl"].as_str().unwrap() == "https://github.com/org/repo");
         assert!(json["webdav"]["url"].as_str().unwrap() == "https://dav.example.com/team/");
@@ -1212,7 +1212,7 @@ mod tests {
         fs::create_dir_all(&teamclaw_dir).unwrap();
 
         let config = r#"{"p2p": {"enabled": true}, "team": {"enabled": false}}"#;
-        fs::write(teamclaw_dir.join(super::CONFIG_FILE_NAME), config).unwrap();
+        fs::write(teamclaw_dir.join(crate::commands::CONFIG_FILE_NAME), config).unwrap();
 
         let status = check_team_status(workspace);
         assert!(status.active);

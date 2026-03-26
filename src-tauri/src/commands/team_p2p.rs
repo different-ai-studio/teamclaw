@@ -2737,7 +2737,7 @@ mod tests {
     async fn test_join_with_invalid_ticket_returns_error() {
         let tmp = tempfile::tempdir().unwrap();
         let mut node = IrohNode::new(tmp.path()).await.unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let result = join_team_drive(
@@ -2745,6 +2745,7 @@ mod tests {
             "garbage-not-a-ticket",
             team_dir.to_str().unwrap(),
             tmp.path().to_str().unwrap(),
+            None,
         )
         .await;
         assert!(result.is_err(), "should fail with invalid ticket");
@@ -2761,7 +2762,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
 
         // Create a team dir with some skill files
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         let skills_dir = team_dir.join(".claude").join("skills").join("test-skill");
         std::fs::create_dir_all(&skills_dir).unwrap();
         std::fs::write(skills_dir.join("SKILL.md"), "# Test Skill\nHello").unwrap();
@@ -2773,6 +2774,7 @@ mod tests {
             &mut node,
             team_dir.to_str().unwrap(),
             tmp.path().to_str().unwrap(),
+            None,
             None,
             None,
             None,
@@ -2832,7 +2834,7 @@ mod tests {
     #[test]
     fn test_sync_detects_removal() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let member_id = "was-a-member-789";
@@ -2882,7 +2884,7 @@ mod tests {
     #[test]
     fn test_join_authorized_succeeds() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let joiner_id = "joiner-node-123";
@@ -2917,7 +2919,7 @@ mod tests {
     #[test]
     fn test_join_unauthorized_fails() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let members = vec![TeamMember {
@@ -2946,7 +2948,7 @@ mod tests {
     #[test]
     fn test_join_no_manifest_succeeds() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let result = check_join_authorization(team_dir.to_str().unwrap(), "any-node-id");
@@ -2960,7 +2962,7 @@ mod tests {
     fn test_remove_member_succeeds() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-123";
@@ -3012,7 +3014,7 @@ mod tests {
     fn test_remove_self_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-123";
@@ -3043,7 +3045,7 @@ mod tests {
     fn test_remove_member_non_owner_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let config = P2pConfig {
@@ -3067,7 +3069,7 @@ mod tests {
     fn test_add_member_succeeds_for_owner() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-node-123";
@@ -3117,7 +3119,7 @@ mod tests {
     fn test_add_member_fails_for_non_owner() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let config = P2pConfig {
@@ -3151,7 +3153,7 @@ mod tests {
     fn test_add_duplicate_member_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-123";
@@ -3193,7 +3195,7 @@ mod tests {
     async fn test_create_team_sets_owner() {
         let tmp = tempfile::tempdir().unwrap();
 
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         let skills_dir = team_dir.join(".claude").join("skills").join("test-skill");
         std::fs::create_dir_all(&skills_dir).unwrap();
         std::fs::write(skills_dir.join("SKILL.md"), "# Test Skill").unwrap();
@@ -3208,6 +3210,7 @@ mod tests {
             &mut node,
             team_dir.to_str().unwrap(),
             workspace,
+            None,
             None,
             None,
             None,
@@ -3238,7 +3241,7 @@ mod tests {
     #[test]
     fn test_write_and_read_members_manifest() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join(super::TEAM_REPO_DIR);
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let owner_id = "owner-node-id-123";
@@ -3302,6 +3305,7 @@ mod tests {
             namespace_id: Some("ns-123".to_string()),
             doc_ticket: Some("docticket-abc".to_string()),
             role: Some(MemberRole::Owner),
+            ..Default::default()
         };
         write_p2p_config(workspace, Some(&config)).unwrap();
 
@@ -3365,7 +3369,7 @@ mod tests {
             "{}/{}/{}",
             workspace,
             crate::commands::TEAMCLAW_DIR,
-            super::CONFIG_FILE_NAME
+            crate::commands::CONFIG_FILE_NAME
         );
         let content = std::fs::read_to_string(&config_path).unwrap();
         let mut json: serde_json::Value = serde_json::from_str(&content).unwrap();
