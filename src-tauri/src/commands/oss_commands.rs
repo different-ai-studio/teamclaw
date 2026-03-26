@@ -576,6 +576,24 @@ pub async fn oss_get_sync_status(state: State<'_, OssSyncState>) -> Result<SyncS
 }
 
 #[tauri::command]
+pub async fn oss_get_files_sync_status(
+    state: State<'_, OssSyncState>,
+    doc_type: Option<String>,
+) -> Result<Vec<FileSyncStatus>, String> {
+    let dt = match &doc_type {
+        Some(s) => Some(parse_doc_type(s)?),
+        None => None,
+    };
+
+    let guard = state.manager.lock().await;
+    let manager = guard
+        .as_ref()
+        .ok_or_else(|| "OSS sync not active".to_string())?;
+
+    manager.get_files_sync_status(dt)
+}
+
+#[tauri::command]
 pub async fn oss_create_snapshot(
     state: State<'_, OssSyncState>,
     doc_type: String,
