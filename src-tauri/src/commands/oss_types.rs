@@ -148,8 +148,16 @@ impl DocType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum SyncFileStatus {
+    Synced,
+    Modified,
+    New,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileSyncStatus {
     pub path: String,
     pub doc_type: String,
-    pub status: String, // "synced" | "modified" | "new"
+    pub status: SyncFileStatus,
 }

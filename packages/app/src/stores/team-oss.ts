@@ -345,8 +345,8 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         map[s.path] = s.status
       }
       set({ fileSyncStatusMap: map })
-    } catch {
-      // Silently ignore — sync may not be active
+    } catch (e) {
+      console.debug('[team-oss] loadFileSyncStatus skipped:', e)
     }
   },
 }))

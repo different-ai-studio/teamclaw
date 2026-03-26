@@ -559,6 +559,10 @@ impl OssSyncManager {
         changed
     }
 
+    /// Compare local files against the Loro doc to determine sync status.
+    /// Only reports on files that exist locally — remote-only files (added by
+    /// teammates but not yet pulled to disk) are not included because the file
+    /// tree only displays local files.
     pub fn get_files_sync_status(
         &self,
         doc_type: Option<DocType>,
@@ -588,24 +592,24 @@ impl OssSyncManager {
                                 _ => false,
                             };
                             if deleted {
-                                "new"
+                                SyncFileStatus::New
                             } else {
                                 match entry.get("hash") {
-                                    Some(loro::LoroValue::String(h)) if h.as_ref() == local_hash => "synced",
-                                    _ => "modified",
+                                    Some(loro::LoroValue::String(h)) if h.as_ref() == local_hash => SyncFileStatus::Synced,
+                                    _ => SyncFileStatus::Modified,
                                 }
                             }
                         } else {
-                            "new"
+                            SyncFileStatus::New
                         }
                     }
-                    _ => "new",
+                    _ => SyncFileStatus::New,
                 };
 
                 result.push(FileSyncStatus {
                     path: format!("{}/{}", dt.dir_name(), path),
                     doc_type: dt.path().to_string(),
-                    status: status.to_string(),
+                    status,
                 });
             }
         }
