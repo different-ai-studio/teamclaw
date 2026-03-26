@@ -1,16 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { renderHook, waitFor } from '@testing-library/react'
 
 // --- Hoist mocks ---
-const { mockSetWorkspace, mockSetOpenCodeReady } = vi.hoisted(() => ({
+const { mockSetWorkspace, mockSetOpenCodeReady, mockIsTauri, mockExists } = vi.hoisted(() => ({
   mockSetWorkspace: vi.fn(),
   mockSetOpenCodeReady: vi.fn(),
+  mockIsTauri: vi.fn(() => false),
+  mockExists: vi.fn(),
 }))
 
 vi.mock('@/lib/utils', () => ({
-  isTauri: () => false,
+  isTauri: mockIsTauri,
   openExternalUrl: vi.fn(),
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+}))
+
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  exists: mockExists,
 }))
 
 vi.mock('@/stores/workspace', () => ({
@@ -79,6 +85,9 @@ vi.mock('@/lib/opencode/preloader', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockIsTauri.mockReturnValue(false)
+  mockExists.mockResolvedValue(true)
+  localStorage.clear()
 })
 
 describe('useOpenCodeInit', () => {
@@ -92,6 +101,33 @@ describe('useOpenCodeInit', () => {
     const { useOpenCodeInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useOpenCodeInit())
     expect(typeof result.current.setOpenCodeError).toBe('function')
+  })
+
+  it('restores the last workspace when one is saved', async () => {
+    localStorage.setItem('teamclaw-workspace-path', '/tmp/teamclaw-last')
+
+    const { useOpenCodeInit } = await import('@/hooks/useAppInit')
+    const { result } = renderHook(() => useOpenCodeInit())
+
+    await waitFor(() => {
+      expect(mockSetWorkspace).toHaveBeenCalledWith('/tmp/teamclaw-last')
+      expect(result.current.initialWorkspaceResolved).toBe(true)
+    })
+  })
+
+  it('clears a saved workspace when it no longer exists in Tauri', async () => {
+    mockIsTauri.mockReturnValue(true)
+    mockExists.mockResolvedValue(false)
+    localStorage.setItem('teamclaw-workspace-path', '/tmp/missing-workspace')
+
+    const { useOpenCodeInit } = await import('@/hooks/useAppInit')
+    const { result } = renderHook(() => useOpenCodeInit())
+
+    await waitFor(() => {
+      expect(mockSetWorkspace).not.toHaveBeenCalled()
+      expect(localStorage.getItem('teamclaw-workspace-path')).toBeNull()
+      expect(result.current.initialWorkspaceResolved).toBe(true)
+    })
   })
 })
 

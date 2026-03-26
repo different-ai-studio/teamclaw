@@ -479,7 +479,7 @@ function AppContent() {
   const [isRefreshingMessages, setIsRefreshingMessages] = useState(false);
 
   // Extracted hooks — initialization, panel state, keyboard shortcuts
-  const { openCodeError, setOpenCodeError } = useOpenCodeInit();
+  const { openCodeError, setOpenCodeError, initialWorkspaceResolved } = useOpenCodeInit();
   useChannelGatewayInit();
   useGitReposInit();
   useCronInit();
@@ -552,6 +552,26 @@ function AppContent() {
           </header>
           <div className="flex-1 overflow-hidden">
             <Settings />
+          </div>
+        </SidebarInset>
+      </>
+    );
+  }
+
+  if (!initialWorkspaceResolved) {
+    return (
+      <>
+        <AppSidebar />
+        <SidebarInset className="flex h-svh flex-col overflow-hidden">
+          <header
+            className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 bg-background px-4"
+            data-tauri-drag-region
+          >
+            {collapsedInsetLeading}
+            <span className="font-medium">{buildConfig.app.name}</span>
+          </header>
+          <div className="flex flex-1 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         </SidebarInset>
       </>

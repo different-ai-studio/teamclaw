@@ -37,20 +37,49 @@ export function useOpenCodeInit() {
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
   const setOpenCodeReady = useWorkspaceStore((s) => s.setOpenCodeReady);
   const [openCodeError, setOpenCodeError] = useState<string | null>(null);
+  const [initialWorkspaceResolved, setInitialWorkspaceResolved] = useState(false);
 
   // Auto-restore last workspace on launch (runs once on mount)
   useEffect(() => {
-    if (!workspacePath) {
-      try {
-        const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
-        if (savedPath) {
-          console.log("[App] Restoring workspace from last session:", savedPath);
-          setWorkspace(savedPath);
+    let cancelled = false;
+
+    void (async () => {
+      if (!workspacePath) {
+        try {
+          const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
+          if (savedPath) {
+            let canRestore = true;
+
+            if (isTauri()) {
+              try {
+                const { exists } = await import("@tauri-apps/plugin-fs");
+                canRestore = await exists(savedPath);
+              } catch (error) {
+                console.warn("[App] Failed to validate saved workspace:", error);
+              }
+            }
+
+            if (canRestore) {
+              console.log("[App] Restoring workspace from last session:", savedPath);
+              await setWorkspace(savedPath);
+            } else {
+              console.log("[App] Saved workspace no longer exists, clearing restore path:", savedPath);
+              localStorage.removeItem(`${appShortName}-workspace-path`);
+            }
+          }
+        } catch {
+          /* ignore storage errors */
         }
-      } catch {
-        /* ignore storage errors */
       }
-    }
+
+      if (!cancelled) {
+        setInitialWorkspaceResolved(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -106,7 +135,7 @@ export function useOpenCodeInit() {
     };
   }, [workspacePath, setOpenCodeReady]);
 
-  return { openCodeError, setOpenCodeError };
+  return { openCodeError, setOpenCodeError, initialWorkspaceResolved };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

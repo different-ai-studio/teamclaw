@@ -19,7 +19,7 @@ vi.mock('@/components/SSEProvider', () => ({ SSEProvider: () => null }))
 vi.mock('@/components/FileEditor', () => ({ FileContentViewer: () => null }))
 vi.mock('@/hooks/useTrafficLightSpacer', () => ({ useNeedsTrafficLightSpacer: () => false }))
 vi.mock('@/hooks/useAppInit', () => ({
-  useOpenCodeInit: () => ({ openCodeError: null, setOpenCodeError: vi.fn() }),
+  useOpenCodeInit: () => ({ openCodeError: null, setOpenCodeError: vi.fn(), initialWorkspaceResolved: true }),
   useChannelGatewayInit: vi.fn(),
   useGitReposInit: vi.fn(),
   useCronInit: vi.fn(),

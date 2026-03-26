@@ -1,0 +1,40 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "bash": "ask",
+    "edit": "ask",
+    "write": "ask",
+    "external_directory": "ask",
+    "doom_loop": "ask"
+  },
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest"
+      ]
+    },
+    "autoui": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "npx",
+        "-y",
+        "autoui-mcp@latest"
+      ],
+      "environment": {
+        "QWEN_API_KEY": "${QWEN_API_KEY}",
+        "QWEN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "QWEN_MODEL": "qwen3-vl-flash"
+      }
+    }
+  },
+  "skills": {
+    "paths": [
+      "teamclaw-team/skills"
+    ]
+  }
+}

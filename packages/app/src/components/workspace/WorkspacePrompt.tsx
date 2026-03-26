@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, Globe } from "lucide-react"
+import { FolderOpen, FolderPlus, Globe } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { isTauri } from '@/lib/utils'
 
@@ -56,6 +64,31 @@ export function WorkspacePrompt() {
     }
   }
 
+  const handleCreateWorkspace = async () => {
+    if (!isTauri()) return
+
+    try {
+      const [{ save }, { mkdir }, { documentDir }] = await Promise.all([
+        import("@tauri-apps/plugin-dialog"),
+        import("@tauri-apps/plugin-fs"),
+        import("@tauri-apps/api/path"),
+      ])
+
+      const documents = await documentDir()
+      const selected = await save({
+        title: t('workspace.createWorkspace', 'Create Workspace'),
+        defaultPath: `${documents.replace(/\/$/, '')}/${t('workspace.newWorkspaceName', 'New Workspace')}`,
+      })
+
+      if (!selected || typeof selected !== 'string') return
+
+      await mkdir(selected, { recursive: true })
+      await setWorkspace(selected)
+    } catch (error) {
+      console.error('Failed to create workspace:', error)
+    }
+  }
+
   // In web mode, show a simpler UI with path input
   if (isWebMode) {
     return (
@@ -95,32 +128,86 @@ export function WorkspacePrompt() {
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <div className="rounded-full bg-muted p-4">
-          <FolderOpen className="h-12 w-12 text-muted-foreground" />
-        </div>
-        <div className="space-y-2">
-          <h2 className="text-xl font-semibold">{t('workspace.selectWorkspace', 'Select Workspace')}</h2>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Please select a workspace. The AI assistant will read/write files and execute tasks in this directory.
-          </p>
+    <>
+      <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="rounded-full bg-muted p-4">
+            <FolderOpen className="h-12 w-12 text-muted-foreground" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold">{t('workspace.selectWorkspace', 'Select Workspace')}</h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              {t(
+                'workspace.startupPromptBody',
+                'Please choose an existing workspace or create a new one before continuing.',
+              )}
+            </p>
+          </div>
         </div>
       </div>
-      
-      <Button
-        size="lg"
-        onClick={handleSelectFolder}
-        disabled={isLoadingWorkspace}
-        className="gap-2"
-      >
-        <FolderOpen className="h-4 w-4" />
-        {isLoadingWorkspace ? t('common.loading', 'Loading...') : t('workspace.selectFolder', 'Select Folder')}
-      </Button>
-      
-      <p className="text-xs text-muted-foreground">
-        Tip: Select the project root or a folder containing the files you want to work with
-      </p>
-    </div>
+
+      <Dialog open>
+        <DialogContent
+          showCloseButton={false}
+          className="sm:max-w-md"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {t('workspace.startupPromptTitle', 'Choose a workspace to get started')}
+            </DialogTitle>
+            <DialogDescription>
+              {t(
+                'workspace.startupPromptBody',
+                'Please choose an existing workspace or create a new one before continuing.',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button
+              size="lg"
+              onClick={handleSelectFolder}
+              disabled={isLoadingWorkspace}
+              className="h-auto min-h-24 flex-col items-start gap-2 px-4 py-4 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <FolderOpen className="h-4 w-4" />
+                {t('workspace.selectFolder', 'Select Folder')}
+              </span>
+              <span className="text-xs font-normal opacity-80">
+                {t('workspace.selectExistingDesc', 'Open an existing project or directory.')}
+              </span>
+            </Button>
+
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={handleCreateWorkspace}
+              disabled={isLoadingWorkspace}
+              className="h-auto min-h-24 flex-col items-start gap-2 px-4 py-4 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <FolderPlus className="h-4 w-4" />
+                {t('workspace.createWorkspace', 'Create Workspace')}
+              </span>
+              <span className="text-xs font-normal text-muted-foreground">
+                {t('workspace.createWorkspaceDesc', 'Pick a path and create a new empty workspace.')}
+              </span>
+            </Button>
+          </div>
+
+          <DialogFooter className="justify-start sm:justify-start">
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'workspace.startupPromptTip',
+                'If you already used TeamClaw before, the last available workspace will be opened automatically next time.',
+              )}
+            </p>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
