@@ -1210,6 +1210,7 @@ async fn handle_message_event(
     let model_param_owned = model_param.clone();
     let message_id_owned = message_id.clone();
     let chat_id_owned = chat_id.clone();
+    let sender_id_owned = sender_id.clone();
     let tm_app_id = token_manager.app_id.clone();
     let tm_app_secret = token_manager.app_secret.clone();
 
@@ -1294,6 +1295,13 @@ async fn handle_message_event(
                             store: pending_questions_clone,
                         };
 
+                        // Build sender identity for message prefix
+                        let channel_sender = super::ChannelSender {
+                            platform: "feishu".to_string(),
+                            external_id: sender_id_owned.clone(),
+                            display_name: sender_id_owned.clone(), // open_id as fallback
+                        };
+
                         // Send to OpenCode
                         let result = send_to_opencode(
                             opencode_port,
@@ -1302,6 +1310,7 @@ async fn handle_message_event(
                             images_owned,
                             model_param_owned,
                             Some(question_ctx),
+                            Some(&channel_sender),
                         )
                         .await;
 
@@ -1533,6 +1542,7 @@ async fn send_to_opencode(
     images: Vec<(String, String)>,
     model: Option<(String, String)>,
     question_ctx: Option<super::QuestionContext>,
+    sender: Option<&super::ChannelSender>,
 ) -> Result<String, String> {
     println!(
         "[Feishu] Sending to OpenCode: content: {}, images: {}",
@@ -1554,7 +1564,7 @@ async fn send_to_opencode(
     println!("[Feishu] Sending message asynchronously with permission auto-approval");
 
     // Use async send with permission auto-approval
-    super::send_message_async_with_approval(port, session_id, parts, model, question_ctx, None).await
+    super::send_message_async_with_approval(port, session_id, parts, model, question_ctx, sender).await
 }
 
 /// Reply to a Feishu message. Returns the reply message_id on success.

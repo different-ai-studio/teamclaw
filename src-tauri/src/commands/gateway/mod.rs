@@ -246,7 +246,20 @@ pub async fn send_message_async_with_approval(
     question_ctx: Option<QuestionContext>,
     sender: Option<&ChannelSender>,
 ) -> Result<String, String> {
-    let _ = sender; // accepted but unused for now
+    // Inject sender identity prefix into the first text part
+    let mut parts = parts;
+    if let Some(sender) = sender {
+        for part in parts.iter_mut() {
+            if part.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                    let prefixed = format!("[{}/{}] {}", sender.display_name, sender.platform, text);
+                    part["text"] = serde_json::Value::String(prefixed);
+                }
+                break; // Only prefix the first text part
+            }
+        }
+    }
+
     let client = reqwest::Client::new();
 
     // Step 1: Connect to SSE FIRST to avoid missing events

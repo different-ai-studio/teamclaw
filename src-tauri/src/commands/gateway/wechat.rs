@@ -863,13 +863,20 @@ impl WeChatGateway {
             store: pending_questions,
         };
 
+        // Build sender identity for message prefix
+        let channel_sender = super::ChannelSender {
+            platform: "wechat".to_string(),
+            external_id: sender_id.to_string(),
+            display_name: sender_id.to_string(),
+        };
+
         match super::send_message_async_with_approval(
             self.opencode_port,
             &session_id,
             parts,
             model,
             Some(question_ctx),
-            None,
+            Some(&channel_sender),
         )
         .await
         {

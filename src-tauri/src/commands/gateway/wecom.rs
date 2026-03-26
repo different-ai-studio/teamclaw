@@ -773,6 +773,9 @@ impl WeComGateway {
         super::create_opencode_session(self.opencode_port).await
     }
 
+    // TODO(identity): WeCom uses a custom streaming implementation (not send_message_async_with_approval).
+    // Create a ChannelSender from _original.from.userid and inject the identity prefix
+    // once the streaming code path supports it.
     async fn process_and_reply_with_parts(
         &self,
         session_key: &str,
