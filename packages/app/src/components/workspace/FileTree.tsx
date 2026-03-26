@@ -10,6 +10,7 @@ import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
 import { useGitStatus } from "@/hooks/use-git-status";
 import { useGitSettingsStore } from "@/stores/git-settings";
 import { useTeamOssStore } from "@/stores/team-oss";
+import { useTeamModeStore } from "@/stores/team-mode";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -329,8 +330,11 @@ export function FileTree({
     return { fileGitStatusMap: fileMap, dirtyDirectories: dirtyDirs };
   }, [showGitStatus, gitStatuses, workspacePath]);
 
-  // Pre-compute sync status data for team files
-  const fileSyncStatusMap = useTeamOssStore(s => s.fileSyncStatusMap);
+  // Pre-compute sync status data for team files (merge OSS and P2P sources)
+  const ossFileSyncStatusMap = useTeamOssStore(s => s.fileSyncStatusMap);
+  const p2pFileSyncStatusMap = useTeamModeStore(s => s.p2pFileSyncStatusMap);
+  const p2pConnected = useTeamModeStore(s => s.p2pConnected);
+  const fileSyncStatusMap = p2pConnected ? p2pFileSyncStatusMap : ossFileSyncStatusMap;
   const syncDirtyDirectories = useMemo(() => {
     const dirtyDirs = new Map<string, 'synced' | 'modified' | 'new'>();
     if (!workspacePath) return dirtyDirs;
