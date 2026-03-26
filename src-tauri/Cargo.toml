@@ -40,7 +40,7 @@ notify-debouncer-full = "0.7"
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
 futures = "0.3"
 base64 = "0.22"
-tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 imap = "2"
 native-tls = "0.2"
 mail-parser = "0.9"
