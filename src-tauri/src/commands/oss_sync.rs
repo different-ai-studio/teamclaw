@@ -535,14 +535,25 @@ impl OssSyncManager {
         for (path, content) in local_files {
             let local_hash = Self::compute_hash(content);
 
-            // Check if the file exists in the doc with the same hash
+            // Check if the file exists in the doc with the same hash.
+            // Also flag files that are marked deleted in the doc but exist
+            // locally — the user re-added them and we must flip deleted→false.
             let needs_update = match files_map.get(path) {
                 Some(loro::ValueOrContainer::Container(loro::Container::Map(entry_map))) => {
                     let deep = entry_map.get_deep_value();
                     if let loro::LoroValue::Map(entry) = deep {
-                        match entry.get("hash") {
-                            Some(loro::LoroValue::String(h)) => h.as_ref() != local_hash,
-                            _ => true,
+                        let is_deleted = matches!(
+                            entry.get("deleted"),
+                            Some(loro::LoroValue::Bool(true))
+                        );
+                        if is_deleted {
+                            // File on disk but doc says deleted → needs update
+                            true
+                        } else {
+                            match entry.get("hash") {
+                                Some(loro::LoroValue::String(h)) => h.as_ref() != local_hash,
+                                _ => true,
+                            }
                         }
                     } else {
                         true
@@ -617,7 +628,7 @@ impl OssSyncManager {
         Ok(result)
     }
 
-    fn write_doc_to_disk(&self, doc_type: DocType) -> Result<(), String> {
+    pub fn write_doc_to_disk(&self, doc_type: DocType) -> Result<(), String> {
         let doc = self.get_doc(doc_type);
         let dir = self.team_dir.join(doc_type.dir_name());
 
@@ -630,8 +641,6 @@ impl OssSyncManager {
         // Collect files that should exist on disk from the LoroDoc
         let mut doc_files: HashSet<String> = HashSet::new();
 
-        // TODO: The exact iteration API for LoroMap may differ. This uses a
-        // reasonable approach — adjust after verifying the loro v1 API.
         let map_value = files_map.get_deep_value();
         if let loro::LoroValue::Map(entries) = map_value {
             for (path, value) in entries.iter() {
@@ -642,10 +651,29 @@ impl OssSyncManager {
                     };
 
                     if deleted {
-                        // Remove file from disk if it exists
                         let file_path = dir.join(path.as_str());
                         if file_path.exists() {
-                            let _ = std::fs::remove_file(&file_path);
+                            // Only delete if the file on disk is unchanged
+                            // since the CRDT wrote it (hash matches).  If the
+                            // hash differs the user re-added or modified the
+                            // file locally — preserve it so the absorb phase
+                            // below can rescue it into the CRDT.
+                            let should_delete = match entry.get("hash") {
+                                Some(loro::LoroValue::String(doc_hash)) => {
+                                    match std::fs::read(&file_path) {
+                                        Ok(disk_content) => {
+                                            let disk_hash =
+                                                Self::compute_hash(&disk_content);
+                                            disk_hash == doc_hash.as_ref()
+                                        }
+                                        Err(_) => true,
+                                    }
+                                }
+                                _ => true,
+                            };
+                            if should_delete {
+                                let _ = std::fs::remove_file(&file_path);
+                            }
                         }
                     } else {
                         doc_files.insert(path.to_string());
@@ -668,6 +696,8 @@ impl OssSyncManager {
 
         // Absorb files on disk that are not yet in the LoroDoc (e.g. copied
         // via Finder while the app was closed or between sync cycles).
+        // This also catches files that the CRDT marks as deleted but
+        // which exist locally — they are re-absorbed with deleted=false.
         if dir.exists() {
             let disk_files = Self::scan_local_files(&dir)?;
             let now = Utc::now().to_rfc3339();

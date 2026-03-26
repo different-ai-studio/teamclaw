@@ -439,11 +439,17 @@ pub async fn oss_restore_sync(
         serde_json::from_str(&format!("\"{}\"", resp.role)).unwrap_or(MemberRole::Editor);
     manager.set_role(role.clone());
 
-    // Restore from local snapshots, then pull remote
+    // Restore from local snapshots, then pull remote, then reconcile disk.
+    // write_doc_to_disk must always run so that files the user added while
+    // the app was closed are absorbed into the LoroDoc (even when there are
+    // no new remote keys and pull_remote_changes returns early).
     for doc_type in DocType::all() {
         let _ = manager.restore_from_local_snapshot(doc_type);
         if let Err(e) = manager.pull_remote_changes(doc_type).await {
             warn!("Restore pull for {:?} failed: {}", doc_type, e);
+        }
+        if let Err(e) = manager.write_doc_to_disk(doc_type) {
+            warn!("Restore write_doc_to_disk for {:?} failed: {}", doc_type, e);
         }
     }
 
