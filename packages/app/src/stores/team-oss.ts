@@ -65,6 +65,12 @@ interface PendingApplication {
   appliedAt: string
 }
 
+interface FileSyncStatus {
+  path: string
+  docType: string
+  status: 'synced' | 'modified' | 'new'
+}
+
 interface TeamOssState {
   // State
   configured: boolean // local config exists (oss.enabled), true even when offline
@@ -76,6 +82,7 @@ interface TeamOssState {
   error: string | null
   _unlisten: UnlistenFn | null
   pendingApplication: PendingApplication | null
+  fileSyncStatusMap: Record<string, 'synced' | 'modified' | 'new'>
 
   // Actions
   initialize: (workspacePath: string) => Promise<void>
@@ -108,6 +115,7 @@ interface TeamOssState {
   loadPendingApplication: (workspacePath: string) => Promise<void>
   cancelApplication: (workspacePath: string) => Promise<void>
   cleanup: () => void
+  loadFileSyncStatus: () => Promise<void>
 }
 
 export const useTeamOssStore = create<TeamOssState>((set, get) => ({
@@ -121,6 +129,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   error: null,
   _unlisten: null,
   pendingApplication: null,
+  fileSyncStatusMap: {},
 
   initialize: async (workspacePath) => {
     try {
@@ -131,6 +140,10 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
           connected: event.payload.connected,
           syncing: event.payload.syncing,
         })
+        // Refresh per-file sync status after each sync cycle
+        if (!event.payload.syncing) {
+          get().loadFileSyncStatus()
+        }
       })
       set({ _unlisten: unlisten })
 
@@ -320,6 +333,20 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       members: [],
       error: null,
       pendingApplication: null,
+      fileSyncStatusMap: {},
     })
+  },
+
+  loadFileSyncStatus: async () => {
+    try {
+      const statuses = await invoke<FileSyncStatus[]>('oss_get_files_sync_status', {})
+      const map: Record<string, 'synced' | 'modified' | 'new'> = {}
+      for (const s of statuses) {
+        map[s.path] = s.status
+      }
+      set({ fileSyncStatusMap: map })
+    } catch {
+      // Silently ignore — sync may not be active
+    }
   },
 }))
