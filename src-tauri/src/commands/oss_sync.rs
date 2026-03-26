@@ -1,5 +1,6 @@
 use crate::commands::oss_types::*;
 use crate::commands::team::TEAM_REPO_DIR;
+use crate::commands::version_types::MAX_VERSIONS;
 use crate::commands::TEAMCLAW_DIR;
 
 use aws_sdk_s3::primitives::ByteStream;
@@ -395,6 +396,79 @@ impl OssSyncManager {
         }
     }
 
+    /// Archive the current state of a file entry into its `versions` LoroList
+    /// before overwriting or deleting it. Trims the list to MAX_VERSIONS.
+    fn archive_current_version(files_map: &loro::LoroMap, path: &str) -> Result<(), String> {
+        // Only archive if the entry already exists with content
+        let entry_map = match files_map.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => m,
+            _ => return Ok(()), // No existing entry — nothing to archive
+        };
+
+        let deep = entry_map.get_deep_value();
+        let entry = match deep {
+            loro::LoroValue::Map(ref m) => m.clone(),
+            _ => return Ok(()),
+        };
+
+        // Require at least a content field to be worth archiving
+        let content = match entry.get("content") {
+            Some(loro::LoroValue::String(s)) => s.as_ref().to_string(),
+            _ => return Ok(()),
+        };
+        let hash = match entry.get("hash") {
+            Some(loro::LoroValue::String(s)) => s.as_ref().to_string(),
+            _ => String::new(),
+        };
+        let updated_by = match entry.get("updatedBy") {
+            Some(loro::LoroValue::String(s)) => s.as_ref().to_string(),
+            _ => String::new(),
+        };
+        let updated_at = match entry.get("updatedAt") {
+            Some(loro::LoroValue::String(s)) => s.as_ref().to_string(),
+            _ => String::new(),
+        };
+        let deleted = match entry.get("deleted") {
+            Some(loro::LoroValue::Bool(b)) => *b,
+            _ => false,
+        };
+
+        // Get or create the versions list
+        let versions = entry_map
+            .get_or_create_container("versions", loro::LoroList::new())
+            .map_err(|e| format!("Failed to get/create versions list for {path}: {e}"))?;
+
+        // Push a snapshot map into the versions list
+        let snapshot = versions
+            .push_container(loro::LoroMap::new())
+            .map_err(|e| format!("Failed to push version snapshot for {path}: {e}"))?;
+
+        snapshot
+            .insert("content", content.as_str())
+            .map_err(|e| format!("Failed to set version content for {path}: {e}"))?;
+        snapshot
+            .insert("hash", hash.as_str())
+            .map_err(|e| format!("Failed to set version hash for {path}: {e}"))?;
+        snapshot
+            .insert("updatedBy", updated_by.as_str())
+            .map_err(|e| format!("Failed to set version updatedBy for {path}: {e}"))?;
+        snapshot
+            .insert("updatedAt", updated_at.as_str())
+            .map_err(|e| format!("Failed to set version updatedAt for {path}: {e}"))?;
+        snapshot
+            .insert("deleted", deleted)
+            .map_err(|e| format!("Failed to set version deleted for {path}: {e}"))?;
+
+        // Trim to MAX_VERSIONS (oldest first, so delete from index 0)
+        while versions.len() > MAX_VERSIONS {
+            versions
+                .delete(0, 1)
+                .map_err(|e| format!("Failed to trim versions list for {path}: {e}"))?;
+        }
+
+        Ok(())
+    }
+
     fn scan_local_files(dir: &Path) -> Result<HashMap<String, Vec<u8>>, String> {
         let mut result = HashMap::new();
 
@@ -634,6 +708,9 @@ impl OssSyncManager {
             // Update changed files
             for path in &changed {
                 if let Some(content) = local_files.get(path) {
+                    // Archive the current version before overwriting
+                    Self::archive_current_version(&files_map, path)?;
+
                     let hash = Self::compute_hash(content);
                     let content_str = String::from_utf8_lossy(content).to_string();
 
@@ -668,6 +745,9 @@ impl OssSyncManager {
                             _ => false,
                         };
                         if !deleted && !local_files.contains_key(path.as_str()) {
+                            // Archive the current version before marking deleted
+                            Self::archive_current_version(&files_map, path.as_str())?;
+
                             let entry_map = files_map
                                 .get_or_create_container(path, loro::LoroMap::new())
                                 .map_err(|e| format!("Failed to get map entry for {path}: {e}"))?;
