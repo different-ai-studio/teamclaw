@@ -666,13 +666,40 @@ impl OssSyncManager {
             }
         }
 
-        // Remove files on disk that are not in the LoroDoc
+        // Absorb files on disk that are not yet in the LoroDoc (e.g. copied
+        // via Finder while the app was closed or between sync cycles).
         if dir.exists() {
             let disk_files = Self::scan_local_files(&dir)?;
-            for path in disk_files.keys() {
+            let now = Utc::now().to_rfc3339();
+            let node_id = &self.node_id;
+
+            for (path, content) in &disk_files {
                 if !doc_files.contains(path) {
-                    let file_path = dir.join(path);
-                    let _ = std::fs::remove_file(&file_path);
+                    let hash = Self::compute_hash(content);
+                    let content_str = String::from_utf8_lossy(content).to_string();
+
+                    let entry_map = files_map
+                        .get_or_create_container(path, loro::LoroMap::new())
+                        .map_err(|e| {
+                            format!("Failed to create map entry for {path}: {e}")
+                        })?;
+                    entry_map
+                        .insert("content", content_str.as_str())
+                        .map_err(|e| format!("Failed to set content for {path}: {e}"))?;
+                    entry_map
+                        .insert("hash", hash.as_str())
+                        .map_err(|e| format!("Failed to set hash for {path}: {e}"))?;
+                    entry_map
+                        .insert("deleted", false)
+                        .map_err(|e| format!("Failed to set deleted for {path}: {e}"))?;
+                    entry_map
+                        .insert("updatedBy", node_id.as_str())
+                        .map_err(|e| format!("Failed to set updatedBy for {path}: {e}"))?;
+                    entry_map
+                        .insert("updatedAt", now.as_str())
+                        .map_err(|e| format!("Failed to set updatedAt for {path}: {e}"))?;
+
+                    info!("Absorbed local-only file into LoroDoc: {path}");
                 }
             }
         }
