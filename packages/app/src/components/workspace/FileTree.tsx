@@ -9,6 +9,7 @@ import { GitStatus } from "@/lib/git/service";
 import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
 import { useGitStatus } from "@/hooks/use-git-status";
 import { useGitSettingsStore } from "@/stores/git-settings";
+import { useTeamOssStore } from "@/stores/team-oss";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -327,6 +328,29 @@ export function FileTree({
 
     return { fileGitStatusMap: fileMap, dirtyDirectories: dirtyDirs };
   }, [showGitStatus, gitStatuses, workspacePath]);
+
+  // Pre-compute sync status data for team files
+  const fileSyncStatusMap = useTeamOssStore(s => s.fileSyncStatusMap);
+  const syncDirtyDirectories = useMemo(() => {
+    const dirtyDirs = new Map<string, 'synced' | 'modified' | 'new'>();
+    if (!workspacePath) return dirtyDirs;
+
+    for (const [relPath, status] of Object.entries(fileSyncStatusMap)) {
+      if (status === 'synced') continue;
+      // Build absolute path and propagate to parent directories
+      const absPath = `${workspacePath}/${TEAM_REPO_DIR}/${relPath}`;
+      let dir = absPath.substring(0, absPath.lastIndexOf("/"));
+      while (dir && dir.length > workspacePath.length) {
+        const existing = dirtyDirs.get(dir);
+        // modified > new > synced priority
+        if (!existing || (status === 'modified' && existing === 'new')) {
+          dirtyDirs.set(dir, status);
+        }
+        dir = dir.substring(0, dir.lastIndexOf("/"));
+      }
+    }
+    return dirtyDirs;
+  }, [fileSyncStatusMap, workspacePath]);
 
   const collapseCompacted = useCallback((paths: string[]) => {
     const nextExpanded = new Set(useWorkspaceStore.getState().expandedPaths);
@@ -902,9 +926,13 @@ export function FileTree({
       unsubscribe = useTabsStore.subscribe((state) => {
         if (state.activeTabId === prevActiveTabId) return;
         prevActiveTabId = state.activeTabId;
-        if (!state.activeTabId) return;
+        if (!state.activeTabId) {
+          useWorkspaceStore.setState({ selectedFile: null, selectedFiles: [], focusedPath: null });
+          return;
+        }
         const tab = state.tabs.find(t => t.id === state.activeTabId);
         if (tab?.type === 'file' && tab.target) {
+          useWorkspaceStore.setState({ selectedFile: tab.target, selectedFiles: [tab.target] });
           revealFile(tab.target).catch(() => {});
         }
       });
@@ -1042,6 +1070,17 @@ export function FileTree({
     isRenaming: renamingPath === node.path,
     isDragOver: dragOverPath === node.path,
     isTeamClawTeam: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0,
+    syncStatus: (() => {
+      if (!node.path.includes(`/${TEAM_REPO_DIR}/`)) return null;
+      if (node.type === 'directory') {
+        return syncDirtyDirectories.get(node.path) ?? null;
+      }
+      // Extract relative path within teamclaw-team/
+      const teamDirPrefix = `${workspacePath}/${TEAM_REPO_DIR}/`;
+      if (!node.path.startsWith(teamDirPrefix)) return null;
+      const relPath = node.path.slice(teamDirPrefix.length);
+      return fileSyncStatusMap[relPath] ?? null;
+    })(),
     onSelectFile: selectFile,
     onSelectFileRange: selectFileRange,
     onToggleFileSelection: toggleFileSelection,

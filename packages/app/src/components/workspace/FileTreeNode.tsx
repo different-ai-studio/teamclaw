@@ -37,6 +37,14 @@ import {
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
 
+function getSyncStatusTextColor(status: 'synced' | 'modified' | 'new'): string {
+  switch (status) {
+    case 'synced': return 'text-green-600'
+    case 'modified': return 'text-orange-500'
+    case 'new': return 'text-gray-400'
+  }
+}
+
 // Inline editing input component
 export function InlineInput({
   defaultValue,
@@ -152,6 +160,8 @@ export interface FileTreeItemProps {
   isDragOver: boolean;
   /** Whether this is the root teamclaw-team directory (for visual styling) */
   isTeamClawTeam?: boolean;
+  /** OSS sync status for team files */
+  syncStatus?: 'synced' | 'modified' | 'new' | null;
   compactName?: string;
   compactedPaths?: string[];
   onCollapseCompacted: (paths: string[]) => void;
@@ -198,6 +208,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   isRenaming,
   isDragOver,
   isTeamClawTeam,
+  syncStatus,
   onSelectFile,
   onSelectFileRange,
   onToggleFileSelection,
@@ -328,7 +339,9 @@ export const FileTreeItem = React.memo(function FileTreeItem({
             "h-4 w-4 shrink-0",
             gitStatus
               ? getGitStatusTextColor(gitStatus, statusColors)
-              : fileIconColor,
+              : syncStatus
+                ? getSyncStatusTextColor(syncStatus)
+                : fileIconColor,
           )}
         />
       )}
@@ -341,8 +354,10 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         className={cn(
           "pr-2 flex-1",
           gitStatus && getGitStatusTextColor(gitStatus, statusColors),
+          !gitStatus && syncStatus && getSyncStatusTextColor(syncStatus),
           gitStatus === GitStatus.DELETED && "line-through opacity-70",
           hasGitChanges && isDirectory && "text-amber-500",
+          !hasGitChanges && isDirectory && syncStatus && getSyncStatusTextColor(syncStatus),
         )}
       >
         {displayName}
