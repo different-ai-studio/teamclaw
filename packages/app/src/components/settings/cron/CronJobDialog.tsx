@@ -6,15 +6,18 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertCircle,
+  Box,
+  ChevronDown,
   Loader2,
+  SlidersHorizontal,
   Timer,
-  Zap,
   Send,
   GitBranch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -31,6 +34,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import {
   useCronStore,
   type CronJob,
@@ -72,6 +80,8 @@ export function CronJobDialog({
   const [form, setForm] = React.useState<JobFormState>(defaultFormState)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [advancedOptionsOpen, setAdvancedOptionsOpen] = React.useState(false)
+  const advancedScrollAnchorRef = React.useRef<HTMLDivElement>(null)
 
   // Load models when dialog opens
   React.useEffect(() => {
@@ -83,13 +93,33 @@ export function CronJobDialog({
   React.useEffect(() => {
     if (open) {
       if (editJob) {
-        setForm(jobToFormState(editJob))
+        const next = jobToFormState(editJob)
+        setForm(next)
+        setAdvancedOptionsOpen(
+          next.deliveryEnabled ||
+            next.useWorktree ||
+            next.timeoutSeconds !== defaultFormState.timeoutSeconds,
+        )
       } else {
         setForm(defaultFormState)
+        setAdvancedOptionsOpen(false)
       }
       setError(null)
     }
   }, [open, editJob])
+
+  // Scroll only when the user toggles the advanced section open (not when it opens via edit load).
+  const onAdvancedOptionsOpenChange = React.useCallback((nextOpen: boolean) => {
+    setAdvancedOptionsOpen(nextOpen)
+    if (!nextOpen) return
+    window.setTimeout(() => {
+      advancedScrollAnchorRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'nearest',
+      })
+    }, 100)
+  }, [])
 
   const update = (partial: Partial<JobFormState>) => {
     setForm((prev) => ({ ...prev, ...partial }))
@@ -144,7 +174,7 @@ export function CronJobDialog({
         const request: UpdateCronJobRequest = {
           id: editJob.id,
           name: form.name,
-          description: form.description || undefined,
+          description: undefined,
           enabled: form.enabled,
           schedule: formStateToSchedule(form),
           payload: formStateToPayload(form),
@@ -155,7 +185,7 @@ export function CronJobDialog({
       } else {
         const request: CreateCronJobRequest = {
           name: form.name,
-          description: form.description || undefined,
+          description: undefined,
           enabled: form.enabled,
           schedule: formStateToSchedule(form),
           payload: formStateToPayload(form),
@@ -187,7 +217,7 @@ export function CronJobDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px] max-h-[85vh]">
+      <DialogContent className="sm:max-w-[720px] max-h-[85vh]">
         <DialogHeader>
           <DialogTitle>{editJob ? t('settings.cron.editJob', 'Edit Job') : t('settings.cron.createJob', 'Create New Job')}</DialogTitle>
           <DialogDescription>
@@ -201,9 +231,6 @@ export function CronJobDialog({
           <div className="space-y-6 py-2">
             {/* Section 1: Basic Info */}
             <div className="space-y-3">
-              <h4 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
-                {t('settings.cron.basicInfo', 'Basic Info')}
-              </h4>
               <div className="space-y-2">
                 <label className="text-sm font-medium">{t('settings.cron.name', 'Name')} *</label>
                 <Input
@@ -213,65 +240,123 @@ export function CronJobDialog({
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t('settings.cron.description', 'Description')}</label>
-                <Input
-                  value={form.description}
-                  onChange={(e) => update({ description: e.target.value })}
-                  placeholder={t('settings.cron.descriptionPlaceholder', 'Brief description of what this job does')}
-                />
+                <label className="text-sm font-medium">{t('settings.cron.prompt', 'Prompt')} *</label>
+                <div
+                  className={cn(
+                    'rounded-md border border-input bg-background shadow-xs overflow-hidden',
+                    'focus-within:border-ring focus-within:ring-[1.5px] focus-within:ring-ring/50 focus-within:ring-inset',
+                  )}
+                >
+                  <Textarea
+                    value={form.message}
+                    onChange={(e) => update({ message: e.target.value })}
+                    placeholder={t('settings.cron.promptPlaceholder', 'Describe what the AI agent should do...')}
+                    rows={8}
+                    className="resize-none min-h-[220px] rounded-none border-0 shadow-none focus-visible:ring-0 focus-visible:border-0 bg-transparent py-3"
+                  />
+                  <div className="flex flex-wrap items-center gap-1.5 border-t border-border/70 px-2 py-1 bg-muted/30 dark:bg-muted/15">
+                    <Box className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                    <Select
+                      value={form.model || '__default__'}
+                      onValueChange={(v) => update({ model: v === '__default__' ? '' : v })}
+                    >
+                      <SelectTrigger
+                        className="h-7 min-h-7 w-fit max-w-[min(100%,18rem)] shrink justify-start gap-1 border-0 bg-transparent shadow-none font-mono text-xs py-0 pl-1 pr-0.5 hover:bg-muted/60 focus:ring-0 focus:ring-offset-0 data-[state=open]:bg-muted/60 [&_svg]:h-3 [&_svg]:w-3 [&_svg]:shrink-0"
+                        title={
+                          form.model
+                            ? t('settings.cron.modelSelected', `Using: ${form.model}`)
+                            : t('settings.cron.modelOverrideHint', 'Select a model or use workspace default.')
+                        }
+                      >
+                        <SelectValue
+                          placeholder={t('settings.cron.useDefaultModel', 'Use default model')}
+                        />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        <SelectItem value="__default__">
+                          <span className="text-muted-foreground italic">
+                            {t('settings.cron.useDefaultModel', 'Use default model')}
+                          </span>
+                        </SelectItem>
+                        {configuredProviders.length === 0 && (
+                          <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                            {t('settings.cron.noModels', 'No models configured. Please configure providers in LLM Settings first.')}
+                          </div>
+                        )}
+                        {configuredProviders.map((provider) => (
+                          <React.Fragment key={provider.id}>
+                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground border-t first:border-t-0">
+                              {provider.name}
+                            </div>
+                            {provider.models.map((model) => (
+                              <SelectItem
+                                key={`${provider.id}/${model.id}`}
+                                value={`${provider.id}/${model.id}`}
+                                className="pl-6"
+                              >
+                                {model.name}
+                              </SelectItem>
+                            ))}
+                          </React.Fragment>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Section 2: Schedule */}
+            {/* Section 2: Schedule — type + mode fields on one row */}
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
                 <Timer className="h-3.5 w-3.5" />
                 {t('settings.cron.schedule', 'Schedule')}
               </h4>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t('settings.cron.scheduleType', 'Schedule Type')}</label>
-                <Select
-                  value={form.scheduleKind}
-                  onValueChange={(v: ScheduleKind) => {
-                    const updates: Partial<JobFormState> = { scheduleKind: v }
-                    // Reset deleteAfterRun when switching away from one-time
-                    if (v !== 'at') {
-                      updates.deleteAfterRun = false
-                    }
-                    // Pre-fill a default "at" time (30 min from now) when switching to one-time
-                    if (v === 'at' && !form.at) {
-                      const defaultAt = new Date(Date.now() + 30 * 60 * 1000)
-                      updates.at = defaultAt.toISOString()
-                    }
-                    update(updates)
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="every">{t('settings.cron.intervalRecurring', 'Interval (Recurring)')}</SelectItem>
-                    <SelectItem value="cron">{t('settings.cron.cronExpr', 'Cron Expression')}</SelectItem>
-                    <SelectItem value="at">{t('settings.cron.oneTime', 'One-time')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1 min-w-0 flex-1 basis-[11rem]">
+                  <label className="text-xs text-muted-foreground">
+                    {t('settings.cron.scheduleType', 'Schedule Type')}
+                  </label>
+                  <Select
+                    value={form.scheduleKind}
+                    onValueChange={(v: ScheduleKind) => {
+                      const updates: Partial<JobFormState> = { scheduleKind: v }
+                      if (v !== 'at') {
+                        updates.deleteAfterRun = false
+                      }
+                      if (v === 'at' && !form.at) {
+                        const defaultAt = new Date(Date.now() + 30 * 60 * 1000)
+                        updates.at = defaultAt.toISOString()
+                      }
+                      update(updates)
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="every">{t('settings.cron.intervalRecurring', 'Interval (Recurring)')}</SelectItem>
+                      <SelectItem value="cron">{t('settings.cron.cronExpr', 'Cron Expression')}</SelectItem>
+                      <SelectItem value="at">{t('settings.cron.oneTime', 'One-time')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              {form.scheduleKind === 'every' && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <div className="space-y-1 flex-1">
+                {form.scheduleKind === 'every' && (
+                  <>
+                    <div className="space-y-1 w-[4.25rem] shrink-0">
                       <label className="text-xs text-muted-foreground">{t('settings.cron.interval', 'Interval')}</label>
                       <Input
                         type="number"
                         min={1}
+                        className="tabular-nums"
                         value={form.everyValue}
                         onChange={(e) =>
-                          update({ everyValue: parseInt(e.target.value) || 1 })
+                          update({ everyValue: parseInt(e.target.value, 10) || 1 })
                         }
                       />
                     </div>
-                    <div className="space-y-1 flex-1">
+                    <div className="space-y-1 min-w-[6.5rem] flex-1 basis-[6.5rem] max-w-[11rem]">
                       <label className="text-xs text-muted-foreground">{t('settings.cron.unit', 'Unit')}</label>
                       <Select
                         value={form.everyUnit}
@@ -279,17 +364,64 @@ export function CronJobDialog({
                           update({ everyUnit: v })
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                        <SelectItem value="minutes">{t('settings.cron.minutes', 'Minutes')}</SelectItem>
-                        <SelectItem value="hours">{t('settings.cron.hours', 'Hours')}</SelectItem>
-                        <SelectItem value="days">{t('settings.cron.days', 'Days')}</SelectItem>
+                          <SelectItem value="minutes">{t('settings.cron.minutes', 'Minutes')}</SelectItem>
+                          <SelectItem value="hours">{t('settings.cron.hours', 'Hours')}</SelectItem>
+                          <SelectItem value="days">{t('settings.cron.days', 'Days')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
+                  </>
+                )}
+
+                {form.scheduleKind === 'cron' && (
+                  <>
+                    <div className="space-y-1 min-w-0 flex-1 basis-[10rem]">
+                      <label className="text-xs text-muted-foreground">
+                        {t('settings.cron.cronExprLabel', 'Cron Expression')} *
+                      </label>
+                      <Input
+                        value={form.cronExpr}
+                        onChange={(e) => update({ cronExpr: e.target.value })}
+                        placeholder="*/30 * * * *"
+                        className="font-mono w-full"
+                      />
+                    </div>
+                    <div className="space-y-1 min-w-[7rem] w-40 shrink-0 sm:w-44">
+                      <label className="text-xs text-muted-foreground">
+                        {t('settings.cron.timezone', 'Timezone (optional)')}
+                      </label>
+                      <Input
+                        value={form.cronTz}
+                        onChange={(e) => update({ cronTz: e.target.value })}
+                        placeholder="Asia/Singapore"
+                        className="w-full"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {form.scheduleKind === 'at' && (
+                  <div className="space-y-1 min-w-0 flex-1 basis-[14rem]">
+                    <label className="text-xs text-muted-foreground">{t('settings.cron.dateTime', 'Date & Time')} *</label>
+                    <Input
+                      type="datetime-local"
+                      className="w-full"
+                      value={isoToLocalDatetime(form.at)}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        update({ at: localDatetimeToIso(val) })
+                      }}
+                    />
                   </div>
+                )}
+              </div>
+
+              {form.scheduleKind === 'every' && (
+                <div className="space-y-2">
                   {!editJob && (
                     <div className="flex items-center gap-2">
                       <input
@@ -320,26 +452,6 @@ export function CronJobDialog({
 
               {form.scheduleKind === 'cron' && (
                 <div className="space-y-2">
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium">{t('settings.cron.cronExprLabel', 'Cron Expression')} *</label>
-                    <Input
-                      value={form.cronExpr}
-                      onChange={(e) => update({ cronExpr: e.target.value })}
-                      placeholder="*/30 * * * *"
-                      className="font-mono"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      5-field format: minute hour day-of-month month day-of-week
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium">{t('settings.cron.timezone', 'Timezone (optional)')}</label>
-                    <Input
-                      value={form.cronTz}
-                      onChange={(e) => update({ cronTz: e.target.value })}
-                      placeholder="e.g., Asia/Singapore"
-                    />
-                  </div>
                   {!editJob && (
                     <div className="flex items-center gap-2">
                       <input
@@ -356,97 +468,39 @@ export function CronJobDialog({
                   )}
                 </div>
               )}
-
-              {form.scheduleKind === 'at' && (
-                <div className="space-y-2">
-                    <label className="text-sm font-medium">{t('settings.cron.dateTime', 'Date & Time')} *</label>
-                  <Input
-                    type="datetime-local"
-                    value={isoToLocalDatetime(form.at)}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      update({ at: localDatetimeToIso(val) })
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Times are in your local timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone})
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="deleteAfterRun"
-                      checked={form.deleteAfterRun}
-                      onChange={(e) => update({ deleteAfterRun: e.target.checked })}
-                      className="rounded"
-                    />
-                    <label htmlFor="deleteAfterRun" className="text-sm">
-                      {t('settings.cron.deleteAfterRun', 'Delete job after successful run')}
-                    </label>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Section 3: Task */}
+            <Collapsible open={advancedOptionsOpen} onOpenChange={onAdvancedOptionsOpenChange}>
+              <CollapsibleTrigger
+                type="button"
+                className={cn(
+                  'flex w-full items-center gap-3 py-3',
+                  'border-0 bg-transparent shadow-none outline-none ring-0 ring-offset-0',
+                  'text-muted-foreground hover:text-foreground transition-colors',
+                  'focus-visible:text-foreground',
+                )}
+              >
+                <span className="h-px min-w-0 flex-1 bg-border" aria-hidden />
+                <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide">
+                  <ChevronDown
+                    className={cn(
+                      'h-3.5 w-3.5 shrink-0 transition-transform duration-200',
+                      advancedOptionsOpen && 'rotate-180',
+                    )}
+                    aria-hidden
+                  />
+                  {t('settings.cron.advancedOptions', 'Advanced options')}
+                </span>
+                <span className="h-px min-w-0 flex-1 bg-border" aria-hidden />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-4">
+                <div ref={advancedScrollAnchorRef} className="scroll-mt-2 space-y-6">
+            {/* Section 3: Execution */}
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
-                <Zap className="h-3.5 w-3.5" />
-                {t('settings.cron.task', 'Task')}
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                {t('settings.cron.execution', 'Execution')}
               </h4>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t('settings.cron.prompt', 'Prompt')} *</label>
-                <textarea
-                  value={form.message}
-                  onChange={(e) => update({ message: e.target.value })}
-                  placeholder={t('settings.cron.promptPlaceholder', 'Describe what the AI agent should do...')}
-                  rows={4}
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t('settings.cron.modelOverride', 'Model Override (optional)')}</label>
-                <Select
-                  value={form.model || '__default__'}
-                  onValueChange={(v) => update({ model: v === '__default__' ? '' : v })}
-                >
-                  <SelectTrigger className="font-mono text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="__default__">
-                      <span className="text-muted-foreground italic">
-                        {t('settings.cron.useDefaultModel', 'Use default model')}
-                      </span>
-                    </SelectItem>
-                    {configuredProviders.length === 0 && (
-                      <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                        {t('settings.cron.noModels', 'No models configured. Please configure providers in LLM Settings first.')}
-                      </div>
-                    )}
-                    {configuredProviders.map((provider) => (
-                      <React.Fragment key={provider.id}>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground border-t first:border-t-0">
-                          {provider.name}
-                        </div>
-                        {provider.models.map((model) => (
-                          <SelectItem
-                            key={`${provider.id}/${model.id}`}
-                            value={`${provider.id}/${model.id}`}
-                            className="pl-6"
-                          >
-                            {model.name}
-                          </SelectItem>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {form.model
-                    ? t('settings.cron.modelSelected', `Using: ${form.model}`)
-                    : t('settings.cron.modelOverrideHint', 'Select a model or use workspace default.')}
-                </p>
-              </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">{t('settings.cron.timeout', 'Timeout (seconds)')}</label>
                 <Input
@@ -629,6 +683,9 @@ export function CronJobDialog({
                 </div>
               )}
             </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         </ScrollArea>
 

@@ -3,6 +3,7 @@ use cron::Schedule as CronScheduleParser;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tauri::{AppHandle, Emitter};
 
 use super::delivery::DeliveryManager;
 use super::storage::CronStorage;
@@ -20,6 +21,8 @@ pub struct CronScheduler {
     /// Generation counter: incremented on each start/stop to uniquely identify
     /// scheduler instances. Prevents old tick loops from continuing after restart.
     generation: Arc<RwLock<u64>>,
+    /// Set from `cron_init` so run-record updates can refresh the UI session filter.
+    app_handle: Arc<std::sync::Mutex<Option<AppHandle>>>,
 }
 
 impl Clone for CronScheduler {
@@ -30,6 +33,7 @@ impl Clone for CronScheduler {
             delivery: Arc::clone(&self.delivery),
             session_mapping: Arc::clone(&self.session_mapping),
             generation: Arc::clone(&self.generation),
+            app_handle: Arc::clone(&self.app_handle),
         }
     }
 }
@@ -70,7 +74,30 @@ impl CronScheduler {
             delivery: Arc::new(RwLock::new(None)),
             session_mapping: Arc::new(RwLock::new(None)),
             generation: Arc::new(RwLock::new(0)),
+            app_handle: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    pub fn set_app_handle(&self, app: AppHandle) {
+        if let Ok(mut g) = self.app_handle.lock() {
+            *g = Some(app);
+        }
+    }
+
+    fn emit_cron_sessions_updated(&self) {
+        let app = self
+            .app_handle
+            .lock()
+            .ok()
+            .and_then(|g| g.clone());
+        if let Some(app) = app {
+            let _ = app.emit("cron:cron-sessions-updated", ());
+        }
+    }
+
+    async fn persist_run_and_notify_ui(&self, record: &CronRunRecord) {
+        self.storage.update_last_run(record).await;
+        self.emit_cron_sessions_updated();
     }
 
     /// Set the OpenCode server port
@@ -397,7 +424,7 @@ impl CronScheduler {
                 record.status = RunStatus::Failed;
                 record.finished_at = Some(Utc::now());
                 record.error = Some(format!("Failed to create .worktrees dir: {}", e));
-                self.storage.update_last_run(&record).await;
+                self.persist_run_and_notify_ui(&record).await;
                 self.update_job_after_run(&job, started_at, &my_workspace)
                     .await;
                 return;
@@ -413,7 +440,7 @@ impl CronScheduler {
                     record.status = RunStatus::Failed;
                     record.finished_at = Some(Utc::now());
                     record.error = Some(format!("Worktree creation failed: {}", e));
-                    self.storage.update_last_run(&record).await;
+                    self.persist_run_and_notify_ui(&record).await;
                     self.update_job_after_run(&job, started_at, &my_workspace)
                         .await;
                     return;
@@ -480,7 +507,7 @@ impl CronScheduler {
                     record.status = RunStatus::Failed;
                     record.finished_at = Some(Utc::now());
                     record.error = Some(format!("Failed to create session: {}", e));
-                    self.storage.update_last_run(&record).await;
+                    self.persist_run_and_notify_ui(&record).await;
                     self.update_job_after_run(&job, started_at, &my_workspace)
                         .await;
                     return;
@@ -506,7 +533,7 @@ impl CronScheduler {
                     record.status = RunStatus::Failed;
                     record.finished_at = Some(Utc::now());
                     record.error = Some(format!("Failed to create session: {}", e));
-                    self.storage.update_last_run(&record).await;
+                    self.persist_run_and_notify_ui(&record).await;
                     self.update_job_after_run(&job, started_at, &my_workspace)
                         .await;
                     return;
@@ -535,7 +562,7 @@ impl CronScheduler {
                         record.status = RunStatus::Failed;
                         record.finished_at = Some(Utc::now());
                         record.error = Some(format!("Failed to create session: {}", e));
-                        self.storage.update_last_run(&record).await;
+                        self.persist_run_and_notify_ui(&record).await;
                         self.update_job_after_run(&job, started_at, &my_workspace)
                             .await;
                         return;
@@ -550,7 +577,7 @@ impl CronScheduler {
                     record.status = RunStatus::Failed;
                     record.finished_at = Some(Utc::now());
                     record.error = Some(format!("Failed to create session: {}", e));
-                    self.storage.update_last_run(&record).await;
+                    self.persist_run_and_notify_ui(&record).await;
                     self.update_job_after_run(&job, started_at, &my_workspace)
                         .await;
                     return;
@@ -558,6 +585,9 @@ impl CronScheduler {
             }
         };
         record.session_id = Some(session_id.clone());
+        // Persist session_id and notify UI before long-running OpenCode work so
+        // "scheduled sessions" filtering sees this run without waiting for completion.
+        self.persist_run_and_notify_ui(&record).await;
 
         // Parse model override
         let model_param = job
@@ -625,7 +655,7 @@ impl CronScheduler {
                 record.status = RunStatus::Failed;
                 record.finished_at = Some(Utc::now());
                 record.error = Some(format!("Failed to send message: {}", e));
-                self.storage.update_last_run(&record).await;
+                self.persist_run_and_notify_ui(&record).await;
                 self.update_job_after_run(&job, started_at, &my_workspace)
                     .await;
                 return;
@@ -706,7 +736,7 @@ impl CronScheduler {
                                 record.status = RunStatus::Failed;
                                 record.finished_at = Some(Utc::now());
                                 record.error = Some(err_msg);
-                                self.storage.update_last_run(&record).await;
+                                self.persist_run_and_notify_ui(&record).await;
                                 self.update_job_after_run(&job, started_at, &my_workspace)
                                     .await;
                                 return;
@@ -724,7 +754,7 @@ impl CronScheduler {
         // Mark as success
         record.status = RunStatus::Success;
         record.finished_at = Some(Utc::now());
-        self.storage.update_last_run(&record).await;
+        self.persist_run_and_notify_ui(&record).await;
 
         // Check before updating job state (workspace may have changed)
         check_generation!();

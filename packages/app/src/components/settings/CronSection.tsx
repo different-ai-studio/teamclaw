@@ -21,7 +21,6 @@ import {
   getChannelDisplayName,
   type CronJob,
 } from '@/stores/cron'
-import { useWorkspaceStore } from '@/stores/workspace'
 import { ToggleSwitch } from './shared'
 import { getDeliveryTargetDisplay } from '@/lib/cron-utils'
 import { CronJobDialog } from './cron/CronJobDialog'
@@ -171,27 +170,16 @@ function JobCard({
 
 export function CronSection() {
   const { t } = useTranslation()
-  const { jobs, isLoading, error, reinit, loadJobs, removeJob, toggleEnabled, runJob, clearError } =
+  const { jobs, isLoading, error, loadJobs, removeJob, toggleEnabled, runJob, clearError } =
     useCronStore()
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const [formOpen, setFormOpen] = React.useState(false)
   const [editJob, setEditJob] = React.useState<CronJob | undefined>(undefined)
   const [historyOpen, setHistoryOpen] = React.useState(false)
   const [historyJob, setHistoryJob] = React.useState<CronJob | null>(null)
 
-  // Initialize when workspace is ready or changes.
-  // Using workspacePath as the trigger ensures we only init after workspace is loaded,
-  // and automatically reinit when workspace changes.
-  React.useEffect(() => {
-    if (workspacePath) {
-      // Always use reinit() which bypasses the isInitialized guard.
-      // For first load, backend will skip the stop() since scheduler isn't running yet.
-      // For workspace changes, backend will stop old scheduler before starting new one.
-      reinit()
-    }
-  }, [workspacePath])
-
+  // Cron backend init runs from `useCronInit` when the workspace + OpenCode are ready.
+  // Periodically refresh job list while this section is mounted.
   // Refresh jobs periodically (every 30 seconds)
   React.useEffect(() => {
     const interval = setInterval(() => {

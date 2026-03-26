@@ -6,10 +6,9 @@ vi.mock('react-i18next', () => ({
 }))
 vi.mock('@/stores/cron', () => ({
   useCronStore: vi.fn(() => ({
-    createJob: vi.fn(),
+    addJob: vi.fn(),
     updateJob: vi.fn(),
-    sessions: [],
-    isLoading: false,
+    runJob: vi.fn(),
   })),
 }))
 vi.mock('@/stores/channels', () => ({
@@ -23,8 +22,10 @@ vi.mock('@/stores/channels', () => ({
 }))
 vi.mock('@/stores/provider', () => ({
   useProviderStore: vi.fn(() => ({
+    models: [],
     providers: [],
     configuredProviders: [],
+    refreshConfiguredProviders: vi.fn(),
   })),
 }))
 vi.mock('@/lib/utils', () => ({ cn: (...a: string[]) => a.join(' ') }))
@@ -55,18 +56,8 @@ vi.mock('@/components/ui/dialog', () => ({
 vi.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children }: any) => <div>{children}</div>,
 }))
-
-// Need to mock the form helpers
-vi.mock('../form-helpers', () => ({
-  defaultFormState: vi.fn(() => ({
-    name: '', prompt: '', scheduleKind: 'interval', intervalMinutes: 60,
-    cronExpr: '', enabled: true, deliveryChannel: 'session', discordChannelId: '',
-    feishuChatId: '', emailTo: '', model: '',
-  })),
-  jobToFormState: vi.fn(),
-  formStateToSchedule: vi.fn(() => ({ interval_minutes: 60 })),
-  formStateToPayload: vi.fn(() => ({})),
-  formStateToDelivery: vi.fn(() => ({})),
+vi.mock('@/components/ui/textarea', () => ({
+  Textarea: (props: any) => <textarea {...props} />,
 }))
 
 import { CronJobDialog } from '../CronJobDialog'
@@ -74,7 +65,7 @@ import { CronJobDialog } from '../CronJobDialog'
 describe('CronJobDialog', () => {
   it('renders nothing when closed', () => {
     const { container } = render(
-      <CronJobDialog open={false} onOpenChange={vi.fn()} onSaved={vi.fn()} />
+      <CronJobDialog open={false} onOpenChange={vi.fn()} />
     )
     expect(container.innerHTML).toBe('')
   })

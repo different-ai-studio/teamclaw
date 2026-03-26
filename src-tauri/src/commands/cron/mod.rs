@@ -9,7 +9,7 @@ use scheduler::CronScheduler;
 use storage::CronStorage;
 use types::*;
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// Cron state managed by Tauri
 pub struct CronState {
@@ -36,6 +36,7 @@ impl Default for CronState {
 /// Initialize the cron system (called when workspace is ready)
 #[tauri::command]
 pub async fn cron_init(
+    app: AppHandle,
     opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
     gateway_state: State<'_, crate::commands::gateway::GatewayState>,
@@ -64,6 +65,8 @@ pub async fn cron_init(
 
     // Step 2: Initialize storage with new workspace (loads jobs, clears old data)
     cron_state.storage.init(&workspace_path).await;
+
+    cron_state.scheduler.set_app_handle(app);
 
     // Step 3: Configure scheduler for new workspace
     cron_state.scheduler.set_port(port).await;

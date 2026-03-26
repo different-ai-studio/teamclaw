@@ -20,6 +20,10 @@ import {
 import { parseSingleFileDiff, type DiffLine } from "@/components/diff/diff-ast";
 import { tryParseToolPatchForUI } from "@/components/diff/parse-tool-patch";
 import { ToolCallDiffBody } from "./ToolCallDiffBody";
+import {
+  resolveWorkspaceRelativePath,
+  useToolCallFileOnDisk,
+} from "@/hooks/useToolCallFileOnDisk";
 
 // Generate unified diff from before/after strings
 function generateUnifiedDiff(before: string, after: string, filePath: string): string {
@@ -171,6 +175,17 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
   }, [oldStr, newStr, filePath, patchText]);
 
   const headerPath = diffData?.headerPath ?? filePath;
+  const pathForDisk =
+    headerPath && headerPath !== "file" ? headerPath : filePath || null;
+  const fullPath = useMemo(
+    () => resolveWorkspaceRelativePath(pathForDisk, workspacePath),
+    [pathForDisk, workspacePath],
+  );
+  const shouldVerifyFileOnDisk =
+    Boolean(fullPath) && toolCall.status === "completed";
+  const fileOnDisk = useToolCallFileOnDisk(fullPath, shouldVerifyFileOnDisk);
+  const fileMissingOnDisk = fileOnDisk === false;
+
   const ext = getFileExtension(headerPath);
   const langName = getLanguageName(ext);
 
@@ -182,12 +197,16 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const canOpenFile =
+    Boolean(headerPath) &&
+    Boolean(fullPath) &&
+    toolCall.status !== "failed" &&
+    !fileMissingOnDisk;
+
   const handleOpenFile = useCallback(() => {
-    if (!headerPath) return;
-    const fullPath =
-      headerPath.startsWith("/") ? headerPath : `${workspacePath}/${headerPath}`;
+    if (!canOpenFile || !fullPath) return;
     selectFile(fullPath);
-  }, [headerPath, workspacePath, selectFile]);
+  }, [canOpenFile, fullPath, selectFile]);
 
   const handleToggleExpand = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -200,9 +219,9 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
       <div
         className={cn(
           "flex items-center gap-2 px-3 py-2 bg-muted/50 transition-colors select-none hover:bg-muted/70",
-          headerPath ? "cursor-pointer" : "",
+          canOpenFile ? "cursor-pointer" : "",
         )}
-        onClick={headerPath ? handleOpenFile : handleToggleExpand}
+        onClick={canOpenFile ? handleOpenFile : handleToggleExpand}
       >
         <ChevronRight
           size={14}
@@ -215,7 +234,12 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
         <FileEdit size={14} className="text-muted-foreground shrink-0" />
         {headerPath && (
           <span
-            className="text-xs text-foreground truncate flex-1 cursor-pointer font-mono"
+            className={cn(
+              "text-xs truncate flex-1 font-mono",
+              canOpenFile
+                ? "text-foreground"
+                : "text-muted-foreground line-through",
+            )}
             title={headerPath}
           >
             {getFileName(headerPath)}

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Shield, Terminal, FileText, FolderOpen, CornerDownLeft } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, truncatePermissionSnippet } from "@/lib/utils"
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
 
@@ -51,7 +51,8 @@ export function PendingPermissionInline() {
   const commandText = pendingPermission.patterns?.join(" ") || ""
   const metadata = pendingPermission.metadata as Record<string, string> | undefined
   const filePath = metadata?.file || metadata?.filepath || ""
-  const label = (commandText.split(" ")[0] || permType)
+  const label = commandText.split(" ")[0] || permType
+  const allowListLabel = truncatePermissionSnippet(label, 42)
 
   const handleReply = async (d: "allow" | "deny" | "always") => {
     setSubmitting(true)
@@ -106,26 +107,30 @@ export function PendingPermissionInline() {
         ) : null}
 
         {isPending && (
-          <div className="flex items-center gap-2 px-3 py-2 border-t border-amber-500/20">
+          <div className="flex min-w-0 items-center gap-2 px-3 py-2 border-t border-amber-500/20">
             <button
+              type="button"
               onClick={() => handleReply("deny")}
               disabled={submitting}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 shrink-0"
             >
               Deny
             </button>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex min-w-0 shrink items-center justify-end gap-2">
               <button
+                type="button"
                 onClick={() => handleReply("always")}
                 disabled={submitting}
-                className="text-xs bg-muted hover:bg-muted/80 text-muted-foreground px-2.5 py-1 rounded transition-colors disabled:opacity-50"
+                title={label}
+                className="min-w-0 max-w-[min(100%,14rem)] shrink truncate text-left text-xs bg-muted hover:bg-muted/80 text-muted-foreground px-2.5 py-1 rounded transition-colors disabled:opacity-50"
               >
-                Always allow &apos;{label}&apos;
+                Always allow &apos;{allowListLabel}&apos;
               </button>
               <button
+                type="button"
                 onClick={() => handleReply("allow")}
                 disabled={submitting}
-                className="text-xs bg-primary hover:bg-primary/90 text-primary-foreground px-2.5 py-1 rounded font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                className="shrink-0 text-xs bg-primary hover:bg-primary/90 text-primary-foreground px-2.5 py-1 rounded font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
               >
                 Allow
                 <CornerDownLeft size={12} />

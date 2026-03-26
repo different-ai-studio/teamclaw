@@ -1126,6 +1126,7 @@
       }
     },
     "cron": {
+      "advancedOptions": "高级选项",
       "active": "运行中",
       "paused": "已暂停",
       "lastRun": "上次运行",

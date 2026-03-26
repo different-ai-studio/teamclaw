@@ -457,10 +457,12 @@ function AppContent() {
   const showRightWorkspacePanel = isPanelOpen && !shortcutsLeftDock;
   const isCollapsed = state === "collapsed";
   /** Native traffic lights sit over the left column; spare inset header when Shortcuts owns that strip. */
+  const hideInsetChromeForShortcutsDock =
+    shortcutsLeftDock && isWorkspaceUIVariant() && currentView !== "settings";
   const collapsedInsetLeading = isCollapsed ? (
-    shortcutsLeftDock && isWorkspaceUIVariant() ? null : (
+    hideInsetChromeForShortcutsDock ? null : (
       <>
-        {!shortcutsLeftDock && <TrafficLights />}
+        {(!shortcutsLeftDock || currentView === "settings") && <TrafficLights />}
         {isWorkspaceUIVariant() ? (
           <>
             <SidebarCollapseToggle className="mr-0.5" />

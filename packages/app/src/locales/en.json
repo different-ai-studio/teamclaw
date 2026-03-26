@@ -1121,6 +1121,7 @@
       }
     },
     "cron": {
+      "advancedOptions": "Advanced options",
       "active": "Active",
       "paused": "Paused",
       "lastRun": "Last run",

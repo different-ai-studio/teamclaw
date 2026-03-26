@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronRight, ChevronDown, Plus, FileText, ExternalLink, Folder, RefreshCw, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -15,6 +15,8 @@ import { useTabsStore, selectActiveTab } from "@/stores/tabs"
 import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { loadTeamShortcutsFile } from "@/lib/team-shortcuts"
+import { useSidebar } from "@/components/ui/sidebar"
+import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 interface TreeNodeProps {
   node: ShortcutNode
@@ -137,7 +139,11 @@ function SectionHeader({ label, onConfigure, onRefresh }: SectionHeaderProps) {
 export function ShortcutsPanel() {
   const { t } = useTranslation()
   const { getPersonalTree, getTeamTree, setTeamNodes } = useShortcutsStore()
-  const { openSettings } = useUIStore()
+  const openSettings = useUIStore((s) => s.openSettings)
+  const { setOpen: setSidebarOpen } = useSidebar()
+  const isPanelOpen = useWorkspaceStore((s) => s.isPanelOpen)
+  const workspaceActiveTab = useWorkspaceStore((s) => s.activeTab)
+  const closePanel = useWorkspaceStore((s) => s.closePanel)
   const activeTab = useTabsStore(selectActiveTab)
   const tabs = useTabsStore((s) => s.tabs)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
@@ -146,6 +152,31 @@ export function ShortcutsPanel() {
   const teamTree = getTeamTree()
 
   const activeTarget = activeTab?.target ?? null
+
+  /** Close workspace Shortcuts dock, expand main sidebar, then open settings (avoids header / traffic-light overlap). */
+  const openPersonalShortcutsSettings = useCallback(() => {
+    const inShortcutsLeftDock =
+      isWorkspaceUIVariant() &&
+      isPanelOpen &&
+      workspaceActiveTab === "shortcuts"
+    if (inShortcutsLeftDock) {
+      closePanel()
+      setSidebarOpen(true)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          useUIStore.getState().openSettings("shortcuts")
+        })
+      })
+    } else {
+      openSettings("shortcuts")
+    }
+  }, [
+    closePanel,
+    isPanelOpen,
+    openSettings,
+    setSidebarOpen,
+    workspaceActiveTab,
+  ])
 
   const handleSelectNode = (node: ShortcutNode) => {
     if (!node.target) return
@@ -171,7 +202,7 @@ export function ShortcutsPanel() {
         <div className="py-1 px-1.5">
           <SectionHeader
             label={t("shortcuts.personal", "PERSONAL")}
-            onConfigure={openSettings}
+            onConfigure={openPersonalShortcutsSettings}
           />
           {personalTree.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
@@ -181,7 +212,7 @@ export function ShortcutsPanel() {
                 variant="ghost"
                 size="sm"
                 className="mt-1.5 h-6 text-[11px] gap-1 text-muted-foreground"
-                onClick={() => openSettings()}
+                onClick={openPersonalShortcutsSettings}
               >
                 <Plus className="h-3 w-3" />
                 {t("settings.shortcuts.addShortcut", "Add Shortcut")}
@@ -204,7 +235,7 @@ export function ShortcutsPanel() {
             <>
               <SectionHeader
                 label={t("shortcuts.team", "TEAM")}
-                onConfigure={openSettings}
+                onConfigure={openPersonalShortcutsSettings}
                 onRefresh={handleRefreshTeam}
               />
               {teamTree.map((node) => (

@@ -226,7 +226,6 @@ export function getRegistryEntry(channelId: DeliveryChannel): DeliveryChannelReg
 
 export interface JobFormState {
   name: string
-  description: string
   enabled: boolean
   scheduleKind: ScheduleKind
   at: string
@@ -250,7 +249,6 @@ export interface JobFormState {
 
 export const defaultFormState: JobFormState = {
   name: '',
-  description: '',
   enabled: true,
   scheduleKind: 'every',
   at: '',
@@ -298,7 +296,6 @@ export function jobToFormState(job: CronJob): JobFormState {
 
   return {
     name: job.name,
-    description: job.description || '',
     enabled: job.enabled,
     scheduleKind: job.schedule.kind,
     at: job.schedule.at || '',

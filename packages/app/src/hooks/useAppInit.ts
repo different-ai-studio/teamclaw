@@ -340,10 +340,31 @@ export function useCronInit() {
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
 
   useEffect(() => {
-    if (!workspacePath || !openCodeReady) return;
-    useCronStore.getState().loadCronSessionIds().catch((err: unknown) => {
-      console.warn("[App] Cron session IDs load failed (non-critical):", err);
-    });
+    if (!isTauri() || !workspacePath || !openCodeReady) return;
+
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      if (cancelled) return;
+      unlisten = await listen("cron:cron-sessions-updated", () => {
+        useCronStore.getState().loadCronSessionIds().catch((err: unknown) => {
+          console.warn("[App] Cron session IDs refresh failed (non-critical):", err);
+        });
+      });
+
+      try {
+        await useCronStore.getState().reinit();
+      } catch (err: unknown) {
+        console.warn("[App] Cron reinit failed (non-critical):", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [workspacePath, openCodeReady]);
 }
 

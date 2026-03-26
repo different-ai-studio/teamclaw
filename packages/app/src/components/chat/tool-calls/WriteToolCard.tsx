@@ -22,6 +22,10 @@ import {
 } from "./tool-call-utils";
 import { parseSingleFileDiff, type DiffLine } from "@/components/diff/diff-ast";
 import { ToolCallDiffBody } from "./ToolCallDiffBody";
+import {
+  resolveWorkspaceRelativePath,
+  useToolCallFileOnDisk,
+} from "@/hooks/useToolCallFileOnDisk";
 
 // Generate unified diff for new file (empty before)
 function generateNewFileDiff(content: string, filePath: string): string {
@@ -70,6 +74,15 @@ export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
   const StatusIcon = config.icon;
 
   // Generate unified diff for new file (shows as all additions)
+  const fullPath = useMemo(
+    () => resolveWorkspaceRelativePath(filePath, workspacePath),
+    [filePath, workspacePath],
+  );
+  const shouldVerifyFileOnDisk =
+    Boolean(fullPath) && toolCall.status === "completed";
+  const fileOnDisk = useToolCallFileOnDisk(fullPath, shouldVerifyFileOnDisk);
+  const fileMissingOnDisk = fileOnDisk === false;
+
   const diffData = useMemo(() => {
     if (!content) return null;
     try {
@@ -107,14 +120,16 @@ export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
     [forceComplete, toolCall.id],
   );
 
-  const canOpenFile = filePath && toolCall.status !== "failed";
+  const canOpenFile =
+    Boolean(filePath) &&
+    Boolean(fullPath) &&
+    toolCall.status !== "failed" &&
+    !fileMissingOnDisk;
 
   const handleOpenFile = useCallback(() => {
-    if (!canOpenFile) return;
-    const fullPath =
-      filePath.startsWith("/") ? filePath : `${workspacePath}/${filePath}`;
+    if (!canOpenFile || !fullPath) return;
     selectFile(fullPath);
-  }, [canOpenFile, filePath, workspacePath, selectFile]);
+  }, [canOpenFile, fullPath, selectFile]);
 
   const handleToggleExpand = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -144,7 +159,9 @@ export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
           <span
             className={cn(
               "text-xs truncate flex-1 font-mono",
-              canOpenFile ? "text-foreground cursor-pointer" : "text-muted-foreground line-through",
+              canOpenFile
+                ? "text-foreground"
+                : "text-muted-foreground line-through",
             )}
             title={filePath}
           >

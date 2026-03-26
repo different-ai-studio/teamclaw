@@ -21,6 +21,7 @@ import {
   BookOpen,
 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
+import { ToggleSwitch } from '@/components/settings/shared'
 import { buildConfig, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -84,31 +85,6 @@ function SettingCard({ children, className }: { children: React.ReactNode; class
     )}>
       {children}
     </div>
-  )
-}
-
-function ToggleSwitch({
-  enabled,
-  onChange,
-}: {
-  enabled: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <button
-      onClick={() => onChange(!enabled)}
-      className={cn(
-        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-        enabled ? "bg-primary" : "bg-muted"
-      )}
-    >
-      <span
-        className={cn(
-          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-          enabled ? "translate-x-6" : "translate-x-1"
-        )}
-      />
-    </button>
   )
 }
 

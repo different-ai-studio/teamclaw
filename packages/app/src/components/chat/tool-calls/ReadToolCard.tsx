@@ -1,10 +1,14 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Eye, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ToolCall } from "@/stores/session";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { PermissionApprovalBar } from "./PermissionApprovalBar";
 import { statusConfig, extractFilePath, getFileName } from "./tool-call-utils";
+import {
+  resolveWorkspaceRelativePath,
+  useToolCallFileOnDisk,
+} from "@/hooks/useToolCallFileOnDisk";
 
 export function ReadToolCard({ toolCall }: { toolCall: ToolCall }) {
   const args = toolCall.arguments as Record<string, unknown>;
@@ -15,26 +19,48 @@ export function ReadToolCard({ toolCall }: { toolCall: ToolCall }) {
   const selectFile = useWorkspaceStore((s) => s.selectFile);
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
 
+  const fullPath = useMemo(
+    () => resolveWorkspaceRelativePath(filePath, workspacePath),
+    [filePath, workspacePath],
+  );
+  const shouldVerifyFileOnDisk =
+    Boolean(fullPath) &&
+    (toolCall.status === "completed" || toolCall.status === "failed");
+  const fileOnDisk = useToolCallFileOnDisk(fullPath, shouldVerifyFileOnDisk);
+  const fileMissingOnDisk = fileOnDisk === false;
+
   const hasPendingPermission =
     toolCall.status === "calling" &&
     toolCall.permission?.decision === "pending";
 
+  const canOpenFile =
+    Boolean(filePath) && Boolean(fullPath) && !fileMissingOnDisk;
+
   const handleClick = useCallback(() => {
-    if (!filePath) return;
-    const fullPath =
-      filePath.startsWith("/") ? filePath : `${workspacePath}/${filePath}`;
+    if (!canOpenFile || !fullPath) return;
     selectFile(fullPath);
-  }, [filePath, workspacePath, selectFile]);
+  }, [canOpenFile, fullPath, selectFile]);
 
   return (
     <div>
       <div
-        className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground/80 transition-colors select-none"
-        onClick={handleClick}
+        className={cn(
+          "flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground transition-colors select-none",
+          canOpenFile
+            ? "cursor-pointer hover:text-foreground/80"
+            : "cursor-default opacity-80",
+        )}
+        onClick={canOpenFile ? handleClick : undefined}
         title={filePath || "Open file"}
+        role={canOpenFile ? "button" : undefined}
       >
         <Eye size={12} className="text-muted-foreground/60 shrink-0" />
-        <span className="font-mono text-[11px] truncate max-w-[300px]">
+        <span
+          className={cn(
+            "font-mono text-[11px] truncate max-w-[300px]",
+            fileMissingOnDisk && "line-through",
+          )}
+        >
           {displayName}
         </span>
         {hasPendingPermission && (
