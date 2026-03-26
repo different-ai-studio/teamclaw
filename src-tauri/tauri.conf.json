@@ -24,7 +24,7 @@
         "decorations": true,
         "transparent": false,
         "visible": true,
-        "dragDropEnabled": false,
+        "dragDropEnabled": true,
         "hiddenTitle": true,
         "titleBarStyle": "Overlay",
         "alwaysOnTop": false,

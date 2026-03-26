@@ -137,7 +137,9 @@
     "copied": "Copied {{count}} item(s)",
     "cut": "Cut {{count}} item(s)",
     "pasted": "Pasted",
-    "pasteFailed": "Paste failed"
+    "pasteFailed": "Paste failed",
+    "externalDropped": "Copied {{count}} file(s)",
+    "externalDropFailed": "Failed to copy files"
   },
   "git": {
     "modified": "Modified",

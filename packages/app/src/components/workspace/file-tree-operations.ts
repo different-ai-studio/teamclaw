@@ -155,6 +155,22 @@ export async function copyItem(sourcePath: string, targetDir: string): Promise<b
   }
 }
 
+/** Copy files from external paths (e.g. Finder drag-drop) into a target directory */
+export async function copyExternalFiles(sourcePaths: string[], targetDir: string): Promise<boolean> {
+  if (!isTauri() || sourcePaths.length === 0) return false;
+  try {
+    let allSuccess = true;
+    for (const sourcePath of sourcePaths) {
+      const success = await copyItem(sourcePath, targetDir);
+      if (!success) allSuccess = false;
+    }
+    return allSuccess;
+  } catch (error) {
+    console.error("[FileTree] Failed to copy external files:", error);
+    return false;
+  }
+}
+
 /** Read file content for undo backup (text files only) */
 export async function readFileContent(path: string): Promise<string | undefined> {
   if (!isTauri()) return undefined;

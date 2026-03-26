@@ -4,7 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, File } from "lucide-react";
 
 import { toast } from 'sonner';
-import { copyToClipboard } from '@/lib/utils';
+import { copyToClipboard, isTauri } from '@/lib/utils';
 import { GitStatus } from "@/lib/git/service";
 import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
 import { useGitStatus } from "@/hooks/use-git-status";
@@ -300,6 +300,8 @@ export function FileTree({
   // Drag-and-drop state
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
   const [dragSourcePath, setDragSourcePath] = useState<string | null>(null);
+  const dragOverPathRef = useRef<string | null>(null);
+  useEffect(() => { dragOverPathRef.current = dragOverPath; }, [dragOverPath]);
 
   // Pre-compute git data
   const { fileGitStatusMap, dirtyDirectories } = useMemo(() => {
@@ -909,6 +911,79 @@ export function FileTree({
     });
     return () => { cancelled = true; unsubscribe?.(); };
   }, [revealFile]);
+
+  // Listen for Tauri native drag-drop events (external file drops from OS)
+  // Use flatNodesRef so the drag-over handler can resolve file paths to parent dirs
+  const flatNodesRef = useRef(flatNodes);
+  useEffect(() => { flatNodesRef.current = flatNodes; }, [flatNodes]);
+
+  useEffect(() => {
+    if (!isTauri() || !workspacePath) return;
+    let cancelled = false;
+    const unlisteners: (() => void)[] = [];
+
+    import('@tauri-apps/api/event').then(async ({ listen }) => {
+      if (cancelled) return;
+
+      // Handle file drop
+      unlisteners.push(await listen<{ paths: string[]; position: { x: number; y: number } }>(
+        'tauri://drag-drop',
+        async (event) => {
+          const paths = event.payload.paths;
+          if (!paths || paths.length === 0) return;
+
+          const targetDir = dragOverPathRef.current || workspacePath;
+
+          const { copyExternalFiles } = await import('./file-tree-operations');
+          const success = await copyExternalFiles(paths, targetDir);
+          if (success) {
+            toast.success(t('fileExplorer.externalDropped', 'Copied {{count}} file(s)', { count: paths.length }));
+            await refreshFileTree();
+            if (targetDir !== workspacePath) {
+              await expandDirectory(targetDir);
+            }
+          } else {
+            toast.error(t('fileExplorer.externalDropFailed', 'Failed to copy files'));
+          }
+          setDragOverPath(null);
+        },
+      ));
+      if (cancelled) { unlisteners.forEach(fn => fn()); return; }
+
+      // Highlight hovered directory during external drag
+      unlisteners.push(await listen<{ paths: string[]; position: { x: number; y: number } }>(
+        'tauri://drag-over',
+        (event) => {
+          const el = document.elementFromPoint(event.payload.position.x, event.payload.position.y);
+          const treeItem = el?.closest('[data-path]') as HTMLElement | null;
+          if (treeItem) {
+            const path = treeItem.getAttribute('data-path');
+            if (path) {
+              // Resolve to parent directory if hovering over a file
+              const node = flatNodesRef.current.find(fn => fn.node.path === path);
+              if (node && node.node.type === 'file') {
+                const parentDir = path.substring(0, path.lastIndexOf('/'));
+                setDragOverPath(parentDir || workspacePath);
+              } else {
+                setDragOverPath(path);
+              }
+            }
+          } else {
+            setDragOverPath(null);
+          }
+        },
+      ));
+      if (cancelled) { unlisteners.forEach(fn => fn()); return; }
+
+      // Clear highlight when drag leaves window
+      unlisteners.push(await listen('tauri://drag-leave', () => {
+        setDragOverPath(null);
+      }));
+      if (cancelled) { unlisteners.forEach(fn => fn()); return; }
+    });
+
+    return () => { cancelled = true; unlisteners.forEach(fn => fn()); };
+  }, [workspacePath, refreshFileTree, expandDirectory, t]);
 
   if (fileTree.length === 0) {
     return (
