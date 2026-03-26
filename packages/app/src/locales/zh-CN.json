@@ -535,7 +535,15 @@
       "globalClaude": "全局 Claude",
       "globalAgent": "全局 Agent",
       "installSkill": "安装技能",
-      "installSkillDesc": "选择安装位置"
+      "installSkillDesc": "选择安装位置",
+      "importFromZip": "从 ZIP 导入技能",
+      "importZipDescription": "上传仅包含一个 SKILL.md 的 .zip，将整份技能文件夹复制到技能目录。若没有 SKILL.md 则不会导入。",
+      "skillArchive": "技能压缩包（.zip）",
+      "chooseZip": "选择 ZIP…",
+      "noZipSelected": "未选择文件",
+      "importZipHint": "安装目录名取 SKILL.md 的父文件夹名；若 SKILL.md 在压缩包根目录，则使用 zip 文件名（不含扩展名）。",
+      "importing": "正在导入…",
+      "importButton": "导入"
     },
     "knowledge": {
       "title": "知识库管理",

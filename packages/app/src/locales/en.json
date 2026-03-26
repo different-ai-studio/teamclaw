@@ -535,7 +535,15 @@
       "globalClaude": "Global Claude",
       "globalAgent": "Global Agent",
       "installSkill": "Install Skill",
-      "installSkillDesc": "Choose install location"
+      "installSkillDesc": "Choose install location",
+      "importFromZip": "Import Skill from ZIP",
+      "importZipDescription": "Upload a .zip that contains exactly one SKILL.md. The entire skill folder is copied to your skills directory. Archives without SKILL.md are rejected.",
+      "skillArchive": "Skill archive (.zip)",
+      "chooseZip": "Choose ZIP…",
+      "noZipSelected": "No file selected",
+      "importZipHint": "Folder name comes from the parent directory of SKILL.md, or from the zip file name if SKILL.md is at the archive root.",
+      "importing": "Importing...",
+      "importButton": "Import"
     },
     "knowledge": {
       "title": "Knowledge Base",

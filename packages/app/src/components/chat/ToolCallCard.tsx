@@ -133,9 +133,10 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
         options: Array<{ id?: string; label: string; value?: string }>;
       }>;
     };
-    const questions = toolCall.questions || args?.questions;
+    const rawQuestions = toolCall.questions ?? args?.questions;
+    const questions = Array.isArray(rawQuestions) ? rawQuestions : [];
 
-    if (questions && questions.length > 0) {
+    if (questions.length > 0) {
       return (
         <QuestionCard
           toolCallId={toolCall.id}

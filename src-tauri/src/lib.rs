@@ -389,6 +389,7 @@ pub fn run() {
             commands::skillssh::fetch_skillssh_content,
             commands::skillssh::install_skillssh_skill,
             commands::skillssh::install_skill_from_git_url,
+            commands::skillssh::import_skill_from_zip,
             commands::updater::check_update,
             commands::updater::download_and_install_update,
             commands::git::git_check_available,

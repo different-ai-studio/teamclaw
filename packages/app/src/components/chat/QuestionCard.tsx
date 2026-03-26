@@ -8,11 +8,12 @@ import type { Question } from '@/lib/opencode/types'
 
 interface QuestionCardProps {
   toolCallId: string
-  questions: Question[]
+  questions?: Question[] | unknown
   isCompleted?: boolean
 }
 
 export const QuestionCard = React.memo(function QuestionCard({ toolCallId, questions, isCompleted }: QuestionCardProps) {
+  const questionList = Array.isArray(questions) ? (questions as Question[]) : []
   const pendingQuestion = useSessionStore(s => s.pendingQuestion)
   const answerQuestion = useSessionStore(s => s.answerQuestion)
   const [answers, setAnswers] = React.useState<Record<string, string>>({})
@@ -25,19 +26,19 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
   const isWaitingForCompletion = hasSubmitted && !isCompleted
 
   const handleOptionSelect = (questionIndex: number, option: string) => {
-    const questionId = questions[questionIndex]?.id || String(questionIndex)
+    const questionId = questionList[questionIndex]?.id || String(questionIndex)
     setAnswers(prev => ({ ...prev, [questionId]: option }))
   }
 
   const handleCustomInput = (questionIndex: number, value: string) => {
-    const questionId = questions[questionIndex]?.id || String(questionIndex)
+    const questionId = questionList[questionIndex]?.id || String(questionIndex)
     setCustomInputs(prev => ({ ...prev, [questionId]: value }))
   }
 
   const handleSubmit = async () => {
     // Merge selected options with custom inputs (custom input takes precedence if filled)
     const finalAnswers: Record<string, string> = {}
-    questions.forEach((q, idx) => {
+    questionList.forEach((q, idx) => {
       const questionId = q.id || String(idx)
       const customInput = customInputs[questionId]?.trim()
       if (customInput) {
@@ -58,10 +59,12 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
     }
   }
 
-  const hasAllAnswers = questions.every((q, idx) => {
-    const questionId = q.id || String(idx)
-    return answers[questionId] || customInputs[questionId]?.trim()
-  })
+  const hasAllAnswers =
+    questionList.length > 0 &&
+    questionList.every((q, idx) => {
+      const questionId = q.id || String(idx)
+      return answers[questionId] || customInputs[questionId]?.trim()
+    })
   
   // Determine if we should show the interactive UI (options to select)
   const showInteractiveUI = isPending && !hasSubmitted
@@ -92,7 +95,7 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
 
       {/* Questions */}
       <div className="px-4 py-3 space-y-4">
-        {questions.map((question, qIndex) => {
+        {questionList.map((question, qIndex) => {
           const questionId = question.id || String(qIndex)
           const selectedOption = answers[questionId]
           const customInput = customInputs[questionId] || ''

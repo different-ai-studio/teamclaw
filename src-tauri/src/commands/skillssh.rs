@@ -29,6 +29,8 @@
 //! Reference: https://github.com/vercel-labs/skills
 
 use serde::{Deserialize, Serialize};
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const SKILLSSH_URL: &str = "https://skills.sh";
@@ -1088,6 +1090,243 @@ pub async fn install_skill_from_git_url(
         "to workspace"
     };
     Ok(format!("Successfully installed {} {}", slug, location))
+}
+
+// ─── Import skill from local .zip (manual upload) ─────────────────────────────
+
+/// Sanitize a relative path inside a zip (same rules as ClawHub).
+fn sanitize_skill_zip_path(raw: &str) -> Option<String> {
+    let normalized = raw.trim_start_matches("./").trim_start_matches('/');
+    if normalized.is_empty() || normalized.ends_with('/') {
+        return None;
+    }
+    if normalized.contains("..") || normalized.contains('\\') {
+        return None;
+    }
+    Some(normalized.to_string())
+}
+
+fn extract_skill_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<(), String> {
+    let file =
+        std::fs::File::open(zip_path).map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip archive: {}", e))?;
+
+    std::fs::create_dir_all(target_dir)
+        .map_err(|e| format!("Failed to create extract dir: {}", e))?;
+
+    let canonical_target = target_dir
+        .canonicalize()
+        .unwrap_or_else(|_| target_dir.to_path_buf());
+
+    for i in 0..archive.len() {
+        let mut file = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
+
+        let raw_name = file.name().to_string();
+        let safe_path = match sanitize_skill_zip_path(&raw_name) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let out_path = target_dir.join(&safe_path);
+
+        if let Ok(canonical_out) = out_path.canonicalize() {
+            if !canonical_out.starts_with(&canonical_target) {
+                eprintln!(
+                    "[Skills] Skipping zip entry with path traversal: {}",
+                    raw_name
+                );
+                continue;
+            }
+        }
+
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Failed to create parent dir for zip entry {}: {}",
+                    safe_path, e
+                )
+            })?;
+        }
+
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).map_err(|e| {
+            format!(
+                "Failed to read zip entry bytes {}: {}",
+                safe_path, e
+            )
+        })?;
+        std::fs::write(&out_path, &buf).map_err(|e| {
+            format!(
+                "Failed to write extracted file {}: {}",
+                safe_path, e
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn skill_md_paths_under(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut out = Vec::new();
+    for entry in walkdir::WalkDir::new(root)
+        .max_depth(64)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if entry.file_name() != "SKILL.md" {
+            continue;
+        }
+        let p = entry.path();
+        if p.components().any(|c| c.as_os_str() == "__MACOSX") {
+            continue;
+        }
+        out.push(p.to_path_buf());
+    }
+    Ok(out)
+}
+
+fn slug_from_zip_filename(zip_path: &Path) -> String {
+    let stem = zip_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("imported-skill");
+    let s: String = stem
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else if c.is_whitespace() || c == '_' {
+                '-'
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let s = s.trim_matches('-').to_string();
+    if s.is_empty() {
+        "imported-skill".to_string()
+    } else {
+        s
+    }
+}
+
+fn validate_skill_import_slug(slug: &str) -> Result<(), String> {
+    if slug.trim().is_empty() {
+        return Err("Derived skill folder name is empty".to_string());
+    }
+    if slug.contains('/') || slug.contains('\\') || slug.contains("..") {
+        return Err(format!("Invalid skill folder name: {}", slug));
+    }
+    Ok(())
+}
+
+/// Import a skill from a `.zip` file. The archive must contain exactly one `SKILL.md`.
+/// The parent directory of that file is copied as the skill folder. If `SKILL.md` is at the
+/// archive root, the install folder name is derived from the zip file name.
+#[tauri::command]
+pub fn import_skill_from_zip(
+    workspace_path: Option<String>,
+    zip_path: String,
+    is_global: bool,
+) -> Result<String, String> {
+    use std::fs;
+
+    let zip_path = PathBuf::from(zip_path.trim());
+    if !zip_path.is_file() {
+        return Err("Zip file not found".to_string());
+    }
+
+    let hash_input = zip_path.to_string_lossy();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "teamclaw-skill-zip-{:x}",
+        md5::compute(hash_input.as_bytes())
+    ));
+
+    if temp_dir.exists() {
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    let import_result = (|| -> Result<String, String> {
+        extract_skill_zip_to_dir(&zip_path, &temp_dir)?;
+
+        let extract_root = temp_dir
+            .canonicalize()
+            .map_err(|e| format!("Failed to canonicalize extract dir: {}", e))?;
+
+        let skill_md_paths = skill_md_paths_under(&extract_root)?;
+
+        if skill_md_paths.is_empty() {
+            return Err("No SKILL.md found in archive".to_string());
+        }
+        if skill_md_paths.len() > 1 {
+            return Err(
+                "Archive contains multiple SKILL.md files; use one skill per archive".to_string(),
+            );
+        }
+
+        let skill_md_path = &skill_md_paths[0];
+        let skill_src_dir = skill_md_path
+            .parent()
+            .ok_or_else(|| "Invalid SKILL.md path".to_string())?;
+        let skill_src_dir = skill_src_dir
+            .canonicalize()
+            .map_err(|e| format!("Failed to canonicalize skill directory: {}", e))?;
+
+        let slug = if skill_src_dir == extract_root {
+            slug_from_zip_filename(&zip_path)
+        } else {
+            skill_src_dir
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| "Invalid skill folder name".to_string())?
+                .to_string()
+        };
+
+        validate_skill_import_slug(&slug)?;
+
+        let target_dir = if is_global {
+            let home =
+                dirs::home_dir().ok_or_else(|| "Failed to determine home directory".to_string())?;
+            home.join(".config")
+                .join("opencode")
+                .join("skills")
+                .join(&slug)
+        } else {
+            let ws_path = workspace_path.ok_or_else(|| {
+                "Workspace path required for workspace installation".to_string()
+            })?;
+            Path::new(&ws_path)
+                .join(".opencode")
+                .join("skills")
+                .join(&slug)
+        };
+
+        if target_dir.exists() {
+            let _ = fs::remove_dir_all(&target_dir);
+        }
+
+        fs::create_dir_all(&target_dir)
+            .map_err(|e| format!("Failed to create target directory: {}", e))?;
+
+        copy_skill_directory(&skill_src_dir.to_path_buf(), &target_dir)?;
+
+        Ok(format!(
+            "Imported skill '{}' to {}",
+            slug,
+            target_dir.display()
+        ))
+    })();
+
+    let _ = fs::remove_dir_all(&temp_dir);
+    import_result
 }
 
 /// Discover skill directory in cloned repo following vercel-labs/skills pattern

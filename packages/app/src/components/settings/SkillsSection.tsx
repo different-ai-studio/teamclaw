@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Eye,
   Save,
+  Upload,
   Search,
   Shield,
   ShieldCheck,
@@ -100,6 +101,8 @@ export const SkillsSection = React.memo(function SkillsSection() {
   const [restartError, setRestartError] = React.useState<string | null>(null)
   const [installLocation, setInstallLocation] = React.useState<'workspace' | 'global'>('workspace')
   const [isViewMode, setIsViewMode] = React.useState(false)
+  const [importZipPath, setImportZipPath] = React.useState<string | null>(null)
+  const [importZipLabel, setImportZipLabel] = React.useState<string | null>(null)
 
   const defaultPermission: SkillPermission = skillPermissions['*'] ?? 'allow'
 
@@ -216,6 +219,53 @@ export const SkillsSection = React.memo(function SkillsSection() {
 
   // Skills file watching is disabled - users can manually refresh if needed
 
+  const pickImportZip = async () => {
+    setError(null)
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: 'ZIP', extensions: ['zip'] }],
+      })
+      const path = Array.isArray(selected) ? selected[0] : selected
+      if (!path || typeof path !== 'string') {
+        return
+      }
+      setImportZipPath(path)
+      const base = path.split(/[/\\]/).pop() ?? path
+      setImportZipLabel(base)
+    } catch (err) {
+      console.error('Failed to pick zip:', err)
+      setError(err instanceof Error ? err.message : 'Failed to pick file')
+    }
+  }
+
+  const importSkillFromZip = async () => {
+    if (!importZipPath) return
+    if (installLocation === 'workspace' && !workspacePath) return
+
+    setIsSaving(true)
+    setError(null)
+    try {
+      await invoke<string>('import_skill_from_zip', {
+        workspacePath: installLocation === 'global' ? null : workspacePath,
+        zipPath: importZipPath,
+        isGlobal: installLocation === 'global',
+      })
+      await loadSkills()
+      await restartOpenCodeInstance()
+      setDialogOpen(false)
+      setImportZipPath(null)
+      setImportZipLabel(null)
+      setInstallLocation('workspace')
+    } catch (err) {
+      console.error('Failed to import skill zip:', err)
+      setError(err instanceof Error ? err.message : 'Failed to import skill')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const saveSkill = async () => {
     if (!skillName.trim()) return
     if (installLocation === 'workspace' && !workspacePath) return
@@ -321,6 +371,8 @@ ${skillContent.trim()}`
     setSkillContent('')
     setInstallLocation('workspace')
     setIsViewMode(false)
+    setImportZipPath(null)
+    setImportZipLabel(null)
     setDialogOpen(true)
   }
 
@@ -794,31 +846,37 @@ ${skillContent.trim()}`
       </>}
 
       {/* Create/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open)
+          if (!open) {
+            setImportZipPath(null)
+            setImportZipLabel(null)
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
-              {isViewMode ? t('settings.skills.viewSkill', 'View Skill') : editingSkill ? t('settings.skills.edit', 'Edit Skill') : t('settings.skills.createNew', 'Create New Skill')}
+              {isViewMode
+                ? t('settings.skills.viewSkill', 'View Skill')
+                : editingSkill
+                  ? t('settings.skills.edit', 'Edit Skill')
+                  : t('settings.skills.importFromZip', 'Import Skill from ZIP')}
             </DialogTitle>
             <DialogDescription>
-              {isViewMode 
+              {isViewMode
                 ? t('settings.skills.viewDescription', 'Read-only view of skill content')
-                : t('settings.skills.dialogDescription', 'Skills are SKILL.md files with YAML frontmatter. Saved to .opencode/skills/<name>/SKILL.md (OpenCode format).')}
+                : editingSkill
+                  ? t('settings.skills.dialogDescription', 'Skills are SKILL.md files with YAML frontmatter. Saved to .opencode/skills/<name>/SKILL.md (OpenCode format).')
+                  : t('settings.skills.importZipDescription', 'Upload a .zip that contains exactly one SKILL.md. The entire skill folder is copied to your skills directory. Archives without SKILL.md are rejected.')}
             </DialogDescription>
           </DialogHeader>
           
           <div className="flex-1 space-y-4 overflow-y-auto py-4">
             {!isViewMode && (
               <>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">{t('settings.skills.name', 'Skill Name')}</label>
-                  <Input
-                    placeholder={t('settings.skills.namePlaceholder', 'e.g., Git Workflow Guide')}
-                    value={skillName}
-                    onChange={(e) => setSkillName(e.target.value)}
-                  />
-                </div>
-
                 <div className="space-y-2">
                   <label className="text-sm font-medium">{t('settings.skills.installLocation', 'Install Location')}</label>
                   <Select value={installLocation} onValueChange={(v) => setInstallLocation(v as 'workspace' | 'global')}>
@@ -845,16 +903,44 @@ ${skillContent.trim()}`
                     </SelectContent>
                   </Select>
                 </div>
-                
-                <div className="space-y-2 flex-1">
-                  <label className="text-sm font-medium">{t('settings.skills.content', 'Content (Markdown)')}</label>
-                  <textarea
-                    className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="# My Skill&#10;&#10;Describe what this skill does and provide instructions for the AI..."
-                    value={skillContent}
-                    onChange={(e) => setSkillContent(e.target.value)}
-                  />
-                </div>
+
+                {!editingSkill ? (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{t('settings.skills.skillArchive', 'Skill archive (.zip)')}</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" variant="outline" size="sm" className="gap-2 shrink-0" onClick={pickImportZip}>
+                        <Upload className="h-4 w-4" />
+                        {t('settings.skills.chooseZip', 'Choose ZIP…')}
+                      </Button>
+                      <span className="text-sm text-muted-foreground truncate min-w-0 flex-1">
+                        {importZipLabel ?? t('settings.skills.noZipSelected', 'No file selected')}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t('settings.skills.importZipHint', 'Folder name comes from the parent of SKILL.md, or from the zip file name if SKILL.md is at the archive root.')}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">{t('settings.skills.name', 'Skill Name')}</label>
+                      <Input
+                        placeholder={t('settings.skills.namePlaceholder', 'e.g., Git Workflow Guide')}
+                        value={skillName}
+                        onChange={(e) => setSkillName(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2 flex-1">
+                      <label className="text-sm font-medium">{t('settings.skills.content', 'Content (Markdown)')}</label>
+                      <textarea
+                        className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                        placeholder="# My Skill&#10;&#10;Describe what this skill does and provide instructions for the AI..."
+                        value={skillContent}
+                        onChange={(e) => setSkillContent(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -908,16 +994,29 @@ ${skillContent.trim()}`
               {isViewMode ? t('common.close', 'Close') : t('common.cancel', 'Cancel')}
             </Button>
             {!isViewMode && (
-              <Button onClick={saveSkill} disabled={!skillName.trim() || isSaving}>
+              <Button
+                onClick={editingSkill ? saveSkill : importSkillFromZip}
+                disabled={
+                  isSaving ||
+                  (editingSkill ? !skillName.trim() : !importZipPath)
+                }
+              >
                 {isSaving ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('settings.mcp.saving', 'Saving...')}
+                    {editingSkill
+                      ? t('settings.mcp.saving', 'Saving...')
+                      : t('settings.skills.importing', 'Importing...')}
                   </>
-                ) : (
+                ) : editingSkill ? (
                   <>
                     <Save className="mr-2 h-4 w-4" />
                     {t('settings.skills.saveSkill', 'Save Skill')}
+                  </>
+                ) : (
+                  <>
+                    <Upload className="mr-2 h-4 w-4" />
+                    {t('settings.skills.importButton', 'Import')}
                   </>
                 )}
               </Button>
