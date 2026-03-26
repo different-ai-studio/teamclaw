@@ -1,6 +1,6 @@
 import * as React from 'react'
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
-import { Search, GitBranch, ChevronsDownUp, Undo2 } from 'lucide-react'
+import { Search, GitBranch, ChevronsDownUp, Undo2, LocateFixed } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -133,6 +133,24 @@ export function FileBrowser({ className, variant = 'default' }: FileBrowserProps
             </TooltipTrigger>
             <TooltipContent side="bottom">
               {t('fileExplorer.collapseAll', 'Collapse All')}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  const selectedFile = useWorkspaceStore.getState().selectedFile;
+                  if (selectedFile) {
+                    useWorkspaceStore.getState().revealFile(selectedFile).catch(() => {});
+                  }
+                }}
+                className="flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <LocateFixed className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {t('fileExplorer.revealActiveFile', 'Reveal Active File')}
             </TooltipContent>
           </Tooltip>
           {undoStack.length > 0 && (

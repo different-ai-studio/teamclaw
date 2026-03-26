@@ -225,6 +225,7 @@ export function FileTree({
   const setFocusedPath = useWorkspaceStore(s => s.setFocusedPath);
   const pushUndo = useWorkspaceStore(s => s.pushUndo);
   const refreshFileTree = useWorkspaceStore(s => s.refreshFileTree);
+  const revealFile = useWorkspaceStore(s => s.revealFile);
 
   const { gitStatuses } = useGitStatus();
   const { showGitStatus, showStatusIcons, statusColors } =
@@ -755,6 +756,27 @@ export function FileTree({
     }, 100);
     return () => clearTimeout(timer);
   }, [selectedFile]);
+
+  // Auto-reveal active file in tree when tab changes
+  // Dynamic import to avoid circular dependency (workspace ↔ tabs)
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    import('@/stores/tabs').then(({ useTabsStore }) => {
+      if (cancelled) return;
+      let prevActiveTabId = useTabsStore.getState().activeTabId;
+      unsubscribe = useTabsStore.subscribe((state) => {
+        if (state.activeTabId === prevActiveTabId) return;
+        prevActiveTabId = state.activeTabId;
+        if (!state.activeTabId) return;
+        const tab = state.tabs.find(t => t.id === state.activeTabId);
+        if (tab?.type === 'file' && tab.target) {
+          revealFile(tab.target).catch(() => {});
+        }
+      });
+    });
+    return () => { cancelled = true; unsubscribe?.(); };
+  }, [revealFile]);
 
   if (fileTree.length === 0) {
     return (

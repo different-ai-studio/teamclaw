@@ -129,7 +129,8 @@
     "confirmDelete": "确定要删除 {{name}}{{suffix}} 吗？",
     "noFilesFound": "未找到文件",
     "noFilesMatchFilter": "没有匹配的文件",
-    "filterPlaceholder": "过滤文件..."
+    "filterPlaceholder": "过滤文件...",
+    "revealActiveFile": "在文件树中定位"
   },
   "git": {
     "modified": "已修改",

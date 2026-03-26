@@ -129,7 +129,8 @@
     "confirmDelete": "Are you sure you want to delete {{name}}{{suffix}}?",
     "noFilesFound": "No files found",
     "noFilesMatchFilter": "No files match filter",
-    "filterPlaceholder": "Filter files..."
+    "filterPlaceholder": "Filter files...",
+    "revealActiveFile": "Reveal Active File"
   },
   "git": {
     "modified": "Modified",
