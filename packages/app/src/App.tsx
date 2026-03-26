@@ -71,7 +71,6 @@ import {
 import { SettingsSectionBody } from "@/components/settings/section-registry";
 import { isWorkspaceUIVariant } from "@/lib/ui-variant";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { VoiceInputFloatingButton } from "@/components/voice/VoiceInputFloatingButton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateDialogContainer } from "@/components/updater/UpdateDialog";
 import { RightPanel, ShortcutsPanel } from "@/components/panel";
@@ -886,7 +885,6 @@ function AppContent() {
             </div>
           </div>
         </div>
-        <VoiceInputFloatingButton />
         <WorkspaceTypeDialog
           open={isNewWorkspace}
           onSelectPersonal={() => setIsNewWorkspace(false)}
@@ -1083,7 +1081,6 @@ function AppContent() {
           </div>
         </div>
       </SidebarInset>
-      <VoiceInputFloatingButton />
       <OnboardingTour
         id="main-workspace"
         enabled={
