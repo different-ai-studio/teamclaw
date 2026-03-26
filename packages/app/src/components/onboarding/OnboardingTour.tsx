@@ -136,7 +136,11 @@ export function OnboardingTour({ id, steps, enabled, onFinish }: OnboardingTourP
   cardTop = Math.min(Math.max(16, cardTop), viewportHeight - 180)
 
   return createPortal(
-    <div className="fixed inset-0 z-[300]">
+    <div
+      data-testid="onboarding-tour-overlay"
+      className="fixed inset-0 z-[300] no-drag"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+    >
       <div className="absolute inset-0 bg-black/55" />
       <div
         className="absolute rounded-[20px] border border-white/70 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] transition-all duration-200 pointer-events-none"
@@ -149,8 +153,9 @@ export function OnboardingTour({ id, steps, enabled, onFinish }: OnboardingTourP
       />
 
       <div
-        className="absolute w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-border bg-background p-4 shadow-2xl"
-        style={{ top: cardTop, left: cardLeft }}
+        data-testid="onboarding-tour-card"
+        className="absolute w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-border bg-background p-4 shadow-2xl no-drag"
+        style={{ top: cardTop, left: cardLeft, WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <div className="mb-2 text-xs font-medium text-muted-foreground">
           {stepIndex + 1} / {steps.length}

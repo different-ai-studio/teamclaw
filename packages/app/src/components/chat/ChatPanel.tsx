@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { cn, isTauri } from "@/lib/utils";
 
 import { useSessionStore } from "@/stores/session";
@@ -215,13 +216,28 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // Sync selected model to session store
   React.useEffect(() => {
     if (selectedModelOption) {
-            setStoreSelectedModel({
+      setStoreSelectedModel({
         providerID: selectedModelOption.provider,
         modelID: selectedModelOption.id,
         name: selectedModelOption.name,
       });
     }
   }, [currentModelKey, selectedModelOption]);
+
+  React.useEffect(() => {
+    if (!isTauri() || !activeSessionId) return;
+
+    const modelKey = selectedModelOption
+      ? `${selectedModelOption.provider}/${selectedModelOption.id}`
+      : null;
+
+    invoke<boolean>("sync_gateway_session_model", {
+      sessionId: activeSessionId,
+      model: modelKey,
+    }).catch((error) => {
+      console.warn("[ChatPanel] Failed to sync gateway session model:", error);
+    });
+  }, [activeSessionId, selectedModelOption]);
 
   // Voice input / "Add to Agent": append transcript or file mention to input
   React.useEffect(() => {

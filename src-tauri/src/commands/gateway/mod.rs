@@ -1497,6 +1497,33 @@ pub async fn test_feishu_credentials(app_id: String, app_secret: String) -> Resu
     FeishuGateway::test_credentials(&app_id, &app_secret).await
 }
 
+/// Update the shared gateway model preference for an existing OpenCode session.
+/// This lets UI model changes apply to gateway-backed sessions such as Feishu chats.
+#[tauri::command]
+pub async fn sync_gateway_session_model(
+    session_id: String,
+    model: Option<String>,
+    gateway_state: State<'_, GatewayState>,
+) -> Result<bool, String> {
+    let session_mapping = gateway_state.shared_session_mapping.clone();
+    let Some(session_key) = session_mapping.find_key_by_session_id(&session_id).await else {
+        return Ok(false);
+    };
+
+    match model {
+        Some(model_str) if !model_str.trim().is_empty() => {
+            session_mapping
+                .set_model(session_key, model_str.trim().to_string())
+                .await;
+        }
+        _ => {
+            session_mapping.remove_model(&session_key).await;
+        }
+    }
+
+    Ok(true)
+}
+
 // ========== Email Gateway Commands ==========
 
 /// Get Email configuration

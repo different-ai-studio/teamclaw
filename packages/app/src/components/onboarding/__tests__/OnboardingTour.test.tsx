@@ -54,6 +54,7 @@ describe("OnboardingTour", () => {
 
     expect(await screen.findByText("First step")).toBeTruthy()
     expect(screen.getByText("Explain the page")).toBeTruthy()
+    expect(screen.getByTestId("onboarding-tour-card").className).toContain("no-drag")
   })
 
   it("marks the tour as completed when done", async () => {
