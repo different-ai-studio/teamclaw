@@ -4,7 +4,7 @@
 [![CI](https://github.com/diffrent-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/diffrent-ai-studio/teamclaw/actions)
 [![Contributors](https://img.shields.io/github/contributors/diffrent-ai-studio/teamclaw.svg)](https://github.com/diffrent-ai-studio/teamclaw/graphs/contributors)
 
-AI Agent Desktop Platform
+Local AI agents built on OpenCode — the foundation for digital employees
 
 English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
@@ -133,7 +133,6 @@ TeamClaw supports multiple team collaboration modes:
 
 - **P2P mode**: Local-network team collaboration with ticket-based join and member roles
 - **S3/OSS mode**: Cloud-backed team sync
-- **Git-based shared repository**: Share skills, MCP configs, and knowledge docs in `teamclaw-team/`
 
 ### Setting Up a Team Repository
 

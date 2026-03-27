@@ -15,7 +15,7 @@
   },
   "features": {
     "advancedMode": true,
-    "teamMode": true,
+    "teamMode": false,
     "updater": true,
     "channels": {
       "discord": true,
@@ -31,7 +31,7 @@
     "forcePathStyle": false
   },
   "defaults": {
-    "locale": "en-US",
+    "locale": "zh-CN",
     "theme": "system"
   }
 }

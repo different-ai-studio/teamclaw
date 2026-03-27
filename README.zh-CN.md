@@ -1,6 +1,6 @@
 # TeamClaw
 
-AI Agent 桌面平台
+基于OpenCode打造的本地智能体，数字员工的基座
 
 [English](README.md) | 简体中文 | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
@@ -15,7 +15,6 @@ AI Agent 桌面平台
 - **Skills / 插件扩展** — 可扩展的技能系统
 - **知识库能力** — knowledge 文档索引与检索
 - **本地文件操作** — 带权限管理的文件读写
-- **团队 Git 同步** — 在 `teamclaw-team/` 目录共享 Skills、MCP 配置和知识库
 
 ## 界面截图
 
@@ -114,7 +113,6 @@ TeamClaw 支持多种团队协作方式：
 
 - **P2P 模式**：基于票据加入局域网团队，支持成员角色管理
 - **S3/OSS 模式**：基于对象存储的团队同步
-- **Git 共享仓库模式**：在 `teamclaw-team/` 目录共享技能、MCP 配置和知识文档
 
 ### 配置团队共享仓库
 
