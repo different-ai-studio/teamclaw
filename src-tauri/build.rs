@@ -1,15 +1,53 @@
-fn main() {
-    // ── Read build.config.json and emit APP_SHORT_NAME ──
-    let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("build.config.json");
-    println!("cargo:rerun-if-changed={}", config_path.display());
+/// Deep-merge two JSON values (objects are merged recursively, everything else is overwritten).
+fn deep_merge(base: &mut serde_json::Value, overlay: serde_json::Value) {
+    if let (serde_json::Value::Object(base_map), serde_json::Value::Object(overlay_map)) =
+        (base, overlay)
+    {
+        for (key, overlay_val) in overlay_map {
+            let entry = base_map
+                .entry(key)
+                .or_insert(serde_json::Value::Null);
+            if entry.is_object() && overlay_val.is_object() {
+                deep_merge(entry, overlay_val);
+            } else {
+                *entry = overlay_val;
+            }
+        }
+    }
+}
 
-    let config_str = std::fs::read_to_string(&config_path)
-        .unwrap_or_else(|_| r#"{"app":{"name":"TeamClaw"}}"#.to_string());
-    let config: serde_json::Value =
-        serde_json::from_str(&config_str).expect("build.config.json is not valid JSON");
+fn main() {
+    // ── Read build config: base → env → local (mirrors vite.config.ts) ──
+    let root_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+
+    let base_path = root_dir.join("build.config.json");
+    println!("cargo:rerun-if-changed={}", base_path.display());
+
+    let mut config: serde_json::Value = std::fs::read_to_string(&base_path)
+        .map(|s| serde_json::from_str(&s).expect("build.config.json is not valid JSON"))
+        .unwrap_or_else(|_| serde_json::json!({"app":{"name":"TeamClaw"}}));
+
+    // Merge build.config.{BUILD_ENV}.json if BUILD_ENV is set
+    if let Ok(build_env) = std::env::var("BUILD_ENV") {
+        let env_path = root_dir.join(format!("build.config.{}.json", build_env));
+        println!("cargo:rerun-if-changed={}", env_path.display());
+        if let Ok(s) = std::fs::read_to_string(&env_path) {
+            let env_config: serde_json::Value =
+                serde_json::from_str(&s).expect(&format!("build.config.{}.json is not valid JSON", build_env));
+            deep_merge(&mut config, env_config);
+        }
+    }
+
+    // Merge build.config.local.json
+    let local_path = root_dir.join("build.config.local.json");
+    println!("cargo:rerun-if-changed={}", local_path.display());
+    if let Ok(s) = std::fs::read_to_string(&local_path) {
+        let local_config: serde_json::Value =
+            serde_json::from_str(&s).expect("build.config.local.json is not valid JSON");
+        deep_merge(&mut config, local_config);
+    }
 
     let short_name = config["app"]["shortName"]
         .as_str()

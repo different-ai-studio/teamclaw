@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react"
+import * as Sentry from "@sentry/react"
 import i18n from "@/lib/i18n"
 import { copyToClipboard } from "@/lib/utils"
 import { AlertTriangle, RotateCw, Copy, ChevronDown, ChevronUp } from "lucide-react"
@@ -41,6 +42,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error(`[ErrorBoundary${this.props.scope ? `:${this.props.scope}` : ""}] Caught error:`, error, errorInfo)
+    Sentry.captureException(error, { extra: { componentStack: errorInfo?.componentStack, scope: this.props.scope } })
     this.setState({ errorInfo })
     this.props.onError?.(error, errorInfo)
   }

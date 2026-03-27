@@ -339,6 +339,7 @@ pub fn run() {
             commands::gateway::stop_feishu_gateway,
             commands::gateway::get_feishu_gateway_status,
             commands::gateway::test_feishu_credentials,
+            commands::gateway::sync_gateway_session_model,
             commands::gateway::get_email_config,
             commands::gateway::save_email_config,
             commands::gateway::start_email_gateway,

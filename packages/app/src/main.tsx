@@ -1,11 +1,20 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import * as Sentry from '@sentry/react'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import './styles/globals.css'
 import './stores/dev-expose'
 import './lib/i18n'; // Initialize i18n
 import { appShortName, buildConfig } from './lib/build-config'
+
+// Initialize Sentry for frontend error tracking
+Sentry.init({
+  dsn: 'https://87ad99c36806946fe743be71ed87fffe@o60909.ingest.us.sentry.io/4511110370295808',
+  release: `teamclaw-web@${import.meta.env.PACKAGE_VERSION ?? '0.0.0'}`,
+  environment: import.meta.env.DEV ? 'development' : 'production',
+  sendDefaultPii: true,
+})
 
 // Apply persisted theme immediately to prevent flash of wrong theme
 ;(() => {
@@ -23,6 +32,7 @@ import { appShortName, buildConfig } from './lib/build-config'
 // Global unhandled error logging
 window.addEventListener('unhandledrejection', (event) => {
   console.error('[Global] Unhandled promise rejection:', event.reason)
+  Sentry.captureException(event.reason)
 })
 
 // Disable browser context menu for native desktop feel

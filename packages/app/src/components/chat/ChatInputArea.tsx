@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from 'react-i18next';
-import { FileText, Mic, MicOff, X } from "lucide-react";
+import { FileText, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProviderStore, getSelectedModelOption } from "@/stores/provider";
 import {
@@ -37,10 +37,7 @@ import { MessageQueueDisplay } from "./MessageQueueDisplay";
 import { ContextUsageBadge } from "./ContextUsageBadge";
 import { type QueuedMessage, useSessionStore } from "@/stores/session";
 import { useVoiceInputStore } from "@/stores/voice-input";
-import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
-import { useTauriStt } from "@/hooks/useTauriStt";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { isTauri } from "@/lib/utils";
 import { getFileName, getFileDisplayPath } from "./utils/fileUtils";
 
 // ─── Popover wrappers (need PromptInput context for useInsertFileMention) ───
@@ -160,15 +157,6 @@ export function ChatInputArea({
   const configuredProvidersLoading = useProviderStore(s => s.configuredProvidersLoading);
   const storeSelectModel = useProviderStore(s => s.selectModel);
   const selectedModelOption = useProviderStore((s) => getSelectedModelOption(s));
-
-  // Voice input (STT) — both hooks called unconditionally per Rules of Hooks
-  const handleSttResult = React.useCallback((transcript: string) => {
-    onInputChange(inputValue + transcript);
-  }, [onInputChange, inputValue]);
-
-  const tauriStt = useTauriStt({ onResult: handleSttResult });
-  const webStt = useSpeechRecognition({ onResult: handleSttResult });
-  const stt = isTauri() ? tauriStt : webStt;
 
   // Handle file paths dropped from file tree - insert as @{filepath} mention (same as "Add to Agent")
   const handleFilePathsDrop = React.useCallback((paths: string[]) => {
@@ -385,17 +373,6 @@ export function ChatInputArea({
               <div data-onboarding-id="chat-input-files">
                 <FileInputButton onFilesSelected={onFilesChange} />
               </div>
-
-              {/* Voice input mic button */}
-              {stt.isSupported && (
-                <PromptInputButton
-                  onClick={stt.isListening ? stt.stopListening : stt.startListening}
-                  className={stt.isListening ? 'text-red-500' : ''}
-                  title={stt.isListening ? 'Stop recording' : 'Voice input'}
-                >
-                  {stt.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                </PromptInputButton>
-              )}
 
               {/* Plan mode toggle */}
               <Button

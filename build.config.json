@@ -11,7 +11,7 @@
   "app": {
     "name": "TeamClaw",
     "shortName": "teamclaw",
-    "uiVariant": "workspace"
+    "uiVariant": "default"
   },
   "features": {
     "advancedMode": true,

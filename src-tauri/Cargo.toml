@@ -1,6 +1,6 @@
 [package]
 name = "teamclaw"
-version = "0.1.22"
+version = "0.1.24"
 description = "TeamClaw - AI Agent Desktop Platform"
 authors = ["TeamClaw Team"]
 edition = "2021"
@@ -120,6 +120,7 @@ log = "0.4"
 
 # Global keyboard event monitoring (double-tap Ctrl for spotlight)
 rdev = "0.5"
+sentry = "0.47.0"
 
 # macOS native APIs for traffic light control
 [target.'cfg(target_os = "macos")'.dependencies]

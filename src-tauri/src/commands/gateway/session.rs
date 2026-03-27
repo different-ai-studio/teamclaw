@@ -197,6 +197,14 @@ impl SessionMapping {
         }
     }
 
+    /// Find the gateway session key for an existing OpenCode session ID.
+    pub async fn find_key_by_session_id(&self, session_id: &str) -> Option<String> {
+        let data = self.data.read().await;
+        data.sessions.iter().find_map(|(key, entry)| {
+            (entry.session_id.as_deref() == Some(session_id)).then(|| key.clone())
+        })
+    }
+
     // ==================== Bulk Operations ====================
 
     // ==================== Email Thread Index Operations ====================
