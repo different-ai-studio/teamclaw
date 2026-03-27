@@ -343,6 +343,21 @@
   },
   "settings": {
     "title": "设置",
+    "feedback": {
+      "title": "发送反馈",
+      "description": "分享您的反馈帮助我们改进",
+      "messagePlaceholder": "描述您的问题或建议...",
+      "emailPlaceholder": "your@email.com",
+      "emailLabel": "联系邮箱",
+      "screenshotsLabel": "截图",
+      "screenshotsDrop": "粘贴、拖放或点击添加图片",
+      "submit": "提交反馈",
+      "submitting": "提交中...",
+      "success": "感谢您的反馈！",
+      "error": "发送反馈失败，请重试。",
+      "fileTooLarge": "图片大小不能超过5MB",
+      "invalidFileType": "仅接受图片文件"
+    },
     "group": {
       "core": "核心",
       "integrations": "集成",

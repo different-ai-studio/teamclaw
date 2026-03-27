@@ -343,6 +343,21 @@
   },
   "settings": {
     "title": "Settings",
+    "feedback": {
+      "title": "Send Feedback",
+      "description": "Help us improve by sharing your feedback",
+      "messagePlaceholder": "Describe your issue or suggestion...",
+      "emailPlaceholder": "your@email.com",
+      "emailLabel": "Contact Email",
+      "screenshotsLabel": "Screenshots",
+      "screenshotsDrop": "Paste, drag & drop, or click to add images",
+      "submit": "Submit Feedback",
+      "submitting": "Submitting...",
+      "success": "Thank you for your feedback!",
+      "error": "Failed to send feedback. Please try again.",
+      "fileTooLarge": "Image must be under 5MB",
+      "invalidFileType": "Only image files are accepted"
+    },
     "group": {
       "core": "Core",
       "integrations": "Integrations",
