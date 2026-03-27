@@ -147,6 +147,7 @@ export function useOpenCodeInit() {
     let watchedDirs: string[] = [];
     let skillDirs: string[] = [];
     let lastSkillSignature = "";
+    let hasObservedSkillChange = false;
     let changeVersion = 0;
 
     const QUIET_WINDOW_MS = 3000;
@@ -186,7 +187,12 @@ export function useOpenCodeInit() {
       if (firstSignature !== secondSignature) return;
 
       if (secondSignature !== lastSkillSignature) {
+        const isFirstObservedChange = !hasObservedSkillChange;
+        hasObservedSkillChange = true;
         lastSkillSignature = secondSignature;
+        // Suppress restart prompts caused by startup-time churn while the
+        // initial watcher baseline is stabilizing.
+        if (isFirstObservedChange) return;
         window.dispatchEvent(new CustomEvent(SKILLS_CHANGED_EVENT));
       }
     };
