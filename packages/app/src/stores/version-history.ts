@@ -18,6 +18,18 @@ export interface VersionedFileInfo {
   currentDeleted: boolean
 }
 
+export interface VersionHistoryProvider {
+  listFiles: (workspacePath: string, docType?: string) => Promise<VersionedFileInfo[]>
+  listVersions: (workspacePath: string, docType: string, filePath: string) => Promise<FileVersion[]>
+  restore: (workspacePath: string, docType: string, filePath: string, versionIndex: number) => Promise<void>
+}
+
+let versionProvider: VersionHistoryProvider | null = null
+
+export function registerVersionHistoryProvider(provider: VersionHistoryProvider) {
+  versionProvider = provider
+}
+
 interface VersionHistoryState {
   // State
   versionedFiles: VersionedFileInfo[]
@@ -46,13 +58,10 @@ export const useVersionHistoryStore = create<VersionHistoryState>((set) => ({
   error: null,
 
   loadVersionedFiles: async (workspacePath, docType) => {
+    if (!versionProvider) return
     set({ loading: true, error: null })
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      const files = await invoke<VersionedFileInfo[]>('team_list_all_versioned_files', {
-        workspacePath,
-        docType: docType ?? null,
-      })
+      const files = await versionProvider.listFiles(workspacePath, docType)
       set({ versionedFiles: files, loading: false })
     } catch (e) {
       set({ error: String(e), loading: false })
@@ -60,14 +69,10 @@ export const useVersionHistoryStore = create<VersionHistoryState>((set) => ({
   },
 
   loadFileVersions: async (workspacePath, docType, filePath) => {
+    if (!versionProvider) return
     set({ loading: true, error: null })
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      const versions = await invoke<FileVersion[]>('team_list_file_versions', {
-        workspacePath,
-        docType,
-        filePath,
-      })
+      const versions = await versionProvider.listVersions(workspacePath, docType, filePath)
       set({ fileVersions: versions, loading: false })
     } catch (e) {
       set({ error: String(e), loading: false })
@@ -75,15 +80,10 @@ export const useVersionHistoryStore = create<VersionHistoryState>((set) => ({
   },
 
   restoreFileVersion: async (workspacePath, docType, filePath, versionIndex) => {
+    if (!versionProvider) return
     set({ loading: true, error: null })
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('team_restore_file_version', {
-        workspacePath,
-        docType,
-        filePath,
-        versionIndex,
-      })
+      await versionProvider.restore(workspacePath, docType, filePath, versionIndex)
       set({ loading: false })
     } catch (e) {
       set({ error: String(e), loading: false })
