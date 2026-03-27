@@ -144,6 +144,7 @@ export interface SelectedModel {
 export interface SessionState {
   // State
   sessions: Session[];
+  pinnedSessionIds: string[];
   activeSessionId: string | null;
   isLoading: boolean;
   isLoadingMore: boolean; // Loading more sessions (UI pagination)
@@ -205,6 +206,7 @@ export interface SessionState {
   setActiveSession: (id: string) => Promise<void>;
   archiveSession: (id: string) => Promise<void>;
   updateSessionTitle: (id: string, title: string) => Promise<void>;
+  toggleSessionPinned: (id: string) => void;
   resetSessions: () => void;
 
   // Actions - Model selection

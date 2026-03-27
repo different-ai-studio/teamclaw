@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Sparkles, Bookmark, Settings } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Sparkles, Bookmark, Settings, Pin } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -475,6 +475,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { t } = useTranslation()
   const { state: sidebarDisplayState } = useSidebar()
   const allSessions = useSessionStore(s => s.sessions)
+  const pinnedSessionIds = useSessionStore(s => s.pinnedSessionIds)
   const activeSessionId = useSessionStore(s => s.activeSessionId)
   const isLoading = useSessionStore(s => s.isLoading)
   const isLoadingMore = useSessionStore(s => s.isLoadingMore)
@@ -484,6 +485,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const setActiveSession = useSessionStore(s => s.setActiveSession)
   const archiveSession = useSessionStore(s => s.archiveSession)
   const updateSessionTitle = useSessionStore(s => s.updateSessionTitle)
+  const toggleSessionPinned = useSessionStore(s => s.toggleSessionPinned)
   const loadMoreSessions = useSessionStore(s => s.loadMoreSessions)
   const cronSessionIds = useCronStore(s => s.cronSessionIds)
   const showCronSessions = useCronStore(s => s.showCronSessions)
@@ -498,8 +500,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         ? cronSessionIds.has(s.id)
         : !cronSessionIds.has(s.id)
       )
+      .sort((a, b) => {
+        const aPinned = pinnedSessionIds.includes(a.id)
+        const bPinned = pinnedSessionIds.includes(b.id)
+        if (aPinned !== bPinned) return aPinned ? -1 : 1
+        return b.updatedAt.getTime() - a.updatedAt.getTime()
+      })
       .slice(0, visibleSessionCount),
-    [allSessions, cronSessionIds, showCronSessions, visibleSessionCount],
+    [allSessions, cronSessionIds, pinnedSessionIds, showCronSessions, visibleSessionCount],
+  )
+  const pinnedSessions = React.useMemo(
+    () => sessions.filter((session) => pinnedSessionIds.includes(session.id)),
+    [sessions, pinnedSessionIds],
+  )
+  const unpinnedSessions = React.useMemo(
+    () => sessions.filter((session) => !pinnedSessionIds.includes(session.id)),
+    [sessions, pinnedSessionIds],
   )
   
   const openSettings = useUIStore(s => s.openSettings)
@@ -578,8 +594,120 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     setRenamingSessionId(null)
   }
 
+  const handleTogglePinned = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    toggleSessionPinned(id)
+  }
+
   // Format date for display with relative time
   const formatDate = (date: Date) => formatRelativeTime(date)
+
+  const renderSessionItem = (session: typeof sessions[number]) => {
+    const isHighlighted = highlightedSessionIds.includes(session.id)
+    const isRenaming = renamingSessionId === session.id
+    const isPinned = pinnedSessionIds.includes(session.id)
+
+    return (
+      <SidebarMenuItem key={session.id}>
+        <SidebarMenuButton
+          isActive={session.id === activeSessionId}
+          className={cn(
+            "h-auto py-2 transition-all duration-300",
+            isWorkspaceUIVariant() &&
+              session.id === activeSessionId &&
+              "relative z-0 data-[active=true]:!bg-muted/40 data-[active=true]:font-medium before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:z-10 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary before:content-['']",
+            isHighlighted &&
+              session.id !== activeSessionId &&
+              "bg-emerald-500/15 ring-1 ring-emerald-500/30"
+          )}
+          onClick={() => {
+            if (!isRenaming) {
+              handleSelectSession(session.id)
+            }
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            handleStartRename(e, session.id)
+          }}
+        >
+          <div className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 w-full">
+              {isRenaming ? (
+                <SessionRenameInput
+                  defaultValue={session.title}
+                  onConfirm={(newTitle) => handleRenameConfirm(session.id, newTitle)}
+                  onCancel={handleRenameCancel}
+                />
+              ) : (
+                <>
+                  <span className="truncate text-left">
+                    {session.title}
+                  </span>
+                  {isPinned && (
+                    <Pin className="h-3 w-3 shrink-0 text-amber-500 fill-amber-500/20" />
+                  )}
+                  {session.id !== activeSessionId && isHighlighted && (
+                    <span className="shrink-0 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                      NEW
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+            {!isRenaming && (
+              <div className="flex items-center gap-1.5 w-full">
+                <span className="text-[10px] text-muted-foreground">
+                  {formatDate(session.updatedAt)}
+                  {session.messageCount !== undefined && (
+                    <> · {session.messageCount} messages</>
+                  )}
+                </span>
+                {session.id === activeSessionId && (
+                  <span className="ml-auto">
+                    <SidebarSessionStatusIndicator />
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </SidebarMenuButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-1 bottom-1 h-5 w-5 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Ellipsis className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={(e) => handleTogglePinned(e as unknown as React.MouseEvent, session.id)}
+            >
+              <Pin className="h-4 w-4 mr-2" />
+              {isPinned
+                ? t('sidebar.unpin', 'Unpin')
+                : t('sidebar.pinToTop', 'Pin to top')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => handleStartRename(e, session.id)}
+            >
+              <Pencil className="h-4 w-4 mr-2" />
+              {t('sidebar.rename', 'Rename')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => handleArchiveSession(e as unknown as React.MouseEvent, session.id)}
+            >
+              <Archive className="h-4 w-4 mr-2" />
+              {t('sidebar.archive', 'Archive')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    )
+  }
 
   return (
     <Sidebar variant="sidebar" {...props}>
@@ -672,99 +800,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 </p>
               </div>
             ) : (
-              sessions.map((session) => {
-                const isHighlighted = highlightedSessionIds.includes(session.id)
-                const isRenaming = renamingSessionId === session.id
-                return (
-                <SidebarMenuItem key={session.id}>
-                  <SidebarMenuButton
-                    isActive={session.id === activeSessionId}
-                    className={cn(
-                      "h-auto py-2 transition-all duration-300",
-                      isWorkspaceUIVariant() &&
-                        session.id === activeSessionId &&
-                        "relative z-0 data-[active=true]:!bg-muted/40 data-[active=true]:font-medium before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:z-10 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary before:content-['']",
-                      isHighlighted &&
-                        session.id !== activeSessionId &&
-                        "bg-emerald-500/15 ring-1 ring-emerald-500/30"
-                    )}
-                    onClick={() => {
-                      if (!isRenaming) {
-                        handleSelectSession(session.id)
-                      }
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation()
-                      handleStartRename(e, session.id)
-                    }}
-                  >
-                    <div className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 w-full">
-                        {isRenaming ? (
-                          <SessionRenameInput
-                            defaultValue={session.title}
-                            onConfirm={(newTitle) => handleRenameConfirm(session.id, newTitle)}
-                            onCancel={handleRenameCancel}
-                          />
-                        ) : (
-                          <>
-                            <span className="truncate text-left">
-                              {session.title}
-                            </span>
-                            {session.id !== activeSessionId && isHighlighted && (
-                              <span className="shrink-0 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
-                                NEW
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      {!isRenaming && (
-                        <div className="flex items-center gap-1.5 w-full">
-                          <span className="text-[10px] text-muted-foreground">
-                            {formatDate(session.updatedAt)}
-                            {session.messageCount !== undefined && (
-                              <> · {session.messageCount} messages</>
-                            )}
-                          </span>
-                          {session.id === activeSessionId && (
-                            <span className="ml-auto">
-                              <SidebarSessionStatusIndicator />
-                            </span>
-                          )}
-                        </div>
-                      )}
+              <>
+                {pinnedSessions.length > 0 && (
+                  <>
+                    <div className="px-2 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                      {t('sidebar.pinnedSessions', 'Pinned')}
                     </div>
-                  </SidebarMenuButton>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1 bottom-1 h-5 w-5 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Ellipsis className="h-3 w-3" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={(e) => handleStartRename(e, session.id)}
-                      >
-                        <Pencil className="h-4 w-4 mr-2" />
-                        {t('sidebar.rename', 'Rename')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={(e) => handleArchiveSession(e as unknown as React.MouseEvent, session.id)}
-                      >
-                        <Archive className="h-4 w-4 mr-2" />
-                        {t('sidebar.archive', 'Archive')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </SidebarMenuItem>
-                )
-              })
+                    {pinnedSessions.map(renderSessionItem)}
+                  </>
+                )}
+                {unpinnedSessions.length > 0 && (
+                  <>
+                    {pinnedSessions.length > 0 && (
+                      <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                        {t('sidebar.allSessions', 'All sessions')}
+                      </div>
+                    )}
+                    {unpinnedSessions.map(renderSessionItem)}
+                  </>
+                )}
+              </>
             )}
           </SidebarMenu>
           

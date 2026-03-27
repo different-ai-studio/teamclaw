@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // --- Hoisted mocks ---
 const mockListSessions = vi.fn()
 const mockCreateSession = vi.fn()
+const mockArchiveSession = vi.fn()
 const mockGetMessages = vi.fn()
 const mockGetSession = vi.fn()
 const mockGetTodos = vi.fn()
@@ -12,6 +13,7 @@ vi.mock('@/lib/opencode/client', () => ({
   getOpenCodeClient: () => ({
     listSessions: mockListSessions,
     createSession: mockCreateSession,
+    archiveSession: mockArchiveSession,
     getMessages: mockGetMessages,
     getSession: mockGetSession,
     getTodos: mockGetTodos,
@@ -78,6 +80,7 @@ describe('session-loader: createLoaderActions', () => {
 
     state = {
       sessions: [],
+      pinnedSessionIds: [],
       activeSessionId: null,
       isLoading: false,
       messageQueue: [],
@@ -123,6 +126,27 @@ describe('session-loader: createLoaderActions', () => {
     expect(sessions).toHaveLength(2)
     expect(sessions[0].id).toBe('newer')
     expect(sessions[1].id).toBe('older')
+  })
+
+  it('loadSessions removes pinned ids that no longer exist', async () => {
+    const now = Date.now()
+    state.pinnedSessionIds = ['missing', 'active']
+    mockListSessions.mockResolvedValue([
+      { id: 'active', title: 'Active', time: { created: now, updated: now } },
+    ])
+
+    await actions.loadSessions('/workspace')
+
+    const sessionsCall = set.mock.calls.find(
+      (c) => {
+        const arg = c[0]
+        return typeof arg === 'object' && arg !== null && 'pinnedSessionIds' in arg
+      }
+    )
+
+    expect(sessionsCall).toBeDefined()
+    expect(sessionsCall![0].pinnedSessionIds).toEqual(['active'])
+    expect(localStorage.setItem).toHaveBeenCalled()
   })
 
   it('loadSessions filters out archived and child sessions', async () => {
@@ -204,5 +228,27 @@ describe('session-loader: createLoaderActions', () => {
       isLoading: true,
     }))
     expect(mockGetMessages).toHaveBeenCalledWith('sess-1')
+  })
+
+  it('archiveSession removes the session from pinned ids', async () => {
+    const now = Date.now()
+    state.sessions = [{
+      id: 'sess-1',
+      title: 'Test',
+      messages: [],
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+      directory: '/workspace',
+    }]
+    state.pinnedSessionIds = ['sess-1']
+    state.activeSessionId = 'sess-1'
+    mockArchiveSession.mockResolvedValue(undefined)
+
+    await actions.archiveSession('sess-1')
+
+    expect(mockArchiveSession).toHaveBeenCalledWith('sess-1', '/workspace')
+    expect(state.pinnedSessionIds).toEqual([])
+    expect(localStorage.setItem).toHaveBeenCalled()
+    expect(state.activeSessionId).toBeNull()
   })
 })

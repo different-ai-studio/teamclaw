@@ -18,6 +18,7 @@ vi.mock('@/lib/utils', () => ({
 
 vi.mock('@/lib/date-format', () => ({
   formatSessionDate: (d: Date) => d.toISOString(),
+  formatRelativeTime: (d: Date) => d.toISOString(),
 }))
 
 // Mock stores
@@ -28,6 +29,7 @@ vi.mock('@/stores/session', () => ({
         { id: 's1', title: 'Session One', updatedAt: new Date('2025-01-01'), messages: [] },
         { id: 's2', title: 'Session Two', updatedAt: new Date('2025-01-02'), messages: [] },
       ],
+      pinnedSessionIds: ['s1'],
       activeSessionId: 's1',
       isLoading: false,
       isLoadingMore: false,
@@ -37,6 +39,7 @@ vi.mock('@/stores/session', () => ({
       setActiveSession: vi.fn(),
       archiveSession: vi.fn(),
       updateSessionTitle: vi.fn(),
+      toggleSessionPinned: vi.fn(),
       loadMoreSessions: vi.fn(),
       createSession: vi.fn(),
     }),
@@ -138,6 +141,23 @@ describe('AppSidebar', () => {
     render(<AppSidebar />)
     expect(screen.getByText('Session One')).toBeDefined()
     expect(screen.getByText('Session Two')).toBeDefined()
+  })
+
+  it('shows pinned sessions before newer unpinned sessions', () => {
+    render(<AppSidebar />)
+    expect(screen.getByText('Pinned')).toBeDefined()
+    expect(screen.getByText('All sessions')).toBeDefined()
+    const sessionOne = screen.getByText('Session One')
+    const sessionTwo = screen.getByText('Session Two')
+    const sessionOneButton = sessionOne.closest('button')
+    const sessionTwoButton = sessionTwo.closest('button')
+
+    expect(sessionOneButton).not.toBeNull()
+    expect(sessionTwoButton).not.toBeNull()
+    expect(
+      sessionOneButton!.compareDocumentPosition(sessionTwoButton!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 
   it('renders sidebar container', () => {

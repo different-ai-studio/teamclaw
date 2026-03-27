@@ -205,6 +205,10 @@
     "clickToStartChat": "点击编辑图标开始新聊天",
     "noSessionsFound": "未找到会话",
     "currentWorkspace": "当前：{{path}}",
+    "pinnedSessions": "固定会话",
+    "allSessions": "全部会话",
+    "pinToTop": "固定到顶部",
+    "unpin": "取消固定",
     "loadMore": "加载更多",
     "loadingMore": "加载中...",
     "settings": "设置"

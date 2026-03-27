@@ -11,10 +11,15 @@ import { createMessageActions } from "./session-messages";
 import { createSSEHandlers } from "./session-sse-handlers";
 import { createPermissionActions } from "./session-permissions";
 import { createQuestionActions } from "./session-questions";
+import {
+  loadPinnedSessionIds,
+  savePinnedSessionIds,
+} from "./session-pins";
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   // Initial state
   sessions: [],
+  pinnedSessionIds: loadPinnedSessionIds(),
   activeSessionId: null,
   isLoading: false,
   isLoadingMore: false,
@@ -46,6 +51,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   ...createQuestionActions(set, get),
 
   // Simple state setters
+  toggleSessionPinned: (id: string) => {
+    set((state) => {
+      const exists = state.sessions.some((session) => session.id === id);
+      if (!exists) return {};
+
+      const pinnedSessionIds = state.pinnedSessionIds.includes(id)
+        ? state.pinnedSessionIds.filter((sessionId) => sessionId !== id)
+        : [id, ...state.pinnedSessionIds];
+
+      savePinnedSessionIds(pinnedSessionIds);
+      return { pinnedSessionIds };
+    });
+  },
   setConnected: (connected: boolean) => {
     set({ isConnected: connected });
   },

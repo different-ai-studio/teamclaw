@@ -205,6 +205,10 @@
     "clickToStartChat": "Click the edit icon to start a new chat",
     "noSessionsFound": "No sessions found",
     "currentWorkspace": "Current: {{path}}",
+    "pinnedSessions": "Pinned",
+    "allSessions": "All sessions",
+    "pinToTop": "Pin to top",
+    "unpin": "Unpin",
     "loadMore": "Load More",
     "loadingMore": "Loading...",
     "settings": "Settings"

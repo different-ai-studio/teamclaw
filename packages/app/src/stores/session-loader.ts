@@ -26,6 +26,10 @@ import {
 } from "@/stores/streaming";
 import { trackEvent } from "@/stores/telemetry";
 import { sessionDataCache } from "./session-data-cache";
+import {
+  savePinnedSessionIds,
+  sanitizePinnedSessionIds,
+} from "./session-pins";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -119,11 +123,18 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         // Sort by updatedAt descending (most recently active first)
         newSessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
+        const pinnedSessionIds = sanitizePinnedSessionIds(
+          get().pinnedSessionIds,
+          newSessions.map((session) => session.id),
+        );
+        savePinnedSessionIds(pinnedSessionIds);
+
         // UI-level pagination: initially show first PAGE_SIZE sessions
         const hasMore = newSessions.length > UI_PAGE_SIZE;
 
         set({
           sessions: newSessions,
+          pinnedSessionIds,
           isLoading: false,
           hasMoreSessions: hasMore,
           visibleSessionCount: Math.min(newSessions.length, UI_PAGE_SIZE),
@@ -497,10 +508,13 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
 
         set((state) => {
           const newSessions = state.sessions.filter((s) => s.id !== id);
+          const pinnedSessionIds = state.pinnedSessionIds.filter((sessionId) => sessionId !== id);
+          savePinnedSessionIds(pinnedSessionIds);
           updateSessionCache(newSessions);
 
           return {
             sessions: newSessions,
+            pinnedSessionIds,
             activeSessionId:
               state.activeSessionId === id
                 ? (newSessions[0]?.id ?? null)
