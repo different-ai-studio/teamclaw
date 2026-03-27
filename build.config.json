@@ -11,7 +11,7 @@
   "app": {
     "name": "TeamClaw",
     "shortName": "teamclaw",
-    "uiVariant": "workspace"
+    "uiVariant": "default"
   },
   "features": {
     "advancedMode": true,
@@ -31,7 +31,7 @@
     "forcePathStyle": false
   },
   "defaults": {
-    "locale": "zh-CN",
+    "locale": "en-US",
     "theme": "system"
   }
 }

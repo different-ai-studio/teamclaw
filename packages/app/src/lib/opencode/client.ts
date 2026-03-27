@@ -39,10 +39,6 @@ export class OpenCodeClient {
     if (this.password) {
       headers['Authorization'] = `Bearer ${this.password}`
     }
-    // Add workspace directory header for OpenCode server
-    if (this.workspacePath) {
-      headers['x-opencode-directory'] = this.workspacePath
-    }
     return headers
   }
 

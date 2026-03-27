@@ -62,6 +62,21 @@ describe('OpenCodeClient', () => {
     expect(url).toContain('roots=true')
   })
 
+  it('uses directory query param without x-opencode-directory header', async () => {
+    const c = new OpenCodeClient({
+      baseUrl: 'http://localhost:13141',
+      workspacePath: '/tmp/proj',
+    })
+    mockFetch.mockResolvedValue(jsonResponse([]))
+
+    await c.listSessions()
+
+    const url = mockFetch.mock.calls[0][0] as string
+    const headers = mockFetch.mock.calls[0][1].headers as Record<string, string>
+    expect(url).toContain('directory=%2Ftmp%2Fproj')
+    expect(headers['x-opencode-directory']).toBeUndefined()
+  })
+
   it('sendMessage sends POST with parts and model', async () => {
     const msg = { info: { id: 'msg-1' }, parts: [] }
     mockFetch.mockResolvedValue(jsonResponse(msg))

@@ -6,14 +6,32 @@ AI Agent 桌面平台
 
 ![TeamClaw 截图](_assets/screenshot.jpg)
 
+## 界面预览
+
+### 首页
+
+![TeamClaw 首页](images/home.png)
+
+### 渠道配置
+
+![TeamClaw 渠道](images/channel.png)
+
+### 团队设置
+
+![TeamClaw 团队](images/team.png)
+
 ## 功能特性
 
 - **三栏布局** — 侧边栏、聊天区、详情面板
 - **OpenCode 集成** — 完整的 Agent 能力支持
+- **渠道网关** — 支持 Discord、Feishu、Email、Kook、WeCom、WeChat
+- **自动化任务** — 支持定时任务（Cron）
+- **团队协作模式** — 支持 P2P 与 S3/OSS
 - **MCP 支持** — Model Context Protocol，连接企业系统
 - **Skills / 插件扩展** — 可扩展的技能系统
+- **知识库能力** — knowledge 文档索引与检索
 - **本地文件操作** — 带权限管理的文件读写
-- **团队 Git 同步** — 共享 Skills、MCP 配置和知识库
+- **团队 Git 同步** — 在 `teamclaw-team/` 目录共享 Skills、MCP 配置和知识库
 
 ## 技术栈
 
@@ -94,7 +112,11 @@ pnpm update-opencode
 
 ## 团队协作
 
-TeamClaw 支持通过 Git 仓库实现团队协作，团队成员可以共享 Skills、MCP 配置和知识库。
+TeamClaw 支持多种团队协作方式：
+
+- **P2P 模式**：基于票据加入局域网团队，支持成员角色管理
+- **S3/OSS 模式**：基于对象存储的团队同步
+- **Git 共享仓库模式**：在 `teamclaw-team/` 目录共享技能、MCP 配置和知识文档
 
 ### 配置团队共享仓库
 
@@ -110,7 +132,7 @@ TeamClaw 支持通过 Git 仓库实现团队协作，团队成员可以共享 Sk
 
 团队仓库会自动同步以下内容：
 
-- **Skills**：`.agent/skills/` — 共享的 Agent 技能
+- **Skills**：`skills/` — 共享的 Agent 技能
 - **MCP 配置**：`.mcp/` — MCP 服务器配置
 - **知识库**：`knowledge/` — 团队知识库文档
 
