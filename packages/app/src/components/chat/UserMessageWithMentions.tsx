@@ -25,6 +25,10 @@ function LocalImageCard({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+function isImagePath(path: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
+}
+
 export function UserMessageWithMentions({ content, basePath }: { content: string; basePath?: string }) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = React.useState(false);
@@ -173,6 +177,18 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
         }
 
         if (part.type === "attachment") {
+          const attachmentPath = part.fullPath ?? part.content;
+          if (attachmentPath && isImagePath(attachmentPath)) {
+            return (
+              <div key={index} className="inline-block my-2">
+                <LocalImageCard
+                  src={resolveImagePath(attachmentPath, basePath)}
+                  alt={part.content}
+                />
+              </div>
+            );
+          }
+
           const parentDir = part.fullPath
             ? part.fullPath.replace(/\\/g, "/").split("/").slice(-2, -1)[0]
             : undefined;

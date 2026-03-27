@@ -4,9 +4,7 @@ fn deep_merge(base: &mut serde_json::Value, overlay: serde_json::Value) {
         (base, overlay)
     {
         for (key, overlay_val) in overlay_map {
-            let entry = base_map
-                .entry(key)
-                .or_insert(serde_json::Value::Null);
+            let entry = base_map.entry(key).or_insert(serde_json::Value::Null);
             if entry.is_object() && overlay_val.is_object() {
                 deep_merge(entry, overlay_val);
             } else {
@@ -34,8 +32,10 @@ fn main() {
         let env_path = root_dir.join(format!("build.config.{}.json", build_env));
         println!("cargo:rerun-if-changed={}", env_path.display());
         if let Ok(s) = std::fs::read_to_string(&env_path) {
-            let env_config: serde_json::Value =
-                serde_json::from_str(&s).expect(&format!("build.config.{}.json is not valid JSON", build_env));
+            let env_config: serde_json::Value = serde_json::from_str(&s).expect(&format!(
+                "build.config.{}.json is not valid JSON",
+                build_env
+            ));
             deep_merge(&mut config, env_config);
         }
     }

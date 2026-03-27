@@ -87,7 +87,7 @@ async function readClawHubLockfile(workspacePath: string): Promise<Set<string>> 
 // ─── Multi-Source Loader ────────────────────────────────────────────────────
 
 /** Read skills.paths from opencode.json, resolving ~ and relative paths */
-async function readConfigSkillPaths(workspacePath: string): Promise<string[]> {
+export async function readConfigSkillPaths(workspacePath: string): Promise<string[]> {
   try {
     const configPath = `${workspacePath}/opencode.json`
     if (!(await exists(configPath))) return []
@@ -107,6 +107,29 @@ async function readConfigSkillPaths(workspacePath: string): Promise<string[]> {
   } catch {
     return []
   }
+}
+
+/** Return all known skill directories for the current workspace/user context. */
+export async function getSkillDirectories(workspacePath: string | null): Promise<string[]> {
+  const home = (await homeDir()).replace(/\/$/, '')
+  const dirs = new Set<string>([
+    `${home}/.config/opencode/skills`,
+    `${home}/.claude/skills`,
+    `${home}/.agents/skills`,
+  ])
+
+  if (workspacePath) {
+    dirs.add(`${workspacePath}/.opencode/skills`)
+    dirs.add(`${workspacePath}/.claude/skills`)
+    dirs.add(`${workspacePath}/.agents/skills`)
+
+    const configPaths = await readConfigSkillPaths(workspacePath)
+    for (const dirPath of configPaths) {
+      dirs.add(dirPath)
+    }
+  }
+
+  return Array.from(dirs)
 }
 
 /**

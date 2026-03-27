@@ -24,6 +24,16 @@ vi.mock('@/lib/opencode/client', () => ({
   }),
 }));
 
+vi.mock('@/stores/team-mode', () => ({
+  useTeamModeStore: (selector: (s: unknown) => unknown) =>
+    selector({ teamMode: false, devUnlocked: true }),
+}));
+
+vi.mock('@/stores/ui', () => ({
+  useUIStore: (selector: (s: unknown) => unknown) =>
+    selector({ advancedMode: true }),
+}));
+
 const defaultProps = {
   compact: false,
   inputValue: '',

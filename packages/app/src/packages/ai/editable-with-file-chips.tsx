@@ -215,9 +215,24 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
             
             if (offset > 0) {
               const prevNode = element.childNodes[offset - 1]
-              const classes = (prevNode as HTMLElement).classList
-              if (prevNode && (classes?.contains("file-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip"))) {
+
+              // Case A: caret is directly after a chip node.
+              const prevClasses = (prevNode as HTMLElement).classList
+              if (prevNode && (prevClasses?.contains("file-chip") || prevClasses?.contains("skill-chip") || prevClasses?.contains("command-chip"))) {
                 chipToDelete = prevNode as HTMLElement
+              }
+
+              // Case B: caret is after a whitespace text node that follows a chip:
+              // [chip][" "]|  -> one Backspace should remove chip (and trailing space).
+              if (!chipToDelete && prevNode?.nodeType === Node.TEXT_NODE) {
+                const prevText = prevNode.textContent || ""
+                if (prevText.trim() === "") {
+                  const maybeChip = prevNode.previousSibling as HTMLElement | null
+                  const classes = maybeChip?.classList
+                  if (classes?.contains("file-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip")) {
+                    chipToDelete = maybeChip
+                  }
+                }
               }
             }
           } else if (!chipToDelete && container.nodeType === Node.TEXT_NODE) {
@@ -245,7 +260,6 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
             
             // CRITICAL: Record position info BEFORE deleting
             const parent = chipToDelete.parentNode as HTMLElement
-            const prevSibling = chipToDelete.previousSibling
             let nextSibling = chipToDelete.nextSibling
             
             // Delete the chip
@@ -265,23 +279,20 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
               }
             }
             
-            // Determine target cursor position with a robust strategy
+            // Determine target cursor position.
+            // For backspace chip deletion, always keep caret on the right side
+            // of the removed chip (same position the user expects to keep typing).
             // eslint-disable-next-line no-useless-assignment
             let targetNode: Node | null = null
             // eslint-disable-next-line no-useless-assignment
             let targetOffset = 0
             
-            // Strategy 1: If previous sibling is a text node, place cursor at its end
-            if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
-              targetNode = prevSibling
-              targetOffset = prevSibling.textContent?.length || 0
-            }
-            // Strategy 2: If next sibling is a text node, place cursor at its beginning
-            else if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
+            // Strategy 1: If next sibling is a text node, place cursor at its beginning
+            if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
               targetNode = nextSibling
               targetOffset = 0
             }
-            // Strategy 3: Create a new text node where the chip was
+            // Strategy 2: Create a new text node exactly where the chip was
             else {
               const textNode = document.createTextNode('')
               
@@ -297,12 +308,6 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
                 }
               } else if (nextSibling) {
                 parent.insertBefore(textNode, nextSibling)
-              } else if (prevSibling) {
-                if (prevSibling.nextSibling) {
-                  parent.insertBefore(textNode, prevSibling.nextSibling)
-                } else {
-                  parent.appendChild(textNode)
-                }
               } else {
                 parent.appendChild(textNode)
               }
@@ -347,7 +352,44 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
             e.preventDefault()
             const chip = removeBtn.closest('.file-chip, .skill-chip, .command-chip')
             if (chip) {
+              const chipEl = chip as HTMLElement
+              const parent = chipEl.parentNode as HTMLElement | null
+              let nextSibling = chipEl.nextSibling
+
+              // Keep spacing behavior consistent with backspace chip deletion.
+              if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
+                const textContent = nextSibling.textContent || ''
+                if (textContent.startsWith(' ')) {
+                  nextSibling.textContent = textContent.slice(1)
+                  if (!nextSibling.textContent) {
+                    const temp = nextSibling.nextSibling
+                    nextSibling.remove()
+                    nextSibling = temp
+                  }
+                }
+              }
+
+              // Remove chip first, then restore cursor on its right side.
               chip.remove()
+
+              if (parent) {
+                let targetNode: Node
+
+                if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
+                  targetNode = nextSibling
+                } else {
+                  const textNode = document.createTextNode('')
+                  if (nextSibling) {
+                    parent.insertBefore(textNode, nextSibling)
+                  } else {
+                    parent.appendChild(textNode)
+                  }
+                  targetNode = textNode
+                }
+
+                pendingCursorPositionRef.current = { node: targetNode, offset: 0 }
+              }
+
               // Trigger input event to sync value
               handleInput()
             }

@@ -2,7 +2,7 @@ use crate::commands::oss_sync::OssSyncState;
 use crate::commands::oss_types::{DocType, MemberRole};
 use crate::commands::version_store::VersionStore;
 use crate::commands::version_types::{FileVersion, VersionedFileInfo};
-use crate::commands::{CONFIG_FILE_NAME, TEAM_REPO_DIR, TEAMCLAW_DIR};
+use crate::commands::{CONFIG_FILE_NAME, TEAMCLAW_DIR, TEAM_REPO_DIR};
 
 use std::sync::Arc;
 use tauri::State;
@@ -188,10 +188,7 @@ pub async fn team_restore_file_version(
                 .into_iter()
                 .find(|v| v.index == version_index)
                 .ok_or_else(|| {
-                    format!(
-                        "Version index {} not found for {file_path}",
-                        version_index
-                    )
+                    format!("Version index {} not found for {file_path}", version_index)
                 })?;
 
             // Determine destination path: {workspace}/{TEAM_REPO_DIR}/{dir_name}/{file_path}
@@ -210,9 +207,8 @@ pub async fn team_restore_file_version(
                 })?;
             }
 
-            std::fs::write(&dest, version.content.as_bytes()).map_err(|e| {
-                format!("Failed to write restored file {}: {e}", dest.display())
-            })?;
+            std::fs::write(&dest, version.content.as_bytes())
+                .map_err(|e| format!("Failed to write restored file {}: {e}", dest.display()))?;
 
             tracing::info!(
                 "P2P: Restored version {} of {doc_type}/{file_path} to disk",

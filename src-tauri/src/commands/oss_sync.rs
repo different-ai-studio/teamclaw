@@ -244,7 +244,8 @@ impl OssSyncManager {
                 let jitter_ms = (std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .subsec_nanos() as u64) % 1000; // 0-999ms jitter
+                    .subsec_nanos() as u64)
+                    % 1000; // 0-999ms jitter
                 let delay_ms = base_delay_ms + jitter_ms;
                 if attempt == 1 {
                     warn!(
@@ -542,10 +543,8 @@ impl OssSyncManager {
                 Some(loro::ValueOrContainer::Container(loro::Container::Map(entry_map))) => {
                     let deep = entry_map.get_deep_value();
                     if let loro::LoroValue::Map(entry) = deep {
-                        let is_deleted = matches!(
-                            entry.get("deleted"),
-                            Some(loro::LoroValue::Bool(true))
-                        );
+                        let is_deleted =
+                            matches!(entry.get("deleted"), Some(loro::LoroValue::Bool(true)));
                         if is_deleted {
                             // File on disk but doc says deleted → needs update
                             true
@@ -606,7 +605,11 @@ impl OssSyncManager {
                                 SyncFileStatus::New
                             } else {
                                 match entry.get("hash") {
-                                    Some(loro::LoroValue::String(h)) if h.as_ref() == local_hash => SyncFileStatus::Synced,
+                                    Some(loro::LoroValue::String(h))
+                                        if h.as_ref() == local_hash =>
+                                    {
+                                        SyncFileStatus::Synced
+                                    }
                                     _ => SyncFileStatus::Modified,
                                 }
                             }
@@ -662,8 +665,7 @@ impl OssSyncManager {
                                 Some(loro::LoroValue::String(doc_hash)) => {
                                     match std::fs::read(&file_path) {
                                         Ok(disk_content) => {
-                                            let disk_hash =
-                                                Self::compute_hash(&disk_content);
+                                            let disk_hash = Self::compute_hash(&disk_content);
                                             disk_hash == doc_hash.as_ref()
                                         }
                                         Err(_) => true,
@@ -710,9 +712,7 @@ impl OssSyncManager {
 
                     let entry_map = files_map
                         .get_or_create_container(path, loro::LoroMap::new())
-                        .map_err(|e| {
-                            format!("Failed to create map entry for {path}: {e}")
-                        })?;
+                        .map_err(|e| format!("Failed to create map entry for {path}: {e}"))?;
                     entry_map
                         .insert("content", content_str.as_str())
                         .map_err(|e| format!("Failed to set content for {path}: {e}"))?;
@@ -1138,24 +1138,20 @@ impl OssSyncManager {
         let version = versions
             .into_iter()
             .find(|v| v.index == version_index)
-            .ok_or_else(|| {
-                format!(
-                    "Version index {} not found for {file_path}",
-                    version_index
-                )
-            })?;
+            .ok_or_else(|| format!("Version index {} not found for {file_path}", version_index))?;
 
         let restored_content = version.content.clone();
 
         // 1. Write the restored content to disk
-        let dest = self
-            .team_dir
-            .join(doc_type.dir_name())
-            .join(file_path);
+        let dest = self.team_dir.join(doc_type.dir_name()).join(file_path);
 
         if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create parent directories for {}: {e}", dest.display()))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Failed to create parent directories for {}: {e}",
+                    dest.display()
+                )
+            })?;
         }
 
         std::fs::write(&dest, restored_content.as_bytes())

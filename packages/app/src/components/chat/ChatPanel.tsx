@@ -1,9 +1,10 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn, isTauri } from "@/lib/utils";
 
+import { SKILLS_CHANGED_EVENT } from "@/hooks/useAppInit";
 import { useSessionStore } from "@/stores/session";
 import { useStreamingStore } from "@/stores/streaming";
 import { useVoiceInputStore } from "@/stores/voice-input";
@@ -16,6 +17,7 @@ import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-confi
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
+import { Button } from "@/components/ui/button";
 
 import { ChatInputArea } from "./ChatInputArea";
 import { getFileName } from "./utils/fileUtils";
@@ -102,12 +104,59 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Workspace store ───────────────────────────────────────────────────
   const workspacePath = useWorkspaceStore(s => s.workspacePath);
   const openCodeReady = useWorkspaceStore(s => s.openCodeReady);
+  const setOpenCodeReady = useWorkspaceStore(s => s.setOpenCodeReady);
 
   // ── Local state ───────────────────────────────────────────────────────
   const inputValue = draftInput;
   const setInputValue = setDraftInput;
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
   const [imageFiles, setImageFiles] = React.useState<File[]>([]);
+  const [hasSkillRestartPrompt, setHasSkillRestartPrompt] = React.useState(false);
+  const [isRestartingSkillsRuntime, setIsRestartingSkillsRuntime] = React.useState(false);
+
+  const isImagePath = React.useCallback((path: string) => {
+    return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
+  }, []);
+
+  const extractImageAttachmentTokens = React.useCallback(
+    (text: string): { cleaned: string; imagePaths: string[] } => {
+      // Support tolerant attachment token parsing from pasted text.
+      // Examples:
+      // [Attachment: a.png] (path: /x/a.png)
+      // [Attachment:a.png](path:/x/a.png)
+      const attachmentPattern = /\[Attachment:\s*([^\]]+)\]\s*\(([^)]*)\)/gi;
+      const imagePaths: string[] = [];
+
+      let cleaned = text.replace(attachmentPattern, (full, _name, info) => {
+        const pathMatch = String(info).match(/path:\s*([^,)]+)/i);
+        const fullPath = pathMatch ? pathMatch[1].trim() : "";
+        if (fullPath && isImagePath(fullPath)) {
+          imagePaths.push(fullPath);
+          return "";
+        }
+        return full;
+      });
+
+      // Extra defensive pass: line-wise removal for any remaining textual
+      // attachment tokens that point to image paths.
+      const filteredLines = cleaned.split("\n").filter((line) => {
+        if (!line.includes("[Attachment:")) return true;
+        const pathMatch = line.match(/path:\s*([^)]+)\)?/i);
+        const maybePath = pathMatch ? pathMatch[1].trim() : "";
+        if (maybePath && isImagePath(maybePath)) return false;
+        return true;
+      });
+
+      cleaned = filteredLines.join("\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/ {2,}/g, " ")
+        .trimStart();
+
+      return { cleaned, imagePaths };
+    },
+    [isImagePath],
+  );
 
   // ── Provider store ────────────────────────────────────────────────────
   const currentModelKey = useProviderStore(s => s.currentModelKey);
@@ -183,6 +232,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [openCodeReady, workspacePath]);
+
+  React.useEffect(() => {
+    const onSkillsChanged = () => setHasSkillRestartPrompt(true);
+    window.addEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
+    return () => window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
+  }, []);
 
   // ── Team shortcuts hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
@@ -326,6 +381,40 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     setAttachedFiles((prev) => [...prev, ...paths]);
   };
 
+  const handleInputChange = React.useCallback(
+    (nextValue: string) => {
+      const { cleaned, imagePaths } = extractImageAttachmentTokens(nextValue);
+      if (imagePaths.length > 0) {
+        setAttachedFiles((prev) => {
+          const seen = new Set(prev);
+          const uniqueNew = imagePaths.filter((p) => !seen.has(p));
+          return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
+        });
+      }
+      setInputValue(cleaned);
+    },
+    [extractImageAttachmentTokens, setInputValue],
+  );
+
+  // Fallback sanitizer: if input text is injected through another path,
+  // still normalize it and convert image attachment tokens into previews.
+  React.useEffect(() => {
+    if (!inputValue) return;
+    const { cleaned, imagePaths } = extractImageAttachmentTokens(inputValue);
+
+    if (imagePaths.length > 0) {
+      setAttachedFiles((prev) => {
+        const seen = new Set(prev);
+        const uniqueNew = imagePaths.filter((p) => !seen.has(p));
+        return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
+      });
+    }
+
+    if (cleaned !== inputValue) {
+      setInputValue(cleaned);
+    }
+  }, [inputValue, extractImageAttachmentTokens, setInputValue]);
+
   const removeFile = (index: number) => {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   };
@@ -433,9 +522,36 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     setImageFiles([]);
   };
 
-  const handleSuggestionClick = (suggestion: string) => {
-    setInputValue(suggestion);
-  };
+  const handleSuggestionClick = React.useCallback(
+    (suggestion: string) => {
+      // Keep all quick suggestions visually consistent with slash skill selection.
+      setInputValue(`/{${suggestion}} `);
+    },
+    [setInputValue],
+  );
+
+  const handleRestartSkillsRuntime = React.useCallback(async () => {
+    if (!workspacePath) return;
+    setIsRestartingSkillsRuntime(true);
+    setOpenCodeReady(false);
+    try {
+      await invoke("stop_opencode");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const status = await invoke<{ url: string }>("start_opencode", {
+        config: { workspace_path: workspacePath },
+      });
+      const { initOpenCodeClient } = await import("@/lib/opencode/client");
+      initOpenCodeClient({ baseUrl: status.url, workspacePath });
+      setOpenCodeReady(true, status.url);
+      setHasSkillRestartPrompt(false);
+    } catch (error) {
+      console.error("[ChatPanel] Failed to restart OpenCode for skills:", error);
+      setOpenCodeReady(true);
+      setError(error instanceof Error ? error.message : "Failed to restart OpenCode");
+    } finally {
+      setIsRestartingSkillsRuntime(false);
+    }
+  }, [workspacePath, setOpenCodeReady, setError]);
 
   // ── Empty state with suggestions ──────────────────────────────────────
   const emptyState = React.useMemo(() => (
@@ -475,7 +591,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         </Suggestions>
       )}
     </div>
-  ), [compact, t, suggestions]);
+  ), [compact, t, suggestions, handleSuggestionClick]);
 
   // ── Render ────────────────────────────────────────────────────────────
 
@@ -491,6 +607,44 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         <div className="absolute top-2 right-2 z-20 flex items-center gap-2 rounded-full bg-yellow-100 px-3 py-1 text-xs text-yellow-800">
           <Loader2 className="h-3 w-3 animate-spin" />
           {t("chat.connecting", "Connecting...")}
+        </div>
+      )}
+
+      {hasSkillRestartPrompt && (
+        <div className="absolute top-2 left-1/2 z-20 flex w-[min(92vw,640px)] -translate-x-1/2 items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 shadow-sm">
+          <AlertCircle className="h-4 w-4 shrink-0 text-sky-600" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">{t("chat.skillRestartTitle", "Detected new skills")}</p>
+            <p className="text-xs text-sky-700">
+              {t("chat.skillRestartBody", "New or updated skills were detected. Restart OpenCode now to load them in the current runtime.")}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => void handleRestartSkillsRuntime()}
+            disabled={isRestartingSkillsRuntime}
+            className="gap-2"
+          >
+            {isRestartingSkillsRuntime ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t("settings.mcp.restarting", "Restarting...")}
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3 w-3" />
+                {t("settings.mcp.restart", "Restart")}
+              </>
+            )}
+          </Button>
+          <button
+            type="button"
+            onClick={() => setHasSkillRestartPrompt(false)}
+            className="rounded p-1 text-sky-700 hover:bg-sky-100"
+            aria-label={t("common.close", "Close")}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -517,7 +671,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       <ChatInputArea
         compact={compact}
         inputValue={inputValue}
-        onInputChange={setInputValue}
+        onInputChange={handleInputChange}
         attachedFiles={attachedFiles}
             onFilesChange={handleFilesChange}
         onRemoveFile={removeFile}

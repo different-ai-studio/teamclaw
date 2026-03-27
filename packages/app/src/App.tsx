@@ -25,6 +25,7 @@ import {
   Plus,
   Bookmark,
   RotateCw,
+  MessageSquarePlus,
 } from "lucide-react";
 // Spotlight window - lazy loaded for spotlight window label
 const SpotlightWindow = lazy(() =>
@@ -75,6 +76,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateDialogContainer } from "@/components/updater/UpdateDialog";
 import { RightPanel, ShortcutsPanel } from "@/components/panel";
 import { Settings } from "@/components/settings";
+import { FeedbackDialog } from "@/components/settings/FeedbackDialog";
 import { SetupGuide } from "@/components/SetupGuide";
 import { TelemetryConsentDialog } from "@/components/telemetry/TelemetryConsentDialog";
 import { WorkspacePrompt } from "@/components/workspace";
@@ -412,6 +414,7 @@ function ConnectingOverlay() {
 // Inner component to access sidebar context
 function AppContent() {
   const { t } = useTranslation();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Session store - individual selectors
   const getActiveSession = useSessionStore((s) => s.getActiveSession);
   const todos = useSessionStore((s) => s.todos);
@@ -601,7 +604,18 @@ function AppContent() {
             <span className="font-medium">
               {t("common.settings", "Settings")}
             </span>
+            <div className="flex-1" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-muted-foreground hover:text-foreground"
+              onClick={() => setFeedbackOpen(true)}
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+              {t('settings.feedback.title', 'Send Feedback')}
+            </Button>
           </header>
+          <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
           <div className="flex-1 overflow-hidden">
             <Settings />
           </div>

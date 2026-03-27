@@ -428,8 +428,20 @@ export function PromptInputTextarea({
       onFilesChange?.(filesToAdd)
     }
 
-    // Handle text paste - insert plain text only
-    if (pastedText) {
+    // Handle text paste - insert plain text only.
+    // If this paste already contains binary files, strip textual attachment tokens
+    // to avoid duplicated visual entries like:
+    // [Attachment: x.png] (path: /...)
+    let textToInsert = pastedText
+    if (pastedFiles.length > 0 && textToInsert) {
+      textToInsert = textToInsert
+        .replace(/\[Attachment:\s*[^\]]+\]\s*\([^)]*\)/gi, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .trimStart()
+    }
+
+    if (textToInsert) {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0) return
 
@@ -438,7 +450,7 @@ export function PromptInputTextarea({
 
       // Insert plain text at cursor
       const range = selection.getRangeAt(0)
-      const textNode = document.createTextNode(pastedText)
+      const textNode = document.createTextNode(textToInsert)
       range.insertNode(textNode)
 
       // Move cursor to end of inserted text

@@ -26,7 +26,10 @@ import {
   startOpenCode,
   hasPreloadFor,
 } from "@/lib/opencode/preloader";
+import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
 import { appShortName } from "@/lib/build-config";
+
+export const SKILLS_CHANGED_EVENT = "skills-files-changed";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OpenCode server start / workspace restore
@@ -134,6 +137,132 @@ export function useOpenCodeInit() {
       cancelled = true;
     };
   }, [workspacePath, setOpenCodeReady]);
+
+  useEffect(() => {
+    if (!workspacePath || !isTauri()) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let watchedDirs: string[] = [];
+    let skillDirs: string[] = [];
+    let lastSkillSignature = "";
+    let changeVersion = 0;
+
+    const QUIET_WINDOW_MS = 3000;
+    const SIGNATURE_CONFIRM_MS = 1200;
+
+    const normalizePath = (value: string) => value.replace(/\\/g, "/").replace(/\/$/, "");
+    const isSkillFileChange = (path: string) => {
+      const normalizedPath = normalizePath(path);
+      return skillDirs.some((dir) => {
+        const normalizedDir = normalizePath(dir);
+        return normalizedPath === normalizedDir || normalizedPath.startsWith(`${normalizedDir}/`);
+      });
+    };
+
+    const buildSkillSignature = async () => {
+      const { skills } = await loadAllSkills(workspacePath);
+      return JSON.stringify(
+        skills
+          .map((skill) => ({
+            filename: skill.filename,
+            source: skill.source,
+            dirPath: skill.dirPath,
+            content: skill.content,
+          }))
+          .sort((a, b) => `${a.dirPath}/${a.filename}`.localeCompare(`${b.dirPath}/${b.filename}`)),
+      );
+    };
+
+    const refreshSkillState = async (versionAtSchedule: number) => {
+      if (versionAtSchedule !== changeVersion || cancelled) return;
+
+      const firstSignature = await buildSkillSignature();
+      await new Promise((resolve) => setTimeout(resolve, SIGNATURE_CONFIRM_MS));
+      if (versionAtSchedule !== changeVersion || cancelled) return;
+
+      const secondSignature = await buildSkillSignature();
+      if (firstSignature !== secondSignature) return;
+
+      if (secondSignature !== lastSkillSignature) {
+        lastSkillSignature = secondSignature;
+        window.dispatchEvent(new CustomEvent(SKILLS_CHANGED_EVENT));
+      }
+    };
+
+    void (async () => {
+      try {
+        const [{ invoke }, { listen }, { exists }] = await Promise.all([
+          import("@tauri-apps/api/core"),
+          import("@tauri-apps/api/event"),
+          import("@tauri-apps/plugin-fs"),
+        ]);
+
+        skillDirs = await getSkillDirectories(workspacePath);
+        lastSkillSignature = await buildSkillSignature();
+        const watchableDirs = new Set<string>();
+
+        for (const dir of skillDirs) {
+          if (await exists(dir)) {
+            watchableDirs.add(dir);
+            continue;
+          }
+
+          const parentDir = dir.replace(/\/[^/]+$/, "");
+          if (parentDir && await exists(parentDir)) {
+            watchableDirs.add(parentDir);
+          }
+        }
+
+        watchedDirs = Array.from(watchableDirs);
+        await Promise.all(
+          watchedDirs.map((path) =>
+            invoke("watch_directory", { path }).catch((error) => {
+              console.warn("[SkillsWatch] Failed to watch directory:", path, error);
+            }),
+          ),
+        );
+
+        if (cancelled) return;
+
+        unlisten = await listen<{ path: string; kind: string }>("file-change", (event) => {
+          if (!isSkillFileChange(event.payload.path)) return;
+
+          changeVersion += 1;
+          const versionAtSchedule = changeVersion;
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            void refreshSkillState(versionAtSchedule);
+          }, QUIET_WINDOW_MS);
+        });
+      } catch (error) {
+        console.warn("[SkillsWatch] Failed to initialize skill watcher:", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unlisten?.();
+
+      void (async () => {
+        if (watchedDirs.length === 0) return;
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await Promise.all(
+            watchedDirs.map((path) =>
+              invoke("unwatch_directory", { path }).catch((error) => {
+                console.warn("[SkillsWatch] Failed to unwatch directory:", path, error);
+              }),
+            ),
+          );
+        } catch (error) {
+          console.warn("[SkillsWatch] Failed to cleanup skill watchers:", error);
+        }
+      })();
+    };
+  }, [workspacePath]);
 
   return { openCodeError, setOpenCodeError, initialWorkspaceResolved };
 }

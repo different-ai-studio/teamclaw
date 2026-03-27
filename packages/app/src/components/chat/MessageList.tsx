@@ -17,6 +17,7 @@ import { SAFE_BOTTOM_SPACING, NEAR_BOTTOM_THRESHOLD } from "./layout-constants";
 // The current virtualized path occasionally keeps stale row heights and causes
 // overlap, so we keep the stable non-virtualized path for normal conversations.
 const VIRTUAL_MSG_THRESHOLD = Number.MAX_SAFE_INTEGER;
+const SESSION_SWITCH_MIN_HOLD_MS = 90;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -367,11 +368,18 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     // Reset scroll state when switching sessions
     const prevSessionIdRef = React.useRef(activeSessionId);
     const needsScrollAfterLoadRef = React.useRef(false);
+    const sessionSwitchStartedAtRef = React.useRef<number>(0);
+    const sessionSwitchRevealTimeoutRef = React.useRef<number | null>(null);
     React.useEffect(() => {
       if (activeSessionId !== prevSessionIdRef.current) {
         prevSessionIdRef.current = activeSessionId;
         userScrolledUpRef.current = false;
         setShowScrollButton(false);
+        if (sessionSwitchRevealTimeoutRef.current !== null) {
+          window.clearTimeout(sessionSwitchRevealTimeoutRef.current);
+          sessionSwitchRevealTimeoutRef.current = null;
+        }
+        sessionSwitchStartedAtRef.current = Date.now();
         setSessionSwitching(true);
         needsScrollAfterLoadRef.current = true;
       }
@@ -396,27 +404,48 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       const wasLoading = prevLoadingRef.current;
       prevLoadingRef.current = isLoading;
 
-      const shouldScroll =
+      const shouldReveal =
         (wasLoading && !isLoading && needsScrollAfterLoadRef.current) ||
-        (!isLoading &&
-          messages.length > 0 &&
-          needsScrollAfterLoadRef.current);
+        (!isLoading && needsScrollAfterLoadRef.current);
 
-      if (shouldScroll && scrollRef.current) {
+      if (shouldReveal) {
         needsScrollAfterLoadRef.current = false;
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            if (scrollRef.current) {
-              scrollRef.current.scrollTo({
-                top: scrollRef.current.scrollHeight,
-                behavior: "instant",
-              });
+            const reveal = () => {
+              if (scrollRef.current) {
+                scrollRef.current.scrollTo({
+                  top: scrollRef.current.scrollHeight,
+                  behavior: "instant",
+                });
+              }
+              setSessionSwitching(false);
+            };
+
+            const elapsed = Date.now() - sessionSwitchStartedAtRef.current;
+            const remaining = Math.max(0, SESSION_SWITCH_MIN_HOLD_MS - elapsed);
+
+            if (remaining > 0) {
+              sessionSwitchRevealTimeoutRef.current = window.setTimeout(() => {
+                sessionSwitchRevealTimeoutRef.current = null;
+                reveal();
+              }, remaining);
+              return;
             }
-            setSessionSwitching(false);
+
+            reveal();
           });
         });
       }
     }, [isLoading, messages.length]);
+
+    React.useEffect(() => {
+      return () => {
+        if (sessionSwitchRevealTimeoutRef.current !== null) {
+          window.clearTimeout(sessionSwitchRevealTimeoutRef.current);
+        }
+      };
+    }, []);
 
     // Initial mount scroll
     const hasInitialScrolled = React.useRef(false);
@@ -494,8 +523,10 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
           ref={scrollRef}
           data-chat-messages
           className={cn(
-            "flex-1 overflow-y-auto overflow-x-hidden transition-opacity duration-0",
-            sessionSwitching ? "opacity-0" : "opacity-100",
+            "flex-1 overflow-y-auto overflow-x-hidden transition-all duration-200 ease-out motion-reduce:transition-none",
+            sessionSwitching
+              ? "translate-y-1 opacity-0"
+              : "translate-y-0 opacity-100",
           )}
         >
           <div

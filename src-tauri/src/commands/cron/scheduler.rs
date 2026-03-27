@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 use cron::Schedule as CronScheduleParser;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::RwLock;
 
 use super::delivery::DeliveryManager;
 use super::storage::CronStorage;
@@ -85,11 +85,7 @@ impl CronScheduler {
     }
 
     fn emit_cron_sessions_updated(&self) {
-        let app = self
-            .app_handle
-            .lock()
-            .ok()
-            .and_then(|g| g.clone());
+        let app = self.app_handle.lock().ok().and_then(|g| g.clone());
         if let Some(app) = app {
             let _ = app.emit("cron:cron-sessions-updated", ());
         }

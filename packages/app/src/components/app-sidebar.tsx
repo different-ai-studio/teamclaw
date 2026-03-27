@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Sparkles, Bookmark } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Sparkles, Bookmark, Settings } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -23,8 +23,9 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { cn, isTauri } from "@/lib/utils"
-import { formatSessionDate } from "@/lib/date-format"
+import { formatRelativeTime } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
+import { AnimatedClock } from "@/components/ui/animated-clock"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,7 +100,7 @@ function SessionSearchDialog({
   const closeSettings = useUIStore(s => s.closeSettings)
 
   // Format date for display
-  const formatDate = (date: Date) => formatSessionDate(date)
+  const formatDate = (date: Date) => formatRelativeTime(date)
 
   const handleSelectSession = async (sessionId: string) => {
     clearSelection()
@@ -243,7 +244,7 @@ export function SidebarSecondarySessionActions({
         onClick={toggleShowCronSessions}
         title={showCronSessions ? t('sidebar.showAllSessions', 'Show all sessions') : t('sidebar.showCronSessions', 'Show scheduled sessions')}
       >
-        <Clock className="h-4 w-4" />
+        <AnimatedClock className="h-4 w-4" animate={showCronSessions} />
       </Button>
     </>
   ) : null
@@ -313,7 +314,7 @@ export function SidebarSecondarySessionActions({
                 onClick={toggleShowCronSessions}
                 title={showCronSessions ? t('sidebar.showAllSessions', 'Show all sessions') : t('sidebar.showCronSessions', 'Show scheduled sessions')}
               >
-                <Clock className="h-4 w-4" />
+                <AnimatedClock className="h-4 w-4" animate={showCronSessions} />
               </Button>
             </>
           )}
@@ -495,10 +496,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     () => allSessions
       .filter(s => showCronSessions
         ? cronSessionIds.has(s.id)
-        : !cronSessionIds.has(s.id) || s.id === activeSessionId
+        : !cronSessionIds.has(s.id)
       )
       .slice(0, visibleSessionCount),
-    [allSessions, cronSessionIds, showCronSessions, activeSessionId, visibleSessionCount],
+    [allSessions, cronSessionIds, showCronSessions, visibleSessionCount],
   )
   
   const openSettings = useUIStore(s => s.openSettings)
@@ -577,21 +578,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     setRenamingSessionId(null)
   }
 
-  // Format date for display
-  const formatDate = (date: Date) => {
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-    
-    if (days === 0) return t('sidebar.today', 'Today')
-    if (days === 1) return t('sidebar.yesterday', 'Yesterday')
-    if (days < 7) return `${days} days ago`
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }
+  // Format date for display with relative time
+  const formatDate = (date: Date) => formatRelativeTime(date)
 
   return (
-    <Sidebar variant="floating" {...props}>
-      <div className="flex h-full flex-col rounded-lg" data-onboarding-id="main-sidebar">
+    <Sidebar variant="sidebar" {...props}>
+      <div className="flex h-full flex-col" data-onboarding-id="main-sidebar">
         {/* Header: custom traffic lights (Tauri) or spacer + icon group */}
         <SidebarHeader 
           className="flex-row items-center px-2 pt-1 pb-2"
@@ -805,9 +797,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
               onClick={() => openSettings()}
             >
+              <Settings className="h-3.5 w-3.5 shrink-0" />
               {t('sidebar.settings', '设置')}
             </Button>
             <WorkspaceSelectorButton />

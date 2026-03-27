@@ -26,6 +26,7 @@ import {
   Package,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
+import { SKILLS_CHANGED_EVENT } from '@/hooks/useAppInit'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { initOpenCodeClient } from '@/lib/opencode/client'
 import { cn } from '@/lib/utils'
@@ -97,6 +98,7 @@ export const SkillsSection = React.memo(function SkillsSection() {
   const [searchQuery, setSearchQuery] = React.useState('')
   const [skillPermissions, setSkillPermissions] = React.useState<SkillPermissionMap>({})
   const [hasChanges, setHasChanges] = React.useState(false)
+  const [hasSkillRuntimeChanges, setHasSkillRuntimeChanges] = React.useState(false)
   const [isRestarting, setIsRestarting] = React.useState(false)
   const [restartError, setRestartError] = React.useState<string | null>(null)
   const [installLocation, setInstallLocation] = React.useState<'workspace' | 'global'>('workspace')
@@ -195,8 +197,16 @@ export const SkillsSection = React.memo(function SkillsSection() {
 
   React.useEffect(() => {
     const onTeamSynced = () => loadSkills()
+    const onSkillsChanged = () => {
+      setHasSkillRuntimeChanges(true)
+      void loadSkills()
+    }
     window.addEventListener(TEAM_SYNCED_EVENT, onTeamSynced)
-    return () => window.removeEventListener(TEAM_SYNCED_EVENT, onTeamSynced)
+    window.addEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged)
+    return () => {
+      window.removeEventListener(TEAM_SYNCED_EVENT, onTeamSynced)
+      window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged)
+    }
   }, [loadSkills])
 
   const restartOpenCodeInstance = React.useCallback(
@@ -314,7 +324,7 @@ ${skillContent.trim()}`
       
       await writeTextFile(`${skillDir}/SKILL.md`, finalContent)
       await loadSkills()
-      await restartOpenCodeInstance()
+      setHasSkillRuntimeChanges(true)
       
       setDialogOpen(false)
       setEditingSkill(null)
@@ -344,7 +354,7 @@ ${skillContent.trim()}`
         await remove(`${baseDir}/${skillToDelete.filename}`, { recursive: true })
       }
       await loadSkills()
-      await restartOpenCodeInstance()
+      setHasSkillRuntimeChanges(true)
       setDeleteConfirmOpen(false)
       setSkillToDelete(null)
     } catch (err) {
@@ -413,6 +423,7 @@ ${skillContent.trim()}`
     setRestartError(null)
     try {
       await restartOpenCodeInstance()
+      setHasSkillRuntimeChanges(false)
     } catch (err) {
       console.error('[SkillsSection] Failed to restart OpenCode:', err)
       setRestartError(err instanceof Error ? err.message : String(err))
@@ -485,7 +496,7 @@ ${skillContent.trim()}`
         <SkillsMarketplace
           onInstalled={async () => {
             await loadSkills()
-            await restartOpenCodeInstance()
+            setHasSkillRuntimeChanges(true)
           }}
         />
       )}
@@ -504,6 +515,45 @@ ${skillContent.trim()}`
               </p>
               <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
                 {t('settings.skills.restartToApply', 'Restart OpenCode to apply the new skill permission configuration.')}
+              </p>
+              {restartError && (
+                <p className="text-sm text-red-600 dark:text-red-400 mt-2">
+                  {t('common.error', 'Error')}: {restartError}
+                </p>
+              )}
+            </div>
+            <Button
+              size="sm"
+              onClick={handleRestartOpenCode}
+              disabled={isRestarting || !workspacePath}
+              className="gap-2"
+            >
+              {isRestarting ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {t('settings.mcp.restarting', 'Restarting...')}
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-3 w-3" />
+                  {t('settings.mcp.restart', 'Restart')}
+                </>
+              )}
+            </Button>
+          </div>
+        </SettingCard>
+      )}
+
+      {hasSkillRuntimeChanges && (
+        <SettingCard className="bg-gradient-to-br from-sky-50 to-cyan-50 dark:from-sky-950/30 dark:to-cyan-950/30 border-sky-200 dark:border-sky-800">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-sky-600 dark:text-sky-400 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-medium text-sky-900 dark:text-sky-100">
+                {t('settings.skills.runtimeChanged', 'Detected Skill Changes')}
+              </p>
+              <p className="text-sm text-sky-700 dark:text-sky-300 mt-1">
+                {t('settings.skills.restartToLoadNewSkills', 'New or updated skills were detected. Restart OpenCode to load them in the current runtime.')}
               </p>
               {restartError && (
                 <p className="text-sm text-red-600 dark:text-red-400 mt-2">

@@ -10,8 +10,5 @@ pub fn capture_warning(message: &str) {
 
 /// Capture a std::error::Error to Sentry, preserving the error chain.
 pub fn capture_err<E: std::fmt::Display>(context: &str, err: &E) {
-    sentry::capture_message(
-        &format!("{}: {}", context, err),
-        sentry::Level::Error,
-    );
+    sentry::capture_message(&format!("{}: {}", context, err), sentry::Level::Error);
 }

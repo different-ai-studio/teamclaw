@@ -344,35 +344,39 @@ export const PermissionManagementSection = React.memo(function PermissionManagem
             {t('settings.permissions.noAllowlist', 'No commands have been allowlisted yet')}
           </div>
         ) : (
-          <div className="space-y-2">
-            {allRules.map((entry) => (
-              <div
-                key={`${entry.projectId}-${entry.index}`}
-                className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30"
-              >
-                <Terminal className="h-4 w-4 text-amber-500 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <code className="text-sm font-mono">{entry.rule.permission}: {entry.rule.pattern}</code>
+          <div className="relative">
+            <div className="max-h-[400px] overflow-y-auto space-y-2 pr-2">
+              {allRules.map((entry) => (
+                <div
+                  key={`${entry.projectId}-${entry.index}`}
+                  className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30"
+                >
+                  <Terminal className="h-4 w-4 text-amber-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <code className="text-sm font-mono">{entry.rule.permission}: {entry.rule.pattern}</code>
+                  </div>
+                  <Badge
+                    variant={entry.rule.action === 'allow' ? 'default' : 'destructive'}
+                    className={cn(
+                      'text-xs shrink-0',
+                      entry.rule.action === 'allow' && 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20'
+                    )}
+                  >
+                    {entry.rule.action}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeRule(entry.projectId, entry.index)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-                <Badge
-                  variant={entry.rule.action === 'allow' ? 'default' : 'destructive'}
-                  className={cn(
-                    'text-xs shrink-0',
-                    entry.rule.action === 'allow' && 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20'
-                  )}
-                >
-                  {entry.rule.action}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeRule(entry.projectId, entry.index)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
+              ))}
+            </div>
+            {/* Bottom fade gradient overlay */}
+            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-card to-transparent pointer-events-none" />
           </div>
         )}
 
