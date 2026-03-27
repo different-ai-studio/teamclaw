@@ -143,18 +143,6 @@ export function Settings(_props?: SettingsProps) {
         <div className="flex items-center gap-2 p-4 border-b">
           <Settings2 className="h-5 w-5 text-muted-foreground" />
           <h2 className="font-semibold">{t('settings.title', 'Settings')}</h2>
-          <div className="ml-auto">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-              onClick={() => setFeedbackOpen(true)}
-              title={t('settings.feedback.title', 'Send Feedback')}
-            >
-              <MessageSquarePlus className="h-4 w-4" />
-            </Button>
-          </div>
-          <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         </div>
         <ScrollArea className="flex-1 overflow-hidden py-2">
           <div className="px-2 space-y-0.5">
@@ -277,7 +265,21 @@ export function Settings(_props?: SettingsProps) {
       </div>
 
       {/* Content area */}
-      <SettingsSectionBody section={activeView} />
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        <div className="absolute top-4 right-6 z-10">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setFeedbackOpen(true)}
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+            {t('settings.feedback.title', 'Send Feedback')}
+          </Button>
+          <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+        </div>
+        <SettingsSectionBody section={activeView} />
+      </div>
     </div>
   )
 }
