@@ -13,6 +13,20 @@ AI Agent 데스크톱 플랫폼
 - **로컬 파일 작업** — 권한 관리가 있는 파일 읽기/쓰기
 - **팀 Git 동기화** — Skills, MCP 설정, 지식 베이스 공유
 
+## UI 스크린샷
+
+### 홈
+
+![TeamClaw 홈](images/home.png)
+
+### 채널
+
+![TeamClaw 채널](images/channel.png)
+
+### 팀
+
+![TeamClaw 팀](images/team.png)
+
 ## 기술 스택
 
 - **데스크톱**: Tauri 2.0 (Rust)

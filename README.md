@@ -8,6 +8,20 @@ AI Agent Desktop Platform
 
 English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
+## UI Screenshots
+
+### Home
+
+![TeamClaw Home](images/home.png)
+
+### Channels
+
+![TeamClaw Channels](images/channel.png)
+
+### Team
+
+![TeamClaw Team](images/team.png)
+
 ## Features
 
 - Three-column layout (Sidebar, Chat, Detail Panel)

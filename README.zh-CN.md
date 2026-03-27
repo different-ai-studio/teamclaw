@@ -17,6 +17,20 @@ AI Agent 桌面平台
 - **本地文件操作** — 带权限管理的文件读写
 - **团队 Git 同步** — 在 `teamclaw-team/` 目录共享 Skills、MCP 配置和知识库
 
+## 界面截图
+
+### 主页
+
+![TeamClaw 主页](images/home.png)
+
+### 频道
+
+![TeamClaw 频道](images/channel.png)
+
+### 团队
+
+![TeamClaw 团队](images/team.png)
+
 ## 技术栈
 
 - **桌面端**：Tauri 2.0 (Rust)

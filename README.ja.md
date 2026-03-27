@@ -13,6 +13,20 @@ AI Agent デスクトッププラットフォーム
 - **ローカルファイル操作** — 権限管理付きのファイル読み書き
 - **チーム Git 同期** — Skills、MCP 設定、ナレッジベースの共有
 
+## UI スクリーンショット
+
+### ホーム
+
+![TeamClaw ホーム](images/home.png)
+
+### チャンネル
+
+![TeamClaw チャンネル](images/channel.png)
+
+### チーム
+
+![TeamClaw チーム](images/team.png)
+
 ## 技術スタック
 
 - **デスクトップ**: Tauri 2.0 (Rust)
