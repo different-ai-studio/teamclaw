@@ -120,7 +120,7 @@ log = "0.4"
 
 # Global keyboard event monitoring (double-tap Ctrl for spotlight)
 rdev = "0.5"
-sentry = "0.47.0"
+sentry = { version = "0.47.0", features = ["backtrace", "debug-images"] }
 
 # macOS native APIs for traffic light control
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -137,4 +137,5 @@ wiremock = "0.5"
 codegen-units = 16
 lto = false
 opt-level = "s"
-strip = true
+strip = "debuginfo"
+debug = 1

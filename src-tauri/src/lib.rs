@@ -39,6 +39,7 @@ use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
 mod commands;
 mod rag;
+pub mod sentry_utils;
 mod stt;
 mod telemetry;
 
@@ -228,6 +229,7 @@ pub fn run() {
                 // - Windows/others: Alt+Space
                 .with_shortcuts(["alt+space"])
                 .unwrap_or_else(|err| {
+                    sentry_utils::capture_err("[global-shortcut] Failed to register Spotlight shortcuts", &err);
                     #[cfg(debug_assertions)]
                     eprintln!("[global-shortcut] Failed to register Spotlight shortcuts: {err}");
                     tauri_plugin_global_shortcut::Builder::new()
@@ -546,6 +548,7 @@ pub fn run() {
 
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = commands::rag_http_server::start_http_server(rag_state_for_http, 13143).await {
+                    sentry_utils::capture_err("[RAG HTTP] Failed to start HTTP server", &e);
                     eprintln!("[RAG HTTP] Failed to start HTTP server: {}", e);
                 }
             });
@@ -562,6 +565,7 @@ pub fn run() {
                             eprintln!("[P2P] iroh node started");
                         }
                         Err(e) => {
+                            sentry_utils::capture_err("[P2P] Failed to start iroh node", &e);
                             eprintln!("[P2P] Failed to start iroh node (P2P disabled): {}", e);
                         }
                     }
@@ -919,6 +923,7 @@ pub fn run() {
                     if let Ok(mut child_guard) = oc_state.child_process.lock() {
                         if let Some(child) = child_guard.take() {
                             if let Err(e) = child.kill() {
+                                sentry_utils::capture_err("[OpenCode] Failed to stop sidecar on exit", &e);
                                 eprintln!("[OpenCode] Failed to stop sidecar on app exit: {}", e);
                             }
                         }
