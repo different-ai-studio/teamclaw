@@ -104,7 +104,7 @@ export const formatRelativeTime = (date: Date | string | number): string => {
   const rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' });
   
   if (diffInSeconds < 60) {
-    return rtf.format(-Math.floor(diffInSeconds), 'second');
+    return lang === 'zh' || lang === 'zh-CN' ? '刚刚' : 'Just now';
   } else if (diffInSeconds < 3600) {
     return rtf.format(-Math.floor(diffInSeconds / 60), 'minute');
   } else if (diffInSeconds < 86400) {

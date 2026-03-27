@@ -23,8 +23,9 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { cn, isTauri } from "@/lib/utils"
-import { formatSessionDate } from "@/lib/date-format"
+import { formatRelativeTime } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
+import { AnimatedClock } from "@/components/ui/animated-clock"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,7 +100,7 @@ function SessionSearchDialog({
   const closeSettings = useUIStore(s => s.closeSettings)
 
   // Format date for display
-  const formatDate = (date: Date) => formatSessionDate(date)
+  const formatDate = (date: Date) => formatRelativeTime(date)
 
   const handleSelectSession = async (sessionId: string) => {
     clearSelection()
@@ -243,7 +244,7 @@ export function SidebarSecondarySessionActions({
         onClick={toggleShowCronSessions}
         title={showCronSessions ? t('sidebar.showAllSessions', 'Show all sessions') : t('sidebar.showCronSessions', 'Show scheduled sessions')}
       >
-        <Clock className="h-4 w-4" />
+        <AnimatedClock className="h-4 w-4" animate={showCronSessions} />
       </Button>
     </>
   ) : null
@@ -313,7 +314,7 @@ export function SidebarSecondarySessionActions({
                 onClick={toggleShowCronSessions}
                 title={showCronSessions ? t('sidebar.showAllSessions', 'Show all sessions') : t('sidebar.showCronSessions', 'Show scheduled sessions')}
               >
-                <Clock className="h-4 w-4" />
+                <AnimatedClock className="h-4 w-4" animate={showCronSessions} />
               </Button>
             </>
           )}
@@ -495,10 +496,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     () => allSessions
       .filter(s => showCronSessions
         ? cronSessionIds.has(s.id)
-        : !cronSessionIds.has(s.id) || s.id === activeSessionId
+        : !cronSessionIds.has(s.id)
       )
       .slice(0, visibleSessionCount),
-    [allSessions, cronSessionIds, showCronSessions, activeSessionId, visibleSessionCount],
+    [allSessions, cronSessionIds, showCronSessions, visibleSessionCount],
   )
   
   const openSettings = useUIStore(s => s.openSettings)
@@ -577,17 +578,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     setRenamingSessionId(null)
   }
 
-  // Format date for display
-  const formatDate = (date: Date) => {
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-    
-    if (days === 0) return t('sidebar.today', 'Today')
-    if (days === 1) return t('sidebar.yesterday', 'Yesterday')
-    if (days < 7) return `${days} days ago`
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }
+  // Format date for display with relative time
+  const formatDate = (date: Date) => formatRelativeTime(date)
 
   return (
     <Sidebar variant="floating" {...props}>

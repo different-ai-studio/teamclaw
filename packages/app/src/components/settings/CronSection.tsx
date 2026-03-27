@@ -101,29 +101,29 @@ function JobCard({
       {/* Actions */}
       <div className="flex items-center gap-2">
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={onRun}
           disabled={!job.enabled}
-          className="h-7 text-xs"
+          className="h-7 text-xs text-muted-foreground hover:text-foreground"
         >
           <Play className="h-3 w-3 mr-1" />
           {t('settings.cron.runNow', 'Run Now')}
         </Button>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={onEdit}
-          className="h-7 text-xs"
+          className="h-7 text-xs text-muted-foreground hover:text-foreground"
         >
           <Edit2 className="h-3 w-3 mr-1" />
           {t('settings.cron.edit', 'Edit')}
         </Button>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={onViewHistory}
-          className="h-7 text-xs"
+          className="h-7 text-xs text-muted-foreground hover:text-foreground"
         >
           <History className="h-3 w-3 mr-1" />
           {t('settings.cron.history', 'History')}
