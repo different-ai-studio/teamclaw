@@ -515,9 +515,17 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                            <Github className="h-3 w-3" />
-                            {skill.owner}/{skill.repo}
+                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
+                            <Github className="h-3 w-3 shrink-0" />
+                            <a
+                              href={`https://github.com/${skill.owner}/${skill.repo}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="min-w-0 truncate text-primary hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {skill.owner}/{skill.repo}
+                            </a>
                           </p>
                           <div className="flex items-center gap-4 mt-2 text-xs">
                             <span className="flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
@@ -763,9 +771,20 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                 </>
               )}
             </DialogTitle>
-            <DialogDescription className="flex items-center gap-2">
-              <Github className="h-3.5 w-3.5" />
-              {selectedSkill?.owner}/{selectedSkill?.repo}
+            <DialogDescription asChild>
+              <div className="flex items-center gap-2 text-sm">
+                <Github className="h-3.5 w-3.5 shrink-0" />
+                {selectedSkill ? (
+                  <a
+                    href={`https://github.com/${selectedSkill.owner}/${selectedSkill.repo}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-primary hover:underline"
+                  >
+                    {selectedSkill.owner}/{selectedSkill.repo}
+                  </a>
+                ) : null}
+              </div>
             </DialogDescription>
           </DialogHeader>
 
@@ -936,19 +955,6 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                   <p className="font-medium">{t("skillssh.contentNotAvailable", "Content not available")}</p>
                   <p className="text-sm mt-1">{t("skillssh.contentNotAvailableHint", "Unable to fetch skill content from repository")}</p>
                 </div>
-              )}
-
-              {/* GitHub Link */}
-              {selectedSkill && (
-                <a
-                  href={`https://github.com/${selectedSkill.owner}/${selectedSkill.repo}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-                >
-                  <Github className="h-3.5 w-3.5" />
-                  {t("skillssh.viewOnGitHub", "View on GitHub")}
-                </a>
               )}
             </div>
           )}

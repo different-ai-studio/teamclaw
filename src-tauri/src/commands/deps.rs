@@ -165,11 +165,6 @@ fn get_install_commands_map(name: &str) -> Option<PlatformInstallCommands> {
             windows: "winget install Python.Python.3".to_string(),
             linux: "sudo apt install -y python3".to_string(),
         }),
-        "gog" => Some(PlatformInstallCommands {
-            macos: "brew install steipete/tap/gogcli".to_string(),
-            windows: String::new(),
-            linux: String::new(),
-        }),
         _ => None,
     }
 }
@@ -179,7 +174,7 @@ fn requires_brew(name: &str) -> bool {
     if !cfg!(target_os = "macos") {
         return false;
     }
-    matches!(name, "gh" | "node" | "python3" | "gog")
+    matches!(name, "gh" | "node" | "python3")
 }
 
 /// Check all external dependencies and return their status.
@@ -251,24 +246,6 @@ pub fn check_dependencies() -> Vec<DependencyInfo> {
         ],
         1,
     ));
-
-    // gog CLI — optional, priority 1 (macOS only)
-    if cfg!(target_os = "macos") {
-        deps.push(check_single_dependency(
-            "gog",
-            &["--version"],
-            false,
-            "Google Workspace CLI - Gmail, Calendar, Drive, Sheets, Docs access",
-            get_install_commands_map("gog").unwrap(),
-            vec![
-                "Gmail".to_string(),
-                "Google Calendar".to_string(),
-                "Google Drive".to_string(),
-                "Google Sheets".to_string(),
-            ],
-            1,
-        ));
-    }
 
     // Sort by priority (lower first)
     deps.sort_by_key(|d| d.priority);

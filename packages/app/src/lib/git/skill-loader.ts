@@ -1,7 +1,7 @@
 import { readDir, readTextFile, exists } from '@tauri-apps/plugin-fs'
 import { homeDir } from '@tauri-apps/api/path'
 import type { SkillWithSource, SkillSource } from './types'
-import { INHERENT_SKILL_NAMES } from './types'
+import { INHERENT_SKILL_NAMES, shouldIncludeDesktopControlSkill } from './types'
 import type { ClawHubLockfile } from '@/lib/clawhub/types'
 import { buildConfig } from '@/lib/build-config'
 
@@ -136,6 +136,11 @@ export async function loadAllSkills(
   const allSkills: SkillWithSource[] = []
   const overrides: Array<{ name: string; winner: SkillSource; loser: SkillSource }> = []
 
+  const pushSkill = (skill: SkillWithSource) => {
+    if (!shouldIncludeDesktopControlSkill(skill.filename)) return
+    allSkills.push(skill)
+  }
+
   // Get user home directory
   const home = await homeDir()
 
@@ -155,11 +160,11 @@ export async function loadAllSkills(
     const localSkills = await loadSkillsFromDir(localDir, 'local')
     for (const skill of localSkills) {
       if (INHERENT_SKILL_NAMES.has(skill.filename)) {
-        allSkills.push({ ...skill, source: 'builtin' as SkillSource, isGlobal: false })
+        pushSkill({ ...skill, source: 'builtin' as SkillSource, isGlobal: false })
       } else if (clawhubSlugs.has(skill.filename)) {
-        allSkills.push({ ...skill, source: 'clawhub' as SkillSource, isGlobal: false })
+        pushSkill({ ...skill, source: 'clawhub' as SkillSource, isGlobal: false })
       } else {
-        allSkills.push({ ...skill, isGlobal: false })
+        pushSkill({ ...skill, isGlobal: false })
       }
     }
   }
@@ -168,14 +173,14 @@ export async function loadAllSkills(
   if (workspacePath) {
     const claudeDir = `${workspacePath}/.claude/skills`
     const claudeSkills = await loadSkillsFromDir(claudeDir, 'claude')
-    allSkills.push(...claudeSkills.map(s => ({ ...s, isGlobal: false })))
+    for (const s of claudeSkills) pushSkill({ ...s, isGlobal: false })
   }
 
   // 3. Load workspace .agents/skills
   if (workspacePath) {
     const sharedDir = `${workspacePath}/.agents/skills`
     const sharedSkills = await loadSkillsFromDir(sharedDir, 'shared')
-    allSkills.push(...sharedSkills.map(s => ({ ...s, isGlobal: false })))
+    for (const s of sharedSkills) pushSkill({ ...s, isGlobal: false })
   }
 
   // ============ Global Skills (User-level) ============
@@ -183,17 +188,17 @@ export async function loadAllSkills(
   // 4. Load global ~/.config/opencode/skills
   const globalOpencodeDir = `${home.replace(/\/$/, '')}/.config/opencode/skills`
   const globalOpencodeSkills = await loadSkillsFromDir(globalOpencodeDir, 'global-opencode')
-  allSkills.push(...globalOpencodeSkills.map(s => ({ ...s, isGlobal: true })))
+  for (const s of globalOpencodeSkills) pushSkill({ ...s, isGlobal: true })
 
   // 5. Load global ~/.claude/skills
   const globalClaudeDir = `${home.replace(/\/$/, '')}/.claude/skills`
   const globalClaudeSkills = await loadSkillsFromDir(globalClaudeDir, 'global-claude')
-  allSkills.push(...globalClaudeSkills.map(s => ({ ...s, isGlobal: true })))
+  for (const s of globalClaudeSkills) pushSkill({ ...s, isGlobal: true })
 
   // 6. Load global ~/.agents/skills
   const globalAgentDir = `${home.replace(/\/$/, '')}/.agents/skills`
   const globalAgentSkills = await loadSkillsFromDir(globalAgentDir, 'global-agent')
-  allSkills.push(...globalAgentSkills.map(s => ({ ...s, isGlobal: true })))
+  for (const s of globalAgentSkills) pushSkill({ ...s, isGlobal: true })
 
   // ============ Dynamic paths from opencode.json ============
 
@@ -204,7 +209,7 @@ export async function loadAllSkills(
       const skills = await loadSkillsFromDir(dirPath, 'team')
       // Determine if path is global (starts with ~/ or absolute home path)
       const isGlobalPath = dirPath.startsWith(home) || dirPath.includes('.config/opencode') || dirPath.includes('.claude') || dirPath.includes('.agents')
-      allSkills.push(...skills.map(s => ({ ...s, isGlobal: isGlobalPath })))
+      for (const s of skills) pushSkill({ ...s, isGlobal: isGlobalPath })
     }
   }
 

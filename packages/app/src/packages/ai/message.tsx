@@ -420,7 +420,9 @@ const markdownComponentsBase = {
   h3: ({ children }: { children?: React.ReactNode }) => (
     <h3 className="text-base font-semibold text-foreground mt-3 mb-1.5">{children}</h3>
   ),
-  p: ({ children }: { children?: React.ReactNode }) => <p className="leading-relaxed text-foreground my-2">{children}</p>,
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="my-2 min-w-0 leading-relaxed text-foreground">{children}</p>
+  ),
   table: ({ children }: { children?: React.ReactNode }) => (
     <div className="overflow-x-auto rounded-lg border border-border my-3">
       <table className="min-w-full border-collapse text-sm">{children}</table>
@@ -437,12 +439,30 @@ const markdownComponentsBase = {
   blockquote: ({ children }: { children?: React.ReactNode }) => (
     <blockquote className="border-l-4 border-[#5a7a64] pl-4 my-3 italic text-muted-foreground">{children}</blockquote>
   ),
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="my-2 max-w-full overflow-x-auto rounded-lg [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {children}
+    </pre>
+  ),
   code: ({ className, children, ...codeProps }: { className?: string; children?: React.ReactNode }) => {
     const isInline = !className
     return isInline ? (
-      <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-[#4a6a54]" {...codeProps}>{children}</code>
+      <code
+        className="inline-block max-w-full align-middle overflow-x-auto whitespace-nowrap rounded bg-muted px-1.5 py-px font-mono text-[0.9em] leading-snug text-[#4a6a54] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        {...codeProps}
+      >
+        {children}
+      </code>
     ) : (
-      <code className={cn("block rounded-lg bg-muted p-3 text-xs text-foreground my-2", className)} {...codeProps}>{children}</code>
+      <code
+        className={cn(
+          "block max-w-full overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs text-foreground [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          className,
+        )}
+        {...codeProps}
+      >
+        {children}
+      </code>
     )
   },
   a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
@@ -450,7 +470,9 @@ const markdownComponentsBase = {
   ),
   ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>,
   ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>,
-  li: ({ children }: { children?: React.ReactNode }) => <li className="leading-relaxed">{children}</li>,
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="min-w-0 leading-relaxed">{children}</li>
+  ),
 } as const;
 
 // Stable remarkPlugins array — avoids re-creating on every render
@@ -563,7 +585,7 @@ export function MessageResponse({
             />
           </div>
         ) : (
-          <div key={index} className="prose prose-sm max-w-none text-foreground space-y-3 break-words [overflow-wrap:anywhere]">
+          <div key={index} className="prose prose-sm max-w-none min-w-0 text-foreground space-y-3 break-words [overflow-wrap:anywhere]">
             <ReactMarkdown
               remarkPlugins={remarkPluginsStable}
               components={markdownComponents}

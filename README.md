@@ -63,7 +63,6 @@ This is not needed if the app is signed and notarized with an Apple Developer ce
 - pnpm >= 10
 - Rust >= 1.70
 - OpenCode CLI
-- gog CLI (optional, for Google Workspace integration)
 
 ### Install OpenCode CLI
 
@@ -73,20 +72,6 @@ curl -fsSL https://opencode.ai/install | bash
 
 # Or via npm
 npm install -g opencode
-```
-
-### Install gog CLI (optional)
-
-[gog](https://gogcli.sh) provides Gmail, Calendar, Drive, Contacts, Sheets, and Docs access from the command line.
-
-```bash
-brew install steipete/tap/gogcli
-```
-
-Setup OAuth (once):
-```bash
-gog auth credentials /path/to/client_secret.json
-gog auth add you@gmail.com --services gmail,calendar,drive,contacts,sheets,docs
 ```
 
 ### Quick Start

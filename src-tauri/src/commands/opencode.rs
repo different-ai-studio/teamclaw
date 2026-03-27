@@ -763,20 +763,26 @@ struct InherentSkill {
     content: &'static str,
 }
 
-/// All skills that TeamClaw treats as inherent (auto-provisioned, shown as built-in in UI).
-/// Add new entries here to register additional inherent skills.
-fn inherent_skills() -> Vec<InherentSkill> {
+/// Desktop automation skills: only the native OS build provisions its folder; Linux has neither.
+fn inherent_desktop_control_skill() -> Option<InherentSkill> {
+    #[cfg(target_os = "macos")]
+    return Some(InherentSkill {
+        dirname: "macos-control",
+        content: include_str!("../../../packages/app/src/lib/skills/macos-control/SKILL.md"),
+    });
+
+    #[cfg(target_os = "windows")]
+    return Some(InherentSkill {
+        dirname: "windows-control",
+        content: include_str!("../../../packages/app/src/lib/skills/windows-control/SKILL.md"),
+    });
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    return None;
+}
+
+fn inherent_skills_common() -> Vec<InherentSkill> {
     vec![
-        InherentSkill {
-            dirname: "markdown-converter",
-            content: include_str!(
-                "../../../packages/app/src/lib/skills/markdown-converter/SKILL.md"
-            ),
-        },
-        InherentSkill {
-            dirname: "macos-control",
-            content: include_str!("../../../packages/app/src/lib/skills/macos-control/SKILL.md"),
-        },
         InherentSkill {
             dirname: "using-superpowers",
             content: include_str!(
@@ -798,6 +804,44 @@ fn inherent_skills() -> Vec<InherentSkill> {
     ]
 }
 
+/// All skills that TeamClaw treats as inherent (auto-provisioned, shown as built-in in UI).
+fn inherent_skills() -> Vec<InherentSkill> {
+    let mut out = Vec::new();
+    if let Some(sk) = inherent_desktop_control_skill() {
+        out.push(sk);
+    }
+    out.extend(inherent_skills_common());
+    out
+}
+
+/// Drops `macos-control` / `windows-control` under `.opencode/skills/` when they do not match
+/// the host OS so OpenCode only registers the correct built-in desktop skill (none on Linux).
+fn remove_non_native_desktop_control_skills(skills_dir: &std::path::Path) {
+    let remove_if_dir = |name: &str| {
+        let path = skills_dir.join(name);
+        if path.is_dir() {
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => println!("[Skills] Removed non-native desktop skill directory '{}'", name),
+                Err(e) => println!(
+                    "[Skills] Warning: could not remove '{}': {}",
+                    path.display(),
+                    e
+                ),
+            }
+        }
+    };
+
+    #[cfg(target_os = "macos")]
+    remove_if_dir("windows-control");
+    #[cfg(target_os = "windows")]
+    remove_if_dir("macos-control");
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        remove_if_dir("macos-control");
+        remove_if_dir("windows-control");
+    }
+}
+
 /// Ensure inherent skills are present in `<workspace>/.opencode/skills/`.
 /// Skills are written only when the SKILL.md does not yet exist — existing
 /// files (including user-customised versions) are never overwritten.
@@ -810,6 +854,8 @@ fn ensure_inherent_skills(workspace_path: &str) -> Result<(), String> {
         std::fs::create_dir_all(&skills_dir)
             .map_err(|e| format!("Failed to create skills dir: {}", e))?;
     }
+
+    remove_non_native_desktop_control_skills(&skills_dir);
 
     for skill in inherent_skills() {
         let skill_dir = skills_dir.join(skill.dirname);

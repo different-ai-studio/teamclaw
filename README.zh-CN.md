@@ -49,7 +49,6 @@ xattr -cr /Applications/TeamClaw.app
 - pnpm >= 10
 - Rust >= 1.70
 - OpenCode CLI
-- gog CLI（可选，用于 Google Workspace 集成）
 
 ### 安装 OpenCode CLI
 
@@ -59,20 +58,6 @@ curl -fsSL https://opencode.ai/install | bash
 
 # 或者通过 npm 安装
 npm install -g opencode
-```
-
-### 安装 gog CLI（可选）
-
-[gog](https://gogcli.sh) 提供 Gmail、日历、云端硬盘、通讯录、Sheets 和 Docs 的命令行访问。
-
-```bash
-brew install steipete/tap/gogcli
-```
-
-首次设置 OAuth：
-```bash
-gog auth credentials /path/to/client_secret.json
-gog auth add you@gmail.com --services gmail,calendar,drive,contacts,sheets,docs
 ```
 
 ### 快速开始

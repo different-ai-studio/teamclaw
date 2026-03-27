@@ -142,7 +142,6 @@ function getMockDependencies(): DependencyInfo[] {
     { name: 'gh', installed: false, version: null, required: false, description: 'GitHub CLI - needed for spec-plan, spec-pr, and issue management', install_commands: { macos: 'brew install gh', windows: 'winget install GitHub.cli', linux: 'sudo apt install -y gh' }, affected_features: ['spec-plan', 'spec-pr', 'GitHub Issues'], priority: 1 },
     { name: 'node', installed: true, version: '22.1.0', required: false, description: 'Node.js runtime - needed to run some MCP servers (via npx)', install_commands: { macos: 'brew install node', windows: 'winget install OpenJS.NodeJS', linux: 'sudo apt install -y nodejs' }, affected_features: ['MCP Servers (npx-based)'], priority: 1 },
     { name: 'python3', installed: false, version: null, required: false, description: 'Python runtime - needed for uvx-based MCP servers and data analysis', install_commands: { macos: 'brew install python3', windows: 'winget install Python.Python.3', linux: 'sudo apt install -y python3' }, affected_features: ['MCP Servers (uvx-based)', 'Data Analysis'], priority: 1 },
-    { name: 'gog', installed: false, version: null, required: false, description: 'Google Workspace CLI - Gmail, Calendar, Drive, Sheets, Docs access', install_commands: { macos: 'brew install steipete/tap/gogcli', windows: '', linux: '' }, affected_features: ['Gmail', 'Google Calendar', 'Google Drive', 'Google Sheets'], priority: 1 },
   ]
 }
 

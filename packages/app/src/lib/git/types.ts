@@ -179,10 +179,33 @@ export type SkillSource =
 
 /** Skill directory names that TeamClaw auto-provisions as inherent (cannot be deleted) */
 export const INHERENT_SKILL_NAMES = new Set([
-  'markdown-converter',
   'macos-control',
+  'windows-control',
   'using-superpowers',
 ])
+
+const DESKTOP_CONTROL_INHERENT_SLUGS = new Set(['macos-control', 'windows-control'])
+
+/** Host OS–matched built-in desktop automation skill, or null on Linux / unknown. */
+export function getActiveDesktopControlSkillSlug(): 'macos-control' | 'windows-control' | null {
+  if (typeof navigator === 'undefined') return null
+  const platform = (navigator.platform ?? '').toLowerCase()
+  const ua = (navigator.userAgent ?? '').toLowerCase()
+  if (platform.includes('mac') || platform.includes('darwin') || ua.includes('mac os')) {
+    return 'macos-control'
+  }
+  if (platform.includes('win') || ua.includes('windows')) {
+    return 'windows-control'
+  }
+  return null
+}
+
+/** Hide the non-native desktop control inherent skill in UI / merged lists (OpenCode dir is cleaned in Rust). */
+export function shouldIncludeDesktopControlSkill(filename: string): boolean {
+  if (!DESKTOP_CONTROL_INHERENT_SLUGS.has(filename)) return true
+  const active = getActiveDesktopControlSkillSlug()
+  return active !== null && filename === active
+}
 
 /** Extended skill info with source tracking */
 export interface SkillWithSource {
