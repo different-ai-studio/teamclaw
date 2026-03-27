@@ -4,22 +4,6 @@ AI Agent 桌面平台
 
 [English](README.md) | 简体中文 | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
-![TeamClaw 截图](_assets/screenshot.jpg)
-
-## 界面预览
-
-### 首页
-
-![TeamClaw 首页](images/home.png)
-
-### 渠道配置
-
-![TeamClaw 渠道](images/channel.png)
-
-### 团队设置
-
-![TeamClaw 团队](images/team.png)
-
 ## 功能特性
 
 - **三栏布局** — 侧边栏、聊天区、详情面板

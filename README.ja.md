@@ -4,8 +4,6 @@ AI Agent デスクトッププラットフォーム
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | 日本語 | [한국어](README.ko.md)
 
-![TeamClaw スクリーンショット](_assets/screenshot.jpg)
-
 ## 主な機能
 
 - **3カラムレイアウト** — サイドバー、チャットエリア、詳細パネル
