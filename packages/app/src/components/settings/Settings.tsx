@@ -18,6 +18,7 @@ import {
   Mic,
   Bookmark,
   ChevronDown,
+  MessageSquarePlus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -27,6 +28,7 @@ import { useUpdaterStore } from '@/stores/updater'
 import { buildConfig, hasAnyChannel } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useUIStore, type SettingsSection } from '@/stores/ui'
+import { FeedbackDialog } from './FeedbackDialog'
 import { TeamRankingCard } from './TeamRankingCard'
 import { SettingsSectionBody } from './section-registry'
 
@@ -116,6 +118,7 @@ export function Settings(_props?: SettingsProps) {
   const setDevUnlocked = useTeamModeStore(s => s.setDevUnlocked)
   const devClickCount = React.useRef(0)
   const devClickTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [feedbackOpen, setFeedbackOpen] = React.useState(false)
 
   // Filter sections based on build config feature flags
   const filteredPrimarySections = React.useMemo(() =>
@@ -140,6 +143,18 @@ export function Settings(_props?: SettingsProps) {
         <div className="flex items-center gap-2 p-4 border-b">
           <Settings2 className="h-5 w-5 text-muted-foreground" />
           <h2 className="font-semibold">{t('settings.title', 'Settings')}</h2>
+          <div className="ml-auto">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => setFeedbackOpen(true)}
+              title={t('settings.feedback.title', 'Send Feedback')}
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+            </Button>
+          </div>
+          <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         </div>
         <ScrollArea className="flex-1 overflow-hidden py-2">
           <div className="px-2 space-y-0.5">
