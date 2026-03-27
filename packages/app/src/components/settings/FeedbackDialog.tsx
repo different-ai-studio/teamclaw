@@ -88,12 +88,14 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
     return () => window.removeEventListener('paste', handlePaste)
   }, [open, addFiles])
 
-  // Cleanup preview URLs on unmount
+  // Keep a ref to current screenshots for unmount cleanup
+  const screenshotsRef = React.useRef(screenshots)
+  screenshotsRef.current = screenshots
+
   React.useEffect(() => {
     return () => {
-      screenshots.forEach(s => URL.revokeObjectURL(s.previewUrl))
+      screenshotsRef.current.forEach(s => URL.revokeObjectURL(s.previewUrl))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSubmit = async () => {
