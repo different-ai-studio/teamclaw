@@ -61,7 +61,6 @@ import {
   useResizablePanels,
 } from "@/hooks/useFileEditorState";
 import { useMCPFileWatcher } from "@/hooks/useMCPFileWatcher";
-import { useTeamModeStore } from "@/stores/team-mode";
 
 import {
   AppSidebar,
@@ -1139,7 +1138,7 @@ function App() {
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
   const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide(openCodeReady);
   const { showConsentDialog, setShowConsentDialog } = useTelemetryConsent(showSetupGuide);
-  const devUnlocked = useTeamModeStore(s => s.devUnlocked)
+  const devUnlocked = useUIStore(s => s.devUnlocked)
 
   if (spotlightMode) {
     return (

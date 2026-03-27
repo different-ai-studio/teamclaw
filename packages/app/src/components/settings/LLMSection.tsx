@@ -22,6 +22,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useProviderStore } from '@/stores/provider'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamModeStore } from '@/stores/team-mode'
+import { useUIStore } from '@/stores/ui'
 import { initOpenCodeClient } from '@/lib/opencode/client'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -40,7 +41,7 @@ export const LLMSection = React.memo(function LLMSection() {
   const { t } = useTranslation()
   const teamMode = useTeamModeStore((s) => s.teamMode)
   const teamModelConfig = useTeamModeStore((s) => s.teamModelConfig)
-  const devUnlocked = useTeamModeStore((s) => s.devUnlocked)
+  const devUnlocked = useUIStore((s) => s.devUnlocked)
   const providers = useProviderStore((s) => s.providers)
   const providersLoading = useProviderStore((s) => s.providersLoading)
   const configuredProviders = useProviderStore((s) => s.configuredProviders)

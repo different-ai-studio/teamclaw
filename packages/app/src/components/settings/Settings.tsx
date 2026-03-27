@@ -7,7 +7,6 @@ import {
   MessageSquare,
   Plug,
   Sparkles,
-  Users,
   Package,
   Clock,
   KeyRound,
@@ -25,9 +24,8 @@ import { Button } from '@/components/ui/button'
 import { useAppVersion } from '@/lib/version'
 import { useUpdaterStore } from '@/stores/updater'
 import { buildConfig, hasAnyChannel } from '@/lib/build-config'
-import { useTeamModeStore } from '@/stores/team-mode'
 import { useUIStore, type SettingsSection } from '@/stores/ui'
-import { TeamRankingCard } from './TeamRankingCard'
+import { getPlugins } from '@/plugins/registry'
 import { SettingsSectionBody } from './section-registry'
 
 interface SettingsProps {
@@ -48,9 +46,23 @@ const primarySections: Section[] = [
   { id: 'shortcuts', label: 'Shortcuts', labelKey: 'settings.nav.shortcuts', icon: Bookmark, color: 'text-amber-500' },
   { id: 'channels', label: 'Channels', labelKey: 'settings.nav.channels', icon: MessageSquare, color: 'text-indigo-500' },
   { id: 'automation', label: 'Automation', labelKey: 'settings.nav.automation', icon: Clock, color: 'text-amber-500' },
-  { id: 'team', label: 'Team', labelKey: 'settings.nav.team', icon: Users, color: 'text-violet-500' },
   { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins, color: 'text-rose-500' },
 ]
+
+function useAllPrimarySections() {
+  const pluginSections = getPlugins().flatMap(p =>
+    (p.settingsSections ?? [])
+      .filter(s => s.group === 'primary')
+      .map(s => ({
+        id: s.id as SettingsSection,
+        label: s.label,
+        labelKey: s.labelKey,
+        icon: s.icon,
+        color: s.color ?? 'text-violet-500',
+      }))
+  )
+  return [...primarySections, ...pluginSections]
+}
 
 // Advanced sections shown as tabs inside the Advanced view
 const advancedSections: Section[] = [
@@ -111,16 +123,16 @@ export function Settings(_props?: SettingsProps) {
   const [activeView, setActiveView] = React.useState<SettingsSection>(settingsInitialSection ?? 'general')
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false)
   const appVersion = useAppVersion()
-  const teamMode = useTeamModeStore(s => s.teamMode)
-  const devUnlocked = useTeamModeStore(s => s.devUnlocked)
-  const setDevUnlocked = useTeamModeStore(s => s.setDevUnlocked)
+  const devUnlocked = useUIStore(s => s.devUnlocked)
+  const setDevUnlocked = useUIStore(s => s.setDevUnlocked)
   const devClickCount = React.useRef(0)
   const devClickTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const allPrimarySections = useAllPrimarySections()
   // Filter sections based on build config feature flags
   const filteredPrimarySections = React.useMemo(() =>
-    primarySections.filter(s => s.id !== 'channels' || hasAnyChannel(buildConfig.features.channels)),
-    []
+    allPrimarySections.filter(s => s.id !== 'channels' || hasAnyChannel(buildConfig.features.channels)),
+    [allPrimarySections]
   )
 
   // Check if current view is an advanced section
@@ -232,12 +244,14 @@ export function Settings(_props?: SettingsProps) {
           </div>
         </ScrollArea>
 
-        {/* Team Ranking Card */}
-        {teamMode && (
-          <div className="px-3 pb-2">
-            <TeamRankingCard onClick={() => setActiveView('leaderboard')} />
-          </div>
-        )}
+        {/* Plugin sidebar widgets */}
+        {getPlugins().flatMap(p => p.sidebarWidgets ?? [])
+          .filter(w => w.position === 'bottom')
+          .map((w, i) => (
+            <div key={i} className="px-3 pb-2">
+              <w.component />
+            </div>
+          ))}
 
         {/* Footer */}
         <div className="px-4 py-3 border-t flex items-center justify-between">

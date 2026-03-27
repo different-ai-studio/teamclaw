@@ -37,6 +37,8 @@ interface UIState {
   advancedMode: boolean
   setAdvancedMode: (value: boolean, workspacePath: string | null) => void
   loadAdvancedMode: (workspacePath: string) => void
+  devUnlocked: boolean
+  setDevUnlocked: (unlocked: boolean) => void
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
@@ -72,6 +74,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   setSpotlightMode: (mode) => set({ spotlightMode: mode }),
 
   advancedMode: false,
+
+  devUnlocked: false,
+  setDevUnlocked: (unlocked: boolean) => set({ devUnlocked: unlocked }),
 
   setAdvancedMode: (value, workspacePath) => {
     set({ advancedMode: value })

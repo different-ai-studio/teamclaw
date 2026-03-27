@@ -155,7 +155,7 @@ export function ChatInputArea({
 
   // Team mode
   const teamMode = useTeamModeStore(s => s.teamMode);
-  const devUnlocked = useTeamModeStore(s => s.devUnlocked);
+  const devUnlocked = useUIStore(s => s.devUnlocked);
   const advancedMode = useUIStore((s) => s.advancedMode);
   const canShowPlanToggle = advancedMode && devUnlocked;
 

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { File, Folder, Loader2 } from "lucide-react"
 import { useWorkspaceStore } from "@/stores/workspace"
-import { useTeamModeStore } from "@/stores/team-mode"
+import { useUIStore } from "@/stores/ui"
 import { TEAMCLAW_DIR } from "@/lib/build-config"
 import { isTauri } from "@/lib/utils"
 import { cn } from "@/lib/utils"
@@ -23,7 +23,7 @@ const ALWAYS_IGNORED_NAMES = new Set([
 const DEV_ONLY_NAMES = new Set([TEAMCLAW_DIR, ".opencode"])
 
 function isIgnoredName(name: string): boolean {
-  if (useTeamModeStore.getState().devUnlocked) return false
+  if (useUIStore.getState().devUnlocked) return false
   if (ALWAYS_IGNORED_NAMES.has(name)) return true
   if (DEV_ONLY_NAMES.has(name)) return true
   return false
