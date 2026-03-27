@@ -44,9 +44,6 @@ import {
   useChannelGatewayInit,
   useGitReposInit,
   useCronInit,
-  useOssSyncInit,
-  useP2pAutoReconnect,
-
   useExternalLinkHandler,
   useTauriBodyClass,
   useSetupGuide,
@@ -54,6 +51,10 @@ import {
   useOpenCodePreload,
   useLayoutModeShortcut,
 } from "@/hooks/useAppInit";
+import { loadPlugins } from '@/plugins'
+import { getPlugins } from '@/plugins/registry'
+
+loadPlugins()
 import {
   usePanelAutoOpen,
   useLayoutModePanelSync,
@@ -410,6 +411,10 @@ function ConnectingOverlay() {
   );
 }
 
+function usePluginInit() {
+  getPlugins().forEach(p => p.useInit?.())
+}
+
 // Inner component to access sidebar context
 function AppContent() {
   const { t } = useTranslation();
@@ -537,8 +542,7 @@ function AppContent() {
   useChannelGatewayInit();
   useGitReposInit();
   useCronInit();
-  useOssSyncInit();
-  useP2pAutoReconnect();
+  usePluginInit();
   useMCPFileWatcher(workspacePath);
   useExternalLinkHandler();
   useLayoutModeShortcut();

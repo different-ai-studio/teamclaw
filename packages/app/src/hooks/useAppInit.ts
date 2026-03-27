@@ -18,7 +18,6 @@ import { useGitReposStore } from "@/stores/git-repos";
 import { useUIStore } from "@/stores/ui";
 import { useDepsStore, getSetupDecision, markSetupCompleted } from "@/stores/deps";
 import { useTelemetryStore } from "@/stores/telemetry";
-import { useTeamOssStore } from "@/stores/team-oss";
 import { useCronStore } from "@/stores/cron";
 import { initOpenCodeClient } from "@/lib/opencode/client";
 import {
@@ -415,44 +414,6 @@ export function useGitReposInit() {
 // Cron session IDs (for sidebar filtering)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// P2P auto-reconnect (team mode)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useP2pAutoReconnect() {
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
-
-  useEffect(() => {
-    if (!workspacePath || !openCodeReady || !isTauri()) return;
-
-    // Delay P2P reconnect so it doesn't compete with app startup
-    const timer = setTimeout(async () => {
-      try {
-        const { useTeamModeStore } = await import("@/stores/team-mode");
-        if (!useTeamModeStore.getState().teamMode) return;
-
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("p2p_reconnect");
-
-        // Update connection status
-        const status = await invoke<{ connected?: boolean; role?: string }>("p2p_sync_status").catch(() => null);
-        if (status) {
-          useTeamModeStore.setState({
-            p2pConnected: status.connected ?? false,
-            myRole: (status.role as 'owner' | 'editor' | 'viewer') ?? null,
-          });
-        }
-        console.log("[P2P] Auto-reconnect completed");
-      } catch (err) {
-        console.warn("[P2P] Auto-reconnect failed (non-critical):", err);
-      }
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [workspacePath, openCodeReady]);
-}
-
 export function useCronInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
@@ -484,30 +445,6 @@ export function useCronInit() {
       unlisten?.();
     };
   }, [workspacePath, openCodeReady]);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OSS sync auto-restore
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useOssSyncInit() {
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const initialize = useTeamOssStore((s) => s.initialize);
-  const cleanup = useTeamOssStore((s) => s.cleanup);
-
-  useEffect(() => {
-    if (!workspacePath || !isTauri()) return;
-
-    // Clean up previous workspace listener, reset state, then re-initialize
-    cleanup();
-    initialize(workspacePath).catch((err: unknown) => {
-      console.warn("[App] OSS sync init failed (non-critical):", err);
-    });
-
-    return () => {
-      cleanup();
-    };
-  }, [workspacePath, initialize, cleanup]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
