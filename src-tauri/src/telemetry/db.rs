@@ -575,6 +575,7 @@ impl TelemetryDb {
 
     /// Aggregate all local feedback + session_reports into a FeedbackSummary.
     /// Only includes data from the last 30 days.
+    #[allow(dead_code)]
     pub async fn export_feedback_summary(&self) -> Result<FeedbackSummary, String> {
         use std::collections::HashMap;
         let conn = self.conn.lock().await;

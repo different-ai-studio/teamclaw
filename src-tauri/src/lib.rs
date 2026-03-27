@@ -197,7 +197,6 @@ pub fn run() {
                 // Suppress noisy third-party crate logs
                 let target = metadata.target();
                 !(target.starts_with("tracing::span")
-                    || target.starts_with("iroh")
                     || target.starts_with("hyper_util")
                     || target.starts_with("hyper::")
                     || target.starts_with("tauri_plugin_aptabase")
@@ -283,11 +282,7 @@ pub fn run() {
             commands::webview::init_shared_config(&mut wvm);
             wvm
         })
-        .manage(<commands::p2p_state::IrohState>::default())
         .manage(commands::spotlight::SpotlightState::default())
-        .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
-        .manage(commands::oss_sync::OssSyncState::default())
-        .manage(commands::version_commands::VersionStoreState::default())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::show_in_folder,
@@ -407,75 +402,6 @@ pub fn run() {
             commands::git::git_diff,
             commands::git::git_checkout_file,
             commands::git::git_show_file,
-            commands::team::get_team_status,
-            commands::team::team_check_git_installed,
-            commands::team::team_check_workspace_has_git,
-            commands::team::team_init_repo,
-            commands::team::team_generate_gitignore,
-            commands::team::team_sync_repo,
-            commands::team::team_disconnect_repo,
-            commands::team::get_team_config,
-            commands::team::save_team_config,
-            commands::team::clear_team_config,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::get_device_node_id,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::get_device_info,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::team_add_member,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::team_remove_member,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::team_update_member_role,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_check_team_dir,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_create_team,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_publish_drive,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_join_drive,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_disconnect_source,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_leave_team,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_dissolve_team,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_reconnect,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_rotate_ticket,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_sync_status,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_get_files_sync_status,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::get_p2p_config,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::save_p2p_config,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_skills_leaderboard,
-            #[cfg(feature = "p2p")]
-            commands::team_p2p::p2p_save_seed_config,
-            commands::oss_commands::oss_create_team,
-            commands::oss_commands::oss_join_team,
-            commands::oss_commands::oss_restore_sync,
-            commands::oss_commands::oss_leave_team,
-            commands::oss_commands::oss_sync_now,
-            commands::oss_commands::oss_get_sync_status,
-            commands::oss_commands::oss_get_files_sync_status,
-            commands::oss_commands::oss_create_snapshot,
-            commands::oss_commands::oss_cleanup_updates,
-            commands::oss_commands::oss_update_members,
-            commands::oss_commands::oss_reset_team_secret,
-            commands::oss_commands::oss_get_team_config,
-            commands::oss_commands::oss_apply_team,
-            commands::oss_commands::oss_get_pending_application,
-            commands::oss_commands::oss_cancel_application,
-            commands::oss_commands::oss_approve_application,
-            commands::version_commands::team_list_file_versions,
-            commands::version_commands::team_list_all_versioned_files,
-            commands::version_commands::team_restore_file_version,
             commands::deps::check_dependencies,
             commands::deps::install_dependency,
             commands::env_vars::env_var_set,
@@ -497,11 +423,6 @@ pub fn run() {
             telemetry::commands::telemetry_save_report,
             telemetry::commands::telemetry_track,
             telemetry::commands::telemetry_get_reports,
-            telemetry::commands::telemetry_export_team_feedback,
-            telemetry::commands::telemetry_get_team_feedback_summary,
-            telemetry::commands::telemetry_export_leaderboard,
-            telemetry::commands::telemetry_get_team_leaderboard,
-            telemetry::commands::telemetry_get_member_aggregated_stats,
             telemetry::commands::identity_list_users,
             telemetry::commands::identity_bind,
             telemetry::commands::identity_get_usage,
@@ -523,18 +444,6 @@ pub fn run() {
             commands::spotlight::force_toggle_spotlight,
             commands::spotlight::get_spotlight_state,
             commands::spotlight::expand_to_main,
-            commands::team_webdav::webdav_connect,
-            commands::team_webdav::webdav_sync,
-            commands::team_webdav::webdav_disconnect,
-            commands::team_webdav::webdav_export_config,
-            commands::team_webdav::webdav_import_config,
-            commands::team_webdav::webdav_get_status,
-            commands::team_webdav::get_team_mode,
-            commands::team_unified::unified_team_get_members,
-            commands::team_unified::unified_team_add_member,
-            commands::team_unified::unified_team_remove_member,
-            commands::team_unified::unified_team_update_member_role,
-            commands::team_unified::unified_team_get_my_role,
         ]);
 
     let builder = plugins::register_all(builder);
@@ -559,28 +468,6 @@ pub fn run() {
                 }
             });
 
-            // Initialize iroh P2P node in background (non-blocking)
-            #[cfg(feature = "p2p")]
-            {
-                let iroh_state = app.handle().state::<commands::p2p_state::IrohState>().inner().clone();
-                tauri::async_runtime::spawn(async move {
-                    match commands::team_p2p::IrohNode::new_default().await {
-                        Ok(node) => {
-                            *iroh_state.lock().await = Some(node);
-                            #[cfg(debug_assertions)]
-                            eprintln!("[P2P] iroh node started");
-                        }
-                        Err(e) => {
-                            sentry_utils::capture_err("[P2P] Failed to start iroh node", &e);
-                            eprintln!("[P2P] Failed to start iroh node (P2P disabled): {}", e);
-                        }
-                    }
-                });
-            }
-
-            // Team sync will be triggered from the frontend after workspace is set,
-            // since workspace_path is not available at setup time.
-            // The frontend calls team_sync_repo on startup when team config is enabled.
 
             #[cfg(debug_assertions)]
             eprintln!("[Startup] Setup hook (before early launch): {:.1}ms", setup_t0.elapsed().as_secs_f64() * 1000.0);

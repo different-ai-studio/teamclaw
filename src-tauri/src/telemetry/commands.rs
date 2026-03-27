@@ -302,72 +302,14 @@ pub struct TeamFeedbackSummary {
 }
 
 /// Export the current user's feedback summary to teamclaw-team/_feedback/{nodeId}.json.
-#[tauri::command]
-pub async fn telemetry_export_team_feedback(
-    state: tauri::State<'_, TelemetryState>,
-    iroh_state: tauri::State<'_, crate::commands::p2p_state::IrohState>,
-    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
-) -> Result<(), String> {
-    #[cfg(not(feature = "p2p"))]
-    {
-        let _ = (state, iroh_state, opencode_state);
-        return Err("P2P team sync is not available on this build.".into());
-    }
-
-    #[cfg(feature = "p2p")]
-    {
-        let db = get_db(&state).await?;
-
-        let guard = iroh_state.lock().await;
-        let node = guard.as_ref().ok_or("P2P node not running")?;
-        let node_id = crate::commands::team_p2p::get_node_id(node);
-        let device_info = crate::commands::team_p2p::get_device_metadata();
-        drop(guard);
-
-        let workspace_path = opencode_state
-            .workspace_path
-            .lock()
-            .map_err(|e| e.to_string())?
-            .clone()
-            .ok_or("Workspace path not set")?;
-        let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
-        if !team_dir.exists() {
-            return Ok(());
-        }
-        let feedback_dir = team_dir.join("_feedback");
-
-        std::fs::create_dir_all(&feedback_dir)
-            .map_err(|e| format!("Failed to create _feedback dir: {}", e))?;
-
-        let summary = db.export_feedback_summary().await?;
-
-        let member_name = device_info.hostname.clone();
-
-        let export = MemberFeedbackExport {
-            member_id: node_id.clone(),
-            member_name: member_name.clone(),
-            exported_at: chrono::Utc::now().to_rfc3339(),
-            summary,
-        };
-
-        let json = serde_json::to_string_pretty(&export)
-            .map_err(|e| format!("Failed to serialize feedback: {}", e))?;
-
-        // Use memberName as filename (sanitize for safety)
-        let safe_filename = member_name
-            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
-            .chars()
-            .take(200)
-            .collect::<String>();
-        let file_path = feedback_dir.join(format!("{}.json", safe_filename));
-        std::fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write feedback file: {}", e))?;
-
-        Ok(())
-    }
+/// NOTE: Stubbed out — team sync code moved to plugin.
+#[allow(dead_code)]
+pub async fn telemetry_export_team_feedback() -> Result<(), String> {
+    Err("Team feedback export is not available in the open-source build.".into())
 }
 
 /// Read all member feedback JSONs from teamclaw-team/_feedback/ and return aggregated team summary.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn telemetry_get_team_feedback_summary(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
@@ -479,122 +421,14 @@ pub struct TeamLeaderboard {
 }
 
 /// Export the current user's leaderboard stats to teamclaw-team/.leaderboard/{memberName}.json.
-/// Reads from .teamclaw/stats.json and organizes by workspace.
-#[tauri::command]
-pub async fn telemetry_export_leaderboard(
-    state: tauri::State<'_, TelemetryState>,
-    iroh_state: tauri::State<'_, crate::commands::p2p_state::IrohState>,
-    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
-) -> Result<(), String> {
-    #[cfg(not(feature = "p2p"))]
-    let _ = (state, iroh_state, opencode_state);
-
-    #[cfg(not(feature = "p2p"))]
-    return Err("P2P team sync is not available on this build.".into());
-
-    #[cfg(feature = "p2p")]
-    {
-        let _db = get_db(&state).await?;
-
-        let guard = iroh_state.lock().await;
-        let node = guard.as_ref().ok_or("P2P node not running")?;
-        let node_id = crate::commands::team_p2p::get_node_id(node);
-        let device_info = crate::commands::team_p2p::get_device_metadata();
-        drop(guard);
-
-        let workspace_path = opencode_state
-            .workspace_path
-            .lock()
-            .map_err(|e| e.to_string())?
-            .clone()
-            .ok_or("Workspace path not set")?;
-        let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
-        if !team_dir.exists() {
-            return Ok(());
-        }
-        let leaderboard_dir = team_dir.join(".leaderboard");
-
-        std::fs::create_dir_all(&leaderboard_dir)
-            .map_err(|e| format!("Failed to create .leaderboard dir: {}", e))?;
-
-        // Read local stats from current workspace's .teamclaw/stats.json
-        let stats_path = std::path::Path::new(&workspace_path)
-            .join(crate::commands::TEAMCLAW_DIR)
-            .join("stats.json");
-        let local_stats = if stats_path.exists() {
-            let content = std::fs::read_to_string(&stats_path).map_err(|e| {
-                format!(
-                    "Failed to read {}/stats.json: {}",
-                    crate::commands::TEAMCLAW_DIR,
-                    e
-                )
-            })?;
-            serde_json::from_str::<crate::commands::local_stats::LocalStats>(&content).map_err(
-                |e| {
-                    format!(
-                        "Failed to parse {}/stats.json: {}",
-                        crate::commands::TEAMCLAW_DIR,
-                        e
-                    )
-                },
-            )?
-        } else {
-            // If stats.json doesn't exist, use default
-            crate::commands::local_stats::LocalStats::default()
-        };
-
-        // Convert LocalStats to LeaderboardStats
-        let workspace_stats = LeaderboardStats {
-            total_feedbacks: local_stats.feedback_count,
-            positive_count: local_stats.positive_count,
-            negative_count: local_stats.negative_count,
-            total_tokens: local_stats.total_tokens,
-            total_cost: local_stats.total_cost,
-            session_count: local_stats.sessions.total,
-        };
-
-        let member_name = device_info.hostname.clone();
-        let safe_filename = member_name
-            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
-            .chars()
-            .take(200)
-            .collect::<String>();
-        let file_path = leaderboard_dir.join(format!("{}.json", safe_filename));
-
-        // Read existing leaderboard file or create new
-        let mut workspaces = if file_path.exists() {
-            let content = std::fs::read_to_string(&file_path)
-                .map_err(|e| format!("Failed to read existing leaderboard: {}", e))?;
-            let existing: MemberLeaderboardExport = serde_json::from_str(&content)
-                .map_err(|e| format!("Failed to parse existing leaderboard: {}", e))?;
-            existing.workspaces
-        } else {
-            std::collections::HashMap::new()
-        };
-
-        // Update current workspace stats
-        workspaces.insert(workspace_path.clone(), workspace_stats);
-
-        let now = chrono::Utc::now().to_rfc3339();
-        let export = MemberLeaderboardExport {
-            member_id: node_id.clone(),
-            member_name: member_name.clone(),
-            exported_at: now.clone(),
-            update_at: now,
-            workspaces,
-        };
-
-        let json = serde_json::to_string_pretty(&export)
-            .map_err(|e| format!("Failed to serialize leaderboard: {}", e))?;
-
-        std::fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write leaderboard file: {}", e))?;
-
-        Ok(())
-    }
+/// NOTE: Stubbed out — team sync code moved to plugin.
+#[allow(dead_code)]
+pub async fn telemetry_export_leaderboard() -> Result<(), String> {
+    Err("Team leaderboard export is not available in the open-source build.".into())
 }
 
 /// Aggregate stats from all workspaces for a member
+#[allow(dead_code)]
 fn aggregate_workspace_stats(
     workspaces: &std::collections::HashMap<String, LeaderboardStats>,
 ) -> LeaderboardStats {
@@ -621,6 +455,7 @@ fn aggregate_workspace_stats(
 
 /// Read all member leaderboard JSONs from teamclaw-team/.leaderboard/ and return team leaderboard.
 /// Aggregates stats from all workspaces for each member.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn telemetry_get_team_leaderboard(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
@@ -657,6 +492,7 @@ pub async fn telemetry_get_team_leaderboard(
 }
 
 /// Get aggregated stats for a specific member across all workspaces
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn telemetry_get_member_aggregated_stats(
     member_name: String,

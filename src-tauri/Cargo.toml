@@ -10,9 +10,7 @@ name = "teamclaw_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = ["p2p"]
-# P2P team sync (iroh); disabled on Windows to avoid wmi/windows-core version conflict.
-p2p = ["dep:iroh", "dep:iroh-blobs", "dep:iroh-docs", "dep:iroh-gossip"]
+default = []
 stt-whisper = ["dep:whisper-rs"]
 
 [build-dependencies]
@@ -79,22 +77,11 @@ thiserror = "2"
 tracing = { version = "0.1", features = ["log"] }
 tauri-plugin-log = "2"
 
-# P2P team sync (optional; enable with p2p feature; off by default on Windows build)
-iroh = { version = "0.97", optional = true }
-iroh-blobs = { version = "0.99", features = ["fs-store"], optional = true }
-iroh-docs = { version = "0.97", optional = true }
-iroh-gossip = { version = "0.97", optional = true }
-aws-sdk-s3 = "1"
-aws-config = "1"
-loro = "1"
-filetime = "0.2"
 arboard = "3"
-futures-lite = "2"
 
 # axum: E2E test control server (debug builds only, lib.rs)
 axum = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
-gethostname = "1.1.0"
 
 # ClawHub skill registry
 zip = "8"
@@ -109,11 +96,6 @@ rayon = "1.10"  # Parallel iterator for recursive skill search
 # MCP plugin for AI agent integration (debug only)
 tauri-plugin-mcp = { path = "tauri-plugin-mcp-local" }
 
-# WebDAV team sync dependencies
-quick-xml = "0.36"
-aes-gcm = "0.10"
-pbkdf2 = { version = "0.12", features = ["simple"] }
-hex = "0.4"
 getrandom = "0.2"
 url = "2"
 log = "0.4"

@@ -9,23 +9,11 @@ pub mod knowledge;
 pub mod local_stats;
 pub mod mcp;
 pub mod opencode;
-pub mod oss_commands;
-pub mod oss_sync;
-pub mod oss_types;
-pub mod p2p_state;
 pub mod rag_http_server;
 pub mod skillssh;
 pub mod spotlight;
 pub mod stt;
-pub mod team;
-#[cfg(feature = "p2p")]
-pub mod team_p2p;
-pub mod team_unified;
-pub mod team_webdav;
 pub mod updater;
-pub mod version_commands;
-pub mod version_store;
-pub mod version_types;
 pub mod webview;
 
 /// The short application name, injected at compile time via `build.rs`.
