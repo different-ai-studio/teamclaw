@@ -10,9 +10,7 @@ import { useStreamingStore } from "@/stores/streaming";
 import { useVoiceInputStore } from "@/stores/voice-input";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useProviderStore, getSelectedModelOption } from "@/stores/provider";
-import { useTeamModeStore } from "@/stores/team-mode";
 import { useSuggestionsStore } from "@/stores/suggestions";
-import { TEAMCLAW_DIR, CONFIG_FILE_NAME } from "@/lib/build-config";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
@@ -171,65 +169,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
   const isStreaming = !!streamingMessageId;
 
-  // ── Provider & Team mode init ──────────────────────────────────────
-  // Merged to avoid race condition: team mode restarts OpenCode, which
-  // would break a concurrent initProviderStore call.
+  // ── Provider init ──────────────────────────────────────────────────
   React.useEffect(() => {
     if (!openCodeReady) return;
-
-    if (!workspacePath) {
-      // No workspace yet, just init providers directly
-      initProviderStore();
-      return;
-    }
-
-    const { loadTeamConfig, applyTeamModelToOpenCode } = useTeamModeStore.getState();
-    loadTeamConfig(workspacePath).then(async () => {
-      if (useTeamModeStore.getState().teamMode) {
-        // Team mode: apply team config (restarts OpenCode), then init providers
-        await applyTeamModelToOpenCode(workspacePath);
-      }
-      initProviderStore();
-    });
-  }, [openCodeReady, workspacePath]);
-
-  // ── Team config hot reload via file watcher ─────────────────────────
-  React.useEffect(() => {
-    if (!openCodeReady || !workspacePath) return;
-    const isTauriEnv = isTauri();
-    if (!isTauriEnv) return;
-
-    let unlisten: (() => void) | null = null;
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-    (async () => {
-      const { listen } = await import('@tauri-apps/api/event');
-      unlisten = await listen<{ path: string; kind: string }>('file-change', (event) => {
-        if (!event.payload.path.includes(`${TEAMCLAW_DIR}/${CONFIG_FILE_NAME}`)) return;
-        if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(async () => {
-          console.log('[TeamMode] teamclaw.json changed, reloading team config');
-          const store = useTeamModeStore.getState();
-          const wasTeamMode = store.teamMode;
-          await store.loadTeamConfig(workspacePath);
-          const isTeamMode = useTeamModeStore.getState().teamMode;
-          
-          if (isTeamMode) {
-            await store.applyTeamModelToOpenCode(workspacePath);
-          } else if (wasTeamMode && !isTeamMode) {
-            // Ensure provider store is refreshed if team mode was cleared
-            await useProviderStore.getState().initAll();
-            // Force a re-render by triggering a state update
-            useTeamModeStore.setState({ teamMode: false, teamModelConfig: null });
-          }
-        }, 1000);
-      });
-    })();
-
-    return () => {
-      if (unlisten) unlisten();
-      if (debounceTimer) clearTimeout(debounceTimer);
-    };
+    initProviderStore();
   }, [openCodeReady, workspacePath]);
 
   React.useEffect(() => {

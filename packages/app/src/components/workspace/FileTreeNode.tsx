@@ -21,8 +21,6 @@ import {
 } from "lucide-react";
 
 import { cn } from '@/lib/utils';
-import { TEAM_REPO_DIR } from '@/lib/build-config';
-import { useTeamModeStore } from '@/stores/team-mode';
 import { useTabsStore } from '@/stores/tabs';
 import { getFileIcon } from '@/lib/file-icons';
 import { getGitStatusIndicator, getGitStatusTextColor } from '@/lib/git-status-utils';
@@ -242,9 +240,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
 }: FileTreeItemProps) {
   const { t } = useTranslation();
   const isDirectory = node.type === "directory";
-  const myRole = useTeamModeStore((s) => s.myRole)
-  const isTeamFile = node.path.includes(`/${TEAM_REPO_DIR}/`)
-  const isViewerRestricted = isTeamFile && myRole === 'viewer'
+  const isViewerRestricted = false;
   const isCutTarget = clipboardPaths?.includes(node.path) && isClipboardCut;
   const displayName = compactName || node.name;
 

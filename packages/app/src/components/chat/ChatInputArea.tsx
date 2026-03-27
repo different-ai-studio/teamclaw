@@ -18,7 +18,6 @@ import {
 import { FileMentionPopover } from "./FileMentionPopover";
 import { CommandPopover } from "./CommandPopover";
 import type { Command as OpenCodeCommand } from "@/lib/opencode/client";
-import { useTeamModeStore } from "@/stores/team-mode";
 import {
   ModelSelector,
   ModelSelectorTrigger,
@@ -153,8 +152,6 @@ export function ChatInputArea({
   // Plan mode
   const [isPlanMode, setIsPlanMode] = React.useState(false);
 
-  // Team mode
-  const teamMode = useTeamModeStore(s => s.teamMode);
   const devUnlocked = useUIStore(s => s.devUnlocked);
   const advancedMode = useUIStore((s) => s.advancedMode);
   const canShowPlanToggle = advancedMode && devUnlocked;
@@ -429,8 +426,7 @@ export function ChatInputArea({
                 </Button>
               )}
 
-              {(!teamMode || devUnlocked) && (
-                <ModelSelector
+              <ModelSelector
                   open={modelSelectorOpen}
                   onOpenChange={setModelSelectorOpen}
                 >
@@ -497,7 +493,6 @@ export function ChatInputArea({
                     </ModelSelectorList>
                   </ModelSelectorContent>
                 </ModelSelector>
-              )}
             </PromptInputTools>
 
             <div className="flex items-center gap-2" data-onboarding-id="chat-input-submit">

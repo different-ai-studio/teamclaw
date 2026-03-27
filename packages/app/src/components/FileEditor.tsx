@@ -22,7 +22,6 @@ import {
   Eye,
 } from "lucide-react";
 import { cn, isTauri } from "@/lib/utils";
-import { TEAM_REPO_DIR } from "@/lib/build-config";
 import { getEditorType } from "@/components/editors/utils";
 import { UNSUPPORTED_BINARY_EXTENSIONS } from "@/components/viewers/UnsupportedFileViewer";
 import { supportsPreview } from "@/components/editors/utils";
@@ -31,7 +30,6 @@ import { ConflictBanner } from "@/components/editors/ConflictBanner";
 import { useSessionStore } from "@/stores/session";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useTeamModeStore } from "@/stores/team-mode";
 import { useGitStatus } from "@/hooks/use-git-status";
 import { gitManager } from "@/lib/git/manager";
 import { Button } from "@/components/ui/button";
@@ -334,9 +332,7 @@ export function FileEditor({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const myRole = useTeamModeStore((s) => s.myRole)
-  const isTeamFile = filePath?.includes(`/${TEAM_REPO_DIR}/`) ?? false
-  const isViewerReadOnly = isTeamFile && myRole === 'viewer'
+  const isViewerReadOnly = false;
   const targetLine = useWorkspaceStore((s) => s.targetLine);
   const targetHeading = useWorkspaceStore((s) => s.targetHeading);
   const [currentContent, setCurrentContent] = useState(content);

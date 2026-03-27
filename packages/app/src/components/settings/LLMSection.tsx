@@ -21,8 +21,6 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import { useProviderStore } from '@/stores/provider'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useTeamModeStore } from '@/stores/team-mode'
-import { useUIStore } from '@/stores/ui'
 import { initOpenCodeClient } from '@/lib/opencode/client'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -39,9 +37,6 @@ import { SettingCard, SectionHeader } from './shared'
 
 export const LLMSection = React.memo(function LLMSection() {
   const { t } = useTranslation()
-  const teamMode = useTeamModeStore((s) => s.teamMode)
-  const teamModelConfig = useTeamModeStore((s) => s.teamModelConfig)
-  const devUnlocked = useUIStore((s) => s.devUnlocked)
   const providers = useProviderStore((s) => s.providers)
   const providersLoading = useProviderStore((s) => s.providersLoading)
   const configuredProviders = useProviderStore((s) => s.configuredProviders)
@@ -360,37 +355,6 @@ export const LLMSection = React.memo(function LLMSection() {
     } finally {
       setIsDisconnecting(false)
     }
-  }
-
-  if (teamMode && !devUnlocked) {
-    return (
-      <div className="space-y-6">
-        <SectionHeader
-          icon={Brain}
-          title={t('settings.llm.title', 'LLM Model')}
-          description={t('settings.llm.description', 'Manage AI providers and connect them to enable model selection')}
-          iconColor="text-purple-500"
-        />
-        <SettingCard>
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400">
-              <Shield className="h-4.5 w-4.5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">{t('settings.llm.managedByTeam', 'Managed by team')}</p>
-              <p className="text-xs text-muted-foreground">
-                {t('settings.llm.managedByTeamDesc', 'Model configuration is managed by team admin, no personal configuration needed.')}
-              </p>
-              {teamModelConfig && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {teamModelConfig.modelName} · {teamModelConfig.baseUrl}
-                </p>
-              )}
-            </div>
-          </div>
-        </SettingCard>
-      </div>
-    )
   }
 
   return (

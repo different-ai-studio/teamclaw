@@ -9,8 +9,6 @@ import { GitStatus } from "@/lib/git/service";
 import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
 import { useGitStatus } from "@/hooks/use-git-status";
 import { useGitSettingsStore } from "@/stores/git-settings";
-import { useTeamOssStore } from "@/stores/team-oss";
-import { useTeamModeStore } from "@/stores/team-mode";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -330,31 +328,9 @@ export function FileTree({
     return { fileGitStatusMap: fileMap, dirtyDirectories: dirtyDirs };
   }, [showGitStatus, gitStatuses, workspacePath]);
 
-  // Pre-compute sync status data for team files (merge OSS and P2P sources)
-  const ossFileSyncStatusMap = useTeamOssStore(s => s.fileSyncStatusMap);
-  const p2pFileSyncStatusMap = useTeamModeStore(s => s.p2pFileSyncStatusMap);
-  const p2pConnected = useTeamModeStore(s => s.p2pConnected);
-  const fileSyncStatusMap = p2pConnected ? p2pFileSyncStatusMap : ossFileSyncStatusMap;
-  const syncDirtyDirectories = useMemo(() => {
-    const dirtyDirs = new Map<string, 'synced' | 'modified' | 'new'>();
-    if (!workspacePath) return dirtyDirs;
-
-    for (const [relPath, status] of Object.entries(fileSyncStatusMap)) {
-      if (status === 'synced') continue;
-      // Build absolute path and propagate to parent directories
-      const absPath = `${workspacePath}/${TEAM_REPO_DIR}/${relPath}`;
-      let dir = absPath.substring(0, absPath.lastIndexOf("/"));
-      while (dir && dir.length > workspacePath.length) {
-        const existing = dirtyDirs.get(dir);
-        // modified > new > synced priority
-        if (!existing || (status === 'modified' && existing === 'new')) {
-          dirtyDirs.set(dir, status);
-        }
-        dir = dir.substring(0, dir.lastIndexOf("/"));
-      }
-    }
-    return dirtyDirs;
-  }, [fileSyncStatusMap, workspacePath]);
+  // Sync status maps are provided by the team plugin; default to empty.
+  const fileSyncStatusMap: Record<string, 'synced' | 'modified' | 'new'> = {};
+  const syncDirtyDirectories = useMemo(() => new Map<string, 'synced' | 'modified' | 'new'>(), []);
 
   const collapseCompacted = useCallback((paths: string[]) => {
     const nextExpanded = new Set(useWorkspaceStore.getState().expandedPaths);
