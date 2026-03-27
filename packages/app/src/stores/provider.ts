@@ -474,6 +474,21 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       get().refreshCurrentModel(),
     ])
 
+    // Retry: sidecar may be healthy but provider registry not yet loaded.
+    // `/provider` always returns non-empty when providers are registered,
+    // so an empty list means the registry hasn't initialized yet.
+    if (get().providers.length === 0) {
+      const deadline = Date.now() + 5_000
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 500))
+        await Promise.all([
+          get().refreshProviders(),
+          get().refreshConfiguredProviders(),
+        ])
+        if (get().providers.length > 0) break
+      }
+    }
+
     // After loading, resolve selected model:
     // Priority: opencode config > localStorage > first available model
     const { currentModelKey, models } = get()

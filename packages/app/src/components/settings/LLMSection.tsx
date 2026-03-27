@@ -60,6 +60,7 @@ export const LLMSection = React.memo(function LLMSection() {
   const removeCustomProvider = useProviderStore((s) => s.removeCustomProvider)
   const disconnectProvider = useProviderStore((s) => s.disconnectProvider)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady)
 
   // Dialog state for connecting a provider
   const [connectDialogOpen, setConnectDialogOpen] = React.useState(false)
@@ -100,15 +101,16 @@ export const LLMSection = React.memo(function LLMSection() {
   // Detail view for connected provider
   const [selectedProviderId, setSelectedProviderId] = React.useState<string | null>(null)
 
-  // Load providers on mount
+  // Load providers on mount and when OpenCode becomes ready
   React.useEffect(() => {
+    if (!openCodeReady) return
     refreshProviders()
     refreshConfiguredProviders()
     refreshAuthMethods()
     if (workspacePath) {
       refreshCustomProviderIds(workspacePath)
     }
-  }, [])
+  }, [openCodeReady])
 
   // Restart OpenCode sidecar so newly connected providers take effect
   const restartOpenCodeAndRefresh = async () => {
