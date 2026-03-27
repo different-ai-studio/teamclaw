@@ -218,12 +218,12 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           {/* Contact email */}
           <div className="space-y-2">
             <label className="text-sm font-medium">
-              {t('settings.feedback.emailLabel', 'Contact Email')}{' '}
+              {t('settings.feedback.contactLabel', 'Contact Info')}{' '}
               <span className="text-muted-foreground font-normal">({t('common.optional', 'Optional')})</span>
             </label>
             <Input
-              type="email"
-              placeholder={t('settings.feedback.emailPlaceholder', 'your@email.com')}
+              type="text"
+              placeholder={t('settings.feedback.contactPlaceholder', 'Email or phone number')}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
