@@ -309,7 +309,7 @@ pub struct TeamFeedbackSummary {
 #[tauri::command]
 pub async fn telemetry_export_team_feedback(
     state: tauri::State<'_, TelemetryState>,
-    iroh_state: tauri::State<'_, crate::plugins::team_impl::p2p_state::IrohState>,
+    iroh_state: tauri::State<'_, tauri_plugin_team::p2p_state::IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     #[cfg(not(feature = "p2p"))]
@@ -324,8 +324,8 @@ pub async fn telemetry_export_team_feedback(
 
         let guard = iroh_state.lock().await;
         let node = guard.as_ref().ok_or("P2P node not running")?;
-        let node_id = crate::plugins::team_impl::team_p2p::get_node_id(node);
-        let device_info = crate::plugins::team_impl::team_p2p::get_device_metadata();
+        let node_id = tauri_plugin_team::team_p2p::get_node_id(node);
+        let device_info = tauri_plugin_team::team_p2p::get_device_metadata();
         drop(guard);
 
         let workspace_path = opencode_state
@@ -491,7 +491,7 @@ pub struct TeamLeaderboard {
 #[tauri::command]
 pub async fn telemetry_export_leaderboard(
     state: tauri::State<'_, TelemetryState>,
-    iroh_state: tauri::State<'_, crate::plugins::team_impl::p2p_state::IrohState>,
+    iroh_state: tauri::State<'_, tauri_plugin_team::p2p_state::IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     #[cfg(not(feature = "p2p"))]
@@ -506,8 +506,8 @@ pub async fn telemetry_export_leaderboard(
 
         let guard = iroh_state.lock().await;
         let node = guard.as_ref().ok_or("P2P node not running")?;
-        let node_id = crate::plugins::team_impl::team_p2p::get_node_id(node);
-        let device_info = crate::plugins::team_impl::team_p2p::get_device_metadata();
+        let node_id = tauri_plugin_team::team_p2p::get_node_id(node);
+        let device_info = tauri_plugin_team::team_p2p::get_device_metadata();
         drop(guard);
 
         let workspace_path = opencode_state
