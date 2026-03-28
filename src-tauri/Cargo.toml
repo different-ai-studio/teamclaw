@@ -105,7 +105,7 @@ url = "2"
 log = "0.4"
 
 # Team collaboration plugin (optional, private)
-tauri-plugin-team = { git = "ssh://git@github.com/different-ai-studio/teamclaw-plugin-team.git", branch = "main", optional = true }
+tauri-plugin-team = { git = "https://github.com/different-ai-studio/teamclaw-plugin-team.git", branch = "main", optional = true }
 
 # Global keyboard event monitoring (double-tap Ctrl for spotlight)
 rdev = "0.5"
