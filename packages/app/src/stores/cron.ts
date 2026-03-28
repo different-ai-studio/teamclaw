@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { withAsync } from '@/lib/store-utils'
+import { appShortName } from '@/lib/build-config'
 
 // ==================== Types ====================
 
@@ -288,27 +289,38 @@ export function formatSchedule(schedule: CronSchedule): string {
   }
 }
 
-/** Format a relative time string (e.g., "2 min ago") */
+/** Format a relative time string with i18n support (e.g., "2 minutes ago" / "2分钟前") */
 export function formatRelativeTime(dateStr: string): string {
   try {
+    const lang = localStorage.getItem(`${appShortName}-language`) || 'en'
     const date = new Date(dateStr)
     const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffSec = Math.floor(diffMs / 1000)
-
-    if (diffSec < 0) {
-      // Future
-      const absSec = Math.abs(diffSec)
-      if (absSec < 60) return `in ${absSec}s`
-      if (absSec < 3600) return `in ${Math.floor(absSec / 60)} min`
-      if (absSec < 86400) return `in ${Math.floor(absSec / 3600)}h`
-      return `in ${Math.floor(absSec / 86400)} days`
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+    
+    const rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' })
+    
+    // Less than 1 minute
+    if (diffInSeconds < 60) {
+      return lang === 'zh' || lang === 'zh-CN' ? '刚刚' : 'Just now'
     }
-
-    if (diffSec < 60) return `${diffSec}s ago`
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min ago`
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
-    return `${Math.floor(diffSec / 86400)} days ago`
+    // Less than 1 hour
+    if (diffInSeconds < 3600) {
+      return rtf.format(-Math.floor(diffInSeconds / 60), 'minute')
+    }
+    // Less than 1 day
+    if (diffInSeconds < 86400) {
+      return rtf.format(-Math.floor(diffInSeconds / 3600), 'hour')
+    }
+    // Less than 30 days
+    if (diffInSeconds < 2592000) {
+      return rtf.format(-Math.floor(diffInSeconds / 86400), 'day')
+    }
+    // Less than 1 year
+    if (diffInSeconds < 31536000) {
+      return rtf.format(-Math.floor(diffInSeconds / 2592000), 'month')
+    }
+    // 1+ years
+    return rtf.format(-Math.floor(diffInSeconds / 31536000), 'year')
   } catch {
     return dateStr
   }

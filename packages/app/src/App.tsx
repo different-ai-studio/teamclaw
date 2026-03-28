@@ -419,9 +419,7 @@ function AppContent() {
   const getActiveSession = useSessionStore((s) => s.getActiveSession);
   const todos = useSessionStore((s) => s.todos);
   const sessionDiff = useSessionStore((s) => s.sessionDiff);
-  const createSession = useSessionStore((s) => s.createSession);
   const sessions = useSessionStore((s) => s.sessions);
-  const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const reloadActiveSessionMessages = useSessionStore(
     (s) => s.reloadActiveSessionMessages,
   );
@@ -852,7 +850,7 @@ function AppContent() {
                             "text-xs truncate",
                             s.id === activeSession?.id && "bg-accent"
                           )}
-                          onClick={() => setActiveSession(s.id)}
+                          onClick={() => useUIStore.getState().switchToSession(s.id)}
                         >
                           {s.title || t("chat.newChat", "New Chat")}
                         </DropdownMenuItem>
@@ -860,7 +858,7 @@ function AppContent() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <button
-                    onClick={() => createSession()}
+                    onClick={() => useUIStore.getState().startNewChat()}
                     className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                     title={t("app.newSession", "New Session")}
                   >

@@ -16,10 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { useSessionStore } from '@/stores/session'
 import { useUIStore } from '@/stores/ui'
-import { useWorkspaceStore } from '@/stores/workspace'
-import { useTabsStore } from '@/stores/tabs'
 import {
   Dialog,
   DialogContent,
@@ -38,6 +35,8 @@ import {
 } from '@/stores/cron'
 
 function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSession?: (sessionId: string) => void }) {
+  const { t } = useTranslation()
+  const [isHovered, setIsHovered] = React.useState(false)
   const statusColor = getRunStatusColor(run.status)
   const duration =
     run.startedAt && run.finishedAt
@@ -68,9 +67,23 @@ function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSessi
             {run.status}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{formatRelativeTime(run.startedAt)}</span>
-          <span>{duration}</span>
+        <div 
+          className="text-xs text-muted-foreground relative"
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+        >
+          <span className={cn(
+            "absolute inset-0 flex items-center justify-end transition-opacity duration-300",
+            isHovered ? "opacity-0" : "opacity-100"
+          )}>
+            {formatRelativeTime(run.startedAt)}
+          </span>
+          <span className={cn(
+            "transition-opacity duration-300 whitespace-nowrap",
+            isHovered ? "opacity-100" : "opacity-0"
+          )}>
+            {t('settings.cron.started', 'Started')}: {formatRelativeTime(run.startedAt)} {t('settings.cron.duration', 'Duration')}: {duration}
+          </span>
         </div>
       </div>
 
@@ -127,17 +140,11 @@ export function CronHistoryDialog({
 }) {
   const { t } = useTranslation()
   const { runs, runsLoading, loadRuns } = useCronStore()
-  const setActiveSession = useSessionStore(s => s.setActiveSession)
-  const closeSettings = useUIStore(s => s.closeSettings)
-  const clearSelection = useWorkspaceStore(s => s.clearSelection)
 
-  const handleViewSession = React.useCallback(async (sessionId: string) => {
-    clearSelection()
-    useTabsStore.getState().hideAll()
-    await setActiveSession(sessionId)
-    closeSettings()
+  const handleViewSession = React.useCallback((sessionId: string) => {
+    useUIStore.getState().switchToSession(sessionId)
     onOpenChange(false)
-  }, [clearSelection, setActiveSession, closeSettings, onOpenChange])
+  }, [onOpenChange])
 
   React.useEffect(() => {
     if (open && job) {

@@ -1170,6 +1170,8 @@
       "runNow": "Run Now",
       "edit": "Edit",
       "history": "History",
+      "started": "Started",
+      "duration": "Duration",
       "confirm": "Confirm?",
       "requiredName": "Job name is required",
       "requiredMessage": "Prompt message is required",

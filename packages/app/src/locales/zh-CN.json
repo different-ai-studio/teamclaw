@@ -1175,6 +1175,8 @@
       "runNow": "立即运行",
       "edit": "编辑",
       "history": "历史",
+      "started": "开始",
+      "duration": "耗时",
       "confirm": "确认？",
       "requiredName": "作业名称为必填项",
       "requiredMessage": "提示词消息为必填项",

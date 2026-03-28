@@ -36,6 +36,8 @@ interface UIState {
   advancedMode: boolean
   setAdvancedMode: (value: boolean, workspacePath: string | null) => void
   loadAdvancedMode: (workspacePath: string) => void
+  startNewChat: () => void
+  switchToSession: (sessionId: string) => Promise<void>
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
@@ -59,6 +61,68 @@ export const useUIStore = create<UIState>((set, get) => ({
   openEmbeddedSettingsSection: (section) => set({ embeddedSettingsSection: section }),
 
   closeEmbeddedSettingsSection: () => set({ embeddedSettingsSection: null }),
+
+  startNewChat: () => {
+    // Import session and other stores lazily to avoid circular dependencies
+    import('@/stores/session').then(({ useSessionStore }) => {
+      import('@/stores/workspace').then(({ useWorkspaceStore }) => {
+        import('@/stores/tabs').then(({ useTabsStore }) => {
+          import('@/stores/streaming').then(({ useStreamingStore }) => {
+            // Close any open UI elements and return to chat view
+            set({ 
+              currentView: 'chat', 
+              settingsInitialSection: null, 
+              embeddedSettingsSection: null 
+            })
+            useWorkspaceStore.getState().clearSelection()
+            useWorkspaceStore.getState().closePanel()
+            useTabsStore.getState().hideAll()
+            useStreamingStore.getState().clearStreaming()
+            
+            // Clear session state to show "Start a New Chat" UI
+            // Actual session will be created when user sends first message
+            useSessionStore.setState({
+              activeSessionId: null,
+              isLoading: false,
+              messageQueue: [],
+              todos: [],
+              sessionDiff: [],
+              sessionError: null,
+              sessionStatus: null,
+              pendingQuestion: null,
+              pendingPermission: null,
+              pendingPermissionChildSessionId: null,
+            })
+          })
+        })
+      })
+    })
+  },
+
+  switchToSession: async (sessionId: string) => {
+    // Import stores lazily to avoid circular dependencies
+    const { useSessionStore } = await import('@/stores/session')
+    const { useWorkspaceStore } = await import('@/stores/workspace')
+    const { useTabsStore } = await import('@/stores/tabs')
+    
+    // Skip if already on this session (avoid unnecessary reloads)
+    const currentActiveId = useSessionStore.getState().activeSessionId
+    if (sessionId === currentActiveId) {
+      return
+    }
+    
+    // Close any open UI elements and return to chat view
+    set({ 
+      currentView: 'chat', 
+      settingsInitialSection: null, 
+      embeddedSettingsSection: null 
+    })
+    useWorkspaceStore.getState().clearSelection()
+    useTabsStore.getState().hideAll()
+    
+    // Switch to the session (setActiveSession handles its own internal state)
+    await useSessionStore.getState().setActiveSession(sessionId)
+  },
 
   setLayoutMode: (mode) => set({ layoutMode: mode }),
 

@@ -95,18 +95,12 @@ function SessionSearchDialog({
   const { t } = useTranslation()
   const sessions = useSessionStore(s => s.sessions)
   const activeSessionId = useSessionStore(s => s.activeSessionId)
-  const setActiveSession = useSessionStore(s => s.setActiveSession)
-  const clearSelection = useWorkspaceStore(s => s.clearSelection)
-  const closeSettings = useUIStore(s => s.closeSettings)
 
   // Format date for display
   const formatDate = (date: Date) => formatRelativeTime(date)
 
-  const handleSelectSession = async (sessionId: string) => {
-    clearSelection()
-    closeSettings()
-    useTabsStore.getState().hideAll()
-    await setActiveSession(sessionId)
+  const handleSelectSession = (sessionId: string) => {
+    useUIStore.getState().switchToSession(sessionId)
     onOpenChange(false)
   }
 
@@ -176,11 +170,9 @@ export function SidebarSecondarySessionActions({
   newChatVariant?: "compact" | "sidebarWide"
 }) {
   const { t } = useTranslation()
-  const createSession = useSessionStore(s => s.createSession)
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const showCronSessions = useCronStore(s => s.showCronSessions)
   const toggleShowCronSessions = useCronStore(s => s.toggleShowCronSessions)
-  const [isCreating, setIsCreating] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
 
   const hasWorkspace = !!workspacePath
@@ -201,15 +193,9 @@ export function SidebarSecondarySessionActions({
     return () => document.removeEventListener('keydown', down)
   }, [hasWorkspace, effectiveIncludeSearchDialog])
 
-  const handleNewSession = async () => {
+  const handleNewSession = () => {
     if (!hasWorkspace) return
-    setIsCreating(true)
-    try {
-      useTabsStore.getState().hideAll()
-      await createSession()
-    } finally {
-      setIsCreating(false)
-    }
+    useUIStore.getState().startNewChat()
   }
 
   const newChatLabel = t("chat.newChat", "New Chat")
@@ -255,14 +241,10 @@ export function SidebarSecondarySessionActions({
       size="icon"
       className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-40"
       onClick={handleNewSession}
-      disabled={isCreating || !hasWorkspace}
+      disabled={!hasWorkspace}
       title={hasWorkspace ? newChatLabel : t('sidebar.selectWorkspaceFirst', 'Please select a workspace first')}
     >
-      {isCreating ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <SquarePen className="h-4 w-4" />
-      )}
+      <SquarePen className="h-4 w-4" />
     </Button>
   )
 
@@ -277,14 +259,10 @@ export function SidebarSecondarySessionActions({
             variant="secondary"
             className="h-9 min-w-0 flex-1 justify-center gap-2 rounded-lg px-3 font-normal shadow-none disabled:opacity-40"
             onClick={handleNewSession}
-            disabled={isCreating || !hasWorkspace}
+            disabled={!hasWorkspace}
             title={hasWorkspace ? newChatLabel : t('sidebar.selectWorkspaceFirst', 'Please select a workspace first')}
           >
-            {isCreating ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-            ) : (
-              <SquarePen className="h-4 w-4 shrink-0" />
-            )}
+            <SquarePen className="h-4 w-4 shrink-0" />
             <span className="truncate">{newChatLabel}</span>
           </Button>
           {showSearchAndCron && (
@@ -482,7 +460,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const hasMoreSessions = useSessionStore(s => s.hasMoreSessions)
   const visibleSessionCount = useSessionStore(s => s.visibleSessionCount)
   const highlightedSessionIds = useSessionStore(s => s.highlightedSessionIds)
-  const setActiveSession = useSessionStore(s => s.setActiveSession)
   const archiveSession = useSessionStore(s => s.archiveSession)
   const updateSessionTitle = useSessionStore(s => s.updateSessionTitle)
   const toggleSessionPinned = useSessionStore(s => s.toggleSessionPinned)
@@ -554,18 +531,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     activeWorkspacePanelTab === "shortcuts" &&
     !embeddedSettingsSection
 
-  const handleSelectSession = async (id: string) => {
-    // Close any open file editor and return to chat view
-    clearSelection()
-    // Close settings page if open
-    closeSettings()
-    closeEmbeddedSettingsSection()
-    // Hide any open tabs (webview/file) to reveal the conversation
-    useTabsStore.getState().hideAll()
-
-    if (id !== activeSessionId) {
-      await setActiveSession(id)
-    }
+  const handleSelectSession = (id: string) => {
+    useUIStore.getState().switchToSession(id)
   }
 
   const handleArchiveSession = async (e: React.MouseEvent, id: string) => {

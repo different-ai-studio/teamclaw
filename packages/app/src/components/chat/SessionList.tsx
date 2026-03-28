@@ -146,16 +146,12 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
   })
 
   const handleSelectSession = useCallback((id: string) => {
-    const currentActiveId = useSessionStore.getState().activeSessionId
-    if (id !== currentActiveId) {
-      clearSelection()
-      setActiveSession(id)
-    }
+    useUIStore.getState().switchToSession(id)
     if (useUIStore.getState().layoutMode === 'file') {
       setFileModeRightTab('agent')
     }
     onSessionSelected?.()
-  }, [clearSelection, setActiveSession, setFileModeRightTab, onSessionSelected])
+  }, [setFileModeRightTab, onSessionSelected])
 
   if (isLoading && sessions.length === 0) {
     return (
