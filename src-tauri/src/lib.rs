@@ -468,7 +468,6 @@ pub fn run() {
                 }
             });
 
-
             #[cfg(debug_assertions)]
             eprintln!("[Startup] Setup hook (before early launch): {:.1}ms", setup_t0.elapsed().as_secs_f64() * 1000.0);
 
