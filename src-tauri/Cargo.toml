@@ -11,6 +11,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 default = []
+# Team collaboration plugin (sync, P2P, WebDAV, OSS, versioning).
+# Enable with: cargo build --features team  (or team,p2p)
+team = ["dep:tauri-plugin-team"]
+p2p = ["team", "tauri-plugin-team/p2p"]
 stt-whisper = ["dep:whisper-rs"]
 
 [build-dependencies]
@@ -99,6 +103,9 @@ tauri-plugin-mcp = { path = "tauri-plugin-mcp-local" }
 getrandom = "0.2"
 url = "2"
 log = "0.4"
+
+# Team collaboration plugin (optional, private)
+tauri-plugin-team = { git = "ssh://git@github.com/different-ai-studio/teamclaw-plugin-team.git", branch = "main", optional = true }
 
 # Global keyboard event monitoring (double-tap Ctrl for spotlight)
 rdev = "0.5"

@@ -1,5 +1,10 @@
 // packages/app/src/plugins/index.ts
-export function loadPlugins() {
-  // Open-source: no plugins registered
-  // Pro repo overrides this file to import plugin modules
+export async function loadPlugins() {
+  // Dynamically load optional plugins if installed.
+  // Pro plugin: pnpm add @teamclaw/plugin-team
+  try {
+    await import('@teamclaw/plugin-team')
+  } catch {
+    // Plugin not installed — open-source build, skip silently.
+  }
 }

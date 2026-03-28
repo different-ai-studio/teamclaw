@@ -54,7 +54,7 @@ import {
 import { loadPlugins } from '@/plugins'
 import { getPlugins } from '@/plugins/registry'
 
-loadPlugins()
+loadPlugins().catch(() => {})
 import {
   usePanelAutoOpen,
   useLayoutModePanelSync,
