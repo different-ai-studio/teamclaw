@@ -11,6 +11,15 @@ import { appShortName, buildConfig, TEAM_API_KEY_STORAGE_KEY } from '@/lib/build
 const TEAM_PROVIDER_ID = 'team'
 const TEAM_API_KEY_STORAGE = TEAM_API_KEY_STORAGE_KEY
 
+/** Read team API key override from persistent storage (global, not per-workspace). */
+export function getPersistedTeamApiKey(): string | null {
+  try {
+    return localStorage.getItem(TEAM_API_KEY_STORAGE) || null
+  } catch {
+    return null
+  }
+}
+
 export interface TeamModelConfig {
   baseUrl: string
   model: string
@@ -68,13 +77,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   myRole: null,
   p2pConnected: false,
   p2pConfigured: false,
-  teamApiKey: (() => {
-    try {
-      return localStorage.getItem(TEAM_API_KEY_STORAGE) || null
-    } catch {
-      return null
-    }
-  })(),
+  teamApiKey: getPersistedTeamApiKey(),
   p2pFileSyncStatusMap: {},
 
   loadTeamConfig: async (_workspacePath: string) => {
