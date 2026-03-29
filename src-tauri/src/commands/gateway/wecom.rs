@@ -67,6 +67,7 @@ pub struct WeComGateway {
     session_queue: Arc<SessionQueue>,
     pending_questions: Arc<super::PendingQuestionStore>,
     shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
+    card_metadata: Arc<RwLock<std::collections::HashMap<String, CardMetadata>>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -112,6 +113,15 @@ struct WeComFrom {
     userid: String,
 }
 
+/// Metadata stored when a template card is sent for a question,
+/// needed to update the card when the user clicks a button.
+#[derive(Debug, Clone)]
+struct CardMetadata {
+    question_text: String,
+    options: Vec<super::pending_question::QuestionOption>,
+    req_id: String,
+}
+
 enum WsExitReason {
     Shutdown,
     Disconnected,
@@ -133,6 +143,7 @@ impl WeComGateway {
             session_queue: Arc::new(SessionQueue::new()),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             shared_ws_sink: Arc::new(RwLock::new(None)),
+            card_metadata: Arc::new(RwLock::new(std::collections::HashMap::new())),
         }
     }
 
@@ -415,9 +426,43 @@ impl WeComGateway {
             "aibot_event_callback" => {
                 println!(
                     "[WeCom] Received event callback: {}",
-                    text.chars().take(300).collect::<String>()
+                    text.chars().take(500).collect::<String>()
                 );
-                // Future: support additional event types (enter_chat, template_card_event, etc.)
+                if let Some(body) = msg.body {
+                    let eventtype = body
+                        .get("event")
+                        .and_then(|e| e.get("eventtype"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let req_id = msg
+                        .headers
+                        .as_ref()
+                        .and_then(|h| h.get("req_id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    match eventtype {
+                        "enter_chat" => {
+                            self.handle_enter_chat(&req_id, &ws_sink).await;
+                        }
+                        "template_card_event" => {
+                            self.handle_template_card_event(&body, &req_id, &ws_sink).await;
+                        }
+                        "disconnected_event" => {
+                            println!("[WeCom] Disconnected by server (new connection established)");
+                        }
+                        "feedback_event" => {
+                            let feedback = body.get("event")
+                                .and_then(|e| e.get("feedback"))
+                                .and_then(|f| f.as_str())
+                                .unwrap_or("unknown");
+                            println!("[WeCom] User feedback received: {}", feedback);
+                        }
+                        _ => {
+                            println!("[WeCom] Unhandled event type: {}", eventtype);
+                        }
+                    }
+                }
             }
             "" => {
                 // WeCom acknowledgment response — only log errors
@@ -1201,27 +1246,55 @@ impl WeComGateway {
                                 if thinking_active {
                                     let _ = thinking_ctl_tx.send(1); // 1 = paused
                                 }
-                                // Send question text and FINISH current stream so the message
-                                // becomes interactive (user can quote-reply in WeCom)
+
                                 let questions = super::parse_question_event(&event);
                                 let question_id = event
                                     .get("properties")
                                     .and_then(|p| p.get("id"))
                                     .and_then(|id| id.as_str())
-                                    .unwrap_or("");
-                                let text = super::format_question_message(&questions, question_id);
-                                let _ = self
-                                    .send_stream_chunk(req_id, &stream_id, &text, true, ws_sink)
-                                    .await;
-                                // Prepare a new stream for the post-question response
+                                    .unwrap_or("")
+                                    .to_string();
+
+                                // For each question: if it has options, send a card; otherwise text
+                                let mut any_card_sent = false;
+                                for q in &questions {
+                                    if !q.options.is_empty() {
+                                        // Send template card with buttons
+                                        let _ = self
+                                            .send_question_card(
+                                                req_id,
+                                                &question_id,
+                                                &q.question,
+                                                &q.options,
+                                                ws_sink,
+                                            )
+                                            .await;
+                                        any_card_sent = true;
+                                    } else {
+                                        // Open-ended question — send as text
+                                        let text = super::format_question_message(
+                                            &[q.clone()],
+                                            &question_id,
+                                        );
+                                        let _ = self
+                                            .send_stream_chunk(
+                                                req_id, &stream_id, &text, true, ws_sink,
+                                            )
+                                            .await;
+                                    }
+                                }
+
+                                // Prepare new stream for post-question response
                                 stream_id = uuid::Uuid::new_v4().to_string();
                                 accumulated_text.clear();
                                 last_send_len = 0;
+
                                 println!(
-                                    "[WeCom] Question displayed (stream closed): {}",
-                                    question_id
+                                    "[WeCom] Question displayed: {}, cards={}",
+                                    question_id, any_card_sent
                                 );
-                                // Set up reply channel (forwarder won't send, just returns qid)
+
+                                // Set up reply channel
                                 let prefix = &session_id[..session_id.len().min(8)];
                                 super::handle_question_event(
                                     ctx,
@@ -1455,6 +1528,203 @@ impl WeComGateway {
                 .await;
         }
         Err("SSE stream ended unexpectedly".to_string())
+    }
+
+    /// Handle enter_chat event — send welcome message
+    async fn handle_enter_chat(&self, req_id: &str, ws_sink: &WsSink) {
+        use futures_util::SinkExt;
+
+        let welcome = serde_json::json!({
+            "cmd": "aibot_respond_welcome_msg",
+            "headers": { "req_id": req_id },
+            "body": {
+                "msgtype": "text",
+                "text": {
+                    "content": "你好！我是 AI 助手。直接发消息给我开始对话，发送 /help 查看可用命令。"
+                }
+            }
+        });
+
+        match ws_sink
+            .lock()
+            .await
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                welcome.to_string().into(),
+            ))
+            .await
+        {
+            Ok(_) => println!("[WeCom] Welcome message sent"),
+            Err(e) => eprintln!("[WeCom] Failed to send welcome message: {}", e),
+        }
+    }
+
+    /// Handle template_card_event — user clicked a button on a template card
+    async fn handle_template_card_event(
+        &self,
+        body: &serde_json::Value,
+        req_id: &str,
+        ws_sink: &WsSink,
+    ) {
+        use futures_util::SinkExt;
+
+        // Extract the clicked button key from the event
+        let event = match body.get("event") {
+            Some(e) => e,
+            None => {
+                eprintln!("[WeCom] Template card event missing 'event' field");
+                return;
+            }
+        };
+
+        let selected_key = event
+            .get("selected_items")
+            .and_then(|items| items.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|item| item.get("key"))
+            .and_then(|k| k.as_str())
+            .or_else(|| event.get("key").and_then(|k| k.as_str()))
+            .unwrap_or("");
+
+        if selected_key.is_empty() {
+            println!("[WeCom] Template card event with no selected key");
+            return;
+        }
+
+        println!("[WeCom] Template card button clicked: key={}", selected_key);
+
+        // Parse key format: "q:{question_id}:{option_index}:{option_value}"
+        let parts: Vec<&str> = selected_key.splitn(4, ':').collect();
+        if parts.len() < 4 || parts[0] != "q" {
+            println!("[WeCom] Unexpected button key format: {}", selected_key);
+            return;
+        }
+        let question_id = parts[1];
+        let option_index: usize = parts[2].parse().unwrap_or(0);
+        let option_value = parts[3];
+
+        // Answer the pending question
+        if let Some(entry) = self.pending_questions.take_by_question_id(question_id).await {
+            let _ = entry.answer_tx.send(option_value.to_string());
+            println!("[WeCom] Question {} answered via card: {}", question_id, option_value);
+        } else {
+            println!("[WeCom] No pending question found for id={}", question_id);
+        }
+
+        // Update the card — highlight selected button, grey out others
+        let metadata = self.card_metadata.write().await.remove(question_id);
+        if let Some(meta) = metadata {
+            let button_list: Vec<serde_json::Value> = meta
+                .options
+                .iter()
+                .enumerate()
+                .map(|(i, opt)| {
+                    let value = opt.value.as_deref().unwrap_or(&opt.label);
+                    let (text, style) = if i == option_index {
+                        (format!("✓ {}", opt.label), 1) // highlighted
+                    } else {
+                        (opt.label.clone(), 2) // grey
+                    };
+                    serde_json::json!({
+                        "text": text,
+                        "style": style,
+                        "key": format!("q:{}:{}:{}", question_id, i, value)
+                    })
+                })
+                .collect();
+
+            let task_id = format!("q:{}", question_id);
+
+            let update_msg = serde_json::json!({
+                "cmd": "aibot_respond_update_msg",
+                "headers": { "req_id": req_id },
+                "body": {
+                    "response_type": "update_template_card",
+                    "template_card": {
+                        "card_type": "button_interaction",
+                        "main_title": { "title": "AI Question" },
+                        "sub_title_text": meta.question_text,
+                        "button_list": button_list,
+                        "task_id": task_id
+                    }
+                }
+            });
+
+            match ws_sink
+                .lock()
+                .await
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    update_msg.to_string().into(),
+                ))
+                .await
+            {
+                Ok(_) => println!("[WeCom] Card updated: task_id={}", task_id),
+                Err(e) => eprintln!("[WeCom] Failed to update card: {}", e),
+            }
+        }
+    }
+
+    /// Send a template card with buttons for a question that has options.
+    async fn send_question_card(
+        &self,
+        req_id: &str,
+        question_id: &str,
+        question_text: &str,
+        options: &[super::pending_question::QuestionOption],
+        ws_sink: &WsSink,
+    ) -> Result<(), String> {
+        use futures_util::SinkExt;
+
+        let button_list: Vec<serde_json::Value> = options
+            .iter()
+            .enumerate()
+            .map(|(i, opt)| {
+                let value = opt.value.as_deref().unwrap_or(&opt.label);
+                serde_json::json!({
+                    "text": opt.label,
+                    "style": 1,
+                    "key": format!("q:{}:{}:{}", question_id, i, value)
+                })
+            })
+            .collect();
+
+        let task_id = format!("q:{}", question_id);
+
+        let card_msg = serde_json::json!({
+            "cmd": "aibot_respond_msg",
+            "headers": { "req_id": req_id },
+            "body": {
+                "msgtype": "template_card",
+                "template_card": {
+                    "card_type": "button_interaction",
+                    "main_title": { "title": "AI Question" },
+                    "sub_title_text": question_text,
+                    "button_list": button_list,
+                    "task_id": task_id
+                }
+            }
+        });
+
+        ws_sink
+            .lock()
+            .await
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                card_msg.to_string().into(),
+            ))
+            .await
+            .map_err(|e| format!("Failed to send question card: {}", e))?;
+
+        // Store metadata for card update when button is clicked
+        self.card_metadata.write().await.insert(
+            question_id.to_string(),
+            CardMetadata {
+                question_text: question_text.to_string(),
+                options: options.to_vec(),
+                req_id: req_id.to_string(),
+            },
+        );
+
+        println!("[WeCom] Question card sent: task_id={}", task_id);
+        Ok(())
     }
 
     async fn send_stream_chunk(
