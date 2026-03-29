@@ -247,6 +247,8 @@
     "later": "稍后",
     "updateNow": "立即更新",
     "restartNow": "立即重启",
+    "restartLater": "稍后重启",
+    "restartRecommendation": "更新已安装，建议尽快重启以使用新版本。",
     "newVersion": "有新版本",
     "isAvailable": "可用。",
     "pleaseWait": "请等待更新下载完成。",
@@ -1536,8 +1538,10 @@
       "check": "检查更新",
       "checking": "检查中",
       "downloading": "下载中",
+      "updating": "更新中…",
       "upToDate": "已是最新",
-      "install": "安装"
+      "install": "安装",
+      "restart": "重启"
     },
     "leaderboard": {
       "title": "团队排行榜",

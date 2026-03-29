@@ -247,6 +247,8 @@
     "later": "Later",
     "updateNow": "Update Now",
     "restartNow": "Restart Now",
+    "restartLater": "Restart later",
+    "restartRecommendation": "The update is installed. We recommend restarting soon to use the new version.",
     "newVersion": "A new version",
     "isAvailable": "is available.",
     "pleaseWait": "Please wait while the update is being downloaded.",
@@ -1531,8 +1533,10 @@
       "check": "Check for updates",
       "checking": "Checking",
       "downloading": "Downloading",
+      "updating": "Updating…",
       "upToDate": "Up to date",
-      "install": "Install"
+      "install": "Install",
+      "restart": "Restart"
     },
     "leaderboard": {
       "title": "Team Leaderboard",
