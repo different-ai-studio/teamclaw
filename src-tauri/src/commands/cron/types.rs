@@ -78,6 +78,7 @@ pub enum DeliveryChannel {
     Email,
     Kook,
     Wechat,
+    Wecom,
 }
 
 /// Delivery configuration for cron job results

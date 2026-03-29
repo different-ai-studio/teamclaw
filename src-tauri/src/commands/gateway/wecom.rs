@@ -6,6 +6,14 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
+use std::sync::OnceLock;
+
+/// Global reference to the active WeComGateway for proactive message sending.
+static ACTIVE_GATEWAY: OnceLock<Arc<RwLock<Option<WeComGateway>>>> = OnceLock::new();
+
+fn get_active_gateway_holder() -> &'static Arc<RwLock<Option<WeComGateway>>> {
+    ACTIVE_GATEWAY.get_or_init(|| Arc::new(RwLock::new(None)))
+}
 
 /// Detect image MIME type from file magic bytes
 fn detect_image_mime(bytes: &[u8]) -> Option<String> {
@@ -152,6 +160,7 @@ impl WeComGateway {
         }
 
         *self.is_running.write().await = true;
+        *get_active_gateway_holder().write().await = Some(self.clone());
         self.set_status(WeComGatewayStatus::Connecting, None).await;
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -174,6 +183,7 @@ impl WeComGateway {
             let _ = tx.send(());
         }
         self.session_queue.shutdown().await;
+        *get_active_gateway_holder().write().await = None;
         *self.shared_ws_sink.write().await = None;
         *self.is_running.write().await = false;
         self.set_status(WeComGatewayStatus::Disconnected, None)
@@ -226,6 +236,7 @@ impl WeComGateway {
         }
 
         *self.is_running.write().await = false;
+        *get_active_gateway_holder().write().await = None;
         self.set_status(WeComGatewayStatus::Disconnected, None)
             .await;
     }
@@ -1532,4 +1543,19 @@ impl WeComGateway {
         self.send_stream_chunk(req_id, &stream_id, text, true, ws_sink)
             .await
     }
+}
+
+/// Send a proactive message to a WeCom conversation.
+/// Called by cron delivery and other modules that don't have direct gateway access.
+/// Requires the WeCom gateway to be running and connected.
+pub async fn send_proactive_message(chatid: &str, text: &str) -> Result<(), String> {
+    let gateway = get_active_gateway_holder()
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| {
+            "WeCom gateway is not running. Start the WeCom gateway before sending proactive messages.".to_string()
+        })?;
+
+    gateway.send_chat_message(chatid, text).await
 }

@@ -50,6 +50,10 @@ impl DeliveryManager {
                 self.send_wechat(&config, target, message).await?;
                 Ok(None)
             }
+            DeliveryChannel::Wecom => {
+                self.send_wecom(target, message).await?;
+                Ok(None)
+            }
         }
     }
 
@@ -279,6 +283,23 @@ impl DeliveryManager {
         let client = reqwest::Client::new();
         wechat::send_text_message(&client, base_url, bot_token, target, message, context_token)
             .await
+    }
+    // ==================== WeCom ====================
+
+    /// Send via WeCom — delegates to the running WeComGateway's send_chat_message.
+    /// The gateway must be connected (WebSocket active).
+    async fn send_wecom(
+        &self,
+        target: &str,
+        message: &str,
+    ) -> Result<(), String> {
+        let chunks = split_message(message, 4000);
+        for chunk in chunks {
+            gateway::wecom::send_proactive_message(target, &chunk).await?;
+        }
+
+        println!("[Cron Delivery] WeCom message sent to {}", target);
+        Ok(())
     }
 }
 
