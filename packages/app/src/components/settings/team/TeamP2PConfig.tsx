@@ -95,7 +95,7 @@ function TeamApiKeyCard() {
           </div>
           <div>
             <p className="text-sm font-medium">{t('settings.team.apiKeyTitle', 'API Key')}</p>
-            <p className="text-xs text-muted-foreground">{t('settings.team.apiKeyDesc', 'Optional. Leave empty to use Device ID for authentication.')}</p>
+            <p className="text-xs text-muted-foreground">{t('settings.team.apiKeyDesc', 'Optional. Leave empty to use the team LiteLLM key auto-provisioned for this device (sk-tc- + first 40 chars of device ID).')}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -103,7 +103,7 @@ function TeamApiKeyCard() {
             type="password"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
-            placeholder={t('settings.team.apiKeyPlaceholder', 'Leave empty to use Device ID')}
+            placeholder={t('settings.team.apiKeyPlaceholder', 'Override key, or leave empty for auto sk-tc- key')}
             className="h-9 text-sm"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSave()
@@ -128,7 +128,7 @@ function TeamApiKeyCard() {
                 await setTeamApiKey(null, workspacePath || undefined)
               }}
             >
-              {t('settings.team.useDeviceId', 'Use Device ID')}
+              {t('settings.team.useDeviceId', 'Use auto key')}
             </Button>
           )}
         </div>

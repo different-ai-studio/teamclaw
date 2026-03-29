@@ -11,6 +11,15 @@ import { appShortName, buildConfig, TEAM_API_KEY_STORAGE_KEY } from '@/lib/build
 const TEAM_PROVIDER_ID = 'team'
 const TEAM_API_KEY_STORAGE = TEAM_API_KEY_STORAGE_KEY
 
+/** Read team API key override from persistent storage (global, not per-workspace). */
+export function getPersistedTeamApiKey(): string | null {
+  try {
+    return localStorage.getItem(TEAM_API_KEY_STORAGE) || null
+  } catch {
+    return null
+  }
+}
+
 export interface TeamModelConfig {
   baseUrl: string
   model: string
@@ -20,7 +29,7 @@ export interface TeamModelConfig {
 interface TeamModeState {
   teamMode: boolean
   teamModelConfig: TeamModelConfig | null
-  teamApiKey: string | null // user-overridden key, null = use NodeId
+  teamApiKey: string | null // user-overridden key, null = sk-tc-{nodeId[:40]} (FC add-member)
   _appliedConfigKey: string | null // fingerprint of last applied config to avoid redundant apply
   devUnlocked: boolean // hidden dev mode: unlocks model selector & hidden dirs in team mode
   myRole: 'owner' | 'editor' | 'viewer' | null
@@ -60,6 +69,12 @@ async function getDeviceNodeId(): Promise<string> {
   return info.nodeId
 }
 
+/** Default LiteLLM virtual key for this device; must match fc/index.mjs `/ai/add-member`. */
+function defaultTeamLiteLlmApiKey(nodeId: string): string {
+  if (!nodeId) return ''
+  return `sk-tc-${nodeId.slice(0, 40)}`
+}
+
 export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   teamMode: false,
   teamModelConfig: null,
@@ -68,13 +83,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   myRole: null,
   p2pConnected: false,
   p2pConfigured: false,
-  teamApiKey: (() => {
-    try {
-      return localStorage.getItem(TEAM_API_KEY_STORAGE) || null
-    } catch {
-      return null
-    }
-  })(),
+  teamApiKey: getPersistedTeamApiKey(),
   p2pFileSyncStatusMap: {},
 
   loadTeamConfig: async (_workspacePath: string) => {
@@ -166,8 +175,9 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         models: [modelConfig],
       })
 
-      // Determine API key: user override or NodeId
-      const apiKey = teamApiKey || (await getDeviceNodeId())
+      // Determine API key: user override or FC default virtual key (not raw nodeId)
+      const nodeId = await getDeviceNodeId()
+      const apiKey = teamApiKey || defaultTeamLiteLlmApiKey(nodeId)
       if (!apiKey) {
         console.error('[TeamMode] No API key and no device NodeId available')
         return
@@ -229,7 +239,8 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
     // Re-apply if in team mode
     if (get().teamMode && workspacePath) {
-      const apiKey = key || (await getDeviceNodeId())
+      const nodeId = await getDeviceNodeId()
+      const apiKey = key || defaultTeamLiteLlmApiKey(nodeId)
       if (apiKey) {
         const providerStore = useProviderStore.getState()
         await providerStore.connectProvider(TEAM_PROVIDER_ID, apiKey)

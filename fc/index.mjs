@@ -23,6 +23,14 @@ const ENDPOINT = () =>
 const LITELLM_URL = () => process.env.LITELLM_URL || "https://ai.ucar.cc";
 const LITELLM_MASTER_KEY = () => process.env.LITELLM_MASTER_KEY || "";
 
+/** Default team max spend (USD) applied on POST /ai/setup-team → LiteLLM /team/new */
+const LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD = () => {
+  const raw = process.env.LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD;
+  if (raw === undefined || raw === "") return 1;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 1;
+};
+
 // ---------------------------------------------------------------------------
 // Rate limiting — in-memory, per IP, 10 req/min
 // ---------------------------------------------------------------------------
@@ -395,9 +403,11 @@ async function handleAiSetupTeam(body) {
   if (v.error) return v.error;
 
   const litellmTeamId = `tc-${teamId}`;
+  const maxBudget = LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD();
   const res = await litellmFetch("/team/new", "POST", {
     team_id: litellmTeamId,
     team_alias: teamName || teamId,
+    max_budget: maxBudget,
   });
 
   if (!res.ok && res.status !== 409) {
@@ -405,8 +415,14 @@ async function handleAiSetupTeam(body) {
     return json(502, { error: "Failed to create LiteLLM team", detail: res.data });
   }
 
-  console.log(`[ai/setup-team] Created LiteLLM team ${litellmTeamId}`);
-  return json(200, { success: true, litellmTeamId });
+  console.log(
+    `[ai/setup-team] Created LiteLLM team ${litellmTeamId} max_budget_usd=${maxBudget}`
+  );
+  return json(200, {
+    success: true,
+    litellmTeamId,
+    maxBudgetUsd: maxBudget,
+  });
 }
 
 /** POST /ai/add-member — create a LiteLLM API key for a team member */
