@@ -99,6 +99,8 @@ struct WeComMsgCallback {
     voice: Option<serde_json::Value>,
     #[serde(default)]
     image: Option<serde_json::Value>,
+    #[serde(default)]
+    file: Option<serde_json::Value>,
     /// Quoted/referenced message when user replies to a message
     #[serde(default)]
     quote: Option<serde_json::Value>,
@@ -310,7 +312,14 @@ impl WeComGateway {
             loop {
                 tokio::select! {
                     _ = tokio::time::sleep(std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS)) => {
-                        let ping = tokio_tungstenite::tungstenite::Message::Ping(vec![].into());
+                        use futures_util::SinkExt;
+                        let ping_json = serde_json::json!({
+                            "cmd": "ping",
+                            "headers": { "req_id": uuid::Uuid::new_v4().to_string() }
+                        });
+                        let ping = tokio_tungstenite::tungstenite::Message::Text(
+                            ping_json.to_string().into(),
+                        );
                         if let Err(e) = ws_sink_hb.lock().await.send(ping).await {
                             eprintln!("[WeCom] Heartbeat ping failed: {}", e);
                             break;
@@ -490,6 +499,21 @@ impl WeComGateway {
                     println!("[WeCom] Image message has no URL field");
                     return;
                 }
+            }
+            "file" => {
+                println!("[WeCom] File message body: {:?}", msg.file);
+                let file_url = msg
+                    .file
+                    .as_ref()
+                    .and_then(|f| f.get("url"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                if file_url.is_none() {
+                    println!("[WeCom] File message has no URL field");
+                    return;
+                }
+                // Treat file like image — download and send as data URL
+                image_url = file_url;
             }
             _ => {
                 println!("[WeCom] Unsupported message type: {}", msg.msgtype);
