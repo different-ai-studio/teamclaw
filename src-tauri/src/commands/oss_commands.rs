@@ -205,7 +205,12 @@ pub async fn oss_create_team(
 
     info!("OSS team created: {team_id}");
 
-    // Fire-and-forget: register team + owner key in LiteLLM via FC
+    // Fire-and-forget: register team + owner key in LiteLLM via FC (FC then calls LiteLLM).
+    // Logs here are from the desktop app; LiteLLM access logs show the FC server, not the client.
+    info!(
+        "oss_create_team: scheduling LiteLLM via FC (POST …/ai/setup-team + …/ai/add-member) at {}",
+        team_endpoint
+    );
     {
         let fc_endpoint = team_endpoint.clone();
         let fc_team_id = team_id.clone();
@@ -215,6 +220,9 @@ pub async fn oss_create_team(
         let fc_owner_name = owner_name.clone();
         tokio::spawn(async move {
             let client = reqwest::Client::new();
+            let setup_url = format!("{}/ai/setup-team", fc_endpoint.trim_end_matches('/'));
+            let add_url = format!("{}/ai/add-member", fc_endpoint.trim_end_matches('/'));
+            tracing::info!("LiteLLM via FC: requesting {}", setup_url);
             // Setup team in LiteLLM
             let setup_body = serde_json::json!({
                 "teamId": fc_team_id,
@@ -222,15 +230,16 @@ pub async fn oss_create_team(
                 "teamName": fc_team_name,
             });
             match client
-                .post(format!("{}/ai/setup-team", fc_endpoint))
+                .post(&setup_url)
                 .json(&setup_body)
                 .send()
                 .await
             {
-                Ok(r) => tracing::info!("LiteLLM setup-team: status={}", r.status()),
-                Err(e) => tracing::warn!("LiteLLM setup-team failed: {e}"),
+                Ok(r) => tracing::info!("LiteLLM via FC: setup-team HTTP status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM via FC: setup-team request failed: {e}"),
             }
             // Add owner key
+            tracing::info!("LiteLLM via FC: requesting {}", add_url);
             let member_body = serde_json::json!({
                 "teamId": fc_team_id,
                 "teamSecret": fc_team_secret,
@@ -238,13 +247,13 @@ pub async fn oss_create_team(
                 "memberName": fc_owner_name,
             });
             match client
-                .post(format!("{}/ai/add-member", fc_endpoint))
+                .post(&add_url)
                 .json(&member_body)
                 .send()
                 .await
             {
-                Ok(r) => tracing::info!("LiteLLM add-member (owner): status={}", r.status()),
-                Err(e) => tracing::warn!("LiteLLM add-member (owner) failed: {e}"),
+                Ok(r) => tracing::info!("LiteLLM via FC: add-member (owner) HTTP status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM via FC: add-member (owner) request failed: {e}"),
             }
         });
     }
@@ -365,6 +374,10 @@ pub async fn oss_join_team(
     info!("Joined OSS team: {team_id}");
 
     // Fire-and-forget: create LiteLLM key for joining member via FC
+    info!(
+        "oss_join_team: scheduling LiteLLM add-member via FC at {}",
+        team_endpoint
+    );
     {
         let fc_endpoint = team_endpoint.clone();
         let fc_team_id = team_id.clone();
@@ -372,19 +385,21 @@ pub async fn oss_join_team(
         let fc_node_id = node_id.clone();
         tokio::spawn(async move {
             let client = reqwest::Client::new();
+            let add_url = format!("{}/ai/add-member", fc_endpoint.trim_end_matches('/'));
+            tracing::info!("LiteLLM via FC: requesting {}", add_url);
             let body = serde_json::json!({
                 "teamId": fc_team_id,
                 "teamSecret": fc_team_secret,
                 "nodeId": fc_node_id,
             });
             match client
-                .post(format!("{}/ai/add-member", fc_endpoint))
+                .post(&add_url)
                 .json(&body)
                 .send()
                 .await
             {
-                Ok(r) => tracing::info!("LiteLLM add-member (join): status={}", r.status()),
-                Err(e) => tracing::warn!("LiteLLM add-member (join) failed: {e}"),
+                Ok(r) => tracing::info!("LiteLLM via FC: add-member (join) HTTP status={}", r.status()),
+                Err(e) => tracing::warn!("LiteLLM via FC: add-member (join) request failed: {e}"),
             }
         });
     }
