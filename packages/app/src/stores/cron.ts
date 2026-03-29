@@ -23,7 +23,7 @@ export interface CronPayload {
 }
 
 export type DeliveryMode = 'announce' | 'none'
-export type DeliveryChannel = 'discord' | 'feishu' | 'email' | 'kook' | 'wechat'
+export type DeliveryChannel = 'discord' | 'feishu' | 'email' | 'kook' | 'wechat' | 'wecom'
 
 export interface CronDelivery {
   mode: DeliveryMode

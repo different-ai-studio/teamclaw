@@ -216,6 +216,23 @@ export const DELIVERY_CHANNEL_REGISTRY: DeliveryChannelRegistryEntry[] = [
     buildTarget: (_mode, values) => values.userId,
     parseTarget: (to) => ({ mode: '', values: { userId: to } }),
   },
+  {
+    id: 'wecom',
+    name: 'WeCom',
+    getEnabled: (s) => !!s.wecom?.enabled,
+    getConnected: (s) => s.wecomGatewayStatus?.status === 'connected',
+    fields: [
+      {
+        key: 'chatId',
+        label: 'Chat ID',
+        placeholder: 'e.g., wrkSFfCgAAxxxxxx',
+        hint: 'The WeCom conversation ID (chatid). Visible in gateway logs when a user sends a message. The user must have messaged the bot at least once before proactive push works.',
+        required: true,
+      },
+    ],
+    buildTarget: (_mode, values) => values.chatId,
+    parseTarget: (to) => ({ mode: '', values: { chatId: to } }),
+  },
 ]
 
 export function getRegistryEntry(channelId: DeliveryChannel): DeliveryChannelRegistryEntry | undefined {
