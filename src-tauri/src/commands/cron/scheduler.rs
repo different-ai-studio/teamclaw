@@ -164,7 +164,17 @@ impl CronScheduler {
                 }
             }
             DeliveryChannel::Wechat => Some(format!("wechat:dm:{}", target)),
-            DeliveryChannel::Wecom => Some(format!("wecom:{}", target)),
+            DeliveryChannel::Wecom => {
+                if target.starts_with("single:") {
+                    let userid = target.strip_prefix("single:").unwrap_or(target);
+                    Some(format!("wecom:dm:{}", userid))
+                } else if target.starts_with("group:") {
+                    let chatid = target.strip_prefix("group:").unwrap_or(target);
+                    Some(format!("wecom:{}", chatid))
+                } else {
+                    Some(format!("wecom:dm:{}", target))
+                }
+            }
         }
     }
 

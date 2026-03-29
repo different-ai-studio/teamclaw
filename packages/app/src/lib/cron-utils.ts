@@ -221,17 +221,44 @@ export const DELIVERY_CHANNEL_REGISTRY: DeliveryChannelRegistryEntry[] = [
     name: 'WeCom',
     getEnabled: (s) => !!s.wecom?.enabled,
     getConnected: (s) => s.wecomGatewayStatus?.status === 'connected',
-    fields: [
-      {
-        key: 'chatId',
-        label: 'Chat ID',
-        placeholder: 'e.g., wrkSFfCgAAxxxxxx',
-        hint: 'The WeCom conversation ID (chatid). Visible in gateway logs when a user sends a message. The user must have messaged the bot at least once before proactive push works.',
-        required: true,
-      },
+    modes: [
+      { value: 'single', label: 'Single Chat (DM)' },
+      { value: 'group', label: 'Group Chat' },
     ],
-    buildTarget: (_mode, values) => values.chatId,
-    parseTarget: (to) => ({ mode: '', values: { chatId: to } }),
+    fields: {
+      single: [
+        {
+          key: 'userId',
+          label: 'User ID',
+          placeholder: 'e.g., zhangsan',
+          hint: 'The WeCom userid for single chat. Visible in gateway logs when the user sends a message. The user must have messaged the bot at least once.',
+          required: true,
+        },
+      ],
+      group: [
+        {
+          key: 'chatId',
+          label: 'Chat ID',
+          placeholder: 'e.g., wrkSFfCgAAxxxxxx',
+          hint: 'The WeCom group chatid. Visible in gateway logs when a group message is received.',
+          required: true,
+        },
+      ],
+    },
+    buildTarget: (mode, values) =>
+      mode === 'group' ? `group:${values.chatId}` : `single:${values.userId}`,
+    parseTarget: (to): { mode: string; values: Record<string, string> } => {
+      if (to.startsWith('group:')) {
+        return { mode: 'group', values: { chatId: to.slice('group:'.length) } }
+      }
+      const userId = to.startsWith('single:') ? to.slice('single:'.length) : to
+      return { mode: 'single', values: { userId } }
+    },
+    getTargetDisplay: (to) => {
+      if (to.startsWith('group:')) return `Group ${to.slice(6)}`
+      if (to.startsWith('single:')) return `DM @${to.slice(7)}`
+      return `DM @${to}`
+    },
   },
 ]
 

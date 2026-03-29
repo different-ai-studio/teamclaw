@@ -1526,7 +1526,7 @@ impl WeComGateway {
     /// Send a proactive message to a WeCom conversation via aibot_send_msg.
     /// Requires the gateway to be connected and the target user to have
     /// previously messaged the bot in that conversation.
-    pub async fn send_chat_message(&self, chatid: &str, text: &str) -> Result<(), String> {
+    pub async fn send_chat_message(&self, chatid: &str, chat_type: u32, text: &str) -> Result<(), String> {
         use futures_util::SinkExt;
 
         let ws_sink = self
@@ -1543,8 +1543,9 @@ impl WeComGateway {
             "headers": { "req_id": uuid::Uuid::new_v4().to_string() },
             "body": {
                 "chatid": chatid,
-                "msgtype": "text",
-                "text": { "content": text }
+                "chat_type": chat_type,
+                "msgtype": "markdown",
+                "markdown": { "content": text }
             }
         });
 
@@ -1557,7 +1558,7 @@ impl WeComGateway {
             .await
             .map_err(|e| format!("Failed to send proactive message: {}", e))?;
 
-        println!("[WeCom] Proactive message sent to chatid={}", chatid);
+        println!("[WeCom] Proactive message sent to chatid={}, chat_type={}", chatid, chat_type);
         Ok(())
     }
 
@@ -1572,7 +1573,7 @@ impl WeComGateway {
 /// Send a proactive message to a WeCom conversation.
 /// Called by cron delivery and other modules that don't have direct gateway access.
 /// Requires the WeCom gateway to be running and connected.
-pub async fn send_proactive_message(chatid: &str, text: &str) -> Result<(), String> {
+pub async fn send_proactive_message(chatid: &str, chat_type: u32, text: &str) -> Result<(), String> {
     let gateway = get_active_gateway_holder()
         .read()
         .await
@@ -1581,5 +1582,5 @@ pub async fn send_proactive_message(chatid: &str, text: &str) -> Result<(), Stri
             "WeCom gateway is not running. Start the WeCom gateway before sending proactive messages.".to_string()
         })?;
 
-    gateway.send_chat_message(chatid, text).await
+    gateway.send_chat_message(chatid, chat_type, text).await
 }

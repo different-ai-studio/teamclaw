@@ -288,17 +288,27 @@ impl DeliveryManager {
 
     /// Send via WeCom — delegates to the running WeComGateway's send_chat_message.
     /// The gateway must be connected (WebSocket active).
+    /// Target format: "single:{userid}" or "group:{chatid}" or raw "{userid}"
     async fn send_wecom(
         &self,
         target: &str,
         message: &str,
     ) -> Result<(), String> {
+        let (chatid, chat_type) = if target.starts_with("single:") {
+            (target.strip_prefix("single:").unwrap_or(target), 1u32)
+        } else if target.starts_with("group:") {
+            (target.strip_prefix("group:").unwrap_or(target), 2u32)
+        } else {
+            // Raw value without prefix — default to single chat
+            (target, 1u32)
+        };
+
         let chunks = split_message(message, 4000);
         for chunk in chunks {
-            gateway::wecom::send_proactive_message(target, &chunk).await?;
+            gateway::wecom::send_proactive_message(chatid, chat_type, &chunk).await?;
         }
 
-        println!("[Cron Delivery] WeCom message sent to {}", target);
+        println!("[Cron Delivery] WeCom message sent to {} (chat_type={})", chatid, chat_type);
         Ok(())
     }
 }
