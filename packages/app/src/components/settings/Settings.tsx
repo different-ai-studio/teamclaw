@@ -18,6 +18,7 @@ import {
   Mic,
   Bookmark,
   ChevronDown,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -70,20 +71,30 @@ function UpdateButton() {
   const { t } = useTranslation()
   const update = useUpdaterStore(s => s.update)
   const checkForUpdates = useUpdaterStore(s => s.checkForUpdates)
-  const installUpdate = useUpdaterStore(s => s.installUpdate)
+  const restart = useUpdaterStore(s => s.restart)
 
   if (update.state === 'ready') {
     return (
-      <Button variant="default" size="sm" className="h-6 text-[11px] px-2" onClick={installUpdate}>
-        {t('settings.update.install', 'Install')}
+      <Button variant="default" size="sm" className="h-6 text-[11px] px-2" onClick={() => restart()}>
+        {t('settings.update.restart', 'Restart')}
       </Button>
     )
   }
 
   if (update.state === 'available' || update.state === 'downloading') {
+    const pct =
+      update.state === 'downloading' &&
+      update.progress != null &&
+      update.progress > 0
+        ? ` ${update.progress}%`
+        : ''
     return (
-      <span className="text-[11px] text-muted-foreground">
-        {update.state === 'downloading' ? `${t('settings.update.downloading', 'Downloading')}...` : `v${update.version}`}
+      <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1 tabular-nums">
+        <Loader2 className="h-3 w-3 animate-spin shrink-0" aria-hidden />
+        <span>
+          {t('settings.update.updating', 'Updating…')}
+          {pct}
+        </span>
       </span>
     )
   }

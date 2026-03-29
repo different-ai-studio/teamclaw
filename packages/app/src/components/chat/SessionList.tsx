@@ -145,6 +145,10 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
     overscan: 10,
   })
 
+  // Keep selection hooks wired for future multi-select UX without changing current behavior
+  void setActiveSession
+  void clearSelection
+
   const handleSelectSession = useCallback((id: string) => {
     useUIStore.getState().switchToSession(id)
     if (useUIStore.getState().layoutMode === 'file') {

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { Download, RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react"
+import { RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react"
 
 import {
   Dialog,
@@ -15,7 +15,7 @@ import { useUpdaterStore } from "@/stores/updater"
 
 export function UpdateDialogContainer() {
   const { t } = useTranslation()
-  const { update, checkForUpdates, installUpdate, restart } = useUpdaterStore()
+  const { update, checkForUpdates, restart } = useUpdaterStore()
   const [dismissed, setDismissed] = useState(false)
 
   // Check for updates on app startup (3s delay) and every 4 hours
@@ -49,12 +49,9 @@ export function UpdateDialogContainer() {
     setDismissed(true)
   }, [])
 
-  const showDialog = !dismissed && (
-    update.state === "available" ||
-    update.state === "downloading" ||
-    update.state === "ready" ||
-    update.state === "error"
-  )
+  // Updates download/install in the background; only prompt the user to restart (or report failure).
+  const showDialog =
+    !dismissed && (update.state === "ready" || update.state === "error")
 
   return (
     <Dialog open={showDialog} onOpenChange={() => handleDismiss()}>
@@ -64,52 +61,48 @@ export function UpdateDialogContainer() {
             <div className="p-2 rounded-lg bg-muted text-primary">
               {update.state === "error" ? (
                 <AlertCircle className="h-5 w-5 text-destructive" />
-              ) : update.state === "ready" ? (
-                <CheckCircle2 className="h-5 w-5 text-green-500" />
               ) : (
-                <Download className="h-5 w-5" />
+                <CheckCircle2 className="h-5 w-5 text-green-500" />
               )}
             </div>
             <DialogTitle className="text-lg">
-              {update.state === "available" && t('updater.available', 'Update Available')}
-              {update.state === "downloading" && t('updater.downloading', 'Downloading Update...')}
               {update.state === "ready" && t('updater.ready', 'Update Ready')}
               {update.state === "error" && t('updater.failed', 'Update Failed')}
             </DialogTitle>
           </div>
-          <DialogDescription className="text-left">
-            {update.state === "available" && (
-              <>{t('updater.newVersion', 'A new version')} <span className="font-medium text-foreground">v{update.version}</span> {t('updater.isAvailable', 'is available.')}</>
+          <DialogDescription asChild>
+            {update.state === "ready" ? (
+              <div className="text-left space-y-2 text-sm text-muted-foreground">
+                <p>
+                  {update.version && (
+                    <span className="font-medium text-foreground">v{update.version}</span>
+                  )}
+                  {update.version && " — "}
+                  {t('updater.restartToApply', 'The update has been installed. Restart to apply changes.')}
+                </p>
+                <p>
+                  {t(
+                    'updater.restartRecommendation',
+                    'The update is installed. We recommend restarting soon to use the new version.',
+                  )}
+                </p>
+              </div>
+            ) : (
+              <p className="text-left text-sm text-muted-foreground">
+                {t('updater.updateError', 'An error occurred during the update process.')}
+              </p>
             )}
-            {update.state === "downloading" && t('updater.pleaseWait', 'Please wait while the update is being downloaded.')}
-            {update.state === "ready" && t('updater.restartToApply', 'The update has been installed. Restart to apply changes.')}
-            {update.state === "error" && t('updater.updateError', 'An error occurred during the update process.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="py-4">
-          {/* Release notes */}
-          {update.state === "available" && update.notes && (
+          {update.state === "ready" && update.notes && (
             <div className="rounded-lg border bg-muted/50 p-3 max-h-48 overflow-auto">
               <p className="text-xs font-medium text-muted-foreground mb-1">{t('updater.releaseNotes', 'Release Notes')}</p>
               <p className="text-sm whitespace-pre-wrap">{update.notes}</p>
             </div>
           )}
 
-          {/* Download progress */}
-          {update.state === "downloading" && (
-            <div className="space-y-2">
-              <div className="w-full bg-muted rounded-full h-2">
-                <div
-                  className="bg-primary h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${update.progress ?? 0}%` }}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground text-center">{update.progress ?? 0}%</p>
-            </div>
-          )}
-
-          {/* Error message */}
           {update.state === "error" && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
               <p className="text-sm text-destructive">{update.errorMessage}</p>
@@ -117,31 +110,17 @@ export function UpdateDialogContainer() {
           )}
         </div>
 
-        <DialogFooter className="flex-col gap-2 sm:flex-row">
-          {update.state === "available" && (
+        <DialogFooter>
+          {update.state === "ready" && (
             <>
               <Button variant="outline" onClick={handleDismiss} className="w-full sm:w-auto">
-                {t('updater.later', 'Later')}
+                {t('updater.restartLater', 'Restart later')}
               </Button>
-              <Button onClick={installUpdate} className="w-full sm:w-auto">
+              <Button onClick={restart} className="w-full sm:w-auto">
                 <RefreshCw className="h-4 w-4 mr-2" />
-                {t('updater.updateNow', 'Update Now')}
+                {t('updater.restartNow', 'Restart Now')}
               </Button>
             </>
-          )}
-
-          {update.state === "downloading" && (
-            <Button disabled className="w-full sm:w-auto">
-              <Download className="h-4 w-4 mr-2 animate-bounce" />
-              {t('updater.downloading', 'Downloading Update...')}
-            </Button>
-          )}
-
-          {update.state === "ready" && (
-            <Button onClick={restart} className="w-full sm:w-auto">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              {t('updater.restartNow', 'Restart Now')}
-            </Button>
           )}
 
           {update.state === "error" && (
