@@ -911,11 +911,13 @@ pub fn run() {
         .run(|app, event| {
             match event {
                 #[cfg(target_os = "macos")]
-                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
-                    if !has_visible_windows {
-                        let state = app.state::<commands::spotlight::SpotlightState>();
-                        commands::spotlight::show_main_window(app.clone(), state);
-                    }
+                tauri::RunEvent::Reopen { .. } => {
+                    // Always show the main window when the dock icon is clicked.
+                    // Tauri's `has_visible_windows` can report `true` even when
+                    // the window was hidden via `win.hide()`, so we ignore it and
+                    // unconditionally bring the window back.
+                    let state = app.state::<commands::spotlight::SpotlightState>();
+                    commands::spotlight::show_main_window(app.clone(), state);
                 }
                 tauri::RunEvent::Exit => {
                     // Kill the OpenCode sidecar synchronously.
@@ -935,8 +937,11 @@ pub fn run() {
                             }
                         }
                     }
+                    // Fire-and-forget: enqueue the event but don't block on flush.
+                    // The aptabase plugin's own Exit handler will attempt to flush,
+                    // but we don't want to block exit for up to 10s on a network
+                    // request (the aptabase HTTP timeout) if the server is slow.
                     let _ = app.track_event("app_exited", None);
-                    app.flush_events_blocking();
                 }
                 _ => {}
             }
