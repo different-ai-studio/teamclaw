@@ -3,6 +3,8 @@ import { Loader2, ExternalLink } from "lucide-react"
 import { isTauri } from "@/lib/utils"
 import { normalizeUrl, urlToLabel } from "@/lib/webview-utils"
 import { useTabsStore } from "@/stores/tabs"
+import { useTeamModeStore } from "@/stores/team-mode"
+import { useTeamMembersStore } from "@/stores/team-members"
 
 interface WebViewContentProps {
   url: string
@@ -129,6 +131,22 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
           } else {
             // Create new native webview
             setIsLoading(true)
+
+            // Resolve team identity for window.teamclaw injection
+            let deviceNo: string | undefined
+            let deviceName: string | undefined
+            if (useTeamModeStore.getState().teamMode) {
+              try {
+                const info = await invoke<{ nodeId: string }>("get_device_info")
+                deviceNo = info.nodeId
+                const members = useTeamMembersStore.getState().members
+                const me = members.find((m) => m.nodeId === deviceNo)
+                deviceName = me?.name ?? ""
+              } catch {
+                // Non-critical: webview works without identity
+              }
+            }
+
             await invoke("webview_create", {
               label,
               url,
@@ -136,6 +154,8 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
               y: bounds.y,
               width: Math.max(1, bounds.width),
               height: Math.max(1, bounds.height),
+              deviceNo,
+              deviceName,
             })
 
             if (!cancelled) {

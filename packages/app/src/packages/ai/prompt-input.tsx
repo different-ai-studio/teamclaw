@@ -131,6 +131,24 @@ export function PromptInput({
     event.stopPropagation()
   }
 
+  const formRef = React.useRef<HTMLFormElement>(null)
+
+  // Listen for teamclaw:filedrop custom events dispatched when Tauri intercepts
+  // an internal file-tree drag that lands outside the tree (e.g. on this input).
+  React.useEffect(() => {
+    if (!onFilePathsDrop) return
+    const handler = (e: Event) => {
+      const { path, position } = (e as CustomEvent).detail as { path: string; position: { x: number; y: number } }
+      const rect = formRef.current?.getBoundingClientRect()
+      if (!rect) return
+      if (position.x >= rect.left && position.x <= rect.right && position.y >= rect.top && position.y <= rect.bottom) {
+        onFilePathsDrop([path])
+      }
+    }
+    window.addEventListener('teamclaw:filedrop', handler)
+    return () => window.removeEventListener('teamclaw:filedrop', handler)
+  }, [onFilePathsDrop])
+
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault()
     event.stopPropagation()
@@ -168,6 +186,7 @@ export function PromptInput({
       commandStartRef: commandStartRefState
     }}>
       <form
+        ref={formRef}
         className={cn(
           "relative rounded-2xl border border-border bg-white shadow-sm transition-colors",
           isDragging && "border-primary border-2 bg-primary/5",

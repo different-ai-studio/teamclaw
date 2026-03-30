@@ -970,12 +970,23 @@ export function FileTree({
     import('@tauri-apps/api/event').then(async ({ listen }) => {
       if (cancelled) return;
 
-      // Handle external file drop (skip if internal drag is in progress)
+      // Handle external file drop (or internal drag that landed outside the file tree)
       unlisteners.push(await listen<{ paths: string[]; position: { x: number; y: number } }>(
         'tauri://drag-drop',
         async (event) => {
-          // Skip external handler when an internal drag-move is active
-          if (dragSourcePathRef.current) return;
+          // Internal drag-move: Tauri intercepts the HTML5 drop event, so the
+          // PromptInput's onDrop never fires. Re-dispatch as a custom DOM event
+          // so the prompt input (or any other drop target) can pick it up.
+          if (dragSourcePathRef.current) {
+            const sourcePath = dragSourcePathRef.current;
+            dragSourcePathRef.current = null;
+            setDragSourcePath(null);
+            setDragOverPath(null);
+            window.dispatchEvent(new CustomEvent('teamclaw:filedrop', {
+              detail: { path: sourcePath, position: event.payload.position },
+            }));
+            return;
+          }
           const paths = event.payload.paths;
           if (!paths || paths.length === 0) return;
 
