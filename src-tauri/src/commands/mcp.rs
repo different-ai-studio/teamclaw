@@ -87,9 +87,10 @@ pub async fn get_mcp_config(
     state: State<'_, OpenCodeState>,
 ) -> Result<IndexMap<String, MCPServerConfig>, String> {
     let workspace_path = state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set. Please select a workspace first.")?;
 
@@ -104,9 +105,10 @@ pub async fn save_mcp_config(
     mcp_config: IndexMap<String, MCPServerConfig>,
 ) -> Result<(), String> {
     let workspace_path = state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set. Please select a workspace first.")?;
 
@@ -127,9 +129,10 @@ pub async fn add_mcp_server(
     server_config: MCPServerConfig,
 ) -> Result<(), String> {
     let workspace_path = state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set. Please select a workspace first.")?;
 
@@ -153,9 +156,10 @@ pub async fn update_mcp_server(
     server_config: MCPServerConfig,
 ) -> Result<(), String> {
     let workspace_path = state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set. Please select a workspace first.")?;
 
@@ -178,9 +182,10 @@ pub async fn remove_mcp_server(
     name: String,
 ) -> Result<(), String> {
     let workspace_path = state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set. Please select a workspace first.")?;
 
@@ -204,9 +209,10 @@ pub async fn toggle_mcp_server(
     enabled: bool,
 ) -> Result<(), String> {
     let workspace_path = state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set. Please select a workspace first.")?;
 
@@ -237,9 +243,10 @@ pub async fn test_mcp_server(
     name: String,
 ) -> Result<MCPTestResult, String> {
     let workspace_path = state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set. Please select a workspace first.")?;
 
@@ -720,9 +727,10 @@ pub async fn list_mcp_tools(
     state: State<'_, OpenCodeState>,
 ) -> Result<HashMap<String, Vec<String>>, String> {
     let workspace_path = state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 

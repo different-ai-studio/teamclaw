@@ -41,14 +41,11 @@ pub async fn cron_init(
     cron_state: State<'_, CronState>,
     gateway_state: State<'_, crate::commands::gateway::GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = opencode_state
-        .workspace_path
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone()
-        .ok_or("No workspace path set.")?;
-
-    let port = *opencode_state.port.lock().map_err(|e| e.to_string())?;
+    let (workspace_path, port) = {
+        let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+        let ws = inner.workspace_path.clone().ok_or("No workspace path set.")?;
+        (ws, inner.port)
+    };
 
     // Step 1: Stop old scheduler first (if reinitializing).
     // CRITICAL: Must stop BEFORE init() to prevent old tick loop from reading

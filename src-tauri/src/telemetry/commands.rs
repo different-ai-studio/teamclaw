@@ -325,9 +325,10 @@ pub async fn telemetry_export_team_feedback(
         drop(guard);
 
         let workspace_path = opencode_state
-            .workspace_path
+            .inner
             .lock()
             .map_err(|e| e.to_string())?
+            .workspace_path
             .clone()
             .ok_or("Workspace path not set")?;
         let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
@@ -373,9 +374,10 @@ pub async fn telemetry_get_team_feedback_summary(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<TeamFeedbackSummary, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("Workspace path not set")?;
     let feedback_dir = std::path::Path::new(&workspace_path)
@@ -503,9 +505,10 @@ pub async fn telemetry_export_leaderboard(
         drop(guard);
 
         let workspace_path = opencode_state
-            .workspace_path
+            .inner
             .lock()
             .map_err(|e| e.to_string())?
+            .workspace_path
             .clone()
             .ok_or("Workspace path not set")?;
         let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
@@ -626,9 +629,10 @@ pub async fn telemetry_get_team_leaderboard(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<TeamLeaderboard, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("Workspace path not set")?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
@@ -663,9 +667,10 @@ pub async fn telemetry_get_member_aggregated_stats(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<LeaderboardStats, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("Workspace path not set")?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)

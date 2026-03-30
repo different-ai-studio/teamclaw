@@ -1950,9 +1950,10 @@ pub async fn p2p_leave_team(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -1997,9 +1998,10 @@ pub async fn p2p_disconnect_source(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2041,9 +2043,10 @@ pub async fn p2p_dissolve_team(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2217,9 +2220,10 @@ pub async fn team_add_member(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2289,9 +2293,10 @@ pub async fn team_remove_member(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2339,9 +2344,10 @@ pub async fn team_update_member_role(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2395,9 +2401,10 @@ pub async fn p2p_check_team_dir(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<serde_json::Value, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2427,9 +2434,10 @@ pub async fn p2p_create_team(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2458,9 +2466,10 @@ pub async fn p2p_publish_drive(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2507,9 +2516,10 @@ pub async fn p2p_join_drive(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2535,9 +2545,10 @@ pub async fn p2p_reconnect(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2647,9 +2658,10 @@ pub async fn p2p_rotate_ticket(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2665,9 +2677,10 @@ pub async fn get_p2p_config(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<Option<P2pConfig>, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
     read_p2p_config(&workspace_path)
@@ -2679,9 +2692,10 @@ pub async fn save_p2p_config(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
     write_p2p_config(&workspace_path, Some(&config))
@@ -2694,9 +2708,10 @@ pub async fn p2p_sync_status(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<P2pSyncStatus, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2746,9 +2761,10 @@ pub async fn p2p_get_files_sync_status(
     use futures_lite::StreamExt;
 
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2822,9 +2838,10 @@ pub async fn p2p_save_seed_config(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 

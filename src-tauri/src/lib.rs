@@ -924,8 +924,11 @@ pub fn run() {
                     // which causes block_on to deadlock or panic, preventing
                     // std::process::exit from ever being called.
                     let oc_state = app.state::<commands::opencode::OpenCodeState>();
-                    if let Ok(mut child_guard) = oc_state.child_process.lock() {
-                        if let Some(child) = child_guard.take() {
+                    if let Ok(mut inner) = oc_state.inner.lock() {
+                        if let Some(handle) = inner.reader_task.take() {
+                            handle.abort();
+                        }
+                        if let Some(child) = inner.child_process.take() {
                             if let Err(e) = child.kill() {
                                 sentry_utils::capture_err("[OpenCode] Failed to stop sidecar on exit", &e);
                                 eprintln!("[OpenCode] Failed to stop sidecar on app exit: {}", e);

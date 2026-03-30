@@ -132,9 +132,10 @@ fn is_https_url(url: &str) -> bool {
 /// Get the workspace path from OpenCodeState
 pub fn get_workspace_path(opencode_state: &OpenCodeState) -> Result<String, String> {
     opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set. Please select a workspace first.".to_string())
 }

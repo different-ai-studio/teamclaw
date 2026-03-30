@@ -81,9 +81,10 @@ fn set_env_vars_in_json(json: &mut serde_json::Value, entries: &[EnvVarEntry]) {
 /// Extract workspace_path from OpenCodeState.
 fn get_workspace_path(state: &State<'_, OpenCodeState>) -> Result<String, String> {
     state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())
 }
