@@ -175,37 +175,57 @@ pub fn format_question_message(
         out.push('\n');
     }
 
-    out.push_str(&super::i18n::t(
-        super::i18n::MsgKey::PendingQuestionUsage,
-        locale,
-    ));
-    out.push_str(&super::i18n::t(
-        super::i18n::MsgKey::PendingQuestionExample(question_id),
-        locale,
-    ));
+    if questions.len() > 1 {
+        out.push_str(&super::i18n::t(
+            super::i18n::MsgKey::PendingQuestionMultiUsage,
+            locale,
+        ));
+        out.push_str(&super::i18n::t(
+            super::i18n::MsgKey::PendingQuestionMultiExample(question_id),
+            locale,
+        ));
+    } else {
+        out.push_str(&super::i18n::t(
+            super::i18n::MsgKey::PendingQuestionUsage,
+            locale,
+        ));
+        out.push_str(&super::i18n::t(
+            super::i18n::MsgKey::PendingQuestionExample(question_id),
+            locale,
+        ));
+    }
     out
 }
 
 pub fn resolve_answer(reply_text: &str, questions: &[QuestionInfo]) -> Vec<Vec<String>> {
     let trimmed = reply_text.trim();
+
+    // Split by `;` for multi-question answers (e.g. "/answer 1; Python")
+    let parts: Vec<&str> = if questions.len() > 1 && trimmed.contains(';') {
+        trimmed.split(';').map(|s| s.trim()).collect()
+    } else {
+        vec![trimmed]
+    };
+
     questions
         .iter()
         .enumerate()
         .map(|(i, q)| {
-            if i > 0 {
+            let answer = parts.get(i).copied().unwrap_or("");
+            if answer.is_empty() {
                 return vec![];
             }
             if q.options.is_empty() {
-                return vec![trimmed.to_string()];
+                return vec![answer.to_string()];
             }
-            if let Ok(num) = trimmed.parse::<usize>() {
+            if let Ok(num) = answer.parse::<usize>() {
                 if num >= 1 && num <= q.options.len() {
                     let opt = &q.options[num - 1];
                     let value = opt.value.clone().unwrap_or_else(|| opt.label.clone());
                     return vec![value];
                 }
             }
-            vec![trimmed.to_string()]
+            vec![answer.to_string()]
         })
         .collect()
 }
@@ -515,7 +535,8 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_answer_multiple_questions() {
+    fn test_resolve_answer_multiple_questions_no_separator() {
+        // Without `;`, entire text goes to first question only
         let questions = vec![
             QuestionInfo {
                 question: "First?".to_string(),
@@ -528,6 +549,62 @@ mod tests {
         ];
         let result = resolve_answer("my answer", &questions);
         assert_eq!(result, vec![vec!["my answer".to_string()], vec![]]);
+    }
+
+    #[test]
+    fn test_resolve_answer_multiple_questions_with_separator() {
+        let questions = vec![
+            QuestionInfo {
+                question: "First?".to_string(),
+                options: vec![],
+            },
+            QuestionInfo {
+                question: "Second?".to_string(),
+                options: vec![],
+            },
+        ];
+        let result = resolve_answer("hello; world", &questions);
+        assert_eq!(
+            result,
+            vec![vec!["hello".to_string()], vec!["world".to_string()]]
+        );
+    }
+
+    #[test]
+    fn test_resolve_answer_multiple_with_options() {
+        let questions = vec![
+            QuestionInfo {
+                question: "Language?".to_string(),
+                options: vec![
+                    QuestionOption { label: "Python".to_string(), value: Some("python".to_string()) },
+                    QuestionOption { label: "Rust".to_string(), value: Some("rust".to_string()) },
+                ],
+            },
+            QuestionInfo {
+                question: "Framework?".to_string(),
+                options: vec![
+                    QuestionOption { label: "React".to_string(), value: Some("react".to_string()) },
+                    QuestionOption { label: "Vue".to_string(), value: Some("vue".to_string()) },
+                ],
+            },
+        ];
+        // "/answer 1; 2" → Python, Vue
+        let result = resolve_answer("1; 2", &questions);
+        assert_eq!(
+            result,
+            vec![vec!["python".to_string()], vec!["vue".to_string()]]
+        );
+    }
+
+    #[test]
+    fn test_resolve_answer_single_question_with_semicolon() {
+        // Single question: semicolons in text are NOT treated as separators
+        let questions = vec![QuestionInfo {
+            question: "Describe".to_string(),
+            options: vec![],
+        }];
+        let result = resolve_answer("a; b; c", &questions);
+        assert_eq!(result, vec![vec!["a; b; c".to_string()]]);
     }
 
     #[test]

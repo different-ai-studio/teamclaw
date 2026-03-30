@@ -67,8 +67,12 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
       if (isQuestionTool && isRunning && questions && questions.length > 0) {
         const existing = get().pendingQuestion;
         if (!existing || !existing.questionId) {
+          // Pre-populate with tool/message info and questions, but leave questionId empty.
+          // The real questionId arrives via handleQuestionAsked (question.asked SSE event).
+          // We still set pendingQuestion so the QuestionCard renders, but answerQuestion
+          // won't submit until questionId is non-empty (see guard below).
           const questionData = {
-            questionId: existing?.questionId || "",
+            questionId: "",
             toolCallId: event.toolCallId,
             messageId: streamingMessageId,
             questions,

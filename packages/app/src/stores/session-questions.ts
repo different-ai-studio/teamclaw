@@ -27,6 +27,10 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
     answerQuestion: async (answers: Record<string, string>) => {
       const { pendingQuestion, activeSessionId } = get();
       if (!pendingQuestion || !activeSessionId) return;
+      if (!pendingQuestion.questionId) {
+        console.warn("[Question] Cannot submit — questionId not yet set (waiting for question.asked SSE event)");
+        return;
+      }
 
       const formattedAnswers = pendingQuestion.questions.map((q, idx) => {
         const questionId = q.id || String(idx);
