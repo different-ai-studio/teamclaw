@@ -22,6 +22,8 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
   const [hasSubmitted, setHasSubmitted] = React.useState(false)
 
   const isPending = pendingQuestion?.toolCallId === toolCallId
+  // questionId arrives via question.asked SSE event (may lag behind tool executing event)
+  const hasQuestionId = !!pendingQuestion?.questionId
   // Show as waiting for completion if submitted but not yet completed
   const isWaitingForCompletion = hasSubmitted && !isCompleted
 
@@ -188,12 +190,12 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
         <div className="px-4 pb-3">
           <Button
             onClick={handleSubmit}
-            disabled={!hasAllAnswers || isSubmitting}
+            disabled={!hasAllAnswers || isSubmitting || !hasQuestionId}
             className="w-full gap-2"
             size="sm"
           >
             <Send className="h-3.5 w-3.5" />
-            {isSubmitting ? 'Submitting...' : 'Submit Answer'}
+            {isSubmitting ? 'Submitting...' : !hasQuestionId ? 'Preparing...' : 'Submit Answer'}
           </Button>
         </div>
       )}

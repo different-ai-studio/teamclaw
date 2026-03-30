@@ -347,7 +347,6 @@ struct WeComFrom {
 struct CardMetadata {
     question_text: String,
     options: Vec<super::pending_question::QuestionOption>,
-    req_id: String,
 }
 
 enum WsExitReason {
@@ -1556,9 +1555,27 @@ impl WeComGateway {
                             if let Some(ctx) = question_ctx {
                                 waiting_for_question = true;
                                 has_seen_activity = false;
-                                // Stop thinking animation
+                                // Stop thinking animation permanently (it holds the old stream_id)
                                 if thinking_active {
-                                    let _ = thinking_ctl_tx.send(1); // 1 = paused
+                                    let _ = thinking_ctl_tx.send(2); // 2 = stopped
+                                    thinking_active = false;
+                                }
+                                // Finish the current stream so WeCom closes it cleanly
+                                {
+                                    let finish_text = if accumulated_text.is_empty() {
+                                        accumulated_reasoning.clone()
+                                    } else {
+                                        accumulated_text.clone()
+                                    };
+                                    let _ = self
+                                        .send_stream_chunk(
+                                            req_id,
+                                            &stream_id,
+                                            if finish_text.is_empty() { " " } else { &finish_text },
+                                            true,
+                                            ws_sink,
+                                        )
+                                        .await;
                                 }
 
                                 let questions = super::parse_question_event(&event);
@@ -1569,35 +1586,26 @@ impl WeComGateway {
                                     .unwrap_or("")
                                     .to_string();
 
-                                // For each question: if it has options, send a card; otherwise text
-                                let mut any_card_sent = false;
-                                for q in &questions {
-                                    if !q.options.is_empty() {
-                                        // Send template card with buttons
-                                        let _ = self
-                                            .send_question_card(
-                                                req_id,
-                                                &question_id,
-                                                &q.question,
-                                                &q.options,
-                                                ws_sink,
-                                            )
-                                            .await;
-                                        any_card_sent = true;
-                                    } else {
-                                        // Open-ended question — send as text
-                                        let text = super::format_question_message(
-                                            &[q.clone()],
-                                            &question_id,
-                                            i18n::get_locale(&self.workspace_path),
-                                        );
-                                        let _ = self
-                                            .send_stream_chunk(
-                                                req_id, &stream_id, &text, true, ws_sink,
-                                            )
-                                            .await;
-                                    }
+                                // Send question as text with numbered options.
+                                // User replies with /answer <number> or quote-reply.
+                                {
+                                    let text = super::format_question_message(
+                                        &questions,
+                                        &question_id,
+                                        i18n::get_locale(&self.workspace_path),
+                                    );
+                                    let q_stream_id = uuid::Uuid::new_v4().to_string();
+                                    let _ = self
+                                        .send_stream_chunk(
+                                            req_id, &q_stream_id, &text, true, ws_sink,
+                                        )
+                                        .await;
                                 }
+
+                                println!(
+                                    "[WeCom] Question displayed as text: id={}, {} question(s)",
+                                    question_id, questions.len()
+                                );
 
                                 // Prepare new stream for post-question response
                                 stream_id = uuid::Uuid::new_v4().to_string();
@@ -1606,8 +1614,8 @@ impl WeComGateway {
                                 last_send_len = 0;
 
                                 println!(
-                                    "[WeCom] Question displayed: {}, cards={}",
-                                    question_id, any_card_sent
+                                    "[WeCom] Question displayed: {}",
+                                    question_id
                                 );
 
                                 // Set up reply channel
@@ -1626,10 +1634,8 @@ impl WeComGateway {
 
                         "question.answered" => {
                             waiting_for_question = false;
-                            // Resume thinking animation after user answers
-                            if thinking_active {
-                                let _ = thinking_ctl_tx.send(0); // 0 = running
-                            }
+                            // Thinking animation was stopped on question.asked (old stream_id),
+                            // so no need to resume. Content will flow on the new stream_id.
                             continue;
                         }
 
@@ -2015,13 +2021,18 @@ impl WeComGateway {
     }
 
     /// Send a template card with buttons for a question that has options.
+    /// Currently unused: WeCom doesn't render template_card after a stream
+    /// response on the same req_id, and aibot_send_msg with template_card
+    /// also fails to deliver. Kept for future investigation.
+    #[allow(dead_code)]
     async fn send_question_card(
         &self,
-        req_id: &str,
         question_id: &str,
         question_text: &str,
         options: &[super::pending_question::QuestionOption],
         ws_sink: &WsSink,
+        chatid: &str,
+        chat_type: u32,
     ) -> Result<(), String> {
         use futures_util::SinkExt;
 
@@ -2041,9 +2052,11 @@ impl WeComGateway {
         let task_id = format!("q:{}", question_id);
 
         let card_msg = serde_json::json!({
-            "cmd": "aibot_respond_msg",
-            "headers": { "req_id": req_id },
+            "cmd": "aibot_send_msg",
+            "headers": { "req_id": uuid::Uuid::new_v4().to_string() },
             "body": {
+                "chatid": chatid,
+                "chat_type": chat_type,
                 "msgtype": "template_card",
                 "template_card": {
                     "card_type": "button_interaction",
@@ -2054,6 +2067,11 @@ impl WeComGateway {
                 }
             }
         });
+
+        println!(
+            "[WeCom] Sending question card via aibot_send_msg: chatid={}, chat_type={}, task_id={}, payload={}",
+            chatid, chat_type, task_id, card_msg
+        );
 
         ws_sink
             .lock()
@@ -2070,11 +2088,10 @@ impl WeComGateway {
             CardMetadata {
                 question_text: question_text.to_string(),
                 options: options.to_vec(),
-                req_id: req_id.to_string(),
             },
         );
 
-        println!("[WeCom] Question card sent: task_id={}", task_id);
+        println!("[WeCom] Question card sent successfully: task_id={}", task_id);
         Ok(())
     }
 

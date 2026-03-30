@@ -74,6 +74,8 @@ pub enum MsgKey<'a> {
     // === Shared: pending question prompt ===
     PendingQuestionUsage,
     PendingQuestionExample(&'a str),
+    PendingQuestionMultiUsage,
+    PendingQuestionMultiExample(&'a str),
 
     // === Queue messages (WeChat, WeCom) ===
     QueueTimeout,
@@ -227,6 +229,12 @@ pub fn t(key: MsgKey, locale: Locale) -> String {
 
         (PendingQuestionExample(qid), En) => format!("e.g.: /answer 1\n[Q:{}]", qid),
         (PendingQuestionExample(qid), ZhCN) => format!("例如: /answer 1\n[Q:{}]", qid),
+
+        (PendingQuestionMultiUsage, En) => "Reply with /answer <ans1; ans2; ...>, use ; to separate answers for each question\n".into(),
+        (PendingQuestionMultiUsage, ZhCN) => "请用 /answer <答案1; 答案2; ...> 回复，用 ; 分隔每个问题的答案\n".into(),
+
+        (PendingQuestionMultiExample(qid), En) => format!("e.g.: /answer 1; 2\n[Q:{}]", qid),
+        (PendingQuestionMultiExample(qid), ZhCN) => format!("例如: /answer 1; 2\n[Q:{}]", qid),
 
         // === Queue messages ===
         (QueueTimeout, En) => "Message queue timeout, please try again.".into(),
