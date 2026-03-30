@@ -363,6 +363,8 @@ pub fn run() {
             commands::gateway::stop_wecom_gateway,
             commands::gateway::get_wecom_gateway_status,
             commands::gateway::test_wecom_credentials,
+            commands::gateway::start_wecom_qr_auth,
+            commands::gateway::poll_wecom_qr_auth,
             commands::gateway::get_wechat_config,
             commands::gateway::save_wechat_config,
             commands::gateway::start_wechat_gateway,
