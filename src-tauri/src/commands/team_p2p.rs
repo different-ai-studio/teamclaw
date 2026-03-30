@@ -2500,6 +2500,9 @@ pub async fn p2p_join_drive(
     app: tauri::AppHandle,
     ticket: String,
     #[allow(unused_variables)] label: String,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
@@ -2514,7 +2517,14 @@ pub async fn p2p_join_drive(
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
     let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
-    join_team_drive(node, &ticket, &team_dir, &workspace_path, Some(app)).await
+    let result = join_team_drive(node, &ticket, &team_dir, &workspace_path, Some(app)).await?;
+
+    // Write LLM config to .teamclaw/teamclaw.json (same as oss_join_team and create_team)
+    let llm_config =
+        crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    crate::commands::team::write_llm_config(&workspace_path, Some(&llm_config))?;
+
+    Ok(result)
 }
 
 /// Reconnect to an existing team document on app restart.
