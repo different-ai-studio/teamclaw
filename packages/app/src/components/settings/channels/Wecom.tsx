@@ -6,15 +6,15 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  ExternalLink,
   Sparkles,
   Bot,
-  BookOpen,
   ArrowRight,
   ArrowLeft,
   Zap,
+  ScanQrCode,
 } from 'lucide-react'
-import { cn, openExternalUrl } from '@/lib/utils'
+import { QRCodeSVG } from 'qrcode.react'
+import { cn } from '@/lib/utils'
 import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,11 +46,18 @@ const WECOM_WIZARD_STEPS = [
     description: `Let's connect your WeCom AI bot to ${buildConfig.app.name} in a few simple steps.`,
   },
   {
-    id: 'create-bot',
-    titleKey: 'settings.channels.wecom.wizardCreateTitle',
-    title: 'Create WeCom AI Bot',
-    descKey: 'settings.channels.wecom.wizardCreateDesc',
-    description: 'Create an AI bot in WeCom Admin Console.',
+    id: 'choose-method',
+    titleKey: 'settings.channels.wecom.chooseMethod',
+    title: 'Choose Setup Method',
+    descKey: 'settings.channels.wecom.chooseMethodDesc',
+    description: 'How would you like to set up your WeCom bot?',
+  },
+  {
+    id: 'qr-scan',
+    titleKey: 'settings.channels.wecom.scanTitle',
+    title: 'Scan QR Code',
+    descKey: 'settings.channels.wecom.scanDesc',
+    description: 'Use WeCom to scan the QR code below.',
   },
   {
     id: 'get-credentials',
@@ -85,25 +92,121 @@ function WeComSetupWizard({
   const [step, setStep] = React.useState(0)
   const [botId, setBotId] = React.useState(existingBotId || '')
   const [secret, setSecret] = React.useState(existingSecret || '')
+  const [method, setMethod] = React.useState<'qr' | 'manual' | null>(null)
+  const [qrAuthUrl, setQrAuthUrl] = React.useState<string | null>(null)
+  const [_qrScode, setQrScode] = React.useState<string | null>(null)
+  const [qrLoading, setQrLoading] = React.useState(false)
+  const [qrError, setQrError] = React.useState<string>('')
+  const [scanStatus, setScanStatus] = React.useState<string>('')
+  const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  const errorCountRef = React.useRef(0)
+
+  const { startWecomQrAuth, pollWecomQrAuth } = useChannelsStore()
+
+  const cleanupPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    errorCountRef.current = 0
+  }
 
   React.useEffect(() => {
     if (open) {
       setStep(0)
       setBotId(existingBotId || '')
       setSecret(existingSecret || '')
+      setMethod(null)
+      setQrAuthUrl(null)
+      setQrScode(null)
+      setQrLoading(false)
+      setQrError('')
+      setScanStatus('')
+      cleanupPolling()
     }
+    return () => cleanupPolling()
   }, [open, existingBotId, existingSecret])
 
+  const fetchQrCode = async () => {
+    setQrLoading(true)
+    setQrError('')
+    setScanStatus('')
+    cleanupPolling()
+    try {
+      const data = await startWecomQrAuth()
+      setQrAuthUrl(data.auth_url)
+      setQrScode(data.scode)
+      setQrLoading(false)
+
+      // Start polling
+      pollRef.current = setInterval(async () => {
+        try {
+          const result = await pollWecomQrAuth(data.scode)
+          errorCountRef.current = 0
+          if (result.status === 'success' && result.botId && result.secret) {
+            cleanupPolling()
+            setScanStatus('success')
+            setBotId(result.botId)
+            setSecret(result.secret)
+            onCredentialsSave(result.botId, result.secret)
+            // Advance to complete step
+            setStep(WECOM_WIZARD_STEPS.findIndex(s => s.id === 'complete'))
+          }
+        } catch {
+          errorCountRef.current++
+          if (errorCountRef.current >= 3) {
+            cleanupPolling()
+            setQrError(t('settings.channels.wecom.scanError', 'Failed to get QR code. Please try again or use manual input.'))
+          }
+        }
+      }, 3000)
+
+      // Auto-expire after 5 minutes
+      setTimeout(() => {
+        if (pollRef.current) {
+          cleanupPolling()
+          setQrError(t('settings.channels.wecom.scanTimeout', 'QR code expired. Please try again.'))
+          setQrAuthUrl(null)
+        }
+      }, 300000)
+    } catch (e) {
+      setQrLoading(false)
+      setQrError(String(e))
+    }
+  }
+
   const handleNext = () => {
-    if (step < WECOM_WIZARD_STEPS.length - 1) {
+    const currentId = WECOM_WIZARD_STEPS[step]?.id
+    if (currentId === 'choose-method') {
+      if (method === 'qr') {
+        const qrStep = WECOM_WIZARD_STEPS.findIndex(s => s.id === 'qr-scan')
+        setStep(qrStep)
+        // Auto-fetch QR code when entering scan step
+        setTimeout(() => fetchQrCode(), 100)
+      } else {
+        const manualStep = WECOM_WIZARD_STEPS.findIndex(s => s.id === 'get-credentials')
+        setStep(manualStep)
+      }
+    } else if (step < WECOM_WIZARD_STEPS.length - 1) {
       setStep(step + 1)
     }
   }
 
   const handleBack = () => {
-    if (step > 0) {
+    const currentId = WECOM_WIZARD_STEPS[step]?.id
+    if (currentId === 'qr-scan' || currentId === 'get-credentials') {
+      cleanupPolling()
+      setQrAuthUrl(null)
+      setQrError('')
+      setStep(WECOM_WIZARD_STEPS.findIndex(s => s.id === 'choose-method'))
+    } else if (step > 0) {
       setStep(step - 1)
     }
+  }
+
+  const handleClose = () => {
+    cleanupPolling()
+    onOpenChange(false)
   }
 
   const handleComplete = () => {
@@ -161,33 +264,125 @@ function WeComSetupWizard({
           </div>
         )
 
-      case 'create-bot':
+      case 'choose-method':
         return (
           <div className="space-y-4">
-            <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
-              <div className="flex items-start gap-3">
-                <BookOpen className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-                <div className="space-y-2 text-sm">
-                  <p className="font-medium text-blue-900 dark:text-blue-100">{t('settings.channels.wecom.createBotSteps', 'Steps to create your WeCom AI bot')}:</p>
-                  <ol className="list-decimal list-inside space-y-2 text-blue-800 dark:text-blue-200">
-                    <li>{t('settings.channels.wecom.createBotStep1', 'Log in to WeCom Admin Console')}</li>
-                    <li>{t('settings.channels.wecom.createBotStep2', 'Go to "Apps & Bots" → "AI Bots"')}</li>
-                    <li>{t('settings.channels.wecom.createBotStep3', 'Click "Create Bot" and configure basic info')}</li>
-                    <li>{t('settings.channels.wecom.createBotStep4', 'Enable "Long Connection" mode in bot settings')}</li>
-                    <li>{t('settings.channels.wecom.createBotStep5', 'Copy the Bot ID and Secret')}</li>
-                  </ol>
+            <div
+              className={cn(
+                "p-4 rounded-lg border-2 cursor-pointer transition-colors",
+                method === 'qr'
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                  : "border-muted hover:border-blue-300"
+              )}
+              onClick={() => setMethod('qr')}
+            >
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg p-2 bg-blue-100 dark:bg-blue-900/50">
+                  <ScanQrCode className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{t('settings.channels.wecom.qrScan', 'QR Code Scan')}</p>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+                      {t('settings.channels.wecom.qrScanRecommended', 'Recommended')}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{t('settings.channels.wecom.qrScanDesc', 'Scan with WeCom to auto-create bot')}</p>
                 </div>
               </div>
             </div>
 
-            <Button
-              variant="outline"
-              className="w-full gap-2"
-              onClick={() => openExternalUrl('https://developer.work.weixin.qq.com/document/path/101463')}
+            <div
+              className={cn(
+                "p-4 rounded-lg border-2 cursor-pointer transition-colors",
+                method === 'manual'
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                  : "border-muted hover:border-blue-300"
+              )}
+              onClick={() => setMethod('manual')}
             >
-              <ExternalLink className="h-4 w-4" />
-              {t('settings.channels.wecom.openDocs', 'Open WeCom AI Bot Documentation')}
-            </Button>
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg p-2 bg-muted">
+                  <Key className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="font-medium">{t('settings.channels.wecom.manualInput', 'Manual Input')}</p>
+                  <p className="text-sm text-muted-foreground">{t('settings.channels.wecom.manualInputDesc', 'Already have Bot ID and Secret')}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+
+      case 'qr-scan':
+        return (
+          <div className="space-y-4">
+            {!qrAuthUrl && !qrLoading && !qrError && (
+              <div className="text-center space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  {t('settings.channels.wecom.scanInstructions', 'Open WeCom on your phone and scan this QR code to authorize.')}
+                </p>
+                <Button onClick={fetchQrCode} className="gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  {t('settings.channels.wecom.getQrCode', 'Get QR Code')}
+                </Button>
+              </div>
+            )}
+
+            {qrLoading && (
+              <div className="flex flex-col items-center justify-center py-8 gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                <p className="text-sm text-muted-foreground">{t('settings.channels.wecom.loadingQr', 'Generating QR code...')}</p>
+              </div>
+            )}
+
+            {qrAuthUrl && !qrLoading && (
+              <div className="flex flex-col items-center space-y-4">
+                <div className="p-4 bg-white rounded-xl shadow-sm border">
+                  <QRCodeSVG value={qrAuthUrl} size={200} level="M" />
+                </div>
+                <p className="text-sm text-muted-foreground text-center">
+                  {t('settings.channels.wecom.scanInstructions', 'Open WeCom on your phone and scan this QR code to authorize.')}
+                </p>
+                {scanStatus !== 'success' && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t('settings.channels.wecom.waitingScan', 'Waiting for scan...')}
+                  </div>
+                )}
+                {scanStatus === 'success' && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {t('settings.channels.wecom.scanSuccess', 'Authorization successful! Credentials obtained.')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {qrError && (
+              <div className="text-center space-y-3">
+                <div className="flex items-center justify-center gap-2 text-sm text-red-600">
+                  <AlertCircle className="h-4 w-4" />
+                  {qrError}
+                </div>
+                <div className="flex justify-center gap-2">
+                  <Button variant="outline" onClick={fetchQrCode} size="sm" className="gap-1">
+                    {t('settings.channels.wecom.retryQr', 'Retry')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setMethod('manual')
+                      setQrError('')
+                      setStep(WECOM_WIZARD_STEPS.findIndex(s => s.id === 'get-credentials'))
+                    }}
+                  >
+                    {t('settings.channels.wecom.switchToManual', 'Switch to Manual Input')}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )
 
@@ -276,7 +471,7 @@ function WeComSetupWizard({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -322,7 +517,11 @@ function WeComSetupWizard({
             <Button
               onClick={handleNext}
               className="gap-1"
-              disabled={step === 2 && (!botId || !secret)}
+              disabled={
+                (WECOM_WIZARD_STEPS[step]?.id === 'choose-method' && !method) ||
+                (WECOM_WIZARD_STEPS[step]?.id === 'get-credentials' && (!botId || !secret)) ||
+                WECOM_WIZARD_STEPS[step]?.id === 'qr-scan'
+              }
             >
               {t('settings.channels.next', 'Next')}
               <ArrowRight className="h-4 w-4" />

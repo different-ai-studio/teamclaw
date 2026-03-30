@@ -379,6 +379,8 @@ export interface ChannelsState {
   testWecomCredentials: (botId: string, secret: string) => Promise<boolean>
   clearWecomTestResult: () => void
   setWecomHasChanges: (hasChanges: boolean) => void
+  startWecomQrAuth: () => Promise<WeComQrAuthStart>
+  pollWecomQrAuth: (scode: string) => Promise<WeComQrAuthPollResult>
 
   // WeChat actions
   loadWechatConfig: () => Promise<void>
