@@ -142,7 +142,9 @@ async function persistAllowlistRule(perm: PermissionAskedEvent): Promise<void> {
   type Row = { project_id: string; rules: Rule[] };
   let existingRows: Row[] = [];
   try {
-    existingRows = await invoke<Row[]>("read_opencode_allowlist");
+    existingRows = await invoke<Row[]>("read_opencode_allowlist", {
+      workspacePath: workspacePath || "/",
+    });
   } catch {
     // DB may not exist yet
   }
@@ -160,6 +162,7 @@ async function persistAllowlistRule(perm: PermissionAskedEvent): Promise<void> {
   }
 
   await invoke("write_opencode_allowlist", {
+    workspacePath: workspacePath || "/",
     projectId,
     rules: currentRules,
   });
