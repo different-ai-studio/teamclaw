@@ -147,6 +147,10 @@ pub async fn webview_eval_js(app: tauri::AppHandle, code: String) -> Result<Stri
 }
 
 /// Create a native webview as a child of the main window at the given position.
+///
+/// When `device_no` and `device_name` are provided, a `window.teamclaw` global
+/// is injected into the webview before any page scripts run, exposing identity
+/// information for the current team member.
 #[tauri::command]
 pub async fn webview_create(
     app: tauri::AppHandle,
@@ -157,6 +161,8 @@ pub async fn webview_create(
     y: f64,
     width: f64,
     height: f64,
+    device_no: Option<String>,
+    device_name: Option<String>,
 ) -> Result<(), String> {
     // If webview with this label already exists, just show and reposition it
     let exists = state.labels.lock().unwrap().contains_key(&label);
@@ -209,6 +215,17 @@ pub async fn webview_create(
             webview_builder = webview_builder.with_webview_configuration(config);
             eprintln!("[Webview] Using shared WKWebViewConfiguration");
         }
+    }
+
+    // Inject window.teamclaw identity global before any page scripts run.
+    if let (Some(ref dno), Some(ref dname)) = (&device_no, &device_name) {
+        let escaped_no = serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
+        let escaped_name = serde_json::to_string(dname).unwrap_or_else(|_| "\"\"".to_string());
+        let script = format!(
+            "Object.defineProperty(window, 'teamclaw', {{ value: Object.freeze({{ deviceNo: {}, deviceName: {} }}), writable: false, configurable: false }});",
+            escaped_no, escaped_name,
+        );
+        webview_builder = webview_builder.initialization_script(&script);
     }
 
     let webview = window
