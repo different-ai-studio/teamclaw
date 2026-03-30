@@ -217,6 +217,34 @@ pub async fn webview_create(
         }
     }
 
+    // Intercept target="_blank" links and window.open() so they navigate
+    // within the same webview instead of opening the system browser.
+    webview_builder = webview_builder.initialization_script(
+        r#"(function(){
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest && e.target.closest('a');
+    if (!a) return;
+    var t = a.getAttribute('target');
+    if (t && t !== '_self') {
+      var href = a.href || a.getAttribute('href');
+      if (href && /^https?:\/\//.test(href)) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.location.href = href;
+      }
+    }
+  }, true);
+  var _open = window.open;
+  window.open = function(url) {
+    if (url && /^https?:\/\//.test(String(url))) {
+      window.location.href = String(url);
+      return window;
+    }
+    return _open.apply(this, arguments);
+  };
+})();"#,
+    );
+
     // Inject window.teamclaw identity global before any page scripts run.
     if let (Some(ref dno), Some(ref dname)) = (&device_no, &device_name) {
         let escaped_no = serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
