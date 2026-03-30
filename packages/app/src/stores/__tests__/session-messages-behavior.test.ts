@@ -169,6 +169,17 @@ describe('session store: message behavior', () => {
       );
     });
 
+    it('adds browser-routing system prompt for login-related web tasks', async () => {
+      await useSessionStore.getState().sendMessage('帮我登录这个网站然后抓取里面的数据');
+
+      expect(mockSendMessageAsync).toHaveBeenCalledTimes(1);
+      const callArgs = mockSendMessageAsync.mock.calls[0];
+      expect(callArgs[0]).toBe('sess-1');
+      expect(callArgs[1]).toBe('帮我登录这个网站然后抓取里面的数据');
+      expect(callArgs[4]).toContain('do not start with webfetch');
+      expect(callArgs[4]).toContain('chrome-control MCP');
+    });
+
     it('queues message when already streaming', async () => {
       // First send a message to start streaming
       await useSessionStore.getState().sendMessage('first message');
