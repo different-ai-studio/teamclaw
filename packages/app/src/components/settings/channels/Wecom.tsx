@@ -125,7 +125,8 @@ function WeComSetupWizard({
       cleanupPolling()
     }
     return () => cleanupPolling()
-  }, [open, existingBotId, existingSecret])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const fetchQrCode = async () => {
     setQrLoading(true)
@@ -148,8 +149,7 @@ function WeComSetupWizard({
             setScanStatus('success')
             setBotId(result.botId)
             setSecret(result.secret)
-            onCredentialsSave(result.botId, result.secret)
-            // Advance to complete step
+            // Advance to complete step — credentials saved on "Finish"
             setStep(WECOM_WIZARD_STEPS.findIndex(s => s.id === 'complete'))
           }
         } catch {
