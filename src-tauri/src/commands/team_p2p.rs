@@ -941,6 +941,7 @@ fn start_sync_tasks(
 
     // Task A: remote doc changes → disk
     let my_node_id_a = my_node_id.clone();
+    let owner_node_id_a = owner_node_id.clone();
     tokio::spawn(async move {
         doc_to_disk_watcher(
             doc_a,
@@ -948,7 +949,7 @@ fn start_sync_tasks(
             team_dir_a,
             suppressed_a,
             my_node_id_a,
-            owner_node_id,
+            owner_node_id_a,
             app_handle,
         )
         .await;
@@ -968,6 +969,7 @@ fn start_sync_tasks(
             suppressed_b,
             my_role,
             my_node_id,
+            owner_node_id,
         )
         .await;
     });
@@ -1492,7 +1494,42 @@ async fn doc_to_disk_watcher(
                     entry
                 };
 
-                // Apply same role checks as InsertRemote
+                // Apply same role + owner checks as InsertRemote
+                // Validate _team/members.json: only accept from owner
+                if key == "_team/members.json" {
+                    let writer_node = author_to_node.get(&author_id_str);
+                    let is_owner_write = match (writer_node, &owner_node_id) {
+                        (Some(writer), Some(owner)) => writer == owner,
+                        (None, _) => author_to_node.is_empty(), // bootstrap
+                        _ => false,
+                    };
+                    if !is_owner_write {
+                        eprintln!(
+                            "[P2P] Rejected ContentReady members.json from non-owner: {:?}",
+                            writer_node
+                        );
+                        continue;
+                    }
+                    // Owner write — write to disk and update role cache
+                    if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
+                        let file_path = Path::new(&team_dir).join(&key);
+                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                        if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                            node_to_role.clear();
+                            for member in &manifest.members {
+                                node_to_role
+                                    .insert(member.node_id.clone(), member.role.clone());
+                            }
+                            if let Some(ref app) = app_handle {
+                                use tauri::Emitter;
+                                let _ =
+                                    app.emit("team:members-changed", serde_json::json!({}));
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 if let Some(writer) = author_to_node.get(&author_id_str) {
                     let writer_role = node_to_role
                         .get(writer)
@@ -1540,8 +1577,9 @@ async fn disk_to_doc_watcher(
     author: iroh_docs::AuthorId,
     team_dir: String,
     suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
-    my_role: Arc<Mutex<MemberRole>>, // NEW
-    my_node_id: String,              // NEW
+    my_role: Arc<Mutex<MemberRole>>,
+    my_node_id: String,
+    owner_node_id: Option<String>,
 ) {
     use notify::{RecursiveMode, Watcher};
 
@@ -1618,6 +1656,21 @@ async fn disk_to_doc_watcher(
                                 let role = my_role.lock().await;
                                 if *role == MemberRole::Viewer {
                                     eprintln!("[P2P] Skipping upload (viewer mode): {}", rel_path);
+                                    continue;
+                                }
+                            }
+
+                            // Only the owner may upload _team/members.json
+                            // — non-owner writes pollute the doc with stale
+                            // entries that can cause "not in allowList" rejections.
+                            if rel_path == "_team/members.json" {
+                                let is_owner = owner_node_id
+                                    .as_deref()
+                                    .map_or(false, |owner| owner == my_node_id);
+                                if !is_owner {
+                                    eprintln!(
+                                        "[P2P] Skipping upload (non-owner): _team/members.json"
+                                    );
                                     continue;
                                 }
                             }
