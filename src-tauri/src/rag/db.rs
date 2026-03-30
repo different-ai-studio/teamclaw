@@ -277,31 +277,43 @@ impl Database {
             Option<i64>,
         )],
     ) -> Result<()> {
-        let conn = self.conn.lock().await;
+        for batch in chunks.chunks(100) {
+            let conn = self.conn.lock().await;
+            conn.execute("BEGIN", ()).await.context("Failed to begin transaction")?;
 
-        for (content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line) in
-            chunks
-        {
-            // Convert Vec<f32> to binary blob for F32_BLOB
-            let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+            for (content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line) in
+                batch
+            {
+                // Convert Vec<f32> to binary blob for F32_BLOB
+                let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
 
-            conn.execute(
-                "INSERT INTO chunks (doc_id, content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line)
-                 VALUES (?1, ?2, ?3, ?4, vector32(?5), ?6, ?7, ?8, ?9)",
-                params![
-                    doc_id,
-                    content.as_str(),
-                    *chunk_index,
-                    heading.as_deref(),
-                    libsql::Value::Blob(embedding_bytes),
-                    chunk_type.as_deref(),
-                    name.as_deref(),
-                    *start_line,
-                    *end_line,
-                ],
-            )
-            .await
-            .context("Failed to insert chunk")?;
+                match conn.execute(
+                    "INSERT INTO chunks (doc_id, content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line)
+                     VALUES (?1, ?2, ?3, ?4, vector32(?5), ?6, ?7, ?8, ?9)",
+                    params![
+                        doc_id,
+                        content.as_str(),
+                        *chunk_index,
+                        heading.as_deref(),
+                        libsql::Value::Blob(embedding_bytes),
+                        chunk_type.as_deref(),
+                        name.as_deref(),
+                        *start_line,
+                        *end_line,
+                    ],
+                )
+                .await
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        conn.execute("ROLLBACK", ()).await.ok();
+                        return Err(e).context("Failed to insert chunk");
+                    }
+                }
+            }
+
+            conn.execute("COMMIT", ()).await.context("Failed to commit transaction")?;
+            // Lock dropped here — other operations can proceed between batches
         }
 
         Ok(())
