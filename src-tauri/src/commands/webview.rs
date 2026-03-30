@@ -165,7 +165,7 @@ pub async fn webview_create(
     device_name: Option<String>,
 ) -> Result<(), String> {
     // If webview with this label already exists, just show and reposition it
-    let exists = state.labels.lock().unwrap().contains_key(&label);
+    let exists = state.labels.lock().map_err(|e| e.to_string())?.contains_key(&label);
     if exists {
         if let Some(webview) = app.get_webview(&label) {
             eprintln!(
@@ -179,7 +179,7 @@ pub async fn webview_create(
             return Ok(());
         } else {
             // Label tracked but webview gone — clean up
-            state.labels.lock().unwrap().remove(&label);
+            state.labels.lock().map_err(|e| e.to_string())?.remove(&label);
         }
     }
 
@@ -240,7 +240,7 @@ pub async fn webview_create(
     let _ = webview.set_focus();
 
     // Track the label
-    state.labels.lock().unwrap().insert(label.clone(), ());
+    state.labels.lock().map_err(|e| e.to_string())?.insert(label.clone(), ());
 
     eprintln!("[Webview] Created successfully: {}", label);
     Ok(())
@@ -251,7 +251,7 @@ fn webview_close_inner(
     state: &tauri::State<'_, WebviewManager>,
     label: &str,
 ) {
-    state.labels.lock().unwrap().remove(label);
+    state.labels.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
     if let Some(webview) = app.get_webview(label) {
         let _ = webview.close();
     }

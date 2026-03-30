@@ -694,7 +694,7 @@ pub fn run() {
                                 | rdev::EventType::KeyRelease(rdev::Key::ControlLeft | rdev::Key::ControlRight)
                         );
 
-                        let mut s = state.lock().unwrap();
+                        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
 
                         match event.event_type {
                             rdev::EventType::KeyPress(rdev::Key::ControlLeft | rdev::Key::ControlRight) => {
@@ -746,7 +746,7 @@ pub fn run() {
                             // Save main geometry if in Main mode before hiding
                             let state = close_app_handle.state::<commands::spotlight::SpotlightState>();
                             {
-                                let mode = state.mode.lock().unwrap();
+                                let mode = state.mode.lock().unwrap_or_else(|e| e.into_inner());
                                 if *mode == commands::spotlight::WindowMode::Main {
                                     commands::spotlight::save_main_geometry(&main_win_clone, &state);
                                 }
@@ -789,7 +789,7 @@ pub fn run() {
                         #[cfg(target_os = "macos")]
                         tauri::WindowEvent::Resized { .. } => {
                             let state = close_app_handle.state::<commands::spotlight::SpotlightState>();
-                            let mode = *state.mode.lock().unwrap();
+                            let mode = *state.mode.lock().unwrap_or_else(|e| e.into_inner());
                             if mode == commands::spotlight::WindowMode::Main {
                                 commands::spotlight::reposition_traffic_lights(&main_win_clone);
                             }

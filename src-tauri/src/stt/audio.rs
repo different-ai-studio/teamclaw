@@ -37,7 +37,7 @@ pub fn record_until_stopped(stop: Arc<AtomicBool>) -> Result<RecordedAudio, Stri
             device.build_input_stream(
                 &config_clone.into(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    buffer_in.lock().unwrap().extend_from_slice(data);
+                    buffer_in.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(data);
                 },
                 |err| {
                     eprintln!("[STT audio] stream error: {}", err);
@@ -52,7 +52,7 @@ pub fn record_until_stopped(stop: Arc<AtomicBool>) -> Result<RecordedAudio, Stri
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     let f32_samples: Vec<f32> =
                         data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                    buffer_in.lock().unwrap().extend(f32_samples);
+                    buffer_in.lock().unwrap_or_else(|e| e.into_inner()).extend(f32_samples);
                 },
                 |err| {
                     eprintln!("[STT audio] stream error: {}", err);
@@ -69,7 +69,7 @@ pub fn record_until_stopped(stop: Arc<AtomicBool>) -> Result<RecordedAudio, Stri
                         .iter()
                         .map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0)
                         .collect();
-                    buffer_in.lock().unwrap().extend(f32_samples);
+                    buffer_in.lock().unwrap_or_else(|e| e.into_inner()).extend(f32_samples);
                 },
                 |err| {
                     eprintln!("[STT audio] stream error: {}", err);
@@ -89,7 +89,7 @@ pub fn record_until_stopped(stop: Arc<AtomicBool>) -> Result<RecordedAudio, Stri
 
     drop(stream);
 
-    let samples = buffer.lock().unwrap().clone();
+    let samples = buffer.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let sample_rate = config.sample_rate();
     Ok(RecordedAudio {
         samples,
@@ -152,7 +152,7 @@ pub fn stream_chunks_until_stopped(
                 device.build_input_stream(
                     &config_clone.into(),
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        buffer_in.lock().unwrap().extend_from_slice(data);
+                        buffer_in.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(data);
                     },
                     |err| {
                         eprintln!("[STT audio] stream error: {}", err);
@@ -167,7 +167,7 @@ pub fn stream_chunks_until_stopped(
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         let f32_samples: Vec<f32> =
                             data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                        buffer_in.lock().unwrap().extend(f32_samples);
+                        buffer_in.lock().unwrap_or_else(|e| e.into_inner()).extend(f32_samples);
                     },
                     |err| {
                         eprintln!("[STT audio] stream error: {}", err);
@@ -184,7 +184,7 @@ pub fn stream_chunks_until_stopped(
                             .iter()
                             .map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0)
                             .collect();
-                        buffer_in.lock().unwrap().extend(f32_samples);
+                        buffer_in.lock().unwrap_or_else(|e| e.into_inner()).extend(f32_samples);
                     },
                     |err| {
                         eprintln!("[STT audio] stream error: {}", err);
@@ -210,7 +210,7 @@ pub fn stream_chunks_until_stopped(
         }
         while !stop.load(Ordering::SeqCst) {
             let chunk = {
-                let mut buf = buffer.lock().unwrap();
+                let mut buf = buffer.lock().unwrap_or_else(|e| e.into_inner());
                 if buf.len() >= samples_per_step {
                     let take: Vec<f32> = buf.drain(..samples_per_step).collect();
                     take
