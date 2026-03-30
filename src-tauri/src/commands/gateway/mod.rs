@@ -708,25 +708,18 @@ pub async fn opencode_get_available_models(port: u16) -> Result<(Vec<ModelInfo>,
 }
 
 /// Format the model list response for chat commands
-fn format_model_list(models: &[ModelInfo], active_model: &str, is_custom: bool) -> String {
+fn format_model_list(models: &[ModelInfo], active_model: &str, is_custom: bool, locale: i18n::Locale) -> String {
     const MAX_LENGTH: usize = 1900; // Leave buffer for Discord's 2000 char limit
 
     let mut text = String::new();
     if is_custom {
-        text.push_str(&format!(
-            "**Current Model:** `{}` (custom)\n\n",
-            active_model
-        ));
+        text.push_str(&i18n::t(i18n::MsgKey::CurrentModelCustom(active_model), locale));
     } else {
-        text.push_str(&format!(
-            "**Current Model:** `{}` (default)\n\n",
-            active_model
-        ));
+        text.push_str(&i18n::t(i18n::MsgKey::CurrentModelDefault(active_model), locale));
     }
-    text.push_str("**Available Models:**\n");
+    text.push_str(&i18n::t(i18n::MsgKey::AvailableModels, locale));
 
-    let footer =
-        "\n\nUse `/model <provider/model>` to switch.\nUse `/model default` to reset to default.";
+    let footer = i18n::t(i18n::MsgKey::ModelSwitchUsage, locale);
     let footer_len = footer.len();
 
     // Group models by provider for better readability
@@ -758,9 +751,9 @@ fn format_model_list(models: &[ModelInfo], active_model: &str, is_custom: bool) 
             for m in models_in_provider {
                 let full_id = format!("{}/{}", m.provider, m.id);
                 let marker = if full_id == active_model {
-                    " ← current"
+                    i18n::t(i18n::MsgKey::ModelCurrentMarker, locale)
                 } else {
-                    ""
+                    String::new()
                 };
                 let line = format!("• `{}` ({}){}\n", full_id, m.name, marker);
 
@@ -780,19 +773,16 @@ fn format_model_list(models: &[ModelInfo], active_model: &str, is_custom: bool) 
     }
 
     if truncated {
-        text.push_str("\n_(List truncated due to length. Visit OpenCode UI for full model list.)_");
+        text.push_str(&i18n::t(i18n::MsgKey::ModelListTruncated, locale));
     }
 
-    text.push_str(footer);
+    text.push_str(&footer);
     text
 }
 
 /// Format the model switch success response
-fn format_model_switched(new_model: &str) -> String {
-    format!(
-        "Model switched to: `{}`\nAll subsequent messages in this context will use this model.",
-        new_model
-    )
+fn format_model_switched(new_model: &str, locale: i18n::Locale) -> String {
+    i18n::t(i18n::MsgKey::ModelSwitched(new_model), locale)
 }
 
 /// Handle the /model command logic (shared between gateways).
@@ -807,6 +797,7 @@ pub async fn handle_model_command(
     session_mapping: &SessionMapping,
     session_key: &str,
     arg: &str,
+    locale: i18n::Locale,
 ) -> String {
     let arg = arg.trim();
 
@@ -819,14 +810,14 @@ pub async fn handle_model_command(
                     Some(m) => (m.as_str(), true),
                     None => (default_model.as_str(), false),
                 };
-                format_model_list(&models, active, is_custom)
+                format_model_list(&models, active, is_custom, locale)
             }
-            Err(e) => format!("Failed to get models: {}", e),
+            Err(e) => i18n::t(i18n::MsgKey::FailedToGetModels(&e.to_string()), locale),
         }
     } else if arg.eq_ignore_ascii_case("default") {
         // Reset to default model
         session_mapping.remove_model(session_key).await;
-        "Model reset to default. Subsequent messages will use the global default model.".to_string()
+        i18n::t(i18n::MsgKey::ModelResetToDefault, locale)
     } else {
         // Validate model exists then store preference
         match opencode_get_available_models(port).await {
@@ -838,15 +829,12 @@ pub async fn handle_model_command(
                     session_mapping
                         .set_model(session_key.to_string(), arg.to_string())
                         .await;
-                    format_model_switched(arg)
+                    format_model_switched(arg, locale)
                 } else {
-                    format!(
-                        "Model `{}` not found. Use `/model` to see available models.",
-                        arg
-                    )
+                    i18n::t(i18n::MsgKey::ModelNotFound(arg), locale)
                 }
             }
-            Err(e) => format!("Failed to get models: {}", e),
+            Err(e) => i18n::t(i18n::MsgKey::FailedToGetModels(&e.to_string()), locale),
         }
     }
 }
@@ -920,7 +908,7 @@ pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, Strin
 }
 
 /// Fetch the latest assistant message text from a session
-async fn fetch_latest_assistant_message(port: u16, session_id: &str) -> Result<String, String> {
+async fn fetch_latest_assistant_message(port: u16, session_id: &str, locale: i18n::Locale) -> Result<String, String> {
     let client = reqwest::Client::new();
     let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
 
@@ -964,11 +952,11 @@ async fn fetch_latest_assistant_message(port: u16, session_id: &str) -> Result<S
         }
     }
 
-    Ok("(no assistant messages yet)".to_string())
+    Ok(i18n::t(i18n::MsgKey::NoAssistantMessages, locale))
 }
 
 /// Format a relative time string from a unix timestamp (seconds)
-fn format_relative_time(timestamp_secs: i64) -> String {
+fn format_relative_time(timestamp_secs: i64, locale: i18n::Locale) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -983,16 +971,16 @@ fn format_relative_time(timestamp_secs: i64) -> String {
 
     let diff = now - ts;
     if diff < 60 {
-        "just now".to_string()
+        i18n::t(i18n::MsgKey::JustNow, locale)
     } else if diff < 3600 {
         let mins = diff / 60;
-        format!("{} min ago", mins)
+        i18n::t(i18n::MsgKey::MinAgo(mins), locale)
     } else if diff < 86400 {
         let hours = diff / 3600;
-        format!("{} hr ago", hours)
+        i18n::t(i18n::MsgKey::HrAgo(hours), locale)
     } else {
         let days = diff / 86400;
-        format!("{} day ago", days)
+        i18n::t(i18n::MsgKey::DayAgo(days), locale)
     }
 }
 
@@ -1007,6 +995,7 @@ pub async fn handle_sessions_command(
     session_mapping: &SessionMapping,
     session_key: &str,
     arg: &str,
+    locale: i18n::Locale,
 ) -> String {
     let arg = arg.trim();
 
@@ -1015,50 +1004,45 @@ pub async fn handle_sessions_command(
         match opencode_list_sessions(port).await {
             Ok(sessions) => {
                 if sessions.is_empty() {
-                    return "No sessions found.".to_string();
+                    return i18n::t(i18n::MsgKey::NoSessionsFound, locale);
                 }
 
                 let current_session = session_mapping.get_session(session_key).await;
+                let untitled = i18n::t(i18n::MsgKey::Untitled, locale);
+                let current_marker = i18n::t(i18n::MsgKey::CurrentSessionMarker, locale);
 
-                let mut text = String::from("**Recent Sessions:**\n");
+                let mut text = i18n::t(i18n::MsgKey::RecentSessions, locale);
                 for (i, s) in sessions.iter().enumerate() {
-                    let time_str = format_relative_time(s.updated);
+                    let time_str = format_relative_time(s.updated, locale);
                     let title = if s.title.is_empty() {
-                        "(untitled)"
+                        &untitled
                     } else {
                         &s.title
                     };
                     let marker = match &current_session {
-                        Some(id) if *id == s.id => "  <-- current",
+                        Some(id) if *id == s.id => &current_marker,
                         _ => "",
                     };
-                    text.push_str(&format!("{}. {} ({}){}\n", i + 1, title, time_str, marker,));
+                    text.push_str(&format!("{}. {} ({}){}\n", i + 1, title, time_str, marker));
                 }
-                text.push_str("\nUse `/sessions <number>` to switch.");
+                text.push_str(&i18n::t(i18n::MsgKey::SessionsSwitchUsage, locale));
                 text
             }
-            Err(e) => format!("Failed to list sessions: {}", e),
+            Err(e) => i18n::t(i18n::MsgKey::FailedToListSessions(&e), locale),
         }
     } else {
         // Switch to session by number
         let num: usize = match arg.parse() {
             Ok(n) if n >= 1 => n,
             _ => {
-                return format!(
-                    "`{}` is not a valid session number. Use `/sessions` to see the list.",
-                    arg
-                )
+                return i18n::t(i18n::MsgKey::InvalidSessionNumber(arg), locale);
             }
         };
 
         match opencode_list_sessions(port).await {
             Ok(sessions) => {
                 if num > sessions.len() {
-                    return format!(
-                        "Session #{} not found. There are only {} sessions.",
-                        num,
-                        sessions.len()
-                    );
+                    return i18n::t(i18n::MsgKey::SessionNotFound(num, sessions.len()), locale);
                 }
 
                 let target = &sessions[num - 1];
@@ -1066,29 +1050,24 @@ pub async fn handle_sessions_command(
                     .set_session(session_key.to_string(), target.id.clone())
                     .await;
 
+                let untitled = i18n::t(i18n::MsgKey::Untitled, locale);
                 let title = if target.title.is_empty() {
-                    "(untitled)"
+                    &untitled
                 } else {
                     &target.title
                 };
 
                 // Fetch latest assistant message
-                match fetch_latest_assistant_message(port, &target.id).await {
+                match fetch_latest_assistant_message(port, &target.id, locale).await {
                     Ok(latest) => {
-                        format!(
-                            "Switched to session: \"{}\"\n\n**Latest response:**\n{}",
-                            title, latest
-                        )
+                        i18n::t(i18n::MsgKey::SwitchedToSessionWithLatest(title, &latest), locale)
                     }
                     Err(_) => {
-                        format!(
-                            "Switched to session: \"{}\"\n\nSubsequent messages will be sent to this session.",
-                            title
-                        )
+                        i18n::t(i18n::MsgKey::SwitchedToSessionNoLatest(title), locale)
                     }
                 }
             }
-            Err(e) => format!("Failed to list sessions: {}", e),
+            Err(e) => i18n::t(i18n::MsgKey::FailedToListSessions(&e), locale),
         }
     }
 }
@@ -1105,10 +1084,11 @@ pub async fn handle_stop_command(
     port: u16,
     session_mapping: &SessionMapping,
     session_key: &str,
+    locale: i18n::Locale,
 ) -> String {
     let session_id = match session_mapping.get_session(session_key).await {
         Some(id) => id,
-        None => return "No active session. Nothing to stop.".to_string(),
+        None => return i18n::t(i18n::MsgKey::NoActiveSession, locale),
     };
 
     let client = reqwest::Client::new();
@@ -1117,14 +1097,14 @@ pub async fn handle_stop_command(
     match client.post(&url).send().await {
         Ok(resp) => {
             if resp.status().is_success() {
-                "Session processing stopped.".to_string()
+                i18n::t(i18n::MsgKey::SessionStopped, locale)
             } else {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                format!("Failed to stop session ({}): {}", status, body)
+                i18n::t(i18n::MsgKey::FailedToStopSessionWithStatus(status.as_u16(), &body), locale)
             }
         }
-        Err(e) => format!("Failed to stop session: {}", e),
+        Err(e) => i18n::t(i18n::MsgKey::FailedToStopSession(&e.to_string()), locale),
     }
 }
 
