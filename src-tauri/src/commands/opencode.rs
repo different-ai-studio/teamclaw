@@ -455,11 +455,12 @@ pub async fn start_opencode_inner(
         *child_guard = Some(child);
     }
 
-    // Wait for server to be ready
-    let (ready_tx, mut ready_rx) = mpsc::channel::<bool>(1);
+    // Wait for server to be ready — channel carries Ok(()) on success or Err(message) on crash
+    let (ready_tx, mut ready_rx) = mpsc::channel::<Result<(), String>>(1);
 
     let ready_tx_clone = ready_tx.clone();
     tauri::async_runtime::spawn(async move {
+        let mut stderr_lines: Vec<String> = Vec::new();
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
@@ -469,26 +470,47 @@ pub async fn start_opencode_inner(
                         || line_str.contains("started")
                         || line_str.contains("ready")
                     {
-                        let _ = ready_tx_clone.send(true).await;
+                        let _ = ready_tx_clone.send(Ok(())).await;
                     }
                 }
                 CommandEvent::Stderr(line) => {
-                    let line_str = String::from_utf8_lossy(&line);
+                    let line_str = String::from_utf8_lossy(&line).to_string();
                     // opencode logs INFO to stderr, only print actual errors
                     if line_str.contains("Error") || line_str.contains("Failed") {
                         eprintln!("[OpenCode Error] {}", line_str);
                     } else {
                         println!("[OpenCode] {}", line_str);
                     }
+                    // Collect stderr for crash diagnostics (keep last 20 lines)
+                    stderr_lines.push(line_str);
+                    if stderr_lines.len() > 20 {
+                        stderr_lines.remove(0);
+                    }
                 }
                 CommandEvent::Error(err) => {
                     eprintln!("[OpenCode Error] {}", err);
+                    stderr_lines.push(err.clone());
                 }
                 CommandEvent::Terminated(payload) => {
-                    println!(
-                        "[OpenCode] Process terminated with code: {:?}",
-                        payload.code
+                    let code = payload.code.unwrap_or(-1);
+                    eprintln!(
+                        "[OpenCode] Process terminated with code: {}",
+                        code
                     );
+                    if code != 0 {
+                        let context = if stderr_lines.is_empty() {
+                            format!("OpenCode process exited with code {}", code)
+                        } else {
+                            // Include last few stderr lines for context
+                            let tail: Vec<&str> = stderr_lines.iter().map(|s| s.as_str()).collect();
+                            format!(
+                                "OpenCode process exited with code {}:\n{}",
+                                code,
+                                tail.join("\n")
+                            )
+                        };
+                        let _ = ready_tx_clone.send(Err(context)).await;
+                    }
                 }
                 _ => {}
             }
@@ -498,25 +520,29 @@ pub async fn start_opencode_inner(
     // Wait for ready signal with timeout
     let ready = tokio::time::timeout(std::time::Duration::from_secs(15), ready_rx.recv()).await;
 
-    // If timeout, try to poll the health endpoint
-    let is_ready = match ready {
-        Ok(Some(true)) => true,
+    match ready {
+        Ok(Some(Ok(()))) => {} // Server is ready
+        Ok(Some(Err(crash_msg))) => {
+            // Process crashed — return the error with stderr context
+            restore_config(&workspace_path, &original_config);
+            return Err(crash_msg);
+        }
         _ => {
-            // Fallback: poll health endpoint
+            // Timeout or channel closed — fallback: poll health endpoint
+            let mut healthy = false;
             for _ in 0..20 {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 if check_server_health(port).await {
+                    healthy = true;
                     break;
                 }
             }
-            check_server_health(port).await
+            if !healthy {
+                restore_config(&workspace_path, &original_config);
+                return Err("OpenCode server failed to start within timeout. Check opencode.json for errors.".to_string());
+            }
         }
     };
-
-    if !is_ready {
-        restore_config(&workspace_path, &original_config);
-        return Err("OpenCode server failed to start within timeout".to_string());
-    }
 
     // Schedule async config restore: wait for MCP servers to connect (so they
     // read the resolved secrets), then put back the original ${KEY} references.
