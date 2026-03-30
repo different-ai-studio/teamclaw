@@ -91,64 +91,73 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
     setError(null)
     let cancelled = false
 
-    // Wait for container to have layout dimensions
-    requestAnimationFrame(async () => {
+    // Measure container synchronously in RAF, then schedule async Tauri work
+    // outside RAF to avoid blocking the main thread during webview creation.
+    requestAnimationFrame(() => {
       if (cancelled || !containerRef.current) return
 
       const rect = containerRef.current.getBoundingClientRect()
-
-      try {
-        const { invoke } = await import("@tauri-apps/api/core")
-        const alreadyExists = createdWebviews.has(label)
-
-        if (alreadyExists) {
-          // Webview already exists — show and reposition
-          setIsLoading(false)
-
-          // If tab was closed and reopened, navigate back to the original URL
-          if (needsUrlReset.has(label)) {
-            needsUrlReset.delete(label)
-            await invoke("webview_navigate", { label, url })
-          }
-
-          await invoke("webview_show", {
-            label,
-            x: Math.round(rect.left),
-            y: Math.round(rect.top),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-          })
-        } else {
-          // Create new native webview
-          setIsLoading(true)
-          await invoke("webview_create", {
-            label,
-            url,
-            x: Math.round(rect.left),
-            y: Math.round(rect.top),
-            width: Math.max(1, Math.round(rect.width)),
-            height: Math.max(1, Math.round(rect.height)),
-          })
-
-          if (!cancelled) {
-            createdWebviews.add(label)
-            setTimeout(() => {
-              if (!cancelled) setIsLoading(false)
-            }, 1500)
-          }
-        }
-
-        // Record initial bounds
-        lastBoundsRef.current = `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)},${Math.round(rect.height)}`
-      } catch (err) {
-        console.error("[WebView] Failed:", err)
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to create webview",
-          )
-          setIsLoading(false)
-        }
+      const bounds = {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
       }
+
+      // Schedule Tauri invocations off the animation frame
+      setTimeout(async () => {
+        if (cancelled) return
+
+        try {
+          const { invoke } = await import("@tauri-apps/api/core")
+          const alreadyExists = createdWebviews.has(label)
+
+          if (alreadyExists) {
+            // Webview already exists — show and reposition
+            setIsLoading(false)
+
+            // If tab was closed and reopened, navigate back to the original URL
+            if (needsUrlReset.has(label)) {
+              needsUrlReset.delete(label)
+              await invoke("webview_navigate", { label, url })
+            }
+
+            await invoke("webview_show", {
+              label,
+              ...bounds,
+            })
+          } else {
+            // Create new native webview
+            setIsLoading(true)
+            await invoke("webview_create", {
+              label,
+              url,
+              x: bounds.x,
+              y: bounds.y,
+              width: Math.max(1, bounds.width),
+              height: Math.max(1, bounds.height),
+            })
+
+            if (!cancelled) {
+              createdWebviews.add(label)
+              setTimeout(() => {
+                if (!cancelled) setIsLoading(false)
+              }, 1500)
+            }
+          }
+
+          // Record initial bounds
+          lastBoundsRef.current = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`
+        } catch (err) {
+          console.error("[WebView] Failed:", err)
+          if (!cancelled) {
+            setError(
+              err instanceof Error ? err.message : "Failed to create webview",
+            )
+            setIsLoading(false)
+          }
+        }
+      }, 0)
     })
 
     // Debounced resize observer to prevent jitter
