@@ -1193,10 +1193,17 @@ async fn doc_to_disk_watcher(
         }
     }
 
+    // Track entries whose content hasn't been downloaded yet.
+    // When ContentReady fires we do an O(1) lookup instead of scanning all entries.
+    let mut pending_content: HashMap<iroh_blobs::Hash, (String, String)> = HashMap::new();
+
     while let Some(event_result) = events.next().await {
         let event = match event_result {
             Ok(e) => e,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("[P2P][doc→disk] Event stream error: {}", e);
+                continue;
+            }
         };
 
         match event {
@@ -1212,12 +1219,22 @@ async fn doc_to_disk_watcher(
                     content_status,
                     entry.content_len()
                 );
-                if content_status != iroh_docs::ContentStatus::Complete {
-                    continue;
-                }
-
                 let key = key_preview;
                 let author_id_str = entry.author().to_string();
+
+                if content_status != iroh_docs::ContentStatus::Complete {
+                    // Content not yet downloaded — remember it for ContentReady
+                    pending_content.insert(
+                        entry.content_hash(),
+                        (key.clone(), author_id_str.clone()),
+                    );
+                    eprintln!(
+                        "[P2P][doc→disk] Queued for ContentReady: {} (pending={})",
+                        key,
+                        pending_content.len()
+                    );
+                    continue;
+                }
 
                 // Update author map if this is an _meta/authors/ entry
                 if key.starts_with("_meta/authors/") {
@@ -1441,52 +1458,79 @@ async fn doc_to_disk_watcher(
                 }
             }
             LiveEvent::ContentReady { hash } => {
-                let query = iroh_docs::store::Query::single_latest_per_key().build();
-                if let Ok(entries) = doc.get_many(query).await {
-                    let mut entries = std::pin::pin!(entries);
-                    while let Some(Ok(entry)) = entries.next().await {
-                        if entry.content_hash() == hash {
-                            let key = String::from_utf8_lossy(entry.key()).to_string();
-                            let author_id_str = entry.author().to_string();
-
-                            // Apply same role checks as InsertRemote
-                            if let Some(writer) = author_to_node.get(&author_id_str) {
-                                let writer_role = node_to_role
-                                    .get(writer)
-                                    .cloned()
-                                    .unwrap_or(MemberRole::Editor);
-                                if writer_role == MemberRole::Viewer {
-                                    eprintln!(
-                                        "[P2P] Rejected ContentReady from viewer {}: {}",
-                                        writer, key
-                                    );
-                                    break;
-                                }
-                            } else if !author_to_node.is_empty() {
-                                eprintln!(
-                                    "[P2P] Rejected ContentReady from unknown author: {}",
-                                    key
-                                );
+                // O(1) lookup from the pending map built during InsertRemote
+                let (key, author_id_str) = if let Some(entry) = pending_content.remove(&hash) {
+                    eprintln!(
+                        "[P2P][doc→disk] ContentReady: {} (remaining pending={})",
+                        entry.0,
+                        pending_content.len()
+                    );
+                    entry
+                } else {
+                    // Fallback: hash not in pending map (e.g. entry existed before subscribe).
+                    // Scan doc entries to find the key — slower but correct.
+                    eprintln!(
+                        "[P2P][doc→disk] ContentReady for unknown hash, falling back to doc scan"
+                    );
+                    let query = iroh_docs::store::Query::single_latest_per_key().build();
+                    let mut found = None;
+                    if let Ok(entries) = doc.get_many(query).await {
+                        let mut entries = std::pin::pin!(entries);
+                        while let Some(Ok(entry)) = entries.next().await {
+                            if entry.content_hash() == hash {
+                                found = Some((
+                                    String::from_utf8_lossy(entry.key()).to_string(),
+                                    entry.author().to_string(),
+                                ));
                                 break;
                             }
-
-                            let file_path = Path::new(&team_dir).join(&key);
-                            if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
-                                if is_tombstone(&content) {
-                                    eprintln!("[P2P][ContentReady] Deleting (tombstone): {}", key);
-                                    let _ = std::fs::remove_file(&file_path);
-                                } else {
-                                    write_and_suppress(&file_path, &content, &suppressed_paths).await;
-                                }
-                            }
-                            break;
                         }
+                    }
+                    let Some(entry) = found else {
+                        continue;
+                    };
+                    entry
+                };
+
+                // Apply same role checks as InsertRemote
+                if let Some(writer) = author_to_node.get(&author_id_str) {
+                    let writer_role = node_to_role
+                        .get(writer)
+                        .cloned()
+                        .unwrap_or(MemberRole::Editor);
+                    if writer_role == MemberRole::Viewer {
+                        eprintln!(
+                            "[P2P] Rejected ContentReady from viewer {}: {}",
+                            writer, key
+                        );
+                        continue;
+                    }
+                } else if !author_to_node.is_empty() {
+                    eprintln!(
+                        "[P2P] Rejected ContentReady from unknown author: {}",
+                        key
+                    );
+                    continue;
+                }
+
+                let file_path = Path::new(&team_dir).join(&key);
+                if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
+                    if is_tombstone(&content) {
+                        eprintln!("[P2P][ContentReady] Deleting (tombstone): {}", key);
+                        let _ = std::fs::remove_file(&file_path);
+                    } else {
+                        eprintln!("[P2P][ContentReady] Writing: {} ({} bytes)", key, content.len());
+                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
                     }
                 }
             }
             _ => {}
         }
     }
+    eprintln!(
+        "[P2P][doc→disk] Event loop exited! pending_content had {} unresolved entries",
+        pending_content.len()
+    );
 }
 
 /// Watch filesystem for local changes and write them to the doc.
