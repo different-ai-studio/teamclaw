@@ -83,7 +83,7 @@ tar -xf /tmp/codebase-archive.zip -C codebase
 
 ### 4. 创建 AGENTS.md
 
-**浏览 codebase 目录结构并根据实际内容个性化生成 AGENTS.md 导航文件，帮助检索和理解项目。**
+**浏览 codebase 目录结构并根据实际内容个性化生成 AGENTS.md 导航文件到 workspace 根目录（而不是 codebase 目录下），帮助检索和理解项目。**
 
 ### 5. 清理临时文件
 
