@@ -160,6 +160,17 @@ export interface WeComGatewayStatusResponse {
   botId?: string
 }
 
+export interface WeComQrAuthStart {
+  scode: string
+  auth_url: string
+}
+
+export interface WeComQrAuthPollResult {
+  status: 'waiting' | 'success' | 'expired'
+  botId?: string
+  secret?: string
+}
+
 // WeChat types
 export interface WeChatConfig {
   enabled: boolean
