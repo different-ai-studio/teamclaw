@@ -74,6 +74,16 @@ fn main() {
     println!("cargo:rustc-env=APP_SHORT_NAME={}", short_name);
     println!("cargo:warning=Using APP_SHORT_NAME={}", short_name);
 
+    // Export updater config from build.config.json
+    if let Some(endpoint) = config["app"]["updater"]["endpoint"].as_str() {
+        println!("cargo:rustc-env=UPDATER_ENDPOINT={}", endpoint);
+        println!("cargo:warning=Using UPDATER_ENDPOINT={}", endpoint);
+    }
+    if let Some(pubkey) = config["app"]["updater"]["pubkey"].as_str() {
+        println!("cargo:rustc-env=UPDATER_PUBKEY={}", pubkey);
+        println!("cargo:warning=Using UPDATER_PUBKEY={}", pubkey);
+    }
+
     // Check that the OpenCode sidecar binary exists before building.
     // The binary is not checked into git (>100MB). Developers must download it:
     //   Unix: ./src-tauri/binaries/download-opencode.sh

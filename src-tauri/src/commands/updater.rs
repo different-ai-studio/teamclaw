@@ -13,10 +13,18 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Runtime};
 
-const REPO_OWNER: &str = "diffrent-ai-studio";
-const REPO_NAME: &str = "teamclaw";
-const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQzODk5QzIxMUI4RkY3OTkKUldTWjk0OGJJWnlKUTlnZVdEaUsyUGJ4WFpaYmlQZW03NGdlNVdyUlRMNGtKVVBKeTk3NEYwZXAK";
+const DEFAULT_REPO_OWNER: &str = "diffrent-ai-studio";
+const DEFAULT_REPO_NAME: &str = "teamclaw";
+const DEFAULT_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQzODk5QzIxMUI4RkY3OTkKUldTWjk0OGJJWnlKUTlnZVdEaUsyUGJ4WFpaYmlQZW03NGdlNVdyUlRMNGtKVVBKeTk3NEYwZXAK";
 const APP_USER_AGENT: &str = concat!("teamclaw-updater/", env!("CARGO_PKG_VERSION"));
+
+fn get_updater_endpoint() -> Option<&'static str> {
+    option_env!("UPDATER_ENDPOINT")
+}
+
+fn get_updater_pubkey() -> &'static str {
+    option_env!("UPDATER_PUBKEY").unwrap_or(DEFAULT_PUBKEY)
+}
 
 // ---------- Types ----------
 
@@ -106,11 +114,36 @@ fn current_target() -> &'static str {
     }
 }
 
+/// Fetch update manifest directly from configured endpoint
+async fn fetch_manifest_from_endpoint(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Result<UpdateManifest, String> {
+    let resp = client
+        .get(endpoint)
+        .header(USER_AGENT, APP_USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch update manifest: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "Update endpoint returned status {}: {}",
+            resp.status(),
+            endpoint
+        ));
+    }
+
+    resp.json::<UpdateManifest>()
+        .await
+        .map_err(|e| format!("Failed to parse update manifest: {}", e))
+}
+
 /// Fetch the latest GitHub release metadata via the API.
 async fn fetch_latest_release(client: &reqwest::Client, token: &str) -> Result<GhRelease, String> {
     let url = format!(
         "https://api.github.com/repos/{}/{}/releases/latest",
-        REPO_OWNER, REPO_NAME
+        DEFAULT_REPO_OWNER, DEFAULT_REPO_NAME
     );
     let resp = client
         .get(&url)
@@ -333,37 +366,95 @@ fn install_update(_bytes: &[u8]) -> Result<(), String> {
     Err("Auto-update installation is only supported on macOS currently".to_string())
 }
 
+/// Download file with progress events (for custom endpoint mode)
+async fn download_file_with_progress<R: Runtime>(
+    app: &AppHandle<R>,
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Vec<u8>, String> {
+    let resp = client
+        .get(url)
+        .header(USER_AGENT, APP_USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download file: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Download returned status {}", resp.status()));
+    }
+
+    let content_length = resp.content_length();
+    let mut downloaded: u64 = 0;
+    let mut buffer = Vec::new();
+    let mut stream = resp.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download stream error: {}", e))?;
+        downloaded += chunk.len() as u64;
+        buffer.extend_from_slice(&chunk);
+
+        if downloaded % (100 * 1024) < chunk.len() as u64
+            || content_length.map_or(false, |cl| downloaded >= cl)
+        {
+            let _ = app.emit(
+                "update-download-progress",
+                DownloadProgress {
+                    downloaded,
+                    content_length,
+                },
+            );
+        }
+    }
+
+    let _ = app.emit(
+        "update-download-progress",
+        DownloadProgress {
+            downloaded,
+            content_length,
+        },
+    );
+
+    Ok(buffer)
+}
+
 // ---------- Tauri Commands ----------
 
 #[tauri::command]
 pub async fn check_update<R: Runtime>(app: AppHandle<R>) -> Result<Option<UpdateInfo>, String> {
-    let token = match get_token() {
-        Some(t) if !t.is_empty() => t,
-        _ => return Err("Updater token not configured".to_string()),
-    };
-
     let client = reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
+        .use_rustls_tls()
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("Cannot create HTTP client: {}", e))?;
 
-    // 1. Fetch latest release from GitHub API
-    let release = fetch_latest_release(&client, token).await?;
-
-    // 2. Find the latest.json asset
-    let manifest_asset = release
-        .assets
-        .iter()
-        .find(|a| a.name == "latest.json")
-        .ok_or_else(|| "No latest.json asset found in the latest release".to_string())?;
-
-    // 3. Download latest.json via the API
-    let manifest_bytes = download_asset(&client, token, &manifest_asset.url).await?;
-    let manifest: UpdateManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|e| format!("Failed to parse latest.json: {}", e))?;
-
-    // 4. Compare versions
     let current_version = app.package_info().version.clone();
+    let target = current_target();
+
+    // Check if custom endpoint is configured (from build.config.json)
+    let manifest = if let Some(endpoint) = get_updater_endpoint() {
+        // Mode 1: Fetch from custom endpoint directly
+        fetch_manifest_from_endpoint(&client, endpoint).await?
+    } else {
+        // Mode 2: Fetch from GitHub API (fallback)
+        let token = match get_token() {
+            Some(t) if !t.is_empty() => t,
+            _ => return Err("Updater token not configured (GitHub mode requires UPDATER_GITHUB_TOKEN)".to_string()),
+        };
+
+        let release = fetch_latest_release(&client, token).await?;
+        let manifest_asset = release
+            .assets
+            .iter()
+            .find(|a| a.name == "latest.json")
+            .ok_or_else(|| "No latest.json asset found in the latest release".to_string())?;
+
+        let manifest_bytes = download_asset(&client, token, &manifest_asset.url).await?;
+        serde_json::from_slice(&manifest_bytes)
+            .map_err(|e| format!("Failed to parse latest.json: {}", e))?
+    };
+
+    // Compare versions
     let remote_version = Version::parse(&manifest.version)
         .map_err(|e| format!("Invalid remote version '{}': {}", manifest.version, e))?;
 
@@ -371,37 +462,44 @@ pub async fn check_update<R: Runtime>(app: AppHandle<R>) -> Result<Option<Update
         return Ok(None); // up to date
     }
 
-    // 5. Find the platform entry
-    let target = current_target();
+    // Find the platform entry
     let platform = manifest
         .platforms
         .get(target)
         .ok_or_else(|| format!("No update available for platform '{}'", target))?;
 
-    // 6. Map the download URL from github.com web URL to the API asset URL
-    // The web URL looks like: https://github.com/.../releases/download/v0.2.4/TeamClaw_aarch64.app.tar.gz
-    // We need to find the matching asset in the release and use its API URL
-    let binary_filename = platform
-        .url
-        .rsplit('/')
-        .next()
-        .ok_or_else(|| "Cannot extract filename from download URL".to_string())?;
+    // For custom endpoint mode, use the URL directly from manifest
+    // For GitHub mode, we need to map to API asset URL
+    let download_url = if get_updater_endpoint().is_some() {
+        // Custom endpoint: use URL as-is (should be direct download URL)
+        platform.url.clone()
+    } else {
+        // GitHub mode: map web URL to API asset URL
+        let token = get_token().unwrap();
+        let release = fetch_latest_release(&client, token).await?;
+        let binary_filename = platform
+            .url
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| "Cannot extract filename from download URL".to_string())?;
 
-    let binary_asset = release
-        .assets
-        .iter()
-        .find(|a| a.name == binary_filename)
-        .ok_or_else(|| {
-            format!(
-                "Binary asset '{}' not found in release assets",
-                binary_filename
-            )
-        })?;
+        let binary_asset = release
+            .assets
+            .iter()
+            .find(|a| a.name == binary_filename)
+            .ok_or_else(|| {
+                format!(
+                    "Binary asset '{}' not found in release assets",
+                    binary_filename
+                )
+            })?;
+        binary_asset.url.clone()
+    };
 
     Ok(Some(UpdateInfo {
         version: manifest.version,
         notes: manifest.notes.unwrap_or_default(),
-        download_url: binary_asset.url.clone(), // GitHub API asset URL
+        download_url,
         signature: platform.signature.clone(),
     }))
 }
@@ -412,21 +510,29 @@ pub async fn download_and_install_update<R: Runtime>(
     download_url: String,
     signature: String,
 ) -> Result<(), String> {
-    let token = match get_token() {
-        Some(t) if !t.is_empty() => t,
-        _ => return Err("Updater token not configured".to_string()),
-    };
-
     let client = reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
+        .use_rustls_tls()
+        .timeout(std::time::Duration::from_secs(300))
         .build()
         .map_err(|e| format!("Cannot create HTTP client: {}", e))?;
 
     // 1. Download the binary with progress reporting
-    let bytes = download_asset_with_progress(&app, &client, token, &download_url).await?;
+    let bytes = if get_updater_endpoint().is_some() {
+        // Custom endpoint mode: direct HTTP download
+        download_file_with_progress(&app, &client, &download_url).await?
+    } else {
+        // GitHub mode: use GitHub API with token
+        let token = match get_token() {
+            Some(t) if !t.is_empty() => t,
+            _ => return Err("Updater token not configured (GitHub mode)".to_string()),
+        };
+        download_asset_with_progress(&app, &client, token, &download_url).await?
+    };
 
     // 2. Verify signature
-    verify_signature(&bytes, &signature, PUBKEY)?;
+    let pubkey = get_updater_pubkey();
+    verify_signature(&bytes, &signature, pubkey)?;
 
     // 3. Install (extract tar.gz and replace .app bundle)
     install_update(&bytes)?;
