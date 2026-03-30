@@ -2,6 +2,7 @@ pub mod config;
 pub mod discord;
 pub mod email;
 pub mod email_config;
+pub mod i18n;
 pub mod email_db;
 pub mod feishu;
 pub mod feishu_config;
@@ -1133,6 +1134,8 @@ pub struct OpenCodeJsonConfigWithChannels {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channels: Option<ChannelsConfig>,
@@ -1153,7 +1156,7 @@ fn get_config_path(workspace_path: &str) -> String {
 }
 
 /// Read configuration from file
-fn read_config(workspace_path: &str) -> Result<OpenCodeJsonConfigWithChannels, String> {
+pub(crate) fn read_config(workspace_path: &str) -> Result<OpenCodeJsonConfigWithChannels, String> {
     ensure_teamclaw_dir(workspace_path)?;
     let path = get_config_path(workspace_path);
 
