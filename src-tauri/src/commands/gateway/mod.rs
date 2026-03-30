@@ -1325,7 +1325,7 @@ pub async fn start_gateway(
 
         let session_mapping = gateway_state.shared_session_mapping.clone();
         let gateway =
-            gateway_guard.get_or_insert_with(|| DiscordGateway::new(port, session_mapping));
+            gateway_guard.get_or_insert_with(|| DiscordGateway::new(port, session_mapping, workspace_path.clone()));
         gateway.clone()
     };
 
@@ -1465,7 +1465,7 @@ pub async fn start_feishu_gateway(
 
         let session_mapping = gateway_state.shared_session_mapping.clone();
         let gateway =
-            gateway_guard.get_or_insert_with(|| FeishuGateway::new(port, session_mapping));
+            gateway_guard.get_or_insert_with(|| FeishuGateway::new(port, session_mapping, workspace_path.clone()));
         gateway.clone()
     };
 
@@ -1801,7 +1801,7 @@ pub async fn start_kook_gateway(
             .map_err(|e| e.to_string())?;
 
         if guard.is_none() {
-            let gateway = KookGateway::new(port, gateway_state.shared_session_mapping.clone());
+            let gateway = KookGateway::new(port, gateway_state.shared_session_mapping.clone(), workspace_path.clone());
             *guard = Some(gateway);
         }
 
@@ -2005,7 +2005,7 @@ pub async fn start_wecom_gateway(
             .map_err(|e| e.to_string())?;
 
         if guard.is_none() {
-            let gateway = WeComGateway::new(port, gateway_state.shared_session_mapping.clone());
+            let gateway = WeComGateway::new(port, gateway_state.shared_session_mapping.clone(), workspace_path.clone());
             *guard = Some(gateway);
         }
 
@@ -2224,7 +2224,7 @@ pub async fn start_wechat_gateway(
             .map_err(|e| e.to_string())?;
 
         if guard.is_none() {
-            let gateway = WeChatGateway::new(port, gateway_state.shared_session_mapping.clone());
+            let gateway = WeChatGateway::new(port, gateway_state.shared_session_mapping.clone(), workspace_path.clone());
             *guard = Some(gateway);
         }
 
@@ -2233,7 +2233,6 @@ pub async fn start_wechat_gateway(
 
     if let Some(gw) = gateway_clone {
         gw.set_config(wechat_cfg).await;
-        gw.set_workspace_path(workspace_path).await;
         gw.start().await?;
     }
 

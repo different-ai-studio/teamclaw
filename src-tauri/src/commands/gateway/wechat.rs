@@ -353,6 +353,8 @@ pub struct WeChatGateway {
     config: Arc<RwLock<WeChatConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
+    #[allow(dead_code)]
+    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<WeChatGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
@@ -364,16 +366,15 @@ pub struct WeChatGateway {
     pending_questions: Arc<super::PendingQuestionStore>,
     /// Cache of from_user_id -> context_token for replies
     context_tokens: Arc<RwLock<HashMap<String, String>>>,
-    /// Workspace path for persisting config to disk
-    workspace_path: Arc<RwLock<Option<String>>>,
 }
 
 impl WeChatGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping) -> Self {
+    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeChatConfig::default())),
             session_mapping,
             opencode_port,
+            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(WeChatGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -384,12 +385,7 @@ impl WeChatGateway {
             session_queue: Arc::new(SessionQueue::new()),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             context_tokens: Arc::new(RwLock::new(HashMap::new())),
-            workspace_path: Arc::new(RwLock::new(None)),
         }
-    }
-
-    pub async fn set_workspace_path(&self, path: String) {
-        *self.workspace_path.write().await = Some(path);
     }
 
     pub async fn set_config(&self, config: WeChatConfig) {
@@ -441,14 +437,10 @@ impl WeChatGateway {
 
     /// Persist context_tokens from in-memory config to teamclaw.json on disk
     async fn persist_context_tokens(&self) {
-        let workspace_path = match self.workspace_path.read().await.clone() {
-            Some(p) => p,
-            None => return,
-        };
         let config = self.config.read().await.clone();
         let path = format!(
             "{}/{}/{}",
-            workspace_path,
+            self.workspace_path,
             crate::commands::TEAMCLAW_DIR,
             crate::commands::CONFIG_FILE_NAME
         );

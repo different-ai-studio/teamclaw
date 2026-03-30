@@ -58,6 +58,8 @@ pub struct WeComGateway {
     config: Arc<RwLock<WeComConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
+    #[allow(dead_code)]
+    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<WeComGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
@@ -128,11 +130,12 @@ enum WsExitReason {
 }
 
 impl WeComGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping) -> Self {
+    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeComConfig::default())),
             session_mapping,
             opencode_port,
+            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(WeComGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),

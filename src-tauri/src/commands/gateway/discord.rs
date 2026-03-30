@@ -924,6 +924,8 @@ pub struct DiscordGateway {
     config: Arc<RwLock<DiscordConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
+    #[allow(dead_code)]
+    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<GatewayStatusResponse>>,
     /// Track if gateway is currently running
@@ -935,11 +937,12 @@ pub struct DiscordGateway {
 }
 
 impl DiscordGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping) -> Self {
+    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
         Self {
             config: Arc::new(RwLock::new(DiscordConfig::default())),
             session_mapping,
             opencode_port,
+            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(GatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -1137,6 +1140,7 @@ impl Clone for DiscordGateway {
             config: Arc::clone(&self.config),
             session_mapping: self.session_mapping.clone(),
             opencode_port: self.opencode_port,
+            workspace_path: self.workspace_path.clone(),
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),
