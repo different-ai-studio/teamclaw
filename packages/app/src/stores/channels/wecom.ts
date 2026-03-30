@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core'
 import type {
   WeComConfig,
   WeComGatewayStatusResponse,
+  WeComQrAuthStart,
+  WeComQrAuthPollResult,
   ChannelsState,
 } from '../channels-types'
 import { defaultWeComConfig } from '../channels-types'
@@ -77,6 +79,14 @@ export function createWecomActions(set: ChannelsSet) {
     },
 
     clearWecomTestResult: () => set({ wecomTestResult: null }),
+
+    startWecomQrAuth: async (): Promise<WeComQrAuthStart> => {
+      return await invoke<WeComQrAuthStart>('start_wecom_qr_auth')
+    },
+
+    pollWecomQrAuth: async (scode: string): Promise<WeComQrAuthPollResult> => {
+      return await invoke<WeComQrAuthPollResult>('poll_wecom_qr_auth', { scode })
+    },
 
     setWecomHasChanges: (hasChanges: boolean) => set({ wecomHasChanges: hasChanges }),
 

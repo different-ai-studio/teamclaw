@@ -1166,6 +1166,25 @@
         "wizardVerifyDesc": "微信已成功连接。",
         "wizardCompleteTitle": "设置完成",
         "wizardCompleteDesc": "微信渠道已就绪。"
+      },
+      "wecom": {
+        "chooseMethod": "选择接入方式",
+        "chooseMethodDesc": "你想如何设置企微机器人？",
+        "qrScan": "扫码接入",
+        "qrScanRecommended": "推荐",
+        "qrScanDesc": "用企业微信扫码，自动创建机器人",
+        "manualInput": "手动输入",
+        "manualInputDesc": "已有 Bot ID 和 Secret",
+        "scanTitle": "扫描二维码",
+        "scanDesc": "使用企业微信扫描下方二维码",
+        "loadingQr": "正在生成二维码...",
+        "scanInstructions": "打开手机上的企业微信，扫描此二维码进行授权。",
+        "waitingScan": "等待扫码中...",
+        "scanSuccess": "授权成功！已自动获取凭证。",
+        "scanTimeout": "二维码已过期，请重试。",
+        "scanError": "获取二维码失败，请重试或使用手动输入。",
+        "retryQr": "重试",
+        "switchToManual": "切换为手动输入"
       }
     },
     "cron": {

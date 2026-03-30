@@ -12,6 +12,16 @@ use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::BlobsProtocol;
 use iroh_gossip::net::Gossip;
 
+/// Tombstone marker for deleted files.
+/// Iroh rejects empty blobs, so we use a non-empty sentinel value.
+const TOMBSTONE_MARKER: &[u8] = b"__TOMBSTONE__";
+
+/// Check whether a doc entry represents a deleted file (tombstone).
+/// Handles both the new marker and legacy empty entries for backwards compatibility.
+fn is_tombstone(content: &[u8]) -> bool {
+    content.is_empty() || content == TOMBSTONE_MARKER
+}
+
 /// Default storage path for iroh node state
 const IROH_STORAGE_DIR: &str = concat!(".", env!("APP_SHORT_NAME"), "/iroh");
 /// Filename for the persisted Ed25519 secret key
@@ -536,20 +546,20 @@ async fn write_doc_entries_to_disk(
         let key = String::from_utf8_lossy(entry.key()).to_string();
         let content_hash = entry.content_hash();
 
-        // Skip empty entries (tombstones for deleted files)
-        if entry.content_len() == 0 {
+        let content = blobs_store
+            .blobs()
+            .get_bytes(content_hash)
+            .await
+            .map_err(|e| format!("Failed to read content for '{}': {}", key, e))?;
+
+        // Skip tombstones (deleted files)
+        if is_tombstone(&content) {
             let file_path = team_path.join(&key);
             if file_path.exists() {
                 let _ = std::fs::remove_file(&file_path);
             }
             continue;
         }
-
-        let content = blobs_store
-            .blobs()
-            .get_bytes(content_hash)
-            .await
-            .map_err(|e| format!("Failed to read content for '{}': {}", key, e))?;
 
         let file_path = team_path.join(&key);
         if let Some(parent) = file_path.parent() {
@@ -604,6 +614,15 @@ async fn reconcile_disk_and_doc(
         }
 
         if let Some(local_content) = local_map.remove(&key) {
+            // Check if remote is a tombstone — if so, delete local file
+            if let Ok(remote_content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
+                if is_tombstone(&remote_content) {
+                    let file_path = team_path.join(&key);
+                    eprintln!("[P2P][reconcile] Remote tombstone -> deleting local: {}", key);
+                    let _ = std::fs::remove_file(&file_path);
+                    continue;
+                }
+            }
             // Both exist — check if they differ
             let local_hash = iroh_blobs::Hash::new(&local_content);
             if local_hash != entry.content_hash() {
@@ -626,11 +645,11 @@ async fn reconcile_disk_and_doc(
                 }
             }
         } else {
-            // Remote only — download to disk
-            if entry.content_len() == 0 {
-                continue;
-            }
+            // Remote only — download to disk (or delete if tombstone)
             if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
+                if is_tombstone(&content) {
+                    continue;
+                }
                 let file_path = team_path.join(&key);
                 if let Some(parent) = file_path.parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -1209,12 +1228,12 @@ async fn doc_to_disk_watcher(
                     }
                     // Still write to disk
                     let file_path = Path::new(&team_dir).join(&key);
-                    if entry.content_len() == 0 {
-                        let _ = std::fs::remove_file(&file_path);
-                    } else if let Ok(content) =
-                        blobs_store.blobs().get_bytes(entry.content_hash()).await
-                    {
-                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                    if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
+                        if is_tombstone(&content) {
+                            let _ = std::fs::remove_file(&file_path);
+                        } else {
+                            write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                        }
                     }
                     continue;
                 }
@@ -1409,14 +1428,14 @@ async fn doc_to_disk_watcher(
 
                 // Normal write
                 let file_path = Path::new(&team_dir).join(&key);
-                if entry.content_len() == 0 {
-                    eprintln!("[P2P][doc→disk] Deleting: {}", key);
-                    let _ = std::fs::remove_file(&file_path);
-                } else if let Ok(content) =
-                    blobs_store.blobs().get_bytes(entry.content_hash()).await
-                {
-                    eprintln!("[P2P][doc→disk] Writing: {} ({} bytes)", key, content.len());
-                    write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
+                    if is_tombstone(&content) {
+                        eprintln!("[P2P][doc→disk] Deleting (tombstone): {}", key);
+                        let _ = std::fs::remove_file(&file_path);
+                    } else {
+                        eprintln!("[P2P][doc→disk] Writing: {} ({} bytes)", key, content.len());
+                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                    }
                 } else {
                     eprintln!("[P2P][doc→disk] Failed to get blob for: {}", key);
                 }
@@ -1453,7 +1472,12 @@ async fn doc_to_disk_watcher(
 
                             let file_path = Path::new(&team_dir).join(&key);
                             if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
-                                write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                                if is_tombstone(&content) {
+                                    eprintln!("[P2P][ContentReady] Deleting (tombstone): {}", key);
+                                    let _ = std::fs::remove_file(&file_path);
+                                } else {
+                                    write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                                }
                             }
                             break;
                         }
@@ -1596,8 +1620,11 @@ async fn disk_to_doc_watcher(
                             }
 
                             let key = rel_path;
-                            // Write empty content as tombstone
-                            let _ = doc.set_bytes(author, key, Vec::<u8>::new()).await;
+                            // Write tombstone marker (iroh rejects empty blobs)
+                            eprintln!("[P2P][disk→doc] Deleting (tombstone): {}", key);
+                            if let Err(e) = doc.set_bytes(author, key.clone(), TOMBSTONE_MARKER.to_vec()).await {
+                                eprintln!("[P2P] Failed to write tombstone for '{}': {}", key, e);
+                            }
                         }
                     }
                 }
@@ -2638,12 +2665,17 @@ pub async fn p2p_get_files_sync_status(
         .map_err(|e| format!("Failed to query doc: {}", e))?;
     let mut entries = std::pin::pin!(entries);
 
+    let tombstone_hash = iroh_blobs::Hash::new(TOMBSTONE_MARKER);
     let mut doc_hashes: std::collections::HashMap<String, iroh_blobs::Hash> =
         std::collections::HashMap::new();
     while let Some(Ok(entry)) = entries.next().await {
         let key = String::from_utf8_lossy(entry.key()).to_string();
         // Skip tombstones and metadata entries
-        if entry.content_len() == 0 || key.starts_with("_meta/") || key.starts_with("_team/") {
+        if entry.content_len() == 0
+            || entry.content_hash() == tombstone_hash
+            || key.starts_with("_meta/")
+            || key.starts_with("_team/")
+        {
             continue;
         }
         doc_hashes.insert(key, entry.content_hash());

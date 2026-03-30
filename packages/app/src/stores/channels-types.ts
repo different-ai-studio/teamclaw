@@ -160,6 +160,17 @@ export interface WeComGatewayStatusResponse {
   botId?: string
 }
 
+export interface WeComQrAuthStart {
+  scode: string
+  auth_url: string
+}
+
+export interface WeComQrAuthPollResult {
+  status: 'waiting' | 'success' | 'expired'
+  botId?: string
+  secret?: string
+}
+
 // WeChat types
 export interface WeChatConfig {
   enabled: boolean
@@ -368,6 +379,8 @@ export interface ChannelsState {
   testWecomCredentials: (botId: string, secret: string) => Promise<boolean>
   clearWecomTestResult: () => void
   setWecomHasChanges: (hasChanges: boolean) => void
+  startWecomQrAuth: () => Promise<WeComQrAuthStart>
+  pollWecomQrAuth: (scode: string) => Promise<WeComQrAuthPollResult>
 
   // WeChat actions
   loadWechatConfig: () => Promise<void>

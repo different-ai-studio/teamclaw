@@ -50,3 +50,49 @@ impl Default for WeComGatewayStatusResponse {
         }
     }
 }
+
+/// Response from WeCom QR code generate API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeComQrGenerateResponse {
+    pub data: Option<WeComQrGenerateData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeComQrGenerateData {
+    pub scode: String,
+    pub auth_url: String,
+}
+
+/// Response from WeCom QR code poll API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeComQrPollResponse {
+    pub data: Option<WeComQrPollData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeComQrPollData {
+    pub status: String,
+    pub bot_info: Option<WeComQrBotInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeComQrBotInfo {
+    pub botid: String,
+    pub secret: String,
+}
+
+/// Tauri-facing QR generate result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeComQrAuthStart {
+    pub scode: String,
+    pub auth_url: String,
+}
+
+/// Tauri-facing QR poll result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeComQrAuthPollResult {
+    pub status: String, // "waiting" | "success" | "expired"
+    pub bot_id: Option<String>,
+    pub secret: Option<String>,
+}

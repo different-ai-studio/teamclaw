@@ -162,6 +162,105 @@ fn detect_mime_from_filename(filename: &str) -> Option<String> {
     }
 }
 
+/// Get platform code for WeCom QR auth API
+fn get_plat_code() -> u8 {
+    #[cfg(target_os = "macos")]
+    { 1 }
+    #[cfg(target_os = "windows")]
+    { 2 }
+    #[cfg(target_os = "linux")]
+    { 3 }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    { 0 }
+}
+
+const WECOM_QR_GENERATE_URL: &str = "https://work.weixin.qq.com/ai/qc/generate";
+const WECOM_QR_POLL_URL: &str = "https://work.weixin.qq.com/ai/qc/query_result";
+
+/// Fetch a QR code for WeCom bot authorization
+pub async fn fetch_wecom_qr_code() -> Result<super::wecom_config::WeComQrAuthStart, String> {
+    use super::wecom_config::{WeComQrGenerateResponse, WeComQrAuthStart};
+
+    let url = format!("{}?source=teamclaw&plat={}", WECOM_QR_GENERATE_URL, get_plat_code());
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("QR generate request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("QR generate failed: HTTP {}", resp.status()));
+    }
+
+    let body: WeComQrGenerateResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("QR generate parse failed: {}", e))?;
+
+    let data = body.data.ok_or("QR generate response missing data")?;
+    if data.scode.is_empty() || data.auth_url.is_empty() {
+        return Err("QR generate response missing scode or auth_url".into());
+    }
+
+    Ok(WeComQrAuthStart {
+        scode: data.scode,
+        auth_url: data.auth_url,
+    })
+}
+
+/// Poll WeCom QR code scan result
+pub async fn poll_wecom_qr_result(scode: &str) -> Result<super::wecom_config::WeComQrAuthPollResult, String> {
+    use super::wecom_config::{WeComQrPollResponse, WeComQrAuthPollResult};
+
+    let url = format!("{}?scode={}", WECOM_QR_POLL_URL, urlencoding::encode(scode));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("QR poll request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("QR poll failed: HTTP {}", resp.status()));
+    }
+
+    let body: WeComQrPollResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("QR poll parse failed: {}", e))?;
+
+    let data = match body.data {
+        Some(d) => d,
+        None => {
+            return Ok(WeComQrAuthPollResult {
+                status: "waiting".into(),
+                bot_id: None,
+                secret: None,
+            });
+        }
+    };
+
+    if data.status == "success" {
+        let bot_info = data.bot_info.ok_or("QR poll success but missing bot_info")?;
+        Ok(WeComQrAuthPollResult {
+            status: "success".into(),
+            bot_id: Some(bot_info.botid),
+            secret: Some(bot_info.secret),
+        })
+    } else {
+        Ok(WeComQrAuthPollResult {
+            status: data.status,
+            bot_id: None,
+            secret: None,
+        })
+    }
+}
+
 type WsSink = Arc<
     tokio::sync::Mutex<
         SplitSink<

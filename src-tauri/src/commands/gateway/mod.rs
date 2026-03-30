@@ -2104,6 +2104,18 @@ pub async fn test_wecom_credentials(bot_id: String, secret: String) -> Result<St
     }
 }
 
+/// Start WeCom QR code authorization — returns scode and auth_url
+#[tauri::command]
+pub async fn start_wecom_qr_auth() -> Result<wecom_config::WeComQrAuthStart, String> {
+    wecom::fetch_wecom_qr_code().await
+}
+
+/// Poll WeCom QR code authorization result
+#[tauri::command]
+pub async fn poll_wecom_qr_auth(scode: String) -> Result<wecom_config::WeComQrAuthPollResult, String> {
+    wecom::poll_wecom_qr_result(&scode).await
+}
+
 // ─── WeChat commands ─────────────────────────────────────────────────────────
 
 /// Get WeChat configuration
