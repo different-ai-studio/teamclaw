@@ -34,6 +34,7 @@ export function FileBrowser({ className, variant = 'default' }: FileBrowserProps
   const undo = useWorkspaceStore(s => s.undo)
   const undoStack = useWorkspaceStore(s => s.undoStack)
   const [filterText, setFilterText] = React.useState('')
+  const deferredFilterText = React.useDeferredValue(filterText)
   const [gitChangedOnly, setGitChangedOnly] = React.useState(false)
 
   // Auto-refresh file tree when panel opens (default variant) or when mounted (panel variant)
@@ -174,7 +175,7 @@ export function FileBrowser({ className, variant = 'default' }: FileBrowserProps
       <ScrollAreaPrimitive.Root className="flex-1 relative overflow-hidden">
         <ScrollAreaPrimitive.Viewport className="h-full w-full">
           <div className="py-1 min-w-max">
-            <FileTree filterText={filterText} gitChangedOnly={gitChangedOnly} />
+            <FileTree filterText={deferredFilterText} gitChangedOnly={gitChangedOnly} />
           </div>
         </ScrollAreaPrimitive.Viewport>
         <ScrollBar orientation="vertical" />
