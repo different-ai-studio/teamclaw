@@ -45,7 +45,10 @@ struct JinaRerankResult {
 impl JinaReranker {
     pub fn new(api_key: Option<String>, model: String) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             api_key,
             model,
             base_url: "https://api.jina.ai/v1".to_string(),
@@ -155,7 +158,10 @@ struct CompassRerankResponse {
 impl CompassReranker {
     pub fn new(api_key: Option<String>, base_url: String) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             api_key,
             base_url,
         }
@@ -279,7 +285,10 @@ struct LangSearchRerankResult {
 impl LangSearchReranker {
     pub fn new(api_key: Option<String>, model: String, base_url: Option<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             api_key,
             model: if model.is_empty() {
                 "langsearch-reranker-v1".to_string()

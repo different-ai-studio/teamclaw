@@ -28,7 +28,10 @@ pub fn create_provider(config: &RagConfig) -> Result<SharedEmbeddingProvider> {
             base_url: config.embedding_base_url.clone(),
             model: config.embedding_model.clone(),
             dimensions: config.embedding_dimensions,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         })),
         other => {
             bail!(

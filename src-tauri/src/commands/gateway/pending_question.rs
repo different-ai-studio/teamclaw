@@ -292,7 +292,10 @@ pub async fn handle_question_event(
             let store_clone = std::sync::Arc::clone(&ctx.store);
             let cmid = channel_msg_id;
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(30))
+                    .build()
+                    .unwrap_or_else(|_| reqwest::Client::new());
                 match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
                     Ok(Ok(answer)) => {
                         let answers = resolve_answer(&answer, &questions_clone);
@@ -325,7 +328,10 @@ pub async fn handle_question_event(
                 session_id_prefix, e
             );
             let url = format!("http://127.0.0.1:{}/question/{}/reject", port, question_id);
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
             let _ = client.post(&url).json(&serde_json::json!({})).send().await;
         }
     }

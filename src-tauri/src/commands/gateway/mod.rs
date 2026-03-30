@@ -91,7 +91,10 @@ impl ProcessedMessageTracker {
 
 /// Create a new OpenCode session
 pub async fn create_opencode_session(port: u16) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!("http://127.0.0.1:{}/session", port);
 
     // Set an explicit title to avoid OpenCode auto-generating titles that might conflict
@@ -269,7 +272,10 @@ pub async fn send_message_async_with_approval(
         }
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
 
     // Step 1: Connect to SSE FIRST to avoid missing events
     let sse_url = format!("http://127.0.0.1:{}/event", port);
@@ -448,7 +454,10 @@ async fn poll_for_message_with_approval_from_stream(
                                     let port_clone = port;
                                     let perm_id_clone = perm_id_str.to_string();
                                     tokio::spawn(async move {
-                                        let client = reqwest::Client::new();
+                                        let client = reqwest::Client::builder()
+                                            .timeout(std::time::Duration::from_secs(30))
+                                            .build()
+                                            .unwrap_or_else(|_| reqwest::Client::new());
                                         let approve_url = format!(
                                             "http://127.0.0.1:{}/permission/{}/reply",
                                             port_clone, perm_id_clone
@@ -592,7 +601,10 @@ async fn fetch_message_content(
     session_id: &str,
     message_id: &str,
 ) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
 
     let response = client
@@ -676,7 +688,10 @@ pub struct ModelInfo {
 
 /// Get available models from OpenCode config providers, along with the global default
 pub async fn opencode_get_available_models(port: u16) -> Result<(Vec<ModelInfo>, String), String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
 
     // Get both current config and providers in parallel
     let config_url = format!("http://127.0.0.1:{}/config", port);
@@ -881,7 +896,10 @@ const MAX_SESSIONS_LIST: usize = 10;
 
 /// Fetch recent sessions from OpenCode, sorted by updated time descending
 pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!("http://127.0.0.1:{}/session", port);
 
     let resp = client
@@ -924,7 +942,10 @@ pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, Strin
 
 /// Fetch the latest assistant message text from a session
 async fn fetch_latest_assistant_message(port: u16, session_id: &str, locale: i18n::Locale) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
 
     let resp = client
@@ -1106,7 +1127,10 @@ pub async fn handle_stop_command(
         None => return i18n::t(i18n::MsgKey::NoActiveSession, locale),
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!("http://127.0.0.1:{}/session/{}/abort", port, session_id);
 
     match client.post(&url).send().await {
@@ -1856,7 +1880,10 @@ pub async fn test_kook_token(token: String) -> Result<String, String> {
         return Err("Token is empty".to_string());
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!("{}/gateway/index?compress=0", kook::KOOK_API_BASE);
 
     match client

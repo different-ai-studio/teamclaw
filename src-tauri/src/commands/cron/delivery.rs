@@ -280,7 +280,10 @@ impl DeliveryManager {
             ))?;
 
         use crate::commands::gateway::wechat;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         wechat::send_text_message(&client, base_url, bot_token, target, message, context_token)
             .await
     }
