@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 
 use super::feishu_config::{FeishuConfig, FeishuGatewayStatus, FeishuGatewayStatusResponse};
+use super::i18n;
 use super::session::SessionMapping;
 
 use super::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
@@ -397,7 +398,6 @@ pub struct FeishuGateway {
     config: Arc<RwLock<FeishuConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
-    #[allow(dead_code)]
     workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<FeishuGatewayStatusResponse>>,
@@ -466,6 +466,7 @@ impl FeishuGateway {
         let opencode_port = self.opencode_port;
         let session_queue = Arc::clone(&self.session_queue);
         let pending_questions = Arc::clone(&self.pending_questions);
+        let workspace_path = self.workspace_path.clone();
 
         tokio::spawn(async move {
             let result = run_feishu_gateway(
@@ -476,6 +477,7 @@ impl FeishuGateway {
                 shutdown_rx,
                 session_queue,
                 pending_questions,
+                workspace_path,
             )
             .await;
 
@@ -613,6 +615,7 @@ async fn run_feishu_gateway(
     mut shutdown_rx: oneshot::Receiver<()>,
     session_queue: Arc<SessionQueue>,
     pending_questions: Arc<super::PendingQuestionStore>,
+    workspace_path: String,
 ) -> Result<(), String> {
     let cfg = config.read().await.clone();
     let token_manager = TokenManager::new(&cfg.app_id, &cfg.app_secret);
@@ -692,6 +695,7 @@ async fn run_feishu_gateway(
             service_id,
             &session_queue,
             &pending_questions,
+            &workspace_path,
         )
         .await;
 
@@ -741,6 +745,7 @@ async fn handle_ws_connection(
     service_id: i32,
     session_queue: &Arc<SessionQueue>,
     pending_questions: &Arc<super::PendingQuestionStore>,
+    workspace_path: &str,
 ) -> Result<WsExitReason, String> {
     use futures::sink::SinkExt;
     use futures::stream::StreamExt;
@@ -815,7 +820,7 @@ async fn handle_ws_connection(
                                 handle_binary_frame(
                                     frame, config, session_mapping, opencode_port,
                                     token_manager, processed_messages, &send_tx,
-                                    session_queue, pending_questions,
+                                    session_queue, pending_questions, &workspace_path,
                                 ).await;
                             }
                             Err(e) => {
@@ -868,6 +873,7 @@ async fn handle_binary_frame(
     send_tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
     session_queue: &Arc<SessionQueue>,
     pending_questions: &Arc<super::PendingQuestionStore>,
+    workspace_path: &str,
 ) {
     let method = frame.method; // 0=control, 1=data
     let msg_type = frame.get_header("type").unwrap_or("").to_string();
@@ -942,6 +948,7 @@ async fn handle_binary_frame(
                                 let token_manager_app_secret = token_manager.app_secret.clone();
                                 let session_queue_clone = Arc::clone(session_queue);
                                 let pending_questions_clone = Arc::clone(pending_questions);
+                                let workspace_path_clone = workspace_path.to_string();
                                 tokio::spawn(async move {
                                     println!("[Feishu] Spawned message handler task");
                                     let tm = TokenManager::new(
@@ -956,6 +963,7 @@ async fn handle_binary_frame(
                                         &tm,
                                         &session_queue_clone,
                                         &pending_questions_clone,
+                                        &workspace_path_clone,
                                     )
                                     .await;
                                     println!("[Feishu] Message handler task completed");
@@ -993,6 +1001,7 @@ async fn handle_message_event(
     token_manager: &TokenManager,
     session_queue: &Arc<SessionQueue>,
     pending_questions: &Arc<super::PendingQuestionStore>,
+    workspace_path: &str,
 ) {
     let sender = &event["sender"];
     let sender_id = sender["sender_id"]["open_id"]
@@ -1078,6 +1087,7 @@ async fn handle_message_event(
 
     // Build session key for this chat context (used for session ID, model preference, and commands)
     let session_key = format!("feishu:{}", chat_id);
+    let locale = i18n::get_locale(workspace_path);
 
     // Check for /answer command — routes reply to the most recent pending question
     if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&clean_text) {
@@ -1090,12 +1100,12 @@ async fn handle_message_event(
                 let _ = reply_feishu_message(
                     &token,
                     &message_id,
-                    &format!("✓ 已回复: {}", answer_text),
+                    &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale),
                 )
                 .await;
             }
         } else if let Ok(token) = token_manager.get_tenant_token().await {
-            let _ = reply_feishu_message(&token, &message_id, "当前没有待回复的问题").await;
+            let _ = reply_feishu_message(&token, &message_id, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale)).await;
         }
         return;
     }
@@ -1110,7 +1120,7 @@ async fn handle_message_event(
         };
         println!("[Feishu] Model command received, arg: '{}'", arg);
         let response =
-            super::handle_model_command(opencode_port, session_mapping, &session_key, arg).await;
+            super::handle_model_command(opencode_port, session_mapping, &session_key, arg, locale).await;
 
         if let Ok(token) = token_manager.get_tenant_token().await {
             let chunks = split_message(&response, 4000);
@@ -1134,7 +1144,7 @@ async fn handle_message_event(
             let _ = reply_feishu_message(
                 &token,
                 &message_id,
-                "Session reset. A new session will be created for your next message.",
+                &i18n::t(i18n::MsgKey::SessionReset, locale),
             )
             .await;
         }
@@ -1145,7 +1155,7 @@ async fn handle_message_event(
     if clean_text.eq_ignore_ascii_case("/stop") {
         println!("[Feishu] Stop command received");
         let response =
-            super::handle_stop_command(opencode_port, session_mapping, &session_key).await;
+            super::handle_stop_command(opencode_port, session_mapping, &session_key, locale).await;
         if let Ok(token) = token_manager.get_tenant_token().await {
             let _ = reply_feishu_message(&token, &message_id, &response).await;
         }
@@ -1163,7 +1173,7 @@ async fn handle_message_event(
         };
         println!("[Feishu] Sessions command received, arg: '{}'", arg);
         let response =
-            super::handle_sessions_command(opencode_port, session_mapping, &session_key, arg).await;
+            super::handle_sessions_command(opencode_port, session_mapping, &session_key, arg, locale).await;
 
         if let Ok(token) = token_manager.get_tenant_token().await {
             let chunks = split_message(&response, 4000);
@@ -1278,6 +1288,7 @@ async fn handle_message_event(
                         let tm_app_id_for_q = tm.app_id.clone();
                         let tm_app_secret_for_q = tm.app_secret.clone();
                         let message_id_for_q = message_id_owned.clone();
+                        let locale_for_q = locale;
                         let question_ctx = super::QuestionContext {
                             forwarder: Box::new(move |fq: super::ForwardedQuestion| {
                                 let app_id = tm_app_id_for_q.clone();
@@ -1292,6 +1303,7 @@ async fn handle_message_event(
                                     let text = super::format_question_message(
                                         &fq.questions,
                                         &fq.question_id,
+                                        locale_for_q,
                                     );
                                     reply_feishu_message(&token, &mid, &text).await
                                 })
