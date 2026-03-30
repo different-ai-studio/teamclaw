@@ -615,30 +615,39 @@ async fn fetch_message_content(
     Err(format!("Message {} not found", message_id))
 }
 
-/// Extract text content from an OpenCode message
+/// Extract text content from an OpenCode message.
+/// Prefers "text" parts but falls back to "reasoning" parts if no text is found
+/// (some models only produce reasoning/thinking output for certain tasks).
 fn extract_message_content(message: &serde_json::Value) -> Result<String, String> {
     let parts = message
         .get("parts")
         .and_then(|p| p.as_array())
         .ok_or_else(|| "No parts in message".to_string())?;
 
-    let mut content_parts = Vec::new();
+    let mut text_parts = Vec::new();
+    let mut reasoning_parts = Vec::new();
 
     for part in parts.iter() {
         if let Some(part_type) = part.get("type").and_then(|t| t.as_str()) {
             if part_type == "text" {
                 if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                    content_parts.push(text.to_string());
+                    text_parts.push(text.to_string());
+                }
+            } else if part_type == "reasoning" {
+                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                    reasoning_parts.push(text.to_string());
                 }
             }
         }
     }
 
-    if content_parts.is_empty() {
-        return Err("No text content in message".to_string());
+    if !text_parts.is_empty() {
+        Ok(text_parts.join("\n"))
+    } else if !reasoning_parts.is_empty() {
+        Ok(reasoning_parts.join("\n"))
+    } else {
+        Err("No text content in message".to_string())
     }
-
-    Ok(content_parts.join("\n"))
 }
 
 // ==================== OpenCode Model Helpers ====================
@@ -1985,7 +1994,7 @@ pub async fn start_wecom_gateway(
             .map_err(|e| e.to_string())?;
 
         if guard.is_none() {
-            let gateway = WeComGateway::new(port, gateway_state.shared_session_mapping.clone());
+            let gateway = WeComGateway::new(port, gateway_state.shared_session_mapping.clone(), workspace_path.clone());
             *guard = Some(gateway);
         }
 

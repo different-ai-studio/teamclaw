@@ -112,10 +112,13 @@ tauri-plugin-mcp = { path = "tauri-plugin-mcp-local" }
 # WebDAV team sync dependencies
 quick-xml = "0.36"
 aes-gcm = "0.10"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
 pbkdf2 = { version = "0.12", features = ["simple"] }
 hex = "0.4"
 getrandom = "0.2"
 url = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 log = "0.4"
 
 # Global keyboard event monitoring (double-tap Ctrl for spotlight)
