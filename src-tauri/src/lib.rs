@@ -329,6 +329,7 @@ pub fn run() {
             commands::filewatcher::get_watched_directories,
             commands::gateway::get_channel_config,
             commands::gateway::save_channel_config,
+            commands::gateway::set_config_locale,
             commands::gateway::get_discord_config,
             commands::gateway::save_discord_config,
             commands::gateway::start_gateway,

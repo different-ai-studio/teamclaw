@@ -1265,6 +1265,23 @@ pub async fn save_discord_config(
     Ok(())
 }
 
+/// Set the locale in teamclaw.json for gateway i18n
+#[tauri::command]
+pub async fn set_config_locale(
+    opencode_state: State<'_, OpenCodeState>,
+    locale: String,
+) -> Result<(), String> {
+    let workspace_path = opencode_state
+        .workspace_path
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No workspace path set. Please select a workspace first.")?;
+    let mut config = read_config(&workspace_path)?;
+    config.locale = Some(locale);
+    write_config(&workspace_path, &config)
+}
+
 /// Start the Discord gateway
 #[tauri::command]
 pub async fn start_gateway(
