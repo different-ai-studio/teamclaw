@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import i18next from 'i18next'
+import { invoke } from '@tauri-apps/api/core'
 import {
   Settings2,
   Moon,
@@ -181,6 +182,8 @@ export const GeneralSection = React.memo(function GeneralSection() {
       setLanguage(value);
       i18next.changeLanguage(value);
       localStorage.setItem(`${appShortName}-language`, value);
+      // Sync locale to config file for gateway i18n
+      invoke('set_config_locale', { locale: value }).catch(console.error);
     }}
   >
     <SelectTrigger className="h-11">

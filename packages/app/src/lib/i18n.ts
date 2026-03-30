@@ -58,6 +58,15 @@ i18n
     keySeparator: '.' // Enable nested key lookup (e.g., 'common.save' → common → save)
   });
 
+// Sync initial language to config file for gateway i18n
+if (typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
+  import('@tauri-apps/api/core').then(({ invoke }) => {
+    invoke('set_config_locale', { locale: i18n.language }).catch(() => {
+      // Silently ignore — workspace may not be set yet
+    });
+  });
+}
+
 export default i18n;
 
 // Export utility functions for language switching and persistence
