@@ -157,7 +157,13 @@ impl Default for GatewayState {
 /// Ensure the shared session mapping is initialized with persistence
 async fn ensure_session_initialized(gateway_state: &GatewayState, workspace_path: &str) {
     let needs_init = {
-        let mut initialized = gateway_state.session_initialized.lock().unwrap();
+        let mut initialized = match gateway_state.session_initialized.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                eprintln!("[Gateway] session_initialized mutex was poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
         if *initialized {
             false
         } else {
