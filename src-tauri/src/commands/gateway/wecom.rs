@@ -1,8 +1,10 @@
+use super::i18n;
 use super::session::SessionMapping;
 use super::wecom_config::{WeComConfig, WeComGatewayStatus, WeComGatewayStatusResponse};
 use futures_util::stream::SplitSink;
 #[allow(unused_imports)]
 use futures_util::StreamExt;
+use base64::Engine as _;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
@@ -15,11 +17,100 @@ fn get_active_gateway_holder() -> &'static Arc<RwLock<Option<WeComGateway>>> {
     ACTIVE_GATEWAY.get_or_init(|| Arc::new(RwLock::new(None)))
 }
 
-/// Detect image MIME type from file magic bytes
-fn detect_image_mime(bytes: &[u8]) -> Option<String> {
+/// Decrypt AES-256-CBC encrypted data from WeCom.
+/// WeCom images/files are encrypted with a per-message aeskey.
+/// Algorithm: AES-256-CBC, PKCS#7 padding (32-byte aligned), IV = first 16 bytes of key.
+fn decrypt_wecom_media(encrypted: &[u8], aeskey_b64: &str) -> Result<Vec<u8>, String> {
+    use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::NoPadding};
+
+    type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
+
+    // Base64-decode the key (may need padding)
+    let padded_key = if aeskey_b64.ends_with('=') {
+        aeskey_b64.to_string()
+    } else {
+        format!("{}=", aeskey_b64)
+    };
+    let key = base64::engine::general_purpose::STANDARD
+        .decode(&padded_key)
+        .map_err(|e| format!("Failed to decode aeskey: {}", e))?;
+
+    if key.len() != 32 {
+        return Err(format!("AES key must be 32 bytes, got {}", key.len()));
+    }
+
+    // IV = first 16 bytes of the key
+    let iv = &key[..16];
+
+    // Decrypt
+    let mut buf = encrypted.to_vec();
+    let decryptor = Aes256CbcDec::new_from_slices(&key, iv)
+        .map_err(|e| format!("AES init failed: {}", e))?;
+    let decrypted = decryptor
+        .decrypt_padded_mut::<NoPadding>(&mut buf)
+        .map_err(|e| format!("AES decryption failed: {:?}", e))?;
+
+    // Manual PKCS#7 unpadding (32-byte aligned, values 1-32)
+    if decrypted.is_empty() {
+        return Err("Decrypted data is empty".into());
+    }
+    let pad_byte = *decrypted.last().unwrap() as usize;
+    if pad_byte == 0 || pad_byte > 32 || pad_byte > decrypted.len() {
+        // No valid padding — return as-is
+        return Ok(decrypted.to_vec());
+    }
+    // Verify all padding bytes match
+    let start = decrypted.len() - pad_byte;
+    if decrypted[start..].iter().all(|&b| b as usize == pad_byte) {
+        Ok(decrypted[..start].to_vec())
+    } else {
+        Ok(decrypted.to_vec())
+    }
+}
+
+/// Compress an image to fit within max_bytes by resizing and re-encoding as JPEG.
+fn compress_image(bytes: &[u8], max_bytes: usize) -> Result<Vec<u8>, String> {
+    use image::ImageReader;
+    use std::io::Cursor;
+
+    let img = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to guess image format: {}", e))?
+        .decode()
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+    // Try progressively smaller sizes until it fits
+    let (orig_w, orig_h) = (img.width(), img.height());
+    for scale_pct in &[100u32, 75, 50, 35, 25] {
+        let w = orig_w * scale_pct / 100;
+        let h = orig_h * scale_pct / 100;
+        let resized = if *scale_pct < 100 {
+            img.resize(w, h, image::imageops::FilterType::Lanczos3)
+        } else {
+            img.clone()
+        };
+
+        // Encode as JPEG with quality 80
+        let mut buf = Cursor::new(Vec::new());
+        resized
+            .write_to(&mut buf, image::ImageFormat::Jpeg)
+            .map_err(|e| format!("JPEG encode failed: {}", e))?;
+
+        let result = buf.into_inner();
+        if result.len() <= max_bytes {
+            return Ok(result);
+        }
+    }
+
+    Err("Could not compress image small enough".into())
+}
+
+/// Detect MIME type from file magic bytes
+fn detect_mime_from_magic(bytes: &[u8]) -> Option<String> {
     if bytes.len() < 4 {
         return None;
     }
+    // Images
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         Some("image/jpeg".into())
     } else if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
@@ -30,8 +121,44 @@ fn detect_image_mime(bytes: &[u8]) -> Option<String> {
         Some("image/webp".into())
     } else if bytes.starts_with(b"BM") {
         Some("image/bmp".into())
+    // Documents
+    } else if bytes.starts_with(b"%PDF") {
+        Some("application/pdf".into())
+    // MS Office (OOXML: docx, xlsx, pptx are ZIP archives)
+    } else if bytes.starts_with(&[0x50, 0x4B, 0x03, 0x04]) {
+        None // ZIP-based; need filename to distinguish docx/xlsx/pptx
     } else {
         None
+    }
+}
+
+/// Infer MIME type from filename extension
+fn detect_mime_from_filename(filename: &str) -> Option<String> {
+    let ext = filename.rsplit('.').next()?.to_lowercase();
+    match ext.as_str() {
+        // Images
+        "jpg" | "jpeg" => Some("image/jpeg".into()),
+        "png" => Some("image/png".into()),
+        "gif" => Some("image/gif".into()),
+        "webp" => Some("image/webp".into()),
+        "bmp" => Some("image/bmp".into()),
+        "svg" => Some("image/svg+xml".into()),
+        // Documents
+        "pdf" => Some("application/pdf".into()),
+        "doc" => Some("application/msword".into()),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".into()),
+        "xls" => Some("application/vnd.ms-excel".into()),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into()),
+        "ppt" => Some("application/vnd.ms-powerpoint".into()),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation".into()),
+        "csv" => Some("text/csv".into()),
+        "txt" => Some("text/plain".into()),
+        "json" => Some("application/json".into()),
+        "xml" => Some("application/xml".into()),
+        "html" | "htm" => Some("text/html".into()),
+        "md" => Some("text/markdown".into()),
+        "zip" => Some("application/zip".into()),
+        _ => None,
     }
 }
 
@@ -58,6 +185,7 @@ pub struct WeComGateway {
     config: Arc<RwLock<WeComConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
+    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<WeComGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
@@ -116,6 +244,7 @@ struct WeComFrom {
 /// Metadata stored when a template card is sent for a question,
 /// needed to update the card when the user clicks a button.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct CardMetadata {
     question_text: String,
     options: Vec<super::pending_question::QuestionOption>,
@@ -128,11 +257,12 @@ enum WsExitReason {
 }
 
 impl WeComGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping) -> Self {
+    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeComConfig::default())),
             session_mapping,
             opencode_port,
+            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(WeComGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -507,6 +637,8 @@ impl WeComGateway {
         // WeCom puts content in type-specific fields: text.content, voice.content, image.url, etc.
         let mut text_content = String::new();
         let mut image_url: Option<String> = None;
+        let mut filename_hint: Option<String> = None;
+        let mut media_aeskey: Option<String> = None;
 
         match msg.msgtype.as_str() {
             "text" => {
@@ -544,6 +676,13 @@ impl WeComGateway {
                     println!("[WeCom] Image message has no URL field");
                     return;
                 }
+                // Extract per-message AES key for encrypted images
+                media_aeskey = msg
+                    .image
+                    .as_ref()
+                    .and_then(|i| i.get("aeskey"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
             }
             "file" => {
                 println!("[WeCom] File message body: {:?}", msg.file);
@@ -557,6 +696,20 @@ impl WeComGateway {
                     println!("[WeCom] File message has no URL field");
                     return;
                 }
+                // Extract filename for MIME detection fallback
+                filename_hint = msg
+                    .file
+                    .as_ref()
+                    .and_then(|f| f.get("filename"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                // Extract per-message AES key for encrypted files
+                media_aeskey = msg
+                    .file
+                    .as_ref()
+                    .and_then(|f| f.get("aeskey"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 // Treat file like image — download and send as data URL
                 image_url = file_url;
             }
@@ -622,17 +775,18 @@ impl WeComGateway {
         // Check for /answer command — routes reply to the most recent pending question
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&text_content)
         {
+            let locale = i18n::get_locale(&self.workspace_path);
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
                 println!(
                     "[WeCom] Question {} answered via /answer: {}",
                     qid, answer_text
                 );
                 let _ = self
-                    .send_reply(&req_id, &format!("✓ 已回复: {}", answer_text), &ws_sink)
+                    .send_reply(&req_id, &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale), &ws_sink)
                     .await;
             } else {
                 let _ = self
-                    .send_reply(&req_id, "当前没有待回复的问题", &ws_sink)
+                    .send_reply(&req_id, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale), &ws_sink)
                     .await;
             }
             return;
@@ -655,6 +809,8 @@ impl WeComGateway {
         let session_key_owned = session_key.clone();
         let text_content_owned = text_content.clone();
         let image_url_owned = image_url.clone();
+        let media_aeskey_owned = media_aeskey.clone();
+        let filename_hint_owned = filename_hint.clone();
         let msg_owned = msg.clone();
         let req_id_owned = req_id.clone();
         let ws_sink_owned = Arc::clone(&ws_sink);
@@ -695,6 +851,8 @@ impl WeComGateway {
                                     &session_key_owned,
                                     &text_content_owned,
                                     image_url_owned.as_deref(),
+                                    media_aeskey_owned.as_deref(),
+                                    filename_hint_owned.as_deref(),
                                     &msg_owned,
                                     &req_id_owned,
                                     &ws_sink_owned,
@@ -715,16 +873,13 @@ impl WeComGateway {
                     }),
                     notify_fn: Some(Box::new(move |reason| {
                         Box::pin(async move {
+                            let locale = i18n::get_locale(&gateway2.workspace_path);
                             let msg = match reason {
-                                RejectReason::Timeout => "Your message timed out waiting in queue.",
-                                RejectReason::QueueFull => {
-                                    "Too many messages queued. Please try again later."
-                                }
-                                RejectReason::SessionClosed => {
-                                    "Your message could not be processed. Please resend."
-                                }
+                                RejectReason::Timeout => i18n::t(i18n::MsgKey::QueueTimeout, locale),
+                                RejectReason::QueueFull => i18n::t(i18n::MsgKey::QueueFull, locale),
+                                RejectReason::SessionClosed => i18n::t(i18n::MsgKey::MessageCouldNotBeProcessed, locale),
                             };
-                            let _ = gateway2.send_reply(&req_id2, msg, &ws_sink2).await;
+                            let _ = gateway2.send_reply(&req_id2, &msg, &ws_sink2).await;
                         })
                     })),
                 },
@@ -762,14 +917,13 @@ impl WeComGateway {
         let parts: Vec<&str> = content.splitn(2, ' ').collect();
         let cmd = parts[0].to_lowercase();
         let arg = parts.get(1).copied().unwrap_or("").trim();
+        let locale = i18n::get_locale(&self.workspace_path);
 
         let reply = match cmd.as_str() {
-            "/help" => {
-                "Available commands:\n/help - Show this help\n/model [name] - List or switch models\n/sessions [id] - List or bind sessions\n/reset - Start new session\n/stop - Stop current processing".to_string()
-            }
+            "/help" => i18n::t(i18n::MsgKey::HelpWecom, locale),
             "/reset" => {
                 self.session_mapping.remove_session(session_key).await;
-                "Session reset. Next message will start a new conversation.".to_string()
+                i18n::t(i18n::MsgKey::SessionReset, locale)
             }
             "/model" => {
                 super::handle_model_command(
@@ -777,6 +931,7 @@ impl WeComGateway {
                     &self.session_mapping,
                     session_key,
                     arg,
+                    locale,
                 )
                 .await
             }
@@ -786,6 +941,7 @@ impl WeComGateway {
                     &self.session_mapping,
                     session_key,
                     arg,
+                    locale,
                 )
                 .await
             }
@@ -794,19 +950,26 @@ impl WeComGateway {
                     self.opencode_port,
                     &self.session_mapping,
                     session_key,
+                    locale,
                 )
                 .await
             }
-            _ => format!("Unknown command: {}", cmd),
+            _ => i18n::t(i18n::MsgKey::UnknownCommand(&cmd), locale),
         };
 
         self.send_reply(req_id, &reply, ws_sink).await
     }
 
-    /// Download image from URL and return as data URL + detected MIME type
-    async fn download_image_as_data_url(&self, url: &str) -> Result<(String, String), String> {
-        use base64::Engine as _;
-
+    /// Download file from URL and return as data URL + detected MIME type.
+    /// If `aeskey` is provided, the downloaded data is AES-256-CBC decrypted first.
+    /// An optional filename hint is used to infer MIME when detection fails.
+    /// Returns (data_url, mime_type, raw_bytes)
+    async fn download_as_data_url(
+        &self,
+        url: &str,
+        aeskey: Option<&str>,
+        filename_hint: Option<&str>,
+    ) -> Result<(String, String, Vec<u8>), String> {
         let client = reqwest::Client::new();
         let resp = client
             .get(url)
@@ -819,39 +982,57 @@ impl WeComGateway {
             return Err(format!("HTTP {}", resp.status()));
         }
 
-        // Detect MIME from Content-Type header or default to image/png
-        let header_type = resp
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("image/png")
-            .split(';')
-            .next()
-            .unwrap_or("image/png")
-            .to_string();
-
-        let bytes = resp
+        let raw_bytes = resp
             .bytes()
             .await
             .map_err(|e| format!("Failed to read body: {}", e))?;
 
-        // If Content-Type is generic octet-stream, detect actual image type from magic bytes
-        let content_type = if header_type == "application/octet-stream" {
-            detect_image_mime(&bytes).unwrap_or_else(|| header_type)
+        // Decrypt if aeskey is provided (WeCom encrypts images/files with per-message AES key)
+        let bytes: Vec<u8> = if let Some(key) = aeskey {
+            println!("[WeCom] Decrypting {} bytes with aeskey", raw_bytes.len());
+            decrypt_wecom_media(&raw_bytes, key)?
         } else {
-            header_type
+            raw_bytes.to_vec()
         };
 
+        // Detect MIME from magic bytes, then filename, then default to image/png
+        let content_type = detect_mime_from_magic(&bytes)
+            .or_else(|| filename_hint.and_then(detect_mime_from_filename))
+            .unwrap_or_else(|| "image/png".to_string());
+
         println!(
-            "[WeCom] Downloaded image: {} bytes, mime={}",
+            "[WeCom] Downloaded file: {} bytes (raw {}), mime={}, filename={:?}",
             bytes.len(),
-            content_type
+            raw_bytes.len(),
+            content_type,
+            filename_hint
         );
 
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-        let data_url = format!("data:{};base64,{}", content_type, b64);
+        // Compress image if too large for AI model (limit ~258KB base64 → ~190KB raw)
+        const MAX_RAW_BYTES: usize = 190_000;
+        let (final_bytes, final_mime) = if bytes.len() > MAX_RAW_BYTES && content_type.starts_with("image/") {
+            match compress_image(&bytes, MAX_RAW_BYTES) {
+                Ok(compressed) => {
+                    println!(
+                        "[WeCom] Compressed image: {} -> {} bytes",
+                        bytes.len(),
+                        compressed.len()
+                    );
+                    (compressed, "image/jpeg".to_string())
+                }
+                Err(e) => {
+                    println!("[WeCom] Image compression failed, using original: {}", e);
+                    (bytes.clone(), content_type.clone())
+                }
+            }
+        } else {
+            (bytes.clone(), content_type.clone())
+        };
 
-        Ok((data_url, content_type))
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&final_bytes);
+        let data_url = format!("data:{};base64,{}", final_mime, b64);
+
+        Ok((data_url, final_mime, bytes))
     }
 
     async fn create_opencode_session(&self) -> Result<String, String> {
@@ -863,6 +1044,8 @@ impl WeComGateway {
         session_key: &str,
         message: &str,
         image_url: Option<&str>,
+        media_aeskey: Option<&str>,
+        filename_hint: Option<&str>,
         original: &WeComMsgCallback,
         req_id: &str,
         ws_sink: &WsSink,
@@ -906,15 +1089,46 @@ impl WeComGateway {
             }));
         }
         if let Some(url) = image_url {
-            // Download image from WeCom and convert to data URL
-            match self.download_image_as_data_url(url).await {
-                Ok((data_url, mime)) => {
-                    if parts.is_empty() {
-                        parts.push(serde_json::json!({
-                            "type": "text",
-                            "text": "请描述这张图片",
-                        }));
-                    }
+            // Download file from WeCom, decrypt if encrypted, and convert to data URL
+            match self.download_as_data_url(url, media_aeskey, filename_hint).await {
+                Ok((data_url, mime, raw_bytes)) => {
+                    // Save image to workspace so the UI can display it
+                    let ext = mime.split('/').last().unwrap_or("png");
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis();
+                    let img_filename = format!("wecom-{}.{}", ts, ext);
+                    let uploads_dir = format!("{}/.uploads", self.workspace_path);
+                    let _ = tokio::fs::create_dir_all(&uploads_dir).await;
+                    let img_path = format!("{}/{}", uploads_dir, img_filename);
+                    let attachment_ref = if tokio::fs::write(&img_path, &raw_bytes).await.is_ok() {
+                        format!("[Attachment: {}] (path: {})", img_filename, img_path)
+                    } else {
+                        String::new()
+                    };
+
+                    // Build text: user text (or default) + attachment reference for UI display
+                    let text_content = if parts.is_empty() {
+                        if attachment_ref.is_empty() {
+                            "请描述这张图片".to_string()
+                        } else {
+                            format!("请描述这张图片\n\n{}", attachment_ref)
+                        }
+                    } else {
+                        // Append attachment ref to existing text
+                        let existing = parts.pop().unwrap();
+                        let existing_text = existing.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                        if attachment_ref.is_empty() {
+                            existing_text.to_string()
+                        } else {
+                            format!("{}\n\n{}", existing_text, attachment_ref)
+                        }
+                    };
+                    parts.push(serde_json::json!({
+                        "type": "text",
+                        "text": text_content,
+                    }));
                     parts.push(serde_json::json!({
                         "type": "file",
                         "url": data_url,
@@ -922,12 +1136,12 @@ impl WeComGateway {
                     }));
                 }
                 Err(e) => {
-                    println!("[WeCom] Failed to download image: {}", e);
+                    println!("[WeCom] Failed to download file: {}", e);
                     // If there's no text either, send error as text
                     if parts.is_empty() {
                         parts.push(serde_json::json!({
                             "type": "text",
-                            "text": format!("[用户发送了一张图片，但下载失败: {}]", e),
+                            "text": format!("[用户发送了文件，但下载失败: {}]", e),
                         }));
                     }
                 }
@@ -1132,6 +1346,7 @@ impl WeComGateway {
 
         // Track accumulated text for streaming
         let mut accumulated_text = String::new();
+        let mut accumulated_reasoning = String::new();
         let mut last_send_len = 0usize;
         let mut last_send_time = tokio::time::Instant::now();
 
@@ -1275,6 +1490,7 @@ impl WeComGateway {
                                         let text = super::format_question_message(
                                             &[q.clone()],
                                             &question_id,
+                                            i18n::get_locale(&self.workspace_path),
                                         );
                                         let _ = self
                                             .send_stream_chunk(
@@ -1287,6 +1503,7 @@ impl WeComGateway {
                                 // Prepare new stream for post-question response
                                 stream_id = uuid::Uuid::new_v4().to_string();
                                 accumulated_text.clear();
+                                accumulated_reasoning.clear();
                                 last_send_len = 0;
 
                                 println!(
@@ -1332,12 +1549,39 @@ impl WeComGateway {
                                     .and_then(|p| p.get("type"))
                                     .and_then(|t| t.as_str())
                                     .unwrap_or("");
-                                // Only stream text content, skip thinking/reasoning
-                                if part_type == "text_delta" || part_type == "text" {
+                                // Track reasoning separately (used as fallback if no text output)
+                                if part_type == "reasoning" {
                                     has_seen_activity = true;
-                                    accumulated_text.push_str(delta);
+                                    accumulated_reasoning.push_str(delta);
+                                }
 
-                                    // On first real text, stop thinking animation and replace with actual content
+                                // Stream both text and reasoning to WeCom in real-time.
+                                // Text takes priority; reasoning streams when no text yet.
+                                let is_text = part_type == "text_delta" || part_type == "text";
+                                let is_reasoning = part_type == "reasoning";
+
+                                if is_text {
+                                    has_seen_activity = true;
+                                    // If we were streaming reasoning, switch to text-only
+                                    if accumulated_text.is_empty() && !accumulated_reasoning.is_empty() {
+                                        // Start fresh stream for text content
+                                        stream_id = uuid::Uuid::new_v4().to_string();
+                                        last_send_len = 0;
+                                    }
+                                    accumulated_text.push_str(delta);
+                                }
+
+                                // Determine what to stream: text if available, otherwise reasoning
+                                let (stream_content, stream_len) = if !accumulated_text.is_empty() {
+                                    (&accumulated_text, accumulated_text.len())
+                                } else if is_reasoning {
+                                    (&accumulated_reasoning, accumulated_reasoning.len())
+                                } else {
+                                    continue;
+                                };
+
+                                if is_text || is_reasoning {
+                                    // On first content, stop thinking animation
                                     if thinking_active && last_send_len == 0 {
                                         thinking_active = false;
                                         let _ = thinking_ctl_tx.send(2);
@@ -1345,26 +1589,25 @@ impl WeComGateway {
                                             .send_stream_chunk(
                                                 req_id,
                                                 &stream_id,
-                                                &accumulated_text,
+                                                stream_content,
                                                 false,
                                                 ws_sink,
                                             )
                                             .await
                                         {
                                             eprintln!(
-                                                "[WeCom] Failed to send first text chunk: {}",
+                                                "[WeCom] Failed to send first chunk: {}",
                                                 e
                                             );
                                         }
-                                        last_send_len = accumulated_text.len();
+                                        last_send_len = stream_len;
                                         last_send_time = tokio::time::Instant::now();
                                         continue;
                                     }
 
                                     // Send intermediate chunk every 2s or 500 chars
-                                    // (conservative to stay under WeCom's 30 msg/min rate limit)
                                     let since_last = last_send_time.elapsed();
-                                    let new_chars = accumulated_text.len() - last_send_len;
+                                    let new_chars = stream_len - last_send_len;
                                     if since_last > std::time::Duration::from_secs(2)
                                         && new_chars > 10
                                         || new_chars > 500
@@ -1373,7 +1616,7 @@ impl WeComGateway {
                                             .send_stream_chunk(
                                                 req_id,
                                                 &stream_id,
-                                                &accumulated_text,
+                                                stream_content,
                                                 false,
                                                 ws_sink,
                                             )
@@ -1381,7 +1624,7 @@ impl WeComGateway {
                                         {
                                             eprintln!("[WeCom] Failed to send stream chunk: {}", e);
                                         }
-                                        last_send_len = accumulated_text.len();
+                                        last_send_len = stream_len;
                                         last_send_time = tokio::time::Instant::now();
                                     }
                                 }
@@ -1432,23 +1675,31 @@ impl WeComGateway {
                                         let _ = thinking_ctl_tx.send(2);
                                     }
 
-                                    // If we didn't get any streaming content, fetch the full message
+                                    // If no streaming text, use reasoning or fetch full message
                                     if accumulated_text.is_empty() {
-                                        let msg_id =
-                                            info.get("id").and_then(|id| id.as_str()).unwrap_or("");
-                                        if let Ok(full_text) =
-                                            super::fetch_message_content(port, session_id, msg_id)
-                                                .await
-                                        {
-                                            accumulated_text = full_text;
+                                        // First try reasoning content (some models only produce thinking)
+                                        if !accumulated_reasoning.is_empty() {
+                                            accumulated_text = accumulated_reasoning.clone();
+                                        } else {
+                                            // Last resort: fetch the full message from API
+                                            let msg_id =
+                                                info.get("id").and_then(|id| id.as_str()).unwrap_or("");
+                                            if let Ok(full_text) =
+                                                super::fetch_message_content(port, session_id, msg_id)
+                                                    .await
+                                            {
+                                                accumulated_text = full_text;
+                                            }
                                         }
                                     }
 
-                                    // Send final chunk
-                                    let final_text = if accumulated_text.is_empty() {
-                                        "(No response)".to_string()
-                                    } else {
+                                    // Send final chunk — use text if available, otherwise reasoning
+                                    let final_text = if !accumulated_text.is_empty() {
                                         accumulated_text
+                                    } else if !accumulated_reasoning.is_empty() {
+                                        accumulated_reasoning
+                                    } else {
+                                        "(No response)".to_string()
                                     };
                                     return self
                                         .send_stream_chunk(
@@ -1534,13 +1785,14 @@ impl WeComGateway {
     async fn handle_enter_chat(&self, req_id: &str, ws_sink: &WsSink) {
         use futures_util::SinkExt;
 
+        let locale = i18n::get_locale(&self.workspace_path);
         let welcome = serde_json::json!({
             "cmd": "aibot_respond_welcome_msg",
             "headers": { "req_id": req_id },
             "body": {
                 "msgtype": "text",
                 "text": {
-                    "content": "你好！我是 AI 助手。直接发消息给我开始对话，发送 /help 查看可用命令。"
+                    "content": i18n::t(i18n::MsgKey::WecomWelcome, locale)
                 }
             }
         });

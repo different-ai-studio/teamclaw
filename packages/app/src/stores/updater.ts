@@ -64,6 +64,8 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => ({
             signature: result.signature,
           },
         })
+        // Download and install in the background; UI only prompts when ready to restart (or on error).
+        await get().installUpdate()
       } else {
         set({ update: { state: "up-to-date" }, pendingUpdate: null })
         // Auto-clear after 3s
@@ -88,11 +90,15 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => ({
   installUpdate: async () => {
     const pending = get().pendingUpdate
     if (!pending) {
-      set({ update: { state: "error", errorMessage: "No pending update to install." } })
+      const cur = get().update
+      set({
+        update: { ...cur, state: "error", errorMessage: "No pending update to install." },
+      })
       return
     }
 
-    set({ update: { state: "downloading", progress: 0 } })
+    const base = get().update
+    set({ update: { ...base, state: "downloading", progress: 0 } })
 
     try {
       const { invoke } = await import("@tauri-apps/api/core")
@@ -103,13 +109,17 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => ({
         "update-download-progress",
         (event) => {
           const { downloaded, contentLength } = event.payload
+          const cur = get().update
           if (contentLength && contentLength > 0) {
             set({
               update: {
+                ...cur,
                 state: "downloading",
                 progress: Math.round((downloaded / contentLength) * 100),
               },
             })
+          } else {
+            set({ update: { ...cur, state: "downloading" } })
           }
         },
       )
@@ -119,13 +129,24 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => ({
           downloadUrl: pending.downloadUrl,
           signature: pending.signature,
         })
-        set({ update: { state: "ready" }, pendingUpdate: null })
+        const cur = get().update
+        set({
+          update: { ...cur, state: "ready", progress: undefined, errorMessage: undefined },
+          pendingUpdate: null,
+        })
       } finally {
         unlisten()
       }
     } catch (err) {
       console.error("[Updater] Install failed:", err)
-      set({ update: { state: "error", errorMessage: String(err) } })
+      const cur = get().update
+      set({
+        update: {
+          ...cur,
+          state: "error",
+          errorMessage: String(err),
+        },
+      })
     }
   },
 

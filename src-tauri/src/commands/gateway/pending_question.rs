@@ -152,7 +152,11 @@ pub fn parse_question_event(event: &serde_json::Value) -> Vec<QuestionInfo> {
 
 // ==================== Formatting ====================
 
-pub fn format_question_message(questions: &[QuestionInfo], question_id: &str) -> String {
+pub fn format_question_message(
+    questions: &[QuestionInfo],
+    question_id: &str,
+    locale: super::i18n::Locale,
+) -> String {
     let mut out = String::from("AI has a question:\n\n");
 
     for (i, q) in questions.iter().enumerate() {
@@ -171,8 +175,14 @@ pub fn format_question_message(questions: &[QuestionInfo], question_id: &str) ->
         out.push('\n');
     }
 
-    out.push_str("请用 /answer <序号或内容> 回复，5分钟内有效\n");
-    out.push_str(&format!("例如: /answer 1\n[Q:{}]", question_id));
+    out.push_str(&super::i18n::t(
+        super::i18n::MsgKey::PendingQuestionUsage,
+        locale,
+    ));
+    out.push_str(&super::i18n::t(
+        super::i18n::MsgKey::PendingQuestionExample(question_id),
+        locale,
+    ));
     out
 }
 
@@ -428,12 +438,12 @@ mod tests {
                 },
             ],
         }];
-        let msg = format_question_message(&questions, "q_123");
+        let msg = format_question_message(&questions, "q_123", crate::commands::gateway::i18n::Locale::En);
         assert!(msg.contains("Continue with the refactor?"));
         assert!(msg.contains("1. Yes"));
         assert!(msg.contains("2. No"));
         assert!(msg.contains("[Q:q_123]"));
-        assert!(msg.contains("Auto-reject in 5 min"));
+        assert!(msg.contains("/answer"));
     }
 
     #[test]
@@ -442,7 +452,7 @@ mod tests {
             question: "What should I name this variable?".to_string(),
             options: vec![],
         }];
-        let msg = format_question_message(&questions, "q_456");
+        let msg = format_question_message(&questions, "q_456", crate::commands::gateway::i18n::Locale::En);
         assert!(msg.contains("What should I name this variable?"));
         assert!(!msg.contains("1."));
         assert!(msg.contains("[Q:q_456]"));
@@ -460,7 +470,7 @@ mod tests {
                 options: vec![],
             },
         ];
-        let msg = format_question_message(&questions, "q_multi");
+        let msg = format_question_message(&questions, "q_multi", crate::commands::gateway::i18n::Locale::En);
         assert!(msg.contains("**Question 1:**"));
         assert!(msg.contains("**Question 2:**"));
     }

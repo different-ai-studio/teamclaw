@@ -11,6 +11,7 @@ use super::kook_config::{KookConfig, KookGatewayStatus, KookGatewayStatusRespons
 use super::session::SessionMapping;
 
 use super::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use super::i18n;
 
 /// Maximum number of buffered out-of-order messages
 const MAX_BUFFER_SIZE: usize = 100;
@@ -89,6 +90,8 @@ pub struct KookGateway {
     config: Arc<RwLock<KookConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
+    #[allow(dead_code)]
+    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<KookGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
@@ -107,11 +110,12 @@ pub struct KookGateway {
 }
 
 impl KookGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping) -> Self {
+    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
         Self {
             config: Arc::new(RwLock::new(KookConfig::default())),
             session_mapping,
             opencode_port,
+            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(KookGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -923,6 +927,7 @@ impl KookGateway {
         drop(bot_id);
 
         // Check for /answer command — routes reply to the most recent pending question
+        let locale = i18n::get_locale(&self.workspace_path);
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&content) {
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
                 println!(
@@ -930,10 +935,10 @@ impl KookGateway {
                     qid, answer_text
                 );
                 let _ = self
-                    .send_reply(msg, &format!("✓ 已回复: {}", answer_text))
+                    .send_reply(msg, &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale))
                     .await;
             } else {
-                let _ = self.send_reply(msg, "当前没有待回复的问题").await;
+                let _ = self.send_reply(msg, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale)).await;
             }
             return Ok(());
         }
@@ -959,13 +964,14 @@ impl KookGateway {
             msg.target_id.clone()
         };
         let channel_type = msg.channel_type.clone();
+        let locale_for_q = i18n::get_locale(&self.workspace_path);
         let question_ctx = super::QuestionContext {
             forwarder: Box::new(move |fq: super::ForwardedQuestion| {
                 let token = qctx_config.token.clone();
                 let target = target.clone();
                 let ct = channel_type.clone();
                 Box::pin(async move {
-                    let text = super::format_question_message(&fq.questions, &fq.question_id);
+                    let text = super::format_question_message(&fq.questions, &fq.question_id, locale_for_q);
                     let client = reqwest::Client::new();
                     let (url, body) = if ct == "PERSON" {
                         (
@@ -1286,6 +1292,7 @@ impl KookGateway {
         content: &str,
         msg: &KookMessageData,
     ) -> Result<(), String> {
+        let locale = i18n::get_locale(&self.workspace_path);
         let parts: Vec<&str> = content.trim().split_whitespace().collect();
         let command = parts.first().map(|s| s.to_lowercase()).unwrap_or_default();
         let arg = parts.get(1..).map(|s| s.join(" ")).unwrap_or_default();
@@ -1295,7 +1302,7 @@ impl KookGateway {
                 self.session_mapping.remove_session(session_key).await;
                 self.send_reply(
                     msg,
-                    "Session reset! A new conversation will start with your next message.",
+                    &i18n::t(i18n::MsgKey::SessionReset, locale),
                 )
                 .await?;
             }
@@ -1309,6 +1316,7 @@ impl KookGateway {
                     &self.session_mapping,
                     session_key,
                     &arg,
+                    locale,
                 )
                 .await;
                 self.send_reply(msg, &response).await?;
@@ -1319,6 +1327,7 @@ impl KookGateway {
                     &self.session_mapping,
                     session_key,
                     &arg,
+                    locale,
                 )
                 .await;
                 self.send_reply(msg, &response).await?;
@@ -1328,6 +1337,7 @@ impl KookGateway {
                     self.opencode_port,
                     &self.session_mapping,
                     session_key,
+                    locale,
                 )
                 .await;
                 self.send_reply(msg, &response).await?;
@@ -1353,13 +1363,12 @@ impl KookGateway {
             .await
             .map_err(|e| format!("Failed to get models: {}", e))?;
 
+        let locale = i18n::get_locale(&self.workspace_path);
         let stored = self.session_mapping.get_model(session_key).await;
         let (active, is_custom) = match &stored {
             Some(m) => (m.as_str(), true),
             None => (default_model.as_str(), false),
         };
-
-        let current_label = if is_custom { "custom" } else { "default" };
 
         // Group models by provider
         let mut provider_groups: std::collections::BTreeMap<String, Vec<&super::ModelInfo>> =
@@ -1375,13 +1384,13 @@ impl KookGateway {
         let mut modules: Vec<serde_json::Value> = vec![
             json!({
                 "type": "header",
-                "text": { "type": "plain-text", "content": "Available Models" }
+                "text": { "type": "plain-text", "content": i18n::t(i18n::MsgKey::KookCardHeaderModels, locale) }
             }),
             json!({
                 "type": "section",
                 "text": {
                     "type": "kmarkdown",
-                    "content": format!("**Current Model:** {} ({})", active, current_label)
+                    "content": i18n::t(i18n::MsgKey::KookCardCurrentModel(active, is_custom), locale)
                 }
             }),
             json!({ "type": "divider" }),
@@ -1394,9 +1403,9 @@ impl KookGateway {
                 .map(|m| {
                     let full_id = format!("{}/{}", m.provider, m.id);
                     let marker = if full_id == active {
-                        " ← current"
+                        i18n::t(i18n::MsgKey::ModelCurrentMarker, locale)
                     } else {
-                        ""
+                        String::new()
                     };
                     format!("{} ({}){}", full_id, m.name, marker)
                 })
@@ -1418,7 +1427,7 @@ impl KookGateway {
                     "type": "section",
                     "text": {
                         "type": "kmarkdown",
-                        "content": "_(List truncated. Visit OpenCode UI for full model list.)_"
+                        "content": i18n::t(i18n::MsgKey::ModelListTruncated, locale)
                     }
                 }));
                 break;
@@ -1430,7 +1439,7 @@ impl KookGateway {
             "type": "context",
             "elements": [{
                 "type": "kmarkdown",
-                "content": "Use `/model provider/model` to switch. Use `/model default` to reset."
+                "content": i18n::t(i18n::MsgKey::ModelSwitchUsage, locale)
             }]
         }));
 
@@ -1446,6 +1455,7 @@ impl KookGateway {
 
     /// Send help as a well-structured card
     async fn send_help_card(&self, msg: &KookMessageData) -> Result<(), String> {
+        let locale = i18n::get_locale(&self.workspace_path);
         let card = json!([{
             "type": "card",
             "theme": "info",
@@ -1453,13 +1463,13 @@ impl KookGateway {
             "modules": [
                 {
                     "type": "header",
-                    "text": { "type": "plain-text", "content": "TeamClaw Bot Commands" }
+                    "text": { "type": "plain-text", "content": i18n::t(i18n::MsgKey::KookCardHeaderHelp, locale) }
                 },
                 {
                     "type": "section",
                     "text": {
                         "type": "kmarkdown",
-                        "content": "/reset - Reset the current chat session\n/model - View current model or switch models\n/sessions - List or switch sessions\n/stop - Stop the current processing\n/help - Show this help message"
+                        "content": i18n::t(i18n::MsgKey::HelpKook, locale)
                     }
                 },
                 { "type": "divider" },
@@ -1467,7 +1477,7 @@ impl KookGateway {
                     "type": "context",
                     "elements": [{
                         "type": "kmarkdown",
-                        "content": "In DMs: Just send a message to start chatting. In channels: Send messages directly."
+                        "content": i18n::t(i18n::MsgKey::KookCardHelpUsage, locale)
                     }]
                 }
             ]
@@ -1553,6 +1563,7 @@ impl Clone for KookGateway {
             config: Arc::clone(&self.config),
             session_mapping: self.session_mapping.clone(),
             opencode_port: self.opencode_port,
+            workspace_path: self.workspace_path.clone(),
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),

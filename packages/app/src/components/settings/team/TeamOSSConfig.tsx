@@ -12,6 +12,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { DeviceInfo } from '@/lib/git/types'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useProviderStore } from '@/stores/provider'
+import { useTranslation } from 'react-i18next'
 import {
   Cloud,
   Copy,
@@ -49,6 +50,7 @@ function SettingCard({
 }
 
 function TeamApiKeyCard() {
+  const { t } = useTranslation()
   const teamApiKey = useTeamModeStore((s) => s.teamApiKey)
   const setTeamApiKey = useTeamModeStore((s) => s.setTeamApiKey)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
@@ -67,17 +69,23 @@ function TeamApiKeyCard() {
   }
 
   return (
-    <SettingCard title="API Key" icon={KeyRound}>
+    <SettingCard title={t('settings.team.apiKeyTitle', 'API Key')} icon={KeyRound}>
       <div className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          可选。留空则使用设备 ID 作为身份验证密钥。
+          {t(
+            'settings.team.apiKeyDesc',
+            'Optional. Leave empty to use the team LiteLLM key auto-provisioned for this device (sk-tc- + first 40 chars of device ID).',
+          )}
         </p>
         <div className="flex items-center gap-2">
           <Input
             type="password"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="留空使用设备 ID"
+            placeholder={t(
+              'settings.team.apiKeyPlaceholder',
+              'Override key, or leave empty for auto sk-tc- key',
+            )}
             className="h-9 text-sm bg-background/50"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSave()
@@ -90,7 +98,7 @@ function TeamApiKeyCard() {
             disabled={saving}
             onClick={handleSave}
           >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '保存'}
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('common.save', 'Save')}
           </Button>
           {teamApiKey && (
             <Button
@@ -102,7 +110,7 @@ function TeamApiKeyCard() {
                 await setTeamApiKey(null, workspacePath || undefined)
               }}
             >
-              使用设备 ID
+              {t('settings.team.useDeviceId', 'Use auto key')}
             </Button>
           )}
         </div>

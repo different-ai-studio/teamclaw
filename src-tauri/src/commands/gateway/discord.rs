@@ -10,13 +10,14 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use super::config::{DiscordConfig, GatewayStatus, GatewayStatusResponse};
 use super::session::SessionMapping;
 
-use super::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use super::{i18n, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 
 /// Discord bot handler
 pub struct DiscordHandler {
     config: Arc<RwLock<DiscordConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
+    workspace_path: String,
     status_tx: mpsc::Sender<GatewayStatusResponse>,
     bot_user_id: Arc<RwLock<Option<u64>>>,
     /// Tracker for processed message IDs to prevent duplicate processing
@@ -33,6 +34,7 @@ impl DiscordHandler {
         config: Arc<RwLock<DiscordConfig>>,
         session_mapping: SessionMapping,
         opencode_port: u16,
+        workspace_path: String,
         status_tx: mpsc::Sender<GatewayStatusResponse>,
         permission_approver: super::PermissionAutoApprover,
         pending_questions: Arc<super::PendingQuestionStore>,
@@ -41,6 +43,7 @@ impl DiscordHandler {
             config,
             session_mapping,
             opencode_port,
+            workspace_path,
             status_tx,
             bot_user_id: Arc::new(RwLock::new(None)),
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
@@ -263,11 +266,13 @@ impl DiscordHandler {
                 ""
             };
             println!("[Discord] Model command received, arg: '{}'", arg);
+            let locale = i18n::get_locale(&self.workspace_path);
             let response = super::handle_model_command(
                 self.opencode_port,
                 &self.session_mapping,
                 &session_key,
                 arg,
+                locale,
             )
             .await;
 
@@ -292,12 +297,9 @@ impl DiscordHandler {
         if content.eq_ignore_ascii_case("/reset") {
             println!("[Discord] Reset command received");
             self.session_mapping.remove_session(&session_key).await;
-            let reply_text = if is_dm {
-                "Session reset. A new session will be created for your next message."
-            } else {
-                "Channel session reset. A new session will be created for the next message."
-            };
-            let _ = msg.reply(&ctx.http, reply_text).await;
+            let locale = i18n::get_locale(&self.workspace_path);
+            let reply_text = i18n::t(i18n::MsgKey::SessionReset, locale);
+            let _ = msg.reply(&ctx.http, &reply_text).await;
             println!("[Discord] Session reset completed");
             return;
         }
@@ -305,9 +307,14 @@ impl DiscordHandler {
         // Handle /stop command
         if content.eq_ignore_ascii_case("/stop") {
             println!("[Discord] Stop command received");
-            let response =
-                super::handle_stop_command(self.opencode_port, &self.session_mapping, &session_key)
-                    .await;
+            let locale = i18n::get_locale(&self.workspace_path);
+            let response = super::handle_stop_command(
+                self.opencode_port,
+                &self.session_mapping,
+                &session_key,
+                locale,
+            )
+            .await;
             let _ = msg.reply(&ctx.http, &response).await;
             return;
         }
@@ -324,12 +331,16 @@ impl DiscordHandler {
             println!("[Discord] Sessions command received, arg: '{}'", arg);
 
             // Send a placeholder message first
-            let placeholder = msg.reply(&ctx.http, "Loading sessions...").await;
+            let locale = i18n::get_locale(&self.workspace_path);
+            let placeholder = msg
+                .reply(&ctx.http, &i18n::t(i18n::MsgKey::LoadingSessions, locale))
+                .await;
             let response = super::handle_sessions_command(
                 self.opencode_port,
                 &self.session_mapping,
                 &session_key,
                 arg,
+                locale,
             )
             .await;
 
@@ -405,11 +416,12 @@ impl DiscordHandler {
         let pending_questions = Arc::clone(&self.pending_questions);
         let channel_id = msg.channel_id;
         let http = Arc::clone(&ctx.http);
+        let locale_for_q = i18n::get_locale(&self.workspace_path);
         let question_ctx = super::QuestionContext {
             forwarder: Box::new(move |fq: super::ForwardedQuestion| {
                 let http = Arc::clone(&http);
                 Box::pin(async move {
-                    let text = super::format_question_message(&fq.questions, &fq.question_id);
+                    let text = super::format_question_message(&fq.questions, &fq.question_id, locale_for_q);
                     let sent = channel_id
                         .say(&http, &text)
                         .await
@@ -633,17 +645,24 @@ impl EventHandler for DiscordHandler {
 
         // Check for /answer command — routes reply to the most recent pending question
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&msg.content) {
+            let locale = i18n::get_locale(&self.workspace_path);
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
                 println!(
                     "[Discord] Question {} answered via /answer: {}",
                     qid, answer_text
                 );
                 let _ = msg
-                    .reply(&ctx.http, &format!("✓ Answered: {}", answer_text))
+                    .reply(
+                        &ctx.http,
+                        &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale),
+                    )
                     .await;
             } else {
                 let _ = msg
-                    .reply(&ctx.http, "No pending questions to answer.")
+                    .reply(
+                        &ctx.http,
+                        &i18n::t(i18n::MsgKey::NoPendingQuestions, locale),
+                    )
                     .await;
             }
             return;
@@ -759,6 +778,7 @@ impl EventHandler for DiscordHandler {
                 return;
             }
 
+            let locale = i18n::get_locale(&self.workspace_path);
             let content = match command.data.name.as_str() {
                 "reset" => {
                     let is_dm = command.guild_id.is_none();
@@ -772,12 +792,7 @@ impl EventHandler for DiscordHandler {
                         )
                     };
                     self.session_mapping.remove_session(&session_key).await;
-                    if is_dm {
-                        "Session reset! A new conversation will start with your next message."
-                            .to_string()
-                    } else {
-                        "Channel session reset! A new conversation will start with the next message.".to_string()
-                    }
+                    i18n::t(i18n::MsgKey::SessionReset, locale)
                 }
                 "model" => {
                     let model_arg = command
@@ -804,6 +819,7 @@ impl EventHandler for DiscordHandler {
                         &self.session_mapping,
                         &session_key,
                         model_arg,
+                        locale,
                     )
                     .await
                 }
@@ -823,6 +839,7 @@ impl EventHandler for DiscordHandler {
                         self.opencode_port,
                         &self.session_mapping,
                         &session_key,
+                        locale,
                     )
                     .await
                 }
@@ -852,21 +869,12 @@ impl EventHandler for DiscordHandler {
                         &self.session_mapping,
                         &session_key,
                         &session_arg,
+                        locale,
                     )
                     .await
                 }
-                "help" => "**TeamClaw Bot Commands**\n\n\
-                    `/reset` - Reset the current chat session\n\
-                    `/model` - View current model or switch models\n\
-                    `/sessions` - List or switch sessions\n\
-                    `/stop` - Stop the current processing\n\
-                    `/help` - Show this help message\n\n\
-                    **How to use:**\n\
-                    • In DMs: Just send a message to start chatting\n\
-                    • In channels: Mention the bot or reply to its messages\n\n\
-                    You can also send images along with your messages!"
-                    .to_string(),
-                _ => "Unknown command".to_string(),
+                "help" => i18n::t(i18n::MsgKey::HelpDiscord, locale),
+                name => i18n::t(i18n::MsgKey::UnknownCommand(name), locale),
             };
 
             // Edit the deferred response with the actual content
@@ -924,6 +932,7 @@ pub struct DiscordGateway {
     config: Arc<RwLock<DiscordConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
+    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<GatewayStatusResponse>>,
     /// Track if gateway is currently running
@@ -935,11 +944,12 @@ pub struct DiscordGateway {
 }
 
 impl DiscordGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping) -> Self {
+    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
         Self {
             config: Arc::new(RwLock::new(DiscordConfig::default())),
             session_mapping,
             opencode_port,
+            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(GatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -1010,6 +1020,7 @@ impl DiscordGateway {
             Arc::clone(&self.config),
             self.session_mapping.clone(),
             self.opencode_port,
+            self.workspace_path.clone(),
             status_tx,
             self.permission_approver.clone(),
             Arc::clone(&self.pending_questions),
@@ -1137,6 +1148,7 @@ impl Clone for DiscordGateway {
             config: Arc::clone(&self.config),
             session_mapping: self.session_mapping.clone(),
             opencode_port: self.opencode_port,
+            workspace_path: self.workspace_path.clone(),
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),

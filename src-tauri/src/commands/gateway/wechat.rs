@@ -1,3 +1,4 @@
+use super::i18n;
 use super::session::SessionMapping;
 use super::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
 use super::wechat_config::{
@@ -353,6 +354,8 @@ pub struct WeChatGateway {
     config: Arc<RwLock<WeChatConfig>>,
     session_mapping: SessionMapping,
     opencode_port: u16,
+    #[allow(dead_code)]
+    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<WeChatGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
@@ -364,16 +367,15 @@ pub struct WeChatGateway {
     pending_questions: Arc<super::PendingQuestionStore>,
     /// Cache of from_user_id -> context_token for replies
     context_tokens: Arc<RwLock<HashMap<String, String>>>,
-    /// Workspace path for persisting config to disk
-    workspace_path: Arc<RwLock<Option<String>>>,
 }
 
 impl WeChatGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping) -> Self {
+    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeChatConfig::default())),
             session_mapping,
             opencode_port,
+            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(WeChatGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -384,12 +386,7 @@ impl WeChatGateway {
             session_queue: Arc::new(SessionQueue::new()),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             context_tokens: Arc::new(RwLock::new(HashMap::new())),
-            workspace_path: Arc::new(RwLock::new(None)),
         }
-    }
-
-    pub async fn set_workspace_path(&self, path: String) {
-        *self.workspace_path.write().await = Some(path);
     }
 
     pub async fn set_config(&self, config: WeChatConfig) {
@@ -441,14 +438,10 @@ impl WeChatGateway {
 
     /// Persist context_tokens from in-memory config to teamclaw.json on disk
     async fn persist_context_tokens(&self) {
-        let workspace_path = match self.workspace_path.read().await.clone() {
-            Some(p) => p,
-            None => return,
-        };
         let config = self.config.read().await.clone();
         let path = format!(
             "{}/{}/{}",
-            workspace_path,
+            self.workspace_path,
             crate::commands::TEAMCLAW_DIR,
             crate::commands::CONFIG_FILE_NAME
         );
@@ -668,6 +661,7 @@ impl WeChatGateway {
 
     async fn handle_incoming_message(&self, sender_id: &str, text: &str) -> Result<(), String> {
         let session_key = format!("wechat:dm:{}", sender_id);
+        let locale = i18n::get_locale(&self.workspace_path);
 
         let trimmed = text.trim();
 
@@ -679,10 +673,10 @@ impl WeChatGateway {
                     qid, answer_text
                 );
                 let _ = self
-                    .send_to_user(sender_id, &format!("✓ 已提交：{}", answer_text))
+                    .send_to_user(sender_id, &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale))
                     .await;
             } else {
-                let _ = self.send_to_user(sender_id, "当前没有待回答的问题。").await;
+                let _ = self.send_to_user(sender_id, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale)).await;
             }
             return Ok(());
         }
@@ -719,16 +713,17 @@ impl WeChatGateway {
         let notify_fn = {
             let gateway = gateway.clone();
             let sender_id = sender_id.clone();
+            let locale_for_notify = locale;
             Some(Box::new(move |reason: RejectReason| {
                 let gateway = gateway.clone();
                 let sender_id = sender_id.clone();
                 Box::pin(async move {
                     let msg = match reason {
-                        RejectReason::Timeout => "Message queue timeout, please try again.",
-                        RejectReason::QueueFull => "Too many messages, please wait.",
-                        RejectReason::SessionClosed => "Gateway is shutting down.",
+                        RejectReason::Timeout => i18n::t(i18n::MsgKey::QueueTimeout, locale_for_notify),
+                        RejectReason::QueueFull => i18n::t(i18n::MsgKey::QueueFull, locale_for_notify),
+                        RejectReason::SessionClosed => i18n::t(i18n::MsgKey::GatewayShuttingDown, locale_for_notify),
                     };
-                    let _ = gateway.send_to_user(&sender_id, msg).await;
+                    let _ = gateway.send_to_user(&sender_id, &msg).await;
                 })
                     as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
             })
@@ -764,17 +759,18 @@ impl WeChatGateway {
     }
 
     async fn handle_slash_command(&self, session_key: &str, content: &str) -> String {
+        let locale = i18n::get_locale(&self.workspace_path);
         let parts: Vec<&str> = content.splitn(2, ' ').collect();
         let cmd = parts[0].to_lowercase();
         let arg = parts.get(1).copied().unwrap_or("").trim();
 
         match cmd.as_str() {
             "/help" => {
-                "Available commands:\n/help - Show this help\n/model [name] - List or switch models\n/sessions [id] - List or bind sessions\n/reset - Start new session\n/stop - Stop current processing\n/answer - Reply to an AI clarification (see bot message)".to_string()
+                i18n::t(i18n::MsgKey::HelpWechat, locale)
             }
             "/reset" => {
                 self.session_mapping.remove_session(session_key).await;
-                "Session reset. Next message will start a new conversation.".to_string()
+                i18n::t(i18n::MsgKey::SessionReset, locale)
             }
             "/model" => {
                 super::handle_model_command(
@@ -782,6 +778,7 @@ impl WeChatGateway {
                     &self.session_mapping,
                     session_key,
                     arg,
+                    locale,
                 )
                 .await
             }
@@ -791,6 +788,7 @@ impl WeChatGateway {
                     &self.session_mapping,
                     session_key,
                     arg,
+                    locale,
                 )
                 .await
             }
@@ -799,14 +797,16 @@ impl WeChatGateway {
                     self.opencode_port,
                     &self.session_mapping,
                     session_key,
+                    locale,
                 )
                 .await
             }
-            _ => format!("Unknown command: {}\nType /help for available commands.", cmd),
+            _ => i18n::t(i18n::MsgKey::UnknownCommand(&cmd), locale),
         }
     }
 
     async fn process_and_reply(&self, sender_id: &str, text: &str) {
+        let locale = i18n::get_locale(&self.workspace_path);
         // Get or create session
         let session_key = format!("wechat:dm:{}", sender_id);
         let session_id = match self.session_mapping.get_session(&session_key).await {
@@ -842,12 +842,13 @@ impl WeChatGateway {
         let pending_questions = Arc::clone(&self.pending_questions);
         let sender_for_q = sender_id.to_string();
         let gateway_for_q = self.clone();
+        let locale_for_q = i18n::get_locale(&self.workspace_path);
         let question_ctx = super::QuestionContext {
             forwarder: Box::new(move |fq: super::ForwardedQuestion| {
                 let gateway = gateway_for_q.clone();
                 let sid = sender_for_q.clone();
                 Box::pin(async move {
-                    let text = super::format_question_message(&fq.questions, &fq.question_id);
+                    let text = super::format_question_message(&fq.questions, &fq.question_id, locale_for_q);
                     gateway.send_to_user(&sid, &text).await?;
                     Ok(uuid::Uuid::new_v4().to_string())
                 })
@@ -874,7 +875,7 @@ impl WeChatGateway {
         {
             Ok(response) => {
                 let reply = if response.trim().is_empty() {
-                    "模型未返回文字内容，请稍后重试或换种说法。".to_string()
+                    i18n::t(i18n::MsgKey::ModelEmptyResponse, locale)
                 } else {
                     response
                 };

@@ -74,7 +74,8 @@ export const AboutSection = React.memo(function AboutSection() {
             ) : isDownloading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {update.progress ?? 0}%
+                {t("settings.update.updating", "Updating…")}
+                {update.progress != null && update.progress > 0 ? ` ${update.progress}%` : ""}
               </>
             ) : isAvailable ? (
               <>

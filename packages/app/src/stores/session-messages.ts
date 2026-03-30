@@ -28,6 +28,28 @@ import { appShortName } from "@/lib/build-config";
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
 
+const LOGIN_RELATED_PROMPT = [
+  "Tool routing rule for web tasks:",
+  "If the user request may require website login, existing browser session, cookies, OAuth, SSO, MFA, CAPTCHA, or interactive page operations, do not start with webfetch.",
+  "First use the chrome-control MCP when available, or Playwright MCP as fallback, to open the site in a real browser, verify whether login is required, and continue only after the authenticated state is available.",
+  "Use webfetch only for public pages that do not require authentication or interactive browser state.",
+].join(" ");
+
+const LOGIN_RELATED_PATTERNS = [
+  /\b(login|log in|sign in|signin|authenticate|authentication|reauth|oauth|sso|mfa|2fa|captcha|cookie|cookies|session)\b/i,
+  /(登录|登陆|认证|鉴权|授权|会话|cookie|验证码|二次验证|双因子|单点登录)/i,
+];
+
+function shouldPreferInteractiveBrowserForMessage(message: string): boolean {
+  const normalized = message.trim();
+  if (!normalized) return false;
+  return LOGIN_RELATED_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function appendSystemPrompt(basePrompt: string | undefined, extraPrompt: string): string {
+  return basePrompt ? `${basePrompt}\n\n---\n\n${extraPrompt}` : extraPrompt;
+}
+
 export function createMessageActions(set: SessionSet, get: SessionGet) {
   return {
     // RAG V2: Auto-inject knowledge from pre-inference search
@@ -273,6 +295,10 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
           systemPrompt = systemPrompt
             ? `${ragResult.context}\n\n---\n\n${systemPrompt}`
             : ragResult.context;
+        }
+
+        if (shouldPreferInteractiveBrowserForMessage(content)) {
+          systemPrompt = appendSystemPrompt(systemPrompt, LOGIN_RELATED_PROMPT);
         }
 
         if (ragResult.chunks && ragResult.chunks.length > 0) {

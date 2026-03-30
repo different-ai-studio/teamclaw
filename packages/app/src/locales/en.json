@@ -247,6 +247,8 @@
     "later": "Later",
     "updateNow": "Update Now",
     "restartNow": "Restart Now",
+    "restartLater": "Restart later",
+    "restartRecommendation": "The update is installed. We recommend restarting soon to use the new version.",
     "newVersion": "A new version",
     "isAvailable": "is available.",
     "pleaseWait": "Please wait while the update is being downloaded.",
@@ -1277,9 +1279,9 @@
       "legacy": "Legacy",
       "gitDeprecated": "Git sync is deprecated. Use the P2P tab for decentralized team sync with device identity.",
       "apiKeyTitle": "API Key",
-      "apiKeyDesc": "Optional. Leave empty to use Device ID for authentication.",
-      "apiKeyPlaceholder": "Leave empty to use Device ID",
-      "useDeviceId": "Use Device ID",
+      "apiKeyDesc": "Optional. Leave empty to use the team LiteLLM key auto-provisioned for this device (sk-tc- + first 40 chars of device ID).",
+      "apiKeyPlaceholder": "Override key, or leave empty for auto sk-tc- key",
+      "useDeviceId": "Use auto key",
       "p2pSyncing": "Team Drive Active",
       "roleOwner": "Owner",
       "roleMember": "Member",
@@ -1531,8 +1533,10 @@
       "check": "Check for updates",
       "checking": "Checking",
       "downloading": "Downloading",
+      "updating": "Updating…",
       "upToDate": "Up to date",
-      "install": "Install"
+      "install": "Install",
+      "restart": "Restart"
     },
     "leaderboard": {
       "title": "Team Leaderboard",
