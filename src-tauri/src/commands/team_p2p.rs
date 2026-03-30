@@ -200,13 +200,15 @@ pub async fn get_device_node_id(iroh_state: tauri::State<'_, IrohState>) -> Resu
 
 /// Collect all files recursively from a directory, returning (relative_path, content) pairs.
 const MAX_SYNC_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+const MAX_TOTAL_SYNC_SIZE: u64 = 500 * 1024 * 1024; // 500 MB total
 
 fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut files = Vec::new();
+    let mut total_size: u64 = 0;
     if !dir.exists() {
         return files;
     }
-    for entry in walkdir::WalkDir::new(dir)
+    'outer: for entry in walkdir::WalkDir::new(dir)
         .into_iter()
         .filter_map(|e| e.ok())
     {
@@ -221,9 +223,17 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
                     );
                     continue;
                 }
+                if total_size + meta.len() > MAX_TOTAL_SYNC_SIZE {
+                    eprintln!(
+                        "[P2P] Reached cumulative size limit ({} MB), stopping collection",
+                        MAX_TOTAL_SYNC_SIZE / (1024 * 1024)
+                    );
+                    break 'outer;
+                }
             }
             if let Ok(content) = std::fs::read(entry.path()) {
                 if let Ok(rel) = entry.path().strip_prefix(base) {
+                    total_size += content.len() as u64;
                     files.push((rel.to_string_lossy().to_string(), content));
                 }
             }
