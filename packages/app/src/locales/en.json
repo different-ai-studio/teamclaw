@@ -1161,6 +1161,25 @@
         "wizardVerifyDesc": "Your WeChat is connected.",
         "wizardCompleteTitle": "Setup Complete",
         "wizardCompleteDesc": "Your WeChat channel is ready."
+      },
+      "wecom": {
+        "chooseMethod": "Choose Setup Method",
+        "chooseMethodDesc": "How would you like to set up your WeCom bot?",
+        "qrScan": "QR Code Scan",
+        "qrScanRecommended": "Recommended",
+        "qrScanDesc": "Scan with WeCom to auto-create bot",
+        "manualInput": "Manual Input",
+        "manualInputDesc": "Already have Bot ID and Secret",
+        "scanTitle": "Scan QR Code",
+        "scanDesc": "Use WeCom to scan the QR code below.",
+        "loadingQr": "Generating QR code...",
+        "scanInstructions": "Open WeCom on your phone and scan this QR code to authorize.",
+        "waitingScan": "Waiting for scan...",
+        "scanSuccess": "Authorization successful! Credentials obtained.",
+        "scanTimeout": "QR code expired. Please try again.",
+        "scanError": "Failed to get QR code. Please try again or use manual input.",
+        "retryQr": "Retry",
+        "switchToManual": "Switch to Manual Input"
       }
     },
     "cron": {
