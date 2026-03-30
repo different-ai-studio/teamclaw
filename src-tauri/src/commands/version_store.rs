@@ -62,6 +62,7 @@ impl VersionStore {
     }
 
     /// Record a new version (or update-in-place for recent local edits).
+    #[allow(dead_code)]
     pub async fn record_version(
         &self,
         file_path: &str,
@@ -269,6 +270,7 @@ impl VersionStore {
 
 /// Returns true if the datetime string (SQLite datetime format: "YYYY-MM-DD HH:MM:SS")
 /// is within 5 minutes of now (UTC).
+#[allow(dead_code)]
 fn parse_and_check_within_5min(dt_str: &str) -> bool {
     // Parse "YYYY-MM-DD HH:MM:SS" from SQLite datetime('now') output
     let parts: Vec<&str> = dt_str.split_whitespace().collect();
@@ -302,6 +304,7 @@ fn parse_and_check_within_5min(dt_str: &str) -> bool {
 
 /// Very rough conversion from calendar date to unix seconds.
 /// Accurate enough for 5-minute comparison.
+#[allow(dead_code)]
 fn approx_unix_secs(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64) -> i64 {
     // Days since epoch (1970-01-01)
     let mut days: i64 = 0;
@@ -320,6 +323,7 @@ fn approx_unix_secs(year: i64, month: i64, day: i64, hour: i64, minute: i64, sec
     days * 86400 + hour * 3600 + minute * 60 + second
 }
 
+#[allow(dead_code)]
 fn is_leap(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }

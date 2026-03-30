@@ -47,7 +47,6 @@ pub enum MsgKey<'a> {
     SessionsSwitchUsage,
     InvalidSessionNumber(&'a str),
     SessionNotFound(usize, usize),
-    SwitchedToSession(&'a str),
     SwitchedToSessionWithLatest(&'a str, &'a str),
     SwitchedToSessionNoLatest(&'a str),
     FailedToListSessions(&'a str),
@@ -164,9 +163,6 @@ pub fn t(key: MsgKey, locale: Locale) -> String {
 
         (SessionNotFound(num, total), En) => format!("Session #{} not found. There are only {} sessions.", num, total),
         (SessionNotFound(num, total), ZhCN) => format!("会话 #{} 不存在，当前共有 {} 个会话。", num, total),
-
-        (SwitchedToSession(title), En) => format!("Switched to session: \"{}\"", title),
-        (SwitchedToSession(title), ZhCN) => format!("已切换到会话: \"{}\"", title),
 
         (SwitchedToSessionWithLatest(title, latest), En) => {
             format!("Switched to session: \"{}\"\n\n**Latest response:**\n{}", title, latest)

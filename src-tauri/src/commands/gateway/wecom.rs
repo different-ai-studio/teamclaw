@@ -244,6 +244,7 @@ struct WeComFrom {
 /// Metadata stored when a template card is sent for a question,
 /// needed to update the card when the user clicks a button.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct CardMetadata {
     question_text: String,
     options: Vec<super::pending_question::QuestionOption>,
