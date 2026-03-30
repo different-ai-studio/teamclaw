@@ -435,12 +435,21 @@ pub async fn start_opencode_inner(
     );
 
     // Build sidecar command, also injecting secrets as process env vars (backup)
+    //
+    // XDG isolation: redirect all OpenCode data/config/state/cache directories
+    // into <workspace>/.opencode/ so each workspace is fully self-contained
+    // and independent of any system-installed OpenCode.
+    let xdg_base = std::path::PathBuf::from(&workspace_path).join(".opencode");
     let mut sidecar_command = app
         .shell()
         .sidecar("opencode")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
         .args(["serve", "--port", &port_str])
-        .current_dir(&workspace_path);
+        .current_dir(&workspace_path)
+        .env("XDG_DATA_HOME", xdg_base.join("data").to_string_lossy().as_ref())
+        .env("XDG_CONFIG_HOME", xdg_base.join("config").to_string_lossy().as_ref())
+        .env("XDG_STATE_HOME", xdg_base.join("state").to_string_lossy().as_ref())
+        .env("XDG_CACHE_HOME", xdg_base.join("cache").to_string_lossy().as_ref());
     for (key, value) in &secrets {
         sidecar_command = sidecar_command.env(key, value);
     }
@@ -1379,14 +1388,27 @@ pub async fn stop_opencode(state: State<'_, OpenCodeState>) -> Result<(), String
 
 // ─── OpenCode DB allowlist commands ──────────────────────────────────
 
-fn get_opencode_db_path() -> Result<String, String> {
+fn get_opencode_db_path(workspace_path: &str) -> Result<String, String> {
+    // With XDG isolation, the DB lives at <workspace>/.opencode/data/opencode/opencode.db
+    let isolated_path = std::path::PathBuf::from(workspace_path)
+        .join(".opencode/data/opencode/opencode.db");
+    if isolated_path.exists() {
+        return Ok(isolated_path.to_string_lossy().to_string());
+    }
+
+    // Fallback to legacy global path for workspaces that haven't been re-launched yet
     let home =
         std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
-    let path = format!("{}/.local/share/opencode/opencode.db", home);
-    if !std::path::Path::new(&path).exists() {
-        return Err(format!("OpenCode database not found at: {}", path));
+    let legacy_path = format!("{}/.local/share/opencode/opencode.db", home);
+    if std::path::Path::new(&legacy_path).exists() {
+        return Ok(legacy_path);
     }
-    Ok(path)
+
+    Err(format!(
+        "OpenCode database not found at: {} or {}",
+        isolated_path.display(),
+        legacy_path
+    ))
 }
 
 /// Look up the project_id for a given workspace path from the project table.
@@ -1395,7 +1417,7 @@ fn get_opencode_db_path() -> Result<String, String> {
 ///   - non-git directories use "global"
 #[tauri::command]
 pub async fn get_opencode_project_id(workspace_path: String) -> Result<String, String> {
-    let db_path = get_opencode_db_path()?;
+    let db_path = get_opencode_db_path(&workspace_path)?;
     let normalized = workspace_path.trim_end_matches('/');
 
     let output = std::process::Command::new("sqlite3")
@@ -1453,8 +1475,8 @@ pub struct AllowlistRow {
 
 /// Read all permission allowlist rows from the opencode.db permission table.
 #[tauri::command]
-pub async fn read_opencode_allowlist() -> Result<Vec<AllowlistRow>, String> {
-    let db_path = get_opencode_db_path()?;
+pub async fn read_opencode_allowlist(workspace_path: String) -> Result<Vec<AllowlistRow>, String> {
+    let db_path = get_opencode_db_path(&workspace_path)?;
 
     let output = std::process::Command::new("sqlite3")
         .args([
@@ -1507,10 +1529,11 @@ pub async fn read_opencode_allowlist() -> Result<Vec<AllowlistRow>, String> {
 /// Pass an empty `rules` array to delete the entry.
 #[tauri::command]
 pub async fn write_opencode_allowlist(
+    workspace_path: String,
     project_id: String,
     rules: Vec<PermissionRule>,
 ) -> Result<(), String> {
-    let db_path = get_opencode_db_path()?;
+    let db_path = get_opencode_db_path(&workspace_path)?;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
