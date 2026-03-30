@@ -283,7 +283,13 @@ export function TeamP2PConfig() {
     setJoinApprovalPending(false)
 
     try {
-      await tauriInvoke('p2p_join_drive', { ticket: ticket.trim(), label: '' })
+      await tauriInvoke('p2p_join_drive', {
+        ticket: ticket.trim(),
+        label: '',
+        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
+        llmModel: buildConfig.team.llm.model || null,
+        llmModelName: buildConfig.team.llm.modelName || null,
+      })
       setJoinTicketInput('')
       setSeedUrl('')
       setTeamId('')
