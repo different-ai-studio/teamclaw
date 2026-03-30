@@ -189,20 +189,55 @@ pub async fn unified_team_add_member(
             let node = guard.as_mut().ok_or("P2P node not running")?;
             let caller_node_id = super::team_p2p::get_node_id(node);
             let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
+            if node.active_doc.is_none() {
+                return Err(
+                    "No active team document — cannot sync members to peers. Reconnect to the team (or restart the app), then try again."
+                        .to_string(),
+                );
+            }
+            let added_node_id = member.node_id.clone();
             super::team_p2p::add_member_to_team(
                 &workspace_path,
                 &team_dir,
                 &caller_node_id,
                 member,
             )?;
-            // Push updated members.json to Iroh doc immediately (don't rely on fs watcher)
-            if let Some(ref doc) = node.active_doc {
-                let manifest_path = format!("{}/{}", team_dir, "_team/members.json");
-                if let Ok(content) = std::fs::read(&manifest_path) {
-                    let _ = doc
-                        .set_bytes(node.author, "_team/members.json", content)
-                        .await;
+            // Push updated members.json to Iroh doc immediately (don't rely on fs watcher).
+            // Joiners authorize against the doc, not only local disk.
+            let manifest_path = format!("{}/{}", team_dir, "_team/members.json");
+            let content = match std::fs::read(&manifest_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = super::team_p2p::remove_member_from_team(
+                        &workspace_path,
+                        &team_dir,
+                        &caller_node_id,
+                        &added_node_id,
+                    );
+                    return Err(format!(
+                        "Could not read members.json after add (rolled back): {}",
+                        e
+                    ));
                 }
+            };
+            let doc = node
+                .active_doc
+                .as_ref()
+                .expect("checked active_doc above");
+            if let Err(e) = doc
+                .set_bytes(node.author, "_team/members.json", content)
+                .await
+            {
+                let _ = super::team_p2p::remove_member_from_team(
+                    &workspace_path,
+                    &team_dir,
+                    &caller_node_id,
+                    &added_node_id,
+                );
+                return Err(format!(
+                    "Failed to sync members to the team document (rolled back): {}. Reconnect and try again.",
+                    e
+                ));
             }
             drop(guard);
             Ok(())
@@ -248,20 +283,72 @@ pub async fn unified_team_remove_member(
             let node = guard.as_mut().ok_or("P2P node not running")?;
             let caller_node_id = super::team_p2p::get_node_id(node);
             let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
+            if node.active_doc.is_none() {
+                return Err(
+                    "No active team document — cannot sync removal to peers. Reconnect to the team, then try again."
+                        .to_string(),
+                );
+            }
+            let member_snapshot = super::team_p2p::read_p2p_config(&workspace_path)?
+                .ok_or_else(|| "No P2P config found".to_string())?
+                .allowed_members
+                .iter()
+                .find(|m| m.node_id == node_id)
+                .cloned()
+                .ok_or_else(|| "Member not found".to_string())?;
+
             super::team_p2p::remove_member_from_team(
                 &workspace_path,
                 &team_dir,
                 &caller_node_id,
                 &node_id,
             )?;
-            // Push updated members.json to Iroh doc immediately
-            if let Some(ref doc) = node.active_doc {
-                let manifest_path = format!("{}/{}", team_dir, "_team/members.json");
-                if let Ok(content) = std::fs::read(&manifest_path) {
-                    let _ = doc
-                        .set_bytes(node.author, "_team/members.json", content)
-                        .await;
+
+            let manifest_path = format!("{}/{}", team_dir, "_team/members.json");
+            let content = match std::fs::read(&manifest_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    if let Err(revert_e) = super::team_p2p::add_member_to_team(
+                        &workspace_path,
+                        &team_dir,
+                        &caller_node_id,
+                        member_snapshot.clone(),
+                    ) {
+                        return Err(format!(
+                            "Could not read members.json after remove (restore failed): read {}, revert {}",
+                            e, revert_e
+                        ));
+                    }
+                    return Err(format!(
+                        "Could not read members.json after remove (local list restored): {}",
+                        e
+                    ));
                 }
+            };
+
+            let doc = node
+                .active_doc
+                .as_ref()
+                .expect("checked active_doc above");
+            if let Err(e) = doc
+                .set_bytes(node.author, "_team/members.json", content)
+                .await
+            {
+                if let Err(revert_e) = super::team_p2p::add_member_to_team(
+                    &workspace_path,
+                    &team_dir,
+                    &caller_node_id,
+                    member_snapshot,
+                ) {
+                    return Err(format!(
+                        "Failed to sync removal to the team document: {}. Also failed to restore local member list: {}.",
+                        e, revert_e
+                    ));
+                }
+                return Err(format!(
+                    "Failed to sync removal to the team document (local list restored): {}. Reconnect and try removing again.",
+                    e
+                ));
             }
             drop(guard);
             Ok(())
