@@ -692,6 +692,7 @@ pub async fn join_team_drive(
 
     // Reconcile offline edits (primarily for re-join scenarios)
     let is_owner = manifest_owner.as_deref() == Some(&joiner_node_id);
+    let temp_engine: Arc<Mutex<SyncEngine>> = Arc::new(Mutex::new(SyncEngine::new()));
     if let Err(e) = reconcile_disk_and_doc(
         &doc,
         &node.store,
@@ -699,6 +700,7 @@ pub async fn join_team_drive(
         team_dir,
         is_owner,
         &joiner_role,
+        &temp_engine,
     )
     .await
     {
@@ -812,6 +814,7 @@ async fn reconcile_disk_and_doc(
     team_dir: &str,
     is_owner: bool,
     role: &MemberRole,
+    engine: &Arc<Mutex<SyncEngine>>,
 ) -> Result<(usize, usize), String> {
     use futures_lite::StreamExt;
 
@@ -855,11 +858,32 @@ async fn reconcile_disk_and_doc(
             // Both exist — check if they differ
             let local_hash = iroh_blobs::Hash::new(&local_content);
             if local_hash != entry.content_hash() {
-                // Local wins: upload local version
-                if *role != MemberRole::Viewer {
-                    if key == "_team/members.json" && !is_owner && *role == MemberRole::Viewer {
-                        continue;
+                if *role == MemberRole::Viewer {
+                    continue;
+                }
+                if key == "_team/members.json" && !is_owner {
+                    continue;
+                }
+
+                // Check if local file was modified since last sync
+                let file_path = team_path.join(&key);
+                let local_was_edited = {
+                    let eng = engine.lock().await;
+                    if let Some(record) = eng.file_sync_records.get(&key) {
+                        // Compare file's current mtime against mtime at last sync
+                        match std::fs::metadata(&file_path).and_then(|m| m.modified()) {
+                            Ok(current_mtime) => current_mtime > record.local_mtime_at_sync,
+                            Err(_) => false,
+                        }
+                    } else {
+                        // No sync record → first reconcile after upgrade.
+                        // Conservative: owner wins for backwards compat, others defer to remote.
+                        is_owner
                     }
+                };
+
+                if local_was_edited {
+                    // Local was genuinely edited offline → local wins
                     let content = if local_content.is_empty() {
                         vec![b'\n']
                     } else {
@@ -868,8 +892,23 @@ async fn reconcile_disk_and_doc(
                     if let Err(e) = doc.set_bytes(author, key.clone(), content).await {
                         eprintln!("[P2P][reconcile] Failed to upload {}: {}", key, e);
                     } else {
-                        eprintln!("[P2P][reconcile] Conflict -> local wins: {}", key);
+                        eprintln!("[P2P][reconcile] Conflict -> local wins (edited offline): {}", key);
                         uploaded += 1;
+                    }
+                } else {
+                    // Local is stale (not edited since last sync) → remote wins
+                    if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
+                        if !is_tombstone(&content) {
+                            if let Some(parent) = file_path.parent() {
+                                let _ = std::fs::create_dir_all(parent);
+                            }
+                            if let Err(e) = std::fs::write(&file_path, &content) {
+                                eprintln!("[P2P][reconcile] Failed to write {}: {}", key, e);
+                            } else {
+                                eprintln!("[P2P][reconcile] Conflict -> remote wins (local stale): {}", key);
+                                downloaded += 1;
+                            }
+                        }
                     }
                 }
             }
@@ -2912,6 +2951,7 @@ pub async fn p2p_reconnect(
     let my_role = config.role.clone().unwrap_or(MemberRole::Editor);
 
     // Reconcile offline edits before starting watchers
+    let temp_engine: Arc<Mutex<SyncEngine>> = Arc::new(Mutex::new(SyncEngine::new()));
     if let Err(e) = reconcile_disk_and_doc(
         &doc,
         &node.store,
@@ -2919,6 +2959,7 @@ pub async fn p2p_reconnect(
         &team_dir,
         is_owner,
         &my_role,
+        &temp_engine,
     )
     .await
     {
