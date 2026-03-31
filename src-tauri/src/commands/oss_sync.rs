@@ -1614,6 +1614,34 @@ pub fn write_oss_config(workspace_path: &str, config: &OssTeamConfig) -> Result<
     Ok(())
 }
 
+fn sync_cursor_path(workspace_path: &str) -> PathBuf {
+    Path::new(workspace_path)
+        .join(TEAMCLAW_DIR)
+        .join("loro")
+        .join("sync_cursor.json")
+}
+
+pub fn read_sync_cursor(workspace_path: &str) -> SyncCursor {
+    let path = sync_cursor_path(workspace_path);
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => SyncCursor::default(),
+    }
+}
+
+pub fn write_sync_cursor(workspace_path: &str, cursor: &SyncCursor) -> Result<(), String> {
+    let path = sync_cursor_path(workspace_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create cursor dir: {e}"))?;
+    }
+    let json = serde_json::to_string_pretty(cursor)
+        .map_err(|e| format!("Failed to serialize sync cursor: {e}"))?;
+    std::fs::write(&path, json)
+        .map_err(|e| format!("Failed to write sync cursor: {e}"))?;
+    Ok(())
+}
+
 pub fn save_team_secret(team_id: &str, secret: &str) -> Result<(), String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, team_id)
         .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
