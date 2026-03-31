@@ -43,15 +43,27 @@ fn parse_doc_type(s: &str) -> Result<DocType, String> {
 }
 
 async fn start_poll_loop(state: &OssSyncState) {
-    let manager_arc = state.manager.clone();
-    let handle = tokio::spawn(async move {
-        OssSyncManager::poll_loop(manager_arc).await;
+    // Spawn fast loop (30s signal-based)
+    let fast_arc = state.manager.clone();
+    let fast_handle = tokio::spawn(async move {
+        OssSyncManager::fast_loop(fast_arc).await;
     });
-    let mut poll_guard = state.poll_handle.lock().await;
-    if let Some(old_handle) = poll_guard.take() {
+    let mut fast_guard = state.fast_poll_handle.lock().await;
+    if let Some(old_handle) = fast_guard.take() {
         old_handle.abort();
     }
-    *poll_guard = Some(handle);
+    *fast_guard = Some(fast_handle);
+
+    // Spawn slow loop (5min full sync + compaction)
+    let slow_arc = state.manager.clone();
+    let slow_handle = tokio::spawn(async move {
+        OssSyncManager::slow_loop(slow_arc).await;
+    });
+    let mut slow_guard = state.slow_poll_handle.lock().await;
+    if let Some(old_handle) = slow_guard.take() {
+        old_handle.abort();
+    }
+    *slow_guard = Some(slow_handle);
 }
 
 /// Generate a 32-byte random hex string for use as a team secret.
@@ -527,10 +539,16 @@ pub async fn oss_leave_team(
         }
     }
 
-    // Stop poll loop
+    // Stop both poll loops
     {
-        let mut poll_guard = state.poll_handle.lock().await;
-        if let Some(handle) = poll_guard.take() {
+        let mut fast_guard = state.fast_poll_handle.lock().await;
+        if let Some(handle) = fast_guard.take() {
+            handle.abort();
+        }
+    }
+    {
+        let mut slow_guard = state.slow_poll_handle.lock().await;
+        if let Some(handle) = slow_guard.take() {
             handle.abort();
         }
     }
