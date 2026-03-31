@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Instant, SystemTime};
 use tokio::sync::Mutex;
 
 use iroh::{Endpoint, SecretKey};
@@ -26,6 +27,205 @@ fn is_tombstone(content: &[u8]) -> bool {
 const IROH_STORAGE_DIR: &str = concat!(".", env!("APP_SHORT_NAME"), "/iroh");
 /// Filename for the persisted Ed25519 secret key
 const SECRET_KEY_FILE: &str = "secret_key";
+
+// ─── SyncEngine types ──────────────────────────────────────────────────────
+
+/// Connection status for an individual peer, derived from elapsed time since last activity.
+#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerConnection {
+    Active,
+    Stale,
+    Lost,
+    Unknown,
+}
+
+/// Tracks the local mtime at the moment a file was last synced, enabling safe reconciliation.
+#[derive(Debug, Clone)]
+pub struct FileSyncRecord {
+    pub local_mtime_at_sync: SystemTime,
+}
+
+/// Runtime state for a single peer. Not serializable because it contains `Instant`.
+#[derive(Debug, Clone)]
+pub struct PeerState {
+    pub node_id: String,
+    pub name: String,
+    pub role: MemberRole,
+    pub last_activity: Option<Instant>,
+    pub entries_sent: u64,
+    pub entries_received: u64,
+}
+
+impl PeerState {
+    /// Derive connection quality from elapsed time since last activity.
+    pub fn connection(&self) -> PeerConnection {
+        match self.last_activity {
+            Some(t) => {
+                let elapsed = t.elapsed().as_secs();
+                if elapsed < 30 {
+                    PeerConnection::Active
+                } else if elapsed <= 120 {
+                    PeerConnection::Stale
+                } else {
+                    PeerConnection::Lost
+                }
+            }
+            None => PeerConnection::Unknown,
+        }
+    }
+}
+
+/// High-level status of the sync engine.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineStatus {
+    Connected,
+    Disconnected,
+    Reconnecting,
+}
+
+/// Health of the event stream between this node and the iroh document.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum StreamHealth {
+    Healthy,
+    Dead,
+    Restarting,
+}
+
+/// Serializable projection of `PeerState` for the frontend.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerInfo {
+    pub node_id: String,
+    pub name: String,
+    pub role: MemberRole,
+    pub connection: PeerConnection,
+    pub last_seen_secs_ago: u64,
+    pub entries_sent: u64,
+    pub entries_received: u64,
+}
+
+/// Serializable snapshot of the entire sync engine state, sent to the frontend.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineSnapshot {
+    pub status: EngineStatus,
+    pub stream_health: StreamHealth,
+    pub uptime_secs: u64,
+    pub restart_count: u32,
+    pub last_sync_at: Option<String>,
+    pub peers: Vec<PeerInfo>,
+    pub synced_files: u32,
+    pub pending_files: u32,
+}
+
+/// Central state for the P2P sync engine. Not serializable (contains `Instant`).
+pub struct SyncEngine {
+    pub status: EngineStatus,
+    pub stream_health: StreamHealth,
+    pub started_at: Instant,
+    pub restart_count: u32,
+    pub last_sync_at: Option<String>,
+    pub peers: HashMap<String, PeerState>,
+    pub file_sync_records: HashMap<String, FileSyncRecord>,
+    pub synced_files: u32,
+    pub pending_files: u32,
+}
+
+impl SyncEngine {
+    /// Create a new engine in disconnected state.
+    pub fn new() -> Self {
+        Self {
+            status: EngineStatus::Disconnected,
+            stream_health: StreamHealth::Dead,
+            started_at: Instant::now(),
+            restart_count: 0,
+            last_sync_at: None,
+            peers: HashMap::new(),
+            file_sync_records: HashMap::new(),
+            synced_files: 0,
+            pending_files: 0,
+        }
+    }
+
+    /// Build a serializable snapshot of the current engine state.
+    pub fn snapshot(&self) -> EngineSnapshot {
+        let peers: Vec<PeerInfo> = self
+            .peers
+            .values()
+            .map(|p| PeerInfo {
+                node_id: p.node_id.clone(),
+                name: p.name.clone(),
+                role: p.role.clone(),
+                connection: p.connection(),
+                last_seen_secs_ago: p
+                    .last_activity
+                    .map(|t| t.elapsed().as_secs())
+                    .unwrap_or(0),
+                entries_sent: p.entries_sent,
+                entries_received: p.entries_received,
+            })
+            .collect();
+
+        EngineSnapshot {
+            status: self.status.clone(),
+            stream_health: self.stream_health.clone(),
+            uptime_secs: self.started_at.elapsed().as_secs(),
+            restart_count: self.restart_count,
+            last_sync_at: self.last_sync_at.clone(),
+            peers,
+            synced_files: self.synced_files,
+            pending_files: self.pending_files,
+        }
+    }
+
+    /// Record that a sync round with `node_id` has finished.
+    pub fn record_sync_finished(&mut self, node_id: &str, sent: u64, received: u64) {
+        if let Some(peer) = self.peers.get_mut(node_id) {
+            peer.entries_sent += sent;
+            peer.entries_received += received;
+            peer.last_activity = Some(Instant::now());
+        }
+        self.last_sync_at = Some(chrono::Utc::now().to_rfc3339());
+    }
+
+    /// Record that a neighbor (peer) has come online.
+    pub fn record_neighbor_up(&mut self, node_id: &str) {
+        if let Some(peer) = self.peers.get_mut(node_id) {
+            peer.last_activity = Some(Instant::now());
+        }
+    }
+
+    /// Populate the peers map from the on-disk members manifest.
+    pub fn load_peers_from_manifest(&mut self, team_dir: &str) -> Result<(), String> {
+        if let Some(manifest) = read_members_manifest(team_dir)? {
+            for member in &manifest.members {
+                self.peers
+                    .entry(member.node_id.clone())
+                    .or_insert_with(|| PeerState {
+                        node_id: member.node_id.clone(),
+                        name: member.name.clone(),
+                        role: member.role.clone(),
+                        last_activity: None,
+                        entries_sent: 0,
+                        entries_received: 0,
+                    });
+            }
+        }
+        Ok(())
+    }
+
+    /// Record that a file has been synced with the given local mtime.
+    pub fn record_file_synced(&mut self, key: String, mtime: SystemTime) {
+        self.file_sync_records
+            .insert(key, FileSyncRecord { local_mtime_at_sync: mtime });
+    }
+}
+
+/// Shared, async-safe handle to the sync engine.
+pub type SyncEngineState = Arc<Mutex<SyncEngine>>;
 
 /// Load or generate a persistent Ed25519 secret key at `storage_path/secret_key`.
 fn load_or_create_secret_key(storage_path: &Path) -> Result<SecretKey, String> {
