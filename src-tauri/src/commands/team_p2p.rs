@@ -401,47 +401,60 @@ pub async fn join_team_drive(
         .await
         .map_err(|e| format!("Failed to import doc: {}", e))?;
 
-    // Poll for members.json to appear (up to 15s), instead of a fixed 3s wait.
-    // The manifest is required for authorization — if it never arrives, reject.
+    // Wait for initial sync — best-effort, up to 10s.
+    // Authorization is deferred: the ticket itself grants initial access.
+    // Full member-list authorization is enforced on reconnect (when the
+    // manifest has had time to sync to disk).
     let joiner_node_id = get_node_id(node);
     let mut file_count = 0;
-    let mut authorized = false;
-    for attempt in 1..=15 {
+    let mut auth_status = "pending"; // "authorized" | "rejected" | "pending"
+    for attempt in 1..=10 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-        // Write whatever entries have synced so far
         file_count = write_doc_entries_to_disk(&doc, &node.store, team_dir)
             .await
             .unwrap_or(0);
 
-        // Check if members.json exists and we're authorized
+        // If the manifest synced, check authorization eagerly
         match check_join_authorization(team_dir, &joiner_node_id) {
             Ok(()) => {
                 eprintln!("[P2P] Authorized after {}s", attempt);
-                authorized = true;
+                auth_status = "authorized";
                 break;
             }
-            Err(ref e) if e.contains("no members manifest") && attempt < 15 => {
-                // Manifest not synced yet — keep waiting
+            Err(ref e) if e.contains("no members manifest") => {
                 eprintln!("[P2P] Waiting for manifest... ({}s)", attempt);
-                continue;
+                // Keep waiting — manifest hasn't synced yet
             }
-            Err(auth_err) => {
-                // Either we're explicitly not in the list, or timed out
-                let _ = doc.close().await;
-                let _ = std::fs::remove_dir_all(team_dir);
-                return Err(auth_err);
+            Err(ref auth_err) => {
+                eprintln!("[P2P] Authorization denied: {}", auth_err);
+                auth_status = "rejected";
+                break;
             }
+        }
+
+        // If we've synced some files, no need to wait the full 10s
+        if file_count > 0 && attempt >= 3 {
+            eprintln!("[P2P] Got {} files after {}s, proceeding", file_count, attempt);
+            break;
         }
     }
 
-    if !authorized {
+    // Only hard-reject if the manifest was present and we're not in it
+    if auth_status == "rejected" {
         let _ = doc.close().await;
         let _ = std::fs::remove_dir_all(team_dir);
         return Err(format!(
-            "Timed out waiting for team manifest. Ensure the team owner is online. Your Device ID: {}",
+            "Not authorized — share your Device ID with the team owner: {}",
             joiner_node_id
         ));
+    }
+
+    if auth_status == "pending" {
+        eprintln!(
+            "[P2P] Manifest not yet synced — proceeding with join (auth deferred to reconnect). Device: {}",
+            joiner_node_id
+        );
     }
 
     // Write author→node mapping so stats can resolve AuthorId back to NodeId
@@ -1106,11 +1119,34 @@ fn start_sync_tasks(
                                 cached_addrs.insert(peer.id.to_string(), addrs);
                             }
                         }
-                        // Persist cached addrs to config
+                        // Refresh ticket with a few known peers so new joiners
+                        // can connect to ANY online member, not just the owner.
+                        // Cap at 5 peers to keep the ticket string small.
                         if let Some(ref ws) = ws_path {
-                            if let Ok(Some(mut cfg)) = read_p2p_config(ws) {
-                                cfg.cached_peer_addrs = cached_addrs.clone();
-                                let _ = write_p2p_config(ws, Some(&cfg));
+                            if let Ok(fresh_ticket) = doc_c.share(
+                                iroh_docs::api::protocol::ShareMode::Write,
+                                iroh_docs::api::protocol::AddrInfoOptions::RelayAndAddresses,
+                            ).await {
+                                let mut enriched = fresh_ticket;
+                                for peer in &peers {
+                                    if enriched.nodes.len() >= 5 {
+                                        break;
+                                    }
+                                    if !enriched.nodes.iter().any(|n| n.id == peer.id) {
+                                        enriched.nodes.push(peer.clone());
+                                    }
+                                }
+                                if let Ok(Some(mut cfg)) = read_p2p_config(ws) {
+                                    cfg.doc_ticket = Some(enriched.to_string());
+                                    cfg.cached_peer_addrs = cached_addrs.clone();
+                                    let _ = write_p2p_config(ws, Some(&cfg));
+                                }
+                            } else {
+                                // Ticket refresh failed — still persist cached addrs
+                                if let Ok(Some(mut cfg)) = read_p2p_config(ws) {
+                                    cfg.cached_peer_addrs = cached_addrs.clone();
+                                    let _ = write_p2p_config(ws, Some(&cfg));
+                                }
                             }
                         }
                         match doc_c.start_sync(peers.clone()).await {
@@ -2106,8 +2142,15 @@ pub fn add_member_to_team(
         .owner_node_id
         .as_deref()
         .ok_or("No team owner configured")?;
-    if owner_id != caller_node_id {
-        return Err("Only the team owner can manage members".to_string());
+
+    // Any existing member (owner or editor) can add new members
+    let is_owner = owner_id == caller_node_id;
+    let is_member = config
+        .allowed_members
+        .iter()
+        .any(|m| m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor));
+    if !is_owner && !is_member {
+        return Err("Only team members can add new members".to_string());
     }
 
     if config
@@ -2119,9 +2162,10 @@ pub fn add_member_to_team(
     }
 
     eprintln!(
-        "[Team] Adding member node_id={} to team (total will be {})",
+        "[Team] Adding member node_id={} to team (total will be {}) by={}",
         &member.node_id,
-        config.allowed_members.len() + 1
+        config.allowed_members.len() + 1,
+        &caller_node_id[..10.min(caller_node_id.len())]
     );
 
     config.allowed_members.push(member);
@@ -2131,7 +2175,8 @@ pub fn add_member_to_team(
         config.allowed_members.len()
     );
 
-    write_members_manifest(team_dir, caller_node_id, &config.allowed_members)?;
+    // Always use owner_node_id for manifest (it's the canonical owner field)
+    write_members_manifest(team_dir, owner_id, &config.allowed_members)?;
     eprintln!(
         "[Team] members.json written to {}/{}/_team/members.json",
         workspace_path,
@@ -2735,10 +2780,83 @@ pub async fn p2p_sync_status(
         }
     });
 
+    // Generate a fresh ticket from THIS member's perspective:
+    // includes own address + up to 4 random other known peers.
+    let member_ticket = if let Some(node) = guard.as_ref() {
+        if let Some(doc) = &node.active_doc {
+            match doc.share(
+                iroh_docs::api::protocol::ShareMode::Write,
+                iroh_docs::api::protocol::AddrInfoOptions::RelayAndAddresses,
+            ).await {
+                Ok(mut ticket) => {
+                    // Collect other known peers from manifest + cache
+                    let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
+                    let my_node_id = get_node_id(node);
+                    let ep = node.router.endpoint();
+                    let mut other_peers: Vec<iroh::EndpointAddr> = Vec::new();
+
+                    if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                        for member in &manifest.members {
+                            if member.node_id == my_node_id {
+                                continue;
+                            }
+                            if let Ok(id) = member.node_id.parse::<iroh::EndpointId>() {
+                                let mut addrs = std::collections::BTreeSet::new();
+                                if let Some(info) = ep.remote_info(id).await {
+                                    for addr_info in info.addrs() {
+                                        addrs.insert(addr_info.addr().clone());
+                                    }
+                                }
+                                if addrs.is_empty() {
+                                    if let Some(cached) = config.cached_peer_addrs.get(&member.node_id) {
+                                        for addr_str in cached {
+                                            if let Ok(sock) = addr_str.parse::<std::net::SocketAddr>() {
+                                                addrs.insert(iroh::TransportAddr::Ip(sock));
+                                            }
+                                        }
+                                    }
+                                }
+                                if !addrs.is_empty() {
+                                    other_peers.push(iroh::EndpointAddr { id, addrs });
+                                }
+                            }
+                        }
+                    }
+
+                    // Shuffle using a simple timestamp-based seed to avoid
+                    // adding rand as a dependency. Fisher-Yates lite.
+                    {
+                        let seed = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .subsec_nanos() as usize;
+                        let len = other_peers.len();
+                        for i in (1..len).rev() {
+                            let j = (seed.wrapping_mul(i + 1).wrapping_add(7)) % (i + 1);
+                            other_peers.swap(i, j);
+                        }
+                    }
+                    for peer in other_peers.into_iter().take(4) {
+                        if !ticket.nodes.iter().any(|n| n.id == peer.id) {
+                            ticket.nodes.push(peer);
+                        }
+                    }
+
+                    Some(ticket.to_string())
+                }
+                Err(_) => config.doc_ticket.clone(),
+            }
+        } else {
+            config.doc_ticket.clone()
+        }
+    } else {
+        config.doc_ticket.clone()
+    };
+
     Ok(P2pSyncStatus {
         connected,
         role: config.role,
-        doc_ticket: config.doc_ticket,
+        doc_ticket: member_ticket,
         namespace_id: config.namespace_id,
         last_sync_at: config.last_sync_at,
         members: config.allowed_members,
@@ -3221,15 +3339,19 @@ mod tests {
     }
 
     #[test]
-    fn test_join_no_manifest_succeeds() {
+    fn test_join_no_manifest_returns_no_manifest_error() {
+        // When manifest hasn't synced yet, check_join_authorization returns
+        // a "no members manifest" error. The join flow treats this as
+        // "pending" (not a hard rejection) and defers auth to reconnect.
         let tmp = tempfile::tempdir().unwrap();
         let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
         std::fs::create_dir_all(&team_dir).unwrap();
 
         let result = check_join_authorization(team_dir.to_str().unwrap(), "any-node-id");
+        assert!(result.is_err());
         assert!(
-            result.is_ok(),
-            "should succeed without manifest (backwards compat)"
+            result.unwrap_err().contains("no members manifest"),
+            "should indicate manifest is missing (join flow treats this as pending, not rejected)"
         );
     }
 
@@ -3391,7 +3513,8 @@ mod tests {
     }
 
     #[test]
-    fn test_add_member_fails_for_non_owner() {
+    fn test_add_member_fails_for_stranger() {
+        // A node that is neither owner nor an existing member cannot add members
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_str().unwrap();
         let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
@@ -3400,6 +3523,16 @@ mod tests {
         let config = P2pConfig {
             enabled: true,
             owner_node_id: Some("real-owner".to_string()),
+            allowed_members: vec![TeamMember {
+                node_id: "real-owner".to_string(),
+                name: "Owner".to_string(),
+                role: MemberRole::Owner,
+                label: "Owner".to_string(),
+                platform: "macos".to_string(),
+                arch: "aarch64".to_string(),
+                hostname: "mac".to_string(),
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
             ..Default::default()
         };
         write_p2p_config(workspace, Some(&config)).unwrap();
@@ -3417,11 +3550,140 @@ mod tests {
         let result = add_member_to_team(
             workspace,
             team_dir.to_str().unwrap(),
-            "not-the-owner",
+            "stranger-not-in-team",
             member,
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Only the team owner"));
+        assert!(result.unwrap_err().contains("Only team members"));
+    }
+
+    #[test]
+    fn test_add_member_succeeds_for_editor() {
+        // An existing editor can add new members
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().to_str().unwrap();
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
+        std::fs::create_dir_all(&team_dir).unwrap();
+
+        let owner_id = "owner-123";
+        let editor_id = "editor-456";
+        let config = P2pConfig {
+            enabled: true,
+            owner_node_id: Some(owner_id.to_string()),
+            allowed_members: vec![
+                TeamMember {
+                    node_id: owner_id.to_string(),
+                    name: "Owner".to_string(),
+                    role: MemberRole::Owner,
+                    label: "Owner".to_string(),
+                    platform: "macos".to_string(),
+                    arch: "aarch64".to_string(),
+                    hostname: "mac".to_string(),
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+                TeamMember {
+                    node_id: editor_id.to_string(),
+                    name: "Editor".to_string(),
+                    role: MemberRole::Editor,
+                    label: "Dev".to_string(),
+                    platform: "linux".to_string(),
+                    arch: "x86_64".to_string(),
+                    hostname: "dev".to_string(),
+                    added_at: "2026-01-02T00:00:00Z".to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        write_p2p_config(workspace, Some(&config)).unwrap();
+        write_members_manifest(
+            team_dir.to_str().unwrap(),
+            owner_id,
+            &config.allowed_members,
+        )
+        .unwrap();
+
+        let new_member = TeamMember {
+            node_id: "new-member-789".to_string(),
+            name: "Newbie".to_string(),
+            role: MemberRole::Editor,
+            label: "New".to_string(),
+            platform: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            hostname: "new-box".to_string(),
+            added_at: "2026-01-03T00:00:00Z".to_string(),
+        };
+        add_member_to_team(workspace, team_dir.to_str().unwrap(), editor_id, new_member)
+            .unwrap();
+
+        let config = read_p2p_config(workspace).unwrap().unwrap();
+        assert_eq!(config.allowed_members.len(), 3);
+
+        let manifest = read_members_manifest(team_dir.to_str().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(manifest.members.len(), 3);
+        assert_eq!(manifest.members[2].node_id, "new-member-789");
+        // Manifest owner should still be the original owner
+        assert_eq!(manifest.owner_node_id, owner_id);
+    }
+
+    #[test]
+    fn test_add_member_fails_for_viewer() {
+        // Viewers cannot add members
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().to_str().unwrap();
+        let team_dir = tmp.path().join(crate::commands::TEAM_REPO_DIR);
+        std::fs::create_dir_all(&team_dir).unwrap();
+
+        let owner_id = "owner-123";
+        let viewer_id = "viewer-456";
+        let config = P2pConfig {
+            enabled: true,
+            owner_node_id: Some(owner_id.to_string()),
+            allowed_members: vec![
+                TeamMember {
+                    node_id: owner_id.to_string(),
+                    name: "Owner".to_string(),
+                    role: MemberRole::Owner,
+                    label: "Owner".to_string(),
+                    platform: "macos".to_string(),
+                    arch: "aarch64".to_string(),
+                    hostname: "mac".to_string(),
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+                TeamMember {
+                    node_id: viewer_id.to_string(),
+                    name: "Viewer".to_string(),
+                    role: MemberRole::Viewer,
+                    label: "View".to_string(),
+                    platform: "linux".to_string(),
+                    arch: "x86_64".to_string(),
+                    hostname: "view-box".to_string(),
+                    added_at: "2026-01-02T00:00:00Z".to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        write_p2p_config(workspace, Some(&config)).unwrap();
+
+        let new_member = TeamMember {
+            node_id: "new-member".to_string(),
+            name: String::new(),
+            role: MemberRole::Editor,
+            label: "New".to_string(),
+            platform: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            hostname: "new".to_string(),
+            added_at: "2026-01-03T00:00:00Z".to_string(),
+        };
+        let result = add_member_to_team(
+            workspace,
+            team_dir.to_str().unwrap(),
+            viewer_id,
+            new_member,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Only team members"));
     }
 
     #[test]
