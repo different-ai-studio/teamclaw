@@ -344,6 +344,17 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         }
         // Reset timeout after successful send — gives a fresh 5 minutes from actual send time
         setMessageTimeout(pendingAssistantId, activeSessionId);
+
+        // Auto-recovery: if SSE connection is stale, the pending assistant message
+        // won't be replaced by a real message. Check after 10s and auto-reload
+        // from API (same as clicking the refresh button) if no response arrived.
+        setTimeout(() => {
+          const { streamingMessageId } = useStreamingStore.getState();
+          if (streamingMessageId === pendingAssistantId) {
+            console.warn("[Session] No SSE response after 10s, auto-reloading messages");
+            get().reloadActiveSessionMessages();
+          }
+        }, 10000);
       } catch (error) {
         clearMessageTimeout();
         set((state) => {

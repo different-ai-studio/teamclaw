@@ -5,7 +5,7 @@
   "windows": ["main", "spotlight"],
   "webviews": ["main", "wv-*"],
   "remote": {
-    "urls": ["https://*"]
+    "urls": ["https://*", "http://*"]
   },
   "permissions": [
     "core:default",

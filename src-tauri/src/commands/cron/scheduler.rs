@@ -880,7 +880,10 @@ impl CronScheduler {
     /// Check if an OpenCode session is archived.
     /// Returns true if archived, false if active, false on error (fail-open).
     async fn is_session_archived(&self, port: u16, session_id: &str) -> bool {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let url = format!("http://127.0.0.1:{}/session/{}", port, session_id);
 
         match client.get(&url).send().await {
@@ -902,7 +905,10 @@ impl CronScheduler {
         port: u16,
         directory: Option<&str>,
     ) -> Result<String, String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let mut url = format!("http://127.0.0.1:{}/session", port);
         if let Some(dir) = directory {
             url = format!("{}?directory={}", url, urlencoding::encode(dir));

@@ -200,13 +200,15 @@ pub async fn get_device_node_id(iroh_state: tauri::State<'_, IrohState>) -> Resu
 
 /// Collect all files recursively from a directory, returning (relative_path, content) pairs.
 const MAX_SYNC_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+const MAX_TOTAL_SYNC_SIZE: u64 = 500 * 1024 * 1024; // 500 MB total
 
 fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut files = Vec::new();
+    let mut total_size: u64 = 0;
     if !dir.exists() {
         return files;
     }
-    for entry in walkdir::WalkDir::new(dir)
+    'outer: for entry in walkdir::WalkDir::new(dir)
         .into_iter()
         .filter_map(|e| e.ok())
     {
@@ -221,9 +223,17 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
                     );
                     continue;
                 }
+                if total_size + meta.len() > MAX_TOTAL_SYNC_SIZE {
+                    eprintln!(
+                        "[P2P] Reached cumulative size limit ({} MB), stopping collection",
+                        MAX_TOTAL_SYNC_SIZE / (1024 * 1024)
+                    );
+                    break 'outer;
+                }
             }
             if let Ok(content) = std::fs::read(entry.path()) {
                 if let Ok(rel) = entry.path().strip_prefix(base) {
+                    total_size += content.len() as u64;
                     files.push((rel.to_string_lossy().to_string(), content));
                 }
             }
@@ -941,6 +951,7 @@ fn start_sync_tasks(
 
     // Task A: remote doc changes → disk
     let my_node_id_a = my_node_id.clone();
+    let owner_node_id_a = owner_node_id.clone();
     tokio::spawn(async move {
         doc_to_disk_watcher(
             doc_a,
@@ -948,7 +959,7 @@ fn start_sync_tasks(
             team_dir_a,
             suppressed_a,
             my_node_id_a,
-            owner_node_id,
+            owner_node_id_a,
             app_handle,
         )
         .await;
@@ -968,6 +979,7 @@ fn start_sync_tasks(
             suppressed_b,
             my_role,
             my_node_id,
+            owner_node_id,
         )
         .await;
     });
@@ -1492,7 +1504,42 @@ async fn doc_to_disk_watcher(
                     entry
                 };
 
-                // Apply same role checks as InsertRemote
+                // Apply same role + owner checks as InsertRemote
+                // Validate _team/members.json: only accept from owner
+                if key == "_team/members.json" {
+                    let writer_node = author_to_node.get(&author_id_str);
+                    let is_owner_write = match (writer_node, &owner_node_id) {
+                        (Some(writer), Some(owner)) => writer == owner,
+                        (None, _) => author_to_node.is_empty(), // bootstrap
+                        _ => false,
+                    };
+                    if !is_owner_write {
+                        eprintln!(
+                            "[P2P] Rejected ContentReady members.json from non-owner: {:?}",
+                            writer_node
+                        );
+                        continue;
+                    }
+                    // Owner write — write to disk and update role cache
+                    if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
+                        let file_path = Path::new(&team_dir).join(&key);
+                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                        if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                            node_to_role.clear();
+                            for member in &manifest.members {
+                                node_to_role
+                                    .insert(member.node_id.clone(), member.role.clone());
+                            }
+                            if let Some(ref app) = app_handle {
+                                use tauri::Emitter;
+                                let _ =
+                                    app.emit("team:members-changed", serde_json::json!({}));
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 if let Some(writer) = author_to_node.get(&author_id_str) {
                     let writer_role = node_to_role
                         .get(writer)
@@ -1540,8 +1587,9 @@ async fn disk_to_doc_watcher(
     author: iroh_docs::AuthorId,
     team_dir: String,
     suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
-    my_role: Arc<Mutex<MemberRole>>, // NEW
-    my_node_id: String,              // NEW
+    my_role: Arc<Mutex<MemberRole>>,
+    my_node_id: String,
+    owner_node_id: Option<String>,
 ) {
     use notify::{RecursiveMode, Watcher};
 
@@ -1618,6 +1666,21 @@ async fn disk_to_doc_watcher(
                                 let role = my_role.lock().await;
                                 if *role == MemberRole::Viewer {
                                     eprintln!("[P2P] Skipping upload (viewer mode): {}", rel_path);
+                                    continue;
+                                }
+                            }
+
+                            // Only the owner may upload _team/members.json
+                            // — non-owner writes pollute the doc with stale
+                            // entries that can cause "not in allowList" rejections.
+                            if rel_path == "_team/members.json" {
+                                let is_owner = owner_node_id
+                                    .as_deref()
+                                    .map_or(false, |owner| owner == my_node_id);
+                                if !is_owner {
+                                    eprintln!(
+                                        "[P2P] Skipping upload (non-owner): _team/members.json"
+                                    );
                                     continue;
                                 }
                             }
@@ -1897,9 +1960,10 @@ pub async fn p2p_leave_team(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -1944,9 +2008,10 @@ pub async fn p2p_disconnect_source(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -1988,9 +2053,10 @@ pub async fn p2p_dissolve_team(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2164,9 +2230,10 @@ pub async fn team_add_member(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2236,9 +2303,10 @@ pub async fn team_remove_member(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2286,9 +2354,10 @@ pub async fn team_update_member_role(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2342,9 +2411,10 @@ pub async fn p2p_check_team_dir(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<serde_json::Value, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2374,9 +2444,10 @@ pub async fn p2p_create_team(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2405,9 +2476,10 @@ pub async fn p2p_publish_drive(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2447,13 +2519,17 @@ pub async fn p2p_join_drive(
     app: tauri::AppHandle,
     ticket: String,
     #[allow(unused_variables)] label: String,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2461,7 +2537,14 @@ pub async fn p2p_join_drive(
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
     let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
-    join_team_drive(node, &ticket, &team_dir, &workspace_path, Some(app)).await
+    let result = join_team_drive(node, &ticket, &team_dir, &workspace_path, Some(app)).await?;
+
+    // Write LLM config to .teamclaw/teamclaw.json (same as oss_join_team and create_team)
+    let llm_config =
+        crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    crate::commands::team::write_llm_config(&workspace_path, Some(&llm_config))?;
+
+    Ok(result)
 }
 
 /// Reconnect to an existing team document on app restart.
@@ -2472,9 +2555,10 @@ pub async fn p2p_reconnect(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2584,9 +2668,10 @@ pub async fn p2p_rotate_ticket(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2602,9 +2687,10 @@ pub async fn get_p2p_config(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<Option<P2pConfig>, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
     read_p2p_config(&workspace_path)
@@ -2616,9 +2702,10 @@ pub async fn save_p2p_config(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
     write_p2p_config(&workspace_path, Some(&config))
@@ -2631,9 +2718,10 @@ pub async fn p2p_sync_status(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<P2pSyncStatus, String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2683,9 +2771,10 @@ pub async fn p2p_get_files_sync_status(
     use futures_lite::StreamExt;
 
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 
@@ -2759,9 +2848,10 @@ pub async fn p2p_save_seed_config(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
-        .workspace_path
+        .inner
         .lock()
         .map_err(|e| e.to_string())?
+        .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
 

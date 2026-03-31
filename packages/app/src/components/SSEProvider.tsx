@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useStreamingStore } from '@/stores/streaming'
 import { useOpenCodeSSE } from '@/lib/opencode/sse'
 import { loadPermissionConfigCache } from '@/stores/session-permissions'
 
@@ -51,6 +52,15 @@ export function SSEProvider() {
         disconnectTimerRef.current = null
       }
       acts.setConnected(true)
+
+      // Auto-recovery: if SSE reconnects while we're expecting a response,
+      // events may have been lost during the disconnect gap.
+      // Auto-reload messages to recover any missed responses.
+      const { streamingMessageId } = useStreamingStore.getState()
+      if (streamingMessageId) {
+        console.log('[SSE] Reconnected with active streaming, auto-reloading messages:', streamingMessageId)
+        acts.reloadActiveSessionMessages()
+      }
     },
     onDisconnected: () => {
       if (!disconnectTimerRef.current) {

@@ -111,6 +111,7 @@ vi.mock('../file-tree-operations', () => ({
   openInTerminal: vi.fn(),
   moveItem: vi.fn(),
   copyItem: vi.fn(),
+  duplicateItem: vi.fn(),
   readFileContent: vi.fn(),
 }))
 

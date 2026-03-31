@@ -1053,10 +1053,13 @@ pub async fn install_skill_from_git_url(
 
     // Determine target directory based on install location
     let target_dir = if is_global {
-        // Global install: ~/.config/opencode/skills/<slug>
-        let home =
-            dirs::home_dir().ok_or_else(|| "Failed to determine home directory".to_string())?;
-        home.join(".config")
+        // "Global" install is workspace-scoped under XDG isolation:
+        // <workspace>/.opencode/config/opencode/skills/<slug>
+        let ws_path = workspace_path
+            .ok_or_else(|| "Workspace path required for global skill installation under XDG isolation".to_string())?;
+        Path::new(&ws_path)
+            .join(".opencode")
+            .join("config")
             .join("opencode")
             .join("skills")
             .join(slug)
@@ -1293,9 +1296,14 @@ pub fn import_skill_from_zip(
         validate_skill_import_slug(&slug)?;
 
         let target_dir = if is_global {
-            let home =
-                dirs::home_dir().ok_or_else(|| "Failed to determine home directory".to_string())?;
-            home.join(".config")
+            // "Global" install is workspace-scoped under XDG isolation:
+            // <workspace>/.opencode/config/opencode/skills/<slug>
+            let ws_path = workspace_path.ok_or_else(|| {
+                "Workspace path required for global skill installation under XDG isolation".to_string()
+            })?;
+            Path::new(&ws_path)
+                .join(".opencode")
+                .join("config")
                 .join("opencode")
                 .join("skills")
                 .join(&slug)

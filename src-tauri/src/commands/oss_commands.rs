@@ -219,7 +219,10 @@ pub async fn oss_create_team(
         let fc_node_id = node_id.clone();
         let fc_owner_name = owner_name.clone();
         tokio::spawn(async move {
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
             let setup_url = format!("{}/ai/setup-team", fc_endpoint.trim_end_matches('/'));
             let add_url = format!("{}/ai/add-member", fc_endpoint.trim_end_matches('/'));
             tracing::info!("LiteLLM via FC: requesting {}", setup_url);
@@ -384,7 +387,10 @@ pub async fn oss_join_team(
         let fc_team_secret = team_secret.clone();
         let fc_node_id = node_id.clone();
         tokio::spawn(async move {
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
             let add_url = format!("{}/ai/add-member", fc_endpoint.trim_end_matches('/'));
             tracing::info!("LiteLLM via FC: requesting {}", add_url);
             let body = serde_json::json!({
@@ -718,7 +724,10 @@ pub async fn oss_apply_team(
     let arch = std::env::consts::ARCH.to_string();
 
     // Call FC /apply
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let body = serde_json::json!({
         "teamId": team_id,
         "teamSecret": team_secret,

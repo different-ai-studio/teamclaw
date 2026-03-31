@@ -694,7 +694,7 @@ pub fn run() {
                                 | rdev::EventType::KeyRelease(rdev::Key::ControlLeft | rdev::Key::ControlRight)
                         );
 
-                        let mut s = state.lock().unwrap();
+                        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
 
                         match event.event_type {
                             rdev::EventType::KeyPress(rdev::Key::ControlLeft | rdev::Key::ControlRight) => {
@@ -746,7 +746,7 @@ pub fn run() {
                             // Save main geometry if in Main mode before hiding
                             let state = close_app_handle.state::<commands::spotlight::SpotlightState>();
                             {
-                                let mode = state.mode.lock().unwrap();
+                                let mode = state.mode.lock().unwrap_or_else(|e| e.into_inner());
                                 if *mode == commands::spotlight::WindowMode::Main {
                                     commands::spotlight::save_main_geometry(&main_win_clone, &state);
                                 }
@@ -789,7 +789,7 @@ pub fn run() {
                         #[cfg(target_os = "macos")]
                         tauri::WindowEvent::Resized { .. } => {
                             let state = close_app_handle.state::<commands::spotlight::SpotlightState>();
-                            let mode = *state.mode.lock().unwrap();
+                            let mode = *state.mode.lock().unwrap_or_else(|e| e.into_inner());
                             if mode == commands::spotlight::WindowMode::Main {
                                 commands::spotlight::reposition_traffic_lights(&main_win_clone);
                             }
@@ -875,6 +875,16 @@ pub fn run() {
                                         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                                         Json(serde_json::json!({"ok": true}))
                                     }
+                                    "set_spotlight_pin" => {
+                                        let pinned = body["args"]["pinned"].as_bool().unwrap_or(false);
+                                        let app_main = app.clone();
+                                        let _ = app.run_on_main_thread(move || {
+                                            let state = app_main.state::<commands::spotlight::SpotlightState>();
+                                            commands::spotlight::set_spotlight_pin(app_main.clone(), state, pinned);
+                                        });
+                                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                        Json(serde_json::json!({"ok": true}))
+                                    }
                                     "is_visible" => {
                                         let visible = app.get_webview_window("main")
                                             .map(|w| w.is_visible().unwrap_or(false))
@@ -911,11 +921,13 @@ pub fn run() {
         .run(|app, event| {
             match event {
                 #[cfg(target_os = "macos")]
-                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
-                    if !has_visible_windows {
-                        let state = app.state::<commands::spotlight::SpotlightState>();
-                        commands::spotlight::show_main_window(app.clone(), state);
-                    }
+                tauri::RunEvent::Reopen { .. } => {
+                    // Always show the main window when the dock icon is clicked.
+                    // Tauri's `has_visible_windows` can report `true` even when
+                    // the window was hidden via `win.hide()`, so we ignore it and
+                    // unconditionally bring the window back.
+                    let state = app.state::<commands::spotlight::SpotlightState>();
+                    commands::spotlight::show_main_window(app.clone(), state);
                 }
                 tauri::RunEvent::Exit => {
                     // Kill the OpenCode sidecar synchronously.
@@ -924,16 +936,22 @@ pub fn run() {
                     // which causes block_on to deadlock or panic, preventing
                     // std::process::exit from ever being called.
                     let oc_state = app.state::<commands::opencode::OpenCodeState>();
-                    if let Ok(mut child_guard) = oc_state.child_process.lock() {
-                        if let Some(child) = child_guard.take() {
+                    if let Ok(mut inner) = oc_state.inner.lock() {
+                        if let Some(handle) = inner.reader_task.take() {
+                            handle.abort();
+                        }
+                        if let Some(child) = inner.child_process.take() {
                             if let Err(e) = child.kill() {
                                 sentry_utils::capture_err("[OpenCode] Failed to stop sidecar on exit", &e);
                                 eprintln!("[OpenCode] Failed to stop sidecar on app exit: {}", e);
                             }
                         }
                     }
+                    // Fire-and-forget: enqueue the event but don't block on flush.
+                    // The aptabase plugin's own Exit handler will attempt to flush,
+                    // but we don't want to block exit for up to 10s on a network
+                    // request (the aptabase HTTP timeout) if the server is slow.
                     let _ = app.track_event("app_exited", None);
-                    app.flush_events_blocking();
                 }
                 _ => {}
             }

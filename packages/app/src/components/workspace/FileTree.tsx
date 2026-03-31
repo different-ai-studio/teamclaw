@@ -31,6 +31,8 @@ import {
   openWithDefaultApp,
   openInTerminal,
   moveItem,
+  copyItem,
+  duplicateItem,
   readFileContent,
 } from "./file-tree-operations";
 import { TEAM_REPO_DIR, appShortName } from "@/lib/build-config";
@@ -304,6 +306,8 @@ export function FileTree({
   const [dragSourcePath, setDragSourcePath] = useState<string | null>(null);
   const dragOverPathRef = useRef<string | null>(null);
   useEffect(() => { dragOverPathRef.current = dragOverPath; }, [dragOverPath]);
+  const pushUndoRef = useRef(pushUndo);
+  useEffect(() => { pushUndoRef.current = pushUndo; }, [pushUndo]);
 
   // Pre-compute git data
   const { fileGitStatusMap, dirtyDirectories } = useMemo(() => {
@@ -595,6 +599,17 @@ export function FileTree({
     }
   }, [pasteFiles, expandDirectory, t]);
 
+  // ── Duplicate handler ──
+  const handleDuplicate = useCallback(async (path: string) => {
+    const success = await duplicateItem(path);
+    if (success) {
+      toast.success(t('fileExplorer.duplicated', 'Duplicated'));
+      await refreshFileTree();
+    } else {
+      toast.error(t('fileExplorer.duplicateFailed', 'Duplicate failed'));
+    }
+  }, [refreshFileTree, t]);
+
   // ── Drag and drop handlers ──
   // Track drag source in a ref so Tauri event listeners can access it
   const dragSourcePathRef = useRef<string | null>(null);
@@ -613,7 +628,7 @@ export function FileTree({
   const handleDragOver = useCallback(
     (e: React.DragEvent, path: string) => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
+      e.dataTransfer.dropEffect = e.altKey ? "copy" : "move";
       // Don't allow dropping on self or on a child of the dragged item
       if (dragSourcePath && (path === dragSourcePath || path.startsWith(dragSourcePath + "/"))) {
         return;
@@ -628,9 +643,20 @@ export function FileTree({
   }, []);
 
   const handleDragEnd = useCallback(() => {
-    dragSourcePathRef.current = null;
-    setDragSourcePath(null);
-    setDragOverPath(null);
+    if (isTauri()) {
+      // Defer ALL cleanup — tauri://drag-drop arrives asynchronously after
+      // the HTML5 dragend and needs both refs to detect internal drags and
+      // resolve the drop target. If drag was cancelled, timeout ensures cleanup.
+      setTimeout(() => {
+        dragSourcePathRef.current = null;
+        setDragSourcePath(null);
+        setDragOverPath(null);
+      }, 300);
+    } else {
+      dragSourcePathRef.current = null;
+      setDragSourcePath(null);
+      setDragOverPath(null);
+    }
   }, []);
 
   const handleDrop = useCallback(
@@ -646,19 +672,28 @@ export function FileTree({
       if (targetDirPath.startsWith(sourcePath + "/")) return;
 
       const fileName = sourcePath.substring(sourcePath.lastIndexOf("/") + 1);
-      const newPath = `${targetDirPath}/${fileName}`;
 
-      const success = await moveItem(sourcePath, targetDirPath);
-      if (success) {
-        pushUndo({
-          type: 'move',
-          description: `Move ${fileName} to ${targetDirPath.substring(targetDirPath.lastIndexOf("/") + 1)}`,
-          originalPath: sourcePath,
-          newPath,
-          isDirectory: false,
-        });
-        await refreshFileTree();
-        await expandDirectory(targetDirPath);
+      // Option/Alt+drag = copy, otherwise move
+      if (e.altKey) {
+        const success = await copyItem(sourcePath, targetDirPath);
+        if (success) {
+          await refreshFileTree();
+          await expandDirectory(targetDirPath);
+        }
+      } else {
+        const newPath = `${targetDirPath}/${fileName}`;
+        const success = await moveItem(sourcePath, targetDirPath);
+        if (success) {
+          pushUndo({
+            type: 'move',
+            description: `Move ${fileName} to ${targetDirPath.substring(targetDirPath.lastIndexOf("/") + 1)}`,
+            originalPath: sourcePath,
+            newPath,
+            isDirectory: false,
+          });
+          await refreshFileTree();
+          await expandDirectory(targetDirPath);
+        }
       }
       setDragSourcePath(null);
     },
@@ -726,6 +761,15 @@ export function FileTree({
       if (!flatNodes.length) return;
       // Don't handle keys when renaming
       if (renamingPath || creatingIn) return;
+
+      // ⌘D = Duplicate focused item
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+        e.preventDefault();
+        if (focusedPath) {
+          handleDuplicate(focusedPath);
+        }
+        return;
+      }
 
       // Clipboard shortcuts
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
@@ -911,6 +955,7 @@ export function FileTree({
       collapseCompacted,
       selectFile,
       handleDelete,
+      handleDuplicate,
       clipboardPaths,
       clipboardMode,
       setClipboard,
@@ -970,12 +1015,66 @@ export function FileTree({
     import('@tauri-apps/api/event').then(async ({ listen }) => {
       if (cancelled) return;
 
-      // Handle external file drop (skip if internal drag is in progress)
+      // Handle external file drop (or internal drag that landed outside the file tree)
       unlisteners.push(await listen<{ paths: string[]; position: { x: number; y: number } }>(
         'tauri://drag-drop',
         async (event) => {
-          // Skip external handler when an internal drag-move is active
-          if (dragSourcePathRef.current) return;
+          // Internal drag-move: Tauri intercepts the HTML5 drop event.
+          // Check if the drop target was inside the file tree (perform move)
+          // or outside (dispatch to prompt input / other drop targets).
+          if (dragSourcePathRef.current) {
+            const sourcePath = dragSourcePathRef.current;
+            // Read refs before clearing state to avoid race with useEffect sync
+            let targetDir = dragOverPathRef.current;
+            dragSourcePathRef.current = null;
+            setDragSourcePath(null);
+            setDragOverPath(null);
+
+            // Resolve drop target: prefer dragOverPath (set by HTML5 dragover
+            // on directories), fall back to elementFromPoint for file targets
+            if (!targetDir) {
+              const { x, y } = event.payload.position;
+              const el = document.elementFromPoint(x, y);
+              const treeItem = el?.closest('[data-path]') as HTMLElement | null;
+              if (treeItem) {
+                const path = treeItem.getAttribute('data-path');
+                if (path) {
+                  const node = flatNodesRef.current.find(fn => fn.node.path === path);
+                  if (node && node.node.type === 'file') {
+                    targetDir = path.substring(0, path.lastIndexOf('/')) || workspacePath;
+                  } else {
+                    targetDir = path;
+                  }
+                }
+              }
+            }
+
+            // Drop landed on a directory in the file tree → move
+            if (targetDir && targetDir !== sourcePath && !targetDir.startsWith(sourcePath + '/')) {
+              const fileName = sourcePath.substring(sourcePath.lastIndexOf('/') + 1);
+              const newPath = `${targetDir}/${fileName}`;
+              const { moveItem } = await import('./file-tree-operations');
+              const success = await moveItem(sourcePath, targetDir);
+              if (success) {
+                pushUndoRef.current({
+                  type: 'move',
+                  description: `Move ${fileName} to ${targetDir.substring(targetDir.lastIndexOf('/') + 1)}`,
+                  originalPath: sourcePath,
+                  newPath,
+                  isDirectory: false,
+                });
+                await refreshFileTree();
+                await expandDirectory(targetDir);
+              }
+              return;
+            }
+
+            // Drop landed outside the file tree → dispatch for prompt input
+            window.dispatchEvent(new CustomEvent('teamclaw:filedrop', {
+              detail: { path: sourcePath, position: event.payload.position },
+            }));
+            return;
+          }
           const paths = event.payload.paths;
           if (!paths || paths.length === 0) return;
 
@@ -1126,6 +1225,7 @@ export function FileTree({
     onCut: handleCut,
     onCopy: handleCopy,
     onPaste: handlePaste,
+    onDuplicate: handleDuplicate,
     hasClipboard: clipboardPaths.length > 0,
     isClipboardCut: clipboardMode === 'cut',
     clipboardPaths,
