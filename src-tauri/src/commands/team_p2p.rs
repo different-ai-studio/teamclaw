@@ -134,6 +134,12 @@ pub struct SyncEngine {
     pub pending_files: u32,
 }
 
+impl Default for SyncEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SyncEngine {
     /// Create a new engine in disconnected state.
     pub fn new() -> Self {

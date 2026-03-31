@@ -4,9 +4,15 @@
 #[cfg(feature = "p2p")]
 pub use super::team_p2p::IrohState;
 
+#[cfg(feature = "p2p")]
+pub use super::team_p2p::SyncEngineState;
+
 #[cfg(not(feature = "p2p"))]
 use std::sync::Arc;
 #[cfg(not(feature = "p2p"))]
 use tokio::sync::Mutex;
 #[cfg(not(feature = "p2p"))]
 pub type IrohState = Arc<Mutex<Option<()>>>;
+
+#[cfg(not(feature = "p2p"))]
+pub type SyncEngineState = Arc<Mutex<Option<()>>>;

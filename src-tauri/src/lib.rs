@@ -283,6 +283,7 @@ pub fn run() {
             wvm
         })
         .manage(<commands::p2p_state::IrohState>::default())
+        .manage(<commands::p2p_state::SyncEngineState>::default())
         .manage(commands::spotlight::SpotlightState::default())
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
         .manage(commands::oss_sync::OssSyncState::default())
