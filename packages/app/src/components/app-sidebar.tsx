@@ -11,6 +11,8 @@ import { useTabsStore } from "@/stores/tabs"
 import { useCronStore } from "@/stores/cron"
 import { useTeamModeStore } from "@/stores/team-mode"
 import { useTeamOssStore } from "@/stores/team-oss"
+import { useP2pEngineStore } from "@/stores/p2p-engine"
+import { NodeStatusPopover } from "@/components/NodeStatusPopover"
 import {
   Sidebar,
   SidebarContent,
@@ -324,26 +326,22 @@ function WorkspaceSelectorButton() {
   const isLoadingWorkspace = useWorkspaceStore(s => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
   const teamMode = useTeamModeStore(s => s.teamMode)
-  const p2pConnected = useTeamModeStore(s => s.p2pConnected)
   const ossConfigured = useTeamOssStore(s => s.configured)
   const ossConnected = useTeamOssStore(s => s.connected)
+  const engineStatus = useP2pEngineStore(s => s.snapshot.status)
+  const engineStreamHealth = useP2pEngineStore(s => s.snapshot.streamHealth)
+  const engineInit = useP2pEngineStore(s => s.init)
   const [isSelecting, setIsSelecting] = React.useState(false)
 
-  // Poll P2P connection status when in team mode
+  // Initialize P2P engine store when in team mode
   React.useEffect(() => {
     if (!teamMode || !isTauri()) return
-    let cancelled = false
-    const poll = async () => {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core')
-        const status = await invoke<{ connected?: boolean }>('p2p_sync_status')
-        if (!cancelled) useTeamModeStore.setState({ p2pConnected: status?.connected ?? false })
-      } catch { /* ignore */ }
-    }
-    poll()
-    const id = setInterval(poll, 5000)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [teamMode])
+    let cleanup: (() => void) | undefined
+    engineInit().then((c) => { cleanup = c })
+    return () => { cleanup?.() }
+  }, [teamMode, engineInit])
+
+  const p2pConnected = engineStatus === 'connected'
 
   const handleOpenFolder = async () => {
     if (!isTauri()) {
@@ -372,29 +370,49 @@ function WorkspaceSelectorButton() {
 
   const isLoading = isLoadingWorkspace || isSelecting
 
+  const buttonContent = (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground max-w-[180px]"
+      disabled={isLoading}
+      onClick={handleOpenFolder}
+    >
+      {isLoading ? (
+        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+      ) : teamMode && workspaceName && ossConfigured ? (
+        <Cloud className={cn("h-4 w-4 shrink-0", ossConnected ? "text-blue-500" : "text-muted-foreground")} />
+      ) : teamMode && workspaceName ? (
+        <Users className={cn(
+          "h-4 w-4 shrink-0",
+          p2pConnected && engineStreamHealth === 'healthy'
+            ? "text-blue-500"
+            : p2pConnected
+              ? "text-amber-500"
+              : "text-muted-foreground"
+        )} />
+      ) : (
+        <FolderOpen className="h-4 w-4 shrink-0" />
+      )}
+      <span className="truncate text-xs" data-testid="workspace-name">
+        {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
+      </span>
+    </Button>
+  )
+
+  // P2P mode: wrap in NodeStatusPopover for hover details
+  if (teamMode && workspaceName && !ossConfigured) {
+    return (
+      <NodeStatusPopover>
+        {buttonContent}
+      </NodeStatusPopover>
+    )
+  }
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground max-w-[180px]"
-          disabled={isLoading}
-          onClick={handleOpenFolder}
-        >
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-          ) : teamMode && workspaceName && ossConfigured ? (
-            <Cloud className={cn("h-4 w-4 shrink-0", ossConnected ? "text-blue-500" : "text-muted-foreground")} />
-          ) : teamMode && workspaceName ? (
-            <Users className={cn("h-4 w-4 shrink-0", p2pConnected ? "text-blue-500" : "text-muted-foreground")} />
-          ) : (
-            <FolderOpen className="h-4 w-4 shrink-0" />
-          )}
-          <span className="truncate text-xs" data-testid="workspace-name">
-            {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
-          </span>
-        </Button>
+        {buttonContent}
       </TooltipTrigger>
       <TooltipContent side="top">
         <p>{workspaceName ? t('sidebar.currentWorkspace', 'Current: {{path}}', { path: workspaceName }) : t('workspace.selectWorkspace', 'Select Workspace')}</p>
