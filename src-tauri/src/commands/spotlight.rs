@@ -155,7 +155,7 @@ fn save_spotlight_position(win: &tauri::WebviewWindow, state: &SpotlightState) {
             .flatten()
             .map(|m| m.scale_factor())
             .unwrap_or(1.0);
-        let mut last_pos = state.spotlight_position.lock().unwrap();
+        let mut last_pos = state.spotlight_position.lock().unwrap_or_else(|e| e.into_inner());
         *last_pos = Some((pos.x as f64 / scale, pos.y as f64 / scale));
     }
 }
@@ -176,7 +176,7 @@ fn default_spotlight_position(win: &tauri::WebviewWindow) -> (f64, f64) {
 
 /// Restore the saved spotlight position, or default to top-right of the current monitor.
 fn restore_spotlight_position(win: &tauri::WebviewWindow, state: &SpotlightState) {
-    let last_pos = state.spotlight_position.lock().unwrap();
+    let last_pos = state.spotlight_position.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((x, y)) = *last_pos {
         let _ = win.set_position(LogicalPosition::new(x, y));
     } else {
@@ -194,7 +194,7 @@ fn configure_as_spotlight(win: &tauri::WebviewWindow, state: &SpotlightState) {
     let _ = win.set_min_size(Some(LogicalSize::new(320.0, 300.0)));
     let _ = win.set_size(LogicalSize::new(SPOTLIGHT_WIDTH, SPOTLIGHT_HEIGHT));
     let _ = win.set_skip_taskbar(true);
-    let pinned = *state.pinned.lock().unwrap();
+    let pinned = *state.pinned.lock().unwrap_or_else(|e| e.into_inner());
     let _ = win.set_always_on_top(pinned);
     restore_spotlight_position(win, state);
 }
@@ -206,7 +206,7 @@ fn configure_as_main(win: &tauri::WebviewWindow, state: &SpotlightState) {
     let _ = win.set_min_size(Some(LogicalSize::new(800.0, 600.0)));
 
     // Restore saved main geometry or center at default size
-    let geom = state.main_geometry.lock().unwrap();
+    let geom = state.main_geometry.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((x, y, w, h)) = *geom {
         let _ = win.set_size(LogicalSize::new(w, h));
         let _ = win.set_position(LogicalPosition::new(x, y));
@@ -229,7 +229,7 @@ pub fn save_main_geometry(win: &tauri::WebviewWindow, state: &SpotlightState) {
         .unwrap_or(1.0);
 
     if let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) {
-        let mut geom = state.main_geometry.lock().unwrap();
+        let mut geom = state.main_geometry.lock().unwrap_or_else(|e| e.into_inner());
         *geom = Some((
             pos.x as f64 / scale,
             pos.y as f64 / scale,
@@ -290,14 +290,14 @@ pub fn toggle_spotlight(app: AppHandle, state: State<'_, SpotlightState>) {
     };
 
     let visible = win.is_visible().unwrap_or(false);
-    let mode = *state.mode.lock().unwrap();
+    let mode = *state.mode.lock().unwrap_or_else(|e| e.into_inner());
 
     if visible {
         match mode {
             WindowMode::Main => {
                 // Switch from main mode to spotlight mode
                 save_main_geometry(&win, &state);
-                *state.mode.lock().unwrap() = WindowMode::Spotlight;
+                *state.mode.lock().unwrap_or_else(|e| e.into_inner()) = WindowMode::Spotlight;
                 configure_as_spotlight(&win, &state);
                 emit_spotlight_opened(&app);
                 show_and_activate(&win);
@@ -309,7 +309,7 @@ pub fn toggle_spotlight(app: AppHandle, state: State<'_, SpotlightState>) {
         }
     } else {
         // Show as spotlight (was hidden) — set alpha=0 first to prevent flash
-        *state.mode.lock().unwrap() = WindowMode::Spotlight;
+        *state.mode.lock().unwrap_or_else(|e| e.into_inner()) = WindowMode::Spotlight;
         configure_as_spotlight(&win, &state);
         emit_spotlight_opened(&app);
         #[cfg(target_os = "macos")]
@@ -336,7 +336,7 @@ pub fn toggle_spotlight_from_tray(app: AppHandle, state: State<'_, SpotlightStat
     };
 
     let visible = win.is_visible().unwrap_or(false);
-    let mode = *state.mode.lock().unwrap();
+    let mode = *state.mode.lock().unwrap_or_else(|e| e.into_inner());
 
     if visible && mode == WindowMode::Spotlight {
         // Toggle off
@@ -350,7 +350,7 @@ pub fn toggle_spotlight_from_tray(app: AppHandle, state: State<'_, SpotlightStat
         }
 
         // Switch to spotlight mode — set alpha=0 first to prevent flash
-        *state.mode.lock().unwrap() = WindowMode::Spotlight;
+        *state.mode.lock().unwrap_or_else(|e| e.into_inner()) = WindowMode::Spotlight;
         configure_as_spotlight(&win, &state);
         emit_spotlight_opened(&app);
         #[cfg(target_os = "macos")]
@@ -370,9 +370,9 @@ pub fn toggle_spotlight_from_tray(app: AppHandle, state: State<'_, SpotlightStat
 /// Set spotlight window always-on-top state and persist it.
 #[tauri::command]
 pub fn set_spotlight_pin(app: AppHandle, state: State<'_, SpotlightState>, pinned: bool) {
-    *state.pinned.lock().unwrap() = pinned;
+    *state.pinned.lock().unwrap_or_else(|e| e.into_inner()) = pinned;
 
-    let mode = *state.mode.lock().unwrap();
+    let mode = *state.mode.lock().unwrap_or_else(|e| e.into_inner());
     if mode == WindowMode::Spotlight {
         if let Some(win) = app.get_webview_window("main") {
             let _ = win.set_always_on_top(pinned);
@@ -391,7 +391,7 @@ pub fn set_spotlight_pin(app: AppHandle, state: State<'_, SpotlightState>, pinne
 pub fn expand_to_main(app: AppHandle, state: State<'_, SpotlightState>) -> Result<(), String> {
     let win = app.get_webview_window("main").ok_or("Window not found")?;
 
-    let current_mode = *state.mode.lock().unwrap();
+    let current_mode = *state.mode.lock().map_err(|e| e.to_string())?;
     if current_mode != WindowMode::Spotlight {
         return Ok(());
     }
@@ -414,7 +414,7 @@ pub fn expand_to_main(app: AppHandle, state: State<'_, SpotlightState>) -> Resul
 
     // Determine target geometry
     let (target_x, target_y, target_w, target_h) = {
-        let geom = state.main_geometry.lock().unwrap();
+        let geom = state.main_geometry.lock().map_err(|e| e.to_string())?;
         if let Some((x, y, w, h)) = *geom {
             (x, y, w, h)
         } else {
@@ -434,7 +434,7 @@ pub fn expand_to_main(app: AppHandle, state: State<'_, SpotlightState>) -> Resul
     save_spotlight_position(&win, &state);
 
     // Update mode BEFORE animation
-    *state.mode.lock().unwrap() = WindowMode::Main;
+    *state.mode.lock().map_err(|e| e.to_string())? = WindowMode::Main;
 
     // Remove always-on-top and skip-taskbar during animation
     let _ = win.set_always_on_top(false);
@@ -486,14 +486,14 @@ pub fn show_main_window(app: AppHandle, state: State<'_, SpotlightState>) {
         None => return,
     };
 
-    let current_mode = *state.mode.lock().unwrap();
+    let current_mode = *state.mode.lock().unwrap_or_else(|e| e.into_inner());
 
     // If currently visible in spotlight mode, save position
     if win.is_visible().unwrap_or(false) && current_mode == WindowMode::Spotlight {
         save_spotlight_position(&win, &state);
     }
 
-    *state.mode.lock().unwrap() = WindowMode::Main;
+    *state.mode.lock().unwrap_or_else(|e| e.into_inner()) = WindowMode::Main;
     configure_as_main(&win, &state);
     let _ = app.emit("spotlight-mode-changed", false);
     show_and_activate(&win);
@@ -508,8 +508,8 @@ pub fn force_toggle_spotlight(app: AppHandle, state: State<'_, SpotlightState>) 
 /// Get spotlight window state for testing/debugging.
 #[tauri::command]
 pub fn get_spotlight_state(app: AppHandle, state: State<'_, SpotlightState>) -> serde_json::Value {
-    let pinned = *state.pinned.lock().unwrap();
-    let mode = *state.mode.lock().unwrap();
+    let pinned = *state.pinned.lock().unwrap_or_else(|e| e.into_inner());
+    let mode = *state.mode.lock().unwrap_or_else(|e| e.into_inner());
     let visible = app
         .get_webview_window("main")
         .map(|w| w.is_visible().unwrap_or(false))

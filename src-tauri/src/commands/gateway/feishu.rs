@@ -304,7 +304,10 @@ impl TokenManager {
 
     /// Refresh the app access token (used for WebSocket auth)
     async fn refresh_token(&self) -> Result<String, String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let url = format!(
             "{}/open-apis/auth/v3/app_access_token/internal",
             FEISHU_API_BASE
@@ -353,7 +356,10 @@ impl TokenManager {
 
     /// Also get a tenant_access_token for API calls (sending messages, etc.)
     async fn get_tenant_token(&self) -> Result<String, String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let url = format!(
             "{}/open-apis/auth/v3/tenant_access_token/internal",
             FEISHU_API_BASE
@@ -563,7 +569,10 @@ impl Clone for FeishuGateway {
 /// Get the WebSocket endpoint URL from Feishu API
 /// Uses AppID + AppSecret in body (no bearer token), matching Go SDK behavior.
 async fn get_ws_endpoint(app_id: &str, app_secret: &str) -> Result<(String, i32), String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!("{}/callback/ws/endpoint", FEISHU_API_BASE);
 
     println!("[Feishu] Getting WS endpoint from: {}", url);
@@ -1586,7 +1595,10 @@ async fn send_to_opencode(
 
 /// Reply to a Feishu message. Returns the reply message_id on success.
 async fn reply_feishu_message(token: &str, message_id: &str, text: &str) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!(
         "{}/open-apis/im/v1/messages/{}/reply",
         FEISHU_API_BASE, message_id
@@ -1628,7 +1640,10 @@ async fn reply_feishu_message(token: &str, message_id: &str, text: &str) -> Resu
 /// Update (edit) an existing Feishu card message content.
 /// The message MUST have been sent as an interactive card; plain text messages cannot be updated.
 async fn update_feishu_message(token: &str, message_id: &str, text: &str) -> Result<(), String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!(
         "{}/open-apis/im/v1/messages/{}",
         FEISHU_API_BASE, message_id
@@ -1694,7 +1709,10 @@ async fn reply_feishu_card_message(
     text: &str,
     title: Option<&str>,
 ) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!(
         "{}/open-apis/im/v1/messages/{}/reply",
         FEISHU_API_BASE, message_id
@@ -1750,7 +1768,10 @@ pub async fn send_chat_message(
 }
 
 async fn send_feishu_message(token: &str, chat_id: &str, text: &str) -> Result<(), String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!(
         "{}/open-apis/im/v1/messages?receive_id_type=chat_id",
         FEISHU_API_BASE
@@ -1787,7 +1808,10 @@ async fn download_feishu_image(
     message_id: &str,
     image_key: &str,
 ) -> Result<(String, String), String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!(
         "{}/open-apis/im/v1/messages/{}/resources/{}?type=image",
         FEISHU_API_BASE, message_id, image_key

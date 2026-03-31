@@ -133,7 +133,10 @@ pub async fn fetch_qr_code(base_url: &str) -> Result<WeChatQrLoginResponse, Stri
         "{}/ilink/bot/get_bot_qrcode?bot_type=3",
         base_url.trim_end_matches('/')
     );
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let resp = client
         .get(&url)
         .send()
@@ -424,7 +427,10 @@ impl WeChatGateway {
                     to_user_id
                 )
             })?;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         send_text_message(
             &client,
             &config.base_url,

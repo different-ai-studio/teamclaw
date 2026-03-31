@@ -11,7 +11,9 @@
  *  - Telemetry consent dialog
  */
 import { useEffect, useRef, useState, useCallback } from "react";
-import { isTauri, openExternalUrl } from "@/lib/utils";
+import { isTauri } from "@/lib/utils";
+import { useTabsStore } from "@/stores/tabs";
+import { urlToLabel } from "@/lib/webview-utils";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useChannelsStore } from "@/stores/channels";
 import { useGitReposStore } from "@/stores/git-repos";
@@ -542,7 +544,11 @@ export function useExternalLinkHandler() {
       if (href && /^https?:\/\//.test(href)) {
         e.preventDefault();
         e.stopPropagation();
-        openExternalUrl(href);
+        useTabsStore.getState().openTab({
+          type: "webview",
+          target: href,
+          label: urlToLabel(href),
+        });
       }
     };
 

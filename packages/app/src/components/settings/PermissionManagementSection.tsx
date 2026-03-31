@@ -139,11 +139,11 @@ export const PermissionManagementSection = React.memo(function PermissionManagem
 
   // Load allowlist from opencode.db via Tauri command
   const loadAllowlist = React.useCallback(async () => {
-    if (!isTauri()) return
+    if (!isTauri() || !workspacePath) return
 
     setLoadingAllowlist(true)
     try {
-      const rows = await invoke<AllowlistRow[]>('read_opencode_allowlist')
+      const rows = await invoke<AllowlistRow[]>('read_opencode_allowlist', { workspacePath })
       setAllowlistRows(rows)
     } catch (error) {
       console.error('[PermissionManagement] Failed to load allowlist from DB:', error)
@@ -151,7 +151,7 @@ export const PermissionManagementSection = React.memo(function PermissionManagem
     } finally {
       setLoadingAllowlist(false)
     }
-  }, [])
+  }, [workspacePath])
 
   // Remove a single rule
   const removeRule = React.useCallback(async (projectId: string, ruleIndex: number) => {
@@ -161,6 +161,7 @@ export const PermissionManagementSection = React.memo(function PermissionManagem
     try {
       const updatedRules = row.rules.filter((_, i) => i !== ruleIndex)
       await invoke('write_opencode_allowlist', {
+        workspacePath,
         projectId,
         rules: updatedRules,
       })
@@ -168,7 +169,7 @@ export const PermissionManagementSection = React.memo(function PermissionManagem
     } catch (error) {
       console.error('[PermissionManagement] Failed to remove rule:', error)
     }
-  }, [allowlistRows, loadAllowlist])
+  }, [allowlistRows, loadAllowlist, workspacePath])
 
   // Load permission config from opencode.json
   const loadPermissionConfig = React.useCallback(async () => {

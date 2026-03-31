@@ -1,20 +1,21 @@
 {
   "team": {
     "llm": {
-      "baseUrl": "https://api.example.com/v1",
-      "model": "gpt-4o",
-      "modelName": "GPT-4o",
-      "supportsVision": false
+      "baseUrl": "",
+      "model": "",
+      "modelName": ""
     },
-    "lockLlmConfig": false
+    "lockLlmConfig": false,
+    "seedUrl": "http://localhost:9090"
   },
   "app": {
     "name": "TeamClaw",
-    "shortName": "teamclaw"
+    "shortName": "teamclaw",
+    "uiVariant": "default"
   },
   "features": {
     "advancedMode": true,
-    "teamMode": true,
+    "teamMode": false,
     "updater": true,
     "channels": {
       "discord": true,
@@ -26,7 +27,7 @@
     }
   },
   "s3": {
-    "teamEndpoint": "https://cloud.ucar.cc",
+    "teamEndpoint": "https://localhost",
     "forcePathStyle": false
   },
   "defaults": {

@@ -182,7 +182,10 @@ pub async fn fetch_wecom_qr_code() -> Result<super::wecom_config::WeComQrAuthSta
     use super::wecom_config::{WeComQrGenerateResponse, WeComQrAuthStart};
 
     let url = format!("{}?source=teamclaw&plat={}", WECOM_QR_GENERATE_URL, get_plat_code());
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let resp = client
         .get(&url)
         .send()
@@ -1068,7 +1071,10 @@ impl WeComGateway {
         aeskey: Option<&str>,
         filename_hint: Option<&str>,
     ) -> Result<(String, String, Vec<u8>), String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let resp = client
             .get(url)
             .timeout(std::time::Duration::from_secs(30))
@@ -1314,7 +1320,10 @@ impl WeComGateway {
         use futures_util::StreamExt as _;
 
         let port = self.opencode_port;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let mut stream_id = uuid::Uuid::new_v4().to_string();
 
         // Start thinking animation IMMEDIATELY (before prompt_async / SSE setup)
@@ -1535,7 +1544,10 @@ impl WeComGateway {
                                     let port_clone = port;
                                     let perm_id_clone = perm_id_str.to_string();
                                     tokio::spawn(async move {
-                                        let client = reqwest::Client::new();
+                                        let client = reqwest::Client::builder()
+                                            .timeout(std::time::Duration::from_secs(30))
+                                            .build()
+                                            .unwrap_or_else(|_| reqwest::Client::new());
                                         let url = format!(
                                             "http://127.0.0.1:{}/permission/{}/reply",
                                             port_clone, perm_id_clone

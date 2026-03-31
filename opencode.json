@@ -30,6 +30,16 @@
         "QWEN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "QWEN_MODEL": "qwen3-vl-flash"
       }
+    },
+    "chrome-control": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--autoConnect"
+      ]
     }
   },
   "skills": {

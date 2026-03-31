@@ -1168,7 +1168,10 @@ pub async fn send_channel_message(
     channel_id: &str,
     content: &str,
 ) -> Result<(), String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = format!(
         "https://discord.com/api/v10/channels/{}/messages",
         channel_id
@@ -1193,7 +1196,10 @@ pub async fn send_channel_message(
 
 /// Create a DM channel with a Discord user. Returns the DM channel ID.
 pub async fn create_dm_channel(token: &str, user_id: &str) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let url = "https://discord.com/api/v10/users/@me/channels";
     let body = serde_json::json!({ "recipient_id": user_id });
 

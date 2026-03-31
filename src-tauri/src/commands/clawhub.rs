@@ -251,9 +251,14 @@ fn skills_dir(workspace_path: &str) -> PathBuf {
         .join("skills")
 }
 
-fn global_skills_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "Failed to determine home directory".to_string())?;
-    Ok(home.join(".config").join("opencode").join("skills"))
+fn global_skills_dir(workspace_path: &str) -> PathBuf {
+    // Under XDG isolation, "global" skills live inside the workspace:
+    // <workspace>/.opencode/config/opencode/skills/
+    PathBuf::from(workspace_path)
+        .join(".opencode")
+        .join("config")
+        .join("opencode")
+        .join("skills")
 }
 
 fn validate_slug(slug: &str) -> Result<(), String> {
@@ -504,12 +509,12 @@ pub fn clawhub_install(
     let client = build_client()?;
 
     let is_global = is_global.unwrap_or(false);
+    let ws_path = workspace_path
+        .as_ref()
+        .ok_or_else(|| "Workspace path required for skill installation".to_string())?;
     let skills = if is_global {
-        global_skills_dir()?
+        global_skills_dir(ws_path)
     } else {
-        let ws_path = workspace_path
-            .as_ref()
-            .ok_or_else(|| "Workspace path required for workspace installation".to_string())?;
         skills_dir(ws_path)
     };
 

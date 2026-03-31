@@ -32,6 +32,7 @@ config.json
 build.config.local.json
 build.config.production.json
 
+
 # Tauri
 src-tauri/target/
 src-tauri/binaries/*

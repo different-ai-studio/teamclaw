@@ -147,6 +147,10 @@ pub async fn webview_eval_js(app: tauri::AppHandle, code: String) -> Result<Stri
 }
 
 /// Create a native webview as a child of the main window at the given position.
+///
+/// When `device_no` and `device_name` are provided, a `window.teamclaw` global
+/// is injected into the webview before any page scripts run, exposing identity
+/// information for the current team member.
 #[tauri::command]
 pub async fn webview_create(
     app: tauri::AppHandle,
@@ -157,9 +161,11 @@ pub async fn webview_create(
     y: f64,
     width: f64,
     height: f64,
+    device_no: Option<String>,
+    device_name: Option<String>,
 ) -> Result<(), String> {
     // If webview with this label already exists, just show and reposition it
-    let exists = state.labels.lock().unwrap().contains_key(&label);
+    let exists = state.labels.lock().map_err(|e| e.to_string())?.contains_key(&label);
     if exists {
         if let Some(webview) = app.get_webview(&label) {
             eprintln!(
@@ -173,7 +179,7 @@ pub async fn webview_create(
             return Ok(());
         } else {
             // Label tracked but webview gone — clean up
-            state.labels.lock().unwrap().remove(&label);
+            state.labels.lock().map_err(|e| e.to_string())?.remove(&label);
         }
     }
 
@@ -211,6 +217,45 @@ pub async fn webview_create(
         }
     }
 
+    // Intercept target="_blank" links and window.open() so they navigate
+    // within the same webview instead of opening the system browser.
+    webview_builder = webview_builder.initialization_script(
+        r#"(function(){
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest && e.target.closest('a');
+    if (!a) return;
+    var t = a.getAttribute('target');
+    if (t && t !== '_self') {
+      var href = a.href || a.getAttribute('href');
+      if (href && /^https?:\/\//.test(href)) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.location.href = href;
+      }
+    }
+  }, true);
+  var _open = window.open;
+  window.open = function(url) {
+    if (url && /^https?:\/\//.test(String(url))) {
+      window.location.href = String(url);
+      return window;
+    }
+    return _open.apply(this, arguments);
+  };
+})();"#,
+    );
+
+    // Inject window.teamclaw identity global before any page scripts run.
+    if let (Some(ref dno), Some(ref dname)) = (&device_no, &device_name) {
+        let escaped_no = serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
+        let escaped_name = serde_json::to_string(dname).unwrap_or_else(|_| "\"\"".to_string());
+        let script = format!(
+            "Object.defineProperty(window, 'teamclaw', {{ value: Object.freeze({{ deviceNo: {}, deviceName: {} }}), writable: false, configurable: false }});",
+            escaped_no, escaped_name,
+        );
+        webview_builder = webview_builder.initialization_script(&script);
+    }
+
     let webview = window
         .add_child(
             webview_builder,
@@ -223,7 +268,7 @@ pub async fn webview_create(
     let _ = webview.set_focus();
 
     // Track the label
-    state.labels.lock().unwrap().insert(label.clone(), ());
+    state.labels.lock().map_err(|e| e.to_string())?.insert(label.clone(), ());
 
     eprintln!("[Webview] Created successfully: {}", label);
     Ok(())
@@ -234,7 +279,7 @@ fn webview_close_inner(
     state: &tauri::State<'_, WebviewManager>,
     label: &str,
 ) {
-    state.labels.lock().unwrap().remove(label);
+    state.labels.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
     if let Some(webview) = app.get_webview(label) {
         let _ = webview.close();
     }

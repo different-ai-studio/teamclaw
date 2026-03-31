@@ -12,6 +12,7 @@ import {
   FolderPlus,
   Trash2,
   Copy,
+  CopyPlus,
   Scissors,
   ClipboardPaste,
   ExternalLink,
@@ -190,6 +191,7 @@ export interface FileTreeItemProps {
   onCut: (paths: string[]) => void;
   onCopy: (paths: string[]) => void;
   onPaste: (targetDir: string) => void;
+  onDuplicate: (path: string) => void;
   hasClipboard: boolean;
   isClipboardCut: boolean;
   clipboardPaths: string[];
@@ -238,6 +240,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   onCut,
   onCopy,
   onPaste,
+  onDuplicate,
   hasClipboard,
   isClipboardCut,
   clipboardPaths,
@@ -445,11 +448,20 @@ export const FileTreeItem = React.memo(function FileTreeItem({
             <ContextMenuShortcut>⌘X</ContextMenuShortcut>
           </ContextMenuItem>
         )}
-        {!isViewerRestricted && hasClipboard && isDirectory && (
-          <ContextMenuItem onClick={() => onPaste(node.path)}>
+        {!isViewerRestricted && hasClipboard && (
+          <ContextMenuItem onClick={() => onPaste(
+            isDirectory ? node.path : node.path.substring(0, node.path.lastIndexOf("/"))
+          )}>
             <ClipboardPaste className="h-4 w-4" />
             {t("fileExplorer.pasteFile", "Paste")}
             <ContextMenuShortcut>⌘V</ContextMenuShortcut>
+          </ContextMenuItem>
+        )}
+        {!isViewerRestricted && (
+          <ContextMenuItem onClick={() => onDuplicate(node.path)}>
+            <CopyPlus className="h-4 w-4" />
+            {t("fileExplorer.duplicate", "Duplicate")}
+            <ContextMenuShortcut>⌘D</ContextMenuShortcut>
           </ContextMenuItem>
         )}
         {!isDirectory && (

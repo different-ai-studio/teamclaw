@@ -308,7 +308,10 @@ impl KookGateway {
 
     /// Fetch the bot's own user ID via /api/v3/user/me
     async fn fetch_bot_user_id(&self, token: &str) -> Result<String, String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let url = format!("{}/user/me", KOOK_API_BASE);
 
         let resp = client
@@ -534,7 +537,10 @@ impl KookGateway {
 
     /// Get gateway WebSocket URL from KOOK API
     async fn get_gateway_url(&self, token: &str) -> Result<String, String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let url = format!("{}/gateway/index?compress=0", KOOK_API_BASE);
 
         let resp = client
@@ -972,7 +978,10 @@ impl KookGateway {
                 let ct = channel_type.clone();
                 Box::pin(async move {
                     let text = super::format_question_message(&fq.questions, &fq.question_id, locale_for_q);
-                    let client = reqwest::Client::new();
+                    let client = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(30))
+                        .build()
+                        .unwrap_or_else(|_| reqwest::Client::new());
                     let (url, body) = if ct == "PERSON" {
                         (
                             "https://www.kookapp.cn/api/v3/direct-message/create".to_string(),
@@ -1081,7 +1090,10 @@ impl KookGateway {
     /// Send "Thinking..." card message and return msg_id
     async fn send_thinking_card(&self, original: &KookMessageData) -> Result<String, String> {
         let config = self.config.read().await;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
 
         // Create a simple card with "Thinking..." text
         let card = json!([
@@ -1160,7 +1172,10 @@ impl KookGateway {
         is_dm: bool,
     ) -> Result<(), String> {
         let config = self.config.read().await;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
 
         // Create card with the actual content
         let card = json!([
@@ -1220,7 +1235,10 @@ impl KookGateway {
     /// Send reply via KOOK HTTP API using card message for rich formatting
     async fn send_reply(&self, original: &KookMessageData, reply_text: &str) -> Result<(), String> {
         let config = self.config.read().await;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
 
         let card = json!([
             {
@@ -1493,7 +1511,10 @@ impl KookGateway {
         card: &serde_json::Value,
     ) -> Result<(), String> {
         let config = self.config.read().await;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
 
         let (endpoint, payload) = if original.channel_type == "PERSON" {
             let url = format!("{}/direct-message/create", KOOK_API_BASE);
@@ -1586,7 +1607,10 @@ pub async fn send_kook_message_http(
     content: &str,
     is_dm: bool,
 ) -> Result<(), String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
 
     let (endpoint, payload) = if is_dm {
         let url = format!("{}/direct-message/create", KOOK_API_BASE);

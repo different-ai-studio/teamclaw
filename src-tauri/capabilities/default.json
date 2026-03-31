@@ -5,7 +5,7 @@
   "windows": ["main", "spotlight"],
   "webviews": ["main", "wv-*"],
   "remote": {
-    "urls": ["https://*"]
+    "urls": ["https://*", "http://*"]
   },
   "permissions": [
     "core:default",
@@ -13,6 +13,9 @@
     "shell:allow-open",
     "dialog:allow-open",
     "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
     "notification:default",
     {
       "identifier": "fs:allow-read-dir",
@@ -94,6 +97,8 @@
     "core:window:allow-is-focused",
     "core:window:allow-is-visible",
     "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-unregister-all",
     "global-shortcut:allow-is-registered",
     "process:allow-restart",
     "aptabase:allow-track-event",

@@ -10,13 +10,21 @@ use tokio::sync::mpsc;
 /// This is the single source of truth for the port number.
 const DEFAULT_PORT: u16 = 13141;
 
+/// Mutable runtime state for the OpenCode sidecar, protected by a single Mutex.
+pub struct OpenCodeInner {
+    pub is_running: bool,
+    pub port: u16,
+    pub child_process: Option<CommandChild>,
+    pub is_dev_mode: bool,
+    pub workspace_path: Option<String>,
+    /// Handle to the async task monitoring sidecar stdout/stderr.
+    /// Aborted on shutdown to prevent resource leaks.
+    pub reader_task: Option<tauri::async_runtime::JoinHandle<()>>,
+}
+
 /// OpenCode server state
 pub struct OpenCodeState {
-    pub is_running: Mutex<bool>,
-    pub port: Mutex<u16>,
-    pub child_process: Mutex<Option<CommandChild>>,
-    pub is_dev_mode: Mutex<bool>,
-    pub workspace_path: Mutex<Option<String>>,
+    pub inner: Mutex<OpenCodeInner>,
     /// Async lock that serializes `start_opencode` calls to prevent concurrent spawns.
     pub start_lock: tokio::sync::Mutex<()>,
     /// Early launch state — set by setup hook, consumed by start_opencode.
@@ -31,11 +39,14 @@ impl Default for OpenCodeState {
             .unwrap_or(false);
 
         Self {
-            is_running: Mutex::new(false),
-            port: Mutex::new(DEFAULT_PORT),
-            child_process: Mutex::new(None),
-            is_dev_mode: Mutex::new(is_dev),
-            workspace_path: Mutex::new(None),
+            inner: Mutex::new(OpenCodeInner {
+                is_running: false,
+                port: DEFAULT_PORT,
+                child_process: None,
+                is_dev_mode: is_dev,
+                workspace_path: None,
+                reader_task: None,
+            }),
             start_lock: tokio::sync::Mutex::new(()),
             early_launch: tokio::sync::Mutex::new(None),
         }
@@ -127,36 +138,31 @@ pub async fn start_opencode_inner(
         inner_t0.elapsed().as_secs_f64() * 1000.0
     );
 
-    let is_dev_mode = *state.is_dev_mode.lock().map_err(|e| e.to_string())?;
     let port = config.port.unwrap_or(DEFAULT_PORT);
 
-    // Check if already running (extract values and drop guards before any await)
+    // Check if already running (extract values and drop guard before any await)
     let mut needs_restart = false;
+    let is_dev_mode;
     {
-        let is_running = *state.is_running.lock().map_err(|e| e.to_string())?;
-        let current_workspace = state
-            .workspace_path
-            .lock()
-            .map_err(|e| e.to_string())?
-            .clone();
+        let inner = state.inner.lock().map_err(|e| e.to_string())?;
+        is_dev_mode = inner.is_dev_mode;
 
-        if is_running {
-            let workspace_changed = current_workspace.as_ref() != Some(&config.workspace_path);
+        if inner.is_running {
+            let workspace_changed = inner.workspace_path.as_ref() != Some(&config.workspace_path);
 
             if !workspace_changed {
-                let port = *state.port.lock().map_err(|e| e.to_string())?;
                 return Ok(OpenCodeStatus {
                     is_running: true,
-                    port,
-                    url: format!("http://127.0.0.1:{}", port),
+                    port: inner.port,
+                    url: format!("http://127.0.0.1:{}", inner.port),
                     is_dev_mode,
-                    workspace_path: current_workspace,
+                    workspace_path: inner.workspace_path.clone(),
                 });
             }
 
             println!(
                 "[OpenCode] Workspace changed from {:?} to {}, restarting...",
-                current_workspace.as_ref(),
+                inner.workspace_path.as_ref(),
                 config.workspace_path
             );
 
@@ -167,17 +173,19 @@ pub async fn start_opencode_inner(
     if needs_restart {
         // Stop the existing server
         if !is_dev_mode {
-            let mut child_guard = state.child_process.lock().map_err(|e| e.to_string())?;
-            if let Some(child) = child_guard.take() {
+            let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+            if let Some(child) = inner.child_process.take() {
                 println!("[OpenCode] Killing previous process...");
                 let _ = child.kill();
             }
-        }
-
-        // Update state to not running
-        {
-            let mut is_running = state.is_running.lock().map_err(|e| e.to_string())?;
-            *is_running = false;
+            // Abort old reader task
+            if let Some(handle) = inner.reader_task.take() {
+                handle.abort();
+            }
+            inner.is_running = false;
+        } else {
+            let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+            inner.is_running = false;
         }
 
         // Wait for port to be released with exponential backoff
@@ -294,12 +302,10 @@ pub async fn start_opencode_inner(
 
         // Update state
         {
-            let mut is_running = state.is_running.lock().map_err(|e| e.to_string())?;
-            *is_running = true;
-            let mut port_guard = state.port.lock().map_err(|e| e.to_string())?;
-            *port_guard = port;
-            let mut workspace_guard = state.workspace_path.lock().map_err(|e| e.to_string())?;
-            *workspace_guard = Some(requested_path.clone());
+            let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+            inner.is_running = true;
+            inner.port = port;
+            inner.workspace_path = Some(requested_path.clone());
         }
 
         return Ok(OpenCodeStatus {
@@ -435,12 +441,21 @@ pub async fn start_opencode_inner(
     );
 
     // Build sidecar command, also injecting secrets as process env vars (backup)
+    //
+    // XDG isolation: redirect all OpenCode data/config/state/cache directories
+    // into <workspace>/.opencode/ so each workspace is fully self-contained
+    // and independent of any system-installed OpenCode.
+    let xdg_base = std::path::PathBuf::from(&workspace_path).join(".opencode");
     let mut sidecar_command = app
         .shell()
         .sidecar("opencode")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
         .args(["serve", "--port", &port_str])
-        .current_dir(&workspace_path);
+        .current_dir(&workspace_path)
+        .env("XDG_DATA_HOME", xdg_base.join("data").to_string_lossy().as_ref())
+        .env("XDG_CONFIG_HOME", xdg_base.join("config").to_string_lossy().as_ref())
+        .env("XDG_STATE_HOME", xdg_base.join("state").to_string_lossy().as_ref())
+        .env("XDG_CACHE_HOME", xdg_base.join("cache").to_string_lossy().as_ref());
     for (key, value) in &secrets {
         sidecar_command = sidecar_command.env(key, value);
     }
@@ -451,15 +466,16 @@ pub async fn start_opencode_inner(
 
     // Store the child process
     {
-        let mut child_guard = state.child_process.lock().map_err(|e| e.to_string())?;
-        *child_guard = Some(child);
+        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+        inner.child_process = Some(child);
     }
 
-    // Wait for server to be ready
-    let (ready_tx, mut ready_rx) = mpsc::channel::<bool>(1);
+    // Wait for server to be ready — channel carries Ok(()) on success or Err(message) on crash
+    let (ready_tx, mut ready_rx) = mpsc::channel::<Result<(), String>>(1);
 
     let ready_tx_clone = ready_tx.clone();
-    tauri::async_runtime::spawn(async move {
+    let reader_handle = tauri::async_runtime::spawn(async move {
+        let mut stderr_lines: Vec<String> = Vec::new();
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
@@ -469,54 +485,85 @@ pub async fn start_opencode_inner(
                         || line_str.contains("started")
                         || line_str.contains("ready")
                     {
-                        let _ = ready_tx_clone.send(true).await;
+                        let _ = ready_tx_clone.send(Ok(())).await;
                     }
                 }
                 CommandEvent::Stderr(line) => {
-                    let line_str = String::from_utf8_lossy(&line);
+                    let line_str = String::from_utf8_lossy(&line).to_string();
                     // opencode logs INFO to stderr, only print actual errors
                     if line_str.contains("Error") || line_str.contains("Failed") {
                         eprintln!("[OpenCode Error] {}", line_str);
                     } else {
                         println!("[OpenCode] {}", line_str);
                     }
+                    // Collect stderr for crash diagnostics (keep last 20 lines)
+                    stderr_lines.push(line_str);
+                    if stderr_lines.len() > 20 {
+                        stderr_lines.remove(0);
+                    }
                 }
                 CommandEvent::Error(err) => {
                     eprintln!("[OpenCode Error] {}", err);
+                    stderr_lines.push(err.clone());
                 }
                 CommandEvent::Terminated(payload) => {
-                    println!(
-                        "[OpenCode] Process terminated with code: {:?}",
-                        payload.code
+                    let code = payload.code.unwrap_or(-1);
+                    eprintln!(
+                        "[OpenCode] Process terminated with code: {}",
+                        code
                     );
+                    if code != 0 {
+                        let context = if stderr_lines.is_empty() {
+                            format!("OpenCode process exited with code {}", code)
+                        } else {
+                            // Include last few stderr lines for context
+                            let tail: Vec<&str> = stderr_lines.iter().map(|s| s.as_str()).collect();
+                            format!(
+                                "OpenCode process exited with code {}:\n{}",
+                                code,
+                                tail.join("\n")
+                            )
+                        };
+                        let _ = ready_tx_clone.send(Err(context)).await;
+                    }
                 }
                 _ => {}
             }
         }
     });
 
+    // Store the reader task handle for cleanup
+    {
+        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+        inner.reader_task = Some(reader_handle);
+    }
+
     // Wait for ready signal with timeout
     let ready = tokio::time::timeout(std::time::Duration::from_secs(15), ready_rx.recv()).await;
 
-    // If timeout, try to poll the health endpoint
-    let is_ready = match ready {
-        Ok(Some(true)) => true,
+    match ready {
+        Ok(Some(Ok(()))) => {} // Server is ready
+        Ok(Some(Err(crash_msg))) => {
+            // Process crashed — return the error with stderr context
+            restore_config(&workspace_path, &original_config);
+            return Err(crash_msg);
+        }
         _ => {
-            // Fallback: poll health endpoint
+            // Timeout or channel closed — fallback: poll health endpoint
+            let mut healthy = false;
             for _ in 0..20 {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 if check_server_health(port).await {
+                    healthy = true;
                     break;
                 }
             }
-            check_server_health(port).await
+            if !healthy {
+                restore_config(&workspace_path, &original_config);
+                return Err("OpenCode server failed to start within timeout. Check opencode.json for errors.".to_string());
+            }
         }
     };
-
-    if !is_ready {
-        restore_config(&workspace_path, &original_config);
-        return Err("OpenCode server failed to start within timeout".to_string());
-    }
 
     // Schedule async config restore: wait for MCP servers to connect (so they
     // read the resolved secrets), then put back the original ${KEY} references.
@@ -535,12 +582,10 @@ pub async fn start_opencode_inner(
 
     // Update state
     {
-        let mut is_running = state.is_running.lock().map_err(|e| e.to_string())?;
-        *is_running = true;
-        let mut port_guard = state.port.lock().map_err(|e| e.to_string())?;
-        *port_guard = port;
-        let mut workspace_guard = state.workspace_path.lock().map_err(|e| e.to_string())?;
-        *workspace_guard = Some(workspace_path.clone());
+        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+        inner.is_running = true;
+        inner.port = port;
+        inner.workspace_path = Some(workspace_path.clone());
     }
 
     #[cfg(debug_assertions)]
@@ -1292,23 +1337,28 @@ async fn get_server_paths(port: u16) -> (Option<String>, Option<String>) {
 /// Stop OpenCode sidecar (production) or clear running state (dev). Shared by the
 /// `stop_opencode` command and application exit (`RunEvent::Exit`).
 pub async fn shutdown_opencode(state: &OpenCodeState) -> Result<(), String> {
-    let is_dev_mode = *state.is_dev_mode.lock().map_err(|e| e.to_string())?;
-    let port = *state.port.lock().map_err(|e| e.to_string())?;
+    let (is_dev_mode, port) = {
+        let inner = state.inner.lock().map_err(|e| e.to_string())?;
+        (inner.is_dev_mode, inner.port)
+    };
 
     // In dev mode, just update state (don't try to kill external process)
     if is_dev_mode {
-        let mut is_running = state.is_running.lock().map_err(|e| e.to_string())?;
-        *is_running = false;
+        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+        inner.is_running = false;
         return Ok(());
     }
 
-    // Production mode: kill sidecar
+    // Production mode: kill sidecar and abort reader task
     {
-        let mut child_guard = state.child_process.lock().map_err(|e| e.to_string())?;
-        if let Some(child) = child_guard.take() {
+        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+        if let Some(child) = inner.child_process.take() {
             child
                 .kill()
                 .map_err(|e| format!("Failed to stop OpenCode: {}", e))?;
+        }
+        if let Some(handle) = inner.reader_task.take() {
+            handle.abort();
         }
     }
 
@@ -1338,8 +1388,8 @@ pub async fn shutdown_opencode(state: &OpenCodeState) -> Result<(), String> {
 
     // Update state
     {
-        let mut is_running = state.is_running.lock().map_err(|e| e.to_string())?;
-        *is_running = false;
+        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+        inner.is_running = false;
     }
 
     Ok(())
@@ -1353,14 +1403,27 @@ pub async fn stop_opencode(state: State<'_, OpenCodeState>) -> Result<(), String
 
 // ─── OpenCode DB allowlist commands ──────────────────────────────────
 
-fn get_opencode_db_path() -> Result<String, String> {
+fn get_opencode_db_path(workspace_path: &str) -> Result<String, String> {
+    // With XDG isolation, the DB lives at <workspace>/.opencode/data/opencode/opencode.db
+    let isolated_path = std::path::PathBuf::from(workspace_path)
+        .join(".opencode/data/opencode/opencode.db");
+    if isolated_path.exists() {
+        return Ok(isolated_path.to_string_lossy().to_string());
+    }
+
+    // Fallback to legacy global path for workspaces that haven't been re-launched yet
     let home =
         std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
-    let path = format!("{}/.local/share/opencode/opencode.db", home);
-    if !std::path::Path::new(&path).exists() {
-        return Err(format!("OpenCode database not found at: {}", path));
+    let legacy_path = format!("{}/.local/share/opencode/opencode.db", home);
+    if std::path::Path::new(&legacy_path).exists() {
+        return Ok(legacy_path);
     }
-    Ok(path)
+
+    Err(format!(
+        "OpenCode database not found at: {} or {}",
+        isolated_path.display(),
+        legacy_path
+    ))
 }
 
 /// Look up the project_id for a given workspace path from the project table.
@@ -1369,7 +1432,7 @@ fn get_opencode_db_path() -> Result<String, String> {
 ///   - non-git directories use "global"
 #[tauri::command]
 pub async fn get_opencode_project_id(workspace_path: String) -> Result<String, String> {
-    let db_path = get_opencode_db_path()?;
+    let db_path = get_opencode_db_path(&workspace_path)?;
     let normalized = workspace_path.trim_end_matches('/');
 
     let output = std::process::Command::new("sqlite3")
@@ -1427,8 +1490,8 @@ pub struct AllowlistRow {
 
 /// Read all permission allowlist rows from the opencode.db permission table.
 #[tauri::command]
-pub async fn read_opencode_allowlist() -> Result<Vec<AllowlistRow>, String> {
-    let db_path = get_opencode_db_path()?;
+pub async fn read_opencode_allowlist(workspace_path: String) -> Result<Vec<AllowlistRow>, String> {
+    let db_path = get_opencode_db_path(&workspace_path)?;
 
     let output = std::process::Command::new("sqlite3")
         .args([
@@ -1481,10 +1544,11 @@ pub async fn read_opencode_allowlist() -> Result<Vec<AllowlistRow>, String> {
 /// Pass an empty `rules` array to delete the entry.
 #[tauri::command]
 pub async fn write_opencode_allowlist(
+    workspace_path: String,
     project_id: String,
     rules: Vec<PermissionRule>,
 ) -> Result<(), String> {
-    let db_path = get_opencode_db_path()?;
+    let db_path = get_opencode_db_path(&workspace_path)?;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
@@ -1582,20 +1646,12 @@ fn write_last_workspace(workspace_path: &str) {
 pub async fn get_opencode_status(
     state: State<'_, OpenCodeState>,
 ) -> Result<OpenCodeStatus, String> {
-    let is_running = *state.is_running.lock().map_err(|e| e.to_string())?;
-    let port = *state.port.lock().map_err(|e| e.to_string())?;
-    let is_dev_mode = *state.is_dev_mode.lock().map_err(|e| e.to_string())?;
-    let workspace_path = state
-        .workspace_path
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
-
+    let inner = state.inner.lock().map_err(|e| e.to_string())?;
     Ok(OpenCodeStatus {
-        is_running,
-        port,
-        url: format!("http://127.0.0.1:{}", port),
-        is_dev_mode,
-        workspace_path,
+        is_running: inner.is_running,
+        port: inner.port,
+        url: format!("http://127.0.0.1:{}", inner.port),
+        is_dev_mode: inner.is_dev_mode,
+        workspace_path: inner.workspace_path.clone(),
     })
 }

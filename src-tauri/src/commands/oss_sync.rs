@@ -219,7 +219,10 @@ impl OssSyncManager {
 
     pub async fn call_fc(&self, path: &str, body: &Value) -> Result<FcResponse, String> {
         let url = format!("{}{}", self.team_endpoint, path);
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
 
         let max_retries = 3u32;
         let mut attempt = 0u32;

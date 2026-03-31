@@ -683,11 +683,25 @@ function AppContent() {
               </div>
               <div className="space-y-2">
                 <h2 className="text-xl font-semibold">
-                  OpenCode Server Configuration Error
+                  {t(
+                    "app.openCodeError",
+                    "OpenCode Server Failed to Start",
+                  )}
                 </h2>
-                <div className="text-sm text-muted-foreground whitespace-pre-wrap text-left bg-muted p-4 rounded-lg font-mono">
-                  {openCodeError}
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "app.openCodeErrorHint",
+                    "The server process exited unexpectedly. Try choosing another directory or retrying the connection.",
+                  )}
+                </p>
+                <details className="text-left">
+                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none">
+                    {t("app.showErrorDetails", "Show error details")}
+                  </summary>
+                  <div className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap bg-muted p-3 rounded-lg font-mono max-h-48 overflow-y-auto break-all">
+                    {openCodeError}
+                  </div>
+                </details>
               </div>
             </div>
 

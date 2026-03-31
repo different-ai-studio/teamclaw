@@ -1,6 +1,17 @@
 import { useState, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronRight, ChevronDown, Plus, FileText, ExternalLink, Folder, RefreshCw, Settings } from "lucide-react"
+import {
+  ChevronRight,
+  ChevronDown,
+  Plus,
+  FileText,
+  ExternalLink,
+  Folder,
+  RefreshCw,
+  Settings,
+  icons,
+  type LucideIcon,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -18,6 +29,19 @@ import { loadTeamShortcutsFile } from "@/lib/team-shortcuts"
 import { useSidebar } from "@/components/ui/sidebar"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
+// ── Icon resolver ────────────────────────────────────────────────────
+// Uses PascalCase Lucide icon names (e.g. "ShoppingCart", "Users", "BarChart3").
+// Full list: https://lucide.dev/icons
+
+function resolveIcon(node: ShortcutNode): LucideIcon {
+  if (node.icon && node.icon in icons) return icons[node.icon as keyof typeof icons]
+  if (node.type === "folder") return Folder
+  if (node.type === "native") return FileText
+  return ExternalLink
+}
+
+// ── Tree node (shadcn sidebar style) ─────────────────────────────────
+
 interface TreeNodeProps {
   node: ShortcutNode
   level: number
@@ -31,6 +55,7 @@ function TreeNode({ node, level, onSelect, activeTarget, openTargets }: TreeNode
   const isActive = !!(node.target && node.target === activeTarget)
   const isOpen = !!(node.target && openTargets.has(node.target))
   const isFolder = node.type === "folder"
+  const Icon = resolveIcon(node)
 
   const handleClick = () => {
     if (isFolder) {
@@ -40,67 +65,67 @@ function TreeNode({ node, level, onSelect, activeTarget, openTargets }: TreeNode
     }
   }
 
-  return (
-    <div>
-      {isFolder ? (
-        <>
-          <button
-            onClick={handleClick}
-            className={cn(
-              "w-full flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wider",
-              "text-muted-foreground/70 hover:text-muted-foreground transition-colors",
-              level > 0 && "text-[10px]",
-            )}
-            style={{ paddingLeft: `${level * 14 + 6}px`, marginTop: level === 0 ? '6px' : '2px' }}
-          >
-            {isExpanded ? (
-              <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
-            ) : (
-              <ChevronRight className="h-3 w-3 shrink-0 opacity-50" />
-            )}
-            <span className="truncate">{node.label}</span>
-          </button>
-          {isExpanded && node.children && node.children.length > 0 && (
-            <div>
-              {node.children.map((child) => (
-                <TreeNode
-                  key={child.id}
-                  node={child}
-                  level={level + 1}
-                  onSelect={onSelect}
-                  activeTarget={activeTarget}
-                  openTargets={openTargets}
-                />
-              ))}
-            </div>
-          )}
-        </>
-      ) : (
+  if (isFolder) {
+    return (
+      <div>
         <button
           onClick={handleClick}
           className={cn(
-            "w-full flex items-center gap-2 px-2 py-[5px] text-xs rounded-md",
-            "transition-colors duration-100",
-            isActive
-              ? "bg-primary/10 text-primary font-medium"
-              : "text-foreground/80 hover:bg-muted/60 hover:text-foreground",
+            "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+            "text-foreground/80 hover:bg-accent hover:text-accent-foreground",
           )}
-          style={{ paddingLeft: `${level * 14 + 10}px` }}
+          style={{ paddingLeft: `${level * 12 + 8}px` }}
         >
-          {node.type === "native" ? (
-            <FileText className="h-3.5 w-3.5 shrink-0 opacity-50" />
+          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="flex-1 truncate text-left font-medium">{node.label}</span>
+          {isExpanded ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground/60" />
           ) : (
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-50" />
-          )}
-          <span className="truncate">{node.label}</span>
-          {isOpen && !isActive && (
-            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 shrink-0" />
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
           )}
         </button>
+        {isExpanded && node.children && node.children.length > 0 && (
+          <div
+            className="border-l border-border/60"
+            style={{ marginLeft: `${level * 12 + 18}px` }}
+          >
+            {node.children.map((child) => (
+              <TreeNode
+                key={child.id}
+                node={child}
+                level={0}
+                onSelect={onSelect}
+                activeTarget={activeTarget}
+                openTargets={openTargets}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      className={cn(
+        "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+        isActive
+          ? "bg-accent text-accent-foreground font-medium"
+          : "text-foreground/80 hover:bg-accent hover:text-accent-foreground",
       )}
-    </div>
+      style={{ paddingLeft: `${level * 12 + 8}px` }}
+    >
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="flex-1 truncate text-left">{node.label}</span>
+      {isOpen && !isActive && (
+        <span className="w-1.5 h-1.5 rounded-full bg-primary/60 shrink-0" />
+      )}
+    </button>
   )
 }
+
+// ── Section header ───────────────────────────────────────────────────
 
 interface SectionHeaderProps {
   label: string
@@ -114,7 +139,7 @@ function SectionHeader({ label, onConfigure, onRefresh }: SectionHeaderProps) {
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 cursor-default select-none">
+        <div className="px-2 pb-1 pt-3 text-xs font-medium text-muted-foreground/70 cursor-default select-none first:pt-1">
           {label}
         </div>
       </ContextMenuTrigger>
@@ -135,6 +160,8 @@ function SectionHeader({ label, onConfigure, onRefresh }: SectionHeaderProps) {
     </ContextMenu>
   )
 }
+
+// ── Main panel ───────────────────────────────────────────────────────
 
 export function ShortcutsPanel() {
   const { t } = useTranslation()
@@ -199,46 +226,28 @@ export function ShortcutsPanel() {
   return (
     <div className="flex flex-col h-full">
       <ScrollArea className="flex-1">
-        <div className="py-1 px-1.5">
+        <div className="p-1.5">
           <SectionHeader
-            label={t("shortcuts.personal", "PERSONAL")}
+            label={t("shortcuts.personal", "Personal")}
             onConfigure={openPersonalShortcutsSettings}
           />
           {personalTree.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
               <Folder className="h-5 w-5 mb-1.5 opacity-20" />
-              <p className="text-[11px] opacity-50">{t("settings.shortcuts.empty", "No shortcuts yet")}</p>
+              <p className="text-xs opacity-50">{t("settings.shortcuts.empty", "No shortcuts yet")}</p>
               <Button
                 variant="ghost"
                 size="sm"
-                className="mt-1.5 h-6 text-[11px] gap-1 text-muted-foreground"
+                className="mt-2 h-7 text-xs gap-1.5 text-muted-foreground"
                 onClick={openPersonalShortcutsSettings}
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-3.5 w-3.5" />
                 {t("settings.shortcuts.addShortcut", "Add Shortcut")}
               </Button>
             </div>
           ) : (
-            personalTree.map((node) => (
-              <TreeNode
-                key={node.id}
-                node={node}
-                level={0}
-                onSelect={handleSelectNode}
-                activeTarget={activeTarget}
-                openTargets={openTargets}
-              />
-            ))
-          )}
-
-          {teamTree.length > 0 && (
-            <>
-              <SectionHeader
-                label={t("shortcuts.team", "TEAM")}
-                onConfigure={openPersonalShortcutsSettings}
-                onRefresh={handleRefreshTeam}
-              />
-              {teamTree.map((node) => (
+            <div className="flex flex-col gap-0.5">
+              {personalTree.map((node) => (
                 <TreeNode
                   key={node.id}
                   node={node}
@@ -248,6 +257,28 @@ export function ShortcutsPanel() {
                   openTargets={openTargets}
                 />
               ))}
+            </div>
+          )}
+
+          {teamTree.length > 0 && (
+            <>
+              <SectionHeader
+                label={t("shortcuts.team", "Team")}
+                onConfigure={openPersonalShortcutsSettings}
+                onRefresh={handleRefreshTeam}
+              />
+              <div className="flex flex-col gap-0.5">
+                {teamTree.map((node) => (
+                  <TreeNode
+                    key={node.id}
+                    node={node}
+                    level={0}
+                    onSelect={handleSelectNode}
+                    activeTarget={activeTarget}
+                    openTargets={openTargets}
+                  />
+                ))}
+              </div>
             </>
           )}
         </div>

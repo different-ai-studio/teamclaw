@@ -9,7 +9,7 @@
  * - Image paste and auto-upload to _assets directory
  */
 
-import { useCallback, useEffect, useRef, useState, useImperativeHandle, forwardRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { Markdown } from "@tiptap/markdown";
 import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table";
@@ -77,16 +77,23 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
     // → overwrites the file with serialized content even though the user never edited.
     const isProgrammaticUpdateRef = useRef(false);
 
+    // Stores the post-roundtrip markdown after programmatic content loads.
+    // Used to detect and suppress "roundtrip noise" in onUpdate: if the
+    // serialized markdown matches this baseline, it's not a real user edit.
+    const normalizedBaselineRef = useRef("");
+
+    const extraExtensions = useMemo(() => [
+      Markdown,
+      Table.configure({ resizable: false, HTMLAttributes: { class: "tiptap-table" } }),
+      TableRow,
+      TableCell,
+      TableHeader,
+      AgentHighlight,
+    ], []);
+
     const baseExtensions = useTiptapExtensions({
       imageConfig: { inline: false, allowBase64: true },
-      extraExtensions: [
-        Markdown,
-        Table.configure({ resizable: false, HTMLAttributes: { class: "tiptap-table" } }),
-        TableRow,
-        TableCell,
-        TableHeader,
-        AgentHighlight,
-      ],
+      extraExtensions,
     })
 
     const editor = useEditor({
@@ -103,6 +110,14 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
         // Decorations (AgentHighlight) don't affect getMarkdown output
         const md = editor.getMarkdown();
         const cleaned = unresolveMarkdownImages(md, filePath);
+
+        // Skip if the serialized markdown matches the post-roundtrip baseline.
+        // This catches "roundtrip noise" from deferred ProseMirror updates
+        // (e.g. extension normalization) that fire after the programmatic guard
+        // is released.
+        if (cleaned === normalizedBaselineRef.current) return;
+        normalizedBaselineRef.current = cleaned;
+
         onChangeRef.current?.(cleaned);
       },
       editorProps: {
@@ -134,8 +149,15 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
         const resolved = await resolveMarkdownImages(content, filePath);
         if (cancelled) return;
         isProgrammaticUpdateRef.current = true;
-        editor.commands.setContent(resolved, { contentType: "markdown" });
+        editor.commands.setContent(resolved, { contentType: "markdown", emitUpdate: false });
         isProgrammaticUpdateRef.current = false;
+        // Store the post-roundtrip markdown as the baseline so that
+        // deferred onUpdate calls (from extension normalization etc.)
+        // won't be mistaken for user edits.
+        normalizedBaselineRef.current = unresolveMarkdownImages(
+          editor.getMarkdown(),
+          filePath,
+        );
         previousContentRef.current = content;
         setIsReady(true);
       };
@@ -166,10 +188,14 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
         // Resolve images and set content
         const resolved = await resolveMarkdownImages(newMarkdown, filePath);
         isProgrammaticUpdateRef.current = true;
-        editor.commands.setContent(resolved, { contentType: "markdown" });
+        editor.commands.setContent(resolved, { contentType: "markdown", emitUpdate: false });
         isProgrammaticUpdateRef.current = false;
 
-        // Update the tracked content reference
+        // Update baselines
+        normalizedBaselineRef.current = unresolveMarkdownImages(
+          editor.getMarkdown(),
+          filePath,
+        );
         previousContentRef.current = newMarkdown;
 
         // Get the new doc after setContent
@@ -281,8 +307,13 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
             isProgrammaticUpdateRef.current = true;
             editor.commands.setContent(resolved, {
               contentType: "markdown",
+              emitUpdate: false,
             });
             isProgrammaticUpdateRef.current = false;
+            normalizedBaselineRef.current = unresolveMarkdownImages(
+              editor.getMarkdown(),
+              filePath,
+            );
 
             // Restore cursor position
             const maxPos = editor.state.doc.content.size;
@@ -319,7 +350,13 @@ export const TiptapMarkdownEditor = forwardRef<TiptapEditorHandle, EditorProps>(
         } else {
           // raw → WYSIWYG: push raw content back into editor
           const resolved = await resolveMarkdownImages(rawContent, filePath);
-          editor.commands.setContent(resolved, { contentType: "markdown" });
+          isProgrammaticUpdateRef.current = true;
+          editor.commands.setContent(resolved, { contentType: "markdown", emitUpdate: false });
+          isProgrammaticUpdateRef.current = false;
+          normalizedBaselineRef.current = unresolveMarkdownImages(
+            editor.getMarkdown(),
+            filePath,
+          );
           previousContentRef.current = rawContent;
           setRawMode(false);
         }
