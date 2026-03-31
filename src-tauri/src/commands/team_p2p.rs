@@ -651,7 +651,7 @@ async fn reconcile_disk_and_doc(
             if local_hash != entry.content_hash() {
                 // Local wins: upload local version
                 if *role != MemberRole::Viewer {
-                    if key == "_team/members.json" && !is_owner {
+                    if key == "_team/members.json" && !is_owner && *role == MemberRole::Viewer {
                         continue;
                     }
                     let content = if local_content.is_empty() {
@@ -692,7 +692,7 @@ async fn reconcile_disk_and_doc(
             if key.starts_with("_meta/") {
                 continue;
             }
-            if key == "_team/members.json" && !is_owner {
+            if key == "_team/members.json" && !is_owner && *role == MemberRole::Viewer {
                 continue;
             }
             let content = if content.is_empty() {
@@ -1216,6 +1216,7 @@ async fn doc_to_disk_watcher(
     // Build AuthorId → NodeId map from _meta/authors/* entries
     let mut author_to_node: HashMap<String, String> = HashMap::new();
     let mut node_to_role: HashMap<String, MemberRole> = HashMap::new();
+    let mut my_last_known_role: Option<MemberRole> = None;
 
     // Pre-load author map from doc
     let query = iroh_docs::store::Query::single_latest_per_key()
@@ -1399,16 +1400,19 @@ async fn doc_to_disk_watcher(
                     continue;
                 }
 
-                // Validate _team/members.json writes: only accept from owner
+                // Validate _team/members.json writes: only accept from owner or editor
                 if key == "_team/members.json" {
-                    let is_owner_write = match (&writer_node_id, &owner_node_id) {
-                        (Some(writer), Some(owner)) => writer == owner,
-                        (None, _) => author_to_node.is_empty(), // bootstrap: no authors known yet
-                        _ => false,
+                    let writer_role = writer_node_id
+                        .as_ref()
+                        .and_then(|w| node_to_role.get(w.as_str()).cloned());
+                    let is_privileged_write = match (&writer_node_id, &owner_node_id) {
+                        (Some(writer), Some(owner)) if writer == owner => true,
+                        (None, _) if author_to_node.is_empty() => true, // bootstrap: no authors known yet
+                        _ => matches!(writer_role, Some(MemberRole::Owner) | Some(MemberRole::Editor)),
                     };
-                    if !is_owner_write {
+                    if !is_privileged_write {
                         eprintln!(
-                            "[P2P] Rejected members.json write from non-owner: {:?}",
+                            "[P2P] Rejected members.json write from non-privileged node: {:?}",
                             writer_node_id
                         );
                         continue;
@@ -1452,18 +1456,25 @@ async fn doc_to_disk_watcher(
                                 break;
                             }
 
-                            // Check if our role changed and notify
+                            // Check if our role changed and notify (only when it actually changes)
                             if let Some(my_member) =
                                 manifest.members.iter().find(|m| m.node_id == my_node_id)
                             {
-                                if let Some(ref app) = app_handle {
-                                    use tauri::Emitter;
-                                    let _ = app.emit(
-                                        "team:role-changed",
-                                        serde_json::json!({
-                                            "role": my_member.role,
-                                        }),
-                                    );
+                                let new_role = my_member.role.clone();
+                                if my_last_known_role.as_ref() != Some(&new_role) {
+                                    if my_last_known_role.is_some() {
+                                        // Only notify after the first load (skip initial set)
+                                        if let Some(ref app) = app_handle {
+                                            use tauri::Emitter;
+                                            let _ = app.emit(
+                                                "team:role-changed",
+                                                serde_json::json!({
+                                                    "role": new_role,
+                                                }),
+                                            );
+                                        }
+                                    }
+                                    my_last_known_role = Some(new_role);
                                 }
                             }
                         }
@@ -1541,22 +1552,24 @@ async fn doc_to_disk_watcher(
                 };
 
                 // Apply same role + owner checks as InsertRemote
-                // Validate _team/members.json: only accept from owner
+                // Validate _team/members.json: only accept from owner or editor
                 if key == "_team/members.json" {
                     let writer_node = author_to_node.get(&author_id_str);
-                    let is_owner_write = match (writer_node, &owner_node_id) {
-                        (Some(writer), Some(owner)) => writer == owner,
-                        (None, _) => author_to_node.is_empty(), // bootstrap
-                        _ => false,
+                    let writer_role = writer_node
+                        .and_then(|w| node_to_role.get(w.as_str()).cloned());
+                    let is_privileged_write = match (writer_node, &owner_node_id) {
+                        (Some(writer), Some(owner)) if writer == owner => true,
+                        (None, _) if author_to_node.is_empty() => true, // bootstrap
+                        _ => matches!(writer_role, Some(MemberRole::Owner) | Some(MemberRole::Editor)),
                     };
-                    if !is_owner_write {
+                    if !is_privileged_write {
                         eprintln!(
-                            "[P2P] Rejected ContentReady members.json from non-owner: {:?}",
+                            "[P2P] Rejected ContentReady members.json from non-privileged node: {:?}",
                             writer_node
                         );
                         continue;
                     }
-                    // Owner write — write to disk and update role cache
+                    // Privileged write — write to disk and update role cache
                     if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
                         let file_path = Path::new(&team_dir).join(&key);
                         write_and_suppress(&file_path, &content, &suppressed_paths).await;
