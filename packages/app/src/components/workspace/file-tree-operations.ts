@@ -171,6 +171,13 @@ export async function copyExternalFiles(sourcePaths: string[], targetDir: string
   }
 }
 
+/** Duplicate a file or folder in the same directory (appends " copy" / " copy N") */
+export async function duplicateItem(sourcePath: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  const parentDir = sourcePath.substring(0, sourcePath.lastIndexOf("/"));
+  return copyItem(sourcePath, parentDir);
+}
+
 /** Read file content for undo backup (text files only) */
 export async function readFileContent(path: string): Promise<string | undefined> {
   if (!isTauri()) return undefined;
