@@ -528,10 +528,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   // Expand a directory node
   expandDirectory: async (path: string) => {
-    const { loadDirectory, expandedPaths } = get();
-
-    // If already expanded (e.g. re-expand after creating a file), just reload children
-    const alreadyExpanded = expandedPaths.has(path);
+    const { loadDirectory } = get();
 
     // Mark as loading via loadingPaths Set (O(1), no tree copy)
     const nextLoading = new Set(get().loadingPaths);
@@ -544,10 +541,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // Update only the target node's children in the tree (minimal copy)
     const updatedTree = updateNodeChildren(get().fileTree, path, children);
 
-    // Update expanded/loading sets
-    const nextExpanded = alreadyExpanded
-      ? expandedPaths
-      : new Set(get().expandedPaths);
+    // Always clone CURRENT expandedPaths to avoid race conditions —
+    // the Set reference may have been replaced by refreshFileTree during the await
+    const nextExpanded = new Set(get().expandedPaths);
     nextExpanded.add(path);
     const doneLoading = new Set(get().loadingPaths);
     doneLoading.delete(path);
