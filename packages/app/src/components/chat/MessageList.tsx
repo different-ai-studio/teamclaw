@@ -412,9 +412,6 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
             }
           });
         });
-      } else if (!isLoading && messages.length === 0) {
-        // Also clear sessionSwitching when showing empty state (no messages)
-        setSessionSwitching(false);
       }
     }, [isLoading, messages.length]);
 
