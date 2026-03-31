@@ -566,6 +566,7 @@ pub async fn create_team(
         None,           // seed_endpoint resolved later on reconnect
         HashMap::new(), // no cached peers yet for new team
         Some(workspace_path.to_string()),
+        Arc::new(Mutex::new(SyncEngine::new())),
     );
 
     node.active_doc = Some(doc);
@@ -733,6 +734,7 @@ pub async fn join_team_drive(
         seed_ep,
         HashMap::new(), // no cached peers yet for new joiner
         Some(workspace_path.to_string()),
+        Arc::new(Mutex::new(SyncEngine::new())),
     );
 
     node.active_doc = Some(doc);
@@ -1185,7 +1187,187 @@ async fn collect_sync_peers(
     peers
 }
 
+/// Sync coordinator: handles NeighborUp/SyncFinished events and periodic fallback sync.
+/// Extracted from the inline Task C in start_sync_tasks for clarity and reuse.
+async fn run_sync_coordinator(
+    doc: iroh_docs::api::Doc,
+    endpoint: Endpoint,
+    team_dir: String,
+    doc_ticket: Option<String>,
+    seed_endpoint: Option<iroh::EndpointAddr>,
+    mut cached_addrs: HashMap<String, Vec<String>>,
+    workspace_path: Option<String>,
+    engine: Arc<Mutex<SyncEngine>>,
+    app_handle: Option<tauri::AppHandle>,
+) {
+    use futures_lite::StreamExt;
+    use iroh_docs::engine::LiveEvent;
+    let seed_ref = seed_endpoint.as_ref();
+
+    // Parse ticket peers (the owner's address for joiners).
+    let mut ticket_peers: Vec<iroh::EndpointAddr> = Vec::new();
+    if let Some(ref ticket_str) = doc_ticket {
+        if let Ok(ticket) = ticket_str.trim().parse::<iroh_docs::DocTicket>() {
+            ticket_peers = ticket.nodes;
+        }
+    }
+
+    let ep = endpoint;
+
+    // Do an initial sync shortly after startup
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    {
+        let peers =
+            collect_sync_peers(&ep, &ticket_peers, &team_dir, seed_ref, &cached_addrs).await;
+        if !peers.is_empty() {
+            if let Err(e) = doc.start_sync(peers.clone()).await {
+                eprintln!("[P2P][sync] Initial sync failed: {}", e);
+            } else {
+                eprintln!(
+                    "[P2P][sync] Initial sync triggered with {} peers",
+                    peers.len()
+                );
+            }
+        }
+    }
+
+    // Subscribe to doc events for NeighborUp
+    let mut events = match doc.subscribe().await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[P2P][sync] Failed to subscribe for sync events: {}", e);
+            return;
+        }
+    };
+
+    // Fallback timer: sync every 5 minutes
+    let mut fallback = tokio::time::interval(std::time::Duration::from_secs(300));
+    fallback.tick().await; // skip first immediate tick
+
+    loop {
+        tokio::select! {
+            event = events.next() => {
+                match event {
+                    Some(Ok(LiveEvent::NeighborUp(peer_key))) => {
+                        // New peer appeared in gossip — trigger sync with them
+                        let peer_id: iroh::EndpointId = peer_key;
+                        let peer_id_str = peer_id.to_string();
+                        eprintln!("[P2P][sync] NeighborUp: {}", &peer_id_str[..10]);
+                        engine.lock().await.record_neighbor_up(&peer_id_str);
+                        emit_engine_state(&app_handle, &engine).await;
+                        if let Some(info) = ep.remote_info(peer_id).await {
+                            let mut addrs = std::collections::BTreeSet::new();
+                            for addr_info in info.addrs() {
+                                addrs.insert(addr_info.addr().clone());
+                            }
+                            if !addrs.is_empty() {
+                                let peer_addr = iroh::EndpointAddr { id: peer_id, addrs };
+                                let _ = doc.start_sync(vec![peer_addr]).await;
+                            }
+                        }
+                    }
+                    Some(Ok(LiveEvent::SyncFinished(ev))) => {
+                        let peer_id_str = ev.peer.to_string();
+                        if let Ok(details) = &ev.result {
+                            if details.entries_received > 0 || details.entries_sent > 0 {
+                                eprintln!(
+                                    "[P2P][sync] SyncFinished peer={} sent={} recv={}",
+                                    &peer_id_str[..10],
+                                    details.entries_sent,
+                                    details.entries_received
+                                );
+                            }
+                            engine.lock().await.record_sync_finished(
+                                &peer_id_str,
+                                details.entries_sent as u64,
+                                details.entries_received as u64,
+                            );
+                            emit_engine_state(&app_handle, &engine).await;
+                        }
+                        // Cache the peer's address for future LAN reconnection
+                        let peer_id: iroh::EndpointId = ev.peer;
+                        if let Some(info) = ep.remote_info(peer_id).await {
+                            let addrs: Vec<String> = info.addrs()
+                                .filter_map(|a| match a.addr() {
+                                    iroh::TransportAddr::Ip(sock) => Some(sock.to_string()),
+                                    _ => None, // skip relay addrs
+                                })
+                                .collect();
+                            if !addrs.is_empty() {
+                                cached_addrs.insert(peer_id.to_string(), addrs);
+                            }
+                        }
+                    }
+                    Some(Err(_)) | None => {
+                        // Stream ended or error — break out
+                        eprintln!("[P2P][sync] Event stream ended");
+                        break;
+                    }
+                    _ => {} // Ignore other events
+                }
+            }
+            _ = fallback.tick() => {
+                // Fallback: sync with all known peers every 5 minutes
+                let peers = collect_sync_peers(&ep, &ticket_peers, &team_dir, seed_ref, &cached_addrs).await;
+                if !peers.is_empty() {
+                    // Update cache from collected peers (IP addrs only)
+                    for peer in &peers {
+                        let addrs: Vec<String> = peer.addrs.iter()
+                            .filter_map(|a| match a {
+                                iroh::TransportAddr::Ip(sock) => Some(sock.to_string()),
+                                _ => None,
+                            })
+                            .collect();
+                        if !addrs.is_empty() {
+                            cached_addrs.insert(peer.id.to_string(), addrs);
+                        }
+                    }
+                    // Refresh ticket with a few known peers so new joiners
+                    // can connect to ANY online member, not just the owner.
+                    // Cap at 5 peers to keep the ticket string small.
+                    if let Some(ref ws) = workspace_path {
+                        if let Ok(fresh_ticket) = doc.share(
+                            iroh_docs::api::protocol::ShareMode::Write,
+                            iroh_docs::api::protocol::AddrInfoOptions::RelayAndAddresses,
+                        ).await {
+                            let mut enriched = fresh_ticket;
+                            for peer in &peers {
+                                if enriched.nodes.len() >= 5 {
+                                    break;
+                                }
+                                if !enriched.nodes.iter().any(|n| n.id == peer.id) {
+                                    enriched.nodes.push(peer.clone());
+                                }
+                            }
+                            if let Ok(Some(mut cfg)) = read_p2p_config(ws) {
+                                cfg.doc_ticket = Some(enriched.to_string());
+                                cfg.cached_peer_addrs = cached_addrs.clone();
+                                let _ = write_p2p_config(ws, Some(&cfg));
+                            }
+                        } else {
+                            // Ticket refresh failed — still persist cached addrs
+                            if let Ok(Some(mut cfg)) = read_p2p_config(ws) {
+                                cfg.cached_peer_addrs = cached_addrs.clone();
+                                let _ = write_p2p_config(ws, Some(&cfg));
+                            }
+                        }
+                    }
+                    match doc.start_sync(peers.clone()).await {
+                        Ok(()) => eprintln!(
+                            "[P2P][sync] Fallback sync with {} peers",
+                            peers.len()
+                        ),
+                        Err(e) => eprintln!("[P2P][sync] Fallback sync failed: {}", e),
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Start background tasks for bidirectional sync between doc and filesystem.
+/// Wraps all 3 sync tasks (doc→disk, disk→doc, sync coordinator) in a supervisor
+/// loop that restarts them all if any one exits.
 fn start_sync_tasks(
     doc: &iroh_docs::api::Doc,
     author: iroh_docs::AuthorId,
@@ -1201,211 +1383,139 @@ fn start_sync_tasks(
     seed_endpoint: Option<iroh::EndpointAddr>,
     cached_peer_addrs: HashMap<String, Vec<String>>,
     workspace_path: Option<String>,
+    engine: Arc<Mutex<SyncEngine>>,
 ) {
-    let blobs_store: iroh_blobs::api::Store = store.clone().into();
-    let team_dir_a = team_dir.to_string();
-    let doc_a = doc.clone();
-    let suppressed_a = suppressed_paths.clone();
+    let doc = doc.clone();
+    let store = store.clone();
+    let team_dir = team_dir.to_string();
 
-    // Task A: remote doc changes → disk
-    let my_node_id_a = my_node_id.clone();
-    let owner_node_id_a = owner_node_id.clone();
     tokio::spawn(async move {
-        doc_to_disk_watcher(
-            doc_a,
-            blobs_store,
-            team_dir_a,
-            suppressed_a,
-            my_node_id_a,
-            owner_node_id_a,
-            app_handle,
-        )
-        .await;
-    });
-
-    // Task B: local disk changes → doc (with blob store for skills counting)
-    let doc_b = doc.clone();
-    let blobs_store_b: iroh_blobs::api::Store = store.clone().into();
-    let team_dir_b = team_dir.to_string();
-    let suppressed_b = suppressed_paths;
-    tokio::spawn(async move {
-        disk_to_doc_watcher(
-            doc_b,
-            blobs_store_b,
-            author,
-            team_dir_b,
-            suppressed_b,
-            my_role,
-            my_node_id,
-            owner_node_id,
-        )
-        .await;
-    });
-
-    // Task C: event-driven + fallback periodic sync.
-    // Listens for NeighborUp/SyncFinished events to register new peers with gossip,
-    // and falls back to a periodic sync every 5 minutes for resilience.
-    let doc_c = doc.clone();
-    let _doc_c2 = doc.clone();
-    let team_dir_c = team_dir.to_string();
-    let seed_ep = seed_endpoint;
-    let mut cached_addrs = cached_peer_addrs;
-    let ws_path = workspace_path;
-    tokio::spawn(async move {
-        use futures_lite::StreamExt;
-        use iroh_docs::engine::LiveEvent;
-        let seed_ref = seed_ep.as_ref();
-
-        // Parse ticket peers (the owner's address for joiners).
-        let mut ticket_peers: Vec<iroh::EndpointAddr> = Vec::new();
-        if let Some(ref ticket_str) = doc_ticket {
-            if let Ok(ticket) = ticket_str.trim().parse::<iroh_docs::DocTicket>() {
-                ticket_peers = ticket.nodes;
-            }
-        }
-
-        let ep = endpoint;
-
-        // Do an initial sync shortly after startup
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // Initialize engine
         {
-            let peers =
-                collect_sync_peers(&ep, &ticket_peers, &team_dir_c, seed_ref, &cached_addrs).await;
-            if !peers.is_empty() {
-                if let Err(e) = doc_c.start_sync(peers.clone()).await {
-                    eprintln!("[P2P][sync] Initial sync failed: {}", e);
-                } else {
-                    eprintln!(
-                        "[P2P][sync] Initial sync triggered with {} peers",
-                        peers.len()
-                    );
-                }
+            let mut eng = engine.lock().await;
+            eng.status = EngineStatus::Connected;
+            eng.started_at = Instant::now();
+            if let Err(e) = eng.load_peers_from_manifest(&team_dir) {
+                eprintln!("[P2P][engine] Failed to load peers from manifest: {}", e);
             }
         }
+        emit_engine_state(&app_handle, &engine).await;
 
-        // Subscribe to doc events for NeighborUp
-        let mut events = match doc_c.subscribe().await {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[P2P][sync] Failed to subscribe for sync events: {}", e);
-                return;
-            }
-        };
-
-        // Fallback timer: sync every 5 minutes
-        let mut fallback = tokio::time::interval(std::time::Duration::from_secs(300));
-        fallback.tick().await; // skip first immediate tick
+        let mut restart_count: u32 = 0;
 
         loop {
-            tokio::select! {
-                event = events.next() => {
-                    match event {
-                        Some(Ok(LiveEvent::NeighborUp(peer_key))) => {
-                            // New peer appeared in gossip — trigger sync with them
-                            let peer_id: iroh::EndpointId = peer_key;
-                            eprintln!("[P2P][sync] NeighborUp: {}", &peer_id.to_string()[..10]);
-                            if let Some(info) = ep.remote_info(peer_id).await {
-                                let mut addrs = std::collections::BTreeSet::new();
-                                for addr_info in info.addrs() {
-                                    addrs.insert(addr_info.addr().clone());
-                                }
-                                if !addrs.is_empty() {
-                                    let peer_addr = iroh::EndpointAddr { id: peer_id, addrs };
-                                    let _ = doc_c.start_sync(vec![peer_addr]).await;
-                                }
-                            }
-                        }
-                        Some(Ok(LiveEvent::SyncFinished(ev))) => {
-                            if let Ok(details) = &ev.result {
-                                if details.entries_received > 0 || details.entries_sent > 0 {
-                                    eprintln!(
-                                        "[P2P][sync] SyncFinished peer={} sent={} recv={}",
-                                        &ev.peer.to_string()[..10],
-                                        details.entries_sent,
-                                        details.entries_received
-                                    );
-                                }
-                            }
-                            // Cache the peer's address for future LAN reconnection
-                            let peer_id: iroh::EndpointId = ev.peer;
-                            if let Some(info) = ep.remote_info(peer_id).await {
-                                let addrs: Vec<String> = info.addrs()
-                                    .filter_map(|a| match a.addr() {
-                                        iroh::TransportAddr::Ip(sock) => Some(sock.to_string()),
-                                        _ => None, // skip relay addrs
-                                    })
-                                    .collect();
-                                if !addrs.is_empty() {
-                                    cached_addrs.insert(peer_id.to_string(), addrs);
-                                }
-                            }
-                        }
-                        Some(Err(_)) | None => {
-                            // Stream ended or error — break out
-                            eprintln!("[P2P][sync] Event stream ended");
-                            break;
-                        }
-                        _ => {} // Ignore other events
-                    }
-                }
-                _ = fallback.tick() => {
-                    // Fallback: sync with all known peers every 5 minutes
-                    let peers = collect_sync_peers(&ep, &ticket_peers, &team_dir_c, seed_ref, &cached_addrs).await;
-                    if !peers.is_empty() {
-                        // Update cache from collected peers (IP addrs only)
-                        for peer in &peers {
-                            let addrs: Vec<String> = peer.addrs.iter()
-                                .filter_map(|a| match a {
-                                    iroh::TransportAddr::Ip(sock) => Some(sock.to_string()),
-                                    _ => None,
-                                })
-                                .collect();
-                            if !addrs.is_empty() {
-                                cached_addrs.insert(peer.id.to_string(), addrs);
-                            }
-                        }
-                        // Refresh ticket with a few known peers so new joiners
-                        // can connect to ANY online member, not just the owner.
-                        // Cap at 5 peers to keep the ticket string small.
-                        if let Some(ref ws) = ws_path {
-                            if let Ok(fresh_ticket) = doc_c.share(
-                                iroh_docs::api::protocol::ShareMode::Write,
-                                iroh_docs::api::protocol::AddrInfoOptions::RelayAndAddresses,
-                            ).await {
-                                let mut enriched = fresh_ticket;
-                                for peer in &peers {
-                                    if enriched.nodes.len() >= 5 {
-                                        break;
-                                    }
-                                    if !enriched.nodes.iter().any(|n| n.id == peer.id) {
-                                        enriched.nodes.push(peer.clone());
-                                    }
-                                }
-                                if let Ok(Some(mut cfg)) = read_p2p_config(ws) {
-                                    cfg.doc_ticket = Some(enriched.to_string());
-                                    cfg.cached_peer_addrs = cached_addrs.clone();
-                                    let _ = write_p2p_config(ws, Some(&cfg));
-                                }
-                            } else {
-                                // Ticket refresh failed — still persist cached addrs
-                                if let Ok(Some(mut cfg)) = read_p2p_config(ws) {
-                                    cfg.cached_peer_addrs = cached_addrs.clone();
-                                    let _ = write_p2p_config(ws, Some(&cfg));
-                                }
-                            }
-                        }
-                        match doc_c.start_sync(peers.clone()).await {
-                            Ok(()) => eprintln!(
-                                "[P2P][sync] Fallback sync with {} peers",
-                                peers.len()
-                            ),
-                            Err(e) => eprintln!("[P2P][sync] Fallback sync failed: {}", e),
-                        }
-                    }
-                }
+            // Mark stream health
+            {
+                let mut eng = engine.lock().await;
+                eng.stream_health = if restart_count == 0 { StreamHealth::Healthy } else { StreamHealth::Restarting };
+                eng.restart_count = restart_count;
             }
+            emit_engine_state(&app_handle, &engine).await;
+
+            let blobs_store: iroh_blobs::api::Store = store.clone().into();
+
+            // Spawn Task A: doc → disk
+            let doc_a = doc.clone();
+            let blobs_a = blobs_store.clone();
+            let team_dir_a = team_dir.clone();
+            let suppressed_a = suppressed_paths.clone();
+            let my_node_id_a = my_node_id.clone();
+            let owner_node_id_a = owner_node_id.clone();
+            let app_handle_a = app_handle.clone();
+            let engine_a = engine.clone();
+            let task_a = tokio::spawn(async move {
+                doc_to_disk_watcher(
+                    doc_a, blobs_a, team_dir_a, suppressed_a,
+                    my_node_id_a, owner_node_id_a, app_handle_a, engine_a,
+                ).await;
+                "doc_to_disk"
+            });
+
+            // Spawn Task B: disk → doc
+            let doc_b = doc.clone();
+            let blobs_b: iroh_blobs::api::Store = store.clone().into();
+            let team_dir_b = team_dir.clone();
+            let suppressed_b = suppressed_paths.clone();
+            let my_role_b = my_role.clone();
+            let my_node_id_b = my_node_id.clone();
+            let owner_node_id_b = owner_node_id.clone();
+            let engine_b = engine.clone();
+            let task_b = tokio::spawn(async move {
+                disk_to_doc_watcher(
+                    doc_b, blobs_b, author, team_dir_b, suppressed_b,
+                    my_role_b, my_node_id_b, owner_node_id_b, engine_b,
+                ).await;
+                "disk_to_doc"
+            });
+
+            // Spawn Task C: sync coordinator (NeighborUp + fallback)
+            let doc_c = doc.clone();
+            let team_dir_c = team_dir.clone();
+            let ep_c = endpoint.clone();
+            let doc_ticket_c = doc_ticket.clone();
+            let seed_ep_c = seed_endpoint.clone();
+            let cached_addrs_c = cached_peer_addrs.clone();
+            let ws_path_c = workspace_path.clone();
+            let engine_c = engine.clone();
+            let app_handle_c = app_handle.clone();
+            let task_c = tokio::spawn(async move {
+                run_sync_coordinator(
+                    doc_c, ep_c, team_dir_c, doc_ticket_c,
+                    seed_ep_c, cached_addrs_c, ws_path_c,
+                    engine_c, app_handle_c,
+                ).await;
+                "sync_coordinator"
+            });
+
+            // Grab abort handles before select! moves the JoinHandles
+            let abort_a = task_a.abort_handle();
+            let abort_b = task_b.abort_handle();
+            let abort_c = task_c.abort_handle();
+
+            // Wait for ANY task to exit
+            let which = tokio::select! {
+                result = task_a => result.unwrap_or("doc_to_disk (panic)"),
+                result = task_b => result.unwrap_or("disk_to_doc (panic)"),
+                result = task_c => result.unwrap_or("sync_coordinator (panic)"),
+            };
+
+            // One task died — abort the others
+            abort_a.abort();
+            abort_b.abort();
+            abort_c.abort();
+
+            restart_count += 1;
+            eprintln!("[P2P][engine] Task '{}' exited — restarting all in 3s (restart #{})", which, restart_count);
+
+            {
+                let mut eng = engine.lock().await;
+                eng.stream_health = StreamHealth::Dead;
+                eng.restart_count = restart_count;
+            }
+            emit_engine_state(&app_handle, &engine).await;
+
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+            // Mark as restarting before re-entering loop
+            {
+                let mut eng = engine.lock().await;
+                eng.stream_health = StreamHealth::Restarting;
+            }
+            emit_engine_state(&app_handle, &engine).await;
         }
     });
+}
+
+/// Emit the current engine snapshot to the frontend via Tauri event.
+async fn emit_engine_state(
+    app_handle: &Option<tauri::AppHandle>,
+    engine: &Arc<Mutex<SyncEngine>>,
+) {
+    if let Some(ref app) = app_handle {
+        use tauri::Emitter;
+        let snapshot = engine.lock().await.snapshot();
+        let _ = app.emit("p2p:engine-state", &snapshot);
+    }
 }
 
 /// Write content to a file path while suppressing fs watcher feedback.
@@ -1445,6 +1555,7 @@ async fn doc_to_disk_watcher(
     my_node_id: String,
     owner_node_id: Option<String>,
     app_handle: Option<tauri::AppHandle>,
+    engine: Arc<Mutex<SyncEngine>>,
 ) {
     use futures_lite::StreamExt;
     use iroh_docs::engine::LiveEvent;
@@ -1756,6 +1867,10 @@ async fn doc_to_disk_watcher(
                     } else {
                         eprintln!("[P2P][doc→disk] Writing: {} ({} bytes)", key, content.len());
                         write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                        // Record file sync timestamp
+                        if let Ok(mtime) = std::fs::metadata(&file_path).and_then(|m| m.modified()) {
+                            engine.lock().await.record_file_synced(key.clone(), mtime);
+                        }
                     }
                 } else {
                     eprintln!("[P2P][doc→disk] Failed to get blob for: {}", key);
@@ -1862,6 +1977,10 @@ async fn doc_to_disk_watcher(
                     } else {
                         eprintln!("[P2P][ContentReady] Writing: {} ({} bytes)", key, content.len());
                         write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                        // Record file sync timestamp
+                        if let Ok(mtime) = std::fs::metadata(&file_path).and_then(|m| m.modified()) {
+                            engine.lock().await.record_file_synced(key.clone(), mtime);
+                        }
                     }
                 }
             }
@@ -1884,6 +2003,7 @@ async fn disk_to_doc_watcher(
     my_role: Arc<Mutex<MemberRole>>,
     my_node_id: String,
     owner_node_id: Option<String>,
+    engine: Arc<Mutex<SyncEngine>>,
 ) {
     use notify::{RecursiveMode, Watcher};
 
@@ -1994,6 +2114,11 @@ async fn disk_to_doc_watcher(
                                 );
                                 if let Err(e) = doc.set_bytes(author, key.clone(), content).await {
                                     eprintln!("[P2P] Failed to sync local change '{}': {}", key, e);
+                                } else {
+                                    // Record file sync timestamp
+                                    if let Ok(mtime) = std::fs::metadata(path).and_then(|m| m.modified()) {
+                                        engine.lock().await.record_file_synced(key.clone(), mtime);
+                                    }
                                 }
                                 // Track skill file contributions for leaderboard
                                 if path
@@ -2989,6 +3114,7 @@ pub async fn p2p_reconnect(
         seed_ep,
         config.cached_peer_addrs.clone(),
         Some(workspace_path.clone()),
+        Arc::new(Mutex::new(SyncEngine::new())),
     );
 
     node.active_doc = Some(doc);
