@@ -145,8 +145,16 @@ pub async fn unified_team_get_members(
         #[cfg(feature = "p2p")]
         Some("p2p") => {
             let _ = iroh_state;
-            let config = super::team_p2p::read_p2p_config(&workspace_path)?.unwrap_or_default();
-            Ok(config.allowed_members)
+            // Prefer the synced manifest (_team/members.json) as it reflects the
+            // authoritative member list. Fall back to local config for the owner
+            // who may not have a manifest yet.
+            let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
+            if let Ok(Some(manifest)) = super::team_p2p::read_members_manifest(&team_dir) {
+                Ok(manifest.members)
+            } else {
+                let config = super::team_p2p::read_p2p_config(&workspace_path)?.unwrap_or_default();
+                Ok(config.allowed_members)
+            }
         }
         Some(mode) => Err(format!(
             "Member management not supported for mode: {}",

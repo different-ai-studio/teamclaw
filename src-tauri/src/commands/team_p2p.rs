@@ -2156,32 +2156,39 @@ pub fn add_member_to_team(
         .as_deref()
         .ok_or("No team owner configured")?;
 
-    // Any existing member (owner or editor) can add new members
+    // Use the synced manifest as the authoritative member list when available,
+    // since joiners don't have allowed_members in their local config.
+    let manifest = read_members_manifest(team_dir).ok().flatten();
+    let mut members = if let Some(ref m) = manifest {
+        m.members.clone()
+    } else {
+        config.allowed_members.clone()
+    };
+
+    // Any existing member (owner or editor) can add new members.
     let is_owner = owner_id == caller_node_id;
-    let is_member = config
-        .allowed_members
+    let is_member = members
         .iter()
         .any(|m| m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor));
     if !is_owner && !is_member {
         return Err("Only team members can add new members".to_string());
     }
 
-    if config
-        .allowed_members
-        .iter()
-        .any(|m| m.node_id == member.node_id)
-    {
+    if members.iter().any(|m| m.node_id == member.node_id) {
         return Err("Member already exists".to_string());
     }
 
     eprintln!(
         "[Team] Adding member node_id={} to team (total will be {}) by={}",
         &member.node_id,
-        config.allowed_members.len() + 1,
+        members.len() + 1,
         &caller_node_id[..10.min(caller_node_id.len())]
     );
 
-    config.allowed_members.push(member);
+    members.push(member);
+
+    // Update local config
+    config.allowed_members = members.clone();
     write_p2p_config(workspace_path, Some(&config))?;
     eprintln!(
         "[Team] P2P config written with {} members",
@@ -2189,7 +2196,7 @@ pub fn add_member_to_team(
     );
 
     // Always use owner_node_id for manifest (it's the canonical owner field)
-    write_members_manifest(team_dir, owner_id, &config.allowed_members)?;
+    write_members_manifest(team_dir, owner_id, &members)?;
     eprintln!(
         "[Team] members.json written to {}/{}/_team/members.json",
         workspace_path,
@@ -2209,7 +2216,7 @@ pub fn add_member_to_team(
     Ok(())
 }
 
-/// Remove a member from the team allowlist. Only the owner can call this.
+/// Remove a member from the team allowlist. Owner or editor can call this.
 pub fn remove_member_from_team(
     workspace_path: &str,
     team_dir: &str,
@@ -2222,29 +2229,40 @@ pub fn remove_member_from_team(
         .owner_node_id
         .as_deref()
         .ok_or("No team owner configured")?;
-    if owner_id != caller_node_id {
-        return Err("Only the team owner can manage members".to_string());
+    // Use manifest as authoritative member list when available
+    let manifest = read_members_manifest(team_dir).ok().flatten();
+    let mut members = if let Some(ref m) = manifest {
+        m.members.clone()
+    } else {
+        config.allowed_members.clone()
+    };
+
+    let is_owner = owner_id == caller_node_id;
+    let is_editor = members
+        .iter()
+        .any(|m| m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor));
+    if !is_owner && !is_editor {
+        return Err("Only team members (owner or editor) can manage members".to_string());
     }
 
     if target_node_id == caller_node_id {
         return Err("Cannot remove the team owner".to_string());
     }
 
-    let before_len = config.allowed_members.len();
-    config
-        .allowed_members
-        .retain(|m| m.node_id != target_node_id);
-    if config.allowed_members.len() == before_len {
+    let before_len = members.len();
+    members.retain(|m| m.node_id != target_node_id);
+    if members.len() == before_len {
         return Err("Member not found".to_string());
     }
 
+    config.allowed_members = members.clone();
     write_p2p_config(workspace_path, Some(&config))?;
-    write_members_manifest(team_dir, caller_node_id, &config.allowed_members)?;
+    write_members_manifest(team_dir, owner_id, &members)?;
 
     Ok(())
 }
 
-/// Update a member's role. Only the owner can call this.
+/// Update a member's role. Owner or editor can call this.
 pub fn update_member_role(
     workspace_path: &str,
     team_dir: &str,
@@ -2258,23 +2276,35 @@ pub fn update_member_role(
         .owner_node_id
         .as_deref()
         .ok_or("No team owner configured")?;
-    if owner_id != caller_node_id {
-        return Err("Only the team owner can manage members".to_string());
+    // Use manifest as authoritative member list when available
+    let manifest = read_members_manifest(team_dir).ok().flatten();
+    let mut members = if let Some(ref m) = manifest {
+        m.members.clone()
+    } else {
+        config.allowed_members.clone()
+    };
+
+    let is_owner = owner_id == caller_node_id;
+    let is_editor = members
+        .iter()
+        .any(|m| m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor));
+    if !is_owner && !is_editor {
+        return Err("Only team members (owner or editor) can manage members".to_string());
     }
 
     if target_node_id == caller_node_id {
         return Err("Cannot change the owner's role".to_string());
     }
 
-    let member = config
-        .allowed_members
+    let member = members
         .iter_mut()
         .find(|m| m.node_id == target_node_id)
         .ok_or("Member not found")?;
     member.role = new_role;
 
+    config.allowed_members = members.clone();
     write_p2p_config(workspace_path, Some(&config))?;
-    write_members_manifest(team_dir, caller_node_id, &config.allowed_members)?;
+    write_members_manifest(team_dir, owner_id, &members)?;
 
     Ok(())
 }
@@ -3472,7 +3502,7 @@ mod tests {
             "some-member",
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Only the team owner"));
+        assert!(result.unwrap_err().contains("Only team members"));
     }
 
     #[test]
