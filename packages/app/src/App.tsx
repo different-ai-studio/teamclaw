@@ -19,7 +19,6 @@ import {
   ChevronLeft,
   X,
   Loader2,
-  Code,
   Bot,
   ChevronDown,
   Plus,
@@ -359,33 +358,6 @@ function ResizeHandle({
         `}
       />
     </div>
-  );
-}
-
-// Layout toggle button component
-function LayoutToggleButton() {
-  const { t } = useTranslation();
-  const { layoutMode, toggleLayoutMode } = useUIStore();
-  const isFileMode = layoutMode === "file";
-
-  // Detect OS for keyboard shortcut display
-  const isMac =
-    typeof navigator !== "undefined" &&
-    navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-  const shortcutKey = isMac ? "⌘\\" : "Ctrl+\\";
-
-  return (
-    <button
-      className={`p-1.5 transition-colors rounded ${
-        isFileMode
-          ? "bg-primary/15 text-primary"
-          : "text-muted-foreground hover:text-foreground hover:bg-muted"
-      }`}
-      onClick={toggleLayoutMode}
-      title={`${isFileMode ? t("app.switchTaskMode", "Switch to Task Mode") : t("app.switchCodeSpace", "Switch to Code Space")} (${shortcutKey})`}
-    >
-      <Code className="h-4 w-4" />
-    </button>
   );
 }
 
@@ -760,9 +732,6 @@ function AppContent() {
         >
           {needsTrafficLightSpacer && <TrafficLights />}
 
-          {/* Layout toggle - before TeamClaw */}
-          {advancedMode && <LayoutToggleButton />}
-
           <span className="text-sm font-medium">{buildConfig.app.name}</span>
           <Separator
             orientation="vertical"
@@ -986,7 +955,6 @@ function AppContent() {
 
             {embeddedSettingsSection ? (
               <>
-                {advancedMode && <LayoutToggleButton />}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1004,7 +972,6 @@ function AppContent() {
               </>
             ) : (
               <>
-                {advancedMode && <LayoutToggleButton />}
                 <span className="min-w-0 truncate text-sm">
                   {activeSession?.title || t("chat.newChat", "New Chat")}
                 </span>
