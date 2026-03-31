@@ -1279,6 +1279,101 @@ impl OssSyncManager {
     }
 
     // -----------------------------------------------------------------------
+    // Compaction Operations
+    // -----------------------------------------------------------------------
+
+    /// Check if compaction is needed for a given DocType.
+    async fn should_compact(&self, doc_type: DocType) -> bool {
+        // Only Owner/Editor can compact
+        if self.role != MemberRole::Owner && self.role != MemberRole::Editor {
+            return false;
+        }
+
+        // Check time since last compaction
+        if let Some(last) = self.last_compaction_at.get(&doc_type) {
+            let elapsed = Utc::now().signed_duration_since(*last).num_seconds();
+            if elapsed < 3600 {
+                // Less than 1 hour — check file count threshold instead
+                let prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
+                match self.s3_list(&prefix).await {
+                    Ok(keys) => keys.len() > 100,
+                    Err(_) => false,
+                }
+            } else {
+                true
+            }
+        } else {
+            true
+        }
+    }
+
+    /// Compact update files into a snapshot, then delete old updates.
+    async fn compact(&mut self, doc_type: DocType) -> Result<(), String> {
+        info!("Starting compaction for {:?}...", doc_type);
+
+        // 1. Pull all latest updates to ensure doc is current
+        self.pull_remote_changes(doc_type).await?;
+
+        // 2. Export full snapshot
+        let doc = self.get_doc(doc_type);
+        let snapshot = doc
+            .export(loro::ExportMode::Snapshot)
+            .map_err(|e| format!("Failed to export snapshot for {:?}: {e}", doc_type))?;
+
+        // 3. Upload new snapshot
+        let timestamp_ms = Utc::now().timestamp_millis();
+        let snap_key = format!(
+            "teams/{}/{}/snapshot/{}.bin",
+            self.team_id,
+            doc_type.path(),
+            timestamp_ms
+        );
+        self.s3_put(&snap_key, &snapshot).await?;
+        info!(
+            "Compaction: uploaded snapshot for {:?} ({} bytes)",
+            doc_type,
+            snapshot.len()
+        );
+
+        // 4. Delete all update files
+        let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
+        let update_keys = self.s3_list(&update_prefix).await?;
+        for key in &update_keys {
+            self.s3_delete(key).await?;
+        }
+        info!(
+            "Compaction: deleted {} update files for {:?}",
+            update_keys.len(),
+            doc_type
+        );
+
+        // 5. Trim old snapshots (keep only 2 most recent)
+        let snap_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
+        let snap_keys = self.s3_list(&snap_prefix).await?;
+        if snap_keys.len() > 2 {
+            for key in &snap_keys[..snap_keys.len() - 2] {
+                self.s3_delete(key).await?;
+            }
+            info!(
+                "Compaction: trimmed {} old snapshots for {:?}",
+                snap_keys.len() - 2,
+                doc_type
+            );
+        }
+
+        // 6. Reset local state
+        self.known_files.insert(doc_type, HashSet::new());
+        self.last_known_key.remove(&doc_type);
+        self.last_exported_version.remove(&doc_type);
+
+        // 7. Record compaction time
+        self.last_compaction_at.insert(doc_type, Utc::now());
+
+        info!("Compaction complete for {:?}", doc_type);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Version History Operations
     // -----------------------------------------------------------------------
 
