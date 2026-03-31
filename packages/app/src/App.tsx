@@ -210,7 +210,7 @@ function HeaderPanelTab({
 }: {
   icon: typeof ListTodo;
   label: string;
-  count: number;
+  count?: number;
   isActive: boolean;
   onClick: () => void;
 }) {
@@ -225,7 +225,7 @@ function HeaderPanelTab({
     >
       <Icon className="h-4 w-4" />
       {isActive && <span>{label}</span>}
-      {count > 0 && (
+      {!!count && count > 0 && (
         <span
           className={`min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-medium flex items-center justify-center ${
             isActive ? "bg-primary/20 text-primary" : "bg-muted-foreground/20"
@@ -426,9 +426,9 @@ function AppContent() {
   const { state, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
   const hasActiveFileTab = !!useTabsStore(selectActiveTab);
   const hasHiddenTabs = useTabsStore(selectHasHiddenTabs);
-  /** Shortcuts and Files dock left of chat (both variants); other panel tabs use the right column. */
+  /** Shortcuts always dock left; Files dock left only in default variant (workspace uses the right panel for Files). */
   const leftDockActive =
-    isPanelOpen && (activeTab === "shortcuts" || activeTab === "files");
+    isPanelOpen && (activeTab === "shortcuts" || (!isWorkspaceUIVariant() && activeTab === "files"));
   const showRightWorkspacePanel = isPanelOpen && !leftDockActive;
   const isCollapsed = state === "collapsed";
   /** Native traffic lights sit over the left column; spare inset header when left dock owns that strip. */
@@ -1046,6 +1046,14 @@ function AppContent() {
                   count={sessionDiff.length}
                   isActive={isPanelOpen && activeTab === "diff"}
                   onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
+                />
+              )}
+              {isWorkspaceUIVariant() && (
+                <HeaderPanelTab
+                  icon={FolderTree}
+                  label={t("navigation.files", "Files")}
+                  isActive={isPanelOpen && activeTab === "files"}
+                  onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
                 />
               )}
               {showRightWorkspacePanel && (
