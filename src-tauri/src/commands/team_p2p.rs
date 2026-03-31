@@ -77,7 +77,7 @@ impl PeerState {
 }
 
 /// High-level status of the sync engine.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum EngineStatus {
     Connected,
@@ -86,7 +86,7 @@ pub enum EngineStatus {
 }
 
 /// Health of the event stream between this node and the iroh document.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum StreamHealth {
     Healthy,
@@ -4356,5 +4356,206 @@ mod tests {
         assert!(json.get("p2p").is_some(), "p2p config should exist");
         assert_eq!(json["team"]["gitUrl"], "https://example.com/repo.git");
         assert_eq!(json["p2p"]["enabled"], false);
+    }
+
+    // ─── SyncEngine unit tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_sync_engine_new_defaults() {
+        let engine = SyncEngine::new();
+        assert_eq!(engine.status, EngineStatus::Disconnected);
+        assert_eq!(engine.stream_health, StreamHealth::Dead);
+        assert_eq!(engine.restart_count, 0);
+        assert!(engine.last_sync_at.is_none());
+        assert!(engine.peers.is_empty());
+        assert!(engine.file_sync_records.is_empty());
+        assert_eq!(engine.synced_files, 0);
+        assert_eq!(engine.pending_files, 0);
+    }
+
+    #[test]
+    fn test_sync_engine_snapshot() {
+        let mut engine = SyncEngine::new();
+        engine.status = EngineStatus::Connected;
+        engine.stream_health = StreamHealth::Healthy;
+        engine.synced_files = 42;
+
+        let snap = engine.snapshot();
+        assert_eq!(snap.status, EngineStatus::Connected);
+        assert_eq!(snap.stream_health, StreamHealth::Healthy);
+        assert_eq!(snap.synced_files, 42);
+        assert!(snap.peers.is_empty());
+    }
+
+    #[test]
+    fn test_peer_state_connection_unknown() {
+        let peer = PeerState {
+            node_id: "test".to_string(),
+            name: "Test".to_string(),
+            role: MemberRole::Editor,
+            last_activity: None,
+            entries_sent: 0,
+            entries_received: 0,
+        };
+        assert_eq!(peer.connection(), PeerConnection::Unknown);
+    }
+
+    #[test]
+    fn test_peer_state_connection_active() {
+        let peer = PeerState {
+            node_id: "test".to_string(),
+            name: "Test".to_string(),
+            role: MemberRole::Editor,
+            last_activity: Some(Instant::now()),
+            entries_sent: 0,
+            entries_received: 0,
+        };
+        assert_eq!(peer.connection(), PeerConnection::Active);
+    }
+
+    #[test]
+    fn test_peer_state_connection_stale() {
+        let peer = PeerState {
+            node_id: "test".to_string(),
+            name: "Test".to_string(),
+            role: MemberRole::Editor,
+            last_activity: Some(Instant::now() - std::time::Duration::from_secs(60)),
+            entries_sent: 0,
+            entries_received: 0,
+        };
+        assert_eq!(peer.connection(), PeerConnection::Stale);
+    }
+
+    #[test]
+    fn test_peer_state_connection_lost() {
+        let peer = PeerState {
+            node_id: "test".to_string(),
+            name: "Test".to_string(),
+            role: MemberRole::Editor,
+            last_activity: Some(Instant::now() - std::time::Duration::from_secs(300)),
+            entries_sent: 0,
+            entries_received: 0,
+        };
+        assert_eq!(peer.connection(), PeerConnection::Lost);
+    }
+
+    #[test]
+    fn test_record_sync_finished() {
+        let mut engine = SyncEngine::new();
+        engine.peers.insert(
+            "peer1".to_string(),
+            PeerState {
+                node_id: "peer1".to_string(),
+                name: "Peer1".to_string(),
+                role: MemberRole::Editor,
+                last_activity: None,
+                entries_sent: 0,
+                entries_received: 0,
+            },
+        );
+
+        engine.record_sync_finished("peer1", 5, 10);
+
+        let peer = engine.peers.get("peer1").unwrap();
+        assert_eq!(peer.entries_sent, 5);
+        assert_eq!(peer.entries_received, 10);
+        assert!(peer.last_activity.is_some());
+        assert!(engine.last_sync_at.is_some());
+    }
+
+    #[test]
+    fn test_record_neighbor_up() {
+        let mut engine = SyncEngine::new();
+        engine.peers.insert(
+            "peer1".to_string(),
+            PeerState {
+                node_id: "peer1".to_string(),
+                name: "Peer1".to_string(),
+                role: MemberRole::Editor,
+                last_activity: None,
+                entries_sent: 0,
+                entries_received: 0,
+            },
+        );
+
+        engine.record_neighbor_up("peer1");
+
+        let peer = engine.peers.get("peer1").unwrap();
+        assert!(peer.last_activity.is_some());
+        assert_eq!(peer.connection(), PeerConnection::Active);
+    }
+
+    #[test]
+    fn test_record_file_synced() {
+        let mut engine = SyncEngine::new();
+        let now = SystemTime::now();
+        engine.record_file_synced("test.txt".to_string(), now);
+
+        assert!(engine.file_sync_records.contains_key("test.txt"));
+        assert_eq!(
+            engine
+                .file_sync_records
+                .get("test.txt")
+                .unwrap()
+                .local_mtime_at_sync,
+            now
+        );
+    }
+
+    #[test]
+    fn test_snapshot_includes_peer_info() {
+        let mut engine = SyncEngine::new();
+        engine.peers.insert(
+            "peer1".to_string(),
+            PeerState {
+                node_id: "peer1".to_string(),
+                name: "Alice".to_string(),
+                role: MemberRole::Owner,
+                last_activity: Some(Instant::now()),
+                entries_sent: 10,
+                entries_received: 20,
+            },
+        );
+
+        let snap = engine.snapshot();
+        assert_eq!(snap.peers.len(), 1);
+        assert_eq!(snap.peers[0].node_id, "peer1");
+        assert_eq!(snap.peers[0].name, "Alice");
+        assert_eq!(snap.peers[0].connection, PeerConnection::Active);
+        assert_eq!(snap.peers[0].entries_sent, 10);
+        assert_eq!(snap.peers[0].entries_received, 20);
+    }
+
+    #[test]
+    fn test_load_peers_from_manifest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let team_dir = tmp.path().join("teamclaw-team");
+        let team_meta = team_dir.join("_team");
+        std::fs::create_dir_all(&team_meta).unwrap();
+
+        // Write a members.json (camelCase keys to match serde rename)
+        let manifest = serde_json::json!({
+            "ownerNodeId": "node_owner",
+            "members": [
+                { "nodeId": "node_owner", "name": "Owner", "role": "owner", "platform": "", "arch": "", "hostname": "", "addedAt": "" },
+                { "nodeId": "node_editor", "name": "Editor", "role": "editor", "platform": "", "arch": "", "hostname": "", "addedAt": "" },
+            ]
+        });
+        std::fs::write(
+            team_meta.join("members.json"),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let mut engine = SyncEngine::new();
+        let _ = engine.load_peers_from_manifest(team_dir.to_str().unwrap());
+
+        assert_eq!(engine.peers.len(), 2);
+        assert!(engine.peers.contains_key("node_owner"));
+        assert!(engine.peers.contains_key("node_editor"));
+        assert_eq!(
+            engine.peers.get("node_owner").unwrap().role,
+            MemberRole::Owner
+        );
     }
 }
