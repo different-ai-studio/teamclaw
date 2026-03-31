@@ -339,6 +339,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       useTeamOssStore.getState().cleanup();
       useTeamModeStore.setState({
         teamMode: false,
+        teamModeType: null,
         teamModelConfig: null,
         // API key is stored globally in localStorage; do not clear on workspace load
         teamApiKey: getPersistedTeamApiKey(),
