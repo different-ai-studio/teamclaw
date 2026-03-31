@@ -875,6 +875,16 @@ pub fn run() {
                                         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                                         Json(serde_json::json!({"ok": true}))
                                     }
+                                    "set_spotlight_pin" => {
+                                        let pinned = body["args"]["pinned"].as_bool().unwrap_or(false);
+                                        let app_main = app.clone();
+                                        let _ = app.run_on_main_thread(move || {
+                                            let state = app_main.state::<commands::spotlight::SpotlightState>();
+                                            commands::spotlight::set_spotlight_pin(app_main.clone(), state, pinned);
+                                        });
+                                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                        Json(serde_json::json!({"ok": true}))
+                                    }
                                     "is_visible" => {
                                         let visible = app.get_webview_window("main")
                                             .map(|w| w.is_visible().unwrap_or(false))
