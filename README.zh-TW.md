@@ -1,6 +1,6 @@
 # TeamClaw
 
-基於 OpenCode 打造的本地智慧體，數位員工的基座
+基於 OpenCode 打造的本地智慧體，你的 AI 搭檔
 
 [English](README.md) | [简体中文](README.zh-CN.md) | 繁體中文 | [日本語](README.ja.md) | [한국어](README.ko.md)
 

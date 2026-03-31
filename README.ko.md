@@ -1,6 +1,6 @@
 # TeamClaw
 
-OpenCode 기반의 로컬 AI 에이전트, 디지털 직원을 위한 기반
+OpenCode 기반의 로컬 AI 에이전트, 당신의 AI 파트너
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | 한국어
 

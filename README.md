@@ -4,7 +4,7 @@
 [![CI](https://github.com/diffrent-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/diffrent-ai-studio/teamclaw/actions)
 [![Contributors](https://img.shields.io/github/contributors/diffrent-ai-studio/teamclaw.svg)](https://github.com/diffrent-ai-studio/teamclaw/graphs/contributors)
 
-Local AI agents built on OpenCode — the foundation for digital employees
+Local AI agents built on OpenCode — your AI Ally for every role
 
 English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
