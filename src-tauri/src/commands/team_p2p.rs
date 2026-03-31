@@ -2156,13 +2156,25 @@ pub fn add_member_to_team(
         .as_deref()
         .ok_or("No team owner configured")?;
 
-    // Any existing member (owner or editor) can add new members
+    // Any existing member (owner or editor) can add new members.
+    // Check both local config AND the synced manifest (joiners may not have
+    // allowed_members populated in their local config).
     let is_owner = owner_id == caller_node_id;
-    let is_member = config
+    let is_member_in_config = config
         .allowed_members
         .iter()
         .any(|m| m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor));
-    if !is_owner && !is_member {
+    let is_member_in_manifest = read_members_manifest(team_dir)
+        .ok()
+        .flatten()
+        .map(|manifest| {
+            manifest.members.iter().any(|m| {
+                m.node_id == caller_node_id
+                    && matches!(m.role, MemberRole::Owner | MemberRole::Editor)
+            })
+        })
+        .unwrap_or(false);
+    if !is_owner && !is_member_in_config && !is_member_in_manifest {
         return Err("Only team members can add new members".to_string());
     }
 
@@ -2209,7 +2221,7 @@ pub fn add_member_to_team(
     Ok(())
 }
 
-/// Remove a member from the team allowlist. Only the owner can call this.
+/// Remove a member from the team allowlist. Owner or editor can call this.
 pub fn remove_member_from_team(
     workspace_path: &str,
     team_dir: &str,
@@ -2222,8 +2234,23 @@ pub fn remove_member_from_team(
         .owner_node_id
         .as_deref()
         .ok_or("No team owner configured")?;
-    if owner_id != caller_node_id {
-        return Err("Only the team owner can manage members".to_string());
+    let is_owner = owner_id == caller_node_id;
+    let is_editor = config
+        .allowed_members
+        .iter()
+        .any(|m| m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor))
+        || read_members_manifest(team_dir)
+            .ok()
+            .flatten()
+            .map(|manifest| {
+                manifest.members.iter().any(|m| {
+                    m.node_id == caller_node_id
+                        && matches!(m.role, MemberRole::Owner | MemberRole::Editor)
+                })
+            })
+            .unwrap_or(false);
+    if !is_owner && !is_editor {
+        return Err("Only team members (owner or editor) can manage members".to_string());
     }
 
     if target_node_id == caller_node_id {
@@ -2244,7 +2271,7 @@ pub fn remove_member_from_team(
     Ok(())
 }
 
-/// Update a member's role. Only the owner can call this.
+/// Update a member's role. Owner or editor can call this.
 pub fn update_member_role(
     workspace_path: &str,
     team_dir: &str,
@@ -2258,8 +2285,23 @@ pub fn update_member_role(
         .owner_node_id
         .as_deref()
         .ok_or("No team owner configured")?;
-    if owner_id != caller_node_id {
-        return Err("Only the team owner can manage members".to_string());
+    let is_owner = owner_id == caller_node_id;
+    let is_editor = config
+        .allowed_members
+        .iter()
+        .any(|m| m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor))
+        || read_members_manifest(team_dir)
+            .ok()
+            .flatten()
+            .map(|manifest| {
+                manifest.members.iter().any(|m| {
+                    m.node_id == caller_node_id
+                        && matches!(m.role, MemberRole::Owner | MemberRole::Editor)
+                })
+            })
+            .unwrap_or(false);
+    if !is_owner && !is_editor {
+        return Err("Only team members (owner or editor) can manage members".to_string());
     }
 
     if target_node_id == caller_node_id {
@@ -3472,7 +3514,7 @@ mod tests {
             "some-member",
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Only the team owner"));
+        assert!(result.unwrap_err().contains("Only team members"));
     }
 
     #[test]
