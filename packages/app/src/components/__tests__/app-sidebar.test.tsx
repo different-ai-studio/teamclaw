@@ -4,6 +4,26 @@ import React from 'react'
 
 const uiVariantMocks = vi.hoisted(() => ({ workspaceShell: false }))
 
+const uiStoreMocks = vi.hoisted(() => ({
+  openSettings: vi.fn(),
+  closeSettings: vi.fn(),
+  embeddedSettingsSection: null as string | null,
+  openEmbeddedSettingsSection: vi.fn(),
+  closeEmbeddedSettingsSection: vi.fn(),
+}))
+
+const workspaceStoreMocks = vi.hoisted(() => ({
+  openPanel: vi.fn(),
+  closePanel: vi.fn(),
+  clearSelection: vi.fn(),
+  setWorkspace: vi.fn(),
+  workspacePath: '/workspace',
+  workspaceName: 'workspace',
+  isLoadingWorkspace: false,
+  isPanelOpen: false,
+  activeTab: 'tasks',
+}))
+
 // Mock i18n
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -47,28 +67,12 @@ vi.mock('@/stores/session', () => ({
 
 vi.mock('@/stores/ui', () => ({
   useUIStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({
-      openSettings: vi.fn(),
-      closeSettings: vi.fn(),
-      embeddedSettingsSection: null,
-      openEmbeddedSettingsSection: vi.fn(),
-      closeEmbeddedSettingsSection: vi.fn(),
-    }),
+    sel(uiStoreMocks as unknown as Record<string, unknown>),
 }))
 
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({
-      workspacePath: '/workspace',
-      workspaceName: 'workspace',
-      isLoadingWorkspace: false,
-      clearSelection: vi.fn(),
-      setWorkspace: vi.fn(),
-      isPanelOpen: false,
-      activeTab: 'tasks',
-      openPanel: vi.fn(),
-      closePanel: vi.fn(),
-    }),
+    sel(workspaceStoreMocks),
 }))
 
 vi.mock('@/stores/tabs', () => ({
@@ -135,6 +139,15 @@ describe('AppSidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     uiVariantMocks.workspaceShell = false
+    uiStoreMocks.embeddedSettingsSection = null
+    uiStoreMocks.openSettings = vi.fn()
+    uiStoreMocks.closeSettings = vi.fn()
+    uiStoreMocks.openEmbeddedSettingsSection = vi.fn()
+    uiStoreMocks.closeEmbeddedSettingsSection = vi.fn()
+    workspaceStoreMocks.isPanelOpen = false
+    workspaceStoreMocks.activeTab = 'tasks'
+    workspaceStoreMocks.openPanel = vi.fn()
+    workspaceStoreMocks.closePanel = vi.fn()
   })
 
   it('renders session titles in sidebar', () => {
@@ -181,5 +194,54 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Shortcuts')).toBeDefined()
     expect(screen.getByText('Automation')).toBeDefined()
     expect(screen.getByText('Skills')).toBeDefined()
+  })
+
+  it('default mode renders Quick Access section with all four entries', () => {
+    uiVariantMocks.workspaceShell = false
+    render(<AppSidebar />)
+    expect(screen.getByText('Shortcuts')).toBeDefined()
+    expect(screen.getByText('Automation')).toBeDefined()
+    expect(screen.getByText('Skills')).toBeDefined()
+    expect(screen.getByText('Files')).toBeDefined()
+  })
+
+  it('workspace mode does not render bottom Files entry', () => {
+    uiVariantMocks.workspaceShell = true
+    render(<AppSidebar />)
+    // workspace mode has its own quick links but NOT "Files"
+    expect(screen.queryByText('Files')).toBeNull()
+  })
+
+  it('clicking Shortcuts in Quick Access calls openPanel with "shortcuts"', () => {
+    uiVariantMocks.workspaceShell = false
+    render(<AppSidebar />)
+    screen.getByText('Shortcuts').closest('button')!.click()
+    expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('shortcuts')
+  })
+
+  it('clicking Files in Quick Access calls openPanel with "files"', () => {
+    uiVariantMocks.workspaceShell = false
+    render(<AppSidebar />)
+    screen.getByText('Files').closest('button')!.click()
+    expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('files')
+  })
+
+  it('clicking active Automation in Quick Access closes it', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.embeddedSettingsSection = 'automation'  // already active
+    render(<AppSidebar />)
+    screen.getByText('Automation').closest('button')!.click()
+    expect(uiStoreMocks.closeEmbeddedSettingsSection).toHaveBeenCalled()
+  })
+
+  it('clicking active Files in Quick Access closes the panel', () => {
+    uiVariantMocks.workspaceShell = false
+    const closePanelFn = vi.fn()
+    workspaceStoreMocks.isPanelOpen = true
+    workspaceStoreMocks.activeTab = 'files'
+    workspaceStoreMocks.closePanel = closePanelFn
+    render(<AppSidebar />)
+    screen.getByText('Files').closest('button')!.click()
+    expect(closePanelFn).toHaveBeenCalled()
   })
 })
