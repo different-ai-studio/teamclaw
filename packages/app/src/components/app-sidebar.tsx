@@ -495,6 +495,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     [sessions, pinnedSessionIds],
   )
   
+  const advancedMode = useUIStore(s => s.advancedMode)
   const openSettings = useUIStore(s => s.openSettings)
   const closeSettings = useUIStore(s => s.closeSettings)
   const embeddedSettingsSection = useUIStore(s => s.embeddedSettingsSection)
@@ -842,96 +843,95 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           )}
           </SidebarGroup>
 
+        </SidebarContent>
+
+        <SidebarFooter className="gap-1 px-3 pb-3 pt-1.5">
           {/* Quick Access — default mode only */}
           {!isWorkspaceUIVariant() && (
-            <div className="px-1.5 pb-2">
-              <div className="mx-3 mb-2 h-px shrink-0 bg-border/60" aria-hidden />
-              <div className="flex flex-col gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
+            <div className="flex flex-col gap-0.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'h-7 justify-start gap-1.5 px-2 font-normal',
+                  shortcutsStripActive && 'bg-primary/10 text-primary font-medium',
+                )}
+                onClick={handleWorkspaceShortcutsPanel}
+              >
+                <Bookmark
                   className={cn(
-                    'h-9 justify-start gap-2 px-1.5 font-normal',
-                    shortcutsStripActive && 'bg-primary/10 text-primary font-medium',
+                    'h-3.5 w-3.5 shrink-0',
+                    shortcutsStripActive ? 'text-amber-500' : 'text-muted-foreground',
                   )}
-                  onClick={handleWorkspaceShortcutsPanel}
-                >
-                  <Bookmark
-                    className={cn(
-                      'h-4 w-4 shrink-0',
-                      shortcutsStripActive ? 'text-amber-500' : 'text-muted-foreground',
-                    )}
-                  />
-                  <span className="truncate text-sm">
-                    {t('navigation.shortcuts', 'Shortcuts')}
-                  </span>
-                </Button>
+                />
+                <span className="truncate text-xs">
+                  {t('navigation.shortcuts', 'Shortcuts')}
+                </span>
+              </Button>
 
-                <Button
-                  variant="ghost"
-                  size="sm"
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'h-7 justify-start gap-1.5 px-2 font-normal',
+                  embeddedSettingsSection === 'automation' && 'bg-primary/10 text-primary font-medium',
+                )}
+                onClick={() => handleQuickAccessEmbeddedSection('automation')}
+              >
+                <Clock
                   className={cn(
-                    'h-9 justify-start gap-2 px-1.5 font-normal',
-                    embeddedSettingsSection === 'automation' && 'bg-primary/10 text-primary font-medium',
+                    'h-3.5 w-3.5 shrink-0',
+                    embeddedSettingsSection === 'automation' ? 'text-amber-500' : 'text-muted-foreground',
                   )}
-                  onClick={() => handleQuickAccessEmbeddedSection('automation')}
-                >
-                  <Clock
-                    className={cn(
-                      'h-4 w-4 shrink-0',
-                      embeddedSettingsSection === 'automation' ? 'text-amber-500' : 'text-muted-foreground',
-                    )}
-                  />
-                  <span className="truncate text-sm">
-                    {t('settings.nav.automation', 'Automation')}
-                  </span>
-                </Button>
+                />
+                <span className="truncate text-xs">
+                  {t('settings.nav.automation', 'Automation')}
+                </span>
+              </Button>
 
-                <Button
-                  variant="ghost"
-                  size="sm"
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'h-7 justify-start gap-1.5 px-2 font-normal',
+                  embeddedSettingsSection === 'skills' && 'bg-primary/10 text-primary font-medium',
+                )}
+                onClick={() => handleQuickAccessEmbeddedSection('skills')}
+              >
+                <Sparkles
                   className={cn(
-                    'h-9 justify-start gap-2 px-1.5 font-normal',
-                    embeddedSettingsSection === 'skills' && 'bg-primary/10 text-primary font-medium',
+                    'h-3.5 w-3.5 shrink-0',
+                    embeddedSettingsSection === 'skills' ? 'text-yellow-500' : 'text-muted-foreground',
                   )}
-                  onClick={() => handleQuickAccessEmbeddedSection('skills')}
-                >
-                  <Sparkles
-                    className={cn(
-                      'h-4 w-4 shrink-0',
-                      embeddedSettingsSection === 'skills' ? 'text-yellow-500' : 'text-muted-foreground',
-                    )}
-                  />
-                  <span className="truncate text-sm">
-                    {t('settings.nav.skills', 'Skills')}
-                  </span>
-                </Button>
+                />
+                <span className="truncate text-xs">
+                  {t('settings.nav.skills', 'Skills')}
+                </span>
+              </Button>
 
+              {advancedMode && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    'h-9 justify-start gap-2 px-1.5 font-normal',
+                    'h-7 justify-start gap-1.5 px-2 font-normal',
                     fileStripActive && 'bg-primary/10 text-primary font-medium',
                   )}
                   onClick={handleOpenFilePanel}
                 >
                   <FolderOpen
                     className={cn(
-                      'h-4 w-4 shrink-0',
+                      'h-3.5 w-3.5 shrink-0',
                       fileStripActive ? 'text-blue-500' : 'text-muted-foreground',
                     )}
                   />
-                  <span className="truncate text-sm">
+                  <span className="truncate text-xs">
                     {t('navigation.files', 'Files')}
                   </span>
                 </Button>
-              </div>
+              )}
             </div>
           )}
-        </SidebarContent>
-
-        <SidebarFooter className="px-3 py-3">
           <div className="flex items-center justify-between">
             <Button
               variant="ghost"

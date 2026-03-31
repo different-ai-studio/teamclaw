@@ -5,6 +5,7 @@ import React from 'react'
 const uiVariantMocks = vi.hoisted(() => ({ workspaceShell: false }))
 
 const uiStoreMocks = vi.hoisted(() => ({
+  advancedMode: true,
   openSettings: vi.fn(),
   closeSettings: vi.fn(),
   embeddedSettingsSection: null as string | null,
