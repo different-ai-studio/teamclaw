@@ -4,6 +4,7 @@ use crate::commands::version_types::MAX_VERSIONS;
 use crate::commands::TEAMCLAW_DIR;
 
 use aws_sdk_s3::primitives::ByteStream;
+use futures::stream::{self, StreamExt};
 use chrono::Utc;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -1021,11 +1022,52 @@ impl OssSyncManager {
             doc_type
         );
 
-        for key in &new_keys {
-            let data = self.s3_get(key).await?;
-            let doc = self.get_doc_mut(doc_type);
-            doc.import(&data)
-                .map_err(|e| format!("Failed to import update {key}: {e}"))?;
+        // Download concurrently (up to 5 at a time)
+        if !new_keys.is_empty() {
+            let download_results: Vec<(String, Result<Vec<u8>, String>)> = stream::iter(
+                new_keys.iter().cloned(),
+            )
+            .map(|key| {
+                let client = self.client().cloned();
+                let bucket = self.bucket().map(|b| b.to_string());
+                async move {
+                    let result = match (client, bucket) {
+                        (Ok(c), Ok(b)) => {
+                            match c
+                                .get_object()
+                                .bucket(&b)
+                                .key(&key)
+                                .send()
+                                .await
+                            {
+                                Ok(resp) => resp
+                                    .body
+                                    .collect()
+                                    .await
+                                    .map(|d| d.into_bytes().to_vec())
+                                    .map_err(|e| format!("S3 GET {key} body read failed: {e}")),
+                                Err(e) => Err(format!("S3 GET {key} failed: {e}")),
+                            }
+                        }
+                        (Err(e), _) | (_, Err(e)) => Err(e),
+                    };
+                    (key, result)
+                }
+            })
+            .buffer_unordered(5)
+            .collect()
+            .await;
+
+            // Import in key order (keys are sorted by timestamp)
+            let mut sorted_results = download_results;
+            sorted_results.sort_by(|a, b| a.0.cmp(&b.0));
+
+            for (key, result) in sorted_results {
+                let data = result?;
+                let doc = self.get_doc_mut(doc_type);
+                doc.import(&data)
+                    .map_err(|e| format!("Failed to import update {key}: {e}"))?;
+            }
         }
 
         // Update cursor to the last processed key
