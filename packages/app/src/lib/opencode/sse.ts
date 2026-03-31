@@ -877,15 +877,15 @@ export class OpenCodeSSE {
         this.handlers.onInactivityWarning?.(true)
       }
 
-      // Force reconnect if no events for 60s AND EventSource is not in OPEN state.
-      // This handles the case where EventSource is stuck in CONNECTING (readyState=0)
-      // with the browser silently failing to auto-reconnect.
+      // Force reconnect if no events for 60s — regardless of readyState.
+      // Previously only reconnected when readyState !== OPEN, but SSE/TCP connections
+      // can become stale (especially on macOS sleep/wake or network changes) where
+      // readyState still reports OPEN but events are silently dropped.
       if (
         elapsed >= OpenCodeSSE.INACTIVITY_RECONNECT_THRESHOLD &&
-        this.eventSource &&
-        this.eventSource.readyState !== EventSource.OPEN
+        this.eventSource
       ) {
-        console.warn(`[SSE] No events for ${Math.round(elapsed / 1000)}s and readyState=${this.eventSource.readyState}, forcing reconnect`)
+        console.warn(`[SSE] No events for ${Math.round(elapsed / 1000)}s (readyState=${this.eventSource.readyState}), forcing reconnect`)
         this.hasNotifiedConnected = false
         this.handlers.onDisconnected?.()
         this.disconnect()
