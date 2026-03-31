@@ -19,6 +19,8 @@ let nextId = 1;
 interface TabsState {
   tabs: Tab[];
   activeTabId: string | null;
+  /** Remembers the last active tab when hideAll is called */
+  _lastActiveTabId: string | null;
   openTab: (item: OpenTabInput) => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
@@ -27,7 +29,14 @@ interface TabsState {
   closeAll: () => void;
   /** Deactivate all tabs without closing them — returns to agent view */
   hideAll: () => void;
+  /** Re-activate the last tab after hideAll */
+  restoreLastTab: () => void;
   getActiveTab: () => Tab | null;
+}
+
+/** True when tabs exist but none is active (hidden via hideAll). */
+export function selectHasHiddenTabs(s: TabsState): boolean {
+  return s.tabs.length > 0 && s.activeTabId === null;
 }
 
 /** Zustand selector for the active tab. Use with `useTabsStore(selectActiveTab)`. */
@@ -39,6 +48,7 @@ export function selectActiveTab(s: TabsState): Tab | null {
 export const useTabsStore = create<TabsState>((set, get) => ({
   tabs: [],
   activeTabId: null,
+  _lastActiveTabId: null,
 
   openTab: (item) => {
     const { tabs, activeTabId } = get();
@@ -98,7 +108,19 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   hideAll: () => {
-    set({ activeTabId: null });
+    const { activeTabId } = get();
+    if (activeTabId) set({ _lastActiveTabId: activeTabId, activeTabId: null });
+    else set({ activeTabId: null });
+  },
+
+  restoreLastTab: () => {
+    const { tabs, activeTabId, _lastActiveTabId } = get();
+    if (activeTabId) return; // already showing a tab
+    if (_lastActiveTabId && tabs.some((t) => t.id === _lastActiveTabId)) {
+      set({ activeTabId: _lastActiveTabId });
+    } else if (tabs.length > 0) {
+      set({ activeTabId: tabs[tabs.length - 1].id });
+    }
   },
 
   getActiveTab: () => {

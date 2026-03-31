@@ -25,6 +25,7 @@ import {
   Bookmark,
   RotateCw,
   MessageSquarePlus,
+  AppWindow,
 } from "lucide-react";
 // Spotlight window - lazy loaded for spotlight window label
 const SpotlightWindow = lazy(() =>
@@ -84,7 +85,7 @@ import { OnboardingTour, type OnboardingStep } from "@/components/onboarding";
 import { useSessionStore } from "@/stores/session";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useTabsStore, selectActiveTab } from "@/stores/tabs";
+import { useTabsStore, selectActiveTab, selectHasHiddenTabs } from "@/stores/tabs";
 import { TabBar } from "@/components/tab-bar/TabBar";
 import { TabContentRenderer } from "@/components/tab-bar/TabContentRenderer";
 import { WebViewToolbar } from "@/components/tab-bar/WebViewToolbar";
@@ -423,6 +424,8 @@ function AppContent() {
   const isNewWorkspace = useWorkspaceStore((s) => s.isNewWorkspace);
   const setIsNewWorkspace = useWorkspaceStore((s) => s.setIsNewWorkspace);
   const { state, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
+  const hasActiveFileTab = !!useTabsStore(selectActiveTab);
+  const hasHiddenTabs = useTabsStore(selectHasHiddenTabs);
   /** Shortcuts and Files dock left of chat (both variants); other panel tabs use the right column. */
   const leftDockActive =
     isPanelOpen && (activeTab === "shortcuts" || activeTab === "files");
@@ -967,9 +970,20 @@ function AppContent() {
               </>
             ) : (
               <>
-                <span className="min-w-0 truncate text-sm">
+                <button
+                  className={cn(
+                    "min-w-0 truncate text-sm text-left",
+                    hasActiveFileTab && "cursor-pointer hover:text-foreground/70 transition-colors"
+                  )}
+                  onClick={() => {
+                    if (hasActiveFileTab) {
+                      useTabsStore.getState().hideAll();
+                    }
+                  }}
+                  disabled={!hasActiveFileTab}
+                >
                   {activeSession?.title || t("chat.newChat", "New Chat")}
-                </span>
+                </button>
                 {activeSession && (
                   <button
                     onClick={async () => {
@@ -993,6 +1007,27 @@ function AppContent() {
 
             {/* Panel tabs - right side of header */}
             <div className="ml-auto flex shrink-0 items-center gap-0.5" data-onboarding-id="workspace-panel-tabs">
+              {(hasActiveFileTab || hasHiddenTabs) && (
+                <button
+                  className={cn(
+                    "rounded p-1 transition-colors hover:bg-muted hover:text-foreground",
+                    hasActiveFileTab ? "text-foreground" : "text-muted-foreground",
+                  )}
+                  onClick={() => {
+                    if (hasActiveFileTab) {
+                      useTabsStore.getState().hideAll();
+                    } else {
+                      useTabsStore.getState().restoreLastTab();
+                    }
+                  }}
+                  title={hasActiveFileTab
+                    ? t("navigation.hideTabs", "Hide files")
+                    : t("navigation.restoreTabs", "Show files")
+                  }
+                >
+                  <AppWindow className="h-4 w-4" />
+                </button>
+              )}
               <HeaderPanelTab
                 icon={ListTodo}
                 label={t("navigation.tasks", "Tasks")}
@@ -1013,7 +1048,7 @@ function AppContent() {
                   onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
                 />
               )}
-              {isPanelOpen && (
+              {showRightWorkspacePanel && (
                 <button
                   className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   onClick={closePanel}

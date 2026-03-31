@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTabsStore, Tab } from "@/stores/tabs";
 import { cn } from "@/lib/utils";
-import { X, Code, Globe, LayoutDashboard, FileText, Image, EyeOff } from "lucide-react";
+import { X, Code, Globe, LayoutDashboard, FileText, Image } from "lucide-react";
 
 function getTabIcon(tab: Tab) {
   if (tab.type === "webview") return Globe;
@@ -32,7 +32,6 @@ export function TabBar() {
   const closeTab = useTabsStore((s) => s.closeTab);
   const closeOthers = useTabsStore((s) => s.closeOthers);
   const closeAll = useTabsStore((s) => s.closeAll);
-  const hideAll = useTabsStore((s) => s.hideAll);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
@@ -113,15 +112,6 @@ export function TabBar() {
           </div>
         );
       })}
-
-      {/* Hide all tabs button — returns to agent view without closing tabs */}
-      <button
-        className="ml-auto shrink-0 p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors rounded-md mx-1"
-        onClick={hideAll}
-        title="Back to Agent"
-      >
-        <EyeOff className="h-3.5 w-3.5" />
-      </button>
 
       {contextMenu && createPortal(
         <div

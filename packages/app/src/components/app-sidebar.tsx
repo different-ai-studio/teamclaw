@@ -609,7 +609,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenuButton
           isActive={session.id === activeSessionId}
           className={cn(
-            "h-auto py-2 transition-all duration-300",
+            "h-auto py-1.5 transition-all duration-300",
             isWorkspaceUIVariant() &&
               session.id === activeSessionId &&
               "relative z-0 data-[active=true]:!bg-muted/40 data-[active=true]:font-medium before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:z-10 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary before:content-['']",
@@ -637,7 +637,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 />
               ) : (
                 <>
-                  <span className="truncate text-left">
+                  <span className="truncate text-left text-xs">
                     {session.title}
                   </span>
                   {isPinned && (
