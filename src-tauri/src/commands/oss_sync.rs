@@ -681,6 +681,93 @@ impl OssSyncManager {
         Ok(result)
     }
 
+    /// Like `scan_local_files`, but only reads files whose mtime is newer than `since`.
+    /// Used by the fast loop for quick change detection.
+    fn scan_local_files_incremental(
+        dir: &Path,
+        since: std::time::SystemTime,
+    ) -> Result<HashMap<String, Vec<u8>>, String> {
+        let mut result = HashMap::new();
+
+        if !dir.exists() {
+            return Ok(result);
+        }
+
+        fn walk_incremental(
+            base: &Path,
+            current: &Path,
+            since: std::time::SystemTime,
+            result: &mut HashMap<String, Vec<u8>>,
+        ) -> Result<(), String> {
+            let entries = std::fs::read_dir(current)
+                .map_err(|e| format!("Failed to read dir {}: {e}", current.display()))?;
+
+            for entry in entries {
+                let entry = entry.map_err(|e| format!("Dir entry error: {e}"))?;
+                let path = entry.path();
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+
+                if name_str.starts_with('.') {
+                    continue;
+                }
+
+                if path.is_dir() {
+                    walk_incremental(base, &path, since, result)?;
+                } else {
+                    let dominated = path
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .map(|mtime| mtime > since)
+                        .unwrap_or(true);
+
+                    if dominated {
+                        let rel = path
+                            .strip_prefix(base)
+                            .map_err(|e| format!("Path strip error: {e}"))?;
+                        let rel_str = rel.to_string_lossy().to_string();
+                        let content = std::fs::read(&path)
+                            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+                        result.insert(rel_str, content);
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        walk_incremental(dir, dir, since, &mut result)?;
+        Ok(result)
+    }
+
+    /// Fast-path upload: only check files modified since last scan (mtime-based).
+    /// Returns `Ok(true)` if changes were uploaded.
+    pub async fn upload_local_changes_incremental(
+        &mut self,
+        doc_type: DocType,
+    ) -> Result<bool, String> {
+        let dir = self.team_dir.join(doc_type.dir_name());
+        let since = self
+            .last_scan_time
+            .get(&doc_type)
+            .copied()
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+        let local_files = Self::scan_local_files_incremental(&dir, since)?;
+
+        if local_files.is_empty() {
+            return Ok(false);
+        }
+
+        // Update scan time before processing
+        self.last_scan_time
+            .insert(doc_type, std::time::SystemTime::now());
+
+        // Delegate to the full upload_local_changes which will detect
+        // changes via hash comparison against the Loro doc
+        self.upload_local_changes(doc_type).await
+    }
+
     fn compute_hash(content: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(content);
