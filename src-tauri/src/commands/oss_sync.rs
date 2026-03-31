@@ -1135,13 +1135,32 @@ impl OssSyncManager {
             }
         }
 
-        // Export updates and upload
-        let doc = self.get_doc(doc_type);
-        // TODO: Verify ExportMode for incremental updates in loro v1.
-        // Using updates_till or all_updates — adjust API as needed.
-        let updates = doc
-            .export(loro::ExportMode::all_updates())
-            .map_err(|e| format!("Failed to export loro updates for {:?}: {e}", doc_type))?;
+        // Export updates and upload — use incremental export when a prior version vector exists
+        let updates = {
+            let doc = self.get_doc(doc_type);
+            match self.last_exported_version.get(&doc_type) {
+                Some(vv_bytes) => {
+                    match loro::VersionVector::decode(vv_bytes) {
+                        Ok(vv) => doc
+                            .export(loro::ExportMode::updates(&vv))
+                            .unwrap_or_else(|_| {
+                                doc.export(loro::ExportMode::all_updates())
+                                    .unwrap_or_default()
+                            }),
+                        Err(_) => doc
+                            .export(loro::ExportMode::all_updates())
+                            .map_err(|e| {
+                                format!("Failed to export loro updates for {:?}: {e}", doc_type)
+                            })?,
+                    }
+                }
+                None => doc
+                    .export(loro::ExportMode::all_updates())
+                    .map_err(|e| {
+                        format!("Failed to export loro updates for {:?}: {e}", doc_type)
+                    })?,
+            }
+        };
 
         let timestamp_ms = Utc::now().timestamp_millis();
         let key = format!(
@@ -1160,6 +1179,10 @@ impl OssSyncManager {
             updates.len()
         );
 
+        // Record version vector for future incremental exports
+        let current_vv = self.get_doc(doc_type).oplog_vv().encode();
+        self.last_exported_version.insert(doc_type, current_vv);
+
         Ok(true)
     }
 
@@ -1167,6 +1190,46 @@ impl OssSyncManager {
         let prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
         let start_after = self.last_known_key.get(&doc_type).map(|s| s.as_str());
         let new_keys = self.s3_list_after(&prefix, start_after).await?;
+
+        // Race condition detection: if we had a cursor but got zero results,
+        // another node may have compacted (deleted all updates).
+        // Fall back to reloading from the latest snapshot.
+        if new_keys.is_empty() && self.last_known_key.contains_key(&doc_type) {
+            let snap_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
+            let snap_keys = self.s3_list(&snap_prefix).await?;
+            if let Some(latest_snap) = snap_keys.last() {
+                info!(
+                    "Compaction detected for {:?} — reloading from snapshot: {}",
+                    doc_type, latest_snap
+                );
+                let data = self.s3_get(latest_snap).await?;
+                let doc = self.get_doc_mut(doc_type);
+                doc.import(&data)
+                    .map_err(|e| format!("Failed to import snapshot after compaction: {e}"))?;
+
+                // Reset cursor and re-list updates (there may be new ones after the snapshot)
+                self.last_known_key.remove(&doc_type);
+                self.known_files.insert(doc_type, HashSet::new());
+
+                let fresh_keys = self.s3_list(&prefix).await?;
+                for key in &fresh_keys {
+                    let data = self.s3_get(key).await?;
+                    let doc = self.get_doc_mut(doc_type);
+                    doc.import(&data)
+                        .map_err(|e| format!("Failed to import update {key}: {e}"))?;
+                }
+
+                if let Some(last) = fresh_keys.last() {
+                    self.last_known_key.insert(doc_type, last.clone());
+                }
+                let known_set = self.known_files.entry(doc_type).or_default();
+                for key in &fresh_keys {
+                    known_set.insert(key.clone());
+                }
+
+                return Ok(());
+            }
+        }
 
         if new_keys.is_empty() {
             return Ok(());
