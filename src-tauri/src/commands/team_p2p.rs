@@ -3172,6 +3172,15 @@ pub async fn save_p2p_config(
     write_p2p_config(&workspace_path, Some(&config))
 }
 
+/// Get detailed node/engine status for the frontend popover.
+#[tauri::command]
+pub async fn p2p_node_status(
+    engine_state: tauri::State<'_, SyncEngineState>,
+) -> Result<EngineSnapshot, String> {
+    let eng = engine_state.lock().await;
+    Ok(eng.snapshot())
+}
+
 /// Get the current team sync status.
 #[tauri::command]
 pub async fn p2p_sync_status(
