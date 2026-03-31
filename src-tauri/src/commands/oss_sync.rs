@@ -52,7 +52,6 @@ pub struct OssSyncManager {
     known_signal_keys: HashSet<String>,
 
     poll_interval: Duration,
-    #[allow(dead_code)]
     workspace_path: String,
     team_dir: PathBuf,
     loro_cache_dir: PathBuf,
@@ -64,14 +63,16 @@ pub struct OssSyncManager {
 
 pub struct OssSyncState {
     pub manager: Arc<Mutex<Option<OssSyncManager>>>,
-    pub poll_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    pub fast_poll_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    pub slow_poll_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl Default for OssSyncState {
     fn default() -> Self {
         Self {
             manager: Arc::new(Mutex::new(None)),
-            poll_handle: Arc::new(Mutex::new(None)),
+            fast_poll_handle: Arc::new(Mutex::new(None)),
+            slow_poll_handle: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -1584,10 +1585,76 @@ impl OssSyncManager {
     }
 
     // -----------------------------------------------------------------------
-    // Poll Loop
+    // Dual Poll Loops
     // -----------------------------------------------------------------------
 
-    pub async fn poll_loop(state: Arc<Mutex<Option<OssSyncManager>>>) {
+    /// Fast loop: runs every 30 seconds.
+    /// - Checks local file changes (mtime-based) → upload + signal flag
+    /// - Checks signal flags → pull remote changes
+    pub async fn fast_loop(state: Arc<Mutex<Option<OssSyncManager>>>) {
+        let fast_interval = Duration::from_secs(30);
+
+        loop {
+            tokio::time::sleep(fast_interval).await;
+
+            let mut guard = state.lock().await;
+            let manager = match guard.as_mut() {
+                Some(m) => m,
+                None => return,
+            };
+
+            let _ = manager.refresh_token_if_needed().await;
+
+            // 1. Check local changes and upload (incremental scan)
+            let mut any_uploaded = false;
+            for doc_type in DocType::all() {
+                match manager.upload_local_changes_incremental(doc_type).await {
+                    Ok(true) => any_uploaded = true,
+                    Ok(false) => {}
+                    Err(e) => warn!("OSS fast upload error for {:?}: {}", doc_type, e),
+                }
+            }
+
+            // Write signal flag if we uploaded anything
+            if any_uploaded {
+                if let Err(e) = manager.write_signal_flag().await {
+                    warn!("Failed to write signal flag: {}", e);
+                }
+            }
+
+            // 2. Check for remote changes via signal flags
+            match manager.check_signal_flags().await {
+                Ok(true) => {
+                    // New signals found — pull remote changes
+                    for doc_type in DocType::all() {
+                        if let Err(e) = manager.pull_remote_changes(doc_type).await {
+                            warn!("OSS fast pull error for {:?}: {}", doc_type, e);
+                        }
+                        if let Err(e) = manager.write_doc_to_disk(doc_type) {
+                            warn!("OSS fast write_doc_to_disk error for {:?}: {}", doc_type, e);
+                        }
+                    }
+
+                    // Emit status event (data changed)
+                    let now = Utc::now().to_rfc3339();
+                    manager.last_sync_at = Some(now);
+                    if let Some(handle) = &manager.app_handle {
+                        let status = manager.get_sync_status();
+                        let _ = handle.emit("oss-sync-status", &status);
+                    }
+                }
+                Ok(false) => {} // No new signals, skip
+                Err(e) => warn!("Failed to check signal flags: {}", e),
+            }
+        }
+    }
+
+    /// Slow loop: runs every 5 minutes.
+    /// - Unconditional full pull (fallback consistency)
+    /// - Full local file scan
+    /// - Persist snapshots and cursor
+    /// - Compaction and signal cleanup
+    pub async fn slow_loop(state: Arc<Mutex<Option<OssSyncManager>>>) {
         loop {
             let interval = {
                 let mut guard = state.lock().await;
@@ -1595,17 +1662,21 @@ impl OssSyncManager {
                     manager.syncing = true;
                     let _ = manager.refresh_token_if_needed().await;
 
+                    // 1. Full upload + pull for all DocTypes
                     for doc_type in DocType::all() {
                         if let Err(e) = manager.upload_local_changes(doc_type).await {
-                            warn!("OSS upload error for {:?}: {}", doc_type, e);
+                            warn!("OSS slow upload error for {:?}: {}", doc_type, e);
                         }
                         if let Err(e) = manager.pull_remote_changes(doc_type).await {
-                            warn!("OSS pull error for {:?}: {}", doc_type, e);
+                            warn!("OSS slow pull error for {:?}: {}", doc_type, e);
+                        }
+                        if let Err(e) = manager.write_doc_to_disk(doc_type) {
+                            warn!("OSS slow write_doc_to_disk error for {:?}: {}", doc_type, e);
                         }
                         let _ = manager.persist_local_snapshot(doc_type);
                     }
 
-                    // List pending applications for owners/editors
+                    // 2. List pending applications for owners/editors
                     if manager.role() == MemberRole::Owner || manager.role() == MemberRole::Editor {
                         match manager.list_applications().await {
                             Ok(apps) => {
@@ -1617,6 +1688,26 @@ impl OssSyncManager {
                                 warn!("Failed to list applications: {}", e);
                             }
                         }
+                    }
+
+                    // 3. Persist sync cursor
+                    let cursor = manager.export_sync_cursor();
+                    if let Err(e) = write_sync_cursor(&manager.workspace_path, &cursor) {
+                        warn!("Failed to persist sync cursor: {}", e);
+                    }
+
+                    // 4. Compaction check
+                    for doc_type in DocType::all() {
+                        if manager.should_compact(doc_type).await {
+                            if let Err(e) = manager.compact(doc_type).await {
+                                warn!("Compaction failed for {:?}: {}", doc_type, e);
+                            }
+                        }
+                    }
+
+                    // 5. Signal flag cleanup
+                    if let Err(e) = manager.cleanup_expired_signal_flags().await {
+                        warn!("Signal flag cleanup failed: {}", e);
                     }
 
                     manager.syncing = false;
