@@ -39,6 +39,17 @@ pub struct OssSyncManager {
     role: MemberRole,
     known_files: HashMap<DocType, HashSet<String>>,
 
+    /// Last processed S3 key per DocType, for start_after pruning
+    last_known_key: HashMap<DocType, String>,
+    /// Last exported Loro version vector bytes per DocType, for incremental export
+    last_exported_version: HashMap<DocType, Vec<u8>>,
+    /// Last local file scan time per DocType, for mtime-based incremental scanning
+    last_scan_time: HashMap<DocType, std::time::SystemTime>,
+    /// Last compaction time per DocType
+    last_compaction_at: HashMap<DocType, chrono::DateTime<Utc>>,
+    /// Signal flag keys already seen (to avoid re-triggering pulls)
+    known_signal_keys: HashSet<String>,
+
     poll_interval: Duration,
     #[allow(dead_code)]
     workspace_path: String,
@@ -87,6 +98,22 @@ impl OssSyncManager {
             known_files.insert(dt, HashSet::new());
         }
 
+        let cursor = read_sync_cursor(&workspace_path);
+
+        let mut last_known_key = HashMap::new();
+        let mut last_compaction_at_map = HashMap::new();
+        for dt in DocType::all() {
+            if let Some(key) = cursor.last_known_keys.get(dt.path()) {
+                last_known_key.insert(dt, key.clone());
+            }
+            if let Some(ts_str) = cursor.last_compaction_at.get(dt.path()) {
+                if let Ok(dt_parsed) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+                    last_compaction_at_map.insert(dt, dt_parsed.with_timezone(&Utc));
+                }
+            }
+        }
+        let known_signal_keys: HashSet<String> = cursor.known_signal_keys.into_iter().collect();
+
         Self {
             s3_client: None,
             credentials: None,
@@ -101,6 +128,11 @@ impl OssSyncManager {
             team_secret,
             role: MemberRole::Editor,
             known_files,
+            last_known_key,
+            last_exported_version: HashMap::new(),
+            last_scan_time: HashMap::new(),
+            last_compaction_at: last_compaction_at_map,
+            known_signal_keys,
             poll_interval,
             workspace_path,
             team_dir,
@@ -146,6 +178,22 @@ impl OssSyncManager {
 
     pub fn set_last_sync_at(&mut self, ts: Option<String>) {
         self.last_sync_at = ts;
+    }
+
+    pub fn export_sync_cursor(&self) -> SyncCursor {
+        let mut last_known_keys = HashMap::new();
+        for (dt, key) in &self.last_known_key {
+            last_known_keys.insert(dt.path().to_string(), key.clone());
+        }
+        let mut last_compaction_at = HashMap::new();
+        for (dt, ts) in &self.last_compaction_at {
+            last_compaction_at.insert(dt.path().to_string(), ts.to_rfc3339());
+        }
+        SyncCursor {
+            last_known_keys,
+            known_signal_keys: self.known_signal_keys.iter().cloned().collect(),
+            last_compaction_at,
+        }
     }
 
     // -----------------------------------------------------------------------
