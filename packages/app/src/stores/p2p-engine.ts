@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
+import { useTeamModeStore } from './team-mode'
 
 // Types must match Rust backend's EngineSnapshot exactly
 export type PeerConnection = 'active' | 'stale' | 'lost' | 'unknown'
@@ -87,3 +88,11 @@ export const useP2pEngineStore = create<P2pEngineState>((set, get) => ({
     }
   },
 }))
+
+// Sync p2pConnected to team-mode store so existing consumers keep working
+useP2pEngineStore.subscribe((state) => {
+  const connected = state.snapshot.status === 'connected'
+  if (useTeamModeStore.getState().p2pConnected !== connected) {
+    useTeamModeStore.setState({ p2pConnected: connected })
+  }
+})
