@@ -23,6 +23,7 @@ import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { toast } from 'sonner'
 import { buildConfig, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
+import { useP2pEngineStore } from '@/stores/p2p-engine'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
@@ -142,6 +143,7 @@ function TeamApiKeyCard() {
 export function TeamP2PConfig() {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const engineSnapshot = useP2pEngineStore((s) => s.snapshot)
 
   const teamMembersStore = useTeamMembersStore()
 
@@ -195,7 +197,7 @@ export function TeamP2PConfig() {
 
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
-  const isConnected = syncStatus?.connected ?? false
+  const isConnected = engineSnapshot.status === 'connected'
   const docTicket = syncStatus?.docTicket ?? null
 
   // Load device info, sync status, and reconnect on mount
@@ -206,7 +208,6 @@ export function TeamP2PConfig() {
       setSyncStatus(status)
       useTeamModeStore.setState({
         myRole: (status?.role as 'owner' | 'editor' | 'viewer') ?? null,
-        p2pConnected: status?.connected ?? false,
       })
     } catch {
       // may not be available
