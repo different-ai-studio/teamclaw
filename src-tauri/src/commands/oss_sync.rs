@@ -476,6 +476,74 @@ impl OssSyncManager {
     }
 
     // -----------------------------------------------------------------------
+    // Signal Flag Operations
+    // -----------------------------------------------------------------------
+
+    /// Write a 0-byte signal flag to S3 to notify other nodes of changes.
+    async fn write_signal_flag(&self) -> Result<(), String> {
+        let timestamp_ms = Utc::now().timestamp_millis();
+        let key = format!(
+            "teams/{}/signal/{}/{}.flag",
+            self.team_id, self.node_id, timestamp_ms
+        );
+        self.s3_put(&key, &[]).await?;
+        info!("Wrote signal flag: {key}");
+        Ok(())
+    }
+
+    /// Check for new signal flags from other nodes.
+    /// Returns `true` if there are new flags (meaning remote changes exist).
+    async fn check_signal_flags(&mut self) -> Result<bool, String> {
+        let prefix = format!("teams/{}/signal/", self.team_id);
+        let all_flags = self.s3_list(&prefix).await?;
+
+        let mut has_new = false;
+        for flag in &all_flags {
+            let own_prefix = format!("teams/{}/signal/{}/", self.team_id, self.node_id);
+            if flag.starts_with(&own_prefix) {
+                continue;
+            }
+            if !self.known_signal_keys.contains(flag) {
+                has_new = true;
+                self.known_signal_keys.insert(flag.clone());
+            }
+        }
+
+        Ok(has_new)
+    }
+
+    /// Delete signal flags older than 1 hour.
+    async fn cleanup_expired_signal_flags(&self) -> Result<u32, String> {
+        let prefix = format!("teams/{}/signal/", self.team_id);
+        let flags = self.s3_list(&prefix).await?;
+        let one_hour_ago_ms = Utc::now().timestamp_millis() - 3_600_000;
+
+        let mut deleted = 0u32;
+        for key in &flags {
+            if let Some(ts) = Self::extract_timestamp_from_flag_key(key) {
+                if ts < one_hour_ago_ms {
+                    self.s3_delete(key).await?;
+                    deleted += 1;
+                }
+            }
+        }
+
+        if deleted > 0 {
+            info!("Cleaned up {deleted} expired signal flags");
+        }
+        Ok(deleted)
+    }
+
+    /// Extract timestamp_ms from a signal flag key.
+    /// Key format: `teams/{team_id}/signal/{node_id}/{timestamp_ms}.flag`
+    fn extract_timestamp_from_flag_key(key: &str) -> Option<i64> {
+        key.rsplit('/')
+            .next()
+            .and_then(|f| f.strip_suffix(".flag"))
+            .and_then(|s| s.parse().ok())
+    }
+
+    // -----------------------------------------------------------------------
     // Loro Document Operations
     // -----------------------------------------------------------------------
 
