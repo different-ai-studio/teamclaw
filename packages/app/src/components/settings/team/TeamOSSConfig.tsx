@@ -130,6 +130,7 @@ export function TeamOSSConfig() {
 
   const {
     connected,
+    restoring,
     syncing,
     syncStatus,
     teamInfo,
@@ -319,8 +320,18 @@ export function TeamOSSConfig() {
 
   return (
     <div className="space-y-4">
+      {/* State 0: Restoring connection */}
+      {!connected && restoring && (
+        <SettingCard title="连接中" icon={Cloud}>
+          <div className="flex items-center gap-3 py-4 justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">正在连接团队...</p>
+          </div>
+        </SettingCard>
+      )}
+
       {/* State 1: Disconnected — Create/Join forms */}
-      {!connected && (
+      {!connected && !restoring && (
         <>
           <SettingCard title="创建团队" icon={Users}>
             <div className="space-y-3">
@@ -488,6 +499,12 @@ export function TeamOSSConfig() {
                   <span className="font-medium">{isOwner ? '管理员' : '成员'}</span>
                 </div>
               </div>
+              {deviceInfo && (
+                <div className="pt-1">
+                  <label className="mb-1 block text-xs text-muted-foreground">我的设备 ID</label>
+                  <DeviceIdDisplay nodeId={deviceInfo.nodeId} />
+                </div>
+              )}
             </div>
           </SettingCard>
 

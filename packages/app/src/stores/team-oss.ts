@@ -75,6 +75,7 @@ interface TeamOssState {
   // State
   configured: boolean // local config exists (oss.enabled), true even when offline
   connected: boolean
+  restoring: boolean // true while oss_restore_sync is in progress on startup
   syncing: boolean
   syncStatus: SyncStatus | null
   teamInfo: OssTeamInfo | null
@@ -122,6 +123,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   // initial state
   configured: false,
   connected: false,
+  restoring: false,
   syncing: false,
   syncStatus: null,
   teamInfo: null,
@@ -167,16 +169,17 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
 
       const config = await invoke<OssTeamConfig | null>('oss_get_team_config', { workspacePath })
       if (config?.enabled) {
-        set({ configured: true })
+        set({ configured: true, restoring: true })
         try {
           const info = await invoke<OssTeamInfo>('oss_restore_sync', {
             workspacePath,
             teamId: config.teamId,
           })
-          set({ connected: true, teamInfo: info })
+          set({ connected: true, teamInfo: info, restoring: false })
         } catch (e) {
           // Offline or restore failed — still configured, just not connected
           console.warn('OSS restore failed (offline?):', e)
+          set({ restoring: false })
         }
       } else {
         // Check for pending application
@@ -345,6 +348,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       _unlisten: null,
       configured: false,
       connected: false,
+      restoring: false,
       syncing: false,
       syncStatus: null,
       teamInfo: null,

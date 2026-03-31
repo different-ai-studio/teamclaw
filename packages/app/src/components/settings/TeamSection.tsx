@@ -84,12 +84,17 @@ function SectionHeader({
 // ─── Hook: detect which sync method is active ───────────────────────────────
 
 function useActiveSyncMethod(): TeamTab | null {
+  const teamModeType = useTeamModeStore((s) => s.teamModeType)
   const ossConfigured = useTeamOssStore((s) => s.configured)
   const ossConnected = useTeamOssStore((s) => s.connected)
   const p2pConnected = useTeamModeStore((s) => s.p2pConnected)
   const p2pConfigured = useTeamModeStore((s) => s.p2pConfigured)
 
-  // Prefer connected state, fall back to configured state
+  // teamclaw.json is the authoritative source — use it during reconnect
+  if (teamModeType === 'p2p') return 'p2p'
+  if (teamModeType === 'oss') return 's3'
+
+  // Fall back to runtime connection/configured state
   if (p2pConnected) return 'p2p'
   if (ossConnected) return 's3'
   if (p2pConfigured) return 'p2p'

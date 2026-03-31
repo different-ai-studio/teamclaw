@@ -191,6 +191,7 @@ export function TeamP2PConfig() {
   const [joinApprovalPending, setJoinApprovalPending] = React.useState(false)
   const [confirmAction, setConfirmAction] = React.useState<'create' | 'join' | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState(false)
+  const [reconnecting, setReconnecting] = React.useState(true)
 
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
@@ -213,8 +214,12 @@ export function TeamP2PConfig() {
   }, [])
 
   React.useEffect(() => {
-    if (!isTauri()) return
+    if (!isTauri()) {
+      setReconnecting(false)
+      return
+    }
     let cancelled = false
+    setReconnecting(true)
     ;(async () => {
       // Retry loop: P2P node may still be initializing
       for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
@@ -228,7 +233,10 @@ export function TeamP2PConfig() {
           await new Promise((r) => setTimeout(r, 1500))
         }
       }
-      if (!cancelled) await loadSyncStatus()
+      if (!cancelled) {
+        await loadSyncStatus()
+        setReconnecting(false)
+      }
     })()
     return () => { cancelled = true }
   }, [loadSyncStatus])
@@ -627,6 +635,12 @@ export function TeamP2PConfig() {
                   {t('common.refresh', 'Refresh')}
                 </Button>
               </div>
+              {deviceInfo && (
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground mb-1.5">{t('settings.team.myDeviceId', 'My Device ID')}</p>
+                  <DeviceIdDisplay nodeId={deviceInfo.nodeId} />
+                </div>
+              )}
             </div>
           </SettingCard>
 
@@ -917,8 +931,18 @@ export function TeamP2PConfig() {
         </>
       )}
 
+      {/* ─── Reconnecting State ──────────────────────────────────────── */}
+      {!isConnected && reconnecting && (
+        <SettingCard>
+          <div className="flex items-center gap-3 py-4 justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">{t('settings.team.reconnecting', 'Connecting to team...')}</p>
+          </div>
+        </SettingCard>
+      )}
+
       {/* ─── Not Connected State ─────────────────────────────────────── */}
-      {!isConnected && (
+      {!isConnected && !reconnecting && (
         <>
           {/* Create Team */}
           <SettingCard>

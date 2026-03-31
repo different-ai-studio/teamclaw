@@ -28,6 +28,7 @@ export interface TeamModelConfig {
 
 interface TeamModeState {
   teamMode: boolean
+  teamModeType: string | null // "p2p" | "oss" | "webdav" | "git" — from teamclaw.json
   teamModelConfig: TeamModelConfig | null
   teamApiKey: string | null // user-overridden key, null = sk-tc-{nodeId[:40]} (FC add-member)
   _appliedConfigKey: string | null // fingerprint of last applied config to avoid redundant apply
@@ -77,6 +78,7 @@ function defaultTeamLiteLlmApiKey(nodeId: string): string {
 
 export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   teamMode: false,
+  teamModeType: null,
   teamModelConfig: null,
   _appliedConfigKey: null,
   devUnlocked: false,
@@ -102,7 +104,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     const isTeamMode = p2pActive || ossConfigured
 
     if (isTeamMode) {
-      set({ teamMode: true })
+      set({ teamMode: true, teamModeType: status?.mode ?? (ossConfigured ? 'oss' : null) })
       if (status?.llm) {
         const config: TeamModelConfig = {
           baseUrl: status.llm.baseUrl,
@@ -114,7 +116,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         set({ teamModelConfig: null })
       }
     } else {
-      set({ teamMode: false, teamModelConfig: null })
+      set({ teamMode: false, teamModeType: null, teamModelConfig: null })
     }
     // Load user's role and P2P connection status (non-critical)
     try {
@@ -276,7 +278,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     if (buildConfig.team.lockLlmConfig) return
 
     // Set state immediately to trigger UI updates
-    set({ teamMode: false, teamModelConfig: null, _appliedConfigKey: null, p2pFileSyncStatusMap: {} })
+    set({ teamMode: false, teamModeType: null, teamModelConfig: null, _appliedConfigKey: null, p2pFileSyncStatusMap: {} })
 
     try {
       localStorage.removeItem(TEAM_API_KEY_STORAGE)
