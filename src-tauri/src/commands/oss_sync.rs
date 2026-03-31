@@ -831,7 +831,7 @@ impl OssSyncManager {
     // Sync Operations
     // -----------------------------------------------------------------------
 
-    pub async fn upload_local_changes(&mut self, doc_type: DocType) -> Result<(), String> {
+    pub async fn upload_local_changes(&mut self, doc_type: DocType) -> Result<bool, String> {
         let dir = self.team_dir.join(doc_type.dir_name());
         let local_files = Self::scan_local_files(&dir)?;
         let changed = self.detect_local_changes(doc_type, &local_files);
@@ -859,7 +859,7 @@ impl OssSyncManager {
             }
 
             if !has_deletions {
-                return Ok(());
+                return Ok(false);
             }
         }
 
@@ -957,7 +957,7 @@ impl OssSyncManager {
             updates.len()
         );
 
-        Ok(())
+        Ok(true)
     }
 
     pub async fn pull_remote_changes(&mut self, doc_type: DocType) -> Result<(), String> {
