@@ -170,6 +170,41 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const activeSession = useSessionStore(s =>
     s.activeSessionId ? s.sessions.find((ss) => ss.id === s.activeSessionId) : undefined
   );
+  /** Shown messages lag store during fade so old session can fade out before swap */
+  const [displaySessionId, setDisplaySessionId] = React.useState<string | null>(activeSessionId);
+  const [sessionFadeOpacity, setSessionFadeOpacity] = React.useState(1);
+
+  const displaySession = useSessionStore((s) =>
+    displaySessionId ? s.sessions.find((ss) => ss.id === displaySessionId) : undefined,
+  );
+
+  const SESSION_FADE_MS = 150;
+
+  React.useEffect(() => {
+    if (activeSessionId === null) {
+      setDisplaySessionId(null);
+      setSessionFadeOpacity(1);
+    }
+  }, [activeSessionId]);
+
+  React.useEffect(() => {
+    if (activeSessionId === null) return;
+    if (displaySessionId === activeSessionId) return;
+    if (displaySessionId === null) {
+      setDisplaySessionId(activeSessionId);
+      setSessionFadeOpacity(1);
+      return;
+    }
+    setSessionFadeOpacity(0);
+    const t = window.setTimeout(() => {
+      setDisplaySessionId(activeSessionId);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setSessionFadeOpacity(1));
+      });
+    }, SESSION_FADE_MS);
+    return () => clearTimeout(t);
+  }, [activeSessionId, displaySessionId]);
+
   const isStreaming = !!streamingMessageId;
 
   // ── Provider & Team mode init ──────────────────────────────────────
@@ -656,16 +691,24 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         </div>
       )}
 
-      {/* ─── Message List ─────────────────────────────────────────────── */}
-      <MessageList
-        ref={messageListRef}
-        messages={activeSession?.messages ?? []}
-        activeSessionId={activeSessionId}
-        isStreaming={isStreaming}
-        streamingMessageId={streamingMessageId}
-        compact={compact}
-        emptyState={emptyState}
-      />
+      {/* ─── Message List (fade on session switch; input stays stable) ─── */}
+      <div
+        className={cn(
+          "flex-1 min-h-0 flex flex-col overflow-hidden",
+          "transition-opacity duration-150 ease-in-out motion-reduce:transition-none",
+        )}
+        style={{ opacity: sessionFadeOpacity }}
+      >
+        <MessageList
+          ref={messageListRef}
+          messages={displaySession?.messages ?? []}
+          activeSessionId={displaySessionId}
+          isStreaming={isStreaming}
+          streamingMessageId={streamingMessageId}
+          compact={compact}
+          emptyState={emptyState}
+        />
+      </div>
 
       {/* ─── Input Area (with Permission & Error UI above it) ─────────── */}
       <ChatInputArea

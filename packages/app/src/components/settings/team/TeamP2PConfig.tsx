@@ -460,10 +460,10 @@ export function TeamP2PConfig() {
   }, [syncStatus?.seedUrl, syncStatus?.namespaceId, syncStatus?.teamSecret])
 
   React.useEffect(() => {
-    if (isOwner && syncStatus?.seedUrl && syncStatus?.namespaceId && syncStatus?.teamSecret) {
+    if (syncStatus?.seedUrl && syncStatus?.namespaceId && syncStatus?.teamSecret) {
       fetchApplications()
     }
-  }, [isOwner, syncStatus?.seedUrl, syncStatus?.namespaceId, syncStatus?.teamSecret, fetchApplications])
+  }, [syncStatus?.seedUrl, syncStatus?.namespaceId, syncStatus?.teamSecret, fetchApplications])
 
   // Listen for team events emitted by the Rust backend
   React.useEffect(() => {
@@ -630,8 +630,8 @@ export function TeamP2PConfig() {
             </div>
           </SettingCard>
 
-          {/* Share Info Card (Owner) */}
-          {isOwner && (syncStatus?.namespaceId || docTicket) && (
+          {/* Share Info Card (all members can generate tickets) */}
+          {(syncStatus?.namespaceId || docTicket) && (
             <SettingCard>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -685,22 +685,24 @@ export function TeamP2PConfig() {
                   )}
                 </div>
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1 text-xs text-muted-foreground"
-                  disabled={rotateLoading}
-                  onClick={handleRotateTicket}
-                >
-                  {rotateLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                  {t('settings.team.regenerateTicket', 'Regenerate Ticket')}
-                </Button>
+                {isOwner && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 text-xs text-muted-foreground"
+                    disabled={rotateLoading}
+                    onClick={handleRotateTicket}
+                  >
+                    {rotateLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    {t('settings.team.regenerateTicket', 'Regenerate Ticket')}
+                  </Button>
+                )}
               </div>
             </SettingCard>
           )}
 
-          {/* Pending Applications (Owner, when seed connected) */}
-          {isOwner && syncStatus?.seedUrl && (
+          {/* Pending Applications (all members can approve) */}
+          {syncStatus?.seedUrl && (
             <SettingCard>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">

@@ -994,8 +994,13 @@ export function FileTree({
         }
         const tab = state.tabs.find(t => t.id === state.activeTabId);
         if (tab?.type === 'file' && tab.target) {
+          // Only reveal if the file was opened from outside the tree (e.g. tab click, chat link).
+          // If selectedFile already matches, the user clicked in the tree — no need to reveal.
+          const alreadySelected = useWorkspaceStore.getState().selectedFile === tab.target;
           useWorkspaceStore.setState({ selectedFile: tab.target, selectedFiles: [tab.target] });
-          revealFile(tab.target).catch(() => {});
+          if (!alreadySelected) {
+            revealFile(tab.target).catch(() => {});
+          }
         }
       });
     });
