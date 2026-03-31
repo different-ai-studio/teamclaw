@@ -113,8 +113,6 @@ export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
   const isHealthy = status === "connected" && streamHealth === "healthy"
   const isDegraded = status === "connected" && streamHealth !== "healthy"
   const isReconnecting = status === "reconnecting"
-  const isDisconnected = status === "disconnected"
-
   const statusDotColor = isHealthy
     ? "bg-emerald-500"
     : isDegraded || isReconnecting
