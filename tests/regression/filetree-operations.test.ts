@@ -105,7 +105,26 @@ describe('Regression: FileTree browser operations', () => {
       await focusWindow();
       await sleep(500);
 
-      // Switch to file mode via Cmd+\ — try up to 3 times
+      // Enable advancedMode by writing .teamclaw/teamclaw.json config
+      // Then reload so the app picks it up and Cmd+\ works
+      await executeJs(`
+        (async () => {
+          const wsPath = localStorage.getItem('teamclaw-workspace-path');
+          if (!wsPath) return;
+          const { join } = await import('@tauri-apps/api/path');
+          const { writeTextFile, mkdir, exists } = await import('@tauri-apps/plugin-fs');
+          const dir = await join(wsPath, '.teamclaw');
+          if (!(await exists(dir))) await mkdir(dir, { recursive: true });
+          const configPath = await join(dir, 'teamclaw.json');
+          await writeTextFile(configPath, JSON.stringify({ advancedMode: true }, null, 2));
+          location.reload();
+        })()
+      `);
+      await sleep(5000);
+      await focusWindow();
+      await sleep(1000);
+
+      // Now switch to file mode via Cmd+\ (advancedMode should be loaded)
       for (let attempt = 0; attempt < 3; attempt++) {
         await sendKeys('\\', ['meta']);
         await sleep(1500);
