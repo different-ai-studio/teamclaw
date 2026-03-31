@@ -265,15 +265,20 @@ fn show_and_activate(win: &tauri::WebviewWindow) {
 /// Emit spotlight-opened event with clipboard text (if any).
 fn emit_spotlight_opened(app: &AppHandle) {
     let _ = app.emit("spotlight-mode-changed", true);
-    // Read clipboard and send to frontend for auto-paste into input
-    if let Ok(mut clipboard) = arboard::Clipboard::new() {
-        if let Ok(text) = clipboard.get_text() {
-            let trimmed = text.trim().to_string();
-            if !trimmed.is_empty() {
-                let _ = app.emit("spotlight-clipboard", trimmed);
+    // Read clipboard in a background thread to avoid blocking the main thread.
+    // On macOS the pasteboard server can be slow or held by another app, which
+    // would cause a main-thread hang if called synchronously here.
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            if let Ok(text) = clipboard.get_text() {
+                let trimmed = text.trim().to_string();
+                if !trimmed.is_empty() {
+                    let _ = app_clone.emit("spotlight-clipboard", trimmed);
+                }
             }
         }
-    }
+    });
 }
 
 // --- Commands ---
