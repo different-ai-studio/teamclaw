@@ -413,6 +413,52 @@ impl OssSyncManager {
         Ok(keys)
     }
 
+    /// Like `s3_list`, but only returns keys lexicographically after `start_after`.
+    /// If `start_after` is None, behaves identically to `s3_list`.
+    async fn s3_list_after(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        let client = self.client()?;
+        let bucket = self.bucket()?;
+
+        let mut keys: Vec<String> = Vec::new();
+        let mut continuation_token: Option<String> = None;
+
+        loop {
+            let mut req = client.list_objects_v2().bucket(bucket).prefix(prefix);
+
+            if let Some(after) = start_after {
+                req = req.start_after(after);
+            }
+
+            if let Some(token) = &continuation_token {
+                req = req.continuation_token(token);
+            }
+
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| format!("S3 LIST {prefix} failed: {e}"))?;
+
+            for obj in resp.contents() {
+                if let Some(key) = obj.key() {
+                    keys.push(key.to_string());
+                }
+            }
+
+            if resp.is_truncated() == Some(true) {
+                continuation_token = resp.next_continuation_token().map(|s| s.to_string());
+            } else {
+                break;
+            }
+        }
+
+        keys.sort();
+        Ok(keys)
+    }
+
     pub async fn s3_delete(&self, key: &str) -> Result<(), String> {
         let client = self.client()?;
         let bucket = self.bucket()?;
@@ -962,14 +1008,8 @@ impl OssSyncManager {
 
     pub async fn pull_remote_changes(&mut self, doc_type: DocType) -> Result<(), String> {
         let prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
-        let all_keys = self.s3_list(&prefix).await?;
-
-        let known = self.known_files.get(&doc_type).cloned().unwrap_or_default();
-
-        let new_keys: Vec<String> = all_keys
-            .into_iter()
-            .filter(|k| !known.contains(k))
-            .collect();
+        let start_after = self.last_known_key.get(&doc_type).map(|s| s.as_str());
+        let new_keys = self.s3_list_after(&prefix, start_after).await?;
 
         if new_keys.is_empty() {
             return Ok(());
@@ -988,10 +1028,15 @@ impl OssSyncManager {
                 .map_err(|e| format!("Failed to import update {key}: {e}"))?;
         }
 
-        // Add to known files
+        // Update cursor to the last processed key
+        if let Some(last) = new_keys.last() {
+            self.last_known_key.insert(doc_type, last.clone());
+        }
+
+        // Also maintain known_files for backward compat (get_sync_status uses it)
         let known_set = self.known_files.entry(doc_type).or_default();
-        for key in new_keys {
-            known_set.insert(key);
+        for key in &new_keys {
+            known_set.insert(key.clone());
         }
 
         // Write changes to disk
