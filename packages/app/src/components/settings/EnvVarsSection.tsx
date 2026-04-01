@@ -17,7 +17,6 @@ import { SettingCard, SectionHeader } from './shared'
 import { useEnvVarsStore, type EnvVarEntry } from '@/stores/env-vars'
 import { useSharedSecretsStore, type SecretMeta } from '@/stores/shared-secrets'
 import { useTeamMembersStore } from '@/stores/team-members'
-import { useTeamModeStore } from '@/stores/team-mode'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { initOpenCodeClient } from '@/lib/opencode/client'
 import { listen } from '@tauri-apps/api/event'
@@ -471,8 +470,6 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       initOpenCodeClient({ baseUrl: status.url })
       setHasChanges(false)
       setDirtyKeys(new Set())
-      // Re-authenticate team provider after sidecar restart
-      await useTeamModeStore.getState().reAuthTeamProvider()
     } catch (err) {
       console.error('Failed to restart OpenCode:', err)
       setRestartError(err instanceof Error ? err.message : String(err))
