@@ -1,8 +1,9 @@
 import * as React from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
-import { useP2pEngineStore, PeerInfo, PeerConnection } from "@/stores/p2p-engine"
-import { cn } from "@/lib/utils"
+import { useP2pEngineStore, type PeerConnection } from "@/stores/p2p-engine"
+import { useTeamMembersStore } from "@/stores/team-members"
+import { cn, isTauri } from "@/lib/utils"
 
 // ─── Helper functions ────────────────────────────────────────────────────────
 
@@ -23,18 +24,18 @@ function connectionDot(connection: PeerConnection): string {
 function connectionLabel(connection: PeerConnection, lastSeenSecsAgo: number): string {
   switch (connection) {
     case "active":
-      return "Active"
+      return "Online"
     case "stale": {
       if (lastSeenSecsAgo < 60) return `Stale ${lastSeenSecsAgo}s`
       const mins = Math.floor(lastSeenSecsAgo / 60)
       return `Stale ${mins}m`
     }
     case "lost": {
-      if (lastSeenSecsAgo < 60) return `Lost ${lastSeenSecsAgo}s`
+      if (lastSeenSecsAgo < 60) return `Offline ${lastSeenSecsAgo}s`
       const mins = Math.floor(lastSeenSecsAgo / 60)
-      if (mins < 60) return `Lost ${mins}m`
+      if (mins < 60) return `Offline ${mins}m`
       const hrs = Math.floor(mins / 60)
-      return `Lost ${hrs}h`
+      return `Offline ${hrs}h`
     }
     case "unknown":
     default:
@@ -64,32 +65,37 @@ function StatusDot({ className }: { className: string }) {
   )
 }
 
-function PeerRow({ peer }: { peer: PeerInfo }) {
-  const displayName = peer.name || peer.nodeId.slice(0, 8) + "…"
-  const dotColor = connectionDot(peer.connection)
-  const label = connectionLabel(peer.connection, peer.lastSeenSecsAgo)
+interface MemberRowProps {
+  name: string
+  role: string
+  isLocal: boolean
+  connection: PeerConnection
+  lastSeenSecsAgo: number
+}
+
+function MemberRow({ name, role, isLocal, connection, lastSeenSecsAgo }: MemberRowProps) {
+  const dotColor = isLocal ? "bg-blue-500" : connectionDot(connection)
+  const label = isLocal ? "This device" : connectionLabel(connection, lastSeenSecsAgo)
+  const labelColor = isLocal
+    ? "text-blue-500"
+    : connection === "active"
+    ? "text-emerald-500"
+    : connection === "stale"
+    ? "text-amber-500"
+    : connection === "lost"
+    ? "text-red-500"
+    : "text-muted-foreground"
 
   return (
     <div className="flex items-center gap-2 py-0.5">
       <StatusDot className={dotColor} />
       <span className="flex-1 min-w-0 truncate text-xs text-foreground">
-        {displayName}
+        {name}
       </span>
       <span className="shrink-0 text-[10px] text-muted-foreground capitalize">
-        {peer.role}
+        {role}
       </span>
-      <span
-        className={cn(
-          "shrink-0 text-[10px]",
-          peer.connection === "active"
-            ? "text-emerald-500"
-            : peer.connection === "stale"
-            ? "text-amber-500"
-            : peer.connection === "lost"
-            ? "text-red-500"
-            : "text-muted-foreground"
-        )}
-      >
+      <span className={cn("shrink-0 text-[10px]", labelColor)}>
         {label}
       </span>
     </div>
@@ -101,9 +107,38 @@ function PeerRow({ peer }: { peer: PeerInfo }) {
 export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
   const snapshot = useP2pEngineStore((s) => s.snapshot)
   const fetchSnapshot = useP2pEngineStore((s) => s.fetch)
+  const members = useTeamMembersStore((s) => s.members)
+  const [open, setOpen] = React.useState(false)
+  const [currentNodeId, setCurrentNodeId] = React.useState<string | null>(null)
+  const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleMouseEnter = () => {
+  React.useEffect(() => {
+    if (!isTauri()) return
+    let cancelled = false
+    import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke<{ nodeId: string }>("get_device_info")
+        .then((info) => { if (!cancelled) setCurrentNodeId(info.nodeId) })
+        .catch(() => {})
+    )
+    return () => { cancelled = true }
+  }, [])
+
+  const cancelClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }
+
+  const scheduleClose = () => {
+    cancelClose()
+    closeTimer.current = setTimeout(() => setOpen(false), 200)
+  }
+
+  const handleTriggerEnter = () => {
+    cancelClose()
     void fetchSnapshot()
+    setOpen(true)
   }
 
   // Derive display status
@@ -129,18 +164,63 @@ export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
 
   const showEngineInfo = !isHealthy && streamHealth !== "healthy"
 
+  const memberRows = React.useMemo(() => {
+    if (members.length > 0) {
+      return members.map((m) => {
+        const isLocal = m.nodeId === currentNodeId
+        const peer = peers.find((p) => p.nodeId === m.nodeId)
+        return {
+          key: m.nodeId,
+          name: m.name || m.hostname || m.nodeId.slice(0, 8) + "…",
+          role: m.role || "editor",
+          isLocal,
+          connection: (peer?.connection ?? "unknown") as PeerConnection,
+          lastSeenSecsAgo: peer?.lastSeenSecsAgo ?? 0,
+        }
+      })
+    }
+
+    return peers.map((peer) => ({
+      key: peer.nodeId,
+      name: peer.name || peer.nodeId.slice(0, 8) + "…",
+      role: peer.role,
+      isLocal: peer.nodeId === currentNodeId,
+      connection: peer.connection,
+      lastSeenSecsAgo: peer.lastSeenSecsAgo,
+    }))
+  }, [members, peers, currentNodeId])
+
+  const sortedRows = React.useMemo(() => {
+    const roleOrder: Record<string, number> = { owner: 0, editor: 1, viewer: 2 }
+    return [...memberRows].sort((a, b) => {
+      if (a.isLocal !== b.isLocal) return a.isLocal ? -1 : 1
+      const ra = roleOrder[a.role] ?? 3
+      const rb = roleOrder[b.role] ?? 3
+      if (ra !== rb) return ra - rb
+      return a.name.localeCompare(b.name)
+    })
+  }, [memberRows])
+
   return (
-    <Popover>
-      <PopoverTrigger asChild onMouseEnter={handleMouseEnter}>
-        {/* Wrap children so we get onMouseEnter on the trigger */}
-        <span className="contents">{children}</span>
+    <Popover open={open} onOpenChange={() => {}}>
+      <PopoverTrigger asChild>
+        <span
+          className="inline-flex"
+          onMouseEnter={handleTriggerEnter}
+          onMouseLeave={scheduleClose}
+        >
+          {children}
+        </span>
       </PopoverTrigger>
       <PopoverContent
-        side="top"
-        align="start"
+        side="right"
+        align="end"
         sideOffset={8}
         className="w-72 p-3 bg-card text-card-foreground"
-        onMouseEnter={handleMouseEnter}
+        onMouseEnter={cancelClose}
+        onMouseLeave={scheduleClose}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
       >
         {/* ── Header ── */}
         <div className="flex items-center gap-2 mb-2">
@@ -184,16 +264,23 @@ export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* ── Peers ── */}
-        {peers.length > 0 && (
+        {/* ── Members ── */}
+        {sortedRows.length > 0 && (
           <>
             <Separator className="my-2" />
             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
-              Team Members ({peers.length})
+              Team Members ({sortedRows.length})
             </p>
             <div className="space-y-0.5">
-              {peers.map((peer) => (
-                <PeerRow key={peer.nodeId} peer={peer} />
+              {sortedRows.map((row) => (
+                <MemberRow
+                  key={row.key}
+                  name={row.name}
+                  role={row.role}
+                  isLocal={row.isLocal}
+                  connection={row.connection}
+                  lastSeenSecsAgo={row.lastSeenSecsAgo}
+                />
               ))}
             </div>
           </>

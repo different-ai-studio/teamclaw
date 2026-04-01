@@ -465,6 +465,7 @@ pub async fn create_team(
     owner_name: Option<String>,
     owner_email: Option<String>,
     app_handle: Option<tauri::AppHandle>,
+    engine: SyncEngineState,
 ) -> Result<String, String> {
     scaffold_team_dir(team_dir)?;
 
@@ -566,7 +567,7 @@ pub async fn create_team(
         None,           // seed_endpoint resolved later on reconnect
         HashMap::new(), // no cached peers yet for new team
         Some(workspace_path.to_string()),
-        Arc::new(Mutex::new(SyncEngine::new())),
+        engine,
     );
 
     node.active_doc = Some(doc);
@@ -595,6 +596,7 @@ pub async fn join_team_drive(
     team_dir: &str,
     workspace_path: &str,
     app_handle: Option<tauri::AppHandle>,
+    engine: SyncEngineState,
 ) -> Result<String, String> {
     use std::str::FromStr;
 
@@ -734,7 +736,7 @@ pub async fn join_team_drive(
         seed_ep,
         HashMap::new(), // no cached peers yet for new joiner
         Some(workspace_path.to_string()),
-        Arc::new(Mutex::new(SyncEngine::new())),
+        engine,
     );
 
     node.active_doc = Some(doc);
@@ -999,6 +1001,7 @@ pub async fn rotate_namespace(
     node: &mut IrohNode,
     team_dir: &str,
     workspace_path: &str,
+    engine: SyncEngineState,
 ) -> Result<String, String> {
     // Close existing doc
     if let Some(old_doc) = node.active_doc.take() {
@@ -1017,6 +1020,7 @@ pub async fn rotate_namespace(
         None,
         None,
         None,
+        engine,
     )
     .await
 }
@@ -2899,6 +2903,7 @@ pub async fn p2p_create_team(
     owner_name: Option<String>,
     owner_email: Option<String>,
     iroh_state: tauri::State<'_, IrohState>,
+    engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
@@ -2924,6 +2929,7 @@ pub async fn p2p_create_team(
         owner_name,
         owner_email,
         Some(app),
+        engine_state.inner().clone(),
     )
     .await
 }
@@ -2931,6 +2937,7 @@ pub async fn p2p_create_team(
 #[tauri::command]
 pub async fn p2p_publish_drive(
     iroh_state: tauri::State<'_, IrohState>,
+    engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
@@ -2959,6 +2966,7 @@ pub async fn p2p_publish_drive(
             None,
             None,
             None,
+            engine_state.inner().clone(),
         )
         .await;
     }
@@ -2981,6 +2989,7 @@ pub async fn p2p_join_drive(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
     iroh_state: tauri::State<'_, IrohState>,
+    engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
@@ -2995,7 +3004,15 @@ pub async fn p2p_join_drive(
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
     let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
-    let result = join_team_drive(node, &ticket, &team_dir, &workspace_path, Some(app)).await?;
+    let result = join_team_drive(
+        node,
+        &ticket,
+        &team_dir,
+        &workspace_path,
+        Some(app),
+        engine_state.inner().clone(),
+    )
+    .await?;
 
     // Write LLM config to .teamclaw/teamclaw.json (same as oss_join_team and create_team)
     let llm_config =
@@ -3010,6 +3027,7 @@ pub async fn p2p_join_drive(
 pub async fn p2p_reconnect(
     app: tauri::AppHandle,
     iroh_state: tauri::State<'_, IrohState>,
+    engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = opencode_state
@@ -3114,7 +3132,7 @@ pub async fn p2p_reconnect(
         seed_ep,
         config.cached_peer_addrs.clone(),
         Some(workspace_path.clone()),
-        Arc::new(Mutex::new(SyncEngine::new())),
+        engine_state.inner().clone(),
     );
 
     node.active_doc = Some(doc);
@@ -3126,6 +3144,7 @@ pub async fn p2p_reconnect(
 #[tauri::command]
 pub async fn p2p_rotate_ticket(
     iroh_state: tauri::State<'_, IrohState>,
+    engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = opencode_state
@@ -3140,7 +3159,7 @@ pub async fn p2p_rotate_ticket(
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
     let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
-    rotate_namespace(node, &team_dir, &workspace_path).await
+    rotate_namespace(node, &team_dir, &workspace_path, engine_state.inner().clone()).await
 }
 
 #[tauri::command]
@@ -3564,6 +3583,7 @@ mod tests {
             team_dir.to_str().unwrap(),
             tmp.path().to_str().unwrap(),
             None,
+            Arc::new(Mutex::new(SyncEngine::new())),
         )
         .await;
         assert!(result.is_err(), "should fail with invalid ticket");
@@ -3599,6 +3619,7 @@ mod tests {
             None,
             None,
             None,
+            Arc::new(Mutex::new(SyncEngine::new())),
         )
         .await
         .unwrap();
@@ -4179,6 +4200,7 @@ mod tests {
             None,
             None,
             None,
+            Arc::new(Mutex::new(SyncEngine::new())),
         )
         .await
         .unwrap();

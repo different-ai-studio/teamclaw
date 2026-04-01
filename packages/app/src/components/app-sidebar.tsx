@@ -329,6 +329,7 @@ function WorkspaceSelectorButton() {
   const teamModeP2pConnected = useTeamModeStore(s => s.p2pConnected)
   const ossConfigured = useTeamOssStore(s => s.configured)
   const ossConnected = useTeamOssStore(s => s.connected)
+  const engineInitialized = useP2pEngineStore(s => s.initialized)
   const engineStatus = useP2pEngineStore(s => s.snapshot.status)
   const engineStreamHealth = useP2pEngineStore(s => s.snapshot.streamHealth)
   const engineInit = useP2pEngineStore(s => s.init)
@@ -342,9 +343,14 @@ function WorkspaceSelectorButton() {
     return () => { cleanup?.() }
   }, [teamMode, engineInit])
 
-  // Use engine store status with fallback to team-mode store
-  // (useP2pAutoReconnect updates team-mode store immediately, engine store may init later)
-  const p2pConnected = engineStatus === 'connected' || teamModeP2pConnected
+  // Prefer the engine snapshot for connection truth. Keep a narrow fallback to the
+  // mirrored team-mode flag only before the engine store finishes initialization.
+  const p2pConnected = engineStatus === 'connected' || (!engineInitialized && teamModeP2pConnected)
+  const p2pStatusTone = p2pConnected
+    ? engineStatus === 'connected' && engineStreamHealth !== 'healthy'
+      ? 'degraded'
+      : 'connected'
+    : 'disconnected'
 
   const handleOpenFolder = async () => {
     if (!isTauri()) {
@@ -388,12 +394,12 @@ function WorkspaceSelectorButton() {
       ) : teamMode && workspaceName ? (
         <Users className={cn(
           "h-4 w-4 shrink-0",
-          p2pConnected && engineStreamHealth === 'healthy'
+          p2pStatusTone === 'connected'
             ? "text-blue-500"
-            : p2pConnected
+            : p2pStatusTone === 'degraded'
               ? "text-amber-500"
               : "text-muted-foreground"
-        )} />
+        )} data-testid="workspace-p2p-icon" data-p2p-status={p2pStatusTone} />
       ) : (
         <FolderOpen className="h-4 w-4 shrink-0" />
       )}

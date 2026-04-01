@@ -313,9 +313,9 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       }
       const providers = data.providers || []
       console.warn('[LLM connect] Provider not in config list after setAuth (may be valid for some providers).', { providerId, providerIds: providers.map((p: { id?: string; name?: string }) => p.id || p.name) })
-      if (providerId !== ‘team’) {
-        toast.success(‘Provider connected’, {
-          description: ‘If no models appear, select the model in chat or check the provider\’s custom model ID.’,
+      if (providerId !== 'team') {
+        toast.success('Provider connected', {
+          description: "If no models appear, select the model in chat or check the provider's custom model ID.",
         })
       }
       set((state) => {
