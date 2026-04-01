@@ -144,6 +144,7 @@ export function TeamP2PConfig() {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const engineSnapshot = useP2pEngineStore((s) => s.snapshot)
+  const engineInit = useP2pEngineStore((s) => s.init)
 
   const teamMembersStore = useTeamMembersStore()
 
@@ -197,7 +198,7 @@ export function TeamP2PConfig() {
 
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
-  const isConnected = engineSnapshot.status === 'connected'
+  const isConnected = engineSnapshot.status === 'connected' || (syncStatus?.connected ?? false)
   const docTicket = syncStatus?.docTicket ?? null
 
   // Load device info, sync status, and reconnect on mount
@@ -236,6 +237,7 @@ export function TeamP2PConfig() {
       }
       if (!cancelled) {
         await loadSyncStatus()
+        await engineInit()
         setReconnecting(false)
       }
     })()
