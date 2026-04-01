@@ -108,19 +108,14 @@ export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
   const snapshot = useP2pEngineStore((s) => s.snapshot)
   const fetchSnapshot = useP2pEngineStore((s) => s.fetch)
   const members = useTeamMembersStore((s) => s.members)
+  const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
+  const loadCurrentNodeId = useTeamMembersStore((s) => s.loadCurrentNodeId)
   const [open, setOpen] = React.useState(false)
-  const [currentNodeId, setCurrentNodeId] = React.useState<string | null>(null)
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   React.useEffect(() => {
     if (!isTauri()) return
-    let cancelled = false
-    import("@tauri-apps/api/core").then(({ invoke }) =>
-      invoke<{ nodeId: string }>("get_device_info")
-        .then((info) => { if (!cancelled) setCurrentNodeId(info.nodeId) })
-        .catch(() => {})
-    )
-    return () => { cancelled = true }
+    loadCurrentNodeId()
   }, [])
 
   const cancelClose = () => {

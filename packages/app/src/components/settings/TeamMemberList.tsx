@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { UserMinus, Shield, Pencil, Eye, UserPlus, Clock, UserCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTeamMembersStore } from '../../stores/team-members'
 import { AddMemberInput } from './AddMemberInput'
 import { useP2pEngineStore, type PeerConnection } from '@/stores/p2p-engine'
 import { cn } from '@/lib/utils'
-import { invoke } from '@tauri-apps/api/core'
 
 function truncateId(id: string): string {
   if (id.length <= 16) return id
@@ -85,26 +84,18 @@ export function TeamMemberList() {
     approveApplication,
     listenForApplications,
     cleanupApplicationsListener,
+    currentNodeId,
+    loadCurrentNodeId,
   } = useTeamMembersStore()
 
   const enginePeers = useP2pEngineStore((s) => s.snapshot.peers)
-  const [currentNodeId, setCurrentNodeId] = useState<string | null>(null)
 
   useEffect(() => {
     loadMembers()
     loadMyRole()
+    loadCurrentNodeId()
     listenForApplications()
     return () => cleanupApplicationsListener()
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    invoke<{ nodeId: string }>('get_device_info')
-      .then((info) => {
-        if (!cancelled) setCurrentNodeId(info.nodeId)
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
   }, [])
 
   const isManager = canManageMembers()
