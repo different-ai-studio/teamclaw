@@ -3,8 +3,9 @@
 
 [target.aarch64-apple-darwin]
 # Use Apple's faster linker on Apple Silicon Macs
-# -L /usr/local/lib: so linker finds libvosk.dylib (tauri-plugin-stt / Vosk)
-rustflags = ["-L", "/usr/local/lib", "-C", "link-arg=-Wl,-dead_strip"]
+# Pass -L /usr/local/lib only to the final linker (not to rustc's rlib bundling step),
+# so the x86_64 Homebrew libzstd.a at /usr/local/lib doesn't shadow the bundled arm64 one.
+rustflags = ["-C", "link-arg=-L/usr/local/lib", "-C", "link-arg=-Wl,-dead_strip"]
 
 [target.x86_64-apple-darwin]
 # -L /usr/local/lib: so linker finds libvosk.dylib (tauri-plugin-stt / Vosk)
