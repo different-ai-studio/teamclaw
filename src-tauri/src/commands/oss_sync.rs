@@ -689,6 +689,16 @@ impl OssSyncManager {
                     let rel_str = rel.to_string_lossy().to_string();
                     let content = std::fs::read(&path)
                         .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+                    // Skip binary files — CRDT stores content as UTF-8 strings,
+                    // and from_utf8_lossy would corrupt binary data and cause
+                    // infinite re-upload (hash mismatch every cycle).
+                    if std::str::from_utf8(&content).is_err() {
+                        tracing::warn!(
+                            "Skipping non-UTF-8 file: {}",
+                            path.display()
+                        );
+                        continue;
+                    }
                     result.insert(rel_str, content);
                 }
             }
@@ -758,6 +768,13 @@ impl OssSyncManager {
                         let rel_str = rel.to_string_lossy().to_string();
                         let content = std::fs::read(&path)
                             .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+                        if std::str::from_utf8(&content).is_err() {
+                            tracing::warn!(
+                                "Skipping non-UTF-8 file: {}",
+                                path.display()
+                            );
+                            continue;
+                        }
                         result.insert(rel_str, content);
                     }
                 }
@@ -771,6 +788,10 @@ impl OssSyncManager {
 
     /// Fast-path upload: only check files modified since last scan (mtime-based).
     /// Returns `Ok(true)` if changes were uploaded.
+    ///
+    /// Only uploads changed/new files — does NOT detect deletions (that's the
+    /// slow_loop's job via full `upload_local_changes`). This avoids a redundant
+    /// full directory scan every 30 seconds.
     pub async fn upload_local_changes_incremental(
         &mut self,
         doc_type: DocType,
@@ -782,19 +803,99 @@ impl OssSyncManager {
             .copied()
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
-        let local_files = Self::scan_local_files_incremental(&dir, since)?;
+        let mtime_changed = Self::scan_local_files_incremental(&dir, since)?;
 
-        if local_files.is_empty() {
+        if mtime_changed.is_empty() {
             return Ok(false);
         }
 
-        // Update scan time before processing
+        // Filter to only truly changed files (hash differs from CRDT)
+        let changed = self.detect_local_changes(doc_type, &mtime_changed);
+        if changed.is_empty() {
+            // mtime changed but content didn't (e.g. touch, copy with same content)
+            self.last_scan_time
+                .insert(doc_type, std::time::SystemTime::now());
+            return Ok(false);
+        }
+
         self.last_scan_time
             .insert(doc_type, std::time::SystemTime::now());
 
-        // Delegate to the full upload_local_changes which will detect
-        // changes via hash comparison against the Loro doc
-        self.upload_local_changes(doc_type).await
+        // Update CRDT with only the changed files, then export and upload
+        let now = Utc::now().to_rfc3339();
+        let node_id = self.node_id.clone();
+        {
+            let doc = self.get_doc_mut(doc_type);
+            let files_map = doc.get_map("files");
+
+            for path in &changed {
+                if let Some(content) = mtime_changed.get(path) {
+                    Self::archive_current_version(&files_map, path)?;
+
+                    let hash = Self::compute_hash(content);
+                    let content_str = String::from_utf8_lossy(content).to_string();
+
+                    let entry_map = files_map
+                        .get_or_create_container(path, loro::LoroMap::new())
+                        .map_err(|e| format!("Failed to get/create map entry for {path}: {e}"))?;
+                    entry_map.insert("content", content_str.as_str())
+                        .map_err(|e| format!("Failed to set content for {path}: {e}"))?;
+                    entry_map.insert("hash", hash.as_str())
+                        .map_err(|e| format!("Failed to set hash for {path}: {e}"))?;
+                    entry_map.insert("deleted", false)
+                        .map_err(|e| format!("Failed to set deleted for {path}: {e}"))?;
+                    entry_map.insert("updatedBy", node_id.as_str())
+                        .map_err(|e| format!("Failed to set updatedBy for {path}: {e}"))?;
+                    entry_map.insert("updatedAt", now.as_str())
+                        .map_err(|e| format!("Failed to set updatedAt for {path}: {e}"))?;
+                }
+            }
+        }
+
+        // Export and upload
+        let updates = {
+            let doc = self.get_doc(doc_type);
+            match self.last_exported_version.get(&doc_type) {
+                Some(vv_bytes) => {
+                    match loro::VersionVector::decode(vv_bytes) {
+                        Ok(vv) => doc
+                            .export(loro::ExportMode::updates(&vv))
+                            .unwrap_or_else(|_| {
+                                doc.export(loro::ExportMode::all_updates())
+                                    .unwrap_or_default()
+                            }),
+                        Err(_) => doc
+                            .export(loro::ExportMode::all_updates())
+                            .map_err(|e| format!("Failed to export updates for {:?}: {e}", doc_type))?,
+                    }
+                }
+                None => doc
+                    .export(loro::ExportMode::all_updates())
+                    .map_err(|e| format!("Failed to export updates for {:?}: {e}", doc_type))?,
+            }
+        };
+
+        let timestamp_ms = Utc::now().timestamp_millis();
+        let key = format!(
+            "teams/{}/{}/updates/{}/{}.bin",
+            self.team_id,
+            doc_type.path(),
+            self.node_id,
+            timestamp_ms
+        );
+
+        self.s3_put(&key, &updates).await?;
+        info!(
+            "Incremental upload: {} changes for {:?} ({} bytes)",
+            changed.len(),
+            doc_type,
+            updates.len()
+        );
+
+        let current_vv = self.get_doc(doc_type).oplog_vv().encode();
+        self.last_exported_version.insert(doc_type, current_vv);
+
+        Ok(true)
     }
 
     fn compute_hash(content: &[u8]) -> String {
