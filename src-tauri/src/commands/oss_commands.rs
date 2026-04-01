@@ -351,11 +351,27 @@ pub async fn oss_join_team(
         }
     }
 
-    // Scaffold teamclaw-team directory
+    // Clean and scaffold teamclaw-team directory.
+    // If the directory already exists (e.g. user left and is re-joining),
+    // remove old files first so initial_sync won't absorb stale local
+    // files back into the CRDT. The remote state is authoritative on join.
     let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
-    if !std::path::Path::new(&team_dir).exists() {
-        super::team::scaffold_team_dir(&team_dir)?;
+    let team_dir_path = std::path::Path::new(&team_dir);
+    if team_dir_path.exists() {
+        info!("oss_join_team: cleaning existing team dir before initial sync");
+        // Remove contents but keep the directory itself
+        if let Ok(entries) = std::fs::read_dir(team_dir_path) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    let _ = std::fs::remove_dir_all(&p);
+                } else {
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
+        }
     }
+    super::team::scaffold_team_dir(&team_dir)?;
 
     // Write LLM config to .teamclaw/teamclaw.json
     let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
