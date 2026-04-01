@@ -19,6 +19,8 @@ const teamMembersStoreMock = vi.hoisted(() => ({
   approveApplication: vi.fn(),
   listenForApplications: vi.fn(),
   cleanupApplicationsListener: vi.fn(),
+  currentNodeId: null,
+  loadCurrentNodeId: vi.fn(),
 }))
 
 const p2pEngineStoreMock = vi.hoisted(() => ({
@@ -53,6 +55,8 @@ import { TeamMemberList } from '../TeamMemberList'
 describe('TeamMemberList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    teamMembersStoreMock.currentNodeId = 'node-1'
+    teamMembersStoreMock.loadCurrentNodeId = vi.fn(async () => {})
     teamMembersStoreMock.members = [
       {
         nodeId: 'node-1',
