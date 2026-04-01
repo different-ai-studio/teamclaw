@@ -18,6 +18,10 @@ use tracing::{info, warn};
 
 const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), "-oss");
 const TOKEN_REFRESH_MARGIN_SECS: i64 = 300; // refresh 5 min before expiry
+/// Maximum file size (in bytes) that will be synced. Files larger than this
+/// are silently skipped during scan to prevent OOM and oversized S3 PUTs.
+/// 2 MB is generous for config/skill/knowledge text files.
+const MAX_SYNC_FILE_SIZE: u64 = 2 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // OssSyncManager
@@ -666,6 +670,17 @@ impl OssSyncManager {
                 if path.is_dir() {
                     walk(base, &path, result)?;
                 } else {
+                    // Skip files exceeding the size limit
+                    if let Ok(meta) = path.metadata() {
+                        if meta.len() > MAX_SYNC_FILE_SIZE {
+                            tracing::warn!(
+                                "Skipping oversized file ({} bytes): {}",
+                                meta.len(),
+                                path.display()
+                            );
+                            continue;
+                        }
+                    }
                     let rel = path
                         .strip_prefix(base)
                         .map_err(|e| format!("Path strip error: {e}"))?;
@@ -716,9 +731,20 @@ impl OssSyncManager {
                 if path.is_dir() {
                     walk_incremental(base, &path, since, result)?;
                 } else {
-                    let dominated = path
-                        .metadata()
-                        .ok()
+                    // Skip files exceeding the size limit
+                    let meta = path.metadata().ok();
+                    if let Some(ref m) = meta {
+                        if m.len() > MAX_SYNC_FILE_SIZE {
+                            tracing::warn!(
+                                "Skipping oversized file ({} bytes): {}",
+                                m.len(),
+                                path.display()
+                            );
+                            continue;
+                        }
+                    }
+
+                    let dominated = meta
                         .and_then(|m| m.modified().ok())
                         .map(|mtime| mtime > since)
                         .unwrap_or(true);
