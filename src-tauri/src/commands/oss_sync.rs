@@ -465,6 +465,13 @@ impl OssSyncManager {
         Ok(keys)
     }
 
+    /// Best-effort existence check for a specific S3 object key.
+    /// Uses LIST with exact-key prefix to avoid broad scans.
+    async fn s3_key_exists(&self, key: &str) -> Result<bool, String> {
+        let keys = self.s3_list(key).await?;
+        Ok(keys.iter().any(|k| k == key))
+    }
+
     pub async fn s3_delete(&self, key: &str) -> Result<(), String> {
         let client = self.client()?;
         let bucket = self.bucket()?;
@@ -818,9 +825,6 @@ impl OssSyncManager {
             return Ok(false);
         }
 
-        self.last_scan_time
-            .insert(doc_type, std::time::SystemTime::now());
-
         // Update CRDT with only the changed files, then export and upload
         let now = Utc::now().to_rfc3339();
         let node_id = self.node_id.clone();
@@ -891,6 +895,11 @@ impl OssSyncManager {
             doc_type,
             updates.len()
         );
+
+        // Advance scan cursor only after a successful upload, so failed uploads
+        // are retried on the next fast-loop cycle.
+        self.last_scan_time
+            .insert(doc_type, std::time::SystemTime::now());
 
         let current_vv = self.get_doc(doc_type).oplog_vv().encode();
         self.last_exported_version.insert(doc_type, current_vv);
@@ -1324,10 +1333,20 @@ impl OssSyncManager {
         let start_after = self.last_known_key.get(&doc_type).map(|s| s.as_str());
         let new_keys = self.s3_list_after(&prefix, start_after).await?;
 
-        // Race condition detection: if we had a cursor but got zero results,
-        // another node may have compacted (deleted all updates).
-        // Fall back to reloading from the latest snapshot.
-        if new_keys.is_empty() && self.last_known_key.contains_key(&doc_type) {
+        // Race condition detection: if we had a cursor and got zero results, treat
+        // it as compaction only when the cursor key itself no longer exists.
+        // Zero results alone can also mean "no new updates" and should be cheap.
+        let had_cursor = self.last_known_key.contains_key(&doc_type);
+        let cursor_missing = if had_cursor {
+            let last_key = self
+                .last_known_key
+                .get(&doc_type)
+                .ok_or_else(|| "Missing last_known_key despite cursor flag".to_string())?;
+            !self.s3_key_exists(last_key).await?
+        } else {
+            false
+        };
+        if Self::should_reload_snapshot_after_empty_listing(new_keys.is_empty(), cursor_missing) {
             let snap_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
             let snap_keys = self.s3_list(&snap_prefix).await?;
             if let Some(latest_snap) = snap_keys.last() {
@@ -1439,6 +1458,25 @@ impl OssSyncManager {
         Ok(())
     }
 
+    fn should_reload_snapshot_after_empty_listing(
+        new_keys_is_empty: bool,
+        cursor_missing: bool,
+    ) -> bool {
+        new_keys_is_empty && cursor_missing
+    }
+
+    fn select_compaction_deletion_keys(
+        pre_snapshot_updates: &[String],
+        current_updates: &[String],
+    ) -> Vec<String> {
+        let frozen: HashSet<&str> = pre_snapshot_updates.iter().map(String::as_str).collect();
+        current_updates
+            .iter()
+            .filter(|k| frozen.contains(k.as_str()))
+            .cloned()
+            .collect()
+    }
+
     pub async fn initial_sync(&mut self) -> Result<(), String> {
         for doc_type in DocType::all() {
             info!("Initial sync for {:?}...", doc_type);
@@ -1511,13 +1549,18 @@ impl OssSyncManager {
         // 1. Pull all latest updates to ensure doc is current
         self.pull_remote_changes(doc_type).await?;
 
-        // 2. Export full snapshot
+        // 2. Freeze the deletion set BEFORE snapshot upload. We only delete keys
+        // observed at this point, so concurrently written updates are preserved.
+        let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
+        let pre_snapshot_updates = self.s3_list(&update_prefix).await?;
+
+        // 3. Export full snapshot
         let doc = self.get_doc(doc_type);
         let snapshot = doc
             .export(loro::ExportMode::Snapshot)
             .map_err(|e| format!("Failed to export snapshot for {:?}: {e}", doc_type))?;
 
-        // 3. Upload new snapshot
+        // 4. Upload new snapshot
         let timestamp_ms = Utc::now().timestamp_millis();
         let snap_key = format!(
             "teams/{}/{}/snapshot/{}.bin",
@@ -1532,19 +1575,22 @@ impl OssSyncManager {
             snapshot.len()
         );
 
-        // 4. Delete all update files
-        let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
-        let update_keys = self.s3_list(&update_prefix).await?;
-        for key in &update_keys {
+        // 5. Re-list and delete only keys that already existed pre-snapshot.
+        let current_updates = self.s3_list(&update_prefix).await?;
+        let updates_to_delete = Self::select_compaction_deletion_keys(
+            &pre_snapshot_updates,
+            &current_updates,
+        );
+        for key in &updates_to_delete {
             self.s3_delete(key).await?;
         }
         info!(
-            "Compaction: deleted {} update files for {:?}",
-            update_keys.len(),
+            "Compaction: deleted {} pre-snapshot update files for {:?}",
+            updates_to_delete.len(),
             doc_type
         );
 
-        // 5. Trim old snapshots (keep only 2 most recent)
+        // 6. Trim old snapshots (keep only 2 most recent)
         let snap_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
         let snap_keys = self.s3_list(&snap_prefix).await?;
         if snap_keys.len() > 2 {
@@ -1558,12 +1604,12 @@ impl OssSyncManager {
             );
         }
 
-        // 6. Reset local state
+        // 7. Reset local state
         self.known_files.insert(doc_type, HashSet::new());
         self.last_known_key.remove(&doc_type);
         self.last_exported_version.remove(&doc_type);
 
-        // 7. Record compaction time
+        // 8. Record compaction time
         self.last_compaction_at.insert(doc_type, Utc::now());
 
         info!("Compaction complete for {:?}", doc_type);
@@ -2169,6 +2215,46 @@ impl OssSyncManager {
             next_sync_at,
             docs,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OssSyncManager;
+
+    #[test]
+    fn snapshot_reload_only_when_cursor_missing() {
+        assert!(OssSyncManager::should_reload_snapshot_after_empty_listing(
+            true, true
+        ));
+        assert!(!OssSyncManager::should_reload_snapshot_after_empty_listing(
+            true, false
+        ));
+        assert!(!OssSyncManager::should_reload_snapshot_after_empty_listing(
+            false, true
+        ));
+    }
+
+    #[test]
+    fn compaction_deletes_only_pre_snapshot_updates() {
+        let pre_snapshot = vec![
+            "teams/t/notes/updates/a/100.bin".to_string(),
+            "teams/t/notes/updates/a/101.bin".to_string(),
+        ];
+        let current = vec![
+            "teams/t/notes/updates/a/100.bin".to_string(),
+            "teams/t/notes/updates/a/101.bin".to_string(),
+            "teams/t/notes/updates/b/102.bin".to_string(), // concurrent new write
+        ];
+
+        let deletion = OssSyncManager::select_compaction_deletion_keys(&pre_snapshot, &current);
+        assert_eq!(
+            deletion,
+            vec![
+                "teams/t/notes/updates/a/100.bin".to_string(),
+                "teams/t/notes/updates/a/101.bin".to_string(),
+            ]
+        );
     }
 }
 
