@@ -233,6 +233,8 @@ export function TeamP2PConfig() {
       // Load sync status — reconnect is handled by useP2pAutoReconnect in App.tsx
       await loadSyncStatus()
       await engineInit()
+      // Always fetch latest peer snapshot (init() is a no-op when already initialized)
+      await useP2pEngineStore.getState().fetch()
       if (!cancelled) setReconnecting(false)
     })()
     return () => { cancelled = true }
