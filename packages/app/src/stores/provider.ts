@@ -284,14 +284,17 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
           if (import.meta.env.DEV) {
             console.log('[LLM connect] providerId=', providerId, 'found=', true, 'modelCount=', modelCount)
           }
-          if (modelCount > 0) {
-            toast.success('Provider connected', {
-              description: `Successfully connected ${providerId}`,
-            })
-          } else {
-            toast.success('Provider connected', {
-              description: 'If no models appear below, the provider may list them later or use a custom model ID.',
-            })
+          // Skip toast for team provider — sidebar icon already indicates connection
+          if (providerId !== 'team') {
+            if (modelCount > 0) {
+              toast.success('Provider connected', {
+                description: `Successfully connected ${providerId}`,
+              })
+            } else {
+              toast.success('Provider connected', {
+                description: 'If no models appear below, the provider may list them later or use a custom model ID.',
+              })
+            }
           }
           set((state) => {
             const newDisconnected = new Set(state._disconnectedIds)
@@ -310,9 +313,11 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       }
       const providers = data.providers || []
       console.warn('[LLM connect] Provider not in config list after setAuth (may be valid for some providers).', { providerId, providerIds: providers.map((p: { id?: string; name?: string }) => p.id || p.name) })
-      toast.success('Provider connected', {
-        description: 'If no models appear, select the model in chat or check the provider’s custom model ID.',
-      })
+      if (providerId !== ‘team’) {
+        toast.success(‘Provider connected’, {
+          description: ‘If no models appear, select the model in chat or check the provider\’s custom model ID.’,
+        })
+      }
       set((state) => {
         const newDisconnected = new Set(state._disconnectedIds)
         newDisconnected.delete(providerId)
