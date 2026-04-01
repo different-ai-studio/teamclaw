@@ -671,10 +671,22 @@ pub async fn oss_sync_now(state: State<'_, OssSyncState>) -> Result<SyncStatus, 
 
     manager.refresh_token_if_needed().await?;
 
+    let mut any_uploaded = false;
     for doc_type in DocType::all() {
-        manager.upload_local_changes(doc_type).await?;
+        match manager.upload_local_changes(doc_type).await {
+            Ok(true) => any_uploaded = true,
+            Ok(false) => {}
+            Err(e) => return Err(e),
+        }
         manager.pull_remote_changes(doc_type).await?;
         let _ = manager.persist_local_snapshot(doc_type);
+    }
+
+    // Write signal flag so other nodes detect the manual sync quickly
+    if any_uploaded {
+        if let Err(e) = manager.write_signal_flag().await {
+            warn!("Failed to write signal flag after manual sync: {}", e);
+        }
     }
 
     let now = chrono::Utc::now().to_rfc3339();

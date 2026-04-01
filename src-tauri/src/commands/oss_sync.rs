@@ -485,7 +485,7 @@ impl OssSyncManager {
     // -----------------------------------------------------------------------
 
     /// Write a 0-byte signal flag to S3 to notify other nodes of changes.
-    async fn write_signal_flag(&self) -> Result<(), String> {
+    pub async fn write_signal_flag(&self) -> Result<(), String> {
         let timestamp_ms = Utc::now().timestamp_millis();
         let key = format!(
             "teams/{}/signal/{}/{}.flag",
@@ -1014,7 +1014,9 @@ impl OssSyncManager {
         Ok(result)
     }
 
-    pub fn write_doc_to_disk(&self, doc_type: DocType) -> Result<(), String> {
+    /// Write LoroDoc state to disk and absorb any local-only files into the CRDT.
+    /// Returns `Ok(true)` if files were absorbed (caller should upload the changes).
+    pub fn write_doc_to_disk(&self, doc_type: DocType) -> Result<bool, String> {
         let doc = self.get_doc(doc_type);
         let dir = self.team_dir.join(doc_type.dir_name());
 
@@ -1083,6 +1085,7 @@ impl OssSyncManager {
         // via Finder while the app was closed or between sync cycles).
         // This also catches files that the CRDT marks as deleted but
         // which exist locally — they are re-absorbed with deleted=false.
+        let mut absorbed = false;
         if dir.exists() {
             let disk_files = Self::scan_local_files(&dir)?;
             let now = Utc::now().to_rfc3339();
@@ -1113,11 +1116,12 @@ impl OssSyncManager {
                         .map_err(|e| format!("Failed to set updatedAt for {path}: {e}"))?;
 
                     info!("Absorbed local-only file into LoroDoc: {path}");
+                    absorbed = true;
                 }
             }
         }
 
-        Ok(())
+        Ok(absorbed)
     }
 
     pub fn persist_local_snapshot(&self, doc_type: DocType) -> Result<(), String> {
@@ -1843,13 +1847,30 @@ impl OssSyncManager {
                 match manager.check_signal_flags().await {
                     Ok(true) => {
                         // New signals found — pull remote changes
+                        let mut needs_upload = false;
                         for doc_type in DocType::all() {
                             if let Err(e) = manager.pull_remote_changes(doc_type).await {
                                 warn!("OSS fast pull error for {:?}: {}", doc_type, e);
                                 had_network_error = true;
                             }
-                            if let Err(e) = manager.write_doc_to_disk(doc_type) {
-                                warn!("OSS fast write_doc_to_disk error for {:?}: {}", doc_type, e);
+                            match manager.write_doc_to_disk(doc_type) {
+                                Ok(true) => needs_upload = true, // absorbed local files
+                                Ok(false) => {}
+                                Err(e) => warn!("OSS fast write_doc_to_disk error for {:?}: {}", doc_type, e),
+                            }
+                        }
+
+                        // If write_doc_to_disk absorbed local-only files into the
+                        // CRDT, upload them so other nodes can see them.
+                        if needs_upload && !had_network_error {
+                            for doc_type in DocType::all() {
+                                if let Err(e) = manager.upload_local_changes(doc_type).await {
+                                    warn!("OSS fast absorb-upload error for {:?}: {}", doc_type, e);
+                                    had_network_error = true;
+                                }
+                            }
+                            if let Err(e) = manager.write_signal_flag().await {
+                                warn!("Failed to write signal flag after absorb: {}", e);
                             }
                         }
 
@@ -1903,6 +1924,7 @@ impl OssSyncManager {
                     let mut had_network_error = false;
 
                     // 1. Full upload + pull for all DocTypes
+                    let mut needs_absorb_upload = false;
                     for doc_type in DocType::all() {
                         if let Err(e) = manager.upload_local_changes(doc_type).await {
                             warn!("OSS slow upload error for {:?}: {}", doc_type, e);
@@ -1912,10 +1934,22 @@ impl OssSyncManager {
                             warn!("OSS slow pull error for {:?}: {}", doc_type, e);
                             had_network_error = true;
                         }
-                        if let Err(e) = manager.write_doc_to_disk(doc_type) {
-                            warn!("OSS slow write_doc_to_disk error for {:?}: {}", doc_type, e);
+                        match manager.write_doc_to_disk(doc_type) {
+                            Ok(true) => needs_absorb_upload = true,
+                            Ok(false) => {}
+                            Err(e) => warn!("OSS slow write_doc_to_disk error for {:?}: {}", doc_type, e),
                         }
                         let _ = manager.persist_local_snapshot(doc_type);
+                    }
+
+                    // Upload absorbed local-only files so other nodes see them
+                    if needs_absorb_upload && !had_network_error {
+                        for doc_type in DocType::all() {
+                            if let Err(e) = manager.upload_local_changes(doc_type).await {
+                                warn!("OSS slow absorb-upload error for {:?}: {}", doc_type, e);
+                                had_network_error = true;
+                            }
+                        }
                     }
 
                     // 2. List pending applications for owners/editors
