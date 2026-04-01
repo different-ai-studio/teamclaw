@@ -75,7 +75,7 @@ tantivy = "0.22"
 # picks a wrong-arch Homebrew lib. A direct `zstd-sys` dep unifies features and links bundled libzstd.
 zstd-sys = { version = "2.0.16", default-features = false, features = ["legacy", "zdict_builder", "bindgen"] }
 tree-sitter = "0.26"
-tree-sitter-rust = "0.23"
+tree-sitter-rust = "0.24"
 tree-sitter-typescript = "0.23"
 tree-sitter-python = "0.25"
 tree-sitter-go = "0.25"
