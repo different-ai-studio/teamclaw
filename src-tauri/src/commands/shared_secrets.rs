@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use super::shared_secrets_crypto::{
     decrypt_secret, derive_key, encrypt_secret, EncryptedEnvelope, SecretEntry, SecretMeta,
@@ -238,6 +238,7 @@ pub fn get_secret_value(state: &SharedSecretsState, key_id: &str) -> Option<Stri
 /// Create or update a shared secret: encrypt and write to disk, update HashMap.
 #[tauri::command]
 pub async fn shared_secret_set(
+    app_handle: AppHandle,
     state: State<'_, SharedSecretsState>,
     key_id: String,
     value: String,
@@ -284,6 +285,7 @@ pub async fn shared_secret_set(
         secrets.insert(key_id.clone(), entry);
     }
 
+    app_handle.emit("secrets-changed", ()).ok();
     log::info!("shared_secrets: set secret '{}'", key_id);
     Ok(())
 }
@@ -291,6 +293,7 @@ pub async fn shared_secret_set(
 /// Delete a shared secret: remove file from disk and from the in-memory HashMap.
 #[tauri::command]
 pub async fn shared_secret_delete(
+    app_handle: AppHandle,
     state: State<'_, SharedSecretsState>,
     key_id: String,
 ) -> Result<(), String> {
@@ -315,6 +318,7 @@ pub async fn shared_secret_delete(
         secrets.remove(&key_id);
     }
 
+    app_handle.emit("secrets-changed", ()).ok();
     log::info!("shared_secrets: deleted secret '{}'", key_id);
     Ok(())
 }

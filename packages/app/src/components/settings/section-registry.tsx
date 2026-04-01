@@ -11,6 +11,7 @@ import { DependenciesSection } from './DependenciesSection'
 import { TeamSection } from './TeamSection'
 import { CronSection } from './CronSection'
 import { EnvVarsSection } from './EnvVarsSection'
+import { SharedSecretsSectionWrapper } from './SharedSecretsSection'
 import { TokenUsageSection } from './TokenUsageSection'
 import { PrivacySection } from './PrivacySection'
 import { KnowledgeSection } from './KnowledgeSection'
@@ -29,6 +30,7 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
   automation: CronSection,
   team: TeamSection,
   envVars: EnvVarsSection,
+  sharedSecrets: SharedSecretsSectionWrapper,
   skills: SkillsSection,
   knowledge: KnowledgeSection,
   deps: DependenciesSection,
