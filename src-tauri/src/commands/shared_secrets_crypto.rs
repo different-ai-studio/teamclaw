@@ -5,11 +5,9 @@
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use hmac::{Hmac, Mac};
+use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-
-type HmacSha256 = Hmac<Sha256>;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,24 +82,11 @@ pub fn derive_key(team_secret: &str) -> Result<[u8; 32], String> {
     let salt = b"teamclaw-secrets-v1";
     let info = b"aes-256-gcm";
 
-    // HKDF-Extract: PRK = HMAC-SHA256(salt, IKM)
-    let mut extract_mac =
-        HmacSha256::new_from_slice(salt).map_err(|e| format!("derive_key: HMAC init: {e}"))?;
-    extract_mac.update(&ikm);
-    let prk = extract_mac.finalize().into_bytes();
-
-    // HKDF-Expand: OKM = T(1)  (one block is enough for 32 bytes)
-    // T(1) = HMAC-SHA256(PRK, info || 0x01)
-    let mut expand_mac =
-        HmacSha256::new_from_slice(&prk).map_err(|e| format!("derive_key: HMAC expand: {e}"))?;
-    expand_mac.update(info);
-    expand_mac.update(&[0x01u8]);
-    let t1 = expand_mac.finalize().into_bytes();
-
-    // SHA-256 output is exactly 32 bytes.
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&t1[..32]);
-    Ok(key)
+    let hk = Hkdf::<Sha256>::new(Some(salt), &ikm);
+    let mut okm = [0u8; 32];
+    hk.expand(info, &mut okm)
+        .map_err(|e| format!("derive_key: HKDF expand failed: {e}"))?;
+    Ok(okm)
 }
 
 // ---------------------------------------------------------------------------

@@ -438,11 +438,7 @@ pub async fn start_opencode_inner(
         for (key_id, entry) in shared_map.iter() {
             // Remove any existing keyring entry with the same key (shared wins)
             secrets.retain(|(k, _)| k != key_id);
-            println!(
-                "[OpenCode] Loaded shared secret: {} ({}...)",
-                key_id,
-                &entry.key[..entry.key.len().min(8)]
-            );
+            println!("[OpenCode] Loaded shared secret: {}", key_id);
             secrets.push((key_id.clone(), entry.key.clone()));
         }
     }

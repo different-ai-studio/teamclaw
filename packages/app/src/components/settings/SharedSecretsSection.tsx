@@ -78,7 +78,7 @@ function SecretDialog({ open, onOpenChange, editingEntry, nodeId, onSave }: Secr
       setError(t('settings.sharedSecrets.error.valueRequired', 'Value is required'))
       return
     }
-    if (!/^[a-z_][a-z0-9_]*$/.test(trimmedKeyId)) {
+    if (!/^[a-z0-9_]+$/.test(trimmedKeyId)) {
       setError(t('settings.sharedSecrets.error.invalidKey', 'Key ID must contain only lowercase letters, digits, and underscores'))
       return
     }
