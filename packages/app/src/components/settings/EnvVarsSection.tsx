@@ -19,12 +19,13 @@ import { useSharedSecretsStore, type SecretMeta } from '@/stores/shared-secrets'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { initOpenCodeClient } from '@/lib/opencode/client'
+import { listen } from '@tauri-apps/api/event'
 
 // ─── Unified type for the combined list ─────────────────────────────────
 
 type UnifiedEntry =
-  | { scope: 'personal'; key: string; description?: string }
-  | { scope: 'team'; key: string; description: string; category: string; updatedBy: string; updatedAt: string }
+  | { scope: 'personal'; key: string; description?: string; dirty?: boolean }
+  | { scope: 'team'; key: string; description: string; category: string; updatedBy: string; updatedAt: string; dirty?: boolean }
 
 // ─── Add / Edit Dialog ──────────────────────────────────────────────────
 
@@ -300,6 +301,12 @@ function EnvVarRow({ entry, onEdit, onDelete }: EnvVarRowProps) {
               {t('settings.envVars.scopeTeam', 'Team')}
             </span>
           )}
+          {entry.dirty && (
+            <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+              <AlertCircle className="h-3 w-3" />
+              {t('settings.envVars.needRestart', 'Need restart')}
+            </span>
+          )}
         </div>
         {entry.description && (
           <p className="text-xs text-muted-foreground mt-1 truncate">
@@ -365,23 +372,42 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const [deleteTarget, setDeleteTarget] = React.useState<UnifiedEntry | null>(null)
   const [isRestarting, setIsRestarting] = React.useState(false)
   const [restartError, setRestartError] = React.useState<string | null>(null)
+  // Track keys that changed after OpenCode started (need restart to take effect)
+  const [dirtyKeys, setDirtyKeys] = React.useState<Set<string>>(new Set())
 
   const isLoading = envLoading || secretsLoading
+  const needsRestart = hasChanges || dirtyKeys.size > 0
 
   React.useEffect(() => {
     loadEnvVars()
     loadSecrets()
     let unlisten: (() => void) | undefined
     listenForChanges().then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
+    // Also listen for secrets-changed from sync to mark as dirty
+    let unlistenSync: (() => void) | undefined
+    listen<void>('secrets-changed', () => {
+      // Reload secrets list and mark all team secrets as dirty
+      loadSecrets()
+      setDirtyKeys((prev) => {
+        const next = new Set(prev)
+        next.add('__team_sync__') // sentinel to trigger needsRestart
+        return next
+      })
+    }).then((fn) => { unlistenSync = fn })
+    return () => {
+      unlisten?.()
+      unlistenSync?.()
+    }
   }, [loadEnvVars, loadSecrets, listenForChanges])
 
   // Build unified list: personal env vars + team secrets
+  const hasSyncDirty = dirtyKeys.has('__team_sync__')
   const unifiedEntries: UnifiedEntry[] = React.useMemo(() => {
     const personal: UnifiedEntry[] = envVars.map((e) => ({
       scope: 'personal' as const,
       key: e.key,
       description: e.description,
+      dirty: dirtyKeys.has(e.key),
     }))
     const team: UnifiedEntry[] = secrets.map((s) => ({
       scope: 'team' as const,
@@ -390,9 +416,10 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       category: s.category,
       updatedBy: s.updatedBy,
       updatedAt: s.updatedAt,
+      dirty: dirtyKeys.has(s.keyId) || hasSyncDirty,
     }))
     return [...team, ...personal]
-  }, [envVars, secrets])
+  }, [envVars, secrets, dirtyKeys, hasSyncDirty])
 
   const handleSave = async (key: string, value: string, description: string, shared: boolean) => {
     if (shared) {
@@ -400,6 +427,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     } else {
       await setEnvVar(key, value, description || undefined)
     }
+    setDirtyKeys((prev) => new Set(prev).add(key))
   }
 
   const handleDelete = async () => {
@@ -428,6 +456,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       })
       initOpenCodeClient({ baseUrl: status.url })
       setHasChanges(false)
+      setDirtyKeys(new Set())
     } catch (err) {
       console.error('Failed to restart OpenCode:', err)
       setRestartError(err instanceof Error ? err.message : String(err))
@@ -446,7 +475,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       />
 
       {/* Restart Warning */}
-      {hasChanges && (
+      {needsRestart && (
         <SettingCard className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border-amber-200 dark:border-amber-800">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
@@ -492,10 +521,28 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
             ? t('settings.envVars.count', '{{count}} variable(s) stored', { count: unifiedEntries.length })
             : ''}
         </p>
-        <Button size="sm" onClick={() => setAddDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" />
-          {t('settings.envVars.add', 'Add Variable')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {needsRestart && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRestartOpenCode}
+              disabled={isRestarting || !workspacePath}
+              className="gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950/30"
+            >
+              {isRestarting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {t('settings.envVars.restart', 'Restart OpenCode')}
+            </Button>
+          )}
+          <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            {t('settings.envVars.add', 'Add Variable')}
+          </Button>
+        </div>
       </div>
 
       {/* List or empty state */}
