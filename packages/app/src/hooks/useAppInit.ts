@@ -462,6 +462,11 @@ export function useP2pAutoReconnect() {
             myRole: (status.role as 'owner' | 'editor' | 'viewer') ?? null,
           });
         }
+
+        // Initialize engine store so sidebar icon and popover reflect connection state
+        const { useP2pEngineStore } = await import("@/stores/p2p-engine");
+        await useP2pEngineStore.getState().init();
+
         console.log("[P2P] Auto-reconnect completed");
       } catch (err) {
         console.warn("[P2P] Auto-reconnect failed (non-critical):", err);

@@ -326,6 +326,7 @@ function WorkspaceSelectorButton() {
   const isLoadingWorkspace = useWorkspaceStore(s => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
   const teamMode = useTeamModeStore(s => s.teamMode)
+  const teamModeP2pConnected = useTeamModeStore(s => s.p2pConnected)
   const ossConfigured = useTeamOssStore(s => s.configured)
   const ossConnected = useTeamOssStore(s => s.connected)
   const engineStatus = useP2pEngineStore(s => s.snapshot.status)
@@ -341,7 +342,9 @@ function WorkspaceSelectorButton() {
     return () => { cleanup?.() }
   }, [teamMode, engineInit])
 
-  const p2pConnected = engineStatus === 'connected'
+  // Use engine store status with fallback to team-mode store
+  // (useP2pAutoReconnect updates team-mode store immediately, engine store may init later)
+  const p2pConnected = engineStatus === 'connected' || teamModeP2pConnected
 
   const handleOpenFolder = async () => {
     if (!isTauri()) {

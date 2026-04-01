@@ -222,44 +222,18 @@ export function TeamP2PConfig() {
     }
     let cancelled = false
     ;(async () => {
-      // Check if already connected before showing loading
+      // Load device info
       try {
         const info = await tauriInvoke<DeviceInfo>('get_device_info')
         if (!cancelled) setDeviceInfo(info)
-        const status = await tauriInvoke<{ connected?: boolean }>('p2p_sync_status').catch(() => null)
-        if (status?.connected) {
-          // Already connected — just load status, no loading spinner
-          if (!cancelled) {
-            await loadSyncStatus()
-            await engineInit()
-            setReconnecting(false)
-          }
-          return
-        }
       } catch {
-        // Couldn't check — fall through to reconnect
+        // ignore
       }
 
-      // Not connected — show loading and reconnect
-      if (!cancelled) setReconnecting(true)
-      for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
-        try {
-          if (!deviceInfo) {
-            const info = await tauriInvoke<DeviceInfo>('get_device_info')
-            if (!cancelled) setDeviceInfo(info)
-          }
-          await tauriInvoke('p2p_reconnect')
-          break // success
-        } catch {
-          // P2P node not ready yet, wait and retry
-          await new Promise((r) => setTimeout(r, 1500))
-        }
-      }
-      if (!cancelled) {
-        await loadSyncStatus()
-        await engineInit()
-        setReconnecting(false)
-      }
+      // Load sync status — reconnect is handled by useP2pAutoReconnect in App.tsx
+      await loadSyncStatus()
+      await engineInit()
+      if (!cancelled) setReconnecting(false)
     })()
     return () => { cancelled = true }
   }, [loadSyncStatus])
