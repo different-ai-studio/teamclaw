@@ -2,7 +2,7 @@
 
 use super::team_unified::{MemberRole, TeamManifest, TeamMember};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
@@ -270,7 +270,7 @@ pub struct IrohNode {
     /// Currently active team document (set after create/join)
     pub(crate) active_doc: Option<iroh_docs::api::Doc>,
     /// Paths being written by remote sync — suppresses fs watcher feedback loop
-    suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
+    suppressed_paths: Arc<Mutex<HashMap<std::path::PathBuf, Instant>>>,
     /// Incremented on reconnect/disconnect to signal stale sync tasks to exit.
     sync_generation_tx: tokio::sync::watch::Sender<u64>,
     sync_generation_rx: tokio::sync::watch::Receiver<u64>,
@@ -331,7 +331,7 @@ impl IrohNode {
             router,
             author,
             active_doc: None,
-            suppressed_paths: Arc::new(Mutex::new(HashSet::new())),
+            suppressed_paths: Arc::new(Mutex::new(HashMap::new())),
             sync_generation_tx: gen_tx,
             sync_generation_rx: gen_rx,
             manifest_lock: Arc::new(RwLock::new(())),
@@ -1402,7 +1402,7 @@ fn start_sync_tasks(
     author: iroh_docs::AuthorId,
     store: &FsStore,
     team_dir: &str,
-    suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
+    suppressed_paths: Arc<Mutex<HashMap<std::path::PathBuf, Instant>>>,
     my_role: Arc<Mutex<MemberRole>>,
     my_node_id: String,
     owner_node_id: Option<String>,
@@ -1588,11 +1588,11 @@ async fn emit_engine_state(
 async fn write_and_suppress(
     file_path: &std::path::Path,
     content: &[u8],
-    suppressed_paths: &Arc<Mutex<HashSet<std::path::PathBuf>>>,
+    suppressed_paths: &Arc<Mutex<HashMap<std::path::PathBuf, Instant>>>,
 ) {
     {
         let mut suppressed = suppressed_paths.lock().await;
-        suppressed.insert(file_path.to_path_buf());
+        suppressed.insert(file_path.to_path_buf(), Instant::now());
     }
 
     if let Some(parent) = file_path.parent() {
@@ -1617,7 +1617,7 @@ async fn doc_to_disk_watcher(
     doc: iroh_docs::api::Doc,
     blobs_store: iroh_blobs::api::Store,
     team_dir: String,
-    suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
+    suppressed_paths: Arc<Mutex<HashMap<std::path::PathBuf, Instant>>>,
     my_node_id: String,
     owner_node_id: Option<String>,
     app_handle: Option<tauri::AppHandle>,
@@ -2079,7 +2079,7 @@ async fn disk_to_doc_watcher(
     blobs_store: iroh_blobs::api::Store,
     author: iroh_docs::AuthorId,
     team_dir: String,
-    suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
+    suppressed_paths: Arc<Mutex<HashMap<std::path::PathBuf, Instant>>>,
     my_role: Arc<Mutex<MemberRole>>,
     my_node_id: String,
     owner_node_id: Option<String>,
@@ -2130,9 +2130,17 @@ async fn disk_to_doc_watcher(
                     for path in &event.paths {
                         // Skip suppressed paths (written by remote sync)
                         {
-                            let suppressed = suppressed_paths.lock().await;
-                            if suppressed.contains(path) {
-                                continue;
+                            let mut suppressed = suppressed_paths.lock().await;
+                            if let Some(inserted_at) = suppressed.get(path) {
+                                if inserted_at.elapsed().as_secs() < 10 {
+                                    continue;
+                                }
+                                // Stale entry (>10s) — cleanup task likely failed, remove it
+                                suppressed.remove(path);
+                                eprintln!(
+                                    "[P2P] Removed stale suppressed path: {}",
+                                    path.display()
+                                );
                             }
                         }
 
