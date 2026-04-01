@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Mutex;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
@@ -429,8 +429,7 @@ pub async fn start_opencode_inner(
 
     // Merge shared secrets (team KMS) into secrets vec.
     // Shared secrets take priority over local keyring entries with the same key.
-    {
-        let shared_state = app.state::<super::shared_secrets::SharedSecretsState>();
+    if let Some(shared_state) = app.try_state::<super::shared_secrets::SharedSecretsState>() {
         let shared_map = shared_state
             .secrets
             .lock()

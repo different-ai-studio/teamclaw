@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
@@ -1111,9 +1111,10 @@ impl OssSyncManager {
         // and notify the frontend so that env-var resolution picks up the latest values.
         if doc_type == DocType::Secrets {
             if let Some(app_handle) = &self.app_handle {
-                let shared_state = app_handle.state::<crate::commands::shared_secrets::SharedSecretsState>();
-                if let Err(e) = crate::commands::shared_secrets::load_all_secrets(&shared_state) {
-                    log::warn!("[OssSync] Failed to reload shared secrets: {}", e);
+                if let Some(shared_state) = app_handle.try_state::<crate::commands::shared_secrets::SharedSecretsState>() {
+                    if let Err(e) = crate::commands::shared_secrets::load_all_secrets(&shared_state) {
+                        log::warn!("[OssSync] Failed to reload shared secrets: {}", e);
+                    }
                 }
                 let _ = app_handle.emit("secrets-changed", ());
             }

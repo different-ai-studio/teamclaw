@@ -1,6 +1,7 @@
 // P2P team sync via iroh-docs - bidirectional document-based file sharing
 
 use super::team_unified::{MemberRole, TeamManifest, TeamMember};
+use tauri::Manager;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
