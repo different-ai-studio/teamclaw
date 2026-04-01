@@ -61,7 +61,6 @@ const advancedSections: Section[] = [
   { id: 'permissions', label: 'Permissions', labelKey: 'settings.nav.permissions', icon: Shield, color: 'text-emerald-500' },
   { id: 'mcp', label: 'MCP', labelKey: 'settings.nav.mcp', icon: Plug, color: 'text-orange-500' },
   { id: 'envVars', label: 'Env Variables', labelKey: 'settings.nav.envVars', icon: KeyRound, color: 'text-emerald-500' },
-  { id: 'sharedSecrets', label: 'Team Secrets', labelKey: 'settings.nav.sharedSecrets', icon: Shield, color: 'text-blue-500' },
   { id: 'skills', label: 'Skills', labelKey: 'settings.nav.skills', icon: Sparkles, color: 'text-yellow-500' },
   { id: 'knowledge', label: 'Knowledge Base', labelKey: 'settings.nav.knowledge', icon: BookOpen, color: 'text-cyan-500' },
   { id: 'deps', label: 'Dependencies', labelKey: 'settings.nav.deps', icon: Package, color: 'text-teal-500' },
