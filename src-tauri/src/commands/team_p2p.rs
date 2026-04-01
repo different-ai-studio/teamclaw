@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use iroh::{Endpoint, SecretKey};
 use iroh_blobs::store::fs::FsStore;
@@ -271,6 +271,11 @@ pub struct IrohNode {
     pub(crate) active_doc: Option<iroh_docs::api::Doc>,
     /// Paths being written by remote sync — suppresses fs watcher feedback loop
     suppressed_paths: Arc<Mutex<HashSet<std::path::PathBuf>>>,
+    /// Incremented on reconnect/disconnect to signal stale sync tasks to exit.
+    sync_generation_tx: tokio::sync::watch::Sender<u64>,
+    sync_generation_rx: tokio::sync::watch::Receiver<u64>,
+    /// Protects concurrent reads/writes of _team/members.json across sync tasks.
+    manifest_lock: Arc<RwLock<()>>,
 }
 
 impl IrohNode {
@@ -316,6 +321,8 @@ impl IrohNode {
             .accept(iroh_docs::ALPN, docs.clone())
             .spawn();
 
+        let (gen_tx, gen_rx) = tokio::sync::watch::channel(0u64);
+
         Ok(IrohNode {
             endpoint,
             store,
@@ -325,6 +332,9 @@ impl IrohNode {
             author,
             active_doc: None,
             suppressed_paths: Arc::new(Mutex::new(HashSet::new())),
+            sync_generation_tx: gen_tx,
+            sync_generation_rx: gen_rx,
+            manifest_lock: Arc::new(RwLock::new(())),
         })
     }
 
@@ -345,6 +355,15 @@ impl IrohNode {
     #[allow(dead_code)]
     pub async fn shutdown(self) {
         self.router.shutdown().await.ok();
+    }
+
+    /// Bump the sync generation, causing all running sync tasks to exit.
+    /// Returns the new generation value.
+    pub fn bump_sync_generation(&self) -> u64 {
+        let new_gen = *self.sync_generation_rx.borrow() + 1;
+        let _ = self.sync_generation_tx.send(new_gen);
+        eprintln!("[P2P] Bumped sync generation to {}", new_gen);
+        new_gen
     }
 }
 
@@ -568,6 +587,9 @@ pub async fn create_team(
         HashMap::new(), // no cached peers yet for new team
         Some(workspace_path.to_string()),
         engine,
+        node.sync_generation_rx.clone(),
+        *node.sync_generation_rx.borrow(),
+        node.manifest_lock.clone(),
     );
 
     node.active_doc = Some(doc);
@@ -737,6 +759,9 @@ pub async fn join_team_drive(
         HashMap::new(), // no cached peers yet for new joiner
         Some(workspace_path.to_string()),
         engine,
+        node.sync_generation_rx.clone(),
+        *node.sync_generation_rx.borrow(),
+        node.manifest_lock.clone(),
     );
 
     node.active_doc = Some(doc);
@@ -1388,6 +1413,9 @@ fn start_sync_tasks(
     cached_peer_addrs: HashMap<String, Vec<String>>,
     workspace_path: Option<String>,
     engine: Arc<Mutex<SyncEngine>>,
+    mut generation_rx: tokio::sync::watch::Receiver<u64>,
+    my_generation: u64,
+    manifest_lock: Arc<RwLock<()>>,
 ) {
     let doc = doc.clone();
     let store = store.clone();
@@ -1408,6 +1436,18 @@ fn start_sync_tasks(
         let mut restart_count: u32 = 0;
 
         loop {
+            // Check if this sync generation is still current
+            if *generation_rx.borrow() != my_generation {
+                eprintln!(
+                    "[P2P][engine] Generation {} is stale (current={}), exiting supervisor",
+                    my_generation,
+                    *generation_rx.borrow()
+                );
+                let mut eng = engine.lock().await;
+                eng.stream_health = StreamHealth::Dead;
+                break;
+            }
+
             // Mark stream health
             {
                 let mut eng = engine.lock().await;
@@ -1498,7 +1538,18 @@ fn start_sync_tasks(
             }
             emit_engine_state(&app_handle, &engine).await;
 
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            // Wait 3s before restart, but exit immediately if generation changes
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+                _ = generation_rx.changed() => {
+                    eprintln!(
+                        "[P2P][engine] Generation changed during restart sleep, exiting supervisor"
+                    );
+                    let mut eng = engine.lock().await;
+                    eng.stream_health = StreamHealth::Dead;
+                    break;
+                }
+            }
 
             // Mark as restarting before re-entering loop
             {
@@ -1506,6 +1557,13 @@ fn start_sync_tasks(
                 eng.stream_health = StreamHealth::Restarting;
             }
             emit_engine_state(&app_handle, &engine).await;
+        }
+
+        // Clean up suppressed paths on exit
+        {
+            let mut suppressed = suppressed_paths.lock().await;
+            suppressed.clear();
+            eprintln!("[P2P][engine] Cleared suppressed paths on supervisor exit");
         }
     });
 }
@@ -2454,9 +2512,10 @@ pub async fn p2p_disconnect_source(
         drop(guard);
     }
 
-    // Close active doc
+    // Close active doc — bump generation first to kill running sync tasks
     let mut guard = iroh_state.lock().await;
     if let Some(node) = guard.as_mut() {
+        node.bump_sync_generation();
         if let Some(doc) = node.active_doc.take() {
             let _ = doc.leave().await;
         }
@@ -3054,6 +3113,9 @@ pub async fn p2p_reconnect(
         return Ok(());
     }
 
+    // Kill any leftover sync tasks from a previous session
+    node.bump_sync_generation();
+
     let my_node_id = get_node_id(node);
     let is_owner = config
         .owner_node_id
@@ -3133,6 +3195,9 @@ pub async fn p2p_reconnect(
         config.cached_peer_addrs.clone(),
         Some(workspace_path.clone()),
         engine_state.inner().clone(),
+        node.sync_generation_rx.clone(),
+        *node.sync_generation_rx.borrow(),
+        node.manifest_lock.clone(),
     );
 
     node.active_doc = Some(doc);
