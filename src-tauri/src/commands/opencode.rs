@@ -429,11 +429,52 @@ pub async fn start_opencode_inner(
 
     // Merge shared secrets (team KMS) into secrets vec.
     // Shared secrets take priority over local keyring entries with the same key.
+    //
+    // Lazy init: if shared secrets haven't been initialized yet (e.g. early launch
+    // before oss_restore_sync), try to read team config and init from disk.
     if let Some(shared_state) = app.try_state::<super::shared_secrets::SharedSecretsState>() {
+        {
+            let dk = shared_state.derived_key.lock().unwrap_or_else(|p| p.into_inner());
+            if dk.is_none() {
+                drop(dk);
+                // Try to init from workspace team config
+                let config_path = format!(
+                    "{}/{}/{}",
+                    workspace_path,
+                    super::TEAMCLAW_DIR,
+                    super::CONFIG_FILE_NAME
+                );
+                if let Ok(content) = std::fs::read_to_string(&config_path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(oss) = json.get("oss") {
+                            if let (Some(team_id), Some(true)) = (
+                                oss.get("teamId").and_then(|v| v.as_str()),
+                                oss.get("enabled").and_then(|v| v.as_bool()),
+                            ) {
+                                if let Ok(team_secret) = super::oss_sync::load_team_secret(team_id) {
+                                    let team_dir = std::path::Path::new(&workspace_path)
+                                        .join(super::TEAM_REPO_DIR);
+                                    match super::shared_secrets::init_shared_secrets(
+                                        &shared_state,
+                                        &team_secret,
+                                        &team_dir,
+                                    ) {
+                                        Ok(()) => println!("[OpenCode] Lazy-initialized shared secrets from disk"),
+                                        Err(e) => eprintln!("[OpenCode] Failed to lazy-init shared secrets: {}", e),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let shared_map = shared_state
             .secrets
             .lock()
             .unwrap_or_else(|p| p.into_inner());
+        println!("[OpenCode] Shared secrets count: {}", shared_map.len());
         for (key_id, entry) in shared_map.iter() {
             // Inject both original key_id and UPPER_CASE version as env vars
             // so ${wecom_corp_id} and WECOM_CORP_ID both resolve
