@@ -39,8 +39,9 @@ interface TeamModeState {
   p2pFileSyncStatusMap: Record<string, 'synced' | 'modified' | 'new'>
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
-  applyTeamModelToOpenCode: (workspacePath: string) => Promise<void>
+  applyTeamModelToOpenCode: (workspacePath: string, force?: boolean) => Promise<void>
   setTeamApiKey: (key: string | null, workspacePath?: string) => Promise<void>
+  reAuthTeamProvider: () => Promise<void>
   clearTeamMode: (workspacePath?: string) => Promise<void>
   setDevUnlocked: (unlocked: boolean) => void
   loadP2pFileSyncStatus: () => Promise<void>
@@ -133,13 +134,13 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     }
   },
 
-  applyTeamModelToOpenCode: async (workspacePath: string) => {
+  applyTeamModelToOpenCode: async (workspacePath: string, force?: boolean) => {
     const { teamModelConfig, teamApiKey, _appliedConfigKey } = get()
     if (!teamModelConfig) return
 
     // Build a fingerprint of the current config to avoid redundant restarts/toasts
     const configKey = `${teamModelConfig.baseUrl}|${teamModelConfig.model}|${teamApiKey || ''}`
-    if (configKey === _appliedConfigKey) return
+    if (!force && configKey === _appliedConfigKey) return
     set({ _appliedConfigKey: configKey })
 
     try {
@@ -270,6 +271,23 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       set({ p2pFileSyncStatusMap: map })
     } catch (e) {
       console.debug('[team-mode] loadP2pFileSyncStatus skipped:', e)
+    }
+  },
+
+  // Re-authenticate team provider without restarting sidecar.
+  // Call this after any OpenCode restart to restore auth state.
+  reAuthTeamProvider: async () => {
+    const { teamMode, teamModelConfig, teamApiKey } = get()
+    if (!teamMode || !teamModelConfig) return
+    try {
+      const nodeId = await getDeviceNodeId()
+      const apiKey = teamApiKey || defaultTeamLiteLlmApiKey(nodeId)
+      if (!apiKey) return
+      const providerStore = useProviderStore.getState()
+      await providerStore.connectProvider(TEAM_PROVIDER_ID, apiKey)
+      console.log('[TeamMode] Re-authenticated team provider after sidecar restart')
+    } catch (err) {
+      console.error('[TeamMode] Failed to re-authenticate team provider:', err)
     }
   },
 
