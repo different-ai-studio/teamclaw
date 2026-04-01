@@ -219,12 +219,25 @@ impl OssSyncManager {
             "oss-sts",
         );
 
+        let timeout_config = aws_sdk_s3::config::timeout::TimeoutConfig::builder()
+            .operation_timeout(std::time::Duration::from_secs(30))
+            .operation_attempt_timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build();
+
+        let stalled_stream =
+            aws_sdk_s3::config::StalledStreamProtectionConfig::enabled()
+                .grace_period(std::time::Duration::from_secs(10))
+                .build();
+
         let s3_config = aws_sdk_s3::config::Builder::new()
             .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
             .endpoint_url(&config.endpoint)
             .region(aws_sdk_s3::config::Region::new(config.region.clone()))
             .credentials_provider(credentials)
             .force_path_style(force_path_style)
+            .timeout_config(timeout_config)
+            .stalled_stream_protection(stalled_stream)
             .build();
 
         aws_sdk_s3::Client::from_conf(s3_config)

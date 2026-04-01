@@ -171,10 +171,18 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       if (config?.enabled) {
         set({ configured: true, restoring: true })
         try {
-          const info = await invoke<OssTeamInfo>('oss_restore_sync', {
-            workspacePath,
-            teamId: config.teamId,
-          })
+          // Safety timeout: if backend hangs (e.g. unreachable S3), stop the
+          // spinner so the user can still interact with the UI.
+          const RESTORE_TIMEOUT_MS = 90_000
+          const info = await Promise.race([
+            invoke<OssTeamInfo>('oss_restore_sync', {
+              workspacePath,
+              teamId: config.teamId,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('OSS restore timed out')), RESTORE_TIMEOUT_MS),
+            ),
+          ])
           set({ connected: true, teamInfo: info, restoring: false })
         } catch (e) {
           // Offline or restore failed — still configured, just not connected
