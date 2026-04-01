@@ -517,8 +517,9 @@ impl OssSyncManager {
         Ok(has_new)
     }
 
-    /// Delete signal flags older than 1 hour.
-    async fn cleanup_expired_signal_flags(&self) -> Result<u32, String> {
+    /// Delete signal flags older than 1 hour, and prune matching entries
+    /// from `known_signal_keys` to prevent unbounded memory growth.
+    async fn cleanup_expired_signal_flags(&mut self) -> Result<u32, String> {
         let prefix = format!("teams/{}/signal/", self.team_id);
         let flags = self.s3_list(&prefix).await?;
         let one_hour_ago_ms = Utc::now().timestamp_millis() - 3_600_000;
@@ -528,6 +529,7 @@ impl OssSyncManager {
             if let Some(ts) = Self::extract_timestamp_from_flag_key(key) {
                 if ts < one_hour_ago_ms {
                     self.s3_delete(key).await?;
+                    self.known_signal_keys.remove(key);
                     deleted += 1;
                 }
             }
@@ -1681,10 +1683,19 @@ impl OssSyncManager {
     /// - Checks local file changes (mtime-based) → upload + signal flag
     /// - Checks signal flags → pull remote changes
     pub async fn fast_loop(state: Arc<Mutex<Option<OssSyncManager>>>) {
-        let fast_interval = Duration::from_secs(30);
+        let base_interval = Duration::from_secs(30);
+        let max_interval = Duration::from_secs(300); // back off up to 5 min
+        let mut consecutive_failures: u32 = 0;
 
         loop {
-            tokio::time::sleep(fast_interval).await;
+            // Exponential backoff: 30s, 60s, 120s, 240s, 300s (capped)
+            let sleep_duration = if consecutive_failures == 0 {
+                base_interval
+            } else {
+                let backoff_secs = 30u64 * 2u64.pow(consecutive_failures.min(4));
+                Duration::from_secs(backoff_secs).min(max_interval)
+            };
+            tokio::time::sleep(sleep_duration).await;
 
             // Use try_lock: if slow_loop holds the lock, skip this cycle
             // rather than blocking. The slow_loop does a full sync anyway.
@@ -1702,13 +1713,19 @@ impl OssSyncManager {
 
             let _ = manager.refresh_token_if_needed().await;
 
+            // Track whether any S3 call fails this cycle
+            let mut had_network_error = false;
+
             // 1. Check local changes and upload (incremental scan)
             let mut any_uploaded = false;
             for doc_type in DocType::all() {
                 match manager.upload_local_changes_incremental(doc_type).await {
                     Ok(true) => any_uploaded = true,
                     Ok(false) => {}
-                    Err(e) => warn!("OSS fast upload error for {:?}: {}", doc_type, e),
+                    Err(e) => {
+                        warn!("OSS fast upload error for {:?}: {}", doc_type, e);
+                        had_network_error = true;
+                    }
                 }
             }
 
@@ -1716,32 +1733,52 @@ impl OssSyncManager {
             if any_uploaded {
                 if let Err(e) = manager.write_signal_flag().await {
                     warn!("Failed to write signal flag: {}", e);
+                    had_network_error = true;
                 }
             }
 
             // 2. Check for remote changes via signal flags
-            match manager.check_signal_flags().await {
-                Ok(true) => {
-                    // New signals found — pull remote changes
-                    for doc_type in DocType::all() {
-                        if let Err(e) = manager.pull_remote_changes(doc_type).await {
-                            warn!("OSS fast pull error for {:?}: {}", doc_type, e);
+            if !had_network_error {
+                match manager.check_signal_flags().await {
+                    Ok(true) => {
+                        // New signals found — pull remote changes
+                        for doc_type in DocType::all() {
+                            if let Err(e) = manager.pull_remote_changes(doc_type).await {
+                                warn!("OSS fast pull error for {:?}: {}", doc_type, e);
+                                had_network_error = true;
+                            }
+                            if let Err(e) = manager.write_doc_to_disk(doc_type) {
+                                warn!("OSS fast write_doc_to_disk error for {:?}: {}", doc_type, e);
+                            }
                         }
-                        if let Err(e) = manager.write_doc_to_disk(doc_type) {
-                            warn!("OSS fast write_doc_to_disk error for {:?}: {}", doc_type, e);
+
+                        // Emit status event (data changed)
+                        let now = Utc::now().to_rfc3339();
+                        manager.last_sync_at = Some(now);
+                        if let Some(handle) = &manager.app_handle {
+                            let status = manager.get_sync_status();
+                            let _ = handle.emit("oss-sync-status", &status);
                         }
                     }
-
-                    // Emit status event (data changed)
-                    let now = Utc::now().to_rfc3339();
-                    manager.last_sync_at = Some(now);
-                    if let Some(handle) = &manager.app_handle {
-                        let status = manager.get_sync_status();
-                        let _ = handle.emit("oss-sync-status", &status);
+                    Ok(false) => {} // No new signals, skip
+                    Err(e) => {
+                        warn!("Failed to check signal flags: {}", e);
+                        had_network_error = true;
                     }
                 }
-                Ok(false) => {} // No new signals, skip
-                Err(e) => warn!("Failed to check signal flags: {}", e),
+            }
+
+            // Update backoff state
+            if had_network_error {
+                consecutive_failures = consecutive_failures.saturating_add(1);
+                if consecutive_failures == 1 {
+                    warn!("Fast loop: network error, will back off");
+                }
+            } else {
+                if consecutive_failures > 0 {
+                    info!("Fast loop: network recovered after {} failures", consecutive_failures);
+                }
+                consecutive_failures = 0;
             }
         }
     }
@@ -1752,6 +1789,9 @@ impl OssSyncManager {
     /// - Persist snapshots and cursor
     /// - Compaction and signal cleanup
     pub async fn slow_loop(state: Arc<Mutex<Option<OssSyncManager>>>) {
+        let max_interval = Duration::from_secs(3600); // back off up to 1 hour
+        let mut consecutive_failures: u32 = 0;
+
         loop {
             let interval = {
                 let mut guard = state.lock().await;
@@ -1759,13 +1799,17 @@ impl OssSyncManager {
                     manager.syncing = true;
                     let _ = manager.refresh_token_if_needed().await;
 
+                    let mut had_network_error = false;
+
                     // 1. Full upload + pull for all DocTypes
                     for doc_type in DocType::all() {
                         if let Err(e) = manager.upload_local_changes(doc_type).await {
                             warn!("OSS slow upload error for {:?}: {}", doc_type, e);
+                            had_network_error = true;
                         }
                         if let Err(e) = manager.pull_remote_changes(doc_type).await {
                             warn!("OSS slow pull error for {:?}: {}", doc_type, e);
+                            had_network_error = true;
                         }
                         if let Err(e) = manager.write_doc_to_disk(doc_type) {
                             warn!("OSS slow write_doc_to_disk error for {:?}: {}", doc_type, e);
@@ -1793,18 +1837,20 @@ impl OssSyncManager {
                         warn!("Failed to persist sync cursor: {}", e);
                     }
 
-                    // 4. Compaction check
-                    for doc_type in DocType::all() {
-                        if manager.should_compact(doc_type).await {
-                            if let Err(e) = manager.compact(doc_type).await {
-                                warn!("Compaction failed for {:?}: {}", doc_type, e);
+                    // 4. Compaction check (skip if network is down)
+                    if !had_network_error {
+                        for doc_type in DocType::all() {
+                            if manager.should_compact(doc_type).await {
+                                if let Err(e) = manager.compact(doc_type).await {
+                                    warn!("Compaction failed for {:?}: {}", doc_type, e);
+                                }
                             }
                         }
-                    }
 
-                    // 5. Signal flag cleanup
-                    if let Err(e) = manager.cleanup_expired_signal_flags().await {
-                        warn!("Signal flag cleanup failed: {}", e);
+                        // 5. Signal flag cleanup
+                        if let Err(e) = manager.cleanup_expired_signal_flags().await {
+                            warn!("Signal flag cleanup failed: {}", e);
+                        }
                     }
 
                     manager.syncing = false;
@@ -1817,7 +1863,21 @@ impl OssSyncManager {
                         let _ = handle.emit("oss-sync-status", &status);
                     }
 
-                    manager.poll_interval
+                    // Backoff on network errors: 5m, 10m, 20m, 40m, 60m (capped)
+                    if had_network_error {
+                        consecutive_failures = consecutive_failures.saturating_add(1);
+                        if consecutive_failures == 1 {
+                            warn!("Slow loop: network error, will back off");
+                        }
+                        let backoff = manager.poll_interval * 2u32.pow(consecutive_failures.min(4));
+                        backoff.min(max_interval)
+                    } else {
+                        if consecutive_failures > 0 {
+                            info!("Slow loop: network recovered after {} failures", consecutive_failures);
+                        }
+                        consecutive_failures = 0;
+                        manager.poll_interval
+                    }
                 } else {
                     return;
                 }
