@@ -46,6 +46,20 @@ interface P2pEngineState {
   fetch: () => Promise<void>
 }
 
+function isEngineSnapshot(value: unknown): value is EngineSnapshot {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<EngineSnapshot>
+  return (
+    typeof candidate.status === 'string' &&
+    typeof candidate.streamHealth === 'string' &&
+    typeof candidate.uptimeSecs === 'number' &&
+    typeof candidate.restartCount === 'number' &&
+    Array.isArray(candidate.peers) &&
+    typeof candidate.syncedFiles === 'number' &&
+    typeof candidate.pendingFiles === 'number'
+  )
+}
+
 export const useP2pEngineStore = create<P2pEngineState>((set, get) => ({
   snapshot: DEFAULT_SNAPSHOT,
   initialized: false,
@@ -81,8 +95,10 @@ export const useP2pEngineStore = create<P2pEngineState>((set, get) => ({
     if (!isTauri()) return
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      const snapshot = await invoke<EngineSnapshot>('p2p_node_status')
-      set({ snapshot })
+      const snapshot = await invoke<EngineSnapshot | null>('p2p_node_status')
+      if (isEngineSnapshot(snapshot)) {
+        set({ snapshot })
+      }
     } catch (err) {
       console.warn('[P2pEngine] Failed to fetch engine snapshot:', err)
     }
@@ -91,7 +107,7 @@ export const useP2pEngineStore = create<P2pEngineState>((set, get) => ({
 
 // Sync p2pConnected to team-mode store so existing consumers keep working
 useP2pEngineStore.subscribe((state) => {
-  const connected = state.snapshot.status === 'connected'
+  const connected = state.snapshot?.status === 'connected'
   if (useTeamModeStore.getState().p2pConnected !== connected) {
     useTeamModeStore.setState({ p2pConnected: connected })
   }

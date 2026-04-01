@@ -198,7 +198,7 @@ export function TeamP2PConfig() {
 
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
-  const isConnected = engineSnapshot.status === 'connected' || (syncStatus?.connected ?? false)
+  const isConnected = engineSnapshot?.status === 'connected' || (syncStatus?.connected ?? false)
   const docTicket = syncStatus?.docTicket ?? null
 
   // Load device info, sync status, and reconnect on mount

@@ -21,6 +21,8 @@ const p2pEngineStoreMock = vi.hoisted(() => ({
 
 const teamMembersStoreMock = vi.hoisted(() => ({
   members: [],
+  currentNodeId: null,
+  loadCurrentNodeId: vi.fn(),
 }))
 
 vi.mock('@/stores/p2p-engine', () => ({
@@ -57,6 +59,8 @@ import { NodeStatusPopover } from '../NodeStatusPopover'
 describe('NodeStatusPopover', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    teamMembersStoreMock.currentNodeId = 'local-node'
+    teamMembersStoreMock.loadCurrentNodeId = vi.fn(async () => {})
     teamMembersStoreMock.members = [
       {
         nodeId: 'local-node',
