@@ -37,6 +37,7 @@ pub struct OssSyncManager {
     skills_doc: loro::LoroDoc,
     mcp_doc: loro::LoroDoc,
     knowledge_doc: loro::LoroDoc,
+    secrets_doc: loro::LoroDoc,
 
     team_id: String,
     node_id: String,
@@ -129,6 +130,7 @@ impl OssSyncManager {
             skills_doc: loro::LoroDoc::new(),
             mcp_doc: loro::LoroDoc::new(),
             knowledge_doc: loro::LoroDoc::new(),
+            secrets_doc: loro::LoroDoc::new(),
             team_id,
             node_id,
             team_secret,
@@ -219,12 +221,25 @@ impl OssSyncManager {
             "oss-sts",
         );
 
+        let timeout_config = aws_sdk_s3::config::timeout::TimeoutConfig::builder()
+            .operation_timeout(std::time::Duration::from_secs(30))
+            .operation_attempt_timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build();
+
+        let stalled_stream =
+            aws_sdk_s3::config::StalledStreamProtectionConfig::enabled()
+                .grace_period(std::time::Duration::from_secs(10))
+                .build();
+
         let s3_config = aws_sdk_s3::config::Builder::new()
             .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
             .endpoint_url(&config.endpoint)
             .region(aws_sdk_s3::config::Region::new(config.region.clone()))
             .credentials_provider(credentials)
             .force_path_style(force_path_style)
+            .timeout_config(timeout_config)
+            .stalled_stream_protection(stalled_stream)
             .build();
 
         aws_sdk_s3::Client::from_conf(s3_config)
@@ -566,6 +581,7 @@ impl OssSyncManager {
             DocType::Skills => &self.skills_doc,
             DocType::Mcp => &self.mcp_doc,
             DocType::Knowledge => &self.knowledge_doc,
+            DocType::Secrets => &self.secrets_doc,
         }
     }
 
@@ -574,6 +590,7 @@ impl OssSyncManager {
             DocType::Skills => &mut self.skills_doc,
             DocType::Mcp => &mut self.mcp_doc,
             DocType::Knowledge => &mut self.knowledge_doc,
+            DocType::Secrets => &mut self.secrets_doc,
         }
     }
 
@@ -1087,6 +1104,18 @@ impl OssSyncManager {
                         }
                     }
                 }
+            }
+        }
+
+        // After writing Secrets files to disk, reload the in-memory secrets map
+        // and notify the frontend so that env-var resolution picks up the latest values.
+        if doc_type == DocType::Secrets {
+            if let Some(app_handle) = &self.app_handle {
+                let shared_state = app_handle.state::<crate::commands::shared_secrets::SharedSecretsState>();
+                if let Err(e) = crate::commands::shared_secrets::load_all_secrets(&shared_state) {
+                    log::warn!("[OssSync] Failed to reload shared secrets: {}", e);
+                }
+                let _ = app_handle.emit("secrets-changed", ());
             }
         }
 
