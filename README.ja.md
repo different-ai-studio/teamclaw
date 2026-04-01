@@ -2,6 +2,8 @@
 
 OpenCode を基盤としたローカル AI エージェント。あなたの AI パートナー
 
+> **あなたの味方。ともに。**
+
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | 日本語 | [한국어](README.ko.md)
 
 ## 主な機能

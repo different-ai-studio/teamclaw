@@ -6,6 +6,8 @@
 
 Local AI agents built on OpenCode — your AI Ally for every role
 
+> **Your Ally. Together.**
+
 English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 ## UI Screenshots

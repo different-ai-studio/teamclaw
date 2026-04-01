@@ -2,6 +2,8 @@
 
 基於 OpenCode 打造的本地智慧體，你的 AI 搭檔
 
+> **你的搭檔，並肩同行。**
+
 [English](README.md) | [简体中文](README.zh-CN.md) | 繁體中文 | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 ## 功能特性
