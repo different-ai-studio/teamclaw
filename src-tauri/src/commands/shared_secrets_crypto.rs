@@ -21,6 +21,8 @@ pub struct SecretEntry {
     pub key: String,
     pub description: String,
     pub category: String,
+    #[serde(default)]
+    pub created_by: String,
     pub updated_by: String,
     pub updated_at: String,
 }
@@ -43,6 +45,7 @@ pub struct SecretMeta {
     pub key_id: String,
     pub description: String,
     pub category: String,
+    pub created_by: String,
     pub updated_by: String,
     pub updated_at: String,
 }
@@ -53,6 +56,7 @@ impl From<&SecretEntry> for SecretMeta {
             key_id: entry.key_id.clone(),
             description: entry.description.clone(),
             category: entry.category.clone(),
+            created_by: entry.created_by.clone(),
             updated_by: entry.updated_by.clone(),
             updated_at: entry.updated_at.clone(),
         }

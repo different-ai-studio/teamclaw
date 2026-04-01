@@ -25,7 +25,7 @@ import { listen } from '@tauri-apps/api/event'
 
 type UnifiedEntry =
   | { scope: 'personal'; key: string; description?: string; dirty?: boolean }
-  | { scope: 'team'; key: string; description: string; category: string; updatedBy: string; updatedAt: string; dirty?: boolean }
+  | { scope: 'team'; key: string; description: string; category: string; createdBy: string; updatedBy: string; updatedAt: string; dirty?: boolean }
 
 // ─── Add / Edit Dialog ──────────────────────────────────────────────────
 
@@ -247,11 +247,12 @@ function DeleteDialog({ open, onOpenChange, envVarKey, onConfirm }: DeleteDialog
 
 interface EnvVarRowProps {
   entry: UnifiedEntry
+  canDelete: boolean
   onEdit: (entry: UnifiedEntry) => void
   onDelete: (key: string) => void
 }
 
-function EnvVarRow({ entry, onEdit, onDelete }: EnvVarRowProps) {
+function EnvVarRow({ entry, canDelete, onEdit, onDelete }: EnvVarRowProps) {
   const { t } = useTranslation()
   const [revealed, setRevealed] = React.useState(false)
   const [revealedValue, setRevealedValue] = React.useState<string | null>(null)
@@ -344,15 +345,17 @@ function EnvVarRow({ entry, onEdit, onDelete }: EnvVarRowProps) {
         >
           <Pencil className="h-3.5 w-3.5" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-destructive hover:text-destructive"
-          onClick={() => onDelete(entry.key)}
-          title={t('settings.envVars.delete', 'Delete')}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        {canDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-destructive hover:text-destructive"
+            onClick={() => onDelete(entry.key)}
+            title={t('settings.envVars.delete', 'Delete')}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -365,6 +368,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const { envVars, isLoading: envLoading, loadEnvVars, setEnvVar, deleteEnvVar, hasChanges, setHasChanges } = useEnvVarsStore()
   const { secrets, isLoading: secretsLoading, loadSecrets, setSecret, deleteSecret, listenForChanges } = useSharedSecretsStore()
   const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
+  const myRole = useTeamMembersStore((s) => s.myRole)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const [addDialogOpen, setAddDialogOpen] = React.useState(false)
@@ -414,6 +418,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       key: s.keyId,
       description: s.description,
       category: s.category,
+      createdBy: s.createdBy,
       updatedBy: s.updatedBy,
       updatedAt: s.updatedAt,
       dirty: dirtyKeys.has(s.keyId) || hasSyncDirty,
@@ -433,11 +438,19 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const handleDelete = async () => {
     if (!deleteTarget) return
     if (deleteTarget.scope === 'team') {
-      await deleteSecret(deleteTarget.key)
+      await deleteSecret(deleteTarget.key, currentNodeId ?? '', myRole ?? '')
     } else {
       await deleteEnvVar(deleteTarget.key)
     }
     setDeleteTarget(null)
+  }
+
+  // Check if current user can delete a given entry
+  const canDeleteEntry = (entry: UnifiedEntry): boolean => {
+    if (entry.scope === 'personal') return true
+    if (myRole === 'owner') return true
+    if (entry.scope === 'team' && entry.createdBy === currentNodeId) return true
+    return false
   }
 
   const handleRestartOpenCode = async () => {
@@ -575,6 +588,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
               <EnvVarRow
                 key={`${entry.scope}-${entry.key}`}
                 entry={entry}
+                canDelete={canDeleteEntry(entry)}
                 onEdit={(e) => setEditingEntry(e)}
                 onDelete={() => setDeleteTarget(entry)}
               />

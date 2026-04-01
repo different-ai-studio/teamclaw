@@ -264,12 +264,25 @@ pub async fn shared_secret_set(
         dk.ok_or_else(|| "shared_secret_set: derived_key not set".to_string())?
     };
 
+    // Preserve created_by from existing entry on update; set to caller on create
+    let created_by = {
+        let secrets = state
+            .secrets
+            .lock()
+            .map_err(|e| format!("shared_secret_set: lock secrets: {e}"))?;
+        secrets
+            .get(&key_id)
+            .map(|e| e.created_by.clone())
+            .unwrap_or_else(|| node_id.clone())
+    };
+
     let now = chrono::Utc::now().to_rfc3339();
     let entry = SecretEntry {
         key_id: key_id.clone(),
         key: value,
         description,
         category,
+        created_by,
         updated_by: node_id,
         updated_at: now,
     };
@@ -290,14 +303,31 @@ pub async fn shared_secret_set(
     Ok(())
 }
 
-/// Delete a shared secret: remove file from disk and from the in-memory HashMap.
+/// Delete a shared secret: only the team Owner or the secret's creator can delete.
 #[tauri::command]
 pub async fn shared_secret_delete(
     app_handle: AppHandle,
     state: State<'_, SharedSecretsState>,
     key_id: String,
+    node_id: String,
+    role: String,
 ) -> Result<(), String> {
     validate_key_id(&key_id)?;
+
+    // Check permission: Owner can delete any; others can only delete their own
+    {
+        let secrets = state
+            .secrets
+            .lock()
+            .map_err(|e| format!("shared_secret_delete: lock secrets: {e}"))?;
+        if let Some(entry) = secrets.get(&key_id) {
+            let is_owner = role == "owner";
+            let is_creator = entry.created_by == node_id;
+            if !is_owner && !is_creator {
+                return Err("Permission denied: only the team owner or the secret creator can delete this secret".to_string());
+            }
+        }
+    }
 
     let team_dir = {
         let td = state

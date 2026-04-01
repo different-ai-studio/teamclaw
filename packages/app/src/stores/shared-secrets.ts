@@ -7,6 +7,7 @@ export interface SecretMeta {
   keyId: string
   description: string
   category: string
+  createdBy: string
   updatedBy: string
   updatedAt: string
 }
@@ -18,7 +19,7 @@ interface SharedSecretsState {
 
   loadSecrets: () => Promise<void>
   setSecret: (keyId: string, value: string, description: string, category: string, nodeId: string) => Promise<void>
-  deleteSecret: (keyId: string) => Promise<void>
+  deleteSecret: (keyId: string, nodeId: string, role: string) => Promise<void>
   clearError: () => void
   listenForChanges: () => Promise<() => void>
 }
@@ -43,9 +44,9 @@ export const useSharedSecretsStore = create<SharedSecretsState>((set) => ({
     }, { rethrow: true })
   },
 
-  deleteSecret: async (keyId: string) => {
+  deleteSecret: async (keyId: string, nodeId: string, role: string) => {
     await withAsync(set, async () => {
-      await invoke('shared_secret_delete', { keyId })
+      await invoke('shared_secret_delete', { keyId, nodeId, role })
       const secrets = await invoke<SecretMeta[]>('shared_secret_list')
       set({ secrets })
     }, { rethrow: true })
