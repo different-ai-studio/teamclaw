@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod opencode;
 pub mod oss_commands;
 pub mod shared_secrets_crypto;
+pub mod shared_secrets;
 pub mod oss_sync;
 pub mod oss_types;
 pub mod p2p_state;
