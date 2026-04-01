@@ -1660,7 +1660,15 @@ impl OssSyncManager {
         loop {
             tokio::time::sleep(fast_interval).await;
 
-            let mut guard = state.lock().await;
+            // Use try_lock: if slow_loop holds the lock, skip this cycle
+            // rather than blocking. The slow_loop does a full sync anyway.
+            let mut guard = match state.try_lock() {
+                Ok(g) => g,
+                Err(_) => {
+                    info!("Fast loop skipped: slow loop is running");
+                    continue;
+                }
+            };
             let manager = match guard.as_mut() {
                 Some(m) => m,
                 None => return,
