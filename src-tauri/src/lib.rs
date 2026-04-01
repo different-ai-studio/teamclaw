@@ -283,6 +283,7 @@ pub fn run() {
             wvm
         })
         .manage(<commands::p2p_state::IrohState>::default())
+        .manage(<commands::p2p_state::SyncEngineState>::default())
         .manage(commands::spotlight::SpotlightState::default())
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
         .manage(commands::oss_sync::OssSyncState::default())
@@ -449,6 +450,8 @@ pub fn run() {
             commands::team_p2p::p2p_reconnect,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_rotate_ticket,
+            #[cfg(feature = "p2p")]
+            commands::team_p2p::p2p_node_status,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_sync_status,
             #[cfg(feature = "p2p")]

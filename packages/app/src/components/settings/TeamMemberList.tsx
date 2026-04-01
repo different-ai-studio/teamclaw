@@ -3,6 +3,8 @@ import { UserMinus, Shield, Pencil, Eye, UserPlus, Clock, UserCheck } from 'luci
 import { Button } from '@/components/ui/button'
 import { useTeamMembersStore } from '../../stores/team-members'
 import { AddMemberInput } from './AddMemberInput'
+import { useP2pEngineStore, type PeerConnection } from '@/stores/p2p-engine'
+import { cn } from '@/lib/utils'
 
 function truncateId(id: string): string {
   if (id.length <= 16) return id
@@ -34,6 +36,38 @@ function RoleBadge({ role }: { role?: string }) {
   )
 }
 
+function ConnectionDot({ connection }: { connection: PeerConnection }) {
+  const colors: Record<PeerConnection, string> = {
+    active: 'bg-green-500',
+    stale: 'bg-amber-500',
+    lost: 'bg-red-500',
+    unknown: 'bg-gray-400',
+  }
+  const labels: Record<PeerConnection, string> = {
+    active: 'Online',
+    stale: 'Unstable',
+    lost: 'Offline',
+    unknown: 'Unknown',
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={cn('h-2 w-2 rounded-full inline-block', colors[connection])} />
+      {labels[connection] && (
+        <span className="text-[10px] text-muted-foreground">{labels[connection]}</span>
+      )}
+    </span>
+  )
+}
+
+function LocalDeviceBadge() {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="h-2 w-2 rounded-full inline-block bg-blue-500" />
+      <span className="text-[10px] text-muted-foreground">This device</span>
+    </span>
+  )
+}
+
 export function TeamMemberList() {
   const {
     members,
@@ -50,11 +84,16 @@ export function TeamMemberList() {
     approveApplication,
     listenForApplications,
     cleanupApplicationsListener,
+    currentNodeId,
+    loadCurrentNodeId,
   } = useTeamMembersStore()
+
+  const enginePeers = useP2pEngineStore((s) => s.snapshot.peers)
 
   useEffect(() => {
     loadMembers()
     loadMyRole()
+    loadCurrentNodeId()
     listenForApplications()
     return () => cleanupApplicationsListener()
   }, [])
@@ -132,6 +171,11 @@ export function TeamMemberList() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
+                  {(() => {
+                    if (member.nodeId === currentNodeId) return <LocalDeviceBadge />
+                    const peer = enginePeers.find((p) => p.nodeId === member.nodeId)
+                    return <ConnectionDot connection={peer?.connection ?? 'unknown'} />
+                  })()}
                   <p className="text-sm font-medium truncate">
                     {member.name || member.hostname}
                   </p>

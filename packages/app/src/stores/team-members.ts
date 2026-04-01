@@ -23,9 +23,12 @@ interface TeamMembersState {
   error: string | null
   applications: TeamApplication[]
   _unlistenApplications: (() => void) | null
+  /** This device's P2P node ID, loaded once and shared across components. */
+  currentNodeId: string | null
 
   loadMembers: () => Promise<void>
   loadMyRole: () => Promise<void>
+  loadCurrentNodeId: () => Promise<void>
   addMember: (member: TeamMember) => Promise<void>
   removeMember: (nodeId: string) => Promise<void>
   updateMemberRole: (nodeId: string, role: MemberRole) => Promise<void>
@@ -42,6 +45,17 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
   error: null,
   applications: [],
   _unlistenApplications: null,
+  currentNodeId: null,
+
+  loadCurrentNodeId: async () => {
+    if (get().currentNodeId) return
+    try {
+      const info = await invoke<{ nodeId: string }>('get_device_info')
+      set({ currentNodeId: info.nodeId })
+    } catch {
+      // P2P node not running yet — will retry next call
+    }
+  },
 
   loadMembers: async () => {
     set({ loading: true, error: null })

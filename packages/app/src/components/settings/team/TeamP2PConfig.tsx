@@ -23,6 +23,7 @@ import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { toast } from 'sonner'
 import { buildConfig, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from '@/stores/team-mode'
+import { useP2pEngineStore } from '@/stores/p2p-engine'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
@@ -142,6 +143,8 @@ function TeamApiKeyCard() {
 export function TeamP2PConfig() {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const engineSnapshot = useP2pEngineStore((s) => s.snapshot)
+  const engineInit = useP2pEngineStore((s) => s.init)
 
   const teamMembersStore = useTeamMembersStore()
 
@@ -195,7 +198,7 @@ export function TeamP2PConfig() {
 
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
-  const isConnected = syncStatus?.connected ?? false
+  const isConnected = engineSnapshot.status === 'connected' || (syncStatus?.connected ?? false)
   const docTicket = syncStatus?.docTicket ?? null
 
   // Load device info, sync status, and reconnect on mount
@@ -206,7 +209,6 @@ export function TeamP2PConfig() {
       setSyncStatus(status)
       useTeamModeStore.setState({
         myRole: (status?.role as 'owner' | 'editor' | 'viewer') ?? null,
-        p2pConnected: status?.connected ?? false,
       })
     } catch {
       // may not be available
@@ -219,24 +221,21 @@ export function TeamP2PConfig() {
       return
     }
     let cancelled = false
-    setReconnecting(true)
     ;(async () => {
-      // Retry loop: P2P node may still be initializing
-      for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
-        try {
-          const info = await tauriInvoke<DeviceInfo>('get_device_info')
-          setDeviceInfo(info)
-          await tauriInvoke('p2p_reconnect')
-          break // success
-        } catch {
-          // P2P node not ready yet, wait and retry
-          await new Promise((r) => setTimeout(r, 1500))
-        }
+      // Load device info
+      try {
+        const info = await tauriInvoke<DeviceInfo>('get_device_info')
+        if (!cancelled) setDeviceInfo(info)
+      } catch {
+        // ignore
       }
-      if (!cancelled) {
-        await loadSyncStatus()
-        setReconnecting(false)
-      }
+
+      // Load sync status — reconnect is handled by useP2pAutoReconnect in App.tsx
+      await loadSyncStatus()
+      await engineInit()
+      // Always fetch latest peer snapshot (init() is a no-op when already initialized)
+      await useP2pEngineStore.getState().fetch()
+      if (!cancelled) setReconnecting(false)
     })()
     return () => { cancelled = true }
   }, [loadSyncStatus])

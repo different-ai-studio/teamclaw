@@ -25,6 +25,25 @@ const workspaceStoreMocks = vi.hoisted(() => ({
   activeTab: 'tasks',
 }))
 
+const teamModeStoreMocks = vi.hoisted(() => ({
+  teamMode: false,
+  p2pConnected: false,
+}))
+
+const teamOssStoreMocks = vi.hoisted(() => ({
+  configured: false,
+  connected: false,
+}))
+
+const p2pEngineStoreMocks = vi.hoisted(() => ({
+  initialized: true,
+  snapshot: {
+    status: 'disconnected',
+    streamHealth: 'dead',
+  },
+  init: vi.fn(async () => () => {}),
+}))
+
 // Mock i18n
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -83,6 +102,21 @@ vi.mock('@/stores/tabs', () => ({
   ),
 }))
 
+vi.mock('@/stores/team-mode', () => ({
+  useTeamModeStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel(teamModeStoreMocks as unknown as Record<string, unknown>),
+}))
+
+vi.mock('@/stores/team-oss', () => ({
+  useTeamOssStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel(teamOssStoreMocks as unknown as Record<string, unknown>),
+}))
+
+vi.mock('@/stores/p2p-engine', () => ({
+  useP2pEngineStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel(p2pEngineStoreMocks as unknown as Record<string, unknown>),
+}))
+
 // Mock sidebar UI components
 vi.mock('@/lib/ui-variant', () => ({
   isWorkspaceUIVariant: () => uiVariantMocks.workspaceShell,
@@ -95,7 +129,7 @@ vi.mock('@/components/ui/sidebar', () => ({
   SidebarGroup: ({ children }: any) => <div>{children}</div>,
   SidebarHeader: ({ children }: any) => <div>{children}</div>,
   SidebarMenu: ({ children }: any) => <div>{children}</div>,
-  SidebarMenuButton: ({ children, onClick, ...props }: any) => (
+  SidebarMenuButton: ({ children, onClick, isActive: _isActive, ...props }: any) => (
     <button onClick={onClick} {...props}>{children}</button>
   ),
   SidebarMenuItem: ({ children }: any) => <div>{children}</div>,
@@ -134,6 +168,10 @@ vi.mock('@/components/ui/command', () => ({
   CommandItem: () => null,
 }))
 
+vi.mock('@/components/NodeStatusPopover', () => ({
+  NodeStatusPopover: ({ children }: any) => <div>{children}</div>,
+}))
+
 import { AppSidebar } from '@/components/app-sidebar'
 
 describe('AppSidebar', () => {
@@ -149,6 +187,16 @@ describe('AppSidebar', () => {
     workspaceStoreMocks.activeTab = 'tasks'
     workspaceStoreMocks.openPanel = vi.fn()
     workspaceStoreMocks.closePanel = vi.fn()
+    teamModeStoreMocks.teamMode = false
+    teamModeStoreMocks.p2pConnected = false
+    teamOssStoreMocks.configured = false
+    teamOssStoreMocks.connected = false
+    p2pEngineStoreMocks.initialized = true
+    p2pEngineStoreMocks.snapshot = {
+      status: 'disconnected',
+      streamHealth: 'dead',
+    }
+    p2pEngineStoreMocks.init = vi.fn(async () => () => {})
   })
 
   it('renders session titles in sidebar', () => {
@@ -244,5 +292,47 @@ describe('AppSidebar', () => {
     render(<AppSidebar />)
     screen.getByText('Files').closest('button')!.click()
     expect(closePanelFn).toHaveBeenCalled()
+  })
+
+  it('shows connected P2P icon state from engine snapshot', () => {
+    teamModeStoreMocks.teamMode = true
+    p2pEngineStoreMocks.snapshot = {
+      status: 'connected',
+      streamHealth: 'healthy',
+    }
+
+    render(<AppSidebar />)
+
+    const icon = screen.getByTestId('workspace-p2p-icon')
+    expect(icon.getAttribute('data-p2p-status')).toBe('connected')
+    expect(icon.getAttribute('class')).toContain('text-blue-500')
+  })
+
+  it('shows degraded P2P icon state from engine snapshot', () => {
+    teamModeStoreMocks.teamMode = true
+    p2pEngineStoreMocks.snapshot = {
+      status: 'connected',
+      streamHealth: 'restarting',
+    }
+
+    render(<AppSidebar />)
+
+    const icon = screen.getByTestId('workspace-p2p-icon')
+    expect(icon.getAttribute('data-p2p-status')).toBe('degraded')
+    expect(icon.getAttribute('class')).toContain('text-amber-500')
+  })
+
+  it('shows disconnected P2P icon state when engine is disconnected', () => {
+    teamModeStoreMocks.teamMode = true
+    p2pEngineStoreMocks.snapshot = {
+      status: 'disconnected',
+      streamHealth: 'dead',
+    }
+
+    render(<AppSidebar />)
+
+    const icon = screen.getByTestId('workspace-p2p-icon')
+    expect(icon.getAttribute('data-p2p-status')).toBe('disconnected')
+    expect(icon.getAttribute('class')).toContain('text-muted-foreground')
   })
 })
