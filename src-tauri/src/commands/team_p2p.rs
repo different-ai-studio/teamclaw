@@ -1467,10 +1467,12 @@ fn start_sync_tasks(
             let owner_node_id_a = owner_node_id.clone();
             let app_handle_a = app_handle.clone();
             let engine_a = engine.clone();
+            let manifest_lock_a = manifest_lock.clone();
             let task_a = tokio::spawn(async move {
                 doc_to_disk_watcher(
                     doc_a, blobs_a, team_dir_a, suppressed_a,
                     my_node_id_a, owner_node_id_a, app_handle_a, engine_a,
+                    manifest_lock_a,
                 ).await;
                 "doc_to_disk"
             });
@@ -1484,10 +1486,12 @@ fn start_sync_tasks(
             let my_node_id_b = my_node_id.clone();
             let owner_node_id_b = owner_node_id.clone();
             let engine_b = engine.clone();
+            let manifest_lock_b = manifest_lock.clone();
             let task_b = tokio::spawn(async move {
                 disk_to_doc_watcher(
                     doc_b, blobs_b, author, team_dir_b, suppressed_b,
                     my_role_b, my_node_id_b, owner_node_id_b, engine_b,
+                    manifest_lock_b,
                 ).await;
                 "disk_to_doc"
             });
@@ -1618,6 +1622,7 @@ async fn doc_to_disk_watcher(
     owner_node_id: Option<String>,
     app_handle: Option<tauri::AppHandle>,
     engine: Arc<Mutex<SyncEngine>>,
+    manifest_lock: Arc<RwLock<()>>,
 ) {
     use futures_lite::StreamExt;
     use iroh_docs::engine::LiveEvent;
@@ -1654,9 +1659,12 @@ async fn doc_to_disk_watcher(
     }
 
     // Pre-load role map from _team/members.json
-    if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
-        for member in &manifest.members {
-            node_to_role.insert(member.node_id.clone(), member.role.clone());
+    {
+        let _guard = manifest_lock.read().await;
+        if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+            for member in &manifest.members {
+                node_to_role.insert(member.node_id.clone(), member.role.clone());
+            }
         }
     }
 
@@ -1767,11 +1775,14 @@ async fn doc_to_disk_watcher(
                                     leaving_node_id
                                 );
                                 // Refresh role cache
-                                if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
-                                    node_to_role.clear();
-                                    for member in &manifest.members {
-                                        node_to_role
-                                            .insert(member.node_id.clone(), member.role.clone());
+                                {
+                                    let _guard = manifest_lock.read().await;
+                                    if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                                        node_to_role.clear();
+                                        for member in &manifest.members {
+                                            node_to_role
+                                                .insert(member.node_id.clone(), member.role.clone());
+                                        }
                                     }
                                 }
                                 // Emit Tauri event so the owner's UI can show a notification
@@ -1840,7 +1851,11 @@ async fn doc_to_disk_watcher(
                         let file_path = Path::new(&team_dir).join(&key);
                         write_and_suppress(&file_path, &content, &suppressed_paths).await;
                         // Refresh role cache
-                        if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                        let manifest_opt = {
+                            let _guard = manifest_lock.read().await;
+                            read_members_manifest(&team_dir).ok().flatten()
+                        };
+                        if let Some(manifest) = manifest_opt {
                             node_to_role.clear();
                             for member in &manifest.members {
                                 node_to_role.insert(member.node_id.clone(), member.role.clone());
@@ -1995,16 +2010,19 @@ async fn doc_to_disk_watcher(
                     if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
                         let file_path = Path::new(&team_dir).join(&key);
                         write_and_suppress(&file_path, &content, &suppressed_paths).await;
-                        if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
-                            node_to_role.clear();
-                            for member in &manifest.members {
-                                node_to_role
-                                    .insert(member.node_id.clone(), member.role.clone());
-                            }
-                            if let Some(ref app) = app_handle {
-                                use tauri::Emitter;
-                                let _ =
-                                    app.emit("team:members-changed", serde_json::json!({}));
+                        {
+                            let _guard = manifest_lock.read().await;
+                            if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                                node_to_role.clear();
+                                for member in &manifest.members {
+                                    node_to_role
+                                        .insert(member.node_id.clone(), member.role.clone());
+                                }
+                                if let Some(ref app) = app_handle {
+                                    use tauri::Emitter;
+                                    let _ =
+                                        app.emit("team:members-changed", serde_json::json!({}));
+                                }
                             }
                         }
                     }
@@ -2066,6 +2084,7 @@ async fn disk_to_doc_watcher(
     my_node_id: String,
     owner_node_id: Option<String>,
     engine: Arc<Mutex<SyncEngine>>,
+    manifest_lock: Arc<RwLock<()>>,
 ) {
     use notify::{RecursiveMode, Watcher};
 
@@ -2126,6 +2145,7 @@ async fn disk_to_doc_watcher(
 
                             // Refresh my_role if the members manifest changed
                             if rel_path == "_team/members.json" {
+                                let _guard = manifest_lock.read().await;
                                 if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
                                     if let Some(me) =
                                         manifest.members.iter().find(|m| m.node_id == my_node_id)
