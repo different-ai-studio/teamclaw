@@ -72,8 +72,18 @@ vi.mock('@/stores/team-mode', () => ({
 }))
 
 vi.mock('@/stores/p2p-engine', () => ({
-  useP2pEngineStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel(p2pEngineStoreMocks as unknown as Record<string, unknown>),
+  useP2pEngineStore: Object.assign(
+    (sel: (s: Record<string, unknown>) => unknown) =>
+      sel(p2pEngineStoreMocks as unknown as Record<string, unknown>),
+    {
+      getState: () => ({
+        snapshot: p2pEngineStoreMocks.snapshot,
+        initialized: p2pEngineStoreMocks.initialized,
+        init: p2pEngineStoreMocks.init,
+        fetch: vi.fn(async () => {}),
+      }),
+    },
+  ),
 }))
 
 vi.mock('@/stores/team-members', () => ({

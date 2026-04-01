@@ -94,7 +94,7 @@ function WeComSetupWizard({
   const [secret, setSecret] = React.useState(existingSecret || '')
   const [method, setMethod] = React.useState<'qr' | 'manual' | null>(null)
   const [qrAuthUrl, setQrAuthUrl] = React.useState<string | null>(null)
-  const [_qrScode, setQrScode] = React.useState<string | null>(null)
+  const [, setQrScode] = React.useState<string | null>(null)
   const [qrLoading, setQrLoading] = React.useState(false)
   const [qrError, setQrError] = React.useState<string>('')
   const [scanStatus, setScanStatus] = React.useState<string>('')
