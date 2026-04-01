@@ -1327,8 +1327,17 @@ async fn run_sync_coordinator(
                             }
                         }
                     }
-                    Some(Err(_)) | None => {
-                        // Stream ended or error — break out
+                    Some(Err(e)) => {
+                        let err_str = e.to_string();
+                        if err_str.contains("closed") || err_str.contains("shutdown") {
+                            eprintln!("[P2P][sync] Event stream closed (fatal): {}", e);
+                            break;
+                        }
+                        // Transient error — keep listening
+                        eprintln!("[P2P][sync] Event stream error (transient): {}", e);
+                    }
+                    None => {
+                        // Stream ended — fatal
                         eprintln!("[P2P][sync] Event stream ended");
                         break;
                     }
@@ -1672,11 +1681,26 @@ async fn doc_to_disk_watcher(
     // When ContentReady fires we do an O(1) lookup instead of scanning all entries.
     let mut pending_content: HashMap<iroh_blobs::Hash, (String, String)> = HashMap::new();
 
+    let mut consecutive_errors: u32 = 0;
+
     while let Some(event_result) = events.next().await {
         let event = match event_result {
-            Ok(e) => e,
+            Ok(e) => {
+                consecutive_errors = 0;
+                e
+            }
             Err(e) => {
-                eprintln!("[P2P][doc→disk] Event stream error: {}", e);
+                consecutive_errors += 1;
+                let err_str = e.to_string();
+                // Treat repeated errors or "closed" errors as fatal — let supervisor restart
+                if consecutive_errors >= 3 || err_str.contains("closed") || err_str.contains("shutdown") {
+                    eprintln!(
+                        "[P2P][doc→disk] Fatal event stream error (count={}): {}",
+                        consecutive_errors, e
+                    );
+                    break;
+                }
+                eprintln!("[P2P][doc→disk] Transient event stream error: {}", e);
                 continue;
             }
         };
