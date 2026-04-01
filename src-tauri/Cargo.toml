@@ -69,7 +69,7 @@ anyhow = "1"
 pulldown-cmark = "0.13"
 sha2 = "0.10"
 walkdir = "2"
-tantivy = "0.22"
+tantivy = "0.26"
 # Tantivy / zip pull in `zstd` → `zstd-sys`. On macOS, transitive native link metadata can fail to
 # reach the final `teamclaw` binary (undefined `ZSTD_*`), especially if `ZSTD_SYS_USE_PKG_CONFIG`
 # picks a wrong-arch Homebrew lib. A direct `zstd-sys` dep unifies features and links bundled libzstd.
