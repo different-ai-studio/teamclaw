@@ -3206,6 +3206,9 @@ pub async fn p2p_create_team(
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
     let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
+    // TODO: init_shared_secrets for P2P mode once a team_secret is established.
+    // P2P mode currently does not pass a team_secret through create_team/join_team_drive.
+    // When P2P gets a team_secret, add an init_shared_secrets call here.
     create_team(
         node,
         &team_dir,
