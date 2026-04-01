@@ -238,6 +238,23 @@ impl CronStorage {
         self.persist_jobs().await;
     }
 
+    /// Set only `next_run_at` (e.g. when filling in a missing schedule or re-enabling a job).
+    /// Does not touch `last_run_at`.
+    pub async fn update_next_run_at(
+        &self,
+        job_id: &str,
+        next_run: Option<chrono::DateTime<chrono::Utc>>,
+    ) {
+        {
+            let mut data = self.data.write().await;
+            if let Some(job) = data.jobs.iter_mut().find(|j| j.id == job_id) {
+                job.next_run_at = next_run;
+                job.updated_at = chrono::Utc::now();
+            }
+        }
+        self.persist_jobs().await;
+    }
+
     // ==================== Run History ====================
 
     /// Append a run record for a job

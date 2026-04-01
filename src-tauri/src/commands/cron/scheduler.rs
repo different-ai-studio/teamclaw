@@ -1,4 +1,5 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
+use chrono_tz::Tz;
 use cron::Schedule as CronScheduleParser;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -291,7 +292,7 @@ impl CronScheduler {
                     // Compute next_run_at if missing
                     if let Some(next) = self.compute_next_run(&job, None) {
                         self.storage
-                            .update_run_timestamps(&job.id, now, Some(next))
+                            .update_next_run_at(&job.id, Some(next))
                             .await;
                         false
                     } else {
@@ -853,15 +854,50 @@ impl CronScheduler {
                 }
             }
             ScheduleKind::Cron => {
-                // Cron expression: find the next occurrence
+                // Cron expression: find the next occurrence.
+                // The `cron` crate interprets fields in the timezone of the `DateTime` passed to
+                // `after()` (see `schedule.rs` next_after). Using UTC made `30 18 * * *` mean
+                // 18:30 UTC, not local wall time — fix by defaulting to system local time (Unix
+                // crontab semantics). Optional `schedule.tz` is an IANA override (e.g. Asia/Shanghai).
                 if let Some(expr) = &job.schedule.expr {
                     // The `cron` crate expects 7-field format (sec min hour dayofmonth month dayofweek year)
                     // Convert 5-field to 7-field by adding seconds(0) and year(*)
                     let full_expr = format!("0 {} *", expr);
                     match CronScheduleParser::from_str(&full_expr) {
                         Ok(schedule) => {
-                            // Get the next occurrence after the given time
-                            schedule.after(&after).next()
+                            let tz_opt = job
+                                .schedule
+                                .tz
+                                .as_ref()
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                                .and_then(|s| match Tz::from_str(s) {
+                                    Ok(tz) => Some(tz),
+                                    Err(_) => {
+                                        eprintln!(
+                                            "[Cron] Unknown IANA timezone '{}', using system local",
+                                            s
+                                        );
+                                        None
+                                    }
+                                });
+
+                            match tz_opt {
+                                Some(tz) => {
+                                    let after_tz = after.with_timezone(&tz);
+                                    schedule
+                                        .after(&after_tz)
+                                        .next()
+                                        .map(|dt| dt.with_timezone(&Utc))
+                                }
+                                None => {
+                                    let after_local = after.with_timezone(&Local);
+                                    schedule
+                                        .after(&after_local)
+                                        .next()
+                                        .map(|dt| dt.with_timezone(&Utc))
+                                }
+                            }
                         }
                         Err(e) => {
                             eprintln!("[Cron] Invalid cron expression '{}': {}", expr, e);
@@ -1125,5 +1161,368 @@ impl CronScheduler {
             .find(|m| m["info"]["role"].as_str() == Some("assistant"))
             .map(Self::extract_text_parts)
             .filter(|t| !t.is_empty())
+    }
+}
+
+// ==================== Unit Tests ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, TimeZone, Timelike};
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    fn make_scheduler() -> CronScheduler {
+        CronScheduler::new(CronStorage::new())
+    }
+
+    fn make_job(schedule: CronSchedule) -> CronJob {
+        let now = Utc::now();
+        CronJob {
+            id: "test-id".to_string(),
+            name: "Test Job".to_string(),
+            description: None,
+            enabled: true,
+            schedule,
+            payload: CronPayload {
+                message: "test".to_string(),
+                model: None,
+                timeout_seconds: None,
+                use_worktree: None,
+                worktree_branch: None,
+            },
+            delivery: None,
+            delete_after_run: false,
+            created_at: now,
+            updated_at: now,
+            last_run_at: None,
+            next_run_at: None,
+        }
+    }
+
+    fn make_delivery(channel: DeliveryChannel, to: &str) -> CronDelivery {
+        CronDelivery {
+            mode: DeliveryMode::Announce,
+            channel,
+            to: to.to_string(),
+            best_effort: false,
+        }
+    }
+
+    // ── compute_next_run: At ─────────────────────────────────────────────────
+
+    #[test]
+    fn at_future_returns_that_timestamp() {
+        let scheduler = make_scheduler();
+        let future = Utc::now() + Duration::hours(1);
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::At,
+            at: Some(future.to_rfc3339()),
+            every_ms: None,
+            expr: None,
+            tz: None,
+        });
+        let result = scheduler.compute_next_run(&job, None);
+        // Allow up to 1 second of rounding drift from to_rfc3339/parse
+        let diff = (result.unwrap() - future).num_seconds().abs();
+        assert!(diff <= 1, "Expected timestamp close to future, got diff={}", diff);
+    }
+
+    #[test]
+    fn at_past_returns_none() {
+        let scheduler = make_scheduler();
+        let past = Utc::now() - Duration::hours(1);
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::At,
+            at: Some(past.to_rfc3339()),
+            every_ms: None,
+            expr: None,
+            tz: None,
+        });
+        assert!(scheduler.compute_next_run(&job, None).is_none());
+    }
+
+    #[test]
+    fn at_missing_field_returns_none() {
+        let scheduler = make_scheduler();
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::At,
+            at: None,
+            every_ms: None,
+            expr: None,
+            tz: None,
+        });
+        assert!(scheduler.compute_next_run(&job, None).is_none());
+    }
+
+    #[test]
+    fn at_invalid_timestamp_returns_none() {
+        let scheduler = make_scheduler();
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::At,
+            at: Some("not-a-date".to_string()),
+            every_ms: None,
+            expr: None,
+            tz: None,
+        });
+        assert!(scheduler.compute_next_run(&job, None).is_none());
+    }
+
+    // ── compute_next_run: Every ──────────────────────────────────────────────
+
+    #[test]
+    fn every_adds_interval_to_after() {
+        let scheduler = make_scheduler();
+        let interval_ms: u64 = 30_000;
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Every,
+            at: None,
+            every_ms: Some(interval_ms),
+            expr: None,
+            tz: None,
+        });
+        let anchor = Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap();
+        let result = scheduler.compute_next_run(&job, Some(anchor)).unwrap();
+        let expected = anchor + Duration::milliseconds(interval_ms as i64);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn every_missing_interval_returns_none() {
+        let scheduler = make_scheduler();
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Every,
+            at: None,
+            every_ms: None,
+            expr: None,
+            tz: None,
+        });
+        assert!(scheduler.compute_next_run(&job, None).is_none());
+    }
+
+    // ── compute_next_run: Cron ───────────────────────────────────────────────
+
+    #[test]
+    fn cron_daily_at_9am_returns_next_occurrence() {
+        let scheduler = make_scheduler();
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Cron,
+            at: None,
+            every_ms: None,
+            expr: Some("0 9 * * *".to_string()),
+            tz: Some("UTC".to_string()),
+        });
+        // Anchor: 2024-06-01 08:00 UTC — next 09:00 should be the same day
+        let anchor = Utc.with_ymd_and_hms(2024, 6, 1, 8, 0, 0).unwrap();
+        let result = scheduler.compute_next_run(&job, Some(anchor)).unwrap();
+        assert_eq!(result.hour(), 9);
+        assert_eq!(result.minute(), 0);
+        assert_eq!(result.second(), 0);
+        // Must be in the future relative to anchor
+        assert!(result > anchor);
+    }
+
+    #[test]
+    fn cron_every_5_minutes_is_within_5_minutes() {
+        let scheduler = make_scheduler();
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Cron,
+            at: None,
+            every_ms: None,
+            expr: Some("*/5 * * * *".to_string()),
+            tz: Some("UTC".to_string()),
+        });
+        let anchor = Utc.with_ymd_and_hms(2024, 6, 1, 12, 1, 0).unwrap();
+        let result = scheduler.compute_next_run(&job, Some(anchor)).unwrap();
+        let diff_secs = (result - anchor).num_seconds();
+        assert!(diff_secs > 0 && diff_secs <= 300, "Expected ≤5 min gap, got {}s", diff_secs);
+    }
+
+    #[test]
+    fn cron_weekday_expression_fires_on_correct_days() {
+        let scheduler = make_scheduler();
+        // The `cron` crate uses Quartz notation: 1=Sun, 2=Mon, ..., 6=Fri, 7=Sat.
+        // "0 10 * * 2-6" — 10:00 on Mon-Fri.
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Cron,
+            at: None,
+            every_ms: None,
+            expr: Some("0 10 * * 2-6".to_string()),
+            tz: Some("UTC".to_string()),
+        });
+        // Anchor: 2024-06-02 (Sunday) 11:00 UTC
+        let anchor = Utc.with_ymd_and_hms(2024, 6, 2, 11, 0, 0).unwrap();
+        let result = scheduler.compute_next_run(&job, Some(anchor)).unwrap();
+        // Next Mon-Fri fire should be Monday 2024-06-03 10:00 UTC
+        let expected = Utc.with_ymd_and_hms(2024, 6, 3, 10, 0, 0).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn cron_invalid_expression_returns_none() {
+        let scheduler = make_scheduler();
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Cron,
+            at: None,
+            every_ms: None,
+            expr: Some("not a cron expr".to_string()),
+            tz: None,
+        });
+        assert!(scheduler.compute_next_run(&job, None).is_none());
+    }
+
+    #[test]
+    fn cron_missing_expr_returns_none() {
+        let scheduler = make_scheduler();
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Cron,
+            at: None,
+            every_ms: None,
+            expr: None,
+            tz: None,
+        });
+        assert!(scheduler.compute_next_run(&job, None).is_none());
+    }
+
+    #[test]
+    fn cron_with_named_timezone_returns_correct_utc_time() {
+        let scheduler = make_scheduler();
+        // "0 9 * * *" in Asia/Shanghai (UTC+8) should next fire at 01:00 UTC
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Cron,
+            at: None,
+            every_ms: None,
+            expr: Some("0 9 * * *".to_string()),
+            tz: Some("Asia/Shanghai".to_string()),
+        });
+        // Anchor: 2024-06-01 00:30 UTC (08:30 Shanghai — before 09:00)
+        let anchor = Utc.with_ymd_and_hms(2024, 6, 1, 0, 30, 0).unwrap();
+        let result = scheduler.compute_next_run(&job, Some(anchor)).unwrap();
+        // 09:00 Shanghai = 01:00 UTC
+        assert_eq!(result.hour(), 1);
+        assert_eq!(result.minute(), 0);
+    }
+
+    #[test]
+    fn cron_unknown_timezone_falls_back_without_panic() {
+        let scheduler = make_scheduler();
+        let job = make_job(CronSchedule {
+            kind: ScheduleKind::Cron,
+            at: None,
+            every_ms: None,
+            expr: Some("0 9 * * *".to_string()),
+            tz: Some("Not/AReal_Zone".to_string()),
+        });
+        // Should not panic; falls back to system local — just assert it returns Some
+        let result = scheduler.compute_next_run(&job, None);
+        assert!(result.is_some(), "Expected a fallback next-run time for unknown timezone");
+    }
+
+    // ── delivery_to_session_key ───────────────────────────────────────────────
+
+    #[test]
+    fn discord_dm_prefix_produces_correct_key() {
+        let d = make_delivery(DeliveryChannel::Discord, "dm:123456");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("discord:dm:123456".to_string())
+        );
+    }
+
+    #[test]
+    fn discord_channel_prefix_produces_correct_key() {
+        let d = make_delivery(DeliveryChannel::Discord, "channel:789");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("discord:channel:789".to_string())
+        );
+    }
+
+    #[test]
+    fn discord_raw_id_defaults_to_dm() {
+        let d = make_delivery(DeliveryChannel::Discord, "999");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("discord:dm:999".to_string())
+        );
+    }
+
+    #[test]
+    fn feishu_produces_correct_key() {
+        let d = make_delivery(DeliveryChannel::Feishu, "oc_abc123");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("feishu:oc_abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn email_produces_none() {
+        let d = make_delivery(DeliveryChannel::Email, "user@example.com");
+        assert!(CronScheduler::delivery_to_session_key(&d).is_none());
+    }
+
+    #[test]
+    fn kook_dm_prefix_produces_correct_key() {
+        let d = make_delivery(DeliveryChannel::Kook, "dm:user1");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("kook:dm:user1".to_string())
+        );
+    }
+
+    #[test]
+    fn kook_channel_prefix_produces_correct_key() {
+        let d = make_delivery(DeliveryChannel::Kook, "channel:guild1:ch1");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("kook:channel:guild1:ch1".to_string())
+        );
+    }
+
+    #[test]
+    fn kook_raw_id_defaults_to_dm() {
+        let d = make_delivery(DeliveryChannel::Kook, "user42");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("kook:dm:user42".to_string())
+        );
+    }
+
+    #[test]
+    fn wechat_produces_correct_key() {
+        let d = make_delivery(DeliveryChannel::Wechat, "openid_xyz");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("wechat:dm:openid_xyz".to_string())
+        );
+    }
+
+    #[test]
+    fn wecom_single_produces_dm_key() {
+        let d = make_delivery(DeliveryChannel::Wecom, "single:uid1");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("wecom:dm:uid1".to_string())
+        );
+    }
+
+    #[test]
+    fn wecom_group_produces_group_key() {
+        let d = make_delivery(DeliveryChannel::Wecom, "group:chatid42");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("wecom:chatid42".to_string())
+        );
+    }
+
+    #[test]
+    fn wecom_raw_id_defaults_to_dm() {
+        let d = make_delivery(DeliveryChannel::Wecom, "userid99");
+        assert_eq!(
+            CronScheduler::delivery_to_session_key(&d),
+            Some("wecom:dm:userid99".to_string())
+        );
     }
 }

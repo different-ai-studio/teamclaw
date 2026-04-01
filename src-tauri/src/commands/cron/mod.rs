@@ -192,14 +192,11 @@ pub async fn cron_toggle_enabled(
 ) -> Result<(), String> {
     cron_state.storage.toggle_enabled(&job_id, enabled).await?;
 
-    // If re-enabling, recompute next_run_at
+    // If re-enabling, recompute next_run_at (do not overwrite last_run_at)
     if enabled {
         if let Some(job) = cron_state.storage.get_job(&job_id).await {
             let next = cron_state.scheduler.compute_next_run(&job, None);
-            cron_state
-                .storage
-                .update_run_timestamps(&job_id, chrono::Utc::now(), next)
-                .await;
+            cron_state.storage.update_next_run_at(&job_id, next).await;
         }
     }
 

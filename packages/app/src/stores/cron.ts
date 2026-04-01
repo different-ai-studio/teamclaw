@@ -296,30 +296,50 @@ export function formatRelativeTime(dateStr: string): string {
     const date = new Date(dateStr)
     const now = new Date()
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-    
+
     const rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' })
-    
-    // Less than 1 minute
-    if (diffInSeconds < 60) {
-      return lang === 'zh' || lang === 'zh-CN' ? '刚刚' : 'Just now'
+
+    // Future (e.g. next cron run): diffInSeconds is negative. Must not reuse the "past" branch,
+    // or every future time would incorrectly show as "Just now" (negative < 60).
+    if (diffInSeconds < 0) {
+      const ahead = -diffInSeconds
+      if (ahead < 60) {
+        return rtf.format(1, 'minute')
+      }
+      if (ahead < 3600) {
+        return rtf.format(Math.max(1, Math.round(ahead / 60)), 'minute')
+      }
+      if (ahead < 86400) {
+        return rtf.format(Math.max(1, Math.round(ahead / 3600)), 'hour')
+      }
+      if (ahead < 2592000) {
+        return rtf.format(Math.max(1, Math.round(ahead / 86400)), 'day')
+      }
+      if (ahead < 31536000) {
+        return rtf.format(Math.max(1, Math.round(ahead / 2592000)), 'month')
+      }
+      return rtf.format(Math.max(1, Math.round(ahead / 31536000)), 'year')
     }
-    // Less than 1 hour
+
+    // Past / now
+    if (diffInSeconds < 60) {
+      if (diffInSeconds <= 0) {
+        return lang === 'zh' || lang === 'zh-CN' ? '刚刚' : 'Just now'
+      }
+      return rtf.format(-diffInSeconds, 'second')
+    }
     if (diffInSeconds < 3600) {
       return rtf.format(-Math.floor(diffInSeconds / 60), 'minute')
     }
-    // Less than 1 day
     if (diffInSeconds < 86400) {
       return rtf.format(-Math.floor(diffInSeconds / 3600), 'hour')
     }
-    // Less than 30 days
     if (diffInSeconds < 2592000) {
       return rtf.format(-Math.floor(diffInSeconds / 86400), 'day')
     }
-    // Less than 1 year
     if (diffInSeconds < 31536000) {
       return rtf.format(-Math.floor(diffInSeconds / 2592000), 'month')
     }
-    // 1+ years
     return rtf.format(-Math.floor(diffInSeconds / 31536000), 'year')
   } catch {
     return dateStr

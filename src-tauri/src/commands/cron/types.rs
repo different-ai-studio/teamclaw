@@ -28,7 +28,8 @@ pub struct CronSchedule {
     /// 5-field cron expression (e.g., "*/30 * * * *")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expr: Option<String>,
-    /// Optional IANA timezone for cron expression
+    /// Optional IANA timezone for cron expression (e.g. `Asia/Shanghai`). When omitted, the
+    /// expression uses the **system local** wall clock (Unix crontab semantics), not UTC.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tz: Option<String>,
 }
