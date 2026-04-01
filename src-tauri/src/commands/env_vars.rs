@@ -187,9 +187,10 @@ pub async fn env_var_resolve(
         .collect();
 
     for (full_match, key) in matches {
-        // 1. Check shared secrets (team KMS)
+        // 1. Check shared secrets (team KMS) — try original key, then lowercase
         if let Some(value) =
             super::shared_secrets::get_secret_value(&shared_secrets, &key)
+                .or_else(|| super::shared_secrets::get_secret_value(&shared_secrets, &key.to_lowercase()))
         {
             result = result.replace(&full_match, &value);
             continue;

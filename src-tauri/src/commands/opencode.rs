@@ -435,10 +435,15 @@ pub async fn start_opencode_inner(
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         for (key_id, entry) in shared_map.iter() {
-            // Remove any existing keyring entry with the same key (shared wins)
-            secrets.retain(|(k, _)| k != key_id);
-            println!("[OpenCode] Loaded shared secret: {}", key_id);
+            // Inject both original key_id and UPPER_CASE version as env vars
+            // so ${wecom_corp_id} and WECOM_CORP_ID both resolve
+            let upper_key = key_id.to_uppercase();
+            secrets.retain(|(k, _)| k != key_id && k != &upper_key);
+            println!("[OpenCode] Loaded shared secret: {} (also {})", key_id, upper_key);
             secrets.push((key_id.clone(), entry.key.clone()));
+            if upper_key != *key_id {
+                secrets.push((upper_key, entry.key.clone()));
+            }
         }
     }
 
