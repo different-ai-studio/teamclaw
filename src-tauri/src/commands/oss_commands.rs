@@ -66,6 +66,52 @@ async fn start_poll_loop(state: &OssSyncState) {
     *slow_guard = Some(slow_handle);
 }
 
+/// Archive a team directory into a zip file. Returns the number of files archived.
+fn archive_team_dir(dir: &std::path::Path, dest: &std::path::Path) -> Result<usize, String> {
+    let file = std::fs::File::create(dest)
+        .map_err(|e| format!("Failed to create archive {}: {e}", dest.display()))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut count = 0usize;
+    fn walk_zip(
+        base: &std::path::Path,
+        current: &std::path::Path,
+        zip: &mut zip::ZipWriter<std::fs::File>,
+        options: zip::write::SimpleFileOptions,
+        count: &mut usize,
+    ) -> Result<(), String> {
+        let entries = std::fs::read_dir(current)
+            .map_err(|e| format!("Failed to read dir {}: {e}", current.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|e| format!("Path strip error: {e}"))?;
+            let name = rel.to_string_lossy().to_string();
+
+            if path.is_dir() {
+                walk_zip(base, &path, zip, options, count)?;
+            } else {
+                let data = std::fs::read(&path)
+                    .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+                zip.start_file(&name, options)
+                    .map_err(|e| format!("Failed to start zip entry {name}: {e}"))?;
+                std::io::Write::write_all(zip, &data)
+                    .map_err(|e| format!("Failed to write zip entry {name}: {e}"))?;
+                *count += 1;
+            }
+        }
+        Ok(())
+    }
+
+    walk_zip(dir, dir, &mut zip, options, &mut count)?;
+    zip.finish()
+        .map_err(|e| format!("Failed to finalize archive: {e}"))?;
+    Ok(count)
+}
+
 /// Generate a 32-byte random hex string for use as a team secret.
 fn generate_team_secret() -> Result<String, String> {
     let mut buf = [0u8; 32];
@@ -351,14 +397,25 @@ pub async fn oss_join_team(
         }
     }
 
-    // Clean and scaffold teamclaw-team directory.
+    // Archive and scaffold teamclaw-team directory.
     // If the directory already exists (e.g. user left and is re-joining),
-    // remove old files first so initial_sync won't absorb stale local
-    // files back into the CRDT. The remote state is authoritative on join.
+    // archive it as a zip so initial_sync won't absorb stale local files
+    // back into the CRDT. The remote state is authoritative on join.
     let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
     let team_dir_path = std::path::Path::new(&team_dir);
     if team_dir_path.exists() {
-        info!("oss_join_team: cleaning existing team dir before initial sync");
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let archive_name = format!("{}.backup_{}.zip", super::TEAM_REPO_DIR, timestamp);
+        let archive_path = std::path::Path::new(&workspace_path).join(&archive_name);
+        info!(
+            "oss_join_team: archiving existing team dir to {}",
+            archive_path.display()
+        );
+        // Best-effort archive — if it fails, log and proceed anyway
+        match archive_team_dir(team_dir_path, &archive_path) {
+            Ok(count) => info!("Archived {count} files to {}", archive_path.display()),
+            Err(e) => warn!("Failed to archive team dir (proceeding anyway): {e}"),
+        }
         // Remove contents but keep the directory itself
         if let Ok(entries) = std::fs::read_dir(team_dir_path) {
             for entry in entries.flatten() {
