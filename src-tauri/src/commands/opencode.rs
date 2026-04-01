@@ -427,6 +427,29 @@ pub async fn start_opencode_inner(
         secrets = retry_secrets;
     }
 
+    // Merge shared secrets (team KMS) into secrets vec.
+    // Shared secrets take priority: only add entries whose key is not already
+    // present from the keyring read above.
+    {
+        let shared_state = app.state::<super::shared_secrets::SharedSecretsState>();
+        let shared_map = shared_state
+            .secrets
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let existing_keys: std::collections::HashSet<&str> =
+            secrets.iter().map(|(k, _)| k.as_str()).collect();
+        for (key_id, entry) in shared_map.iter() {
+            if !existing_keys.contains(key_id.as_str()) {
+                println!(
+                    "[OpenCode] Loaded shared secret: {} ({}...)",
+                    key_id,
+                    &entry.key[..entry.key.len().min(8)]
+                );
+                secrets.push((key_id.clone(), entry.key.clone()));
+            }
+        }
+    }
+
     #[cfg(debug_assertions)]
     eprintln!(
         "[Startup] Pre-sidecar I/O (parallel): {:.1}ms",
