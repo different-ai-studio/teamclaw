@@ -6,7 +6,9 @@ pub mod blackboard;
 pub mod heartbeat;
 pub mod commands;
 pub mod task_board;
+pub mod knowledge_board;
 pub mod orchestrator;
+pub mod strategy_engine;
 
 pub use types::*;
 pub use state::SuperAgentState;
