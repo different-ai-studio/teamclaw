@@ -10,4 +10,4 @@ pub mod orchestrator;
 
 pub use types::*;
 pub use state::SuperAgentState;
-pub use commands::{super_agent_snapshot, super_agent_discover};
+pub use commands::{super_agent_snapshot, super_agent_discover, super_agent_create_task, super_agent_get_tasks};
