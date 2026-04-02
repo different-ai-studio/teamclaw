@@ -147,7 +147,7 @@ export function TeamOSSConfig() {
     pendingApplication,
     loadPendingApplication,
     cancelApplication,
-    initialize,
+    reconnect,
   } = useTeamOssStore()
 
   const teamMembersStore = useTeamMembersStore()
@@ -166,7 +166,6 @@ export function TeamOSSConfig() {
   const [joining, setJoining] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [showSecret, setShowSecret] = useState(false)
-  const [reconnecting, setReconnecting] = useState(false)
   const [snapshotLoading, setSnapshotLoading] = useState<string | null>(null)
   const [cleanupLoading, setCleanupLoading] = useState<string | null>(null)
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null)
@@ -344,19 +343,11 @@ export function TeamOSSConfig() {
               <p className="text-xs text-destructive text-center">{error}</p>
             )}
             <Button
-              onClick={async () => {
-                if (!workspacePath) return
-                setReconnecting(true)
-                try {
-                  await initialize(workspacePath)
-                } finally {
-                  setReconnecting(false)
-                }
-              }}
-              disabled={reconnecting}
+              onClick={() => workspacePath && reconnect(workspacePath)}
+              disabled={restoring}
               variant="outline"
             >
-              {reconnecting ? (
+              {restoring ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" />重新连接中...</>
               ) : (
                 <><RefreshCw className="mr-2 h-4 w-4" />重新连接</>
