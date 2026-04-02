@@ -35,17 +35,68 @@ export function isSuperAgentSnapshot(value: unknown): value is SuperAgentSnapsho
   return Array.isArray(candidate.agents) && typeof candidate.connected === 'boolean'
 }
 
+// ─── Task Types ────────────────────────────────────────
+
+export type TaskStatus = 'open' | 'bidding' | 'assigned' | 'running' | 'completed' | 'failed' | 'aborted'
+export type TaskUrgency = 'low' | 'normal' | 'high' | 'critical'
+export type TaskComplexity = 'solo' | 'delegate'
+
+export interface Bid {
+  nodeId: string
+  confidence: number
+  estimatedTokens: number
+  capabilityScore: number
+  currentLoad: number
+  timestamp: number
+}
+
+export interface TaskResult {
+  summary: string
+  sessionId: string
+  tokensUsed: number
+  score: number
+}
+
+export interface Task {
+  id: string
+  creator: string
+  description: string
+  requiredCapabilities: string[]
+  urgency: TaskUrgency
+  complexity: TaskComplexity
+  status: TaskStatus
+  bids: Bid[]
+  assignee: string | null
+  result: TaskResult | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface TaskBoardSnapshot {
+  tasks: Task[]
+}
+
+export function isTaskBoardSnapshot(value: unknown): value is TaskBoardSnapshot {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<TaskBoardSnapshot>
+  return Array.isArray(candidate.tasks)
+}
+
 interface SuperAgentState {
   snapshot: SuperAgentSnapshot
   initialized: boolean
+  taskBoard: TaskBoardSnapshot
   init: () => Promise<() => void>
   fetch: () => Promise<void>
   discover: (domain: string) => Promise<void>
+  fetchTasks: () => Promise<void>
+  createTask: (description: string, capabilities: string[], urgency: TaskUrgency, complexity: TaskComplexity) => Promise<Task | null>
 }
 
 export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
   snapshot: DEFAULT_SNAPSHOT,
   initialized: false,
+  taskBoard: { tasks: [] },
 
   init: async () => {
     if (get().initialized) {
@@ -94,6 +145,37 @@ export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
       await invoke('super_agent_discover', { domain })
     } catch (err) {
       console.warn('[SuperAgent] Failed to discover agents:', err)
+    }
+  },
+
+  fetchTasks: async () => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const snapshot = await invoke<TaskBoardSnapshot | null>('super_agent_get_tasks')
+      if (isTaskBoardSnapshot(snapshot)) {
+        set({ taskBoard: snapshot })
+      }
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to fetch tasks:', err)
+    }
+  },
+
+  createTask: async (description, capabilities, urgency, complexity) => {
+    if (!isTauri()) return null
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const task = await invoke<Task>('super_agent_create_task', {
+        description,
+        requiredCapabilities: capabilities,
+        urgency,
+        complexity,
+      })
+      await get().fetchTasks()
+      return task
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to create task:', err)
+      return null
     }
   },
 }))
