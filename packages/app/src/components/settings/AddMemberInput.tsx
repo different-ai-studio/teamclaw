@@ -13,14 +13,16 @@ import {
 export function AddMemberInput({
   onAdd,
   error,
+  myRole,
 }: {
   onAdd: (nodeId: string, name: string, role: string, label: string) => void
   error?: string | null
+  myRole?: string | null
 }) {
   const [nodeId, setNodeId] = React.useState('')
   const [name, setName] = React.useState('')
   const [label, setLabel] = React.useState('')
-  const [role, setRole] = React.useState<'editor' | 'viewer'>('editor')
+  const [role, setRole] = React.useState<'manager' | 'editor' | 'viewer'>('editor')
 
   const handleSubmit = () => {
     if (nodeId.trim()) {
@@ -66,11 +68,12 @@ export function AddMemberInput({
       </div>
       <div className="space-y-2">
         <label className="text-xs font-medium text-muted-foreground">Role</label>
-        <Select value={role} onValueChange={(v) => setRole(v as 'editor' | 'viewer')}>
+        <Select value={role} onValueChange={(v) => setRole(v as 'manager' | 'editor' | 'viewer')}>
           <SelectTrigger className="h-9">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {myRole === 'owner' && <SelectItem value="manager">Manager</SelectItem>}
             <SelectItem value="editor">Editor</SelectItem>
             <SelectItem value="viewer">Viewer</SelectItem>
           </SelectContent>
