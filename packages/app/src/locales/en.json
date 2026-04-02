@@ -395,7 +395,8 @@
       "advanced": "Advanced",
       "permissions": "Permissions",
       "privacy": "Privacy & Telemetry",
-      "shortcuts": "Shortcuts"
+      "shortcuts": "Shortcuts",
+      "superAgent": "Super Agent"
     },
     "general": {
       "title": "General",
@@ -1510,6 +1511,10 @@
       "targetLinkPlaceholder": "https://...",
       "confirmDelete": "Are you sure you want to delete this shortcut?",
       "empty": "No shortcuts yet"
+    },
+    "superAgent": {
+      "title": "Super Agent",
+      "description": "Multi-agent collaboration network — task delegation, collective learning, and emergent intelligence."
     },
     "tokenUsage": {
       "title": "Token Usage",

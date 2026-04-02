@@ -5,6 +5,7 @@ import {
   Settings2,
   MessageSquareText,
   MessageSquare,
+  Network,
   Plug,
   Sparkles,
   Users,
@@ -50,6 +51,7 @@ const primarySections: Section[] = [
   { id: 'channels', label: 'Channels', labelKey: 'settings.nav.channels', icon: MessageSquare, color: 'text-indigo-500' },
   { id: 'automation', label: 'Automation', labelKey: 'settings.nav.automation', icon: Clock, color: 'text-amber-500' },
   { id: 'team', label: 'Team', labelKey: 'settings.nav.team', icon: Users, color: 'text-violet-500' },
+  { id: 'superAgent', label: 'Super Agent', labelKey: 'settings.nav.superAgent', icon: Network, color: 'text-emerald-500' },
   { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins, color: 'text-rose-500' },
 ]
 

@@ -395,7 +395,8 @@
       "advanced": "高级",
       "permissions": "权限",
       "privacy": "隐私与遥测",
-      "shortcuts": "快捷方式"
+      "shortcuts": "快捷方式",
+      "superAgent": "超级智能体"
     },
     "general": {
       "title": "通用",
@@ -1515,6 +1516,10 @@
       "targetLinkPlaceholder": "https://...",
       "confirmDelete": "确定要删除此快捷方式吗？",
       "empty": "暂无快捷方式"
+    },
+    "superAgent": {
+      "title": "超级智能体",
+      "description": "多智能体协作网络 — 任务委派、集体学习与涌现智能"
     },
     "tokenUsage": {
       "title": "Token 用量",
