@@ -830,6 +830,30 @@ impl OssSyncManager {
         let mtime_changed = Self::scan_local_files_incremental(&dir, since)?;
 
         if mtime_changed.is_empty() {
+            // No mtime changes, but files may have been deleted since the
+            // last scan.  Check the CRDT for entries that are not marked
+            // deleted yet whose files no longer exist on disk.  If any are
+            // found, delegate to the full `upload_local_changes` which
+            // handles deletion marking + upload in one shot.
+            let local_files = Self::scan_local_files(&dir)?;
+            let doc = self.get_doc(doc_type);
+            let files_map = doc.get_map("files");
+            let map_value = files_map.get_deep_value();
+            if let loro::LoroValue::Map(entries) = &map_value {
+                for (path, value) in entries.iter() {
+                    if let loro::LoroValue::Map(entry) = value {
+                        let deleted = match entry.get("deleted") {
+                            Some(loro::LoroValue::Bool(b)) => *b,
+                            _ => false,
+                        };
+                        if !deleted && !local_files.contains_key(path.as_str()) {
+                            // At least one file was deleted locally — hand off
+                            // to the full upload path which marks deletions.
+                            return self.upload_local_changes(doc_type).await;
+                        }
+                    }
+                }
+            }
             return Ok(false);
         }
 
