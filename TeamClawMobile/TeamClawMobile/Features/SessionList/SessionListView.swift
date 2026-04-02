@@ -6,6 +6,7 @@ import SwiftData
 struct SessionListView: View {
     let mqttService: MQTTServiceProtocol
     @ObservedObject var connectionMonitor: ConnectionMonitor
+    @ObservedObject var pairingManager: PairingManager
 
     @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel: SessionListViewModel
@@ -15,9 +16,10 @@ struct SessionListView: View {
     @State private var showSearch = false
     @State private var navigationPath: [String] = []
 
-    init(mqttService: MQTTServiceProtocol, connectionMonitor: ConnectionMonitor) {
+    init(mqttService: MQTTServiceProtocol, connectionMonitor: ConnectionMonitor, pairingManager: PairingManager) {
         self.mqttService = mqttService
         self.connectionMonitor = connectionMonitor
+        self.pairingManager = pairingManager
         // Temporary context placeholder; real context injected via onAppear
         _viewModel = StateObject(wrappedValue: SessionListViewModel(
             modelContext: ModelContext(try! ModelContainer(for: Session.self)),
@@ -68,15 +70,24 @@ struct SessionListView: View {
                 }
             }
             .navigationDestination(for: String.self) { sessionID in
-                Text("Session: \(sessionID)")
+                if let session = viewModel.sessions.first(where: { $0.id == sessionID }) {
+                    ChatDetailView(session: session, mqttService: mqttService)
+                } else {
+                    Text("Session not found")
+                }
             }
             .sheet(isPresented: $showFunctionPanel) {
-                Text("Function Panel")
-                    .presentationDetents([.medium, .large])
+                FunctionPanelView(
+                    mqttService: mqttService,
+                    pairingManager: pairingManager,
+                    connectionMonitor: connectionMonitor
+                )
             }
             .sheet(isPresented: $showMemberPanel) {
-                Text("Member Panel")
-                    .presentationDetents([.medium, .large])
+                MemberListView(viewModel: MemberViewModel(
+                    modelContext: modelContext,
+                    mqttService: mqttService
+                ))
             }
             .sheet(isPresented: $showSearch) {
                 searchSheet
@@ -272,6 +283,6 @@ struct SessionRowView: View {
     let mockMQTT = MockMQTTService()
     let monitor = ConnectionMonitor(mqttService: mockMQTT)
 
-    return SessionListView(mqttService: mockMQTT, connectionMonitor: monitor)
+    return SessionListView(mqttService: mockMQTT, connectionMonitor: monitor, pairingManager: PairingManager())
         .modelContainer(container)
 }
