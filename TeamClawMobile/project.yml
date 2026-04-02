@@ -68,6 +68,10 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: TeamClawMobileTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
     dependencies:
       - target: TeamClawMobile
 
@@ -77,5 +81,9 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: TeamClawMobileUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
     dependencies:
       - target: TeamClawMobile
