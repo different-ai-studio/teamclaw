@@ -145,11 +145,102 @@ export function isKnowledgeSnapshot(value: unknown): value is KnowledgeSnapshot 
   )
 }
 
+// ─── Debate Types ────────────────────────────────────────
+
+export type Angle = string
+
+export type DebateStatus = 'open' | 'deliberating' | 'voting' | 'decided' | 'closed'
+
+export type RebuttalStance = 'agree' | 'disagree' | 'partial'
+
+export interface Perspective {
+  agentId: string
+  angle: Angle
+  position: string
+  confidence: number
+  submittedAt: number
+}
+
+export interface Rebuttal {
+  agentId: string
+  targetAgentId: string
+  stance: RebuttalStance
+  argument: string
+  submittedAt: number
+}
+
+export interface DebateResponse {
+  perspectives: Perspective[]
+  rebuttals: Rebuttal[]
+}
+
+export interface DebateRound {
+  roundNumber: number
+  response: DebateResponse
+}
+
+export interface CandidateOption {
+  id: string
+  description: string
+  proposedBy: string
+}
+
+export interface VoteRanking {
+  optionId: string
+  rank: number
+}
+
+export interface DebateVote {
+  agentId: string
+  rankings: VoteRanking[]
+  submittedAt: number
+}
+
+export interface SynthesisResult {
+  winningOptionId: string
+  margin: number
+  dissent: string | null
+  summary: string
+}
+
+export interface PostDecisionOutcome {
+  decidedAt: number
+  outcome: string
+  executedBy: string | null
+}
+
+export interface DebateRecord {
+  id: string
+  question: string
+  context: string
+  angles: Angle[]
+  status: DebateStatus
+  participants: string[]
+  rounds: DebateRound[]
+  candidates: CandidateOption[]
+  votes: DebateVote[]
+  synthesis: SynthesisResult | null
+  postDecision: PostDecisionOutcome | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface DebateSnapshot {
+  debates: DebateRecord[]
+}
+
+export function isDebateSnapshot(value: unknown): value is DebateSnapshot {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<DebateSnapshot>
+  return Array.isArray(candidate.debates)
+}
+
 interface SuperAgentState {
   snapshot: SuperAgentSnapshot
   initialized: boolean
   taskBoard: TaskBoardSnapshot
   knowledge: KnowledgeSnapshot
+  debates: DebateSnapshot
   init: () => Promise<() => void>
   fetch: () => Promise<void>
   discover: (domain: string) => Promise<void>
@@ -158,6 +249,10 @@ interface SuperAgentState {
   fetchKnowledge: () => Promise<void>
   recordExperience: (taskId: string) => Promise<void>
   validateStrategy: (strategyId: string, score: number) => Promise<void>
+  fetchDebates: () => Promise<void>
+  startDeliberation: (question: string, context: string, angles: Angle[]) => Promise<DebateRecord | null>
+  submitPerspective: (debateId: string, angle: Angle, position: string, confidence: number) => Promise<void>
+  submitVote: (debateId: string, rankings: VoteRanking[]) => Promise<void>
 }
 
 export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
@@ -165,6 +260,7 @@ export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
   initialized: false,
   taskBoard: { tasks: [] },
   knowledge: { experiences: [], strategies: [], distilledSkills: [] },
+  debates: { debates: [] },
 
   init: async () => {
     if (get().initialized) {
@@ -279,6 +375,58 @@ export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
       await get().fetchKnowledge()
     } catch (err) {
       console.warn('[SuperAgent] Failed to validate strategy:', err)
+    }
+  },
+
+  fetchDebates: async () => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const snapshot = await invoke<DebateSnapshot | null>('super_agent_get_debates')
+      if (isDebateSnapshot(snapshot)) {
+        set({ debates: snapshot })
+      }
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to fetch debates:', err)
+    }
+  },
+
+  startDeliberation: async (question: string, context: string, angles: Angle[]) => {
+    if (!isTauri()) return null
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const debate = await invoke<DebateRecord>('super_agent_start_deliberation', {
+        question,
+        context,
+        angles,
+      })
+      await get().fetchDebates()
+      return debate
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to start deliberation:', err)
+      return null
+    }
+  },
+
+  submitPerspective: async (debateId: string, angle: Angle, position: string, confidence: number) => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('super_agent_submit_perspective', { debateId, angle, position, confidence })
+      await get().fetchDebates()
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to submit perspective:', err)
+    }
+  },
+
+  submitVote: async (debateId: string, rankings: VoteRanking[]) => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('super_agent_submit_vote', { debateId, rankings })
+      await get().fetchDebates()
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to submit vote:', err)
     }
   },
 }))
