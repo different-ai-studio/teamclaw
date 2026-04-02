@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import type { TeamMember } from '../lib/git/types'
 
-type MemberRole = 'owner' | 'editor' | 'viewer'
+type MemberRole = 'owner' | 'manager' | 'editor' | 'viewer'
 
 interface TeamApplication {
   nodeId: string
@@ -111,7 +111,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
 
   canManageMembers: () => {
     const { myRole } = get()
-    return myRole === 'owner' || myRole === 'editor'
+    return myRole === 'owner' || myRole === 'manager'
   },
 
   listenForApplications: async () => {
