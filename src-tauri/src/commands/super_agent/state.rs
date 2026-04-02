@@ -274,6 +274,28 @@ async fn handle_nerve_message(
                 }
             }
         }
+        NerveTopic::Debate => {
+            match msg.payload.clone() {
+                NervePayload::DebatePropose { debate_id, question, .. } => {
+                    info!("gossip_listener: debate:propose debate_id={debate_id} question={question:?} from={}", msg.from);
+                }
+                NervePayload::DebatePerspective { debate_id, agent_id, .. } => {
+                    info!("gossip_listener: debate:perspective debate_id={debate_id} agent_id={agent_id} from={}", msg.from);
+                }
+                NervePayload::DebateRebuttal { debate_id, round, agent_id, .. } => {
+                    info!("gossip_listener: debate:rebuttal debate_id={debate_id} round={round} agent_id={agent_id} from={}", msg.from);
+                }
+                NervePayload::DebateVote { debate_id } => {
+                    info!("gossip_listener: debate:vote debate_id={debate_id} from={}", msg.from);
+                }
+                NervePayload::DebateConclude { debate_id, winning_option, margin } => {
+                    info!("gossip_listener: debate:conclude debate_id={debate_id} winning_option={winning_option} margin={margin} from={}", msg.from);
+                }
+                other => {
+                    info!("gossip_listener: unhandled Debate payload from {}: {:?}", msg.from, other);
+                }
+            }
+        }
         other => {
             info!("gossip_listener: received {:?} message from {} (not handled)", other, msg.from);
         }

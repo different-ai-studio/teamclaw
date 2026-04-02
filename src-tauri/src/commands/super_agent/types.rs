@@ -96,6 +96,39 @@ pub enum NervePayload {
         domain: String,
         summary: String,
     },
+    #[serde(rename = "debate:propose")]
+    DebatePropose {
+        debate_id: String,
+        question: String,
+        context: String,
+        deadline: u64,
+        requested_angles: Vec<Angle>,
+    },
+    #[serde(rename = "debate:perspective")]
+    DebatePerspective {
+        debate_id: String,
+        agent_id: String,
+        angle: Angle,
+        position: String,
+        confidence: f64,
+    },
+    #[serde(rename = "debate:rebuttal")]
+    DebateRebuttal {
+        debate_id: String,
+        round: u32,
+        agent_id: String,
+        ready_to_converge: bool,
+    },
+    #[serde(rename = "debate:vote")]
+    DebateVote {
+        debate_id: String,
+    },
+    #[serde(rename = "debate:conclude")]
+    DebateConclude {
+        debate_id: String,
+        winning_option: String,
+        margin: f64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -318,6 +351,178 @@ pub struct KnowledgeSnapshot {
     pub distilled_skills: Vec<DistilledSkill>,
 }
 
+// ─── Layer 4: Emergent Intelligence ────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Angle {
+    Feasibility,
+    Performance,
+    Security,
+    Maintainability,
+    UserExperience,
+    Cost,
+    Risk,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptionScore {
+    pub option: String,
+    pub score: f64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Perspective {
+    pub debate_id: String,
+    pub agent_id: String,
+    pub angle: Angle,
+    pub position: String,
+    pub reasoning: String,
+    pub evidence: Vec<String>,
+    pub risks: Vec<String>,
+    pub preferred_option: String,
+    pub option_ranking: Vec<OptionScore>,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerspectiveRequest {
+    pub debate_id: String,
+    pub question: String,
+    pub context: String,
+    pub angle: Angle,
+    pub deadline: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RebuttalStance {
+    Agree,
+    Disagree,
+    PartiallyAgree,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rebuttal {
+    pub target_agent_id: String,
+    pub target_claim: String,
+    pub response: RebuttalStance,
+    pub argument: String,
+    pub new_evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebateResponse {
+    pub agent_id: String,
+    pub rebuttals: Vec<Rebuttal>,
+    pub updated_position: String,
+    pub updated_confidence: f64,
+    pub ready_to_converge: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebateRound {
+    pub round: u32,
+    pub responses: Vec<DebateResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateOption {
+    pub id: String,
+    pub description: String,
+    pub synthesized_from: Vec<String>,
+    pub pros: Vec<String>,
+    pub cons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoteRanking {
+    pub option_id: String,
+    pub rank: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Vote {
+    pub agent_id: String,
+    pub preferred_option_id: String,
+    pub ranking: Vec<VoteRanking>,
+    pub confidence: f64,
+    pub final_reasoning: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthesisResult {
+    pub winning_option_id: String,
+    pub winning_description: String,
+    pub voting_rounds: u32,
+    pub margin: f64,
+    pub dissent: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliberationTrigger {
+    pub explicit: bool,
+    pub creator_confidence: f64,
+    pub domain_failure_rate: f64,
+    pub cross_domain_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DebateStatus {
+    GatheringPerspectives,
+    Debating,
+    Voting,
+    Concluded,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostDecisionOutcome {
+    pub task_id: String,
+    pub actual_result: String,
+    pub score: f64,
+    pub was_correct_decision: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebateRecord {
+    pub id: String,
+    pub question: String,
+    pub context: String,
+    pub trigger: DeliberationTrigger,
+    pub status: DebateStatus,
+    pub requested_angles: Vec<Angle>,
+    pub perspectives: Vec<Perspective>,
+    pub rounds: Vec<DebateRound>,
+    pub candidate_options: Vec<CandidateOption>,
+    pub votes: Vec<Vote>,
+    pub synthesis: Option<SynthesisResult>,
+    pub outcome: Option<PostDecisionOutcome>,
+    pub created_at: u64,
+    pub concluded_at: Option<u64>,
+    pub deadline: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebateSnapshot {
+    pub debates: Vec<DebateRecord>,
+}
+
 pub fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -368,6 +573,17 @@ impl NerveMessage {
             from,
             timestamp: now_millis(),
             ttl: 60,
+            payload,
+        }
+    }
+
+    pub fn new_debate(from: String, payload: NervePayload) -> Self {
+        Self {
+            id: nanoid::nanoid!(),
+            topic: NerveTopic::Debate,
+            from,
+            timestamp: now_millis(),
+            ttl: 120,
             payload,
         }
     }
@@ -809,5 +1025,174 @@ mod tests {
             let deserialized: ValidationStatus = serde_json::from_str(&json).unwrap();
             assert_eq!(deserialized, status);
         }
+    }
+
+    // ─── Layer 4 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn angle_serde_lowercase() {
+        assert_eq!(serde_json::to_string(&Angle::Feasibility).unwrap(), "\"feasibility\"");
+        assert_eq!(serde_json::to_string(&Angle::Security).unwrap(), "\"security\"");
+        assert_eq!(serde_json::to_string(&Angle::Cost).unwrap(), "\"cost\"");
+        let a: Angle = serde_json::from_str("\"feasibility\"").unwrap();
+        assert_eq!(a, Angle::Feasibility);
+    }
+
+    #[test]
+    fn perspective_serde_roundtrip() {
+        let p = Perspective {
+            debate_id: "debate-1".to_string(),
+            agent_id: "node-a".to_string(),
+            angle: Angle::Security,
+            position: "Use TLS everywhere".to_string(),
+            reasoning: "Prevents eavesdropping".to_string(),
+            evidence: vec!["CVE-2023-1234".to_string()],
+            risks: vec!["Performance overhead".to_string()],
+            preferred_option: "opt-1".to_string(),
+            option_ranking: vec![OptionScore {
+                option: "opt-1".to_string(),
+                score: 0.9,
+                reason: "Most secure".to_string(),
+            }],
+            confidence: 0.85,
+        };
+        let json = serde_json::to_string(&p).unwrap();
+        let d: Perspective = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.debate_id, "debate-1");
+        assert_eq!(d.agent_id, "node-a");
+        assert_eq!(d.angle, Angle::Security);
+        assert_eq!(d.position, "Use TLS everywhere");
+        assert_eq!(d.option_ranking.len(), 1);
+        assert!((d.confidence - 0.85).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn debate_record_serde_roundtrip() {
+        let record = DebateRecord {
+            id: "debate-1".to_string(),
+            question: "Which DB to use?".to_string(),
+            context: "High-throughput API".to_string(),
+            trigger: DeliberationTrigger {
+                explicit: true,
+                creator_confidence: 0.5,
+                domain_failure_rate: 0.1,
+                cross_domain_count: 3,
+            },
+            status: DebateStatus::GatheringPerspectives,
+            requested_angles: vec![Angle::Performance, Angle::Cost],
+            perspectives: vec![],
+            rounds: vec![],
+            candidate_options: vec![CandidateOption {
+                id: "opt-1".to_string(),
+                description: "PostgreSQL".to_string(),
+                synthesized_from: vec!["node-a".to_string()],
+                pros: vec!["ACID".to_string()],
+                cons: vec!["Slower writes".to_string()],
+            }],
+            votes: vec![],
+            synthesis: None,
+            outcome: None,
+            created_at: 1_000_000,
+            concluded_at: None,
+            deadline: 2_000_000,
+        };
+        let json = serde_json::to_string(&record).unwrap();
+        let d: DebateRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.id, "debate-1");
+        assert_eq!(d.question, "Which DB to use?");
+        assert_eq!(d.status, DebateStatus::GatheringPerspectives);
+        assert_eq!(d.requested_angles.len(), 2);
+        assert_eq!(d.candidate_options.len(), 1);
+        assert!(d.synthesis.is_none());
+    }
+
+    #[test]
+    fn debate_status_transitions() {
+        let statuses = vec![
+            DebateStatus::GatheringPerspectives,
+            DebateStatus::Debating,
+            DebateStatus::Voting,
+            DebateStatus::Concluded,
+        ];
+        for status in statuses {
+            let json = serde_json::to_string(&status).unwrap();
+            let d: DebateStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(d, status);
+        }
+        assert_eq!(serde_json::to_string(&DebateStatus::GatheringPerspectives).unwrap(), "\"gathering_perspectives\"");
+        assert_eq!(serde_json::to_string(&DebateStatus::Debating).unwrap(), "\"debating\"");
+        assert_eq!(serde_json::to_string(&DebateStatus::Voting).unwrap(), "\"voting\"");
+        assert_eq!(serde_json::to_string(&DebateStatus::Concluded).unwrap(), "\"concluded\"");
+    }
+
+    #[test]
+    fn synthesis_result_serde() {
+        let s = SynthesisResult {
+            winning_option_id: "opt-2".to_string(),
+            winning_description: "Use Redis for caching".to_string(),
+            voting_rounds: 2,
+            margin: 0.65,
+            dissent: vec!["node-b".to_string()],
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let d: SynthesisResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.winning_option_id, "opt-2");
+        assert_eq!(d.voting_rounds, 2);
+        assert!((d.margin - 0.65).abs() < f64::EPSILON);
+        assert_eq!(d.dissent, vec!["node-b".to_string()]);
+    }
+
+    #[test]
+    fn debate_propose_payload_serde() {
+        let payload = NervePayload::DebatePropose {
+            debate_id: "debate-42".to_string(),
+            question: "Microservices or monolith?".to_string(),
+            context: "New greenfield project".to_string(),
+            deadline: 9_999_999,
+            requested_angles: vec![Angle::Feasibility, Angle::Cost, Angle::Risk],
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("debate:propose"));
+        let d: NervePayload = serde_json::from_str(&json).unwrap();
+        match d {
+            NervePayload::DebatePropose { debate_id, question, context, deadline, requested_angles } => {
+                assert_eq!(debate_id, "debate-42");
+                assert_eq!(question, "Microservices or monolith?");
+                assert_eq!(context, "New greenfield project");
+                assert_eq!(deadline, 9_999_999);
+                assert_eq!(requested_angles.len(), 3);
+                assert_eq!(requested_angles[0], Angle::Feasibility);
+            }
+            _ => panic!("Expected DebatePropose payload"),
+        }
+    }
+
+    #[test]
+    fn debate_vote_payload_serde() {
+        let payload = NervePayload::DebateVote {
+            debate_id: "debate-99".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("debate:vote"));
+        let d: NervePayload = serde_json::from_str(&json).unwrap();
+        match d {
+            NervePayload::DebateVote { debate_id } => {
+                assert_eq!(debate_id, "debate-99");
+            }
+            _ => panic!("Expected DebateVote payload"),
+        }
+    }
+
+    #[test]
+    fn rebuttal_stance_serde() {
+        assert_eq!(serde_json::to_string(&RebuttalStance::Agree).unwrap(), "\"agree\"");
+        assert_eq!(serde_json::to_string(&RebuttalStance::Disagree).unwrap(), "\"disagree\"");
+        assert_eq!(serde_json::to_string(&RebuttalStance::PartiallyAgree).unwrap(), "\"partially_agree\"");
+        let a: RebuttalStance = serde_json::from_str("\"agree\"").unwrap();
+        assert_eq!(a, RebuttalStance::Agree);
+        let d: RebuttalStance = serde_json::from_str("\"disagree\"").unwrap();
+        assert_eq!(d, RebuttalStance::Disagree);
+        let p: RebuttalStance = serde_json::from_str("\"partially_agree\"").unwrap();
+        assert_eq!(p, RebuttalStance::PartiallyAgree);
     }
 }
