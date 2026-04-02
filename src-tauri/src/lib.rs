@@ -470,6 +470,10 @@ pub fn run() {
             commands::super_agent::commands::super_agent_snapshot,
             #[cfg(feature = "p2p")]
             commands::super_agent::commands::super_agent_discover,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_create_task,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_get_tasks,
             commands::oss_commands::oss_create_team,
             commands::oss_commands::oss_join_team,
             commands::oss_commands::oss_restore_sync,
