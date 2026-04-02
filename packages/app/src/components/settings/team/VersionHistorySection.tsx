@@ -30,6 +30,8 @@ export function VersionHistorySection() {
 
   const [docTypeFilter, setDocTypeFilter] = useState<string | null>(null)
   const [dialogFile, setDialogFile] = useState<VersionedFileInfo | null>(null)
+  const [page, setPage] = useState(0)
+  const pageSize = 10
 
   useEffect(() => {
     if (workspacePath) {
@@ -39,6 +41,7 @@ export function VersionHistorySection() {
 
   const handleFilterChange = (filter: string | null) => {
     setDocTypeFilter(filter)
+    setPage(0)
     if (workspacePath) {
       loadVersionedFiles(workspacePath, filter ?? undefined)
     }
@@ -47,6 +50,9 @@ export function VersionHistorySection() {
   const filteredFiles = docTypeFilter
     ? versionedFiles.filter((f) => f.docType === docTypeFilter)
     : versionedFiles
+
+  const totalPages = Math.ceil(filteredFiles.length / pageSize)
+  const pagedFiles = filteredFiles.slice(page * pageSize, (page + 1) * pageSize)
 
   return (
     <div className="rounded-xl border border-border/40 bg-card/30 p-5 backdrop-blur-sm">
@@ -79,47 +85,75 @@ export function VersionHistorySection() {
       ) : filteredFiles.length === 0 ? (
         <p className="text-xs text-muted-foreground py-2">暂无文件版本记录</p>
       ) : (
-        <div className="space-y-1.5">
-          {filteredFiles.map((file) => {
-            const fileName = getFileName(file.path)
-            const docLabel = DOC_TYPE_LABELS[file.docType] ?? file.docType
+        <>
+          <div className="space-y-1.5">
+            {pagedFiles.map((file) => {
+              const fileName = getFileName(file.path)
+              const docLabel = DOC_TYPE_LABELS[file.docType] ?? file.docType
 
-            return (
-              <div
-                key={`${file.docType}:${file.path}`}
-                className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        'truncate text-sm font-medium',
-                        file.currentDeleted && 'line-through text-destructive'
-                      )}
-                    >
-                      {fileName}
-                    </span>
-                    <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground">
-                      {docLabel}
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {file.versionCount} 个版本
-                    {file.latestUpdateBy && ` · ${file.latestUpdateBy}`}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="ml-3 h-7 shrink-0 text-xs"
-                  onClick={() => setDialogFile(file)}
+              return (
+                <div
+                  key={`${file.docType}:${file.path}`}
+                  className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2"
                 >
-                  查看历史
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          'truncate text-sm font-medium',
+                          file.currentDeleted && 'line-through text-destructive'
+                        )}
+                      >
+                        {fileName}
+                      </span>
+                      <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground">
+                        {docLabel}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {file.versionCount} 个版本
+                      {file.latestUpdateBy && ` · ${file.latestUpdateBy}`}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-3 h-7 shrink-0 text-xs"
+                    onClick={() => setDialogFile(file)}
+                  >
+                    查看历史
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
+              <span>{filteredFiles.length} 个文件</span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={page === 0}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  上一页
+                </Button>
+                <span>{page + 1} / {totalPages}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  下一页
                 </Button>
               </div>
-            )
-          })}
-        </div>
+            </div>
+          )}
+        </>
       )}
 
       {dialogFile && (
