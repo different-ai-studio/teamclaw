@@ -61,20 +61,6 @@ function isEngineSnapshot(value: unknown): value is EngineSnapshot {
   )
 }
 
-function isEngineSnapshot(value: unknown): value is EngineSnapshot {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as Partial<EngineSnapshot>
-  return (
-    typeof candidate.status === 'string' &&
-    typeof candidate.streamHealth === 'string' &&
-    typeof candidate.uptimeSecs === 'number' &&
-    typeof candidate.restartCount === 'number' &&
-    Array.isArray(candidate.peers) &&
-    typeof candidate.syncedFiles === 'number' &&
-    typeof candidate.pendingFiles === 'number'
-  )
-}
-
 export const useP2pEngineStore = create<P2pEngineState>((set, get) => ({
   snapshot: DEFAULT_SNAPSHOT,
   initialized: false,
