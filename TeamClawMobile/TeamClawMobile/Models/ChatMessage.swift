@@ -7,7 +7,6 @@ enum MessageRole: String, Codable {
     case collaborator
 }
 
-@available(iOS 17.0, *)
 @Model
 final class ChatMessage {
     @Attribute(.unique) var id: String

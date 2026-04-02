@@ -8,7 +8,6 @@ enum TaskStatus: String, Codable {
     case idle
 }
 
-@available(iOS 17.0, *)
 @Model
 final class AutomationTask {
     @Attribute(.unique) var id: String

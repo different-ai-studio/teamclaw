@@ -2,7 +2,6 @@ import XCTest
 import SwiftData
 @testable import TeamClawMobile
 
-@available(iOS 17.0, *)
 @MainActor
 final class ModelTests: XCTestCase {
     var container: ModelContainer!

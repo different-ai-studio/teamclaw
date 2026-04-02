@@ -2,7 +2,7 @@ name: TeamClawMobile
 options:
   bundleIdPrefix: com.teamclaw
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
   xcodeVersion: "15"
   generateEmptyDirectories: true
 
@@ -11,7 +11,7 @@ settings:
     SWIFT_VERSION: "5"
     PRODUCT_BUNDLE_IDENTIFIER: com.teamclaw.TeamClawMobile
     DEVELOPMENT_TEAM: ""
-    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1,2"
 
 packages:
@@ -29,7 +29,7 @@ targets:
   TeamClawMobile:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.0"
     sources:
       - path: TeamClawMobile
     info:
@@ -65,7 +65,7 @@ targets:
   TeamClawMobileTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.0"
     sources:
       - path: TeamClawMobileTests
     settings:
@@ -78,7 +78,7 @@ targets:
   TeamClawMobileUITests:
     type: bundle.ui-testing
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.0"
     sources:
       - path: TeamClawMobileUITests
     settings:
