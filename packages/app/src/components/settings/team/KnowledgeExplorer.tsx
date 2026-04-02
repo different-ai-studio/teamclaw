@@ -6,6 +6,8 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 import { useSuperAgentStore } from '@/stores/super-agent'
 import type { Experience, ExperienceOutcome, Strategy, StrategyType, DistilledSkill, ValidationStatus } from '@/stores/super-agent'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 // ─── Outcome Badge ────────────────────────────────────────────────────────────
 
@@ -53,6 +55,97 @@ function validationDotClass(status: ValidationStatus): string {
   }
 }
 
+// ─── Record Experience Form ───────────────────────────────────────────────────
+
+function RecordExperienceForm({ onClose }: { onClose: () => void }) {
+  const recordExperience = useSuperAgentStore((s) => s.recordExperience)
+  const [taskId, setTaskId] = React.useState('')
+  const [submitting, setSubmitting] = React.useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!taskId.trim()) return
+    setSubmitting(true)
+    await recordExperience(taskId.trim())
+    setSubmitting(false)
+    onClose()
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-4 space-y-3">
+      <p className="text-sm font-medium">Record Experience from Task</p>
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">Task ID</label>
+        <Input
+          placeholder="Enter task ID…"
+          value={taskId}
+          onChange={(e) => setTaskId(e.target.value)}
+          required
+        />
+      </div>
+      <div className="flex gap-2 pt-1">
+        <Button type="submit" size="sm" disabled={submitting || !taskId.trim()}>
+          {submitting ? 'Recording…' : 'Record'}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+// ─── Validate Strategy Form ───────────────────────────────────────────────────
+
+function ValidateStrategyForm({
+  strategyId,
+  onClose,
+}: {
+  strategyId: string
+  onClose: () => void
+}) {
+  const validateStrategy = useSuperAgentStore((s) => s.validateStrategy)
+  const [score, setScore] = React.useState(0.75)
+  const [submitting, setSubmitting] = React.useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    await validateStrategy(strategyId, score)
+    setSubmitting(false)
+    onClose()
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-2 rounded-lg border bg-muted/40 p-3 space-y-2">
+      <p className="text-xs font-medium text-muted-foreground">Validate Strategy</p>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-muted-foreground">Score</label>
+          <span className="text-xs font-medium">{score.toFixed(2)}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={score}
+          onChange={(e) => setScore(parseFloat(e.target.value))}
+          className="w-full accent-primary"
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit" size="xs" disabled={submitting}>
+          {submitting ? 'Validating…' : 'Submit'}
+        </Button>
+        <Button type="button" size="xs" variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
 // ─── Experience Card ──────────────────────────────────────────────────────────
 
 function ExperienceCard({ experience }: { experience: Experience }) {
@@ -93,6 +186,9 @@ function ExperienceCard({ experience }: { experience: Experience }) {
 function StrategyCard({ strategy }: { strategy: Strategy }) {
   const shortId = strategy.id.slice(0, 8)
   const successPct = Math.round(strategy.successRate * 100)
+  const canValidate =
+    strategy.validation.status === 'proposed' || strategy.validation.status === 'testing'
+  const [showValidateForm, setShowValidateForm] = React.useState(false)
 
   return (
     <div className="rounded-xl border bg-card p-4 transition-all">
@@ -127,6 +223,21 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
             <span>Success: <span className="font-medium">{successPct}%</span></span>
             <span>Samples: <span className="font-medium">{strategy.sampleSize}</span></span>
           </div>
+
+          {canValidate && !showValidateForm && (
+            <div className="pt-1">
+              <Button size="xs" variant="outline" onClick={() => setShowValidateForm(true)}>
+                Validate
+              </Button>
+            </div>
+          )}
+
+          {showValidateForm && (
+            <ValidateStrategyForm
+              strategyId={strategy.id}
+              onClose={() => setShowValidateForm(false)}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -161,6 +272,7 @@ function SkillCard({ skill }: { skill: DistilledSkill }) {
 export function KnowledgeExplorer() {
   const knowledge = useSuperAgentStore((s) => s.knowledge)
   const fetchKnowledge = useSuperAgentStore((s) => s.fetchKnowledge)
+  const [showRecordForm, setShowRecordForm] = React.useState(false)
 
   React.useEffect(() => {
     fetchKnowledge()
@@ -183,7 +295,16 @@ export function KnowledgeExplorer() {
               </p>
             )}
           </div>
+          {!showRecordForm && (
+            <Button size="xs" variant="outline" onClick={() => setShowRecordForm(true)}>
+              Record from Task
+            </Button>
+          )}
         </div>
+
+        {showRecordForm && (
+          <RecordExperienceForm onClose={() => setShowRecordForm(false)} />
+        )}
 
         {experiences.length === 0 ? (
           <div className="rounded-xl border bg-card p-6 text-center">

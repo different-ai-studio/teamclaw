@@ -3,9 +3,12 @@
  * bid counts, capability tags, and creator/assignee info.
  */
 import * as React from 'react'
-import { cn } from '@/lib/utils'
+import { cn, isTauri } from '@/lib/utils'
 import { useSuperAgentStore } from '@/stores/super-agent'
-import type { Task, TaskStatus, TaskUrgency } from '@/stores/super-agent'
+import type { Task, TaskStatus, TaskUrgency, TaskComplexity } from '@/stores/super-agent'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 
 // ─── Status Dot ──────────────────────────────────────────────────────────────
 
@@ -60,14 +63,140 @@ function urgencyBadgeClass(urgency: TaskUrgency): string {
   }
 }
 
+// ─── Create Task Form ─────────────────────────────────────────────────────────
+
+function CreateTaskForm({ onClose }: { onClose: () => void }) {
+  const createTask = useSuperAgentStore((s) => s.createTask)
+
+  const [description, setDescription] = React.useState('')
+  const [capabilitiesRaw, setCapabilitiesRaw] = React.useState('')
+  const [urgency, setUrgency] = React.useState<TaskUrgency>('normal')
+  const [complexity, setComplexity] = React.useState<TaskComplexity>('solo')
+  const [submitting, setSubmitting] = React.useState(false)
+
+  const urgencyOptions: TaskUrgency[] = ['low', 'normal', 'high', 'critical']
+  const complexityOptions: TaskComplexity[] = ['solo', 'delegate']
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!description.trim()) return
+    setSubmitting(true)
+    const capabilities = capabilitiesRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    await createTask(description.trim(), capabilities, urgency, complexity)
+    setSubmitting(false)
+    onClose()
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-xl border bg-card p-4 space-y-3"
+    >
+      <p className="text-sm font-medium">New Task</p>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">Description</label>
+        <Textarea
+          placeholder="Describe the task…"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="min-h-[72px]"
+          required
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">Capabilities (comma-separated)</label>
+        <Input
+          placeholder="e.g. coding, testing, analysis"
+          value={capabilitiesRaw}
+          onChange={(e) => setCapabilitiesRaw(e.target.value)}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">Urgency</label>
+        <div className="flex gap-1.5 flex-wrap">
+          {urgencyOptions.map((u) => (
+            <button
+              key={u}
+              type="button"
+              onClick={() => setUrgency(u)}
+              className={cn(
+                'rounded-full px-2.5 py-1 text-xs font-medium border transition-colors',
+                urgency === u
+                  ? urgencyBadgeClass(u) + ' border-transparent'
+                  : 'border-border bg-transparent text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {u}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">Complexity</label>
+        <div className="flex gap-1.5">
+          {complexityOptions.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setComplexity(c)}
+              className={cn(
+                'rounded-md px-3 py-1 text-xs font-medium border transition-colors',
+                complexity === c
+                  ? 'bg-primary text-primary-foreground border-transparent'
+                  : 'border-border bg-transparent text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <Button type="submit" size="sm" disabled={submitting || !description.trim()}>
+          {submitting ? 'Creating…' : 'Create Task'}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
 // ─── Task Card ────────────────────────────────────────────────────────────────
 
 interface TaskCardProps {
   task: Task
+  onRefresh: () => void
 }
 
-function TaskCard({ task }: TaskCardProps) {
+function TaskCard({ task, onRefresh }: TaskCardProps) {
   const shortId = task.id.slice(0, 8)
+  const [resolvingBid, setResolvingBid] = React.useState(false)
+
+  const hasBids = task.bids.length > 0
+
+  async function handleResolveBidding() {
+    if (!isTauri()) return
+    setResolvingBid(true)
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('super_agent_resolve_bidding', { taskId: task.id })
+      onRefresh()
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to resolve bidding:', err)
+    } finally {
+      setResolvingBid(false)
+    }
+  }
 
   return (
     <div className="rounded-xl border bg-card p-4 transition-all">
@@ -135,6 +264,20 @@ function TaskCard({ task }: TaskCardProps) {
               </span>
             )}
           </div>
+
+          {/* Resolve Bidding button */}
+          {task.status === 'bidding' && hasBids && (
+            <div className="pt-1">
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={handleResolveBidding}
+                disabled={resolvingBid}
+              >
+                {resolvingBid ? 'Selecting…' : 'Select Winner'}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -150,6 +293,7 @@ const ACTIVE_STATUSES = new Set<TaskStatus>(['open', 'bidding', 'assigned', 'run
 export function TaskBoard() {
   const taskBoard = useSuperAgentStore((s) => s.taskBoard)
   const fetchTasks = useSuperAgentStore((s) => s.fetchTasks)
+  const [showForm, setShowForm] = React.useState(false)
 
   React.useEffect(() => {
     fetchTasks()
@@ -162,6 +306,17 @@ export function TaskBoard() {
 
   return (
     <div className="space-y-6">
+      {/* Create Task form / button */}
+      <div className="space-y-3">
+        {showForm ? (
+          <CreateTaskForm onClose={() => setShowForm(false)} />
+        ) : (
+          <Button size="sm" onClick={() => setShowForm(true)}>
+            Create Task
+          </Button>
+        )}
+      </div>
+
       {/* Active tasks section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -182,7 +337,7 @@ export function TaskBoard() {
         ) : (
           <div className="space-y-2">
             {activeTasks.map((task) => (
-              <TaskCard key={task.id} task={task} />
+              <TaskCard key={task.id} task={task} onRefresh={fetchTasks} />
             ))}
           </div>
         )}
@@ -196,7 +351,7 @@ export function TaskBoard() {
           </div>
           <div className="space-y-2">
             {completedTasks.map((task) => (
-              <TaskCard key={task.id} task={task} />
+              <TaskCard key={task.id} task={task} onRefresh={fetchTasks} />
             ))}
           </div>
         </div>

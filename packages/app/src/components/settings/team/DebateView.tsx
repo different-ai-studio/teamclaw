@@ -5,7 +5,7 @@
  * 3. Voting        – candidate options, tally, winner, margin, dissent
  */
 import * as React from 'react'
-import { cn } from '@/lib/utils'
+import { cn, isTauri } from '@/lib/utils'
 import { useSuperAgentStore } from '@/stores/super-agent'
 import type {
   DebateRecord,
@@ -17,7 +17,12 @@ import type {
   CandidateOption,
   Vote,
   SynthesisResult,
+  VoteRanking,
+  Angle,
 } from '@/stores/super-agent'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
@@ -49,6 +54,300 @@ function stanceBadgeClass(stance: RebuttalStance): string {
     default:
       return 'bg-muted text-muted-foreground'
   }
+}
+
+// ─── All available angles ─────────────────────────────────────────────────────
+
+const ALL_ANGLES: Angle[] = [
+  'feasibility',
+  'performance',
+  'security',
+  'maintainability',
+  'user_experience',
+  'cost',
+  'risk',
+]
+
+// ─── Start Deliberation Form ──────────────────────────────────────────────────
+
+function StartDeliberationForm({ onClose }: { onClose: () => void }) {
+  const startDeliberation = useSuperAgentStore((s) => s.startDeliberation)
+  const [question, setQuestion] = React.useState('')
+  const [context, setContext] = React.useState('')
+  const [selectedAngles, setSelectedAngles] = React.useState<Angle[]>([])
+  const [submitting, setSubmitting] = React.useState(false)
+
+  function toggleAngle(angle: Angle) {
+    setSelectedAngles((prev) =>
+      prev.includes(angle) ? prev.filter((a) => a !== angle) : [...prev, angle],
+    )
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!question.trim()) return
+    setSubmitting(true)
+    await startDeliberation(question.trim(), context.trim(), selectedAngles)
+    setSubmitting(false)
+    onClose()
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-4 space-y-3">
+      <p className="text-sm font-medium">New Deliberation</p>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">Question</label>
+        <Textarea
+          placeholder="What should the team deliberate on?"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          className="min-h-[60px]"
+          required
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">Context (optional)</label>
+        <Textarea
+          placeholder="Provide background context…"
+          value={context}
+          onChange={(e) => setContext(e.target.value)}
+          className="min-h-[52px]"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">Angles</label>
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_ANGLES.map((angle) => (
+            <button
+              key={angle}
+              type="button"
+              onClick={() => toggleAngle(angle)}
+              className={cn(
+                'rounded-md px-2.5 py-1 text-xs font-medium border transition-colors',
+                selectedAngles.includes(angle)
+                  ? 'bg-primary text-primary-foreground border-transparent'
+                  : 'border-border bg-transparent text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {angle}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <Button type="submit" size="sm" disabled={submitting || !question.trim()}>
+          {submitting ? 'Starting…' : 'Start Deliberation'}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+// ─── Add Perspective Form ─────────────────────────────────────────────────────
+
+function AddPerspectiveForm({
+  debateId,
+  onClose,
+}: {
+  debateId: string
+  onClose: () => void
+}) {
+  const submitPerspective = useSuperAgentStore((s) => s.submitPerspective)
+  const [angle, setAngle] = React.useState<Angle>(ALL_ANGLES[0])
+  const [position, setPosition] = React.useState('')
+  const [reasoning, setReasoning] = React.useState('')
+  const [confidence, setConfidence] = React.useState(0.7)
+  const [submitting, setSubmitting] = React.useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!position.trim()) return
+    setSubmitting(true)
+    await submitPerspective(debateId, angle, position.trim(), confidence, reasoning.trim())
+    setSubmitting(false)
+    onClose()
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-lg border bg-muted/40 p-3 space-y-3 mt-2">
+      <p className="text-xs font-medium text-muted-foreground">Add Perspective</p>
+
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">Angle</label>
+        <div className="flex flex-wrap gap-1">
+          {ALL_ANGLES.map((a) => (
+            <button
+              key={a}
+              type="button"
+              onClick={() => setAngle(a)}
+              className={cn(
+                'rounded px-2 py-0.5 text-xs border transition-colors',
+                angle === a
+                  ? 'bg-primary text-primary-foreground border-transparent'
+                  : 'border-border bg-transparent text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {a}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">Position</label>
+        <Textarea
+          placeholder="Your position on this debate…"
+          value={position}
+          onChange={(e) => setPosition(e.target.value)}
+          className="min-h-[52px]"
+          required
+        />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">Reasoning (optional)</label>
+        <Textarea
+          placeholder="Supporting reasoning…"
+          value={reasoning}
+          onChange={(e) => setReasoning(e.target.value)}
+          className="min-h-[40px]"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-muted-foreground">Confidence</label>
+          <span className="text-xs font-medium">{Math.round(confidence * 100)}%</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={confidence}
+          onChange={(e) => setConfidence(parseFloat(e.target.value))}
+          className="w-full accent-primary"
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <Button type="submit" size="xs" disabled={submitting || !position.trim()}>
+          {submitting ? 'Submitting…' : 'Submit'}
+        </Button>
+        <Button type="button" size="xs" variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+// ─── Cast Vote Form ───────────────────────────────────────────────────────────
+
+function CastVoteForm({
+  debateId,
+  candidates,
+  onClose,
+}: {
+  debateId: string
+  candidates: CandidateOption[]
+  onClose: () => void
+}) {
+  const submitVote = useSuperAgentStore((s) => s.submitVote)
+  const [ranks, setRanks] = React.useState<Record<string, number>>(
+    Object.fromEntries(candidates.map((c, i) => [c.id, i + 1])),
+  )
+  const [reasoning, setReasoning] = React.useState('')
+  const [confidence, setConfidence] = React.useState(0.7)
+  const [submitting, setSubmitting] = React.useState(false)
+
+  function updateRank(id: string, val: string) {
+    const num = parseInt(val, 10)
+    if (!isNaN(num) && num >= 1) {
+      setRanks((prev) => ({ ...prev, [id]: num }))
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (candidates.length === 0) return
+    setSubmitting(true)
+
+    // The top-ranked option (rank=1) is preferred
+    const ranking: VoteRanking[] = candidates.map((c) => ({
+      optionId: c.id,
+      rank: ranks[c.id] ?? 999,
+    }))
+    const preferred = ranking.reduce((best, r) => (r.rank < best.rank ? r : best))
+
+    await submitVote(debateId, preferred.optionId, ranking, confidence, reasoning.trim())
+    setSubmitting(false)
+    onClose()
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-lg border bg-muted/40 p-3 space-y-3 mt-2">
+      <p className="text-xs font-medium text-muted-foreground">Cast Vote</p>
+
+      <div className="space-y-2">
+        <label className="text-xs text-muted-foreground">Rank candidates (1 = preferred)</label>
+        {candidates.map((c) => (
+          <div key={c.id} className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={1}
+              value={ranks[c.id] ?? ''}
+              onChange={(e) => updateRank(c.id, e.target.value)}
+              className="w-14 text-center"
+            />
+            <p className="text-xs text-muted-foreground line-clamp-1 flex-1">{c.description}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-muted-foreground">Confidence</label>
+          <span className="text-xs font-medium">{Math.round(confidence * 100)}%</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={confidence}
+          onChange={(e) => setConfidence(parseFloat(e.target.value))}
+          className="w-full accent-primary"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">Final reasoning (optional)</label>
+        <Textarea
+          placeholder="Why you ranked options this way…"
+          value={reasoning}
+          onChange={(e) => setReasoning(e.target.value)}
+          className="min-h-[40px]"
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <Button type="submit" size="xs" disabled={submitting || candidates.length === 0}>
+          {submitting ? 'Casting…' : 'Cast Vote'}
+        </Button>
+        <Button type="button" size="xs" variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
 }
 
 // ─── Phase 1: Perspectives ────────────────────────────────────────────────────
@@ -231,10 +530,32 @@ function VotingPanel({ candidates, votes, synthesis }: VotingPanelProps) {
 
 interface DebateCardProps {
   debate: DebateRecord
+  onRefresh: () => void
 }
 
-function DebateCard({ debate }: DebateCardProps) {
+function DebateCard({ debate, onRefresh }: DebateCardProps) {
   const [expanded, setExpanded] = React.useState(false)
+  const [showPerspectiveForm, setShowPerspectiveForm] = React.useState(false)
+  const [showVoteForm, setShowVoteForm] = React.useState(false)
+  const [concluding, setConcluding] = React.useState(false)
+
+  const canAddPerspective = debate.status === 'gathering_perspectives'
+  const canVote = debate.status === 'voting'
+  const canConclude = debate.votes.length > 0 && debate.status !== 'concluded'
+
+  async function handleConclude() {
+    if (!isTauri()) return
+    setConcluding(true)
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('super_agent_conclude_deliberation', { debateId: debate.id })
+      onRefresh()
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to conclude deliberation:', err)
+    } finally {
+      setConcluding(false)
+    }
+  }
 
   return (
     <div className="rounded-xl border bg-card transition-all">
@@ -279,9 +600,50 @@ function DebateCard({ debate }: DebateCardProps) {
         </div>
       </button>
 
-      {/* Expanded body: 3 phases */}
+      {/* Expanded body: 3 phases + action buttons */}
       {expanded && (
         <div className="border-t px-4 pb-4 pt-3 space-y-6">
+          {/* Action buttons */}
+          {(canAddPerspective || canVote || canConclude) && (
+            <div className="flex flex-wrap gap-2">
+              {canAddPerspective && !showPerspectiveForm && (
+                <Button size="xs" variant="outline" onClick={() => setShowPerspectiveForm(true)}>
+                  Add Perspective
+                </Button>
+              )}
+              {canVote && !showVoteForm && debate.candidateOptions.length > 0 && (
+                <Button size="xs" variant="outline" onClick={() => setShowVoteForm(true)}>
+                  Cast Vote
+                </Button>
+              )}
+              {canConclude && (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={handleConclude}
+                  disabled={concluding}
+                >
+                  {concluding ? 'Concluding…' : 'Conclude'}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {showPerspectiveForm && (
+            <AddPerspectiveForm
+              debateId={debate.id}
+              onClose={() => setShowPerspectiveForm(false)}
+            />
+          )}
+
+          {showVoteForm && (
+            <CastVoteForm
+              debateId={debate.id}
+              candidates={debate.candidateOptions}
+              onClose={() => setShowVoteForm(false)}
+            />
+          )}
+
           {/* Phase 1: Perspectives */}
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -326,6 +688,7 @@ function DebateCard({ debate }: DebateCardProps) {
 export function DebateView() {
   const debates = useSuperAgentStore((s) => s.debates)
   const fetchDebates = useSuperAgentStore((s) => s.fetchDebates)
+  const [showStartForm, setShowStartForm] = React.useState(false)
 
   React.useEffect(() => {
     fetchDebates()
@@ -342,6 +705,17 @@ export function DebateView() {
 
   return (
     <div className="space-y-6">
+      {/* Start Deliberation form / button */}
+      <div className="space-y-3">
+        {showStartForm ? (
+          <StartDeliberationForm onClose={() => setShowStartForm(false)} />
+        ) : (
+          <Button size="sm" onClick={() => setShowStartForm(true)}>
+            Start Deliberation
+          </Button>
+        )}
+      </div>
+
       {/* Active deliberations */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -362,7 +736,7 @@ export function DebateView() {
         ) : (
           <div className="space-y-2">
             {activeDebates.map((debate) => (
-              <DebateCard key={debate.id} debate={debate} />
+              <DebateCard key={debate.id} debate={debate} onRefresh={fetchDebates} />
             ))}
           </div>
         )}
@@ -376,7 +750,7 @@ export function DebateView() {
           </div>
           <div className="space-y-2">
             {concludedDebates.map((debate) => (
-              <DebateCard key={debate.id} debate={debate} />
+              <DebateCard key={debate.id} debate={debate} onRefresh={fetchDebates} />
             ))}
           </div>
         </div>
