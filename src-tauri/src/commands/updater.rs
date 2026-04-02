@@ -192,7 +192,53 @@ async fn download_asset(
 }
 
 /// Download a release asset with progress events emitted to the frontend.
+/// Retries up to MAX_DOWNLOAD_RETRIES times with exponential backoff on network errors.
 async fn download_asset_with_progress<R: Runtime>(
+    app: &AppHandle<R>,
+    client: &reqwest::Client,
+    token: &str,
+    api_url: &str,
+) -> Result<Vec<u8>, String> {
+    let mut last_err = String::new();
+
+    for attempt in 0..=MAX_DOWNLOAD_RETRIES {
+        if attempt > 0 {
+            let delay = RETRY_BASE_DELAY_MS * 2u64.pow(attempt - 1);
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            let _ = app.emit(
+                "update-download-progress",
+                DownloadProgress {
+                    downloaded: 0,
+                    content_length: None,
+                },
+            );
+        }
+
+        match try_download_asset(app, client, token, api_url).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(e) => {
+                last_err = e;
+                if attempt < MAX_DOWNLOAD_RETRIES {
+                    log::warn!(
+                        "Asset download attempt {}/{} failed: {}. Retrying...",
+                        attempt + 1,
+                        MAX_DOWNLOAD_RETRIES + 1,
+                        last_err
+                    );
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "Download failed after {} attempts: {}",
+        MAX_DOWNLOAD_RETRIES + 1,
+        last_err
+    ))
+}
+
+/// Single asset download attempt with progress events.
+async fn try_download_asset<R: Runtime>(
     app: &AppHandle<R>,
     client: &reqwest::Client,
     token: &str,
@@ -222,7 +268,6 @@ async fn download_asset_with_progress<R: Runtime>(
         downloaded += chunk.len() as u64;
         buffer.extend_from_slice(&chunk);
 
-        // Emit progress event every ~100KB to avoid flooding
         if downloaded % (100 * 1024) < chunk.len() as u64
             || content_length.map_or(false, |cl| downloaded >= cl)
         {
@@ -236,7 +281,6 @@ async fn download_asset_with_progress<R: Runtime>(
         }
     }
 
-    // Emit final progress
     let _ = app.emit(
         "update-download-progress",
         DownloadProgress {
@@ -366,8 +410,59 @@ fn install_update(_bytes: &[u8]) -> Result<(), String> {
     Err("Auto-update installation is only supported on macOS currently".to_string())
 }
 
-/// Download file with progress events (for custom endpoint mode)
+/// Maximum number of download retry attempts
+const MAX_DOWNLOAD_RETRIES: u32 = 3;
+/// Base delay between retries in milliseconds (doubles each attempt)
+const RETRY_BASE_DELAY_MS: u64 = 2000;
+
+/// Download file with progress events (for custom endpoint mode).
+/// Retries up to MAX_DOWNLOAD_RETRIES times with exponential backoff on network errors.
 async fn download_file_with_progress<R: Runtime>(
+    app: &AppHandle<R>,
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Vec<u8>, String> {
+    let mut last_err = String::new();
+
+    for attempt in 0..=MAX_DOWNLOAD_RETRIES {
+        if attempt > 0 {
+            let delay = RETRY_BASE_DELAY_MS * 2u64.pow(attempt - 1);
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            // Reset progress so the UI shows the retry starting fresh
+            let _ = app.emit(
+                "update-download-progress",
+                DownloadProgress {
+                    downloaded: 0,
+                    content_length: None,
+                },
+            );
+        }
+
+        match try_download_file(app, client, url).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(e) => {
+                last_err = e;
+                if attempt < MAX_DOWNLOAD_RETRIES {
+                    log::warn!(
+                        "Download attempt {}/{} failed: {}. Retrying...",
+                        attempt + 1,
+                        MAX_DOWNLOAD_RETRIES + 1,
+                        last_err
+                    );
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "Download failed after {} attempts: {}",
+        MAX_DOWNLOAD_RETRIES + 1,
+        last_err
+    ))
+}
+
+/// Single download attempt with progress events.
+async fn try_download_file<R: Runtime>(
     app: &AppHandle<R>,
     client: &reqwest::Client,
     url: &str,

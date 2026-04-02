@@ -2348,6 +2348,15 @@ impl OssSyncManager {
             return Err("Cannot remove the team Owner".to_string());
         }
 
+        // If caller is manager (not owner), block removing other managers
+        let is_owner = manifest.owner_node_id == self.node_id;
+        if !is_owner {
+            let target_role = manifest.members.iter().find(|m| m.node_id == node_id).map(|m| &m.role);
+            if matches!(target_role, Some(MemberRole::Owner) | Some(MemberRole::Manager)) {
+                return Err("Managers can only remove editors and viewers".to_string());
+            }
+        }
+
         manifest.members.retain(|m| m.node_id != node_id);
         self.upload_members_manifest(&manifest).await
     }
@@ -2361,6 +2370,24 @@ impl OssSyncManager {
 
         if manifest.owner_node_id == node_id && role != MemberRole::Owner {
             return Err("Cannot change the Owner's role".to_string());
+        }
+
+        // Cannot assign Owner role
+        if matches!(role, MemberRole::Owner) {
+            return Err("Cannot assign the owner role".to_string());
+        }
+
+        let is_owner = manifest.owner_node_id == self.node_id;
+        let target_role = manifest.members.iter().find(|m| m.node_id == node_id).map(|m| m.role.clone());
+
+        // Manager restrictions
+        if !is_owner {
+            if matches!(role, MemberRole::Manager) {
+                return Err("Only the owner can promote to manager".to_string());
+            }
+            if matches!(target_role, Some(MemberRole::Manager)) {
+                return Err("Managers cannot change another manager's role".to_string());
+            }
         }
 
         if let Some(member) = manifest.members.iter_mut().find(|m| m.node_id == node_id) {

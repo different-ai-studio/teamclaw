@@ -2884,13 +2884,13 @@ pub fn add_member_to_team(
         config.allowed_members.clone()
     };
 
-    // Any existing member (owner or editor) can add new members.
+    // Any existing member (owner or manager) can add new members.
     let is_owner = owner_id == caller_node_id;
-    let is_member = members.iter().any(|m| {
-        m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor)
+    let is_manager = members.iter().any(|m| {
+        m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Manager)
     });
-    if !is_owner && !is_member {
-        return Err("Only team members can add new members".to_string());
+    if !is_owner && !is_manager {
+        return Err("Only team owner or manager can add new members".to_string());
     }
 
     if members.iter().any(|m| m.node_id == member.node_id) {
@@ -2957,15 +2957,22 @@ pub fn remove_member_from_team(
     };
 
     let is_owner = owner_id == caller_node_id;
-    let is_editor = members.iter().any(|m| {
-        m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor)
-    });
-    if !is_owner && !is_editor {
-        return Err("Only team members (owner or editor) can manage members".to_string());
+    let caller_role = members.iter().find(|m| m.node_id == caller_node_id).map(|m| &m.role);
+    let is_manager = matches!(caller_role, Some(MemberRole::Owner) | Some(MemberRole::Manager));
+    if !is_owner && !is_manager {
+        return Err("Only team owner or manager can remove members".to_string());
     }
 
-    if target_node_id == caller_node_id {
+    if target_node_id == owner_id {
         return Err("Cannot remove the team owner".to_string());
+    }
+
+    // Managers cannot remove other managers or the owner
+    if !is_owner {
+        let target_role = members.iter().find(|m| m.node_id == target_node_id).map(|m| &m.role);
+        if matches!(target_role, Some(MemberRole::Owner) | Some(MemberRole::Manager)) {
+            return Err("Managers can only remove editors and viewers".to_string());
+        }
     }
 
     let before_len = members.len();
@@ -2981,7 +2988,7 @@ pub fn remove_member_from_team(
     Ok(())
 }
 
-/// Update a member's role. Owner or editor can call this.
+/// Update a member's role. Owner or manager can call this.
 pub fn update_member_role(
     workspace_path: &str,
     team_dir: &str,
@@ -2995,7 +3002,6 @@ pub fn update_member_role(
         .owner_node_id
         .as_deref()
         .ok_or("No team owner configured")?;
-    // Use manifest as authoritative member list when available
     let manifest = read_members_manifest(team_dir).ok().flatten();
     let mut members = if let Some(ref m) = manifest {
         m.members.clone()
@@ -3004,15 +3010,40 @@ pub fn update_member_role(
     };
 
     let is_owner = owner_id == caller_node_id;
-    let is_editor = members.iter().any(|m| {
-        m.node_id == caller_node_id && matches!(m.role, MemberRole::Owner | MemberRole::Editor)
-    });
-    if !is_owner && !is_editor {
-        return Err("Only team members (owner or editor) can manage members".to_string());
+    let caller_role = members.iter().find(|m| m.node_id == caller_node_id).map(|m| m.role.clone());
+    let is_manager = matches!(caller_role, Some(MemberRole::Owner) | Some(MemberRole::Manager));
+
+    if !is_owner && !is_manager {
+        return Err("Only team owner or manager can change roles".to_string());
     }
 
+    // Cannot change own role
     if target_node_id == caller_node_id {
+        return Err("Cannot change your own role".to_string());
+    }
+
+    // Cannot change the owner's role
+    if target_node_id == owner_id {
         return Err("Cannot change the owner's role".to_string());
+    }
+
+    let target_role = members.iter().find(|m| m.node_id == target_node_id).map(|m| m.role.clone());
+
+    // Manager restrictions
+    if !is_owner {
+        // Manager cannot promote to Manager or Owner
+        if matches!(new_role, MemberRole::Owner | MemberRole::Manager) {
+            return Err("Only the owner can promote to manager".to_string());
+        }
+        // Manager cannot change another manager's role
+        if matches!(target_role, Some(MemberRole::Manager)) {
+            return Err("Managers cannot change another manager's role".to_string());
+        }
+    }
+
+    // Owner cannot set someone to Owner (single owner constraint)
+    if matches!(new_role, MemberRole::Owner) {
+        return Err("Cannot assign the owner role".to_string());
     }
 
     let member = members

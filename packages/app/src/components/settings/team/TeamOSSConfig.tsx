@@ -129,6 +129,7 @@ export function TeamOSSConfig() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const {
+    configured,
     connected,
     restoring,
     syncing,
@@ -146,6 +147,7 @@ export function TeamOSSConfig() {
     pendingApplication,
     loadPendingApplication,
     cancelApplication,
+    reconnect,
   } = useTeamOssStore()
 
   const teamMembersStore = useTeamMembersStore()
@@ -330,8 +332,33 @@ export function TeamOSSConfig() {
         </SettingCard>
       )}
 
-      {/* State 1: Disconnected — Create/Join forms */}
-      {!connected && !restoring && (
+      {/* State 1a: Configured but disconnected — reconnect prompt */}
+      {!connected && !restoring && configured && (
+        <SettingCard title="团队未连接" icon={Cloud}>
+          <div className="flex flex-col items-center gap-3 py-4">
+            <p className="text-sm text-muted-foreground">
+              已检测到团队配置，但连接失败。可能是网络问题或 S3 服务不可用。
+            </p>
+            {error && (
+              <p className="text-xs text-destructive text-center">{error}</p>
+            )}
+            <Button
+              onClick={() => workspacePath && reconnect(workspacePath)}
+              disabled={restoring}
+              variant="outline"
+            >
+              {restoring ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />重新连接中...</>
+              ) : (
+                <><RefreshCw className="mr-2 h-4 w-4" />重新连接</>
+              )}
+            </Button>
+          </div>
+        </SettingCard>
+      )}
+
+      {/* State 1b: Not configured — Create/Join forms */}
+      {!connected && !restoring && !configured && (
         <>
           <SettingCard title="创建团队" icon={Users}>
             <div className="space-y-3">

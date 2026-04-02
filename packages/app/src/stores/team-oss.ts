@@ -113,6 +113,7 @@ interface TeamOssState {
     email: string
     note: string
   }) => Promise<void>
+  reconnect: (workspacePath: string) => Promise<void>
   loadPendingApplication: (workspacePath: string) => Promise<void>
   cancelApplication: (workspacePath: string) => Promise<void>
   cleanup: () => void
@@ -199,6 +200,31 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     } catch (e) {
       console.error('OSS sync init failed:', e)
       set({ error: String(e) })
+    }
+  },
+
+  reconnect: async (workspacePath) => {
+    set({ restoring: true, error: null })
+    try {
+      const config = await invoke<OssTeamConfig | null>('oss_get_team_config', { workspacePath })
+      if (!config?.enabled) {
+        set({ restoring: false, configured: false })
+        return
+      }
+      const RESTORE_TIMEOUT_MS = 90_000
+      const info = await Promise.race([
+        invoke<OssTeamInfo>('oss_restore_sync', {
+          workspacePath,
+          teamId: config.teamId,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('OSS restore timed out')), RESTORE_TIMEOUT_MS),
+        ),
+      ])
+      set({ connected: true, teamInfo: info, restoring: false })
+    } catch (e) {
+      console.warn('OSS reconnect failed:', e)
+      set({ restoring: false, error: String(e) })
     }
   },
 

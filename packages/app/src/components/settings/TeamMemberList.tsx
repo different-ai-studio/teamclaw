@@ -5,6 +5,13 @@ import { useTeamMembersStore } from '../../stores/team-members'
 import { AddMemberInput } from './AddMemberInput'
 import { useP2pEngineStore, type PeerConnection } from '@/stores/p2p-engine'
 import { cn } from '@/lib/utils'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 function truncateId(id: string): string {
   if (id.length <= 16) return id
@@ -17,6 +24,14 @@ function RoleBadge({ role }: { role?: string }) {
       <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 px-1.5 py-0.5 rounded">
         <Shield className="h-3 w-3" />
         Owner
+      </span>
+    )
+  }
+  if (role === 'manager') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">
+        <Shield className="h-3 w-3" />
+        Manager
       </span>
     )
   }
@@ -161,8 +176,14 @@ export function TeamMemberList() {
       <div className="space-y-2">
         {members.map((member) => {
           const isMemberOwner = member.role === 'owner'
-          // Editors cannot remove or demote the owner
-          const canActOnMember = isManager && !isMemberOwner && !(myRole === 'editor' && isMemberOwner)
+          const isMemberManager = member.role === 'manager'
+          // Owner can act on anyone except themselves; Manager can only act on editor/viewer
+          const canActOnMember =
+            isManager &&
+            member.nodeId !== currentNodeId &&
+            (myRole === 'owner'
+              ? !isMemberOwner
+              : !isMemberOwner && !isMemberManager)
 
           return (
             <div
@@ -192,7 +213,22 @@ export function TeamMemberList() {
                 </p>
               </div>
               <div className="flex items-center gap-1">
-                {canActOnMember && (
+                {canActOnMember && myRole === 'owner' && (
+                  <Select
+                    value={member.role}
+                    onValueChange={(v) => updateMemberRole(member.nodeId, v as any)}
+                  >
+                    <SelectTrigger className="h-8 w-[110px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manager">Manager</SelectItem>
+                      <SelectItem value="editor">Editor</SelectItem>
+                      <SelectItem value="viewer">Viewer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                {canActOnMember && myRole === 'manager' && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -236,7 +272,7 @@ export function TeamMemberList() {
             <UserPlus className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Add Member</span>
           </div>
-          <AddMemberInput onAdd={handleAdd} error={error} />
+          <AddMemberInput onAdd={handleAdd} error={error} myRole={myRole} />
         </div>
       )}
     </div>
