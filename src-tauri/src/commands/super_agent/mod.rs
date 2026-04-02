@@ -20,4 +20,6 @@ pub use state::SuperAgentState;
 pub use commands::{
     super_agent_snapshot, super_agent_discover, super_agent_create_task, super_agent_get_tasks,
     super_agent_get_knowledge, super_agent_record_experience, super_agent_validate_strategy,
+    super_agent_start_deliberation, super_agent_get_debates, super_agent_submit_perspective,
+    super_agent_submit_vote, super_agent_record_outcome,
 };

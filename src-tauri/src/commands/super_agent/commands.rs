@@ -2,8 +2,9 @@ use super::skill_distiller::SkillDistiller;
 use super::state::SuperAgentState;
 use super::strategy_engine::StrategyEngine;
 use super::types::{
-    AgentProfile, KnowledgeSnapshot, NerveMessage, NervePayload, NerveTopic, SuperAgentSnapshot,
-    Task, TaskBoardSnapshot, TaskComplexity, TaskUrgency, ValidationStatus, now_millis,
+    AgentProfile, Angle, DebateSnapshot, DeliberationTrigger, KnowledgeSnapshot, NerveMessage,
+    NervePayload, NerveTopic, Perspective, PostDecisionOutcome, SuperAgentSnapshot, Task,
+    TaskBoardSnapshot, TaskComplexity, TaskUrgency, ValidationStatus, Vote, VoteRanking, now_millis,
 };
 
 /// Return a snapshot of the current super-agent state (local profile + all known agents).
@@ -231,4 +232,204 @@ pub async fn super_agent_validate_strategy(
     }
 
     Ok(())
+}
+
+// ─── Layer 4: Deliberation / Debate Commands ──────────────────────────────────
+
+/// Start a deliberation on a question, broadcasting a DebatePropose message.
+#[tauri::command]
+pub async fn super_agent_start_deliberation(
+    question: String,
+    context: String,
+    requested_angles: Vec<String>,
+    state: tauri::State<'_, SuperAgentState>,
+) -> Result<(), String> {
+    let guard = state.lock().await;
+    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
+
+    let angles: Vec<Angle> = requested_angles
+        .iter()
+        .map(|s| match s.as_str() {
+            "feasibility" => Angle::Feasibility,
+            "performance" => Angle::Performance,
+            "security" => Angle::Security,
+            "maintainability" => Angle::Maintainability,
+            "user_experience" | "userexperience" => Angle::UserExperience,
+            "cost" => Angle::Cost,
+            "risk" => Angle::Risk,
+            _ => Angle::Feasibility,
+        })
+        .collect();
+
+    let trigger = DeliberationTrigger {
+        explicit: true,
+        creator_confidence: 0.5,
+        domain_failure_rate: 0.0,
+        cross_domain_count: 0,
+    };
+
+    let debate = {
+        let engine = node.deliberation_engine.lock().await;
+        let mut bb = node.blackboard.lock().await;
+        engine.create_deliberation(
+            &mut bb,
+            question.clone(),
+            context.clone(),
+            angles.clone(),
+            trigger,
+        )?
+    };
+
+    let msg = NerveMessage::new_debate(
+        node.local_node_id.clone(),
+        NervePayload::DebatePropose {
+            debate_id: debate.id.clone(),
+            question,
+            context,
+            deadline: debate.deadline,
+            requested_angles: angles,
+        },
+    );
+    node.nerve.broadcast(msg).await;
+
+    Ok(())
+}
+
+/// Return a snapshot of all debates on the debate board.
+#[tauri::command]
+pub async fn super_agent_get_debates(
+    state: tauri::State<'_, SuperAgentState>,
+) -> Result<DebateSnapshot, String> {
+    let guard = state.lock().await;
+    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
+
+    let engine = node.deliberation_engine.lock().await;
+    let bb = node.blackboard.lock().await;
+    Ok(engine.debate_board.get_snapshot(&bb))
+}
+
+/// Submit a perspective to an existing debate, broadcasting a DebatePerspective message.
+#[tauri::command]
+pub async fn super_agent_submit_perspective(
+    debate_id: String,
+    angle: String,
+    position: String,
+    reasoning: String,
+    confidence: f64,
+    state: tauri::State<'_, SuperAgentState>,
+) -> Result<(), String> {
+    let guard = state.lock().await;
+    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
+
+    let angle_enum = match angle.as_str() {
+        "feasibility" => Angle::Feasibility,
+        "performance" => Angle::Performance,
+        "security" => Angle::Security,
+        "maintainability" => Angle::Maintainability,
+        "user_experience" | "userexperience" => Angle::UserExperience,
+        "cost" => Angle::Cost,
+        "risk" => Angle::Risk,
+        _ => Angle::Feasibility,
+    };
+
+    let perspective = Perspective {
+        debate_id: debate_id.clone(),
+        agent_id: node.local_node_id.clone(),
+        angle: angle_enum.clone(),
+        position: position.clone(),
+        reasoning,
+        evidence: vec![],
+        risks: vec![],
+        preferred_option: String::new(),
+        option_ranking: vec![],
+        confidence,
+    };
+
+    {
+        let engine = node.deliberation_engine.lock().await;
+        let mut bb = node.blackboard.lock().await;
+        engine.add_perspective(&mut bb, &debate_id, perspective)?;
+    }
+
+    let msg = NerveMessage::new_debate(
+        node.local_node_id.clone(),
+        NervePayload::DebatePerspective {
+            debate_id,
+            agent_id: node.local_node_id.clone(),
+            angle: angle_enum,
+            position,
+            confidence,
+        },
+    );
+    node.nerve.broadcast(msg).await;
+
+    Ok(())
+}
+
+/// Submit a vote on a debate, broadcasting a DebateVote message.
+#[tauri::command]
+pub async fn super_agent_submit_vote(
+    debate_id: String,
+    preferred_option_id: String,
+    ranking: Vec<(String, u32)>,
+    reasoning: String,
+    confidence: f64,
+    state: tauri::State<'_, SuperAgentState>,
+) -> Result<(), String> {
+    let guard = state.lock().await;
+    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
+
+    let vote_ranking: Vec<VoteRanking> = ranking
+        .into_iter()
+        .map(|(option_id, rank)| VoteRanking { option_id, rank })
+        .collect();
+
+    let vote = Vote {
+        agent_id: node.local_node_id.clone(),
+        preferred_option_id,
+        ranking: vote_ranking,
+        confidence,
+        final_reasoning: reasoning,
+    };
+
+    {
+        let engine = node.deliberation_engine.lock().await;
+        let mut bb = node.blackboard.lock().await;
+        engine.add_vote(&mut bb, &debate_id, vote)?;
+    }
+
+    let msg = NerveMessage::new_debate(
+        node.local_node_id.clone(),
+        NervePayload::DebateVote {
+            debate_id,
+        },
+    );
+    node.nerve.broadcast(msg).await;
+
+    Ok(())
+}
+
+/// Record a post-decision outcome for a debate.
+#[tauri::command]
+pub async fn super_agent_record_outcome(
+    debate_id: String,
+    task_id: String,
+    actual_result: String,
+    score: f64,
+    was_correct: bool,
+    state: tauri::State<'_, SuperAgentState>,
+) -> Result<(), String> {
+    let guard = state.lock().await;
+    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
+
+    let outcome = PostDecisionOutcome {
+        task_id,
+        actual_result,
+        score,
+        was_correct_decision: was_correct,
+    };
+
+    let engine = node.deliberation_engine.lock().await;
+    let mut bb = node.blackboard.lock().await;
+    engine.record_outcome(&mut bb, &debate_id, outcome)
 }

@@ -3,6 +3,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use super::blackboard::Blackboard;
+use super::deliberation::DeliberationEngine;
 use super::experience_collector::ExperienceCollector;
 use super::heartbeat::spawn_heartbeat_loop;
 use super::knowledge_board::KnowledgeBoard;
@@ -23,6 +24,7 @@ pub struct SuperAgentNode {
     pub knowledge_board: KnowledgeBoard,
     pub experience_collector: ExperienceCollector,
     pub strategy_engine: StrategyEngine,
+    pub deliberation_engine: Arc<Mutex<DeliberationEngine>>,
     shutdown_tx: tokio::sync::watch::Sender<bool>,
     _heartbeat_handle: tokio::task::JoinHandle<()>,
     _listener_handle: tokio::task::JoinHandle<()>,
@@ -59,6 +61,7 @@ impl SuperAgentNode {
         let knowledge_board = KnowledgeBoard::new();
         let experience_collector = ExperienceCollector::new(local_node_id.clone());
         let strategy_engine = StrategyEngine::new();
+        let deliberation_engine = DeliberationEngine::new(local_node_id.clone());
 
         // Register local profile.
         {
@@ -83,6 +86,8 @@ impl SuperAgentNode {
             }
         }
 
+        let deliberation_engine = Arc::new(Mutex::new(deliberation_engine));
+
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
         // Spawn gossip listener.
@@ -91,6 +96,7 @@ impl SuperAgentNode {
             Arc::clone(&registry),
             Arc::clone(&blackboard),
             Arc::clone(&orchestrator),
+            Arc::clone(&deliberation_engine),
             local_node_id.clone(),
             shutdown_rx.clone(),
         );
@@ -116,6 +122,7 @@ impl SuperAgentNode {
             knowledge_board,
             experience_collector,
             strategy_engine,
+            deliberation_engine,
             shutdown_tx,
             _heartbeat_handle: heartbeat_handle,
             _listener_handle: listener_handle,
@@ -140,6 +147,7 @@ pub fn spawn_gossip_listener(
     registry: Arc<Mutex<AgentRegistry>>,
     blackboard: Arc<Mutex<Blackboard>>,
     orchestrator: Arc<Mutex<TaskOrchestrator>>,
+    deliberation_engine: Arc<Mutex<DeliberationEngine>>,
     local_node_id: String,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
@@ -159,7 +167,7 @@ pub fn spawn_gossip_listener(
 
                 result = rx.recv() => {
                     match result {
-                        Ok(msg) => handle_nerve_message(msg, &registry, &blackboard, &orchestrator, &nerve, &local_node_id).await,
+                        Ok(msg) => handle_nerve_message(msg, &registry, &blackboard, &orchestrator, &deliberation_engine, &nerve, &local_node_id).await,
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                             warn!("gossip_listener: receiver lagged, {} messages skipped", n);
                             // Continue; the next recv() will succeed.
@@ -180,6 +188,7 @@ async fn handle_nerve_message(
     registry: &Arc<Mutex<AgentRegistry>>,
     blackboard: &Arc<Mutex<Blackboard>>,
     orchestrator: &Arc<Mutex<TaskOrchestrator>>,
+    deliberation_engine: &Arc<Mutex<DeliberationEngine>>,
     nerve: &Arc<NerveChannel>,
     local_node_id: &str,
 ) {
@@ -277,10 +286,29 @@ async fn handle_nerve_message(
         NerveTopic::Debate => {
             match msg.payload.clone() {
                 NervePayload::DebatePropose { debate_id, question, .. } => {
+                    // Auto-perspective generation is future work; just log for now.
                     info!("gossip_listener: debate:propose debate_id={debate_id} question={question:?} from={}", msg.from);
                 }
-                NervePayload::DebatePerspective { debate_id, agent_id, .. } => {
+                NervePayload::DebatePerspective { debate_id, agent_id, angle, position, confidence } => {
                     info!("gossip_listener: debate:perspective debate_id={debate_id} agent_id={agent_id} from={}", msg.from);
+                    use super::types::Perspective;
+                    let perspective = Perspective {
+                        debate_id: debate_id.clone(),
+                        agent_id: agent_id.clone(),
+                        angle,
+                        position,
+                        reasoning: String::new(),
+                        evidence: vec![],
+                        risks: vec![],
+                        preferred_option: String::new(),
+                        option_ranking: vec![],
+                        confidence,
+                    };
+                    let engine = deliberation_engine.lock().await;
+                    let mut bb = blackboard.lock().await;
+                    if let Err(e) = engine.add_perspective(&mut bb, &debate_id, perspective) {
+                        warn!("gossip_listener: failed to add remote perspective for debate {debate_id}: {e}");
+                    }
                 }
                 NervePayload::DebateRebuttal { debate_id, round, agent_id, .. } => {
                     info!("gossip_listener: debate:rebuttal debate_id={debate_id} round={round} agent_id={agent_id} from={}", msg.from);

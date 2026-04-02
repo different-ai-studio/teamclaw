@@ -480,6 +480,16 @@ pub fn run() {
             commands::super_agent::commands::super_agent_record_experience,
             #[cfg(feature = "p2p")]
             commands::super_agent::commands::super_agent_validate_strategy,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_start_deliberation,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_get_debates,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_submit_perspective,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_submit_vote,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_record_outcome,
             commands::oss_commands::oss_create_team,
             commands::oss_commands::oss_join_team,
             commands::oss_commands::oss_restore_sync,
