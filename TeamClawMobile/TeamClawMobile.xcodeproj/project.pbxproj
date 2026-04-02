@@ -8,17 +8,21 @@
 
 /* Begin PBXBuildFile section */
 		08611817B203CE81AE25034B /* TeamMember.swift in Sources */ = {isa = PBXBuildFile; fileRef = D757E0623CEB9A68984B2B5C /* TeamMember.swift */; };
+		134732A83BBEC99EEE375989 /* MQTTMessageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 732086766760FC0029F08CE4 /* MQTTMessageTests.swift */; };
 		16A0D1CCA0B263A727F89BD5 /* TeamClawMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8A1F867A184477619ACF2E /* TeamClawMobileApp.swift */; };
 		230A35A007BFBA18B6AC2D1A /* AutomationTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DDD023179D4C3D6C27643B9 /* AutomationTask.swift */; };
 		258F054107C9F77DFEE25248 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 823BC8AEA646A45ADF76AEC2 /* Session.swift */; };
+		2A60408C88B14FA9D6AD2E39 /* MQTTMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFB7FCF4232553873E33B198 /* MQTTMessage.swift */; };
 		531C62D5C7AA8378A188D1A5 /* TeamClawMobileUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF95DB3D8227F4EEC0A5786F /* TeamClawMobileUITests.swift */; };
 		54C7CD0A152D6ECB4B2A6641 /* CocoaMQTT in Frameworks */ = {isa = PBXBuildFile; productRef = 48D6BF74640DFCC159C17AF3 /* CocoaMQTT */; };
 		60BECF2B5D5D6E482F51A22C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 9FE2D672C23A9561D53ABAB0 /* Markdown */; };
+		662BA0A5CCEF0788CC67D0B8 /* MockMQTTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69658CAD73E044A864470496 /* MockMQTTService.swift */; };
 		689CD249A22C0EC9692554D6 /* Skill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCB7D9D27F63BE7540362BC /* Skill.swift */; };
 		84B1548437DF691CC12D4607 /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32DBAEC6B0FAD53F502E6C1 /* ModelTests.swift */; };
 		8CF7A33A3A09AA9B58ABF70E /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = DC38DE73255511B28B9E9765 /* Alamofire */; };
 		AF24687EFEC7A836A7404796 /* TeamClawMobileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */; };
 		BF474BB88350A810335A0EC7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D49161288BBB6B6D11F2251A /* ContentView.swift */; };
+		E4A5A43173A9B6264E39598B /* MQTTServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D159295636E0431FC7F4A497 /* MQTTServiceProtocol.swift */; };
 		F72276690532533498ED380B /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36621DE5BE808E48FCAB3565 /* ChatMessage.swift */; };
 /* End PBXBuildFile section */
 
@@ -50,10 +54,12 @@
 		3AF9EEA26C502C1D43B7E4D2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		5DDD023179D4C3D6C27643B9 /* AutomationTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationTask.swift; sourceTree = "<group>"; };
 		5E8A1F867A184477619ACF2E /* TeamClawMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileApp.swift; sourceTree = "<group>"; };
+		69658CAD73E044A864470496 /* MockMQTTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockMQTTService.swift; sourceTree = "<group>"; };
+		732086766760FC0029F08CE4 /* MQTTMessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTTMessageTests.swift; sourceTree = "<group>"; };
 		823BC8AEA646A45ADF76AEC2 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		967D21B1FA571C194C8B0FC0 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
-		A4A0647A85E424C7A663EF3C /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
 		AF95DB3D8227F4EEC0A5786F /* TeamClawMobileUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileUITests.swift; sourceTree = "<group>"; };
+		D159295636E0431FC7F4A497 /* MQTTServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTTServiceProtocol.swift; sourceTree = "<group>"; };
 		D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileTests.swift; sourceTree = "<group>"; };
 		D49161288BBB6B6D11F2251A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		D757E0623CEB9A68984B2B5C /* TeamMember.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamMember.swift; sourceTree = "<group>"; };
@@ -62,6 +68,7 @@
 		E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeamClawMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E32DBAEC6B0FAD53F502E6C1 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 		ECF49ABBFAC1B5795E42B5DD /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		EFB7FCF4232553873E33B198 /* MQTTMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTTMessage.swift; sourceTree = "<group>"; };
 		F20FBB3F482D97C0B299C4A2 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
 		FD07FCE2F4D651AB21A4451D /* TeamClawMobileUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TeamClawMobileUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -189,6 +196,14 @@
 			path = Chat;
 			sourceTree = "<group>";
 		};
+		6668AA9BA6CECF8EE878E7E5 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				732086766760FC0029F08CE4 /* MQTTMessageTests.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
 		883C9D7080C45BDFEECABD2A /* SessionList */ = {
 			isa = PBXGroup;
 			children = (
@@ -232,7 +247,9 @@
 		B1BE7C7CCA12582B77BB3501 /* MQTT */ = {
 			isa = PBXGroup;
 			children = (
-				A4A0647A85E424C7A663EF3C /* .gitkeep */,
+				69658CAD73E044A864470496 /* MockMQTTService.swift */,
+				EFB7FCF4232553873E33B198 /* MQTTMessage.swift */,
+				D159295636E0431FC7F4A497 /* MQTTServiceProtocol.swift */,
 			);
 			path = MQTT;
 			sourceTree = "<group>";
@@ -249,6 +266,7 @@
 			isa = PBXGroup;
 			children = (
 				D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */,
+				6668AA9BA6CECF8EE878E7E5 /* Core */,
 				260BA645D9B088BFD118DCD9 /* Models */,
 			);
 			path = TeamClawMobileTests;
@@ -380,6 +398,9 @@
 				230A35A007BFBA18B6AC2D1A /* AutomationTask.swift in Sources */,
 				F72276690532533498ED380B /* ChatMessage.swift in Sources */,
 				BF474BB88350A810335A0EC7 /* ContentView.swift in Sources */,
+				2A60408C88B14FA9D6AD2E39 /* MQTTMessage.swift in Sources */,
+				E4A5A43173A9B6264E39598B /* MQTTServiceProtocol.swift in Sources */,
+				662BA0A5CCEF0788CC67D0B8 /* MockMQTTService.swift in Sources */,
 				258F054107C9F77DFEE25248 /* Session.swift in Sources */,
 				689CD249A22C0EC9692554D6 /* Skill.swift in Sources */,
 				16A0D1CCA0B263A727F89BD5 /* TeamClawMobileApp.swift in Sources */,
@@ -391,6 +412,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				134732A83BBEC99EEE375989 /* MQTTMessageTests.swift in Sources */,
 				84B1548437DF691CC12D4607 /* ModelTests.swift in Sources */,
 				AF24687EFEC7A836A7404796 /* TeamClawMobileTests.swift in Sources */,
 			);
