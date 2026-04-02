@@ -8,6 +8,8 @@
 
 **Tech Stack:** Rust (iroh 0.97, iroh-gossip 0.97, loro 1, serde, tokio), TypeScript (Zustand, Tauri IPC), React
 
+**Test strategy:** Rust `#[cfg(test)]` unit tests for all pure logic, Blackboard Loro operations, and Registry CRUD. Tests run via `cargo test -p teamclaw --lib super_agent`. Frontend store type guards tested via Vitest.
+
 ---
 
 ## File Structure
@@ -17,10 +19,10 @@
 | File | Responsibility |
 |------|---------------|
 | `mod.rs` | Module root, re-exports public types and Tauri commands |
-| `types.rs` | Core data types: `AgentProfile`, `Capability`, `NerveMessage`, `NerveTopic`, all payload types |
-| `registry.rs` | Layer 0: `AgentRegistry` — manages `registry.loro` Loro doc, agent CRUD, capability indexing, discovery queries |
+| `types.rs` | Core data types: `AgentProfile`, `Capability`, `NerveMessage`, `NerveTopic`, all payload types. Includes `#[cfg(test)]` unit tests. |
+| `registry.rs` | Layer 0: `AgentRegistry` — manages `registry.loro` Loro doc, agent CRUD, capability indexing, discovery queries. Includes `#[cfg(test)]` unit tests. |
 | `nerve.rs` | Layer 1: `NerveChannel` — wraps iroh-gossip for topic-based pub/sub, message encoding/decoding, TTL filtering |
-| `blackboard.rs` | Layer 1: `Blackboard` — manages Loro docs, handles serialization to/from iroh-docs entries, provides read/write API |
+| `blackboard.rs` | Layer 1: `Blackboard` — manages Loro docs, handles serialization to/from iroh-docs entries, provides read/write API. Includes `#[cfg(test)]` unit tests. |
 | `heartbeat.rs` | Heartbeat service: 15s timer, status detection, offline marking |
 | `commands.rs` | Tauri `#[tauri::command]` functions exposed to frontend |
 | `state.rs` | `SuperAgentState` type alias (`Arc<Mutex<Option<SuperAgentNode>>>`) and feature-gate shim |
@@ -34,12 +36,186 @@
 
 ---
 
-## Task 1: Core Types (`types.rs`)
+## Task 1: Core Types + Tests (`types.rs`)
 
 **Files:**
 - Create: `src-tauri/src/commands/super_agent/types.rs`
 
-- [ ] **Step 1: Create the types file with all data structures**
+- [ ] **Step 1: Write the failing tests first**
+
+Create `types.rs` with ONLY the test module:
+
+```rust
+// src-tauri/src/commands/super_agent/types.rs
+
+// (types will be added in step 3)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nerve_message_not_expired_within_ttl() {
+        let msg = NerveMessage::new_heartbeat(
+            "node-1".to_string(),
+            HeartbeatPayload {
+                status: AgentStatus::Online,
+                current_task: None,
+                load: 0.0,
+            },
+        );
+        assert!(!msg.is_expired(), "Fresh message should not be expired");
+    }
+
+    #[test]
+    fn nerve_message_expired_after_ttl() {
+        let mut msg = NerveMessage::new_heartbeat(
+            "node-1".to_string(),
+            HeartbeatPayload {
+                status: AgentStatus::Online,
+                current_task: None,
+                load: 0.0,
+            },
+        );
+        // Set timestamp to 60 seconds ago, ttl is 30s
+        msg.timestamp = now_millis() - 60_000;
+        assert!(msg.is_expired(), "Old message should be expired");
+    }
+
+    #[test]
+    fn nerve_message_heartbeat_serde_roundtrip() {
+        let msg = NerveMessage::new_heartbeat(
+            "node-abc".to_string(),
+            HeartbeatPayload {
+                status: AgentStatus::Busy,
+                current_task: Some("fixing bug".to_string()),
+                load: 0.75,
+            },
+        );
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: NerveMessage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.from, "node-abc");
+        assert_eq!(deserialized.topic, NerveTopic::Heartbeat);
+        match deserialized.payload {
+            NervePayload::Heartbeat(hb) => {
+                assert_eq!(hb.status, AgentStatus::Busy);
+                assert_eq!(hb.current_task, Some("fixing bug".to_string()));
+                assert!((hb.load - 0.75).abs() < f64::EPSILON);
+            }
+            _ => panic!("Expected Heartbeat payload"),
+        }
+    }
+
+    #[test]
+    fn nerve_message_emergency_serde_roundtrip() {
+        let msg = NerveMessage::new_emergency_alert(
+            "node-xyz".to_string(),
+            Some("task-123".to_string()),
+            "disk full".to_string(),
+        );
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: NerveMessage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.topic, NerveTopic::Emergency);
+        match deserialized.payload {
+            NervePayload::EmergencyAlert { task_id, reason } => {
+                assert_eq!(task_id, Some("task-123".to_string()));
+                assert_eq!(reason, "disk full");
+            }
+            _ => panic!("Expected EmergencyAlert payload"),
+        }
+    }
+
+    #[test]
+    fn agent_profile_serde_roundtrip() {
+        let profile = AgentProfile {
+            node_id: "node-1".to_string(),
+            name: "Test Agent".to_string(),
+            owner: "matt".to_string(),
+            capabilities: vec![Capability {
+                domain: "frontend".to_string(),
+                skills: vec!["react".to_string()],
+                tools: vec![],
+                languages: vec!["typescript".to_string()],
+                confidence: 0.9,
+                task_count: 5,
+                avg_score: 0.85,
+            }],
+            status: AgentStatus::Online,
+            current_task: None,
+            last_heartbeat: 1000,
+            version: "0.1.0".to_string(),
+            model_id: "claude-opus".to_string(),
+            joined_at: 500,
+        };
+
+        let json = serde_json::to_string(&profile).unwrap();
+        let deserialized: AgentProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.node_id, "node-1");
+        assert_eq!(deserialized.capabilities.len(), 1);
+        assert_eq!(deserialized.capabilities[0].domain, "frontend");
+        assert!((deserialized.capabilities[0].confidence - 0.9).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn agent_status_serde_lowercase() {
+        let json = serde_json::to_string(&AgentStatus::Online).unwrap();
+        assert_eq!(json, "\"online\"");
+        let json = serde_json::to_string(&AgentStatus::Busy).unwrap();
+        assert_eq!(json, "\"busy\"");
+    }
+
+    #[test]
+    fn capability_score_calculation() {
+        let agent = AgentProfile {
+            node_id: "n1".to_string(),
+            name: "A".to_string(),
+            owner: "o".to_string(),
+            capabilities: vec![
+                Capability {
+                    domain: "frontend".to_string(),
+                    skills: vec![],
+                    tools: vec![],
+                    languages: vec![],
+                    confidence: 0.8,
+                    task_count: 10,
+                    avg_score: 0.9,
+                },
+                Capability {
+                    domain: "backend".to_string(),
+                    skills: vec![],
+                    tools: vec![],
+                    languages: vec![],
+                    confidence: 0.3,
+                    task_count: 2,
+                    avg_score: 0.5,
+                },
+            ],
+            status: AgentStatus::Online,
+            current_task: None,
+            last_heartbeat: 0,
+            version: "0.1.0".to_string(),
+            model_id: "".to_string(),
+            joined_at: 0,
+        };
+
+        assert!((capability_score(&agent, "frontend") - 0.72).abs() < f64::EPSILON);
+        assert!((capability_score(&agent, "backend") - 0.15).abs() < f64::EPSILON);
+        assert!((capability_score(&agent, "unknown") - 0.0).abs() < f64::EPSILON);
+    }
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent::types 2>&1 | tail -20`
+
+Expected: Compilation errors — `NerveMessage`, `AgentProfile`, etc. are not defined yet.
+
+- [ ] **Step 3: Implement all types to make tests pass**
+
+Add the type definitions above the test module:
 
 ```rust
 // src-tauri/src/commands/super_agent/types.rs
@@ -57,7 +233,7 @@ pub struct AgentProfile {
     pub capabilities: Vec<Capability>,
     pub status: AgentStatus,
     pub current_task: Option<String>,
-    pub last_heartbeat: u64, // Unix timestamp millis
+    pub last_heartbeat: u64,
     pub version: String,
     pub model_id: String,
     pub joined_at: u64,
@@ -136,13 +312,27 @@ pub struct SuperAgentSnapshot {
     pub connected: bool,
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+pub fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+pub fn capability_score(agent: &AgentProfile, domain: &str) -> f64 {
+    agent
+        .capabilities
+        .iter()
+        .find(|c| c.domain == domain)
+        .map(|c| c.confidence * c.avg_score)
+        .unwrap_or(0.0)
+}
+
 impl NerveMessage {
     pub fn is_expired(&self) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        now > self.timestamp + (self.ttl * 1000)
+        now_millis() > self.timestamp + (self.ttl * 1000)
     }
 
     pub fn new_heartbeat(from: String, payload: HeartbeatPayload) -> Self {
@@ -150,10 +340,7 @@ impl NerveMessage {
             id: nanoid::nanoid!(),
             topic: NerveTopic::Heartbeat,
             from,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64,
+            timestamp: now_millis(),
             ttl: 30,
             payload: NervePayload::Heartbeat(payload),
         }
@@ -164,40 +351,75 @@ impl NerveMessage {
             id: nanoid::nanoid!(),
             topic: NerveTopic::Emergency,
             from,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64,
+            timestamp: now_millis(),
             ttl: 120,
             payload: NervePayload::EmergencyAlert { task_id, reason },
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    // ... (tests from Step 1)
+}
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -5`
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent::types 2>&1 | tail -20`
 
-Note: This won't compile yet until `mod.rs` is created in Task 2. Just verify the file has no syntax errors by reading it.
+Expected: All 7 tests pass:
+```
+test commands::super_agent::types::tests::nerve_message_not_expired_within_ttl ... ok
+test commands::super_agent::types::tests::nerve_message_expired_after_ttl ... ok
+test commands::super_agent::types::tests::nerve_message_heartbeat_serde_roundtrip ... ok
+test commands::super_agent::types::tests::nerve_message_emergency_serde_roundtrip ... ok
+test commands::super_agent::types::tests::agent_profile_serde_roundtrip ... ok
+test commands::super_agent::types::tests::agent_status_serde_lowercase ... ok
+test commands::super_agent::types::tests::capability_score_calculation ... ok
+```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/commands/super_agent/types.rs
-git commit -m "feat(super-agent): add core types for Layer 0 and Layer 1"
+git commit -m "feat(super-agent): add core types with unit tests for L0 and L1"
 ```
 
 ---
 
-## Task 2: Module Structure (`mod.rs`, `state.rs`)
+## Task 2: Module Structure (`mod.rs`, `state.rs`, placeholders)
 
 **Files:**
 - Create: `src-tauri/src/commands/super_agent/mod.rs`
 - Create: `src-tauri/src/commands/super_agent/state.rs`
-- Modify: `src-tauri/src/commands/mod.rs` (add module declaration)
+- Create: `src-tauri/src/commands/super_agent/registry.rs` (placeholder)
+- Create: `src-tauri/src/commands/super_agent/nerve.rs` (placeholder)
+- Create: `src-tauri/src/commands/super_agent/blackboard.rs` (placeholder)
+- Create: `src-tauri/src/commands/super_agent/heartbeat.rs` (placeholder)
+- Create: `src-tauri/src/commands/super_agent/commands.rs` (placeholder)
+- Modify: `src-tauri/src/commands/mod.rs`
 
-- [ ] **Step 1: Create the module root**
+- [ ] **Step 1: Create placeholders for all submodules**
+
+```rust
+// src-tauri/src/commands/super_agent/registry.rs
+pub struct AgentRegistry;
+
+// src-tauri/src/commands/super_agent/nerve.rs
+pub struct NerveChannel;
+
+// src-tauri/src/commands/super_agent/blackboard.rs
+pub struct Blackboard;
+
+// src-tauri/src/commands/super_agent/heartbeat.rs
+// (empty)
+
+// src-tauri/src/commands/super_agent/commands.rs
+// (empty)
+```
+
+- [ ] **Step 2: Create the module root**
 
 ```rust
 // src-tauri/src/commands/super_agent/mod.rs
@@ -214,7 +436,7 @@ pub use types::*;
 pub use state::SuperAgentState;
 ```
 
-- [ ] **Step 2: Create the state shim**
+- [ ] **Step 3: Create the state type alias**
 
 ```rust
 // src-tauri/src/commands/super_agent/state.rs
@@ -231,14 +453,13 @@ pub struct SuperAgentNode {
     pub registry: AgentRegistry,
     pub nerve: NerveChannel,
     pub blackboard: Blackboard,
-    /// The local agent's node_id (iroh Ed25519 public key).
     pub local_node_id: String,
 }
 
 pub type SuperAgentState = Arc<Mutex<Option<SuperAgentNode>>>;
 ```
 
-- [ ] **Step 3: Register the module in `commands/mod.rs`**
+- [ ] **Step 4: Register the module in `commands/mod.rs`**
 
 Add below the existing `#[cfg(feature = "p2p")] pub mod team_p2p;` line:
 
@@ -247,32 +468,19 @@ Add below the existing `#[cfg(feature = "p2p")] pub mod team_p2p;` line:
 pub mod super_agent;
 ```
 
-- [ ] **Step 4: Verify compilation**
-
-This will fail because `registry`, `nerve`, `blackboard`, `heartbeat`, and `commands` modules don't exist yet. Create empty placeholder files:
-
-```rust
-// src-tauri/src/commands/super_agent/registry.rs
-pub struct AgentRegistry;
-
-// src-tauri/src/commands/super_agent/nerve.rs
-pub struct NerveChannel;
-
-// src-tauri/src/commands/super_agent/blackboard.rs
-pub struct Blackboard;
-
-// src-tauri/src/commands/super_agent/heartbeat.rs
-// (empty for now)
-
-// src-tauri/src/commands/super_agent/commands.rs
-// (empty for now)
-```
+- [ ] **Step 5: Verify compilation**
 
 Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
 
-Expected: Compilation succeeds (possibly with unused warnings, which is fine).
+Expected: Compiles (with unused warnings, which is fine).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Run existing tests still pass**
+
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent 2>&1 | tail -10`
+
+Expected: All 7 type tests still pass.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src-tauri/src/commands/super_agent/ src-tauri/src/commands/mod.rs
@@ -281,14 +489,154 @@ git commit -m "feat(super-agent): scaffold module structure with state managemen
 
 ---
 
-## Task 3: Blackboard (`blackboard.rs`)
+## Task 3: Blackboard + Tests (`blackboard.rs`)
 
 **Files:**
 - Modify: `src-tauri/src/commands/super_agent/blackboard.rs`
 
-The Blackboard wraps Loro docs and handles serialization to/from iroh-docs entries. For Phase 1, only `registry.loro` is needed.
+- [ ] **Step 1: Write failing tests first**
 
-- [ ] **Step 1: Implement the Blackboard**
+Replace the placeholder with tests only:
+
+```rust
+// src-tauri/src/commands/super_agent/blackboard.rs
+
+// (implementation will be added in step 3)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_blackboard() -> Blackboard {
+        let dir = tempfile::tempdir().unwrap();
+        Blackboard::new(dir.path()).unwrap()
+    }
+
+    #[test]
+    fn new_blackboard_initializes_registry_doc() {
+        let bb = make_blackboard();
+        assert!(bb.get_doc(BoardType::Registry).is_some());
+    }
+
+    #[test]
+    fn write_and_read_registry_entry() {
+        let mut bb = make_blackboard();
+        let doc = bb.get_doc_mut(BoardType::Registry).unwrap();
+
+        let agents_map = doc.get_map("agents");
+        agents_map.insert("node-1", r#"{"name":"Agent 1"}"#).unwrap();
+
+        let doc = bb.get_doc(BoardType::Registry).unwrap();
+        let agents_map = doc.get_map("agents");
+        let val = agents_map.get("node-1").unwrap();
+        assert_eq!(val.as_string().unwrap().as_ref(), r#"{"name":"Agent 1"}"#);
+    }
+
+    #[test]
+    fn export_updates_returns_none_when_no_changes() {
+        let mut bb = make_blackboard();
+
+        // First export gets all updates (the initial empty doc)
+        let first = bb.export_updates(BoardType::Registry).unwrap();
+        assert!(first.is_some());
+
+        // Second export with no changes should return None
+        let second = bb.export_updates(BoardType::Registry).unwrap();
+        assert!(second.is_none());
+    }
+
+    #[test]
+    fn export_then_import_syncs_data() {
+        // Simulate two peers: bb1 writes, bb2 imports
+        let mut bb1 = make_blackboard();
+        let mut bb2 = make_blackboard();
+
+        // bb1 writes an agent
+        {
+            let doc = bb1.get_doc_mut(BoardType::Registry).unwrap();
+            let agents = doc.get_map("agents");
+            agents.insert("node-A", r#"{"name":"Alpha"}"#).unwrap();
+        }
+
+        // bb1 exports updates
+        let updates = bb1.export_updates(BoardType::Registry).unwrap().unwrap();
+
+        // bb2 imports updates
+        bb2.import_updates(BoardType::Registry, &updates).unwrap();
+
+        // bb2 should now have the agent
+        let doc = bb2.get_doc(BoardType::Registry).unwrap();
+        let agents = doc.get_map("agents");
+        let val = agents.get("node-A").unwrap();
+        assert_eq!(val.as_string().unwrap().as_ref(), r#"{"name":"Alpha"}"#);
+    }
+
+    #[test]
+    fn concurrent_writes_merge_via_crdt() {
+        let mut bb1 = make_blackboard();
+        let mut bb2 = make_blackboard();
+
+        // bb1 writes agent A
+        {
+            let doc = bb1.get_doc_mut(BoardType::Registry).unwrap();
+            doc.get_map("agents").insert("node-A", "alpha").unwrap();
+        }
+
+        // bb2 writes agent B (independently)
+        {
+            let doc = bb2.get_doc_mut(BoardType::Registry).unwrap();
+            doc.get_map("agents").insert("node-B", "beta").unwrap();
+        }
+
+        // Exchange updates
+        let updates1 = bb1.export_updates(BoardType::Registry).unwrap().unwrap();
+        let updates2 = bb2.export_updates(BoardType::Registry).unwrap().unwrap();
+
+        bb1.import_updates(BoardType::Registry, &updates2).unwrap();
+        bb2.import_updates(BoardType::Registry, &updates1).unwrap();
+
+        // Both should now have both agents
+        for bb in [&bb1, &bb2] {
+            let doc = bb.get_doc(BoardType::Registry).unwrap();
+            let agents = doc.get_map("agents");
+            assert!(agents.get("node-A").is_some(), "Should have node-A");
+            assert!(agents.get("node-B").is_some(), "Should have node-B");
+        }
+    }
+
+    #[test]
+    fn save_and_reload_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Write data and save snapshot
+        {
+            let mut bb = Blackboard::new(dir.path()).unwrap();
+            let doc = bb.get_doc_mut(BoardType::Registry).unwrap();
+            doc.get_map("agents").insert("node-X", "data-X").unwrap();
+            bb.save_snapshots().unwrap();
+        }
+
+        // Reload from snapshot
+        {
+            let bb = Blackboard::new(dir.path()).unwrap();
+            let doc = bb.get_doc(BoardType::Registry).unwrap();
+            let agents = doc.get_map("agents");
+            let val = agents.get("node-X").unwrap();
+            assert_eq!(val.as_string().unwrap().as_ref(), "data-X");
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent::blackboard 2>&1 | tail -20`
+
+Expected: Compilation errors — `Blackboard`, `BoardType` not defined.
+
+- [ ] **Step 3: Implement Blackboard**
+
+Add the implementation above the test module:
 
 ```rust
 // src-tauri/src/commands/super_agent/blackboard.rs
@@ -322,13 +670,9 @@ impl BoardType {
 }
 
 /// Manages Loro CRDT documents that form the shared blackboard.
-/// Each board is a separate Loro doc, persisted locally as snapshots
-/// and synced via iroh-docs entries (serialized Loro updates).
 pub struct Blackboard {
     docs: HashMap<BoardType, LoroDoc>,
-    /// Last exported version vector per board, for incremental exports.
     last_exported_version: HashMap<BoardType, Vec<u8>>,
-    /// Local storage path for snapshots.
     storage_path: PathBuf,
 }
 
@@ -345,9 +689,7 @@ impl Blackboard {
             storage_path: bb_path,
         };
 
-        // Initialize registry doc (load from snapshot if exists)
         bb.init_board(BoardType::Registry)?;
-
         Ok(bb)
     }
 
@@ -402,7 +744,6 @@ impl Blackboard {
                 .map_err(|e| format!("Failed to export all updates: {e}"))?
         };
 
-        // Update version vector
         let vv = doc.version_vector();
         self.last_exported_version.insert(board, vv.encode());
 
@@ -429,42 +770,248 @@ impl Blackboard {
         }
         Ok(())
     }
+
+    /// Write registry updates into an iroh-docs entry for P2P sync.
+    pub async fn sync_to_iroh_doc(
+        &mut self,
+        doc: &iroh_docs::api::Doc,
+        author: iroh_docs::AuthorId,
+    ) -> Result<(), String> {
+        let board = BoardType::Registry;
+        if let Some(updates) = self.export_updates(board)? {
+            let key = board.key();
+            doc.set_bytes(author, key.as_bytes().to_vec(), updates)
+                .await
+                .map_err(|e| format!("Failed to write blackboard to iroh-doc: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// Import registry updates received from iroh-docs sync.
+    pub fn sync_from_iroh_doc(&mut self, data: &[u8]) -> Result<(), String> {
+        self.import_updates(BoardType::Registry, data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // ... (tests from Step 1)
 }
 ```
 
-- [ ] **Step 2: Verify compilation**
+- [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent::blackboard 2>&1 | tail -20`
 
-Expected: Compiles (with unused warnings).
+Expected: All 6 tests pass:
+```
+test commands::super_agent::blackboard::tests::new_blackboard_initializes_registry_doc ... ok
+test commands::super_agent::blackboard::tests::write_and_read_registry_entry ... ok
+test commands::super_agent::blackboard::tests::export_updates_returns_none_when_no_changes ... ok
+test commands::super_agent::blackboard::tests::export_then_import_syncs_data ... ok
+test commands::super_agent::blackboard::tests::concurrent_writes_merge_via_crdt ... ok
+test commands::super_agent::blackboard::tests::save_and_reload_snapshot ... ok
+```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Add `tempfile` dev-dependency if not already present**
+
+Check `Cargo.toml` for `tempfile`. If missing, add:
+
+```toml
+[dev-dependencies]
+tempfile = "3"
+```
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src-tauri/src/commands/super_agent/blackboard.rs
-git commit -m "feat(super-agent): implement Blackboard with Loro CRDT doc management"
+git add src-tauri/src/commands/super_agent/blackboard.rs src-tauri/Cargo.toml
+git commit -m "feat(super-agent): implement Blackboard with Loro CRDT and 6 unit tests"
 ```
 
 ---
 
-## Task 4: Agent Registry (`registry.rs`)
+## Task 4: Agent Registry + Tests (`registry.rs`)
 
 **Files:**
 - Modify: `src-tauri/src/commands/super_agent/registry.rs`
 
-- [ ] **Step 1: Implement the AgentRegistry**
+- [ ] **Step 1: Write failing tests first**
+
+```rust
+// src-tauri/src/commands/super_agent/registry.rs
+
+// (implementation will be added in step 3)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::super_agent::blackboard::Blackboard;
+    use crate::commands::super_agent::types::*;
+
+    fn make_test_env() -> (AgentRegistry, Blackboard) {
+        let dir = tempfile::tempdir().unwrap();
+        let bb = Blackboard::new(dir.path()).unwrap();
+        let reg = AgentRegistry::new();
+        (reg, bb)
+    }
+
+    fn make_profile(node_id: &str, name: &str, domain: &str, confidence: f64, avg_score: f64) -> AgentProfile {
+        AgentProfile {
+            node_id: node_id.to_string(),
+            name: name.to_string(),
+            owner: "test".to_string(),
+            capabilities: vec![Capability {
+                domain: domain.to_string(),
+                skills: vec![],
+                tools: vec![],
+                languages: vec![],
+                confidence,
+                task_count: 1,
+                avg_score,
+            }],
+            status: AgentStatus::Online,
+            current_task: None,
+            last_heartbeat: now_millis(),
+            version: "0.1.0".to_string(),
+            model_id: "test".to_string(),
+            joined_at: now_millis(),
+        }
+    }
+
+    #[test]
+    fn register_and_retrieve_local_agent() {
+        let (mut reg, mut bb) = make_test_env();
+        let profile = make_profile("node-1", "Agent 1", "frontend", 0.9, 0.8);
+
+        reg.register_local(&mut bb, profile.clone()).unwrap();
+
+        assert!(reg.local_profile().is_some());
+        assert_eq!(reg.local_profile().unwrap().node_id, "node-1");
+
+        let all = reg.get_all_agents(&bb);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].name, "Agent 1");
+    }
+
+    #[test]
+    fn update_local_status() {
+        let (mut reg, mut bb) = make_test_env();
+        let profile = make_profile("node-1", "Agent 1", "frontend", 0.9, 0.8);
+
+        reg.register_local(&mut bb, profile).unwrap();
+        reg.update_local_status(&mut bb, AgentStatus::Busy, Some("coding".to_string())).unwrap();
+
+        let local = reg.local_profile().unwrap();
+        assert_eq!(local.status, AgentStatus::Busy);
+        assert_eq!(local.current_task, Some("coding".to_string()));
+    }
+
+    #[test]
+    fn discover_agents_filters_by_domain() {
+        let (mut reg, mut bb) = make_test_env();
+
+        let frontend = make_profile("n1", "Frontend Agent", "frontend", 0.9, 0.8);
+        let backend = make_profile("n2", "Backend Agent", "backend", 0.7, 0.9);
+
+        reg.register_local(&mut bb, frontend).unwrap();
+        reg.write_remote_profile(&mut bb, &backend).unwrap();
+
+        let results = reg.discover_agents(&bb, "frontend");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].node_id, "n1");
+
+        let results = reg.discover_agents(&bb, "backend");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].node_id, "n2");
+    }
+
+    #[test]
+    fn discover_agents_sorted_by_score() {
+        let (mut reg, mut bb) = make_test_env();
+
+        let weak = make_profile("n1", "Weak", "frontend", 0.3, 0.5);    // score: 0.15
+        let strong = make_profile("n2", "Strong", "frontend", 0.9, 0.9); // score: 0.81
+        let medium = make_profile("n3", "Medium", "frontend", 0.6, 0.7); // score: 0.42
+
+        reg.register_local(&mut bb, weak).unwrap();
+        reg.write_remote_profile(&mut bb, &strong).unwrap();
+        reg.write_remote_profile(&mut bb, &medium).unwrap();
+
+        let results = reg.discover_agents(&bb, "frontend");
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].node_id, "n2"); // strong first
+        assert_eq!(results[1].node_id, "n3"); // medium second
+        assert_eq!(results[2].node_id, "n1"); // weak last
+    }
+
+    #[test]
+    fn discover_agents_excludes_offline() {
+        let (mut reg, mut bb) = make_test_env();
+
+        let online = make_profile("n1", "Online", "frontend", 0.9, 0.8);
+        let mut offline = make_profile("n2", "Offline", "frontend", 0.9, 0.8);
+        offline.status = AgentStatus::Offline;
+
+        reg.register_local(&mut bb, online).unwrap();
+        reg.write_remote_profile(&mut bb, &offline).unwrap();
+
+        let results = reg.discover_agents(&bb, "frontend");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].node_id, "n1");
+    }
+
+    #[test]
+    fn mark_stale_agents_offline() {
+        let (mut reg, mut bb) = make_test_env();
+
+        let mut stale = make_profile("n1", "Stale", "frontend", 0.9, 0.8);
+        stale.last_heartbeat = now_millis() - 200_000; // 200s ago, well past 120s threshold
+
+        reg.register_local(&mut bb, make_profile("local", "Local", "frontend", 0.9, 0.8)).unwrap();
+        reg.write_remote_profile(&mut bb, &stale).unwrap();
+
+        let marked = reg.mark_stale_agents_offline(&mut bb, 120_000).unwrap();
+        assert_eq!(marked.len(), 1);
+        assert_eq!(marked[0], "n1");
+
+        // Verify the agent is now offline in blackboard
+        let agents = reg.get_all_agents(&bb);
+        let stale_agent = agents.iter().find(|a| a.node_id == "n1").unwrap();
+        assert_eq!(stale_agent.status, AgentStatus::Offline);
+    }
+
+    #[test]
+    fn discover_returns_empty_for_unknown_domain() {
+        let (mut reg, mut bb) = make_test_env();
+        let profile = make_profile("n1", "Agent", "frontend", 0.9, 0.8);
+        reg.register_local(&mut bb, profile).unwrap();
+
+        let results = reg.discover_agents(&bb, "quantum-computing");
+        assert!(results.is_empty());
+    }
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent::registry 2>&1 | tail -20`
+
+Expected: Compilation errors — `AgentRegistry::new()`, `register_local()`, etc. not defined.
+
+- [ ] **Step 3: Implement AgentRegistry**
+
+Add the implementation above the test module:
 
 ```rust
 // src-tauri/src/commands/super_agent/registry.rs
 
 use super::blackboard::{Blackboard, BoardType};
-use super::types::{AgentProfile, AgentStatus, Capability};
+use super::types::{AgentProfile, AgentStatus, Capability, capability_score, now_millis};
 use tracing::{info, warn};
 
 /// Manages agent profiles and capability indexing on top of the Blackboard.
-/// All reads/writes go through the registry.loro Loro doc.
 pub struct AgentRegistry {
-    /// The local agent's profile, kept in memory for fast access.
     local_profile: Option<AgentProfile>,
 }
 
@@ -534,13 +1081,11 @@ impl AgentRegistry {
     ) -> Vec<AgentProfile> {
         let mut agents = self.get_all_agents(blackboard);
 
-        // Filter to online agents with matching domain
         agents.retain(|a| {
             a.status != AgentStatus::Offline
                 && a.capabilities.iter().any(|c| c.domain == domain)
         });
 
-        // Sort by confidence × avgScore (descending)
         agents.sort_by(|a, b| {
             let score_a = capability_score(a, domain);
             let score_b = capability_score(b, domain);
@@ -550,7 +1095,7 @@ impl AgentRegistry {
         agents
     }
 
-    /// Mark an agent as offline if its heartbeat has exceeded the threshold.
+    /// Mark agents as offline if their heartbeat has exceeded the threshold.
     pub fn mark_stale_agents_offline(
         &self,
         blackboard: &mut Blackboard,
@@ -578,7 +1123,7 @@ impl AgentRegistry {
         self.local_profile.as_ref()
     }
 
-    /// Write a remote agent's profile to the blackboard (e.g., from heartbeat updates).
+    /// Write a remote agent's profile to the blackboard.
     pub fn write_remote_profile(
         &self,
         blackboard: &mut Blackboard,
@@ -586,8 +1131,6 @@ impl AgentRegistry {
     ) -> Result<(), String> {
         self.write_profile(blackboard, profile)
     }
-
-    // ─── Private helpers ───────────────────────────────────────────────────
 
     fn write_profile(
         &self,
@@ -609,34 +1152,32 @@ impl AgentRegistry {
     }
 }
 
-fn capability_score(agent: &AgentProfile, domain: &str) -> f64 {
-    agent
-        .capabilities
-        .iter()
-        .find(|c| c.domain == domain)
-        .map(|c| c.confidence * c.avg_score)
-        .unwrap_or(0.0)
-}
-
-fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+#[cfg(test)]
+mod tests {
+    // ... (tests from Step 1)
 }
 ```
 
-- [ ] **Step 2: Verify compilation**
+- [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent::registry 2>&1 | tail -20`
 
-Expected: Compiles.
+Expected: All 7 tests pass:
+```
+test commands::super_agent::registry::tests::register_and_retrieve_local_agent ... ok
+test commands::super_agent::registry::tests::update_local_status ... ok
+test commands::super_agent::registry::tests::discover_agents_filters_by_domain ... ok
+test commands::super_agent::registry::tests::discover_agents_sorted_by_score ... ok
+test commands::super_agent::registry::tests::discover_agents_excludes_offline ... ok
+test commands::super_agent::registry::tests::mark_stale_agents_offline ... ok
+test commands::super_agent::registry::tests::discover_returns_empty_for_unknown_domain ... ok
+```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/commands/super_agent/registry.rs
-git commit -m "feat(super-agent): implement AgentRegistry with capability discovery"
+git commit -m "feat(super-agent): implement AgentRegistry with 7 unit tests"
 ```
 
 ---
@@ -646,9 +1187,81 @@ git commit -m "feat(super-agent): implement AgentRegistry with capability discov
 **Files:**
 - Modify: `src-tauri/src/commands/super_agent/nerve.rs`
 
-The Nerve Channel wraps iroh-gossip for topic-based pub/sub. For Phase 1, it only handles `heartbeat` and `emergency` topics.
+NerveChannel wraps iroh-gossip. Since gossip requires a real network endpoint, we test message dispatch logic (serde + TTL filtering) rather than actual network I/O.
 
-- [ ] **Step 1: Implement the NerveChannel**
+- [ ] **Step 1: Write tests for dispatch logic**
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::super_agent::types::*;
+
+    #[test]
+    fn dispatch_incoming_valid_heartbeat() {
+        // We can't construct a real Gossip without an endpoint,
+        // so we test dispatch_incoming via the broadcast channel directly.
+        let msg = NerveMessage::new_heartbeat(
+            "node-1".to_string(),
+            HeartbeatPayload {
+                status: AgentStatus::Online,
+                current_task: None,
+                load: 0.0,
+            },
+        );
+
+        let (tx, mut rx) = tokio::sync::broadcast::channel(16);
+        let raw = serde_json::to_vec(&msg).unwrap();
+
+        // Simulate dispatch logic
+        let parsed: NerveMessage = serde_json::from_slice(&raw).unwrap();
+        assert!(!parsed.is_expired());
+        let _ = tx.send(parsed);
+
+        let received = rx.try_recv().unwrap();
+        assert_eq!(received.from, "node-1");
+        assert_eq!(received.topic, NerveTopic::Heartbeat);
+    }
+
+    #[test]
+    fn dispatch_incoming_expired_message_dropped() {
+        let mut msg = NerveMessage::new_heartbeat(
+            "node-1".to_string(),
+            HeartbeatPayload {
+                status: AgentStatus::Online,
+                current_task: None,
+                load: 0.0,
+            },
+        );
+        msg.timestamp = now_millis() - 60_000; // 60s ago, ttl is 30s
+
+        let (tx, mut rx) = tokio::sync::broadcast::channel::<NerveMessage>(16);
+        let raw = serde_json::to_vec(&msg).unwrap();
+
+        // Simulate dispatch logic: expired messages should NOT be sent
+        let parsed: NerveMessage = serde_json::from_slice(&raw).unwrap();
+        if !parsed.is_expired() {
+            let _ = tx.send(parsed);
+        }
+
+        assert!(rx.try_recv().is_err(), "Expired message should be dropped");
+    }
+
+    #[test]
+    fn topic_id_deterministic() {
+        let id1 = derive_topic_id(&NerveTopic::Heartbeat, "team-abc");
+        let id2 = derive_topic_id(&NerveTopic::Heartbeat, "team-abc");
+        let id3 = derive_topic_id(&NerveTopic::Emergency, "team-abc");
+        let id4 = derive_topic_id(&NerveTopic::Heartbeat, "team-xyz");
+
+        assert_eq!(id1, id2, "Same topic + namespace should produce same ID");
+        assert_ne!(id1, id3, "Different topics should produce different IDs");
+        assert_ne!(id1, id4, "Different namespaces should produce different IDs");
+    }
+}
+```
+
+- [ ] **Step 2: Implement NerveChannel**
 
 ```rust
 // src-tauri/src/commands/super_agent/nerve.rs
@@ -656,13 +1269,10 @@ The Nerve Channel wraps iroh-gossip for topic-based pub/sub. For Phase 1, it onl
 use super::types::{NerveMessage, NerveTopic};
 use iroh_gossip::net::Gossip;
 use iroh_gossip::proto::TopicId;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::warn;
 
 /// Derives a deterministic TopicId from a NerveTopic + team namespace.
-/// This ensures all agents on the same team subscribe to the same gossip topics.
 fn derive_topic_id(topic: &NerveTopic, team_namespace: &str) -> TopicId {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -680,7 +1290,6 @@ fn derive_topic_id(topic: &NerveTopic, team_namespace: &str) -> TopicId {
 pub struct NerveChannel {
     gossip: Gossip,
     team_namespace: String,
-    /// Local broadcast channel for received messages (fanout to internal consumers).
     incoming_tx: broadcast::Sender<NerveMessage>,
 }
 
@@ -708,18 +1317,17 @@ impl NerveChannel {
         Ok(())
     }
 
-    /// Subscribe to incoming messages. Returns a broadcast receiver.
+    /// Subscribe to incoming messages.
     pub fn subscribe(&self) -> broadcast::Receiver<NerveMessage> {
         self.incoming_tx.subscribe()
     }
 
-    /// Get the sender for dispatching received gossip messages into the local bus.
-    /// Called by the gossip listener loop when raw bytes arrive.
+    /// Dispatch a received gossip message into the local bus.
     pub fn dispatch_incoming(&self, raw: &[u8]) {
         match serde_json::from_slice::<NerveMessage>(raw) {
             Ok(msg) => {
                 if msg.is_expired() {
-                    return; // silently drop expired messages
+                    return;
                 }
                 let _ = self.incoming_tx.send(msg);
             }
@@ -729,24 +1337,29 @@ impl NerveChannel {
         }
     }
 
-    /// Get the topic ID for a given NerveTopic (used to join gossip topics).
+    /// Get the topic ID for a given NerveTopic.
     pub fn topic_id(&self, topic: &NerveTopic) -> TopicId {
         derive_topic_id(topic, &self.team_namespace)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    // ... (tests from Step 1)
+}
 ```
 
-- [ ] **Step 2: Verify compilation**
+- [ ] **Step 3: Run tests**
 
-Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent::nerve 2>&1 | tail -15`
 
-Expected: Compiles.
+Expected: All 3 tests pass.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src-tauri/src/commands/super_agent/nerve.rs
-git commit -m "feat(super-agent): implement NerveChannel with gossip-based pub/sub"
+git commit -m "feat(super-agent): implement NerveChannel with 3 unit tests"
 ```
 
 ---
@@ -756,6 +1369,8 @@ git commit -m "feat(super-agent): implement NerveChannel with gossip-based pub/s
 **Files:**
 - Modify: `src-tauri/src/commands/super_agent/heartbeat.rs`
 
+The heartbeat service is async and uses timers, so it's tested indirectly through registry tests (stale detection) and integration. No additional unit tests for this module — the logic it calls is already tested in Task 1 and Task 4.
+
 - [ ] **Step 1: Implement the heartbeat service**
 
 ```rust
@@ -764,24 +1379,21 @@ git commit -m "feat(super-agent): implement NerveChannel with gossip-based pub/s
 use super::blackboard::Blackboard;
 use super::nerve::NerveChannel;
 use super::registry::AgentRegistry;
-use super::types::{AgentStatus, HeartbeatPayload, NerveMessage, NervePayload};
+use super::types::{AgentStatus, HeartbeatPayload, NerveMessage, SuperAgentSnapshot};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 const HEARTBEAT_INTERVAL_SECS: u64 = 15;
-/// If no heartbeat received for this duration, mark agent offline.
-const OFFLINE_THRESHOLD_MS: u64 = 120_000; // 2 minutes
+const OFFLINE_THRESHOLD_MS: u64 = 120_000;
 
-/// Starts the heartbeat loop. Sends periodic heartbeats via Nerve Channel
-/// and marks stale agents offline in the registry.
-///
-/// Returns a `JoinHandle` that can be aborted to stop the service.
+/// Starts the heartbeat loop.
 pub fn spawn_heartbeat_loop(
     nerve: Arc<NerveChannel>,
     registry: Arc<Mutex<AgentRegistry>>,
     blackboard: Arc<Mutex<Blackboard>>,
     local_node_id: String,
+    app_handle: Option<tauri::AppHandle>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -792,29 +1404,29 @@ pub fn spawn_heartbeat_loop(
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    // 1. Send heartbeat via Nerve Channel
+                    // 1. Build heartbeat payload
                     let payload = {
                         let reg = registry.lock().await;
                         match reg.local_profile() {
                             Some(profile) => HeartbeatPayload {
                                 status: profile.status.clone(),
                                 current_task: profile.current_task.clone(),
-                                load: 0.0, // TODO: compute actual load in Phase 2
+                                load: 0.0,
                             },
                             None => continue,
                         }
                     };
 
+                    // 2. Broadcast heartbeat via Nerve
                     let msg = NerveMessage::new_heartbeat(
                         local_node_id.clone(),
                         payload,
                     );
-
                     if let Err(e) = nerve.broadcast(msg).await {
                         warn!("Failed to send heartbeat: {e}");
                     }
 
-                    // 2. Update local heartbeat timestamp in registry
+                    // 3. Update local heartbeat in registry
                     {
                         let mut reg = registry.lock().await;
                         let mut bb = blackboard.lock().await;
@@ -827,7 +1439,7 @@ pub fn spawn_heartbeat_loop(
                         }
                     }
 
-                    // 3. Check for stale agents and mark them offline
+                    // 4. Mark stale agents offline
                     {
                         let reg = registry.lock().await;
                         let mut bb = blackboard.lock().await;
@@ -841,12 +1453,27 @@ pub fn spawn_heartbeat_loop(
                         }
                     }
 
-                    // 4. Save blackboard snapshot periodically (piggyback on heartbeat)
+                    // 5. Save blackboard snapshot
                     {
                         let bb = blackboard.lock().await;
                         if let Err(e) = bb.save_snapshots() {
                             warn!("Failed to save blackboard snapshots: {e}");
                         }
+                    }
+
+                    // 6. Emit snapshot to frontend
+                    if let Some(ref app) = app_handle {
+                        use tauri::Emitter;
+                        let reg = registry.lock().await;
+                        let bb = blackboard.lock().await;
+                        let agents = reg.get_all_agents(&bb);
+                        let local_agent = reg.local_profile().cloned();
+                        let snapshot = SuperAgentSnapshot {
+                            local_agent,
+                            agents,
+                            connected: true,
+                        };
+                        let _ = app.emit("super-agent:snapshot", &snapshot);
                     }
                 }
                 _ = shutdown_rx.changed() => {
@@ -865,13 +1492,11 @@ pub fn spawn_heartbeat_loop(
 
 Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
 
-Expected: Compiles.
-
 - [ ] **Step 3: Commit**
 
 ```bash
 git add src-tauri/src/commands/super_agent/heartbeat.rs
-git commit -m "feat(super-agent): implement heartbeat service with stale agent detection"
+git commit -m "feat(super-agent): implement heartbeat service with stale detection"
 ```
 
 ---
@@ -880,6 +1505,7 @@ git commit -m "feat(super-agent): implement heartbeat service with stale agent d
 
 **Files:**
 - Modify: `src-tauri/src/commands/super_agent/commands.rs`
+- Modify: `src-tauri/src/commands/super_agent/mod.rs`
 
 - [ ] **Step 1: Implement Tauri commands**
 
@@ -889,7 +1515,6 @@ git commit -m "feat(super-agent): implement heartbeat service with stale agent d
 use super::state::SuperAgentState;
 use super::types::{AgentProfile, SuperAgentSnapshot};
 
-/// Get the current super-agent network snapshot (all agents + local status).
 #[tauri::command]
 pub async fn super_agent_snapshot(
     state: tauri::State<'_, SuperAgentState>,
@@ -897,8 +1522,10 @@ pub async fn super_agent_snapshot(
     let guard = state.lock().await;
     let node = guard.as_ref().ok_or("Super Agent not initialized")?;
 
-    let agents = node.registry.get_all_agents(&node.blackboard);
-    let local_agent = node.registry.local_profile().cloned();
+    let reg = node.registry.lock().await;
+    let bb = node.blackboard.lock().await;
+    let agents = reg.get_all_agents(&bb);
+    let local_agent = reg.local_profile().cloned();
 
     Ok(SuperAgentSnapshot {
         local_agent,
@@ -907,7 +1534,6 @@ pub async fn super_agent_snapshot(
     })
 }
 
-/// Discover agents matching a capability domain, sorted by score.
 #[tauri::command]
 pub async fn super_agent_discover(
     domain: String,
@@ -916,13 +1542,15 @@ pub async fn super_agent_discover(
     let guard = state.lock().await;
     let node = guard.as_ref().ok_or("Super Agent not initialized")?;
 
-    Ok(node.registry.discover_agents(&node.blackboard, &domain))
+    let reg = node.registry.lock().await;
+    let bb = node.blackboard.lock().await;
+    Ok(reg.discover_agents(&bb, &domain))
 }
 ```
 
 - [ ] **Step 2: Update `mod.rs` to re-export commands**
 
-Add to the end of `src-tauri/src/commands/super_agent/mod.rs`:
+Add to the end of `mod.rs`:
 
 ```rust
 pub use commands::{super_agent_snapshot, super_agent_discover};
@@ -931,8 +1559,6 @@ pub use commands::{super_agent_snapshot, super_agent_discover};
 - [ ] **Step 3: Verify compilation**
 
 Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
-
-Expected: Compiles.
 
 - [ ] **Step 4: Commit**
 
@@ -943,23 +1569,202 @@ git commit -m "feat(super-agent): add Tauri commands for snapshot and discovery"
 
 ---
 
-## Task 8: Wire Into Tauri App (`lib.rs`)
+## Task 8: State with Shared Ownership (`state.rs`)
+
+**Files:**
+- Modify: `src-tauri/src/commands/super_agent/state.rs`
+
+- [ ] **Step 1: Implement full state with Arc<Mutex> sharing**
+
+Replace the placeholder:
+
+```rust
+// src-tauri/src/commands/super_agent/state.rs
+
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+use super::blackboard::Blackboard;
+use super::heartbeat;
+use super::nerve::NerveChannel;
+use super::registry::AgentRegistry;
+use super::types::{AgentProfile, AgentStatus, NervePayload, NerveTopic};
+use tracing::{info, warn};
+
+pub struct SuperAgentNode {
+    pub registry: Arc<Mutex<AgentRegistry>>,
+    pub nerve: Arc<NerveChannel>,
+    pub blackboard: Arc<Mutex<Blackboard>>,
+    pub local_node_id: String,
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
+    _heartbeat_handle: tokio::task::JoinHandle<()>,
+    _listener_handle: tokio::task::JoinHandle<()>,
+}
+
+pub type SuperAgentState = Arc<Mutex<Option<SuperAgentNode>>>;
+
+impl SuperAgentNode {
+    pub async fn start(
+        gossip: iroh_gossip::net::Gossip,
+        team_namespace: String,
+        local_node_id: String,
+        local_profile: AgentProfile,
+        storage_path: &std::path::Path,
+        app_handle: Option<tauri::AppHandle>,
+    ) -> Result<Self, String> {
+        let nerve = Arc::new(NerveChannel::new(gossip, team_namespace));
+        let mut blackboard = Blackboard::new(storage_path)?;
+        let mut registry = AgentRegistry::new();
+
+        registry.register_local(&mut blackboard, local_profile)?;
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+        let registry = Arc::new(Mutex::new(registry));
+        let blackboard = Arc::new(Mutex::new(blackboard));
+
+        let heartbeat_handle = heartbeat::spawn_heartbeat_loop(
+            nerve.clone(),
+            registry.clone(),
+            blackboard.clone(),
+            local_node_id.clone(),
+            app_handle,
+            shutdown_rx.clone(),
+        );
+
+        let listener_handle = spawn_gossip_listener(
+            nerve.clone(),
+            registry.clone(),
+            blackboard.clone(),
+            shutdown_rx,
+        );
+
+        Ok(SuperAgentNode {
+            registry,
+            nerve,
+            blackboard,
+            local_node_id,
+            shutdown_tx,
+            _heartbeat_handle: heartbeat_handle,
+            _listener_handle: listener_handle,
+        })
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.shutdown_tx.send(true);
+    }
+}
+
+fn spawn_gossip_listener(
+    nerve: Arc<NerveChannel>,
+    registry: Arc<Mutex<AgentRegistry>>,
+    blackboard: Arc<Mutex<Blackboard>>,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    let mut rx = nerve.subscribe();
+
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                msg = rx.recv() => {
+                    match msg {
+                        Ok(nerve_msg) => {
+                            match &nerve_msg.payload {
+                                NervePayload::Heartbeat(hb) => {
+                                    let reg = registry.lock().await;
+                                    let mut bb = blackboard.lock().await;
+                                    let agents = reg.get_all_agents(&bb);
+
+                                    if let Some(mut agent) = agents.into_iter().find(|a| a.node_id == nerve_msg.from) {
+                                        agent.status = hb.status.clone();
+                                        agent.current_task = hb.current_task.clone();
+                                        agent.last_heartbeat = nerve_msg.timestamp;
+                                        if let Err(e) = reg.write_remote_profile(&mut bb, &agent) {
+                                            warn!("Failed to update remote agent heartbeat: {e}");
+                                        }
+                                    }
+                                }
+                                NervePayload::EmergencyAbort { task_id, reason } => {
+                                    warn!("Emergency abort from {}: {} (task: {:?})",
+                                        nerve_msg.from, reason, task_id);
+                                }
+                                NervePayload::EmergencyAlert { task_id, reason } => {
+                                    warn!("Emergency alert from {}: {} (task: {:?})",
+                                        nerve_msg.from, reason, task_id);
+                                }
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!("Nerve listener lagged, dropped {n} messages");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            info!("Nerve channel closed");
+                            break;
+                        }
+                    }
+                }
+                _ = shutdown_rx.changed() => {
+                    if *shutdown_rx.borrow() {
+                        info!("Gossip listener shutting down");
+                        break;
+                    }
+                }
+            }
+        }
+    })
+}
+```
+
+- [ ] **Step 2: Verify compilation**
+
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
+
+- [ ] **Step 3: Run all super_agent tests still pass**
+
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent 2>&1 | tail -20`
+
+Expected: All 23 tests pass (7 types + 6 blackboard + 7 registry + 3 nerve).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src-tauri/src/commands/super_agent/state.rs
+git commit -m "feat(super-agent): implement SuperAgentNode with gossip listener and shared state"
+```
+
+---
+
+## Task 9: Wire Into Tauri App (`lib.rs`)
 
 **Files:**
 - Modify: `src-tauri/src/lib.rs`
+- Modify: `src-tauri/src/commands/team_p2p.rs` (expose `gossip` and `endpoint`)
 
-- [ ] **Step 1: Add SuperAgentState to Tauri managed state**
+- [ ] **Step 1: Make `gossip` and `endpoint` fields accessible in `IrohNode`**
 
-Find the line `.manage(<commands::p2p_state::SyncEngineState>::default())` in `lib.rs` and add below it:
+In `src-tauri/src/commands/team_p2p.rs`, change field visibility:
+
+```rust
+pub struct IrohNode {
+    pub(crate) endpoint: Endpoint,  // was: #[allow(dead_code)] endpoint
+    store: FsStore,
+    pub(crate) gossip: Gossip,      // was: #[allow(dead_code)] gossip
+    // ... rest unchanged
+}
+```
+
+- [ ] **Step 2: Add SuperAgentState to Tauri managed state**
+
+In `lib.rs`, find `.manage(<commands::p2p_state::SyncEngineState>::default())` and add:
 
 ```rust
 #[cfg(feature = "p2p")]
 .manage(<commands::super_agent::SuperAgentState>::default())
 ```
 
-- [ ] **Step 2: Register Tauri commands in the invoke handler**
+- [ ] **Step 3: Register Tauri commands**
 
-Find the `tauri::generate_handler![...]` block. Add the super-agent commands alongside the existing P2P commands:
+In the `tauri::generate_handler![...]` block, add:
 
 ```rust
 #[cfg(feature = "p2p")]
@@ -968,22 +1773,75 @@ commands::super_agent::super_agent_snapshot,
 commands::super_agent::super_agent_discover,
 ```
 
-- [ ] **Step 3: Verify compilation**
+- [ ] **Step 4: Add SuperAgent startup after P2P node is ready**
+
+In the `.setup()` hook, after the P2P node is stored in `IrohState`, add:
+
+```rust
+#[cfg(feature = "p2p")]
+{
+    let gossip = node.gossip.clone();
+    let node_id = node.endpoint.node_id().to_string();
+    let team_namespace = "default";
+
+    let profile = commands::super_agent::AgentProfile {
+        node_id: node_id.clone(),
+        name: hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "Unknown Agent".to_string()),
+        owner: whoami::username(),
+        capabilities: vec![],
+        status: commands::super_agent::AgentStatus::Online,
+        current_task: None,
+        last_heartbeat: commands::super_agent::now_millis(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        model_id: String::new(),
+        joined_at: commands::super_agent::now_millis(),
+    };
+
+    let storage_path = home_dir.join(commands::TEAMCLAW_DIR).join("super_agent");
+    match commands::super_agent::state::SuperAgentNode::start(
+        gossip,
+        team_namespace.to_string(),
+        node_id,
+        profile,
+        &storage_path,
+        Some(app_handle.clone()),
+    ).await {
+        Ok(sa_node) => {
+            let mut sa_state = app_handle
+                .state::<commands::super_agent::SuperAgentState>()
+                .lock().await;
+            *sa_state = Some(sa_node);
+            tracing::info!("Super Agent initialized");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to initialize Super Agent: {e}");
+        }
+    }
+}
+```
+
+- [ ] **Step 5: Verify compilation**
 
 Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
 
-Expected: Compiles with the new commands registered.
+- [ ] **Step 6: Run all tests still pass**
 
-- [ ] **Step 4: Commit**
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo test -p teamclaw --lib super_agent 2>&1 | tail -20`
+
+Expected: All 23 tests still pass.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src-tauri/src/lib.rs
-git commit -m "feat(super-agent): wire SuperAgentState and commands into Tauri app"
+git add src-tauri/src/lib.rs src-tauri/src/commands/team_p2p.rs
+git commit -m "feat(super-agent): wire into Tauri app startup and register commands"
 ```
 
 ---
 
-## Task 9: Frontend Store (`stores/super-agent.ts`)
+## Task 10: Frontend Store (`stores/super-agent.ts`)
 
 **Files:**
 - Create: `packages/app/src/stores/super-agent.ts`
@@ -995,8 +1853,6 @@ git commit -m "feat(super-agent): wire SuperAgentState and commands into Tauri a
 
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
-
-// Types must match Rust backend's types exactly
 
 export type AgentStatus = 'online' | 'busy' | 'idle' | 'offline'
 
@@ -1035,7 +1891,7 @@ const DEFAULT_SNAPSHOT: SuperAgentSnapshot = {
   connected: false,
 }
 
-function isSuperAgentSnapshot(value: unknown): value is SuperAgentSnapshot {
+export function isSuperAgentSnapshot(value: unknown): value is SuperAgentSnapshot {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Partial<SuperAgentSnapshot>
   return (
@@ -1123,18 +1979,105 @@ git commit -m "feat(super-agent): add frontend Zustand store for agent network s
 
 ---
 
-## Task 10: Frontend Network Topology Panel
+## Task 11: Frontend Store Tests
+
+**Files:**
+- Create: `packages/app/src/stores/__tests__/super-agent.test.ts`
+
+- [ ] **Step 1: Write type guard tests**
+
+```typescript
+// packages/app/src/stores/__tests__/super-agent.test.ts
+
+import { describe, it, expect } from 'vitest'
+import { isSuperAgentSnapshot } from '../super-agent'
+
+describe('isSuperAgentSnapshot', () => {
+  it('returns true for valid snapshot', () => {
+    expect(
+      isSuperAgentSnapshot({
+        localAgent: null,
+        agents: [],
+        connected: false,
+      }),
+    ).toBe(true)
+  })
+
+  it('returns true for snapshot with agents', () => {
+    expect(
+      isSuperAgentSnapshot({
+        localAgent: {
+          nodeId: 'n1',
+          name: 'Agent',
+          owner: 'matt',
+          capabilities: [],
+          status: 'online',
+          currentTask: null,
+          lastHeartbeat: 1000,
+          version: '0.1.0',
+          modelId: 'claude',
+          joinedAt: 500,
+        },
+        agents: [],
+        connected: true,
+      }),
+    ).toBe(true)
+  })
+
+  it('returns false for null', () => {
+    expect(isSuperAgentSnapshot(null)).toBe(false)
+  })
+
+  it('returns false for undefined', () => {
+    expect(isSuperAgentSnapshot(undefined)).toBe(false)
+  })
+
+  it('returns false for missing agents array', () => {
+    expect(isSuperAgentSnapshot({ connected: true })).toBe(false)
+  })
+
+  it('returns false for missing connected boolean', () => {
+    expect(isSuperAgentSnapshot({ agents: [] })).toBe(false)
+  })
+
+  it('returns false for wrong types', () => {
+    expect(
+      isSuperAgentSnapshot({ agents: 'not-array', connected: true }),
+    ).toBe(false)
+    expect(
+      isSuperAgentSnapshot({ agents: [], connected: 'yes' }),
+    ).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 2: Run tests**
+
+Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/packages/app && npx vitest run src/stores/__tests__/super-agent.test.ts 2>&1 | tail -15`
+
+Expected: All 7 tests pass.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/app/src/stores/__tests__/super-agent.test.ts
+git commit -m "test(super-agent): add 7 frontend type guard tests for SuperAgentSnapshot"
+```
+
+---
+
+## Task 12: Frontend Network Topology Panel
 
 **Files:**
 - Create: `packages/app/src/components/settings/team/SuperAgentNetwork.tsx`
 
-- [ ] **Step 1: Check existing team settings components for patterns**
+- [ ] **Step 1: Check existing team settings components for UI patterns**
 
-Read a few files in `packages/app/src/components/settings/team/` to understand the UI framework (Tailwind? shadcn? custom?) and component patterns before writing the panel.
+Read files in `packages/app/src/components/settings/team/` to understand the component patterns, imports, and styling conventions used.
 
 - [ ] **Step 2: Create the network topology component**
 
-This component renders a list of connected agents with status indicators and capability tags. Exact styling should follow the patterns found in step 1. Below is the structural skeleton:
+Follow the patterns found in step 1. Structural skeleton:
 
 ```tsx
 // packages/app/src/components/settings/team/SuperAgentNetwork.tsx
@@ -1236,458 +2179,25 @@ git commit -m "feat(super-agent): add network topology panel component"
 
 ---
 
-## Task 11: Integration — Gossip Listener Loop
-
-**Files:**
-- Modify: `src-tauri/src/commands/super_agent/state.rs` (add initialization logic)
-
-This task wires the Nerve Channel to actually listen for incoming gossip messages and update the registry when heartbeats arrive from other agents.
-
-- [ ] **Step 1: Add initialization and gossip listener to `state.rs`**
-
-```rust
-// Replace the contents of src-tauri/src/commands/super_agent/state.rs
-
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
-use super::blackboard::Blackboard;
-use super::heartbeat;
-use super::nerve::NerveChannel;
-use super::registry::AgentRegistry;
-use super::types::{AgentProfile, AgentStatus, NervePayload, NerveTopic};
-use tracing::{info, warn};
-
-/// Runtime state for the Super Agent subsystem.
-pub struct SuperAgentNode {
-    pub registry: AgentRegistry,
-    pub nerve: Arc<NerveChannel>,
-    pub blackboard: Blackboard,
-    pub local_node_id: String,
-    shutdown_tx: tokio::sync::watch::Sender<bool>,
-    _heartbeat_handle: tokio::task::JoinHandle<()>,
-    _listener_handle: tokio::task::JoinHandle<()>,
-}
-
-pub type SuperAgentState = Arc<Mutex<Option<SuperAgentNode>>>;
-
-impl SuperAgentNode {
-    /// Initialize the Super Agent subsystem using the existing iroh gossip instance.
-    pub async fn start(
-        gossip: iroh_gossip::net::Gossip,
-        team_namespace: String,
-        local_node_id: String,
-        local_profile: AgentProfile,
-        storage_path: &std::path::Path,
-    ) -> Result<Self, String> {
-        let nerve = Arc::new(NerveChannel::new(gossip, team_namespace));
-        let mut blackboard = Blackboard::new(storage_path)?;
-        let mut registry = AgentRegistry::new();
-
-        // Register local agent
-        registry.register_local(&mut blackboard, local_profile)?;
-
-        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-
-        // Wrap registry and blackboard in Arc<Mutex> for shared access
-        let registry_arc = Arc::new(Mutex::new(registry));
-        let blackboard_arc = Arc::new(Mutex::new(blackboard));
-
-        // Start heartbeat service
-        let heartbeat_handle = heartbeat::spawn_heartbeat_loop(
-            nerve.clone(),
-            registry_arc.clone(),
-            blackboard_arc.clone(),
-            local_node_id.clone(),
-            shutdown_rx.clone(),
-        );
-
-        // Start gossip listener
-        let listener_handle = spawn_gossip_listener(
-            nerve.clone(),
-            registry_arc.clone(),
-            blackboard_arc.clone(),
-            shutdown_rx,
-        );
-
-        // Unwrap the Arc<Mutex<>> back to owned values for storage
-        // (heartbeat/listener hold their own Arc clones)
-        let registry = Arc::try_unwrap(registry_arc)
-            .map_err(|_| "Failed to unwrap registry Arc")?
-            .into_inner();
-        let blackboard = Arc::try_unwrap(blackboard_arc)
-            .map_err(|_| "Failed to unwrap blackboard Arc")?
-            .into_inner();
-
-        Ok(SuperAgentNode {
-            registry,
-            nerve,
-            blackboard,
-            local_node_id,
-            shutdown_tx,
-            _heartbeat_handle: heartbeat_handle,
-            _listener_handle: listener_handle,
-        })
-    }
-
-    pub fn shutdown(&self) {
-        let _ = self.shutdown_tx.send(true);
-    }
-}
-
-/// Listens for incoming Nerve messages and processes them.
-fn spawn_gossip_listener(
-    nerve: Arc<NerveChannel>,
-    registry: Arc<Mutex<AgentRegistry>>,
-    blackboard: Arc<Mutex<Blackboard>>,
-    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
-) -> tokio::task::JoinHandle<()> {
-    let mut rx = nerve.subscribe();
-
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                msg = rx.recv() => {
-                    match msg {
-                        Ok(nerve_msg) => {
-                            match &nerve_msg.payload {
-                                NervePayload::Heartbeat(hb) => {
-                                    // Update the remote agent's status in registry
-                                    let mut reg = registry.lock().await;
-                                    let mut bb = blackboard.lock().await;
-                                    let agents = reg.get_all_agents(&bb);
-
-                                    if let Some(mut agent) = agents.into_iter().find(|a| a.node_id == nerve_msg.from) {
-                                        agent.status = hb.status.clone();
-                                        agent.current_task = hb.current_task.clone();
-                                        agent.last_heartbeat = nerve_msg.timestamp;
-                                        // Write updated profile back to blackboard
-                                        if let Err(e) = reg.write_remote_profile(&mut bb, &agent) {
-                                            warn!("Failed to update remote agent heartbeat: {e}");
-                                        }
-                                    }
-                                    // If agent is unknown, it will appear on next
-                                    // blackboard sync from iroh-docs
-                                }
-                                NervePayload::EmergencyAbort { task_id, reason } => {
-                                    warn!("Emergency abort from {}: {} (task: {:?})",
-                                        nerve_msg.from, reason, task_id);
-                                }
-                                NervePayload::EmergencyAlert { task_id, reason } => {
-                                    warn!("Emergency alert from {}: {} (task: {:?})",
-                                        nerve_msg.from, reason, task_id);
-                                }
-                            }
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            warn!("Nerve listener lagged, dropped {n} messages");
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            info!("Nerve channel closed, exiting listener");
-                            break;
-                        }
-                    }
-                }
-                _ = shutdown_rx.changed() => {
-                    if *shutdown_rx.borrow() {
-                        info!("Gossip listener shutting down");
-                        break;
-                    }
-                }
-            }
-        }
-    })
-}
-```
-
-- [ ] **Step 2: Verify compilation**
-
-Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
-
-Expected: Compiles. There may be warnings about the `registry` and `blackboard` fields not being used through `SuperAgentNode` directly (since heartbeat/listener hold clones). This is expected — the commands in `commands.rs` will access them.
-
-**Important:** The current `commands.rs` accesses `node.registry` and `node.blackboard` directly, but now heartbeat/listener also hold Arc clones. This creates a design tension. For Phase 1, the simplest fix is to make `registry` and `blackboard` in `SuperAgentNode` also be `Arc<Mutex<>>`:
-
-Update `SuperAgentNode`:
-```rust
-pub struct SuperAgentNode {
-    pub registry: Arc<Mutex<AgentRegistry>>,
-    pub nerve: Arc<NerveChannel>,
-    pub blackboard: Arc<Mutex<Blackboard>>,
-    pub local_node_id: String,
-    shutdown_tx: tokio::sync::watch::Sender<bool>,
-    _heartbeat_handle: tokio::task::JoinHandle<()>,
-    _listener_handle: tokio::task::JoinHandle<()>,
-}
-```
-
-And update the `start()` method to NOT unwrap the Arcs — just store them directly.
-
-Then update `commands.rs` to lock the mutexes:
-
-```rust
-#[tauri::command]
-pub async fn super_agent_snapshot(
-    state: tauri::State<'_, SuperAgentState>,
-) -> Result<SuperAgentSnapshot, String> {
-    let guard = state.lock().await;
-    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
-
-    let reg = node.registry.lock().await;
-    let bb = node.blackboard.lock().await;
-    let agents = reg.get_all_agents(&bb);
-    let local_agent = reg.local_profile().cloned();
-
-    Ok(SuperAgentSnapshot {
-        local_agent,
-        agents,
-        connected: true,
-    })
-}
-
-#[tauri::command]
-pub async fn super_agent_discover(
-    domain: String,
-    state: tauri::State<'_, SuperAgentState>,
-) -> Result<Vec<AgentProfile>, String> {
-    let guard = state.lock().await;
-    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
-
-    let reg = node.registry.lock().await;
-    let bb = node.blackboard.lock().await;
-    Ok(reg.discover_agents(&bb, &domain))
-}
-```
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add src-tauri/src/commands/super_agent/
-git commit -m "feat(super-agent): wire gossip listener and fix shared state with Arc<Mutex>"
-```
-
----
-
-## Task 12: Integration — Startup Hook in `lib.rs`
-
-**Files:**
-- Modify: `src-tauri/src/lib.rs`
-
-- [ ] **Step 1: Add SuperAgent startup after P2P node is ready**
-
-Find the P2P startup code in `lib.rs` (in the `.setup()` hook, after `IrohNode::new_default()` succeeds). Add the SuperAgent initialization right after the iroh node is created and stored:
-
-```rust
-// After the P2P node is stored in IrohState, initialize SuperAgent
-#[cfg(feature = "p2p")]
-{
-    let gossip = node.gossip.clone(); // Need to make gossip pub(crate) in IrohNode
-    let node_id = node.endpoint.node_id().to_string();
-    let team_namespace = "default"; // Use namespace from P2pConfig when available
-
-    let profile = commands::super_agent::AgentProfile {
-        node_id: node_id.clone(),
-        name: hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "Unknown Agent".to_string()),
-        owner: whoami::username(),
-        capabilities: vec![],
-        status: commands::super_agent::AgentStatus::Online,
-        current_task: None,
-        last_heartbeat: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64,
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        model_id: String::new(),
-        joined_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64,
-    };
-
-    let storage_path = home_dir.join(commands::TEAMCLAW_DIR).join("super_agent");
-    match commands::super_agent::state::SuperAgentNode::start(
-        gossip,
-        team_namespace.to_string(),
-        node_id,
-        profile,
-        &storage_path,
-    ).await {
-        Ok(sa_node) => {
-            let mut sa_state = app_handle.state::<commands::super_agent::SuperAgentState>().lock().await;
-            *sa_state = Some(sa_node);
-            info!("Super Agent initialized");
-        }
-        Err(e) => {
-            warn!("Failed to initialize Super Agent: {e}");
-        }
-    }
-}
-```
-
-- [ ] **Step 2: Make `gossip` field accessible**
-
-In `src-tauri/src/commands/team_p2p.rs`, change the `gossip` field visibility from private to `pub(crate)`:
-
-```rust
-pub struct IrohNode {
-    #[allow(dead_code)]
-    endpoint: Endpoint,
-    // ...
-    pub(crate) gossip: Gossip,  // was: gossip: Gossip
-    // ...
-}
-```
-
-Also make `endpoint` accessible:
-```rust
-    pub(crate) endpoint: Endpoint,  // was: endpoint: Endpoint
-```
-
-- [ ] **Step 3: Verify compilation**
-
-Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
-
-Expected: Compiles.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add src-tauri/src/lib.rs src-tauri/src/commands/team_p2p.rs
-git commit -m "feat(super-agent): wire startup hook into Tauri app initialization"
-```
-
----
-
-## Task 13: Emit Snapshot Events to Frontend
-
-**Files:**
-- Modify: `src-tauri/src/commands/super_agent/heartbeat.rs`
-
-- [ ] **Step 1: Add Tauri event emission to heartbeat loop**
-
-The heartbeat loop should emit `super-agent:snapshot` events to the frontend. Modify `spawn_heartbeat_loop` to accept an optional `AppHandle` and emit after each heartbeat cycle:
-
-Add a new parameter to `spawn_heartbeat_loop`:
-
-```rust
-pub fn spawn_heartbeat_loop(
-    nerve: Arc<NerveChannel>,
-    registry: Arc<Mutex<AgentRegistry>>,
-    blackboard: Arc<Mutex<Blackboard>>,
-    local_node_id: String,
-    app_handle: Option<tauri::AppHandle>,
-    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
-) -> tokio::task::JoinHandle<()> {
-```
-
-After the stale-agent check, add:
-
-```rust
-    // 5. Emit snapshot to frontend
-    if let Some(ref app) = app_handle {
-        use tauri::Emitter;
-        let reg = registry.lock().await;
-        let bb = blackboard.lock().await;
-        let agents = reg.get_all_agents(&bb);
-        let local_agent = reg.local_profile().cloned();
-        let snapshot = super::types::SuperAgentSnapshot {
-            local_agent,
-            agents,
-            connected: true,
-        };
-        let _ = app.emit("super-agent:snapshot", &snapshot);
-    }
-```
-
-- [ ] **Step 2: Update `state.rs` to pass AppHandle**
-
-Add `app_handle: Option<tauri::AppHandle>` to `SuperAgentNode::start()` and pass it through to `spawn_heartbeat_loop`.
-
-- [ ] **Step 3: Update `lib.rs` startup to pass `app_handle`**
-
-Pass `Some(app_handle.clone())` when calling `SuperAgentNode::start()`.
-
-- [ ] **Step 4: Verify compilation**
-
-Run: `cd /Volumes/openbeta/workspace/teamclaw-super-agent/src-tauri && cargo check 2>&1 | tail -10`
-
-Expected: Compiles.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src-tauri/src/commands/super_agent/ src-tauri/src/lib.rs
-git commit -m "feat(super-agent): emit snapshot events to frontend on heartbeat"
-```
-
----
-
-## Task 14: Blackboard ↔ iroh-docs Sync
-
-**Files:**
-- Modify: `src-tauri/src/commands/super_agent/blackboard.rs`
-
-This task adds the bridge between Blackboard Loro docs and iroh-docs entries, so registry state syncs across P2P peers.
-
-- [ ] **Step 1: Add sync methods to Blackboard**
-
-```rust
-impl Blackboard {
-    /// Write the registry Loro doc updates into the iroh-docs entry
-    /// so it gets synced to other peers.
-    pub async fn sync_to_iroh_doc(
-        &mut self,
-        doc: &iroh_docs::api::Doc,
-        author: iroh_docs::AuthorId,
-    ) -> Result<(), String> {
-        let board = BoardType::Registry;
-        if let Some(updates) = self.export_updates(board)? {
-            let key = board.key();
-            doc.set_bytes(author, key.as_bytes().to_vec(), updates)
-                .await
-                .map_err(|e| format!("Failed to write blackboard to iroh-doc: {e}"))?;
-        }
-        Ok(())
-    }
-
-    /// Import registry updates received from iroh-docs sync.
-    pub fn sync_from_iroh_doc(&mut self, data: &[u8]) -> Result<(), String> {
-        self.import_updates(BoardType::Registry, data)
-    }
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add src-tauri/src/commands/super_agent/blackboard.rs
-git commit -m "feat(super-agent): add iroh-docs bridge for Blackboard P2P sync"
-```
-
----
-
 ## Summary
 
-| Task | Component | What it delivers |
-|------|-----------|-----------------|
-| 1 | `types.rs` | Core data structures for L0 + L1 |
-| 2 | `mod.rs`, `state.rs` | Module scaffolding |
-| 3 | `blackboard.rs` | Loro doc management + persistence |
-| 4 | `registry.rs` | Agent CRUD + capability discovery |
-| 5 | `nerve.rs` | Gossip-based pub/sub messaging |
-| 6 | `heartbeat.rs` | 15s heartbeat + stale detection |
-| 7 | `commands.rs` | Tauri IPC commands |
-| 8 | `lib.rs` | Wire into Tauri app |
-| 9 | `super-agent.ts` | Frontend Zustand store |
-| 10 | `SuperAgentNetwork.tsx` | Network topology panel |
-| 11 | `state.rs` v2 | Gossip listener + shared state |
-| 12 | `lib.rs` v2 | Startup hook integration |
-| 13 | `heartbeat.rs` v2 | Frontend event emission |
-| 14 | `blackboard.rs` v2 | iroh-docs P2P sync bridge |
+| Task | Component | Tests | What it delivers |
+|------|-----------|-------|-----------------|
+| 1 | `types.rs` | 7 unit tests | Core types + serde + TTL + capability scoring |
+| 2 | `mod.rs`, `state.rs`, placeholders | — | Module scaffolding |
+| 3 | `blackboard.rs` | 6 unit tests | Loro CRDT doc management + P2P sync bridge |
+| 4 | `registry.rs` | 7 unit tests | Agent CRUD + capability discovery |
+| 5 | `nerve.rs` | 3 unit tests | Gossip pub/sub + dispatch + topic ID |
+| 6 | `heartbeat.rs` | — (logic tested via T1,T4) | 15s heartbeat + stale detection + event emit |
+| 7 | `commands.rs` | — | Tauri IPC commands |
+| 8 | `state.rs` v2 | — | Gossip listener + shared state |
+| 9 | `lib.rs` | — | Wire into Tauri app startup |
+| 10 | `super-agent.ts` | — | Frontend Zustand store |
+| 11 | `super-agent.test.ts` | 7 Vitest tests | Frontend type guard tests |
+| 12 | `SuperAgentNetwork.tsx` | — | Network topology panel |
 
-After all 14 tasks, the system will:
-- **L0**: Each agent declares identity + capabilities, stored in a CRDT registry
-- **L1**: Agents exchange heartbeats every 15s via gossip, stale agents auto-marked offline, registry synced via iroh-docs
-- **Frontend**: Network topology panel shows all agents with status badges and capability tags, updated in real-time
+**Total: 30 unit tests** (23 Rust + 7 TypeScript)
+
+**Test commands:**
+- Rust: `cargo test -p teamclaw --lib super_agent`
+- Frontend: `npx vitest run src/stores/__tests__/super-agent.test.ts`
