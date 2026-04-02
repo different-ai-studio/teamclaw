@@ -270,7 +270,7 @@ pub async fn unified_team_add_member(
                 let caller_node_id = manager.node_id().to_string();
                 require_manager_role(m, &caller_node_id).await?;
             } else if !can_manage_members(&manager.role()) {
-                return Err("Insufficient permissions: Owner or Editor role required".to_string());
+                return Err("Insufficient permissions: Owner or Manager role required".to_string());
             }
             manager.add_member(member).await
         }
