@@ -9,6 +9,7 @@ use tauri::State;
 #[serde(rename_all = "lowercase")]
 pub enum MemberRole {
     Owner,
+    Manager,
     #[default]
     #[serde(alias = "member")]
     Editor,
@@ -95,7 +96,7 @@ pub fn validate_node_id(node_id: &str) -> Result<(), String> {
 
 /// Check if a role can manage members (add/remove/edit)
 pub fn can_manage_members(role: &MemberRole) -> bool {
-    matches!(role, MemberRole::Owner | MemberRole::Editor)
+    matches!(role, MemberRole::Owner | MemberRole::Manager)
 }
 
 /// Find a member's role in a manifest by node_id
@@ -109,13 +110,13 @@ pub fn find_member_role(manifest: &TeamManifest, node_id: &str) -> Option<Member
 
 // --- Unified Tauri Commands ---
 
-/// Helper: check that caller has Owner or Editor role by looking up their NodeId in the manifest.
+/// Helper: check that caller has Owner or Manager role by looking up their NodeId in the manifest.
 /// Returns Err if they lack the required role.
 async fn require_manager_role(manifest: &TeamManifest, caller_node_id: &str) -> Result<(), String> {
     let role = find_member_role(manifest, caller_node_id)
         .ok_or_else(|| "Your device is not in the team manifest".to_string())?;
     if !can_manage_members(&role) {
-        return Err("Insufficient permissions: Owner or Editor role required".to_string());
+        return Err("Insufficient permissions: Owner or Manager role required".to_string());
     }
     Ok(())
 }
