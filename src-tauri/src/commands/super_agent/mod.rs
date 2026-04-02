@@ -7,10 +7,12 @@ pub mod heartbeat;
 pub mod commands;
 pub mod task_board;
 pub mod knowledge_board;
+pub mod debate_board;
 pub mod orchestrator;
 pub mod strategy_engine;
 pub mod skill_distiller;
 pub mod experience_collector;
+pub mod voting;
 
 pub use types::*;
 pub use state::SuperAgentState;
