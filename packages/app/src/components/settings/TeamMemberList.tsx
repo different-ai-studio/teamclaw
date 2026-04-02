@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useTeamMembersStore } from '../../stores/team-members'
 import { AddMemberInput } from './AddMemberInput'
 import { useP2pEngineStore, type PeerConnection } from '@/stores/p2p-engine'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { cn } from '@/lib/utils'
 
 function truncateId(id: string): string {
@@ -87,16 +88,25 @@ export function TeamMemberList() {
     currentNodeId,
     loadCurrentNodeId,
   } = useTeamMembersStore()
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const enginePeers = useP2pEngineStore((s) => s.snapshot.peers)
 
   useEffect(() => {
+    if (!workspacePath) return
     loadMembers()
     loadMyRole()
     loadCurrentNodeId()
     listenForApplications()
     return () => cleanupApplicationsListener()
-  }, [])
+  }, [
+    cleanupApplicationsListener,
+    listenForApplications,
+    loadCurrentNodeId,
+    loadMembers,
+    loadMyRole,
+    workspacePath,
+  ])
 
   const isManager = canManageMembers()
 

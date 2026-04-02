@@ -1,12 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 
 // --- Hoist mocks ---
-const { mockSetWorkspace, mockSetOpenCodeReady, mockIsTauri, mockExists } = vi.hoisted(() => ({
+const { mockSetWorkspace, mockSetOpenCodeReady, mockIsTauri, mockExists, mockInvoke } = vi.hoisted(() => ({
   mockSetWorkspace: vi.fn(),
   mockSetOpenCodeReady: vi.fn(),
   mockIsTauri: vi.fn(() => false),
   mockExists: vi.fn(),
+  mockInvoke: vi.fn(),
 }))
 
 vi.mock('@/lib/utils', () => ({
@@ -19,16 +20,53 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   exists: mockExists,
 }))
 
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (...args: unknown[]) => mockInvoke(...args),
+}))
+
+const workspaceState = {
+  workspacePath: null as string | null,
+  setWorkspace: mockSetWorkspace,
+  setOpenCodeReady: mockSetOpenCodeReady,
+  openCodeReady: false,
+  openPanel: vi.fn(),
+  closePanel: vi.fn(),
+}
+
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({
-      workspacePath: null,
-      setWorkspace: mockSetWorkspace,
-      setOpenCodeReady: mockSetOpenCodeReady,
-      openCodeReady: false,
-      openPanel: vi.fn(),
-      closePanel: vi.fn(),
-    }),
+    selector(workspaceState as unknown as Record<string, unknown>),
+}))
+
+const teamModeState = {
+  teamMode: false,
+  setState: vi.fn(),
+}
+
+vi.mock('@/stores/team-mode', () => ({
+  useTeamModeStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) =>
+      selector(teamModeState as unknown as Record<string, unknown>),
+    {
+      getState: () => teamModeState,
+      setState: teamModeState.setState,
+    },
+  ),
+}))
+
+const p2pEngineState = {
+  init: vi.fn(async () => () => {}),
+  fetch: vi.fn(async () => {}),
+}
+
+vi.mock('@/stores/p2p-engine', () => ({
+  useP2pEngineStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) =>
+      selector(p2pEngineState as unknown as Record<string, unknown>),
+    {
+      getState: () => p2pEngineState,
+    },
+  ),
 }))
 
 vi.mock('@/stores/channels', () => ({
@@ -85,9 +123,21 @@ vi.mock('@/lib/opencode/preloader', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.useRealTimers()
   mockIsTauri.mockReturnValue(false)
   mockExists.mockResolvedValue(true)
+  mockInvoke.mockResolvedValue(null)
+  workspaceState.workspacePath = null
+  workspaceState.openCodeReady = false
+  teamModeState.teamMode = false
+  teamModeState.setState.mockClear()
+  p2pEngineState.init = vi.fn(async () => () => {})
+  p2pEngineState.fetch = vi.fn(async () => {})
   localStorage.clear()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('useOpenCodeInit', () => {
@@ -161,5 +211,40 @@ describe('useTelemetryConsent', () => {
     const { useTelemetryConsent } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useTelemetryConsent(false))
     expect(result.current.showConsentDialog).toBe(false)
+  })
+})
+
+describe('useP2pAutoReconnect', () => {
+  it('retries reconnect when team mode becomes active after workspace switch', async () => {
+    vi.useFakeTimers()
+    mockIsTauri.mockReturnValue(true)
+    workspaceState.workspacePath = '/workspace-team'
+    workspaceState.openCodeReady = true
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'p2p_sync_status') {
+        return { connected: true, role: 'owner' }
+      }
+      return null
+    })
+
+    const { useP2pAutoReconnect } = await import('@/hooks/useAppInit')
+    const { rerender } = renderHook(() => useP2pAutoReconnect())
+
+    await vi.advanceTimersByTimeAsync(3100)
+    expect(mockInvoke).not.toHaveBeenCalledWith('p2p_reconnect')
+
+    teamModeState.teamMode = true
+    rerender()
+
+    await vi.advanceTimersByTimeAsync(3100)
+
+    expect(mockInvoke).toHaveBeenCalledWith('p2p_reconnect')
+    expect(teamModeState.setState).toHaveBeenCalledWith({
+      p2pConnected: true,
+      myRole: 'owner',
+    })
+    expect(p2pEngineState.init).toHaveBeenCalled()
+    expect(p2pEngineState.fetch).toHaveBeenCalled()
   })
 })

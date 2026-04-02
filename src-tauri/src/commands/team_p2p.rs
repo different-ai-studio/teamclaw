@@ -232,6 +232,16 @@ impl SyncEngine {
     }
 }
 
+fn disconnected_engine_snapshot(mut snapshot: EngineSnapshot) -> EngineSnapshot {
+    snapshot.status = EngineStatus::Disconnected;
+    snapshot.stream_health = StreamHealth::Dead;
+    snapshot.last_sync_at = None;
+    snapshot.peers.clear();
+    snapshot.synced_files = 0;
+    snapshot.pending_files = 0;
+    snapshot
+}
+
 /// Shared, async-safe handle to the sync engine.
 pub type SyncEngineState = Arc<Mutex<SyncEngine>>;
 
@@ -386,6 +396,46 @@ impl IrohNode {
 /// Get the user's home directory, falling back to /tmp.
 fn dirs_or_default() -> String {
     std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+}
+
+fn workspace_path_from_team_dir(team_dir: &str) -> String {
+    team_dir
+        .strip_suffix(&format!("/{}", super::TEAM_REPO_DIR))
+        .unwrap_or(team_dir)
+        .to_string()
+}
+
+fn resolve_team_entry_path(team_dir: &str, key: &str) -> Result<std::path::PathBuf, String> {
+    use std::path::Component;
+
+    let rel = Path::new(key);
+    if rel.is_absolute() {
+        return Err(format!("absolute path is not allowed: {}", key));
+    }
+
+    let mut normalized = std::path::PathBuf::new();
+    for component in rel.components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(format!("path traversal is not allowed: {}", key));
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        return Err(format!("empty path is not allowed: {}", key));
+    }
+
+    Ok(Path::new(team_dir).join(normalized))
+}
+
+fn persist_local_role_from_team_dir(team_dir: &str, role: &MemberRole) -> Result<(), String> {
+    let workspace_path = workspace_path_from_team_dir(team_dir);
+    let mut config = read_p2p_config(&workspace_path)?.unwrap_or_default();
+    config.role = Some(role.clone());
+    write_p2p_config(&workspace_path, Some(&config))
 }
 
 /// Tauri managed state for the iroh node.
@@ -839,16 +889,22 @@ async fn write_doc_entries_to_disk(
             .await
             .map_err(|e| format!("Failed to read content for '{}': {}", key, e))?;
 
+        let file_path = match resolve_team_entry_path(team_dir, &key) {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("[P2P] Skipping unsafe doc key '{}': {}", key, e);
+                continue;
+            }
+        };
+
         // Skip tombstones (deleted files)
         if is_tombstone(&content) {
-            let file_path = team_path.join(&key);
             if file_path.exists() {
                 let _ = std::fs::remove_file(&file_path);
             }
             continue;
         }
 
-        let file_path = team_path.join(&key);
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
@@ -917,11 +973,18 @@ async fn reconcile_disk_and_doc(
             continue;
         }
 
+        let file_path = match resolve_team_entry_path(team_dir, &key) {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("[P2P][reconcile] Skipping unsafe doc key '{}': {}", key, e);
+                continue;
+            }
+        };
+
         if let Some(local_content) = local_map.remove(&key) {
             // Check if remote is a tombstone — if so, delete local file
             if let Ok(remote_content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
                 if is_tombstone(&remote_content) {
-                    let file_path = team_path.join(&key);
                     eprintln!(
                         "[P2P][reconcile] Remote tombstone -> deleting local: {}",
                         key
@@ -941,7 +1004,6 @@ async fn reconcile_disk_and_doc(
                 }
 
                 // Check if local file was modified since last sync
-                let file_path = team_path.join(&key);
                 let local_was_edited = {
                     let eng = engine.lock().await;
                     if let Some(record) = eng.file_sync_records.get(&key) {
@@ -987,9 +1049,6 @@ async fn reconcile_disk_and_doc(
                                     "[P2P][reconcile] Conflict -> remote wins (local stale): {}",
                                     key
                                 );
-                                if key.starts_with("_secrets/") {
-                                    secrets_changed = true;
-                                }
                                 downloaded += 1;
                             }
                         }
@@ -1002,7 +1061,6 @@ async fn reconcile_disk_and_doc(
                 if is_tombstone(&content) {
                     continue;
                 }
-                let file_path = team_path.join(&key);
                 if let Some(parent) = file_path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -1593,6 +1651,10 @@ fn start_sync_tasks(
                 break;
             }
 
+            // Treat the current generation value as consumed so `changed()`
+            // only wakes up for future reconnect/disconnect events.
+            let _ = generation_rx.borrow_and_update();
+
             // Mark stream health
             {
                 let mut eng = engine.lock().await;
@@ -1612,6 +1674,7 @@ fn start_sync_tasks(
             let blobs_a = blobs_store.clone();
             let team_dir_a = team_dir.clone();
             let suppressed_a = suppressed_paths.clone();
+            let my_role_a = my_role.clone();
             let my_node_id_a = my_node_id.clone();
             let owner_node_id_a = owner_node_id.clone();
             let app_handle_a = app_handle.clone();
@@ -1623,6 +1686,7 @@ fn start_sync_tasks(
                     blobs_a,
                     team_dir_a,
                     suppressed_a,
+                    my_role_a,
                     my_node_id_a,
                     owner_node_id_a,
                     app_handle_a,
@@ -1773,6 +1837,35 @@ async fn emit_engine_state(app_handle: &Option<tauri::AppHandle>, engine: &Arc<M
     }
 }
 
+async fn lookup_author_node_id(
+    doc: &iroh_docs::api::Doc,
+    blobs_store: &iroh_blobs::api::Store,
+    author_id: &str,
+) -> Option<String> {
+    use futures_lite::StreamExt;
+
+    let author_key = format!("_meta/authors/{}", author_id);
+    let query = iroh_docs::store::Query::single_latest_per_key()
+        .key_prefix(author_key.as_str())
+        .build();
+    let entries = doc.get_many(query).await.ok()?;
+    let mut entries = std::pin::pin!(entries);
+
+    while let Some(Ok(entry)) = entries.next().await {
+        if String::from_utf8_lossy(entry.key()) != author_key {
+            continue;
+        }
+        let content = blobs_store
+            .blobs()
+            .get_bytes(entry.content_hash())
+            .await
+            .ok()?;
+        return Some(String::from_utf8_lossy(&content).to_string());
+    }
+
+    None
+}
+
 /// Write content to a file path while suppressing fs watcher feedback.
 async fn write_and_suppress(
     file_path: &std::path::Path,
@@ -1807,6 +1900,7 @@ async fn doc_to_disk_watcher(
     blobs_store: iroh_blobs::api::Store,
     team_dir: String,
     suppressed_paths: Arc<Mutex<HashMap<std::path::PathBuf, Instant>>>,
+    my_role: Arc<Mutex<MemberRole>>,
     my_node_id: String,
     owner_node_id: Option<String>,
     app_handle: Option<tauri::AppHandle>,
@@ -1924,19 +2018,36 @@ async fn doc_to_disk_watcher(
                         author_to_node.insert(aid, node_id);
                     }
                     // Still write to disk
-                    let file_path = Path::new(&team_dir).join(&key);
-                    if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
-                        if is_tombstone(&content) {
-                            let _ = std::fs::remove_file(&file_path);
-                        } else {
-                            write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                    match resolve_team_entry_path(&team_dir, &key) {
+                        Ok(file_path) => {
+                            if let Ok(content) =
+                                blobs_store.blobs().get_bytes(entry.content_hash()).await
+                            {
+                                if is_tombstone(&content) {
+                                    let _ = std::fs::remove_file(&file_path);
+                                } else {
+                                    write_and_suppress(&file_path, &content, &suppressed_paths)
+                                        .await;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[P2P] Skipping unsafe doc key '{}': {}", key, e);
                         }
                     }
                     continue;
                 }
 
                 // Resolve author → node_id
-                let writer_node_id = author_to_node.get(&author_id_str).cloned();
+                let mut writer_node_id = author_to_node.get(&author_id_str).cloned();
+                if writer_node_id.is_none() {
+                    if let Some(node_id) =
+                        lookup_author_node_id(&doc, &blobs_store, &author_id_str).await
+                    {
+                        author_to_node.insert(author_id_str.clone(), node_id.clone());
+                        writer_node_id = Some(node_id);
+                    }
+                }
 
                 // Handle _team/left/<node_id>: member voluntarily left the team
                 if key.starts_with("_team/left/") {
@@ -2015,8 +2126,14 @@ async fn doc_to_disk_watcher(
 
                     // Write tombstone file to disk regardless
                     if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
-                        let file_path = Path::new(&team_dir).join(&key);
-                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                        match resolve_team_entry_path(&team_dir, &key) {
+                            Ok(file_path) => {
+                                write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                            }
+                            Err(e) => {
+                                eprintln!("[P2P] Skipping unsafe doc key '{}': {}", key, e);
+                            }
+                        }
                     }
                     continue;
                 }
@@ -2058,67 +2175,87 @@ async fn doc_to_disk_watcher(
                     }
                     // Write to disk and update role cache
                     if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
-                        let file_path = Path::new(&team_dir).join(&key);
-                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
-                        // Refresh role cache
-                        let manifest_opt = {
-                            let _guard = manifest_lock.read().await;
-                            read_members_manifest(&team_dir).ok().flatten()
-                        };
-                        if let Some(manifest) = manifest_opt {
-                            node_to_role.clear();
-                            for member in &manifest.members {
-                                node_to_role.insert(member.node_id.clone(), member.role.clone());
-                            }
+                        match resolve_team_entry_path(&team_dir, &key) {
+                            Ok(file_path) => {
+                                write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                                // Refresh role cache
+                                let manifest_opt = {
+                                    let _guard = manifest_lock.read().await;
+                                    read_members_manifest(&team_dir).ok().flatten()
+                                };
+                                if let Some(manifest) = manifest_opt {
+                                    node_to_role.clear();
+                                    for member in &manifest.members {
+                                        node_to_role
+                                            .insert(member.node_id.clone(), member.role.clone());
+                                    }
 
-                            // Notify UI that the member list changed
-                            if let Some(ref app) = app_handle {
-                                use tauri::Emitter;
-                                let _ = app.emit("team:members-changed", serde_json::json!({}));
-                            }
+                                    // Notify UI that the member list changed
+                                    if let Some(ref app) = app_handle {
+                                        use tauri::Emitter;
+                                        let _ =
+                                            app.emit("team:members-changed", serde_json::json!({}));
+                                    }
 
-                            // Check if we've been kicked (not in the list anymore)
-                            let still_member =
-                                manifest.members.iter().any(|m| m.node_id == my_node_id);
-                            let we_are_owner =
-                                owner_node_id.as_deref() == Some(my_node_id.as_str());
-                            if !still_member && !we_are_owner {
-                                eprintln!(
-                                    "[P2P] We have been removed from the team — disconnecting"
-                                );
-                                if let Some(ref app) = app_handle {
-                                    use tauri::Emitter;
-                                    let _ = app.emit(
-                                        "team:kicked",
-                                        serde_json::json!({
-                                            "nodeId": my_node_id,
-                                        }),
-                                    );
-                                }
-                                // Stop watching — the frontend will handle cleanup
-                                break;
-                            }
-
-                            // Check if our role changed and notify (only when it actually changes)
-                            if let Some(my_member) =
-                                manifest.members.iter().find(|m| m.node_id == my_node_id)
-                            {
-                                let new_role = my_member.role.clone();
-                                if my_last_known_role.as_ref() != Some(&new_role) {
-                                    if my_last_known_role.is_some() {
-                                        // Only notify after the first load (skip initial set)
+                                    // Check if we've been kicked (not in the list anymore)
+                                    let still_member =
+                                        manifest.members.iter().any(|m| m.node_id == my_node_id);
+                                    let we_are_owner =
+                                        owner_node_id.as_deref() == Some(my_node_id.as_str());
+                                    if !still_member && !we_are_owner {
+                                        eprintln!(
+                                            "[P2P] We have been removed from the team — disconnecting"
+                                        );
                                         if let Some(ref app) = app_handle {
                                             use tauri::Emitter;
                                             let _ = app.emit(
-                                                "team:role-changed",
+                                                "team:kicked",
                                                 serde_json::json!({
-                                                    "role": new_role,
+                                                    "nodeId": my_node_id,
                                                 }),
                                             );
                                         }
+                                        // Stop watching — the frontend will handle cleanup
+                                        break;
                                     }
-                                    my_last_known_role = Some(new_role);
+
+                                    // Check if our role changed and notify (only when it actually changes)
+                                    if let Some(my_member) =
+                                        manifest.members.iter().find(|m| m.node_id == my_node_id)
+                                    {
+                                        let new_role = my_member.role.clone();
+                                        {
+                                            let mut current_role = my_role.lock().await;
+                                            *current_role = new_role.clone();
+                                        }
+                                        if let Err(e) =
+                                            persist_local_role_from_team_dir(&team_dir, &new_role)
+                                        {
+                                            eprintln!(
+                                                "[P2P] Failed to persist local role update: {}",
+                                                e
+                                            );
+                                        }
+                                        if my_last_known_role.as_ref() != Some(&new_role) {
+                                            if my_last_known_role.is_some() {
+                                                // Only notify after the first load (skip initial set)
+                                                if let Some(ref app) = app_handle {
+                                                    use tauri::Emitter;
+                                                    let _ = app.emit(
+                                                        "team:role-changed",
+                                                        serde_json::json!({
+                                                            "role": new_role,
+                                                        }),
+                                                    );
+                                                }
+                                            }
+                                            my_last_known_role = Some(new_role);
+                                        }
+                                    }
                                 }
+                            }
+                            Err(e) => {
+                                eprintln!("[P2P] Skipping unsafe doc key '{}': {}", key, e);
                             }
                         }
                     }
@@ -2146,18 +2283,28 @@ async fn doc_to_disk_watcher(
                 // If author_to_node is empty, this is bootstrap — allow
 
                 // Normal write
-                let file_path = Path::new(&team_dir).join(&key);
-                if let Ok(content) = blobs_store.blobs().get_bytes(entry.content_hash()).await {
-                    if is_tombstone(&content) {
-                        eprintln!("[P2P][doc→disk] Deleting (tombstone): {}", key);
-                        let _ = std::fs::remove_file(&file_path);
-                    } else {
-                        eprintln!("[P2P][doc→disk] Writing: {} ({} bytes)", key, content.len());
-                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
-                        // Record file sync timestamp
-                        if let Ok(mtime) = std::fs::metadata(&file_path).and_then(|m| m.modified())
+                match resolve_team_entry_path(&team_dir, &key) {
+                    Ok(file_path) => {
+                        if let Ok(content) =
+                            blobs_store.blobs().get_bytes(entry.content_hash()).await
                         {
-                            engine.lock().await.record_file_synced(key.clone(), mtime);
+                            if is_tombstone(&content) {
+                                eprintln!("[P2P][doc→disk] Deleting (tombstone): {}", key);
+                                let _ = std::fs::remove_file(&file_path);
+                            } else {
+                                eprintln!(
+                                    "[P2P][doc→disk] Writing: {} ({} bytes)",
+                                    key,
+                                    content.len()
+                                );
+                                write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                                // Record file sync timestamp
+                                if let Ok(mtime) =
+                                    std::fs::metadata(&file_path).and_then(|m| m.modified())
+                                {
+                                    engine.lock().await.record_file_synced(key.clone(), mtime);
+                                }
+                            }
                         }
                         if key.starts_with("_secrets/") {
                             if let Some(ref app) = app_handle {
@@ -2170,8 +2317,9 @@ async fn doc_to_disk_watcher(
                             }
                         }
                     }
-                } else {
-                    eprintln!("[P2P][doc→disk] Failed to get blob for: {}", key);
+                    Err(e) => {
+                        eprintln!("[P2P] Skipping unsafe doc key '{}': {}", key, e);
+                    }
                 }
             }
             LiveEvent::ContentReady { hash } => {
@@ -2209,13 +2357,117 @@ async fn doc_to_disk_watcher(
                     entry
                 };
 
+                let mut writer_node_id = author_to_node.get(&author_id_str).cloned();
+                if writer_node_id.is_none() {
+                    if let Some(node_id) =
+                        lookup_author_node_id(&doc, &blobs_store, &author_id_str).await
+                    {
+                        author_to_node.insert(author_id_str.clone(), node_id.clone());
+                        writer_node_id = Some(node_id);
+                    }
+                }
+
+                if key.starts_with("_team/left/") {
+                    let leaving_node_id = key.trim_start_matches("_team/left/").to_string();
+                    let writer_is_member =
+                        writer_node_id.as_deref() == Some(leaving_node_id.as_str());
+                    let we_are_owner = owner_node_id.as_deref() == Some(my_node_id.as_str());
+
+                    if writer_is_member && we_are_owner {
+                        let workspace_path = team_dir
+                            .strip_suffix(&format!("/{}", super::TEAM_REPO_DIR))
+                            .unwrap_or(&team_dir)
+                            .to_string();
+                        let leaving_name = node_to_role
+                            .keys()
+                            .find(|k| *k == &leaving_node_id)
+                            .and_then(|_| read_members_manifest(&team_dir).ok().flatten())
+                            .and_then(|m| {
+                                m.members
+                                    .into_iter()
+                                    .find(|mem| mem.node_id == leaving_node_id)
+                                    .map(|mem| mem.name)
+                            })
+                            .unwrap_or_else(|| {
+                                leaving_node_id[..8.min(leaving_node_id.len())].to_string()
+                            });
+
+                        match remove_member_from_team(
+                            &workspace_path,
+                            &team_dir,
+                            &my_node_id,
+                            &leaving_node_id,
+                        ) {
+                            Ok(()) => {
+                                eprintln!(
+                                    "[P2P] Auto-removed departed member: {}",
+                                    leaving_node_id
+                                );
+                                {
+                                    let _guard = manifest_lock.read().await;
+                                    if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                                        node_to_role.clear();
+                                        for member in &manifest.members {
+                                            node_to_role.insert(
+                                                member.node_id.clone(),
+                                                member.role.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                                if let Some(ref app) = app_handle {
+                                    use tauri::Emitter;
+                                    let _ = app.emit(
+                                        "team:member-left",
+                                        serde_json::json!({
+                                            "nodeId": leaving_node_id,
+                                            "name": leaving_name,
+                                        }),
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[P2P] Failed to auto-remove departed member {}: {}",
+                                    leaving_node_id, e
+                                );
+                            }
+                        }
+                    }
+
+                    if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
+                        match resolve_team_entry_path(&team_dir, &key) {
+                            Ok(file_path) => {
+                                write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                            }
+                            Err(e) => {
+                                eprintln!("[P2P] Skipping unsafe doc key '{}': {}", key, e);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                if key == "_team/dissolved" {
+                    let we_are_owner = owner_node_id.as_deref() == Some(my_node_id.as_str());
+                    if !we_are_owner {
+                        eprintln!("[P2P] Team has been dissolved by owner — disconnecting");
+                        if let Some(ref app) = app_handle {
+                            use tauri::Emitter;
+                            let _ = app.emit("team:dissolved", serde_json::json!({}));
+                        }
+                        break;
+                    }
+                    continue;
+                }
+
                 // Apply same role + owner checks as InsertRemote
                 // Validate _team/members.json: only accept from owner or editor
                 if key == "_team/members.json" {
-                    let writer_node = author_to_node.get(&author_id_str);
-                    let writer_role =
-                        writer_node.and_then(|w| node_to_role.get(w.as_str()).cloned());
-                    let is_privileged_write = match (writer_node, &owner_node_id) {
+                    let writer_role = writer_node_id
+                        .as_ref()
+                        .and_then(|w| node_to_role.get(w.as_str()).cloned());
+                    let is_privileged_write = match (&writer_node_id, &owner_node_id) {
                         (Some(writer), Some(owner)) if writer == owner => true,
                         (None, _) if author_to_node.is_empty() => true, // bootstrap
                         _ => matches!(
@@ -2226,33 +2478,61 @@ async fn doc_to_disk_watcher(
                     if !is_privileged_write {
                         eprintln!(
                             "[P2P] Rejected ContentReady members.json from non-privileged node: {:?}",
-                            writer_node
+                            writer_node_id
                         );
                         continue;
                     }
                     // Privileged write — write to disk and update role cache
                     if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
-                        let file_path = Path::new(&team_dir).join(&key);
-                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
-                        {
-                            let _guard = manifest_lock.read().await;
-                            if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
-                                node_to_role.clear();
-                                for member in &manifest.members {
-                                    node_to_role
-                                        .insert(member.node_id.clone(), member.role.clone());
+                        match resolve_team_entry_path(&team_dir, &key) {
+                            Ok(file_path) => {
+                                write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                                {
+                                    let _guard = manifest_lock.read().await;
+                                    if let Ok(Some(manifest)) = read_members_manifest(&team_dir) {
+                                        node_to_role.clear();
+                                        for member in &manifest.members {
+                                            node_to_role.insert(
+                                                member.node_id.clone(),
+                                                member.role.clone(),
+                                            );
+                                        }
+                                        if let Some(ref app) = app_handle {
+                                            use tauri::Emitter;
+                                            let _ = app.emit(
+                                                "team:members-changed",
+                                                serde_json::json!({}),
+                                            );
+                                        }
+                                        if let Some(my_member) = manifest
+                                            .members
+                                            .iter()
+                                            .find(|m| m.node_id == my_node_id)
+                                        {
+                                            let mut current_role = my_role.lock().await;
+                                            *current_role = my_member.role.clone();
+                                            if let Err(e) = persist_local_role_from_team_dir(
+                                                &team_dir,
+                                                &my_member.role,
+                                            ) {
+                                                eprintln!(
+                                                    "[P2P] Failed to persist local role update: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
-                                if let Some(ref app) = app_handle {
-                                    use tauri::Emitter;
-                                    let _ = app.emit("team:members-changed", serde_json::json!({}));
-                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[P2P] Skipping unsafe doc key '{}': {}", key, e);
                             }
                         }
                     }
                     continue;
                 }
 
-                if let Some(writer) = author_to_node.get(&author_id_str) {
+                if let Some(writer) = writer_node_id.as_ref() {
                     let writer_role = node_to_role
                         .get(writer)
                         .cloned()
@@ -2269,22 +2549,26 @@ async fn doc_to_disk_watcher(
                     continue;
                 }
 
-                let file_path = Path::new(&team_dir).join(&key);
-                if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
-                    if is_tombstone(&content) {
-                        eprintln!("[P2P][ContentReady] Deleting (tombstone): {}", key);
-                        let _ = std::fs::remove_file(&file_path);
-                    } else {
-                        eprintln!(
-                            "[P2P][ContentReady] Writing: {} ({} bytes)",
-                            key,
-                            content.len()
-                        );
-                        write_and_suppress(&file_path, &content, &suppressed_paths).await;
-                        // Record file sync timestamp
-                        if let Ok(mtime) = std::fs::metadata(&file_path).and_then(|m| m.modified())
-                        {
-                            engine.lock().await.record_file_synced(key.clone(), mtime);
+                match resolve_team_entry_path(&team_dir, &key) {
+                    Ok(file_path) => {
+                        if let Ok(content) = blobs_store.blobs().get_bytes(hash).await {
+                            if is_tombstone(&content) {
+                                eprintln!("[P2P][ContentReady] Deleting (tombstone): {}", key);
+                                let _ = std::fs::remove_file(&file_path);
+                            } else {
+                                eprintln!(
+                                    "[P2P][ContentReady] Writing: {} ({} bytes)",
+                                    key,
+                                    content.len()
+                                );
+                                write_and_suppress(&file_path, &content, &suppressed_paths).await;
+                                // Record file sync timestamp
+                                if let Ok(mtime) =
+                                    std::fs::metadata(&file_path).and_then(|m| m.modified())
+                                {
+                                    engine.lock().await.record_file_synced(key.clone(), mtime);
+                                }
+                            }
                         }
                         if key.starts_with("_secrets/") {
                             if let Some(ref app) = app_handle {
@@ -2296,6 +2580,9 @@ async fn doc_to_disk_watcher(
                                 let _ = app.emit("secrets-changed", ());
                             }
                         }
+                    }
+                    Err(e) => {
+                        eprintln!("[P2P] Skipping unsafe doc key '{}': {}", key, e);
                     }
                 }
             }
@@ -3570,9 +3857,44 @@ pub async fn save_p2p_config(
 #[tauri::command]
 pub async fn p2p_node_status(
     engine_state: tauri::State<'_, SyncEngineState>,
+    iroh_state: tauri::State<'_, IrohState>,
+    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<EngineSnapshot, String> {
-    let eng = engine_state.lock().await;
-    Ok(eng.snapshot())
+    let snapshot = {
+        let eng = engine_state.lock().await;
+        eng.snapshot()
+    };
+
+    let workspace_path = opencode_state
+        .inner
+        .lock()
+        .map_err(|e| e.to_string())?
+        .workspace_path
+        .clone();
+
+    let Some(workspace_path) = workspace_path else {
+        return Ok(disconnected_engine_snapshot(snapshot));
+    };
+
+    let config = read_p2p_config(&workspace_path)?.unwrap_or_default();
+    let active_namespace = {
+        let guard = iroh_state.lock().await;
+        guard
+            .as_ref()
+            .and_then(|node| node.active_doc.as_ref().map(|doc| doc.id().to_string()))
+    };
+
+    let workspace_matches_active_doc = match (config.namespace_id.as_deref(), active_namespace.as_deref())
+    {
+        (Some(config_ns), Some(active_ns)) => config_ns == active_ns,
+        _ => false,
+    };
+
+    if workspace_matches_active_doc {
+        Ok(snapshot)
+    } else {
+        Ok(disconnected_engine_snapshot(snapshot))
+    }
 }
 
 /// Get the current team sync status.
@@ -4029,11 +4351,13 @@ mod tests {
         }
 
         async fn publish(&self) -> String {
+            self.try_publish().await.unwrap()
+        }
+
+        async fn try_publish(&self) -> Result<String, String> {
             let workspace_path = self.workspace_path();
             let team_dir = self.team_dir_path();
-            publish_team_drive(&self.node, &team_dir, &workspace_path)
-                .await
-                .unwrap()
+            publish_team_drive(&self.node, &team_dir, &workspace_path).await
         }
 
         async fn inject_doc_entry(&self, key: &str, content: &[u8]) {
@@ -4131,10 +4455,8 @@ mod tests {
             false
         }
 
-        async fn shutdown(mut self) {
-            self.node.bump_sync_generation();
-            let _ = self.node.active_doc.take();
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        async fn shutdown(self) {
+            self.node.shutdown().await;
         }
 
         async fn restart_node(&mut self) {
@@ -4142,15 +4464,8 @@ mod tests {
             if let Some(doc) = self.node.active_doc.take() {
                 let _ = tokio::time::timeout(std::time::Duration::from_secs(3), doc.leave()).await;
             }
-            let storage_path = self._iroh_storage_dir.path().to_path_buf();
-            let replacement = IrohNode::new(&storage_path).await.unwrap();
-            let old_node = std::mem::replace(&mut self.node, replacement);
             self.engine = Arc::new(Mutex::new(SyncEngine::new()));
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                old_node.router.shutdown(),
-            )
-            .await;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
     }
 
@@ -4365,10 +4680,12 @@ mod tests {
         .await;
 
         joiner.write_file("docs/viewer-write.txt", "should not replicate");
-        let publish_result = joiner.publish().await;
+        let publish_result = joiner.try_publish().await;
         assert!(
-            publish_result.contains("Synced") || publish_result.contains("0"),
-            "unexpected publish result: {}",
+            publish_result
+                .as_deref()
+                .is_err_and(|err| err.contains("Viewers cannot publish")),
+            "unexpected publish result: {:?}",
             publish_result
         );
 
@@ -5842,6 +6159,39 @@ mod tests {
         assert_eq!(snap.stream_health, StreamHealth::Healthy);
         assert_eq!(snap.synced_files, 42);
         assert!(snap.peers.is_empty());
+    }
+
+    #[test]
+    fn test_disconnected_engine_snapshot_masks_connected_state() {
+        let snapshot = EngineSnapshot {
+            status: EngineStatus::Connected,
+            stream_health: StreamHealth::Healthy,
+            uptime_secs: 123,
+            restart_count: 2,
+            last_sync_at: Some("2024-01-01T00:00:00Z".into()),
+            peers: vec![PeerInfo {
+                node_id: "peer-1".into(),
+                name: "Alice".into(),
+                role: MemberRole::Editor,
+                connection: PeerConnection::Active,
+                last_seen_secs_ago: 1,
+                entries_sent: 5,
+                entries_received: 8,
+            }],
+            synced_files: 9,
+            pending_files: 4,
+        };
+
+        let masked = disconnected_engine_snapshot(snapshot);
+
+        assert_eq!(masked.status, EngineStatus::Disconnected);
+        assert_eq!(masked.stream_health, StreamHealth::Dead);
+        assert_eq!(masked.uptime_secs, 123);
+        assert_eq!(masked.restart_count, 2);
+        assert_eq!(masked.last_sync_at, None);
+        assert!(masked.peers.is_empty());
+        assert_eq!(masked.synced_files, 0);
+        assert_eq!(masked.pending_files, 0);
     }
 
     #[test]
