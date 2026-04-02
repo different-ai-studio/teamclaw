@@ -36,6 +36,7 @@ interface TeamMembersState {
   approveApplication: (app: TeamApplication) => Promise<void>
   listenForApplications: () => Promise<void>
   cleanupApplicationsListener: () => void
+  reset: () => void
 }
 
 export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
@@ -132,6 +133,21 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
       _unlistenApplications()
       set({ _unlistenApplications: null })
     }
+  },
+
+  reset: () => {
+    const { _unlistenApplications } = get()
+    if (_unlistenApplications) {
+      _unlistenApplications()
+    }
+    set({
+      members: [],
+      myRole: null,
+      loading: false,
+      error: null,
+      applications: [],
+      _unlistenApplications: null,
+    })
   },
 
   approveApplication: async (app) => {
