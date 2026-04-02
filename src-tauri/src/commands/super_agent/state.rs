@@ -1,3 +1,12 @@
+// Lock ordering (to prevent deadlocks):
+// 1. SuperAgentState (outer)
+// 2. blackboard
+// 3. orchestrator
+// 4. registry
+// 5. deliberation_engine
+// Always acquire locks in this order. Never hold a lower-numbered lock
+// while acquiring a higher-numbered one.
+
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};

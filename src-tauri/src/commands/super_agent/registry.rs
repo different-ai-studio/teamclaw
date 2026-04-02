@@ -141,12 +141,10 @@ mod tests {
     use super::super::types::Capability;
     use tempfile::tempdir;
 
-    fn make_test_env() -> (AgentRegistry, Blackboard) {
+    fn make_test_env() -> (AgentRegistry, Blackboard, tempfile::TempDir) {
         let dir = tempdir().expect("tempdir");
         let bb = Blackboard::new(dir.path().to_path_buf());
-        // Keep the tempdir alive by leaking it — acceptable in tests.
-        std::mem::forget(dir);
-        (AgentRegistry::new(), bb)
+        (AgentRegistry::new(), bb, dir)
     }
 
     fn make_profile(
@@ -181,7 +179,7 @@ mod tests {
     // 1. Register a local agent, check local_profile, check get_all_agents returns 1.
     #[test]
     fn register_and_retrieve_local_agent() {
-        let (mut registry, mut bb) = make_test_env();
+        let (mut registry, mut bb, _dir) = make_test_env();
         let profile = make_profile("node-1", "Agent One", "frontend", 0.9, 0.85);
 
         registry.register_local(&mut bb, profile.clone());
@@ -197,7 +195,7 @@ mod tests {
     // 2. Register, then update status to Busy with a task; verify the change.
     #[test]
     fn update_local_status() {
-        let (mut registry, mut bb) = make_test_env();
+        let (mut registry, mut bb, _dir) = make_test_env();
         let profile = make_profile("node-2", "Agent Two", "backend", 0.8, 0.7);
         registry.register_local(&mut bb, profile);
 
@@ -221,7 +219,7 @@ mod tests {
     // 3. Register agents in different domains, discover each domain separately.
     #[test]
     fn discover_agents_filters_by_domain() {
-        let (mut registry, mut bb) = make_test_env();
+        let (mut registry, mut bb, _dir) = make_test_env();
 
         let frontend = make_profile("fe-1", "Frontend Agent", "frontend", 0.9, 0.8);
         registry.register_local(&mut bb, frontend);
@@ -241,7 +239,7 @@ mod tests {
     // 4. Three agents with different capability scores; verify sort order (strongest first).
     #[test]
     fn discover_agents_sorted_by_score() {
-        let (registry, mut bb) = make_test_env();
+        let (registry, mut bb, _dir) = make_test_env();
 
         // Scores: weak=0.2*0.5=0.10, medium=0.5*0.6=0.30, strong=0.9*0.8=0.72
         let weak   = make_profile("weak",   "Weak Agent",   "ml", 0.2, 0.5);
@@ -262,7 +260,7 @@ mod tests {
     // 5. Online + offline agents in same domain; only online are returned.
     #[test]
     fn discover_agents_excludes_offline() {
-        let (registry, mut bb) = make_test_env();
+        let (registry, mut bb, _dir) = make_test_env();
 
         let online = make_profile("online-1", "Online Agent", "devops", 0.8, 0.9);
         let mut offline = make_profile("offline-1", "Offline Agent", "devops", 0.95, 0.95);
@@ -279,7 +277,7 @@ mod tests {
     // 6. Agent with an old heartbeat gets marked offline by mark_stale_agents_offline.
     #[test]
     fn mark_stale_agents_offline() {
-        let (registry, mut bb) = make_test_env();
+        let (registry, mut bb, _dir) = make_test_env();
 
         // Create a profile with a heartbeat 2 minutes in the past.
         let mut stale = make_profile("stale-1", "Stale Agent", "data", 0.7, 0.8);
@@ -309,7 +307,7 @@ mod tests {
     // 7. Discovering an unknown domain returns an empty vec.
     #[test]
     fn discover_returns_empty_for_unknown_domain() {
-        let (mut registry, mut bb) = make_test_env();
+        let (mut registry, mut bb, _dir) = make_test_env();
 
         let profile = make_profile("node-x", "Some Agent", "frontend", 0.9, 0.8);
         registry.register_local(&mut bb, profile);

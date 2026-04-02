@@ -89,12 +89,10 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    fn make_test_env() -> (DebateBoard, Blackboard) {
+    fn make_test_env() -> (DebateBoard, Blackboard, tempfile::TempDir) {
         let dir = tempdir().expect("tempdir");
         let bb = Blackboard::new(dir.path().to_path_buf());
-        // Leak the tempdir so it stays alive for the duration of the test.
-        std::mem::forget(dir);
-        (DebateBoard::new(), bb)
+        (DebateBoard::new(), bb, dir)
     }
 
     fn make_trigger() -> DeliberationTrigger {
@@ -129,7 +127,7 @@ mod tests {
     // 1. upsert_and_get_debate
     #[test]
     fn upsert_and_get_debate() {
-        let (db, mut bb) = make_test_env();
+        let (db, mut bb, _dir) = make_test_env();
         let debate = make_debate("debate-1", DebateStatus::GatheringPerspectives);
 
         db.upsert_debate(&mut bb, &debate).expect("upsert should succeed");
@@ -145,7 +143,7 @@ mod tests {
     // 2. get_all_debates — 2 debates
     #[test]
     fn get_all_debates() {
-        let (db, mut bb) = make_test_env();
+        let (db, mut bb, _dir) = make_test_env();
         let debate_a = make_debate("debate-a", DebateStatus::GatheringPerspectives);
         let debate_b = make_debate("debate-b", DebateStatus::Debating);
 
@@ -162,7 +160,7 @@ mod tests {
     // 3. get_active_debates — 2 active + 1 concluded → 2 returned
     #[test]
     fn get_active_debates() {
-        let (db, mut bb) = make_test_env();
+        let (db, mut bb, _dir) = make_test_env();
         let active_1 = make_debate("active-1", DebateStatus::GatheringPerspectives);
         let active_2 = make_debate("active-2", DebateStatus::Voting);
         let concluded = make_debate("concluded-1", DebateStatus::Concluded);
@@ -185,7 +183,7 @@ mod tests {
     // 4. update_debate_adds_perspective — add perspective, verify
     #[test]
     fn update_debate_adds_perspective() {
-        let (db, mut bb) = make_test_env();
+        let (db, mut bb, _dir) = make_test_env();
         let mut debate = make_debate("debate-persp", DebateStatus::GatheringPerspectives);
         db.upsert_debate(&mut bb, &debate).expect("initial upsert");
 
@@ -219,7 +217,7 @@ mod tests {
     // 5. get_snapshot
     #[test]
     fn get_snapshot() {
-        let (db, mut bb) = make_test_env();
+        let (db, mut bb, _dir) = make_test_env();
         let debate_1 = make_debate("snap-debate-1", DebateStatus::GatheringPerspectives);
         let debate_2 = make_debate("snap-debate-2", DebateStatus::Concluded);
 
@@ -236,7 +234,7 @@ mod tests {
     // 6. nonexistent_debate_returns_none
     #[test]
     fn nonexistent_debate_returns_none() {
-        let (db, bb) = make_test_env();
+        let (db, bb, _dir) = make_test_env();
         let result = db.get_debate(&bb, "does-not-exist");
         assert!(result.is_none(), "nonexistent debate should return None");
     }

@@ -208,13 +208,11 @@ mod tests {
     use super::*;
     use super::super::blackboard::Blackboard;
 
-    fn make_env() -> (TaskOrchestrator, Blackboard) {
+    fn make_env() -> (TaskOrchestrator, Blackboard, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let bb = Blackboard::new(dir.path().to_path_buf());
-        // Leak the tempdir so the path stays alive for the duration of the test.
-        std::mem::forget(dir);
         let orch = TaskOrchestrator::new("node-local".to_string(), BiddingConfig::default());
-        (orch, bb)
+        (orch, bb, dir)
     }
 
     fn make_bid(node_id: &str, confidence: f64, cap_score: f64, load: f64, tokens: u64) -> Bid {
@@ -231,7 +229,7 @@ mod tests {
     // 1. Solo task goes directly to Running and is self-assigned.
     #[test]
     fn create_solo_task_goes_directly_to_running() {
-        let (orch, mut bb) = make_env();
+        let (orch, mut bb, _dir) = make_env();
         let task = orch
             .create_task(
                 &mut bb,
@@ -254,7 +252,7 @@ mod tests {
     // 2. Delegate task opens bidding and has no assignee.
     #[test]
     fn create_delegate_task_opens_bidding() {
-        let (orch, mut bb) = make_env();
+        let (orch, mut bb, _dir) = make_env();
         let task = orch
             .create_task(
                 &mut bb,
@@ -276,7 +274,7 @@ mod tests {
     // 3. Two bids submitted; the stronger bid wins winner selection.
     #[test]
     fn add_bid_and_select_winner() {
-        let (orch, mut bb) = make_env();
+        let (orch, mut bb, _dir) = make_env();
         let task = orch
             .create_task(
                 &mut bb,
@@ -300,7 +298,7 @@ mod tests {
     // 4. assign_task sets status to Assigned and records the assignee.
     #[test]
     fn assign_task_updates_status() {
-        let (orch, mut bb) = make_env();
+        let (orch, mut bb, _dir) = make_env();
         let task = orch
             .create_task(
                 &mut bb,
@@ -322,7 +320,7 @@ mod tests {
     // 5. complete_task records status=Completed and the supplied result.
     #[test]
     fn complete_task_records_result() {
-        let (orch, mut bb) = make_env();
+        let (orch, mut bb, _dir) = make_env();
         let task = orch
             .create_task(
                 &mut bb,
@@ -353,7 +351,7 @@ mod tests {
     // 6. fail_task sets status=Failed.
     #[test]
     fn fail_task_records_status() {
-        let (orch, mut bb) = make_env();
+        let (orch, mut bb, _dir) = make_env();
         let task = orch
             .create_task(
                 &mut bb,
@@ -376,7 +374,7 @@ mod tests {
     // 7. select_winner with no bids returns None.
     #[test]
     fn no_bids_select_winner_returns_none() {
-        let (orch, mut bb) = make_env();
+        let (orch, mut bb, _dir) = make_env();
         let task = orch
             .create_task(
                 &mut bb,
@@ -394,7 +392,7 @@ mod tests {
     // 8. When confidence and capability are equal, the node with lower load wins.
     #[test]
     fn tiebreaker_prefers_lower_load() {
-        let (orch, mut bb) = make_env();
+        let (orch, mut bb, _dir) = make_env();
         let task = orch
             .create_task(
                 &mut bb,

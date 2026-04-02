@@ -80,12 +80,10 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    fn make_test_env() -> (TaskBoard, Blackboard) {
+    fn make_test_env() -> (TaskBoard, Blackboard, tempfile::TempDir) {
         let dir = tempdir().expect("tempdir");
         let bb = Blackboard::new(dir.path().to_path_buf());
-        // Leak the tempdir so it stays alive for the duration of the test.
-        std::mem::forget(dir);
-        (TaskBoard::new(), bb)
+        (TaskBoard::new(), bb, dir)
     }
 
     fn make_task(id: &str, status: TaskStatus) -> Task {
@@ -108,7 +106,7 @@ mod tests {
     // 1. upsert + get by ID
     #[test]
     fn create_and_get_task() {
-        let (tb, mut bb) = make_test_env();
+        let (tb, mut bb, _dir) = make_test_env();
         let task = make_task("task-1", TaskStatus::Open);
 
         tb.upsert_task(&mut bb, &task).expect("upsert should succeed");
@@ -124,7 +122,7 @@ mod tests {
     // 2. Two tasks upserted — both returned by get_all_tasks
     #[test]
     fn get_all_tasks() {
-        let (tb, mut bb) = make_test_env();
+        let (tb, mut bb, _dir) = make_test_env();
         let task_a = make_task("task-a", TaskStatus::Open);
         let task_b = make_task("task-b", TaskStatus::Running);
 
@@ -141,7 +139,7 @@ mod tests {
     // 3. Upsert with changed status, verify the update is reflected
     #[test]
     fn update_task_status() {
-        let (tb, mut bb) = make_test_env();
+        let (tb, mut bb, _dir) = make_test_env();
         let task = make_task("task-update", TaskStatus::Open);
         tb.upsert_task(&mut bb, &task).expect("initial upsert");
 
@@ -160,7 +158,7 @@ mod tests {
     // 4. Push a bid to task.bids, upsert, verify the bid is persisted
     #[test]
     fn add_bid_to_task() {
-        let (tb, mut bb) = make_test_env();
+        let (tb, mut bb, _dir) = make_test_env();
         let mut task = make_task("task-bid", TaskStatus::Bidding);
         tb.upsert_task(&mut bb, &task).expect("initial upsert");
 
@@ -184,7 +182,7 @@ mod tests {
     // 5. Open + Running tasks — filter each status independently
     #[test]
     fn get_tasks_by_status() {
-        let (tb, mut bb) = make_test_env();
+        let (tb, mut bb, _dir) = make_test_env();
         let open_task = make_task("open-1", TaskStatus::Open);
         let running_task = make_task("running-1", TaskStatus::Running);
 
@@ -206,7 +204,7 @@ mod tests {
     // 6. get_task on a nonexistent ID returns None
     #[test]
     fn nonexistent_task_returns_none() {
-        let (tb, bb) = make_test_env();
+        let (tb, bb, _dir) = make_test_env();
         let result = tb.get_task(&bb, "does-not-exist");
         assert!(result.is_none(), "nonexistent task should return None");
     }

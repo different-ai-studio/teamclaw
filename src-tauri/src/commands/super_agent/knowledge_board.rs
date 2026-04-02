@@ -175,12 +175,10 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    fn make_test_env() -> (KnowledgeBoard, Blackboard) {
+    fn make_test_env() -> (KnowledgeBoard, Blackboard, tempfile::TempDir) {
         let dir = tempdir().expect("tempdir");
         let bb = Blackboard::new(dir.path().to_path_buf());
-        // Leak the tempdir so it stays alive for the duration of the test.
-        std::mem::forget(dir);
-        (KnowledgeBoard::new(), bb)
+        (KnowledgeBoard::new(), bb, dir)
     }
 
     fn make_experience(id: &str, domain: &str) -> Experience {
@@ -247,7 +245,7 @@ mod tests {
     // 1. upsert_and_get_experience
     #[test]
     fn upsert_and_get_experience() {
-        let (kb, mut bb) = make_test_env();
+        let (kb, mut bb, _dir) = make_test_env();
         let exp = make_experience("exp-1", "frontend");
 
         kb.upsert_experience(&mut bb, &exp).expect("upsert should succeed");
@@ -263,7 +261,7 @@ mod tests {
     // 2. get_all_experiences
     #[test]
     fn get_all_experiences() {
-        let (kb, mut bb) = make_test_env();
+        let (kb, mut bb, _dir) = make_test_env();
         let exp_a = make_experience("exp-a", "frontend");
         let exp_b = make_experience("exp-b", "backend");
 
@@ -280,7 +278,7 @@ mod tests {
     // 3. get_experiences_by_domain
     #[test]
     fn get_experiences_by_domain() {
-        let (kb, mut bb) = make_test_env();
+        let (kb, mut bb, _dir) = make_test_env();
         let fe1 = make_experience("fe-1", "frontend");
         let fe2 = make_experience("fe-2", "frontend");
         let be1 = make_experience("be-1", "backend");
@@ -304,7 +302,7 @@ mod tests {
     // 4. upsert_and_get_strategy
     #[test]
     fn upsert_and_get_strategy() {
-        let (kb, mut bb) = make_test_env();
+        let (kb, mut bb, _dir) = make_test_env();
         let strat = make_strategy("strat-1", "backend");
 
         kb.upsert_strategy(&mut bb, &strat).expect("upsert should succeed");
@@ -320,7 +318,7 @@ mod tests {
     // 5. get_all_strategies
     #[test]
     fn get_all_strategies() {
-        let (kb, mut bb) = make_test_env();
+        let (kb, mut bb, _dir) = make_test_env();
         let strat_a = make_strategy("strat-a", "backend");
         let strat_b = make_strategy("strat-b", "frontend");
 
@@ -337,7 +335,7 @@ mod tests {
     // 6. get_snapshot
     #[test]
     fn get_snapshot() {
-        let (kb, mut bb) = make_test_env();
+        let (kb, mut bb, _dir) = make_test_env();
         let exp = make_experience("exp-snap", "devops");
         let strat = make_strategy("strat-snap", "devops");
         let skill = make_skill("skill-snap", "deploy-automation");

@@ -3,8 +3,9 @@ use super::state::SuperAgentState;
 use super::strategy_engine::StrategyEngine;
 use super::types::{
     AgentProfile, Angle, DebateSnapshot, DeliberationTrigger, KnowledgeSnapshot, NerveMessage,
-    NervePayload, NerveTopic, Perspective, PostDecisionOutcome, SuperAgentSnapshot, Task,
-    TaskBoardSnapshot, TaskComplexity, TaskUrgency, ValidationStatus, Vote, VoteRanking, now_millis,
+    NervePayload, NerveTopic, Perspective, PostDecisionOutcome, SuperAgentSnapshot, SynthesisResult,
+    Task, TaskBoardSnapshot, TaskComplexity, TaskUrgency, ValidationStatus, Vote, VoteRanking,
+    now_millis,
 };
 
 /// Return a snapshot of the current super-agent state (local profile + all known agents).
@@ -129,24 +130,30 @@ pub async fn super_agent_record_experience(
     let guard = state.lock().await;
     let node = guard.as_ref().ok_or("Super Agent not initialized")?;
 
-    // Collect experience from the task.
-    let exp = {
-        let bb = node.blackboard.lock().await;
+    // Hold the blackboard lock for the entire critical section to prevent TOCTOU:
+    // read task → store experience → run distillation → store strategies.
+    let (exp, new_strategies) = {
+        let mut bb = node.blackboard.lock().await;
         let orch = node.orchestrator.lock().await;
         let task = orch
             .task_board
             .get_task(&bb, &task_id)
             .ok_or_else(|| format!("task {task_id} not found"))?;
-        node.experience_collector
+        let exp = node.experience_collector
             .collect_from_task(&task)
-            .ok_or_else(|| format!("task {task_id} is not in a terminal state or has no result"))?
-    };
+            .ok_or_else(|| format!("task {task_id} is not in a terminal state or has no result"))?;
 
-    // Store the experience.
-    {
-        let mut bb = node.blackboard.lock().await;
         node.knowledge_board.upsert_experience(&mut bb, &exp)?;
-    }
+
+        let domain_experiences = node.knowledge_board.get_experiences_by_domain(&bb, &exp.domain);
+        let new_strategies = node.strategy_engine.try_distill(&domain_experiences);
+
+        for strat in &new_strategies {
+            node.knowledge_board.upsert_strategy(&mut bb, strat)?;
+        }
+
+        (exp, new_strategies)
+    };
 
     // Broadcast ExperienceNew — fire-and-forget.
     let msg = NerveMessage {
@@ -163,21 +170,7 @@ pub async fn super_agent_record_experience(
     };
     node.nerve.broadcast(msg).await;
 
-    // Try to distil strategies from domain experiences.
-    let domain_experiences = {
-        let bb = node.blackboard.lock().await;
-        node.knowledge_board.get_experiences_by_domain(&bb, &exp.domain)
-    };
-
-    let new_strategies = node.strategy_engine.try_distill(&domain_experiences);
-
-    // Store any newly distilled strategies.
-    if !new_strategies.is_empty() {
-        let mut bb = node.blackboard.lock().await;
-        for strat in &new_strategies {
-            node.knowledge_board.upsert_strategy(&mut bb, strat)?;
-        }
-    }
+    let _ = new_strategies; // used above; bind here to satisfy compiler
 
     Ok(())
 }
@@ -407,6 +400,53 @@ pub async fn super_agent_submit_vote(
     node.nerve.broadcast(msg).await;
 
     Ok(())
+}
+
+/// Resolve the bidding phase for a task by selecting the winner and assigning the task.
+#[tauri::command]
+pub async fn super_agent_resolve_bidding(
+    task_id: String,
+    state: tauri::State<'_, SuperAgentState>,
+) -> Result<Task, String> {
+    let guard = state.lock().await;
+    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
+
+    let mut bb = node.blackboard.lock().await;
+    let orch = node.orchestrator.lock().await;
+
+    let winner = orch.select_winner(&bb, &task_id)
+        .ok_or("No bids received")?;
+
+    orch.assign_task(&mut bb, &task_id, winner.clone())?;
+
+    // Broadcast assignment
+    let payload = NervePayload::TaskAssign {
+        task_id: task_id.clone(),
+        assignee: winner.clone(),
+    };
+    let msg = NerveMessage::new_task(node.local_node_id.clone(), payload);
+    drop(orch);
+    drop(bb);
+    node.nerve.broadcast(msg).await;
+
+    let bb = node.blackboard.lock().await;
+    let orch = node.orchestrator.lock().await;
+    orch.task_board.get_task(&bb, &task_id)
+        .ok_or_else(|| format!("Task {task_id} not found after assignment"))
+}
+
+/// Run ranked-choice voting over a debate's candidate options and conclude the debate.
+#[tauri::command]
+pub async fn super_agent_conclude_deliberation(
+    debate_id: String,
+    state: tauri::State<'_, SuperAgentState>,
+) -> Result<SynthesisResult, String> {
+    let guard = state.lock().await;
+    let node = guard.as_ref().ok_or("Super Agent not initialized")?;
+
+    let engine = node.deliberation_engine.lock().await;
+    let mut bb = node.blackboard.lock().await;
+    engine.run_voting_and_conclude(&mut bb, &debate_id)
 }
 
 /// Record a post-decision outcome for a debate.

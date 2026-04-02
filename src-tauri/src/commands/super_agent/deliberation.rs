@@ -159,6 +159,34 @@ impl DeliberationEngine {
         self.debate_board.upsert_debate(bb, &debate)
     }
 
+    /// Run ranked-choice voting over the debate's candidate options and conclude the debate.
+    pub fn run_voting_and_conclude(
+        &self,
+        bb: &mut Blackboard,
+        debate_id: &str,
+    ) -> Result<SynthesisResult, String> {
+        let debate = self.debate_board.get_debate(bb, debate_id)
+            .ok_or_else(|| format!("Debate {debate_id} not found"))?;
+
+        let option_ids: Vec<String> = debate.candidate_options.iter()
+            .map(|o| o.id.clone())
+            .collect();
+
+        if option_ids.is_empty() {
+            return Err("No candidate options to vote on".to_string());
+        }
+
+        let mut result = super::voting::ranked_choice_vote(&debate.votes, &option_ids);
+
+        // Fill in the winning description
+        if let Some(opt) = debate.candidate_options.iter().find(|o| o.id == result.winning_option_id) {
+            result.winning_description = opt.description.clone();
+        }
+
+        self.conclude_debate(bb, debate_id, result.clone())?;
+        Ok(result)
+    }
+
     /// Record a post-decision outcome for a debate.
     pub fn record_outcome(
         &self,
@@ -235,12 +263,10 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    fn make_engine() -> (DeliberationEngine, Blackboard) {
+    fn make_engine() -> (DeliberationEngine, Blackboard, tempfile::TempDir) {
         let dir = tempdir().expect("tempdir");
         let bb = Blackboard::new(dir.path().to_path_buf());
-        // Leak tempdir so its path stays valid for the test.
-        std::mem::forget(dir);
-        (DeliberationEngine::new("local-node".to_string()), bb)
+        (DeliberationEngine::new("local-node".to_string()), bb, dir)
     }
 
     fn make_trigger() -> DeliberationTrigger {
@@ -270,7 +296,7 @@ mod tests {
     // 1. create_deliberation — status=GatheringPerspectives, deadline > now, max_rounds=3
     #[test]
     fn create_deliberation() {
-        let (engine, mut bb) = make_engine();
+        let (engine, mut bb, _dir) = make_engine();
         let before = now_millis();
         let debate = engine
             .create_deliberation(
@@ -307,7 +333,7 @@ mod tests {
     // 2. add_perspective — perspective added, participant tracked
     #[test]
     fn add_perspective() {
-        let (engine, mut bb) = make_engine();
+        let (engine, mut bb, _dir) = make_engine();
         let debate = engine
             .create_deliberation(
                 &mut bb,
@@ -446,7 +472,7 @@ mod tests {
     // 8. conclude_debate — sets Concluded, synthesis_result, final_decision
     #[test]
     fn conclude_debate() {
-        let (engine, mut bb) = make_engine();
+        let (engine, mut bb, _dir) = make_engine();
         let debate = engine
             .create_deliberation(
                 &mut bb,
