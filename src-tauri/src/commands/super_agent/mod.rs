@@ -14,4 +14,7 @@ pub mod experience_collector;
 
 pub use types::*;
 pub use state::SuperAgentState;
-pub use commands::{super_agent_snapshot, super_agent_discover, super_agent_create_task, super_agent_get_tasks};
+pub use commands::{
+    super_agent_snapshot, super_agent_discover, super_agent_create_task, super_agent_get_tasks,
+    super_agent_get_knowledge, super_agent_record_experience, super_agent_validate_strategy,
+};

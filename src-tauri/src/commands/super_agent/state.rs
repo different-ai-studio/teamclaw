@@ -3,10 +3,13 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use super::blackboard::Blackboard;
+use super::experience_collector::ExperienceCollector;
 use super::heartbeat::spawn_heartbeat_loop;
+use super::knowledge_board::KnowledgeBoard;
 use super::nerve::NerveChannel;
 use super::orchestrator::TaskOrchestrator;
 use super::registry::AgentRegistry;
+use super::strategy_engine::StrategyEngine;
 use super::types::{AgentProfile, HeartbeatPayload, NerveMessage, NervePayload};
 
 // ─── Public node struct ───────────────────────────────────────────────────────
@@ -17,6 +20,9 @@ pub struct SuperAgentNode {
     pub blackboard: Arc<Mutex<Blackboard>>,
     pub local_node_id: String,
     pub orchestrator: Arc<Mutex<TaskOrchestrator>>,
+    pub knowledge_board: KnowledgeBoard,
+    pub experience_collector: ExperienceCollector,
+    pub strategy_engine: StrategyEngine,
     shutdown_tx: tokio::sync::watch::Sender<bool>,
     _heartbeat_handle: tokio::task::JoinHandle<()>,
     _listener_handle: tokio::task::JoinHandle<()>,
@@ -49,6 +55,10 @@ impl SuperAgentNode {
         use super::types::BiddingConfig;
         let orchestrator = TaskOrchestrator::new(local_node_id.clone(), BiddingConfig::default());
         let orchestrator = Arc::new(Mutex::new(orchestrator));
+
+        let knowledge_board = KnowledgeBoard::new();
+        let experience_collector = ExperienceCollector::new(local_node_id.clone());
+        let strategy_engine = StrategyEngine::new();
 
         // Register local profile.
         {
@@ -103,6 +113,9 @@ impl SuperAgentNode {
             blackboard,
             local_node_id,
             orchestrator,
+            knowledge_board,
+            experience_collector,
+            strategy_engine,
             shutdown_tx,
             _heartbeat_handle: heartbeat_handle,
             _listener_handle: listener_handle,

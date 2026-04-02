@@ -474,6 +474,12 @@ pub fn run() {
             commands::super_agent::commands::super_agent_create_task,
             #[cfg(feature = "p2p")]
             commands::super_agent::commands::super_agent_get_tasks,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_get_knowledge,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_record_experience,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_validate_strategy,
             commands::oss_commands::oss_create_team,
             commands::oss_commands::oss_join_team,
             commands::oss_commands::oss_restore_sync,
