@@ -284,6 +284,7 @@ pub fn run() {
         })
         .manage(<commands::p2p_state::IrohState>::default())
         .manage(<commands::p2p_state::SyncEngineState>::default())
+        .manage(<commands::p2p_state::SuperAgentState>::default())
         .manage(commands::spotlight::SpotlightState::default())
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
         .manage(commands::oss_sync::OssSyncState::default())
@@ -465,6 +466,10 @@ pub fn run() {
             commands::team_p2p::p2p_skills_leaderboard,
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_save_seed_config,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_snapshot,
+            #[cfg(feature = "p2p")]
+            commands::super_agent::commands::super_agent_discover,
             commands::oss_commands::oss_create_team,
             commands::oss_commands::oss_join_team,
             commands::oss_commands::oss_restore_sync,
@@ -570,12 +575,56 @@ pub fn run() {
             #[cfg(feature = "p2p")]
             {
                 let iroh_state = app.handle().state::<commands::p2p_state::IrohState>().inner().clone();
+                let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     match commands::team_p2p::IrohNode::new_default().await {
                         Ok(node) => {
+                            // Capture gossip and node_id before storing the node.
+                            let gossip = node.gossip.clone();
+                            let node_id = commands::team_p2p::get_node_id(&node);
                             *iroh_state.lock().await = Some(node);
                             #[cfg(debug_assertions)]
                             eprintln!("[P2P] iroh node started");
+
+                            // Start Super Agent after P2P node is ready.
+                            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                            let storage_path = std::path::Path::new(&home)
+                                .join(commands::TEAMCLAW_DIR)
+                                .join("super_agent");
+                            let team_namespace = "default";
+                            let profile = commands::super_agent::AgentProfile {
+                                node_id: node_id.clone(),
+                                name: gethostname::gethostname()
+                                    .to_string_lossy()
+                                    .to_string(),
+                                owner: std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()),
+                                capabilities: vec![],
+                                status: commands::super_agent::AgentStatus::Online,
+                                current_task: None,
+                                last_heartbeat: commands::super_agent::now_millis(),
+                                version: env!("CARGO_PKG_VERSION").to_string(),
+                                model_id: String::new(),
+                                joined_at: commands::super_agent::now_millis(),
+                            };
+                            match commands::super_agent::state::SuperAgentNode::start(
+                                gossip,
+                                team_namespace.to_string(),
+                                node_id,
+                                profile,
+                                &storage_path,
+                                Some(app_handle.clone()),
+                            ).await {
+                                Ok(sa_node) => {
+                                    let sa_state_handle = app_handle
+                                        .state::<commands::super_agent::SuperAgentState>();
+                                    let mut sa_state = sa_state_handle.lock().await;
+                                    *sa_state = Some(sa_node);
+                                    tracing::info!("Super Agent initialized");
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to initialize Super Agent: {e}");
+                                }
+                            }
                         }
                         Err(e) => {
                             sentry_utils::capture_err("[P2P] Failed to start iroh node", &e);

@@ -16,3 +16,9 @@ pub type IrohState = Arc<Mutex<Option<()>>>;
 
 #[cfg(not(feature = "p2p"))]
 pub type SyncEngineState = Arc<Mutex<Option<()>>>;
+
+#[cfg(feature = "p2p")]
+pub use super::super_agent::SuperAgentState;
+
+#[cfg(not(feature = "p2p"))]
+pub type SuperAgentState = Arc<Mutex<Option<()>>>;

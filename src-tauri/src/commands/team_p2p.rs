@@ -261,11 +261,9 @@ fn load_or_create_secret_key(storage_path: &Path) -> Result<SecretKey, String> {
 
 /// Wraps an iroh endpoint with blobs, gossip, and docs for P2P team file sync.
 pub struct IrohNode {
-    #[allow(dead_code)]
-    endpoint: Endpoint,
+    pub(crate) endpoint: Endpoint,
     store: FsStore,
-    #[allow(dead_code)]
-    gossip: Gossip,
+    pub(crate) gossip: Gossip,
     docs: iroh_docs::protocol::Docs,
     router: iroh::protocol::Router,
     pub(crate) author: iroh_docs::AuthorId,
