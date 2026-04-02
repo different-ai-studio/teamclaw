@@ -98,8 +98,8 @@ export interface TeamMember {
   nodeId: string
   /** Human-readable display name (e.g. "Alice", "Bob") */
   name: string
-  /** Member role: owner, editor, or viewer */
-  role?: 'owner' | 'editor' | 'viewer'
+  /** Member role: owner, manager, editor, or viewer */
+  role?: 'owner' | 'manager' | 'editor' | 'viewer'
   /** Human-readable label */
   label: string
   /** OS name */
@@ -255,7 +255,7 @@ export interface TeamCreateResult {
 
 export interface TeamJoinResult {
   success: boolean
-  role: 'owner' | 'editor' | 'viewer'
+  role: 'owner' | 'manager' | 'editor' | 'viewer'
   members: TeamMember[]
 }
 
