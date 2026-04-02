@@ -8,3 +8,4 @@ pub mod commands;
 
 pub use types::*;
 pub use state::SuperAgentState;
+pub use commands::{super_agent_snapshot, super_agent_discover};
