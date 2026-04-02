@@ -1,0 +1,701 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		16A0D1CCA0B263A727F89BD5 /* TeamClawMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8A1F867A184477619ACF2E /* TeamClawMobileApp.swift */; };
+		531C62D5C7AA8378A188D1A5 /* TeamClawMobileUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF95DB3D8227F4EEC0A5786F /* TeamClawMobileUITests.swift */; };
+		54C7CD0A152D6ECB4B2A6641 /* CocoaMQTT in Frameworks */ = {isa = PBXBuildFile; productRef = 48D6BF74640DFCC159C17AF3 /* CocoaMQTT */; };
+		60BECF2B5D5D6E482F51A22C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 9FE2D672C23A9561D53ABAB0 /* Markdown */; };
+		8CF7A33A3A09AA9B58ABF70E /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = DC38DE73255511B28B9E9765 /* Alamofire */; };
+		AF24687EFEC7A836A7404796 /* TeamClawMobileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */; };
+		BF474BB88350A810335A0EC7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D49161288BBB6B6D11F2251A /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		30C5673F637D58792FB50DA9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C6571E6141B1ACE3553D2816 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8F891BDD19BFE655DBCDBBA3;
+			remoteInfo = TeamClawMobile;
+		};
+		993F803650DF6C598EF0B422 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C6571E6141B1ACE3553D2816 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8F891BDD19BFE655DBCDBBA3;
+			remoteInfo = TeamClawMobile;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		1A870EF354C2C1B266ED9C17 /* TeamClawMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TeamClawMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		242DF65B785199140510A03B /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		270192D95C26FB2E273605F0 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		2CB47B7F554D3A894816727A /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		2FE80BF2C13A04B0AE099AE8 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		3AF9EEA26C502C1D43B7E4D2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5E8A1F867A184477619ACF2E /* TeamClawMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileApp.swift; sourceTree = "<group>"; };
+		6293F8AFA655CA1A4F0C49C5 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		967D21B1FA571C194C8B0FC0 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		A4A0647A85E424C7A663EF3C /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		AF95DB3D8227F4EEC0A5786F /* TeamClawMobileUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileUITests.swift; sourceTree = "<group>"; };
+		D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileTests.swift; sourceTree = "<group>"; };
+		D49161288BBB6B6D11F2251A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		DC9E0DBF6D91FF5EC1401FB9 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		E0848B4C12B133A88569D566 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeamClawMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		ECF49ABBFAC1B5795E42B5DD /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		F20FBB3F482D97C0B299C4A2 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		FD07FCE2F4D651AB21A4451D /* TeamClawMobileUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TeamClawMobileUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0E48AAD6CF9EA23EB17241B6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				54C7CD0A152D6ECB4B2A6641 /* CocoaMQTT in Frameworks */,
+				60BECF2B5D5D6E482F51A22C /* Markdown in Frameworks */,
+				8CF7A33A3A09AA9B58ABF70E /* Alamofire in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		10B650C9130659A8D63AFA9C /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				2CB47B7F554D3A894816727A /* .gitkeep */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		11920C86811F711D0095DBE2 /* TeamMembers */ = {
+			isa = PBXGroup;
+			children = (
+				DC9E0DBF6D91FF5EC1401FB9 /* .gitkeep */,
+			);
+			path = TeamMembers;
+			sourceTree = "<group>";
+		};
+		12589EB4C7BF527C22603127 /* FunctionPanel */ = {
+			isa = PBXGroup;
+			children = (
+				E0848B4C12B133A88569D566 /* .gitkeep */,
+			);
+			path = FunctionPanel;
+			sourceTree = "<group>";
+		};
+		183038FE39EE550D75E57E2A /* TeamClawMobileUITests */ = {
+			isa = PBXGroup;
+			children = (
+				AF95DB3D8227F4EEC0A5786F /* TeamClawMobileUITests.swift */,
+			);
+			path = TeamClawMobileUITests;
+			sourceTree = "<group>";
+		};
+		1888634C788867B422C95A60 /* TeamClawMobile */ = {
+			isa = PBXGroup;
+			children = (
+				3AF9EEA26C502C1D43B7E4D2 /* Info.plist */,
+				53FF491CBE0A78063EC506CD /* App */,
+				94AE71B20FEBE5A7B097D43F /* Core */,
+				8D436916257E63CC73D360BE /* Features */,
+				4BA3F5D0421BDD381FA81B75 /* Models */,
+				4EAEA2F90DE6E140DFF0A398 /* Resources */,
+				10B650C9130659A8D63AFA9C /* Shared */,
+			);
+			path = TeamClawMobile;
+			sourceTree = "<group>";
+		};
+		42FD07F32500634D47E6E0EB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */,
+				1A870EF354C2C1B266ED9C17 /* TeamClawMobileTests.xctest */,
+				FD07FCE2F4D651AB21A4451D /* TeamClawMobileUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4BA3F5D0421BDD381FA81B75 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				6293F8AFA655CA1A4F0C49C5 /* .gitkeep */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		4EAEA2F90DE6E140DFF0A398 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				967D21B1FA571C194C8B0FC0 /* .gitkeep */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		53FF491CBE0A78063EC506CD /* App */ = {
+			isa = PBXGroup;
+			children = (
+				D49161288BBB6B6D11F2251A /* ContentView.swift */,
+				5E8A1F867A184477619ACF2E /* TeamClawMobileApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		5978FDFA0181A57FB181E968 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				270192D95C26FB2E273605F0 /* .gitkeep */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		65396B749CCB1F624E5FBAAF /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				242DF65B785199140510A03B /* .gitkeep */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		883C9D7080C45BDFEECABD2A /* SessionList */ = {
+			isa = PBXGroup;
+			children = (
+				2FE80BF2C13A04B0AE099AE8 /* .gitkeep */,
+			);
+			path = SessionList;
+			sourceTree = "<group>";
+		};
+		8D436916257E63CC73D360BE /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				E364B14AD556E864FB624C55 /* Automation */,
+				65396B749CCB1F624E5FBAAF /* Chat */,
+				12589EB4C7BF527C22603127 /* FunctionPanel */,
+				883C9D7080C45BDFEECABD2A /* SessionList */,
+				5978FDFA0181A57FB181E968 /* Settings */,
+				C7004A6D00870B545EEC8C3E /* Skills */,
+				11920C86811F711D0095DBE2 /* TeamMembers */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		90554FCDF36C0779F0C267ED = {
+			isa = PBXGroup;
+			children = (
+				1888634C788867B422C95A60 /* TeamClawMobile */,
+				D7B97BB9F185CE0B7E835D89 /* TeamClawMobileTests */,
+				183038FE39EE550D75E57E2A /* TeamClawMobileUITests */,
+				42FD07F32500634D47E6E0EB /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		94AE71B20FEBE5A7B097D43F /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				B1BE7C7CCA12582B77BB3501 /* MQTT */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		B1BE7C7CCA12582B77BB3501 /* MQTT */ = {
+			isa = PBXGroup;
+			children = (
+				A4A0647A85E424C7A663EF3C /* .gitkeep */,
+			);
+			path = MQTT;
+			sourceTree = "<group>";
+		};
+		C7004A6D00870B545EEC8C3E /* Skills */ = {
+			isa = PBXGroup;
+			children = (
+				ECF49ABBFAC1B5795E42B5DD /* .gitkeep */,
+			);
+			path = Skills;
+			sourceTree = "<group>";
+		};
+		D7B97BB9F185CE0B7E835D89 /* TeamClawMobileTests */ = {
+			isa = PBXGroup;
+			children = (
+				D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */,
+			);
+			path = TeamClawMobileTests;
+			sourceTree = "<group>";
+		};
+		E364B14AD556E864FB624C55 /* Automation */ = {
+			isa = PBXGroup;
+			children = (
+				F20FBB3F482D97C0B299C4A2 /* .gitkeep */,
+			);
+			path = Automation;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4BFD80CE7475206FDAB63532 /* TeamClawMobileTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B6DA5F332223385669839570 /* Build configuration list for PBXNativeTarget "TeamClawMobileTests" */;
+			buildPhases = (
+				5676FBCCCB55801EF2BE7BA7 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B21BBB91F35FC803A8E63C11 /* PBXTargetDependency */,
+			);
+			name = TeamClawMobileTests;
+			packageProductDependencies = (
+			);
+			productName = TeamClawMobileTests;
+			productReference = 1A870EF354C2C1B266ED9C17 /* TeamClawMobileTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		80CFD6190F147258CA2F2250 /* TeamClawMobileUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C18A808351777A188CA1B0C9 /* Build configuration list for PBXNativeTarget "TeamClawMobileUITests" */;
+			buildPhases = (
+				76F04DA9C306B286B24DFE39 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6244A8E0CBEBA17DF7F9D798 /* PBXTargetDependency */,
+			);
+			name = TeamClawMobileUITests;
+			packageProductDependencies = (
+			);
+			productName = TeamClawMobileUITests;
+			productReference = FD07FCE2F4D651AB21A4451D /* TeamClawMobileUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		8F891BDD19BFE655DBCDBBA3 /* TeamClawMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EE41F3E0130BEA9FA855458B /* Build configuration list for PBXNativeTarget "TeamClawMobile" */;
+			buildPhases = (
+				082BB117A8C5A4EAB2DB9574 /* Sources */,
+				0E48AAD6CF9EA23EB17241B6 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TeamClawMobile;
+			packageProductDependencies = (
+				48D6BF74640DFCC159C17AF3 /* CocoaMQTT */,
+				9FE2D672C23A9561D53ABAB0 /* Markdown */,
+				DC38DE73255511B28B9E9765 /* Alamofire */,
+			);
+			productName = TeamClawMobile;
+			productReference = E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C6571E6141B1ACE3553D2816 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					4BFD80CE7475206FDAB63532 = {
+						DevelopmentTeam = "";
+					};
+					80CFD6190F147258CA2F2250 = {
+						DevelopmentTeam = "";
+						TestTargetID = 8F891BDD19BFE655DBCDBBA3;
+					};
+					8F891BDD19BFE655DBCDBBA3 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 1BE3DC0A228DB82A3EDEEC47 /* Build configuration list for PBXProject "TeamClawMobile" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 90554FCDF36C0779F0C267ED;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				82CD52E1B81D00BA123626CA /* XCRemoteSwiftPackageReference "Alamofire" */,
+				079A1E85AEBDC12DC3251F07 /* XCRemoteSwiftPackageReference "CocoaMQTT" */,
+				7259BF61557A57DB0DF461B4 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 42FD07F32500634D47E6E0EB /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8F891BDD19BFE655DBCDBBA3 /* TeamClawMobile */,
+				4BFD80CE7475206FDAB63532 /* TeamClawMobileTests */,
+				80CFD6190F147258CA2F2250 /* TeamClawMobileUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		082BB117A8C5A4EAB2DB9574 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF474BB88350A810335A0EC7 /* ContentView.swift in Sources */,
+				16A0D1CCA0B263A727F89BD5 /* TeamClawMobileApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5676FBCCCB55801EF2BE7BA7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AF24687EFEC7A836A7404796 /* TeamClawMobileTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		76F04DA9C306B286B24DFE39 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				531C62D5C7AA8378A188D1A5 /* TeamClawMobileUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		6244A8E0CBEBA17DF7F9D798 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8F891BDD19BFE655DBCDBBA3 /* TeamClawMobile */;
+			targetProxy = 993F803650DF6C598EF0B422 /* PBXContainerItemProxy */;
+		};
+		B21BBB91F35FC803A8E63C11 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8F891BDD19BFE655DBCDBBA3 /* TeamClawMobile */;
+			targetProxy = 30C5673F637D58792FB50DA9 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		38D6AF7AAF7C8BFF604D66FE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.teamclaw.TeamClawMobile;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7F0F293BF563DCF5558FCDFE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TeamClawMobile.app/TeamClawMobile";
+			};
+			name = Release;
+		};
+		B636CD80E9ADECC12A94F823 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = TeamClawMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B952F464A72134607FF41063 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TeamClawMobile;
+			};
+			name = Debug;
+		};
+		C847460D9C2731AD81A77D9B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.teamclaw.TeamClawMobile;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		EB4C9F44C90039DED356A79A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = TeamClawMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EEC7DEE77B476E9D616AECAE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TeamClawMobile;
+			};
+			name = Release;
+		};
+		F41C2209BBDA50A88B1965F8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TeamClawMobile.app/TeamClawMobile";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1BE3DC0A228DB82A3EDEEC47 /* Build configuration list for PBXProject "TeamClawMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				38D6AF7AAF7C8BFF604D66FE /* Debug */,
+				C847460D9C2731AD81A77D9B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B6DA5F332223385669839570 /* Build configuration list for PBXNativeTarget "TeamClawMobileTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F41C2209BBDA50A88B1965F8 /* Debug */,
+				7F0F293BF563DCF5558FCDFE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C18A808351777A188CA1B0C9 /* Build configuration list for PBXNativeTarget "TeamClawMobileUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B952F464A72134607FF41063 /* Debug */,
+				EEC7DEE77B476E9D616AECAE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EE41F3E0130BEA9FA855458B /* Build configuration list for PBXNativeTarget "TeamClawMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EB4C9F44C90039DED356A79A /* Debug */,
+				B636CD80E9ADECC12A94F823 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		079A1E85AEBDC12DC3251F07 /* XCRemoteSwiftPackageReference "CocoaMQTT" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/emqx/CocoaMQTT.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.1.0;
+			};
+		};
+		7259BF61557A57DB0DF461B4 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-markdown.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.4.0;
+			};
+		};
+		82CD52E1B81D00BA123626CA /* XCRemoteSwiftPackageReference "Alamofire" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Alamofire/Alamofire.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		48D6BF74640DFCC159C17AF3 /* CocoaMQTT */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 079A1E85AEBDC12DC3251F07 /* XCRemoteSwiftPackageReference "CocoaMQTT" */;
+			productName = CocoaMQTT;
+		};
+		9FE2D672C23A9561D53ABAB0 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7259BF61557A57DB0DF461B4 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+		DC38DE73255511B28B9E9765 /* Alamofire */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 82CD52E1B81D00BA123626CA /* XCRemoteSwiftPackageReference "Alamofire" */;
+			productName = Alamofire;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = C6571E6141B1ACE3553D2816 /* Project object */;
+}

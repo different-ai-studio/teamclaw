@@ -1,0 +1,81 @@
+name: TeamClawMobile
+options:
+  bundleIdPrefix: com.teamclaw
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5"
+    PRODUCT_BUNDLE_IDENTIFIER: com.teamclaw.TeamClawMobile
+    DEVELOPMENT_TEAM: ""
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+
+packages:
+  CocoaMQTT:
+    url: https://github.com/emqx/CocoaMQTT.git
+    from: 2.1.0
+  swift-markdown:
+    url: https://github.com/apple/swift-markdown.git
+    from: 0.4.0
+  Alamofire:
+    url: https://github.com/Alamofire/Alamofire.git
+    from: 5.9.0
+
+targets:
+  TeamClawMobile:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: TeamClawMobile
+    info:
+      path: TeamClawMobile/Info.plist
+      properties:
+        CFBundleDisplayName: TeamClaw Mobile
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen:
+          UIColorName: ""
+          UIImageName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        INFOPLIST_FILE: TeamClawMobile/Info.plist
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - package: CocoaMQTT
+        product: CocoaMQTT
+      - package: swift-markdown
+        product: Markdown
+      - package: Alamofire
+        product: Alamofire
+
+  TeamClawMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: TeamClawMobileTests
+    dependencies:
+      - target: TeamClawMobile
+
+  TeamClawMobileUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: TeamClawMobileUITests
+    dependencies:
+      - target: TeamClawMobile
