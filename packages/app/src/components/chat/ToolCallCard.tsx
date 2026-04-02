@@ -18,6 +18,7 @@ import { getCommandText } from "@/lib/terminal-interaction";
 import { WriteToolCard } from "./tool-calls/WriteToolCard";
 import { EditToolCard } from "./tool-calls/EditToolCard";
 import { ReadToolCard } from "./tool-calls/ReadToolCard";
+import { RoleLoadToolCard } from "./tool-calls/RoleLoadToolCard";
 import { SkillToolCard, TaskToolCard } from "./tool-calls/TaskToolCard";
 import { PermissionApprovalBar } from "./tool-calls/PermissionApprovalBar";
 import {
@@ -29,6 +30,7 @@ import {
   isReadTool,
   isTaskTool,
   isSkillTool,
+  isRoleLoadTool,
   isCommandTool,
   isCommandToolLikelyWaitingForInput,
   formatToolName,
@@ -122,6 +124,10 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
   // If this is a Skill tool, render SkillToolCard
   if (isSkillTool(toolCall.name)) {
     return <SkillToolCard toolCall={toolCall} />;
+  }
+
+  if (isRoleLoadTool(toolCall.name)) {
+    return <RoleLoadToolCard toolCall={toolCall} />;
   }
 
   // If this is a Task tool (subagent), render TaskToolCard

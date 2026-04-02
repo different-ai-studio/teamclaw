@@ -14,6 +14,7 @@ import { useTeamModeStore } from "@/stores/team-mode";
 import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
+import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
@@ -407,6 +408,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         console.error("[ChatPanel] Failed to load sessions:", err),
       );
   }, [openCodeReady, workspacePath, loadSessions, resetSessions]);
+
+  React.useEffect(() => {
+    if (!openCodeReady || !workspacePath || !isTauri()) return;
+
+    void ensureRoleSkillPlugin(workspacePath).then((result) => {
+      console.log("[RolePlugin] Startup ensure result:", {
+        workspacePath,
+        ...result,
+      });
+      if (result.status === "conflict" || result.status === "failed") {
+        console.warn("[RolePlugin] Failed to ensure managed role plugin:", result);
+      }
+    });
+  }, [openCodeReady, workspacePath]);
 
   // NOTE: No polling fallback needed.
   // SSE /event endpoint streams ALL events (Bus.subscribeAll) including
