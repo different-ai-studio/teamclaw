@@ -50,6 +50,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        CFBundleLocalizations:
+          - en
+          - zh-Hans
+        CFBundleDevelopmentRegion: en
     settings:
       base:
         INFOPLIST_FILE: TeamClawMobile/Info.plist
