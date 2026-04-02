@@ -13,6 +13,7 @@ pub mod strategy_engine;
 pub mod skill_distiller;
 pub mod experience_collector;
 pub mod voting;
+pub mod deliberation;
 
 pub use types::*;
 pub use state::SuperAgentState;
