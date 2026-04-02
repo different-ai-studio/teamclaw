@@ -6,10 +6,11 @@ use tracing::{info, warn};
 // ─── BoardType ────────────────────────────────────────────────────────────────
 
 /// The set of Loro CRDT documents that make up the shared blackboard.
-/// Phase 1: only `Registry` exists.
+/// Phase 1: `Registry`. Phase 2: `TaskBoard`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BoardType {
     Registry,
+    TaskBoard,
 }
 
 impl BoardType {
@@ -17,6 +18,7 @@ impl BoardType {
     pub fn key(&self) -> &'static str {
         match self {
             BoardType::Registry => "registry",
+            BoardType::TaskBoard => "task_board",
         }
     }
 
@@ -46,7 +48,7 @@ impl Blackboard {
         let last_exported_version: HashMap<BoardType, Vec<u8>> = HashMap::new();
 
         // Initialise every known board type.
-        let board_types = [BoardType::Registry];
+        let board_types = [BoardType::Registry, BoardType::TaskBoard];
         for bt in &board_types {
             let doc = loro::LoroDoc::new();
             let snapshot_path = storage_path.join(bt.snapshot_filename());
