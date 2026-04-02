@@ -2,19 +2,29 @@ import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 
 // Types must match Rust backend's SuperAgentSnapshot exactly
-export type AgentStatus = 'online' | 'offline' | 'busy' | 'unknown'
+export type AgentStatus = 'online' | 'busy' | 'idle' | 'offline'
 
 export interface Capability {
-  name: string
-  description: string
+  domain: string
+  skills: string[]
+  tools: string[]
+  languages: string[]
+  confidence: number
+  taskCount: number
+  avgScore: number
 }
 
 export interface AgentProfile {
-  agentId: string
+  nodeId: string
   name: string
-  status: AgentStatus
+  owner: string
   capabilities: Capability[]
-  domain: string | null
+  status: AgentStatus
+  currentTask: string | null
+  lastHeartbeat: number
+  version: string
+  modelId: string
+  joinedAt: number
 }
 
 export interface SuperAgentSnapshot {
@@ -86,47 +96,65 @@ export function isTaskBoardSnapshot(value: unknown): value is TaskBoardSnapshot 
 
 export type ExperienceOutcome = 'success' | 'failure' | 'partial'
 export type StrategyType = 'recommend' | 'avoid' | 'compare'
-export type ValidationStatus = 'pending' | 'validated' | 'rejected'
+export type ValidationStatus = 'proposed' | 'testing' | 'validated' | 'deprecated'
 
 export interface ExperienceMetrics {
   score: number
   tokensUsed: number
-  durationMs: number
+  duration: number
+  toolCallCount: number
+  retryCount: number
 }
 
 export interface Experience {
   id: string
+  agentId: string
   taskId: string
+  sessionId: string
   domain: string
-  context: string
+  tags: string[]
   outcome: ExperienceOutcome
+  context: string
+  action: string
+  result: string
+  lesson: string
   metrics: ExperienceMetrics
   createdAt: number
+  expiresAt: number
 }
 
 export interface StrategyValidation {
   status: ValidationStatus
-  validatedBy: string | null
-  validatedAt: number | null
+  validatedBy: string[]
+  validationScore: number
 }
 
 export interface Strategy {
   id: string
-  type: StrategyType
-  description: string
   domain: string
+  tags: string[]
+  strategyType: StrategyType
+  condition: string
+  recommendation: string
+  reasoning: string
+  sourceExperiences: string[]
   successRate: number
-  usageCount: number
+  sampleSize: number
+  contributingAgents: string[]
+  confidenceInterval: number
   validation: StrategyValidation
+  createdAt: number
+  updatedAt: number
 }
 
 export interface DistilledSkill {
   id: string
   name: string
-  description: string
-  confidence: number
+  sourceStrategyId: string
+  skillContent: string
   adoptionCount: number
-  domain: string
+  avgEffectiveness: number
+  createdAt: number
 }
 
 export interface KnowledgeSnapshot {
@@ -149,40 +177,56 @@ export function isKnowledgeSnapshot(value: unknown): value is KnowledgeSnapshot 
 
 export type Angle = string
 
-export type DebateStatus = 'open' | 'deliberating' | 'voting' | 'decided' | 'closed'
+export type DebateStatus = 'gathering_perspectives' | 'debating' | 'voting' | 'concluded'
 
-export type RebuttalStance = 'agree' | 'disagree' | 'partial'
+export type RebuttalStance = 'agree' | 'disagree' | 'partially_agree'
+
+export interface OptionScore {
+  option: string
+  score: number
+  reason: string
+}
 
 export interface Perspective {
+  debateId: string
   agentId: string
   angle: Angle
   position: string
+  reasoning: string
+  evidence: string[]
+  risks: string[]
+  preferredOption: string
+  optionRanking: OptionScore[]
   confidence: number
-  submittedAt: number
 }
 
 export interface Rebuttal {
-  agentId: string
   targetAgentId: string
-  stance: RebuttalStance
+  targetClaim: string
+  response: RebuttalStance
   argument: string
-  submittedAt: number
+  newEvidence: string[]
 }
 
 export interface DebateResponse {
-  perspectives: Perspective[]
+  agentId: string
   rebuttals: Rebuttal[]
+  updatedPosition: string
+  updatedConfidence: number
+  readyToConverge: boolean
 }
 
 export interface DebateRound {
-  roundNumber: number
-  response: DebateResponse
+  round: number
+  responses: DebateResponse[]
 }
 
 export interface CandidateOption {
   id: string
   description: string
-  proposedBy: string
+  synthesizedFrom: string[]
+  pros: string[]
+  cons: string[]
 }
 
 export interface VoteRanking {
@@ -190,39 +234,52 @@ export interface VoteRanking {
   rank: number
 }
 
-export interface DebateVote {
+export interface Vote {
   agentId: string
-  rankings: VoteRanking[]
-  submittedAt: number
+  preferredOptionId: string
+  ranking: VoteRanking[]
+  confidence: number
+  finalReasoning: string
+}
+
+export interface DeliberationTrigger {
+  explicit: boolean
+  creatorConfidence: number
+  domainFailureRate: number
+  crossDomainCount: number
 }
 
 export interface SynthesisResult {
   winningOptionId: string
+  winningDescription: string
+  votingRounds: number
   margin: number
-  dissent: string | null
-  summary: string
+  dissent: string[]
 }
 
 export interface PostDecisionOutcome {
-  decidedAt: number
-  outcome: string
-  executedBy: string | null
+  taskId: string
+  actualResult: string
+  score: number
+  wasCorrectDecision: boolean
 }
 
 export interface DebateRecord {
   id: string
   question: string
   context: string
-  angles: Angle[]
+  trigger: DeliberationTrigger
   status: DebateStatus
-  participants: string[]
+  requestedAngles: Angle[]
+  perspectives: Perspective[]
   rounds: DebateRound[]
-  candidates: CandidateOption[]
-  votes: DebateVote[]
+  candidateOptions: CandidateOption[]
+  votes: Vote[]
   synthesis: SynthesisResult | null
-  postDecision: PostDecisionOutcome | null
+  outcome: PostDecisionOutcome | null
   createdAt: number
-  updatedAt: number
+  concludedAt: number | null
+  deadline: number
 }
 
 export interface DebateSnapshot {
@@ -250,9 +307,9 @@ interface SuperAgentState {
   recordExperience: (taskId: string) => Promise<void>
   validateStrategy: (strategyId: string, score: number) => Promise<void>
   fetchDebates: () => Promise<void>
-  startDeliberation: (question: string, context: string, angles: Angle[]) => Promise<DebateRecord | null>
-  submitPerspective: (debateId: string, angle: Angle, position: string, confidence: number) => Promise<void>
-  submitVote: (debateId: string, rankings: VoteRanking[]) => Promise<void>
+  startDeliberation: (question: string, context: string, requestedAngles: Angle[]) => Promise<DebateRecord | null>
+  submitPerspective: (debateId: string, angle: Angle, position: string, confidence: number, reasoning: string) => Promise<void>
+  submitVote: (debateId: string, preferredOptionId: string, ranking: VoteRanking[], confidence: number, reasoning: string) => Promise<void>
 }
 
 export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
@@ -391,14 +448,14 @@ export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
     }
   },
 
-  startDeliberation: async (question: string, context: string, angles: Angle[]) => {
+  startDeliberation: async (question: string, context: string, requestedAngles: Angle[]) => {
     if (!isTauri()) return null
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       const debate = await invoke<DebateRecord>('super_agent_start_deliberation', {
         question,
         context,
-        angles,
+        requestedAngles,
       })
       await get().fetchDebates()
       return debate
@@ -408,22 +465,22 @@ export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
     }
   },
 
-  submitPerspective: async (debateId: string, angle: Angle, position: string, confidence: number) => {
+  submitPerspective: async (debateId: string, angle: Angle, position: string, confidence: number, reasoning: string) => {
     if (!isTauri()) return
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('super_agent_submit_perspective', { debateId, angle, position, confidence })
+      await invoke('super_agent_submit_perspective', { debateId, angle, position, confidence, reasoning })
       await get().fetchDebates()
     } catch (err) {
       console.warn('[SuperAgent] Failed to submit perspective:', err)
     }
   },
 
-  submitVote: async (debateId: string, rankings: VoteRanking[]) => {
+  submitVote: async (debateId: string, preferredOptionId: string, ranking: VoteRanking[], confidence: number, reasoning: string) => {
     if (!isTauri()) return
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('super_agent_submit_vote', { debateId, rankings })
+      await invoke('super_agent_submit_vote', { debateId, preferredOptionId, ranking, confidence, reasoning })
       await get().fetchDebates()
     } catch (err) {
       console.warn('[SuperAgent] Failed to submit vote:', err)

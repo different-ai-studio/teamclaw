@@ -15,7 +15,7 @@ import type {
   Rebuttal,
   DebateRound,
   CandidateOption,
-  DebateVote,
+  Vote,
   SynthesisResult,
 } from '@/stores/super-agent'
 
@@ -23,16 +23,14 @@ import type {
 
 function debateStatusClass(status: DebateStatus): string {
   switch (status) {
-    case 'open':
+    case 'gathering_perspectives':
       return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-    case 'deliberating':
+    case 'debating':
       return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
     case 'voting':
       return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-    case 'decided':
+    case 'concluded':
       return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-    case 'closed':
-      return 'bg-muted text-muted-foreground'
     default:
       return 'bg-muted text-muted-foreground'
   }
@@ -46,7 +44,7 @@ function stanceBadgeClass(stance: RebuttalStance): string {
       return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
     case 'disagree':
       return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-    case 'partial':
+    case 'partially_agree':
       return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
     default:
       return 'bg-muted text-muted-foreground'
@@ -107,15 +105,13 @@ function RebuttalItem({ rebuttal }: RebuttalItemProps) {
         <span
           className={cn(
             'rounded-full px-1.5 py-0.5 text-xs leading-none font-medium',
-            stanceBadgeClass(rebuttal.stance),
+            stanceBadgeClass(rebuttal.response),
           )}
         >
-          {rebuttal.stance}
+          {rebuttal.response}
         </span>
         <span className="text-xs text-muted-foreground">
-          <span className="font-medium">{rebuttal.agentId.slice(0, 10)}</span>
-          {' → '}
-          <span className="font-medium">{rebuttal.targetAgentId.slice(0, 10)}</span>
+          → <span className="font-medium">{rebuttal.targetAgentId.slice(0, 10)}</span>
         </span>
       </div>
       <p className="text-sm leading-snug">{rebuttal.argument}</p>
@@ -128,27 +124,20 @@ interface RoundCardProps {
 }
 
 function RoundCard({ round }: RoundCardProps) {
-  const { perspectives, rebuttals } = round.response
+  const allRebuttals = round.responses.flatMap((r) => r.rebuttals)
 
   return (
     <div className="rounded-xl border bg-card p-4 space-y-3">
       <p className="text-xs font-medium text-muted-foreground">
-        Round {round.roundNumber}
+        Round {round.round}
       </p>
 
-      {perspectives.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">Perspectives</p>
-          <PerspectiveList perspectives={perspectives} />
-        </div>
-      )}
-
-      {rebuttals.length > 0 && (
+      {allRebuttals.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">Rebuttals</p>
           <div className="space-y-2">
-            {rebuttals.map((r, i) => (
-              <RebuttalItem key={`${r.agentId}-${r.targetAgentId}-${i}`} rebuttal={r} />
+            {allRebuttals.map((r, i) => (
+              <RebuttalItem key={`${r.targetAgentId}-${i}`} rebuttal={r} />
             ))}
           </div>
         </div>
@@ -161,7 +150,7 @@ function RoundCard({ round }: RoundCardProps) {
 
 interface VotingPanelProps {
   candidates: CandidateOption[]
-  votes: DebateVote[]
+  votes: Vote[]
   synthesis: SynthesisResult | null
 }
 
@@ -172,9 +161,9 @@ function VotingPanel({ candidates, votes, synthesis }: VotingPanelProps) {
     tally.set(candidate.id, 0)
   }
   for (const vote of votes) {
-    const topRanking = vote.rankings.reduce(
+    const topRanking = vote.ranking.reduce(
       (best, r) => (r.rank < best.rank ? r : best),
-      vote.rankings[0],
+      vote.ranking[0],
     )
     if (topRanking) {
       tally.set(topRanking.optionId, (tally.get(topRanking.optionId) ?? 0) + 1)
@@ -214,9 +203,6 @@ function VotingPanel({ candidates, votes, synthesis }: VotingPanelProps) {
               </span>
             </div>
             <p className="text-sm leading-snug">{candidate.description}</p>
-            <p className="text-xs text-muted-foreground truncate">
-              Proposed by: <span className="font-medium">{candidate.proposedBy.slice(0, 12)}</span>
-            </p>
           </div>
         )
       })}
@@ -224,14 +210,14 @@ function VotingPanel({ candidates, votes, synthesis }: VotingPanelProps) {
       {synthesis && (
         <div className="rounded-xl border bg-card p-4 space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">Synthesis</p>
-          <p className="text-sm leading-snug">{synthesis.summary}</p>
+          <p className="text-sm leading-snug">{synthesis.winningDescription}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>
               Margin: <span className="font-medium">{Math.round(synthesis.margin * 100)}%</span>
             </span>
-            {synthesis.dissent && (
+            {synthesis.dissent.length > 0 && (
               <span>
-                Dissent: <span className="font-medium">{synthesis.dissent}</span>
+                Dissent: <span className="font-medium">{synthesis.dissent.join(', ')}</span>
               </span>
             )}
           </div>
@@ -249,8 +235,6 @@ interface DebateCardProps {
 
 function DebateCard({ debate }: DebateCardProps) {
   const [expanded, setExpanded] = React.useState(false)
-
-  const allPerspectives = debate.rounds.flatMap((r) => r.response.perspectives)
 
   return (
     <div className="rounded-xl border bg-card transition-all">
@@ -271,18 +255,18 @@ function DebateCard({ debate }: DebateCardProps) {
               {debate.status}
             </span>
             <span className="text-xs text-muted-foreground">
-              {debate.participants.length} participant{debate.participants.length !== 1 ? 's' : ''}
+              {debate.perspectives.length} perspective{debate.perspectives.length !== 1 ? 's' : ''}
             </span>
-            {debate.postDecision?.outcome && (
+            {debate.outcome?.actualResult && (
               <span className="ml-auto text-xs font-medium text-green-600 dark:text-green-400 truncate max-w-[180px]">
-                {debate.postDecision.outcome}
+                {debate.outcome.actualResult}
               </span>
             )}
           </div>
           <p className="text-sm font-medium leading-snug">{debate.question}</p>
-          {debate.angles.length > 0 && (
+          {debate.requestedAngles.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {debate.angles.map((angle) => (
+              {debate.requestedAngles.map((angle) => (
                 <span
                   key={angle}
                   className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
@@ -303,7 +287,7 @@ function DebateCard({ debate }: DebateCardProps) {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Perspectives
             </p>
-            <PerspectiveList perspectives={allPerspectives} />
+            <PerspectiveList perspectives={debate.perspectives} />
           </div>
 
           {/* Phase 2: Rounds */}
@@ -314,7 +298,7 @@ function DebateCard({ debate }: DebateCardProps) {
               </p>
               <div className="space-y-2">
                 {debate.rounds.map((round) => (
-                  <RoundCard key={round.roundNumber} round={round} />
+                  <RoundCard key={round.round} round={round} />
                 ))}
               </div>
             </div>
@@ -326,7 +310,7 @@ function DebateCard({ debate }: DebateCardProps) {
               Voting
             </p>
             <VotingPanel
-              candidates={debate.candidates}
+              candidates={debate.candidateOptions}
               votes={debate.votes}
               synthesis={debate.synthesis}
             />
@@ -350,10 +334,10 @@ export function DebateView() {
   }, [fetchDebates])
 
   const activeDebates = debates.debates.filter(
-    (d) => d.status === 'open' || d.status === 'deliberating' || d.status === 'voting',
+    (d) => d.status === 'gathering_perspectives' || d.status === 'debating' || d.status === 'voting',
   )
-  const closedDebates = debates.debates.filter(
-    (d) => d.status === 'decided' || d.status === 'closed',
+  const concludedDebates = debates.debates.filter(
+    (d) => d.status === 'concluded',
   )
 
   return (
@@ -384,14 +368,14 @@ export function DebateView() {
         )}
       </div>
 
-      {/* Decided / closed */}
-      {closedDebates.length > 0 && (
+      {/* Concluded */}
+      {concludedDebates.length > 0 && (
         <div className="space-y-4">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Decided</p>
+            <p className="text-sm font-medium text-muted-foreground">Concluded</p>
           </div>
           <div className="space-y-2">
-            {closedDebates.map((debate) => (
+            {concludedDebates.map((debate) => (
               <DebateCard key={debate.id} debate={debate} />
             ))}
           </div>

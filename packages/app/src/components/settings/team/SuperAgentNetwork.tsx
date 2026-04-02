@@ -14,6 +14,8 @@ function statusDotClass(status: AgentStatus): string {
       return 'bg-green-500'
     case 'busy':
       return 'bg-yellow-500'
+    case 'idle':
+      return 'bg-blue-400'
     case 'offline':
       return 'bg-red-500'
     default:
@@ -59,19 +61,14 @@ function AgentCard({ agent, isLocal }: AgentCardProps) {
             <div className="flex flex-wrap gap-1.5">
               {agent.capabilities.map((cap) => (
                 <span
-                  key={cap.name}
+                  key={cap.domain}
                   className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-                  title={cap.description}
+                  title={`${cap.skills.join(', ')} · confidence ${Math.round(cap.confidence * 100)}%`}
                 >
-                  {cap.name}
+                  {cap.domain}
                 </span>
               ))}
             </div>
-          )}
-
-          {/* Domain tag */}
-          {agent.domain && (
-            <p className="text-xs text-muted-foreground truncate">{agent.domain}</p>
           )}
         </div>
       </div>
@@ -99,12 +96,19 @@ export function SuperAgentNetwork() {
 
   const { localAgent, agents } = snapshot
 
-  // Build a unified list: local agent first, then remote agents
+  // Build a unified list: local agent first, then remote agents.
+  // `agents` from the backend already includes the local agent, so we filter
+  // it out by nodeId to avoid showing it twice.
+  const localNodeId = localAgent?.nodeId
+  const remoteAgents = localNodeId
+    ? agents.filter((a) => a.nodeId !== localNodeId)
+    : agents
+
   const allAgents: Array<{ agent: AgentProfile; isLocal: boolean }> = []
   if (localAgent) {
     allAgents.push({ agent: localAgent, isLocal: true })
   }
-  for (const agent of agents) {
+  for (const agent of remoteAgents) {
     allAgents.push({ agent, isLocal: false })
   }
 
@@ -135,7 +139,7 @@ export function SuperAgentNetwork() {
       ) : (
         <div className="space-y-2">
           {allAgents.map(({ agent, isLocal }) => (
-            <AgentCard key={agent.agentId} agent={agent} isLocal={isLocal} />
+            <AgentCard key={agent.nodeId} agent={agent} isLocal={isLocal} />
           ))}
         </div>
       )}

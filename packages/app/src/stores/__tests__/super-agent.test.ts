@@ -10,11 +10,16 @@ describe('isSuperAgentSnapshot', () => {
 
   it('returns true for snapshot with agents', () => {
     const agent = {
-      agentId: 'abc-123',
+      nodeId: 'abc-123',
       name: 'TestAgent',
+      owner: 'user-1',
       status: 'online',
-      capabilities: [{ name: 'chat', description: 'Chat capability' }],
-      domain: 'example.com',
+      capabilities: [{ domain: 'chat', skills: [], tools: [], languages: [], confidence: 0.9, taskCount: 0, avgScore: 0.8 }],
+      currentTask: null,
+      lastHeartbeat: 0,
+      version: '0.1.0',
+      modelId: 'claude-3-5-sonnet',
+      joinedAt: 0,
     }
     expect(
       isSuperAgentSnapshot({ localAgent: agent, agents: [agent], connected: true }),

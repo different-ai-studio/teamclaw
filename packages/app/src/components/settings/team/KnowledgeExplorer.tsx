@@ -43,9 +43,11 @@ function validationDotClass(status: ValidationStatus): string {
   switch (status) {
     case 'validated':
       return 'bg-green-500'
-    case 'rejected':
+    case 'deprecated':
       return 'bg-red-500'
-    case 'pending':
+    case 'testing':
+      return 'bg-blue-400'
+    case 'proposed':
     default:
       return 'bg-yellow-400'
   }
@@ -79,7 +81,7 @@ function ExperienceCard({ experience }: { experience: Experience }) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>Score: <span className="font-medium">{experience.metrics.score}</span></span>
           <span>Tokens: <span className="font-medium">{experience.metrics.tokensUsed}</span></span>
-          <span>{Math.round(experience.metrics.durationMs / 1000)}s</span>
+          <span>{Math.round(experience.metrics.duration / 1000)}s</span>
         </div>
       </div>
     </div>
@@ -108,10 +110,10 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
             <span
               className={cn(
                 'rounded-full px-1.5 py-0.5 text-xs leading-none font-medium',
-                strategyTypeBadgeClass(strategy.type),
+                strategyTypeBadgeClass(strategy.strategyType),
               )}
             >
-              {strategy.type}
+              {strategy.strategyType}
             </span>
             <span className="text-xs text-muted-foreground">{strategy.domain}</span>
             <span className="ml-auto font-mono text-xs text-muted-foreground/60">
@@ -119,11 +121,11 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
             </span>
           </div>
 
-          <p className="text-sm leading-snug">{strategy.description}</p>
+          <p className="text-sm leading-snug">{strategy.recommendation}</p>
 
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>Success: <span className="font-medium">{successPct}%</span></span>
-            <span>Used: <span className="font-medium">{strategy.usageCount}x</span></span>
+            <span>Samples: <span className="font-medium">{strategy.sampleSize}</span></span>
           </div>
         </div>
       </div>
@@ -134,20 +136,19 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
 // ─── Skill Card ───────────────────────────────────────────────────────────────
 
 function SkillCard({ skill }: { skill: DistilledSkill }) {
-  const confidencePct = Math.round(skill.confidence * 100)
+  const effectivenessPct = Math.round(skill.avgEffectiveness * 100)
 
   return (
     <div className="rounded-xl border bg-card p-4 transition-all">
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{skill.name}</span>
-          <span className="text-xs text-muted-foreground">{skill.domain}</span>
         </div>
 
-        <p className="text-sm text-muted-foreground leading-snug">{skill.description}</p>
+        <p className="text-sm text-muted-foreground leading-snug">{skill.skillContent}</p>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>Confidence: <span className="font-medium">{confidencePct}%</span></span>
+          <span>Effectiveness: <span className="font-medium">{effectivenessPct}%</span></span>
           <span>Adopted: <span className="font-medium">{skill.adoptionCount}x</span></span>
         </div>
       </div>
