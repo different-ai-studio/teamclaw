@@ -90,6 +90,12 @@ pub enum NervePayload {
         progress: u32,
         message: String,
     },
+    #[serde(rename = "experience:new")]
+    ExperienceNew {
+        experience_id: String,
+        domain: String,
+        summary: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +249,73 @@ impl Task {
 #[serde(rename_all = "camelCase")]
 pub struct TaskBoardSnapshot {
     pub tasks: Vec<Task>,
+}
+
+// ─── Layer 3: Collective Learning ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExperienceOutcome { Success, Failure, Partial }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExperienceMetrics {
+    pub tokens_used: u64, pub duration: u64, pub tool_call_count: u32,
+    pub score: f64, pub retry_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Experience {
+    pub id: String, pub agent_id: String, pub task_id: String, pub session_id: String,
+    pub domain: String, pub tags: Vec<String>, pub outcome: ExperienceOutcome,
+    pub context: String, pub action: String, pub result: String, pub lesson: String,
+    pub metrics: ExperienceMetrics, pub created_at: u64, pub expires_at: u64,
+}
+
+impl Experience {
+    pub fn is_expired(&self) -> bool { now_millis() > self.expires_at }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum StrategyType { Recommend, Avoid, Compare }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ValidationStatus { Proposed, Testing, Validated, Deprecated }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StrategyValidation {
+    pub status: ValidationStatus, pub validated_by: Vec<String>, pub validation_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Strategy {
+    pub id: String, pub domain: String, pub tags: Vec<String>,
+    pub strategy_type: StrategyType, pub condition: String,
+    pub recommendation: String, pub reasoning: String,
+    pub source_experiences: Vec<String>, pub success_rate: f64,
+    pub sample_size: u32, pub contributing_agents: Vec<String>,
+    pub confidence_interval: f64, pub validation: StrategyValidation,
+    pub created_at: u64, pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DistilledSkill {
+    pub id: String, pub name: String, pub source_strategy_id: String,
+    pub skill_content: String, pub adoption_count: u32,
+    pub avg_effectiveness: f64, pub created_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSnapshot {
+    pub experiences: Vec<Experience>, pub strategies: Vec<Strategy>,
+    pub distilled_skills: Vec<DistilledSkill>,
 }
 
 pub fn now_millis() -> u64 {
@@ -577,6 +650,164 @@ mod tests {
                 assert_eq!(assignee, "node-winner");
             }
             _ => panic!("Expected TaskAssign payload"),
+        }
+    }
+
+    fn make_experience(expires_at: u64) -> Experience {
+        Experience {
+            id: "exp-1".to_string(),
+            agent_id: "node-1".to_string(),
+            task_id: "task-1".to_string(),
+            session_id: "sess-1".to_string(),
+            domain: "frontend".to_string(),
+            tags: vec!["react".to_string(), "typescript".to_string()],
+            outcome: ExperienceOutcome::Success,
+            context: "User asked to fix a bug".to_string(),
+            action: "Applied patch to component".to_string(),
+            result: "Bug fixed, tests passing".to_string(),
+            lesson: "Always check prop types first".to_string(),
+            metrics: ExperienceMetrics {
+                tokens_used: 1200,
+                duration: 45000,
+                tool_call_count: 8,
+                score: 0.92,
+                retry_count: 1,
+            },
+            created_at: 1_000_000,
+            expires_at,
+        }
+    }
+
+    #[test]
+    fn experience_serde_roundtrip() {
+        let exp = make_experience(9_999_999_999_999);
+        let json = serde_json::to_string(&exp).unwrap();
+        let deserialized: Experience = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "exp-1");
+        assert_eq!(deserialized.agent_id, "node-1");
+        assert_eq!(deserialized.domain, "frontend");
+        assert_eq!(deserialized.outcome, ExperienceOutcome::Success);
+        assert_eq!(deserialized.tags, vec!["react".to_string(), "typescript".to_string()]);
+        assert_eq!(deserialized.metrics.tokens_used, 1200);
+        assert_eq!(deserialized.metrics.tool_call_count, 8);
+        assert!((deserialized.metrics.score - 0.92).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn experience_outcome_serde_lowercase() {
+        assert_eq!(serde_json::to_string(&ExperienceOutcome::Success).unwrap(), "\"success\"");
+        assert_eq!(serde_json::to_string(&ExperienceOutcome::Failure).unwrap(), "\"failure\"");
+        assert_eq!(serde_json::to_string(&ExperienceOutcome::Partial).unwrap(), "\"partial\"");
+        let s: ExperienceOutcome = serde_json::from_str("\"success\"").unwrap();
+        assert_eq!(s, ExperienceOutcome::Success);
+        let f: ExperienceOutcome = serde_json::from_str("\"failure\"").unwrap();
+        assert_eq!(f, ExperienceOutcome::Failure);
+        let p: ExperienceOutcome = serde_json::from_str("\"partial\"").unwrap();
+        assert_eq!(p, ExperienceOutcome::Partial);
+    }
+
+    #[test]
+    fn strategy_serde_roundtrip() {
+        let strategy = Strategy {
+            id: "strat-1".to_string(),
+            domain: "backend".to_string(),
+            tags: vec!["rust".to_string(), "async".to_string()],
+            strategy_type: StrategyType::Recommend,
+            condition: "When working with async Rust".to_string(),
+            recommendation: "Prefer tokio::spawn for IO-bound tasks".to_string(),
+            reasoning: "Reduces blocking in the async runtime".to_string(),
+            source_experiences: vec!["exp-1".to_string(), "exp-2".to_string()],
+            success_rate: 0.88,
+            sample_size: 25,
+            contributing_agents: vec!["node-a".to_string(), "node-b".to_string()],
+            confidence_interval: 0.05,
+            validation: StrategyValidation {
+                status: ValidationStatus::Validated,
+                validated_by: vec!["node-c".to_string()],
+                validation_score: 0.91,
+            },
+            created_at: 2_000_000,
+            updated_at: 3_000_000,
+        };
+        let json = serde_json::to_string(&strategy).unwrap();
+        let deserialized: Strategy = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "strat-1");
+        assert_eq!(deserialized.domain, "backend");
+        assert_eq!(deserialized.strategy_type, StrategyType::Recommend);
+        assert_eq!(deserialized.validation.status, ValidationStatus::Validated);
+        assert!((deserialized.success_rate - 0.88).abs() < f64::EPSILON);
+        assert_eq!(deserialized.sample_size, 25);
+        assert_eq!(deserialized.source_experiences.len(), 2);
+    }
+
+    #[test]
+    fn distilled_skill_serde_roundtrip() {
+        let skill = DistilledSkill {
+            id: "skill-1".to_string(),
+            name: "async-task-spawning".to_string(),
+            source_strategy_id: "strat-1".to_string(),
+            skill_content: "Use tokio::spawn for IO tasks".to_string(),
+            adoption_count: 12,
+            avg_effectiveness: 0.87,
+            created_at: 4_000_000,
+        };
+        let json = serde_json::to_string(&skill).unwrap();
+        let deserialized: DistilledSkill = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "skill-1");
+        assert_eq!(deserialized.name, "async-task-spawning");
+        assert_eq!(deserialized.source_strategy_id, "strat-1");
+        assert_eq!(deserialized.adoption_count, 12);
+        assert!((deserialized.avg_effectiveness - 0.87).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn experience_new_payload_serde() {
+        let payload = NervePayload::ExperienceNew {
+            experience_id: "exp-42".to_string(),
+            domain: "devops".to_string(),
+            summary: "Learned to use cargo check before build".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("experience:new"));
+        let deserialized: NervePayload = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            NervePayload::ExperienceNew { experience_id, domain, summary } => {
+                assert_eq!(experience_id, "exp-42");
+                assert_eq!(domain, "devops");
+                assert_eq!(summary, "Learned to use cargo check before build");
+            }
+            _ => panic!("Expected ExperienceNew payload"),
+        }
+    }
+
+    #[test]
+    fn experience_is_expired_check() {
+        // Expired: expires_at in the past
+        let expired = make_experience(1); // epoch + 1ms, definitely in the past
+        assert!(expired.is_expired());
+
+        // Fresh: expires_at far in the future
+        let fresh = make_experience(9_999_999_999_999);
+        assert!(!fresh.is_expired());
+    }
+
+    #[test]
+    fn validation_status_serde() {
+        assert_eq!(serde_json::to_string(&ValidationStatus::Proposed).unwrap(), "\"proposed\"");
+        assert_eq!(serde_json::to_string(&ValidationStatus::Testing).unwrap(), "\"testing\"");
+        assert_eq!(serde_json::to_string(&ValidationStatus::Validated).unwrap(), "\"validated\"");
+        assert_eq!(serde_json::to_string(&ValidationStatus::Deprecated).unwrap(), "\"deprecated\"");
+
+        let all = [
+            ValidationStatus::Proposed,
+            ValidationStatus::Testing,
+            ValidationStatus::Validated,
+            ValidationStatus::Deprecated,
+        ];
+        for status in all {
+            let json = serde_json::to_string(&status).unwrap();
+            let deserialized: ValidationStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, status);
         }
     }
 }

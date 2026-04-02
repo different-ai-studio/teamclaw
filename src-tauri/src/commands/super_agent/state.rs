@@ -253,6 +253,9 @@ async fn handle_nerve_message(
                 NervePayload::TaskProgress { task_id, progress, message } => {
                     info!("Task {task_id}: {progress}% - {message}");
                 }
+                NervePayload::ExperienceNew { experience_id, domain, summary: _ } => {
+                    info!("Experience shared: {experience_id} in {domain}");
+                }
                 other => {
                     info!("gossip_listener: unhandled Task payload from {}: {:?}", msg.from, other);
                 }
