@@ -82,21 +82,89 @@ export function isTaskBoardSnapshot(value: unknown): value is TaskBoardSnapshot 
   return Array.isArray(candidate.tasks)
 }
 
+// ─── Knowledge Types ────────────────────────────────────────
+
+export type ExperienceOutcome = 'success' | 'failure' | 'partial'
+export type StrategyType = 'recommend' | 'avoid' | 'compare'
+export type ValidationStatus = 'pending' | 'validated' | 'rejected'
+
+export interface ExperienceMetrics {
+  score: number
+  tokensUsed: number
+  durationMs: number
+}
+
+export interface Experience {
+  id: string
+  taskId: string
+  domain: string
+  context: string
+  outcome: ExperienceOutcome
+  metrics: ExperienceMetrics
+  createdAt: number
+}
+
+export interface StrategyValidation {
+  status: ValidationStatus
+  validatedBy: string | null
+  validatedAt: number | null
+}
+
+export interface Strategy {
+  id: string
+  type: StrategyType
+  description: string
+  domain: string
+  successRate: number
+  usageCount: number
+  validation: StrategyValidation
+}
+
+export interface DistilledSkill {
+  id: string
+  name: string
+  description: string
+  confidence: number
+  adoptionCount: number
+  domain: string
+}
+
+export interface KnowledgeSnapshot {
+  experiences: Experience[]
+  strategies: Strategy[]
+  distilledSkills: DistilledSkill[]
+}
+
+export function isKnowledgeSnapshot(value: unknown): value is KnowledgeSnapshot {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<KnowledgeSnapshot>
+  return (
+    Array.isArray(candidate.experiences) &&
+    Array.isArray(candidate.strategies) &&
+    Array.isArray(candidate.distilledSkills)
+  )
+}
+
 interface SuperAgentState {
   snapshot: SuperAgentSnapshot
   initialized: boolean
   taskBoard: TaskBoardSnapshot
+  knowledge: KnowledgeSnapshot
   init: () => Promise<() => void>
   fetch: () => Promise<void>
   discover: (domain: string) => Promise<void>
   fetchTasks: () => Promise<void>
   createTask: (description: string, capabilities: string[], urgency: TaskUrgency, complexity: TaskComplexity) => Promise<Task | null>
+  fetchKnowledge: () => Promise<void>
+  recordExperience: (taskId: string) => Promise<void>
+  validateStrategy: (strategyId: string, score: number) => Promise<void>
 }
 
 export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
   snapshot: DEFAULT_SNAPSHOT,
   initialized: false,
   taskBoard: { tasks: [] },
+  knowledge: { experiences: [], strategies: [], distilledSkills: [] },
 
   init: async () => {
     if (get().initialized) {
@@ -176,6 +244,41 @@ export const useSuperAgentStore = create<SuperAgentState>((set, get) => ({
     } catch (err) {
       console.warn('[SuperAgent] Failed to create task:', err)
       return null
+    }
+  },
+
+  fetchKnowledge: async () => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const snapshot = await invoke<KnowledgeSnapshot | null>('super_agent_get_knowledge')
+      if (isKnowledgeSnapshot(snapshot)) {
+        set({ knowledge: snapshot })
+      }
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to fetch knowledge:', err)
+    }
+  },
+
+  recordExperience: async (taskId: string) => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('super_agent_record_experience', { taskId })
+      await get().fetchKnowledge()
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to record experience:', err)
+    }
+  },
+
+  validateStrategy: async (strategyId: string, score: number) => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('super_agent_validate_strategy', { strategyId, score })
+      await get().fetchKnowledge()
+    } catch (err) {
+      console.warn('[SuperAgent] Failed to validate strategy:', err)
     }
   },
 }))
