@@ -43,7 +43,7 @@ base64 = "0.22"
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 imap = "2"
 native-tls = "0.2"
-mail-parser = "0.9"
+mail-parser = "0.11"
 lettre = { version = "0.11", features = ["native-tls", "smtp-transport"] }
 yup-oauth2 = "12"
 flate2 = "1"
