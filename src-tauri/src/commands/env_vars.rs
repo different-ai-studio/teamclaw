@@ -28,7 +28,10 @@ pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<Stri
             }
         }
         Err(keyring::Error::NoEntry) => {
-            // First launch: attempt migration from legacy per-key format
+            // First launch (or blob deleted): attempt migration from legacy per-key format.
+            // Note: migration only fires when the blob entry is absent (NoEntry). If the blob
+            // exists but contains empty/corrupt JSON, we return the fallback empty map above and
+            // skip migration — legacy per-key entries would remain orphaned in that case.
             let migrated = migrate_legacy_keyring(workspace_path);
             if !migrated.is_empty() {
                 println!("[EnvVars] Migrated {} legacy keychain entries to blob", migrated.len());
@@ -258,7 +261,10 @@ pub async fn env_var_get(
 pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
-    // Read index once — used for both the guard check and the removal below
+    // Read index once — used for both the guard check and the removal below.
+    // Note: concurrent deletes from multiple Tauri windows could race here (each reads,
+    // modifies, and writes the same json independently). In practice the settings UI is
+    // single-user sequential, so this is acceptable.
     let mut json = read_teamclaw_json(&workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
