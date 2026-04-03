@@ -504,10 +504,37 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
     if !dir.exists() {
         return files;
     }
+
+    // Build gitignore matcher from .gitignore files in the team directory tree
+    let gitignore = {
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
+        let root_gi = dir.join(".gitignore");
+        if root_gi.exists() {
+            let _ = builder.add(root_gi);
+        }
+        // Also check subdirectories for .gitignore files
+        for subdir in &["skills", "knowledge"] {
+            let sub_gi = dir.join(subdir).join(".gitignore");
+            if sub_gi.exists() {
+                let _ = builder.add(&sub_gi);
+            }
+        }
+        builder.build().unwrap_or_else(|_| {
+            ignore::gitignore::GitignoreBuilder::new(dir).build().unwrap()
+        })
+    };
+
     'outer: for entry in walkdir::WalkDir::new(dir)
         .into_iter()
         .filter_map(|e| e.ok())
     {
+        let path = entry.path();
+
+        // Apply gitignore rules
+        if gitignore.matched(path, entry.file_type().is_dir()).is_ignore() {
+            continue;
+        }
+
         if entry.file_type().is_file() {
             // Skip files larger than MAX_SYNC_FILE_SIZE to avoid memory spikes
             if let Ok(meta) = entry.metadata() {
@@ -515,7 +542,7 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
                     eprintln!(
                         "[P2P] Skipping large file ({} MB): {}",
                         meta.len() / (1024 * 1024),
-                        entry.path().display()
+                        path.display()
                     );
                     continue;
                 }
@@ -527,8 +554,8 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
                     break 'outer;
                 }
             }
-            if let Ok(content) = std::fs::read(entry.path()) {
-                if let Ok(rel) = entry.path().strip_prefix(base) {
+            if let Ok(content) = std::fs::read(path) {
+                if let Ok(rel) = path.strip_prefix(base) {
                     total_size += content.len() as u64;
                     files.push((rel.to_string_lossy().to_string(), content));
                 }
