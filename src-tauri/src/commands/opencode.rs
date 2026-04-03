@@ -503,9 +503,15 @@ pub async fn start_opencode_inner(
 
     // Build sidecar command, also injecting secrets as process env vars (backup)
     //
-    // XDG isolation: redirect all OpenCode data/config/state/cache directories
-    // into <workspace>/.opencode/ so each workspace is fully self-contained
-    // and independent of any system-installed OpenCode.
+    // Selective XDG isolation: only redirect DATA and STATE directories into
+    // <workspace>/.opencode/ to isolate OpenCode's database and session state.
+    // CONFIG and CACHE are left at system defaults so that child processes
+    // spawned by OpenCode's bash tool (gh, git, ssh, etc.) can still find
+    // their credentials and configuration.
+    //
+    // OPENCODE_CONFIG_DIR is set so that "global" skills installed under the
+    // workspace-local config path are still discoverable by OpenCode without
+    // overriding XDG_CONFIG_HOME (which would break gh, git, etc.).
     let xdg_base = std::path::PathBuf::from(&workspace_path).join(".opencode");
     let mut sidecar_command = app
         .shell()
@@ -514,9 +520,8 @@ pub async fn start_opencode_inner(
         .args(["serve", "--port", &port_str])
         .current_dir(&workspace_path)
         .env("XDG_DATA_HOME", xdg_base.join("data").to_string_lossy().as_ref())
-        .env("XDG_CONFIG_HOME", xdg_base.join("config").to_string_lossy().as_ref())
         .env("XDG_STATE_HOME", xdg_base.join("state").to_string_lossy().as_ref())
-        .env("XDG_CACHE_HOME", xdg_base.join("cache").to_string_lossy().as_ref());
+        .env("OPENCODE_CONFIG_DIR", xdg_base.join("config").join("opencode").to_string_lossy().as_ref());
     // Inject device identity as environment variables
     if let Ok(device_id) = super::oss_commands::get_or_create_fallback_device_id() {
         sidecar_command = sidecar_command.env("device_id", &device_id);
