@@ -20,7 +20,6 @@ import {
   Bookmark,
   ChevronDown,
   Loader2,
-  Smartphone,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -50,7 +49,6 @@ const primarySections: Section[] = [
   { id: 'general', label: 'General', labelKey: 'settings.nav.general', icon: Settings2, color: 'text-blue-500' },
   { id: 'shortcuts', label: 'Shortcuts', labelKey: 'settings.nav.shortcuts', icon: Bookmark, color: 'text-amber-500' },
   { id: 'channels', label: 'Channels', labelKey: 'settings.nav.channels', icon: MessageSquare, color: 'text-indigo-500' },
-  { id: 'mobileRelay', label: 'Mobile Relay', labelKey: 'settings.nav.mobileRelay', icon: Smartphone, color: 'text-cyan-500' },
   { id: 'automation', label: 'Automation', labelKey: 'settings.nav.automation', icon: Clock, color: 'text-amber-500' },
   { id: 'team', label: 'Team', labelKey: 'settings.nav.team', icon: Users, color: 'text-violet-500' },
   { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins, color: 'text-rose-500' },

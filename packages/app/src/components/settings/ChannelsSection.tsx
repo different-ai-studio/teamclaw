@@ -10,6 +10,7 @@ import { EmailChannel } from './channels/Email'
 import { KookChannel } from './channels/Kook'
 import { WeComChannel } from './channels/Wecom'
 import { WeChatChannel } from './channels/Wechat'
+import { MobileRelaySettings } from './MobileRelaySettings'
 import { buildConfig, resolveChannelsConfig } from '@/lib/build-config'
 
 const channelsConfig = resolveChannelsConfig(buildConfig.features.channels)
@@ -66,6 +67,9 @@ export function ChannelsSection() {
       {channelsConfig.kook && <KookChannel />}
       {channelsConfig.wecom && <WeComChannel />}
       {channelsConfig.wechat && <WeChatChannel />}
+
+      {/* Mobile Relay */}
+      <MobileRelaySettings />
     </div>
   )
 }
