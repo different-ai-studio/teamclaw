@@ -182,7 +182,7 @@ fn get_workspace_path(state: &State<'_, OpenCodeState>) -> Result<String, String
 
 // ─── Tauri Commands ─────────────────────────────────────────────────────
 
-/// Store (or update) an environment variable in the OS keyring and update the index in teamclaw.json.
+/// Store (or update) an environment variable in the keychain blob and update the index in teamclaw.json.
 #[tauri::command]
 pub async fn env_var_set(
     state: State<'_, OpenCodeState>,
@@ -192,22 +192,22 @@ pub async fn env_var_set(
 ) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
-    // Store value in OS keyring
-    let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
-    entry
-        .set_password(&value)
-        .map_err(|e| format!("Failed to store secret in keyring: {}", e))?;
+    // Read-modify-write the blob
+    let mut blob = tokio::task::spawn_blocking({
+        let wp = workspace_path.clone();
+        move || read_env_blob(&wp)
+    }).await.map_err(|e| e.to_string())??;
 
-    // Update index in teamclaw.json
+    blob.insert(key.clone(), serde_json::Value::String(value));
+    write_env_blob(&blob)?;
+
+    // Update index in teamclaw.json (metadata only, no value)
     let mut json = read_teamclaw_json(&workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
     if let Some(existing) = entries.iter_mut().find(|e| e.key == key) {
-        // Update description if changed
         existing.description = description;
     } else {
-        // Add new entry
         entries.push(EnvVarEntry { key, description });
     }
 
@@ -215,25 +215,37 @@ pub async fn env_var_set(
     write_teamclaw_json(&workspace_path, &json)
 }
 
-/// Retrieve an environment variable value from the OS keyring.
+/// Retrieve an environment variable value from the keychain blob.
 #[tauri::command]
-pub async fn env_var_get(key: String) -> Result<String, String> {
-    let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
-    entry
-        .get_password()
-        .map_err(|e| format!("Key '{}' not found in keyring: {}", key, e))
+pub async fn env_var_get(
+    state: State<'_, OpenCodeState>,
+    key: String,
+) -> Result<String, String> {
+    let workspace_path = get_workspace_path(&state)?;
+    let blob = tokio::task::spawn_blocking({
+        let wp = workspace_path.clone();
+        move || read_env_blob(&wp)
+    }).await.map_err(|e| e.to_string())??;
+
+    blob.get(&key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("Key '{}' not found", key))
 }
 
-/// Delete an environment variable from both the OS keyring and teamclaw.json index.
+/// Delete an environment variable from both the keychain blob and teamclaw.json index.
 #[tauri::command]
 pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
-    // Delete from OS keyring (ignore errors if not found)
-    let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
-    let _ = entry.delete_credential();
+    // Read-modify-write the blob
+    let mut blob = tokio::task::spawn_blocking({
+        let wp = workspace_path.clone();
+        move || read_env_blob(&wp)
+    }).await.map_err(|e| e.to_string())??;
+
+    blob.remove(&key);
+    write_env_blob(&blob)?;
 
     // Remove from teamclaw.json index
     let mut json = read_teamclaw_json(&workspace_path)?;
@@ -255,19 +267,20 @@ pub async fn env_var_list(state: State<'_, OpenCodeState>) -> Result<Vec<EnvVarE
 ///
 /// Resolution order for each `${KEY}`:
 ///   1. Shared secrets (team KMS, in-memory HashMap)
-///   2. Local keyring (per-user OS keyring)
+///   2. Local keyring blob (per-user OS keyring, single blob entry)
 ///   3. System environment variables (`std::env::var`)
 #[tauri::command]
 pub async fn env_var_resolve(
+    state: State<'_, OpenCodeState>,
     shared_secrets: State<'_, super::shared_secrets::SharedSecretsState>,
     input: String,
 ) -> Result<String, String> {
+    let workspace_path = get_workspace_path(&state)?;
     let re = regex::Regex::new(r"\$\{([^}]+)\}").map_err(|e| format!("Invalid regex: {}", e))?;
 
     let mut result = input.clone();
     let mut errors: Vec<String> = Vec::new();
 
-    // Collect all matches first to avoid borrow issues
     let matches: Vec<(String, String)> = re
         .captures_iter(&input)
         .map(|cap| {
@@ -276,6 +289,15 @@ pub async fn env_var_resolve(
             (full_match, key)
         })
         .collect();
+
+    // Read blob once upfront (one keychain access for all keys)
+    let blob = {
+        let wp = workspace_path.clone();
+        tokio::task::spawn_blocking(move || read_env_blob(&wp))
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default()
+    };
 
     for (full_match, key) in matches {
         // 1. Check shared secrets (team KMS) — try original key, then lowercase
@@ -287,15 +309,10 @@ pub async fn env_var_resolve(
             continue;
         }
 
-        // 2. Check local keyring
-        let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
-            .map_err(|e| format!("Failed to create keyring entry for '{}': {}", key, e))?;
-        match entry.get_password() {
-            Ok(value) => {
-                result = result.replace(&full_match, &value);
-                continue;
-            }
-            Err(_) => {}
+        // 2. Check local keyring blob
+        if let Some(value) = blob.get(&key).and_then(|v| v.as_str()) {
+            result = result.replace(&full_match, value);
+            continue;
         }
 
         // 3. Check system environment variables
