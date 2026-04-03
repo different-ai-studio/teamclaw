@@ -28,7 +28,7 @@ export interface EngineSnapshot {
   pendingFiles: number
 }
 
-const DEFAULT_SNAPSHOT: EngineSnapshot = {
+export const DEFAULT_SNAPSHOT: EngineSnapshot = {
   status: 'disconnected',
   streamHealth: 'dead',
   uptimeSecs: 0,
@@ -44,6 +44,7 @@ interface P2pEngineState {
   initialized: boolean
   init: () => Promise<() => void>
   fetch: () => Promise<void>
+  reset: () => void
 }
 
 function isEngineSnapshot(value: unknown): value is EngineSnapshot {
@@ -76,8 +77,8 @@ export const useP2pEngineStore = create<P2pEngineState>((set, get) => ({
 
     const { listen } = await import('@tauri-apps/api/event')
 
-    const unlisten = await listen<EngineSnapshot>('p2p:engine-state', (event) => {
-      set({ snapshot: event.payload })
+    const unlisten = await listen<EngineSnapshot>('p2p:engine-state', () => {
+      void get().fetch()
     })
 
     set({ initialized: true })
@@ -102,6 +103,10 @@ export const useP2pEngineStore = create<P2pEngineState>((set, get) => ({
     } catch (err) {
       console.warn('[P2pEngine] Failed to fetch engine snapshot:', err)
     }
+  },
+
+  reset: () => {
+    set({ snapshot: DEFAULT_SNAPSHOT, initialized: false })
   },
 }))
 

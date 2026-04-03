@@ -517,6 +517,13 @@ pub async fn start_opencode_inner(
         .env("XDG_CONFIG_HOME", xdg_base.join("config").to_string_lossy().as_ref())
         .env("XDG_STATE_HOME", xdg_base.join("state").to_string_lossy().as_ref())
         .env("XDG_CACHE_HOME", xdg_base.join("cache").to_string_lossy().as_ref());
+    // Inject device identity as environment variables
+    if let Ok(device_id) = super::oss_commands::get_or_create_fallback_device_id() {
+        sidecar_command = sidecar_command.env("device_id", &device_id);
+    }
+    let device_name = gethostname::gethostname().to_string_lossy().to_string();
+    sidecar_command = sidecar_command.env("device_name", &device_name);
+
     for (key, value) in &secrets {
         sidecar_command = sidecar_command.env(key, value);
     }

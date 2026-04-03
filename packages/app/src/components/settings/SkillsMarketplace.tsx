@@ -5,7 +5,6 @@ import remarkGfm from "remark-gfm"
 import {
   Search,
   Download,
-  ExternalLink,
   TrendingUp,
   Clock,
   Award,
@@ -18,10 +17,12 @@ import {
   Check,
   FolderOpen,
   Globe,
+  ChevronDown,
+  Trash2,
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { useWorkspaceStore } from "@/stores/workspace"
-import { cn, openExternalUrl } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SettingCard } from "./shared"
@@ -47,6 +48,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface SkillsMarketplaceProps {
   onInstalled?: () => void | Promise<void>
@@ -74,7 +81,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
 }: SkillsMarketplaceProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
-  const [activeSource, setActiveSource] = React.useState<"clawhub" | "skillssh">("skillssh")
+  const [activeSource, setActiveSource] = React.useState<"clawhub" | "skillssh">("clawhub")
   const [skillsShCategory, setSkillsShCategory] = React.useState<SkillsShCategory>("trending")
   const [searchQuery, setSearchQuery] = React.useState("")
   const [leaderboard, setLeaderboard] = React.useState<SkillsShLeaderboard | null>(null)
@@ -159,42 +166,35 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
 
   const loadInstalled = React.useCallback(async () => {
     if (!workspacePath) return
-    
+
     try {
-      const { readDir, exists } = await import("@tauri-apps/plugin-fs")
-      const { homeDir } = await import("@tauri-apps/api/path")
-      const home = await homeDir()
-      
+      const [fsModule, pathModule] = await Promise.all([
+        import("@tauri-apps/plugin-fs"),
+        import("@tauri-apps/api/path"),
+      ])
+      const home = await pathModule.homeDir()
       const allSlugs = new Set<string>()
-      
-      // Check all possible skill directories (same as skill-loader.ts)
+
       const dirsToCheck = [
-        // Workspace directories
         `${workspacePath}/.opencode/skills`,
         `${workspacePath}/.claude/skills`,
         `${workspacePath}/.agents/skills`,
-        // Global directories
         `${home.replace(/\/$/, '')}/.config/opencode/skills`,
         `${home.replace(/\/$/, '')}/.claude/skills`,
         `${home.replace(/\/$/, '')}/.agents/skills`,
       ]
-      
-      for (const dir of dirsToCheck) {
-        try {
-          if (await exists(dir)) {
-            const entries = await readDir(dir)
-            entries
-              .filter(e => e.isDirectory && e.name)
-              .forEach(e => allSlugs.add(e.name!))
-          }
-        } catch (err) {
-          console.debug(`[SkillsMarketplace] Cannot access ${dir}:`, err)
+
+      await Promise.allSettled(dirsToCheck.map(async (dir) => {
+        if (await fsModule.exists(dir)) {
+          const entries = await fsModule.readDir(dir)
+          entries
+            .filter((e: { isDirectory?: boolean; name?: string }) => e.isDirectory && e.name)
+            .forEach((e: { name?: string }) => allSlugs.add(e.name!))
         }
-      }
-      
+      }))
+
       setInstalledSlugs(allSlugs)
-    } catch (err) {
-      console.error("[SkillsMarketplace] Failed to load installed skills:", err)
+    } catch {
       setInstalledSlugs(new Set())
     }
   }, [workspacePath])
@@ -248,6 +248,63 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
     setPendingInstall(null)
   }, [pendingInstall, installLocation, handleInstallSkillSh])
 
+  const handleReinstallSkillSh = React.useCallback(
+    async (owner: string, repo: string, slug: string) => {
+      if (!workspacePath) return
+      setInstallingSlugs((prev) => new Set(prev).add(slug))
+      try {
+        await invoke<string>("install_skillssh_skill", {
+          workspacePath,
+          owner,
+          repo,
+          slug,
+          isGlobal: false,
+        })
+        await onInstalled?.()
+      } catch (err) {
+        console.error("[SkillsMarketplace] Failed to reinstall skill:", err)
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setInstallingSlugs((prev) => {
+          const next = new Set(prev)
+          next.delete(slug)
+          return next
+        })
+      }
+    },
+    [workspacePath, onInstalled]
+  )
+
+  const handleUninstallSkillSh = React.useCallback(
+    async (slug: string) => {
+      if (!workspacePath) return
+      setInstallingSlugs((prev) => new Set(prev).add(slug))
+      try {
+        const { remove, exists } = await import("@tauri-apps/plugin-fs")
+        const skillDir = `${workspacePath}/.opencode/skills/${slug}`
+        if (await exists(skillDir)) {
+          await remove(skillDir, { recursive: true })
+        }
+        setInstalledSlugs((prev) => {
+          const next = new Set(prev)
+          next.delete(slug)
+          return next
+        })
+        await onInstalled?.()
+      } catch (err) {
+        console.error("[SkillsMarketplace] Failed to uninstall skill:", err)
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setInstallingSlugs((prev) => {
+          const next = new Set(prev)
+          next.delete(slug)
+          return next
+        })
+      }
+    },
+    [workspacePath, onInstalled]
+  )
+
   // Parse YAML frontmatter from skill content
   const parseFrontmatter = (content: string): { metadata: Record<string, string> | null, markdownContent: string } => {
     const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
@@ -296,67 +353,28 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
     }
   }, [])
 
-  const handleOpenSkillsSh = async () => {
-    try {
-      await openExternalUrl("https://skills.sh")
-    } catch (err) {
-      console.error("[SkillsMarketplace] Failed to open skills.sh:", err)
-    }
-  }
-
   return (
     <div className="space-y-4">
       {/* Source Tabs */}
       <Tabs value={activeSource} onValueChange={(v) => setActiveSource(v as typeof activeSource)}>
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="skillssh" className="flex items-center gap-2">
-            <Award className="h-4 w-4" />
-            skills.sh Marketplace
-          </TabsTrigger>
           <TabsTrigger value="clawhub" className="flex items-center gap-2">
             <Package className="h-4 w-4" />
             ClawHub Marketplace
           </TabsTrigger>
+          <TabsTrigger value="skillssh" className="flex items-center gap-2">
+            <Award className="h-4 w-4" />
+            skills.sh Marketplace
+          </TabsTrigger>
         </TabsList>
 
-        {/* ClawHub Tab */}
-        <TabsContent value="clawhub" className="mt-4">
+        {/* ClawHub Tab – forceMount keeps state alive across tab switches */}
+        <TabsContent value="clawhub" className="mt-4" forceMount style={{ display: activeSource === 'clawhub' ? undefined : 'none' }}>
           <ClawHubMarketplace onInstalled={onInstalled} />
         </TabsContent>
 
         {/* skills.sh Tab */}
-        <TabsContent value="skillssh" className="mt-4 space-y-4">
-          {/* Banner */}
-          <SettingCard className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-purple-950/30 border-blue-200 dark:border-blue-800">
-            <div className="flex items-start gap-3">
-              <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shrink-0">
-                <Award className="h-6 w-6" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                  {t("skillssh.banner.title", "The Open Agent Skills Ecosystem")}
-                </h3>
-                <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                  {t("skillssh.banner.description", "Discover top skills from skills.sh - the largest agent skills directory with 88K+ installs across Cursor, Claude Code, OpenCode, Windsurf, Cline, and more.")}
-                </p>
-                <div className="flex items-center gap-4 mt-3">
-                  <button
-                    onClick={handleOpenSkillsSh}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    {t("skillssh.visitWebsite", "Visit skills.sh")}
-                  </button>
-                  <div className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
-                    <Download className="h-3 w-3" />
-                    <span className="font-semibold">88K+</span>
-                    <span className="text-blue-500 dark:text-blue-400">installs</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </SettingCard>
-
+        <TabsContent value="skillssh" className="mt-4 space-y-4" forceMount style={{ display: activeSource === 'skillssh' ? undefined : 'none' }}>
           {/* Error */}
           {error && (
             <SettingCard className="bg-destructive/10 border-destructive/50">
@@ -468,101 +486,97 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
               </SettingCard>
             ) : (
               filteredSkillsSh.map((skill) => {
-                const isTopThree = skill.rank <= 3
-                const isTopTen = skill.rank <= 10
                 return (
                   <SettingCard
                     key={skill.slug}
-                    className={cn(
-                      "hover:border-primary/30 transition-all hover:shadow-md cursor-pointer",
-                      isTopThree && "border-amber-200 dark:border-amber-800 bg-gradient-to-r from-amber-50/50 to-transparent dark:from-amber-950/20"
-                    )}
+                    className="hover:border-primary/30 transition-colors cursor-pointer"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      {/* Rank Badge */}
-                      <div className="flex items-start gap-3 flex-1 min-w-0" onClick={() => openSkillDetail(skill)}>
-                        <div className="relative shrink-0">
-                          <div
-                            className={cn(
-                              "flex items-center justify-center h-10 w-10 rounded-xl font-bold text-sm shadow-sm",
-                              isTopThree
-                                ? "bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-white ring-2 ring-amber-300 dark:ring-amber-700"
-                                : isTopTen
-                                  ? "bg-gradient-to-br from-slate-300 to-slate-500 text-white"
-                                  : "bg-muted text-muted-foreground border border-border"
-                            )}
-                          >
-                            {isTopThree ? (
-                              <Award className="h-5 w-5" />
-                            ) : (
-                              <span>#{skill.rank}</span>
-                            )}
-                          </div>
-                          {isTopThree && (
-                            <div className="absolute -bottom-1 -right-1 flex items-center justify-center h-5 w-5 rounded-full bg-white dark:bg-gray-900 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700">
-                              {skill.rank}
-                            </div>
+                      <div className="flex-1 min-w-0" onClick={() => openSkillDetail(skill)}>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium truncate">{skill.slug}</span>
+                          {skill.category && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary shrink-0">
+                              {skill.category}
+                            </span>
                           )}
                         </div>
-
-                        {/* Skill Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-base truncate">{skill.slug}</span>
-                            {skill.category && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                                {skill.category}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
-                            <Github className="h-3 w-3 shrink-0" />
-                            <a
-                              href={`https://github.com/${skill.owner}/${skill.repo}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="min-w-0 truncate text-primary hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {skill.owner}/{skill.repo}
-                            </a>
-                          </p>
-                          <div className="flex items-center gap-4 mt-2 text-xs">
-                            <span className="flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
-                              <Download className="h-3.5 w-3.5" />
-                              {skill.installs.toLocaleString()}
-                            </span>
-                            {isTopThree && (
-                              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                                <TrendingUp className="h-3 w-3" />
-                                Top {skill.rank}
-                              </span>
-                            )}
-                          </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          <a
+                            href={`https://github.com/${skill.owner}/${skill.repo}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {skill.owner}/{skill.repo}
+                          </a>
+                        </p>
+                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Download className="h-3 w-3" />
+                            {skill.installs.toLocaleString()}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Award className="h-3 w-3" />
+                            #{skill.rank}
+                          </span>
                         </div>
                       </div>
 
                       {/* Actions */}
-                      <div className="flex flex-col items-end gap-2 shrink-0">
-                        <Button
-                          size="sm"
-                          className="gap-1.5 h-8"
-                          disabled={installingSlugs.has(skill.slug) || installedSlugs.has(skill.slug)}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openInstallDialog(skill.owner, skill.repo, skill.slug)
-                          }}
-                          variant={installedSlugs.has(skill.slug) ? "secondary" : "default"}
-                        >
-                          {installingSlugs.has(skill.slug) ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : installedSlugs.has(skill.slug) ? (
-                            <Check className="h-3.5 w-3.5" />
-                          ) : (
-                            <Download className="h-3.5 w-3.5" />
-                          )}
-                          {installedSlugs.has(skill.slug) ? t("skillssh.installed", "Installed") : t("skillssh.install", "Install")}
-                        </Button>
+                      <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {installedSlugs.has(skill.slug) ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
+                                disabled={installingSlugs.has(skill.slug)}
+                              >
+                                {installingSlugs.has(skill.slug) ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5" />
+                                )}
+                                {t("skillssh.installed", "Installed")}
+                                <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => handleReinstallSkillSh(skill.owner, skill.repo, skill.slug)}
+                                disabled={installingSlugs.has(skill.slug)}
+                              >
+                                <RefreshCw className="h-3.5 w-3.5 mr-2" />
+                                {t("skillssh.reinstall", "Reinstall")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleUninstallSkillSh(skill.slug)}
+                                disabled={installingSlugs.has(skill.slug)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                {t("skillssh.uninstall", "Uninstall")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="gap-1.5"
+                            disabled={installingSlugs.has(skill.slug)}
+                            onClick={() => openInstallDialog(skill.owner, skill.repo, skill.slug)}
+                          >
+                            {installingSlugs.has(skill.slug) ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            {t("skillssh.install", "Install")}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </SettingCard>

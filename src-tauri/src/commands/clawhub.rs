@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Read as IoRead;
 use std::path::PathBuf;
 
-const DEFAULT_REGISTRY: &str = "https://clawhub.ai";
+const DEFAULT_REGISTRY: &str = "https://cn.clawhub-mirror.com";
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 // ─── API Response Types ──────────────────────────────────────────────────────
@@ -104,9 +104,17 @@ pub struct SkillListItem {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct ApiSkillListResponse {
     items: Vec<SkillListItem>,
     next_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiSearchBrowseResponse {
+    results: Vec<SearchResultEntry>,
+    next_marker: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -430,14 +438,15 @@ pub fn clawhub_explore(
     let client = build_client()?;
 
     let bounded_limit = limit.unwrap_or(25).min(200).max(1);
-    let mut url = format!("{}/api/v1/skills?limit={}", registry, bounded_limit);
+    let mut url = format!(
+        "{}/api/v1/search?q=&limit={}",
+        registry, bounded_limit
+    );
     if let Some(ref s) = sort {
-        if s != "updated" {
-            url.push_str(&format!("&sort={}", urlencoding::encode(s)));
-        }
+        url.push_str(&format!("&sort={}", urlencoding::encode(s)));
     }
     if let Some(ref c) = cursor {
-        url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
+        url.push_str(&format!("&marker={}", urlencoding::encode(c)));
     }
 
     let resp = client
@@ -450,13 +459,32 @@ pub fn clawhub_explore(
         return Err(format!("Explore failed with status {}", resp.status()));
     }
 
-    let data: ApiSkillListResponse = resp
+    let data: ApiSearchBrowseResponse = resp
         .json()
         .map_err(|e| format!("Failed to parse explore response: {}", e))?;
 
+    let items: Vec<SkillListItem> = data
+        .results
+        .into_iter()
+        .map(|r| SkillListItem {
+            slug: r.slug.unwrap_or_default(),
+            display_name: r.display_name.unwrap_or_default(),
+            tags: serde_json::Value::Array(vec![]),
+            stats: serde_json::Value::Object(serde_json::Map::new()),
+            created_at: 0,
+            updated_at: r.updated_at.unwrap_or(0),
+            summary: r.summary,
+            latest_version: r.version.map(|v| SkillVersionInfo {
+                version: v,
+                created_at: None,
+                changelog: String::new(),
+            }),
+        })
+        .collect();
+
     Ok(ClawHubExploreResults {
-        items: data.items,
-        next_cursor: data.next_cursor,
+        items,
+        next_cursor: data.next_marker,
     })
 }
 

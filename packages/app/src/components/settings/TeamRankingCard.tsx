@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Trophy, Flame, MessageSquareHeart, ChevronRight } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
 import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
+import { buildSharedRankMap } from '@/lib/team-leaderboard-ranks'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useTeamMembersStore } from '@/stores/team-members'
 
@@ -112,27 +113,33 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
       }
     })
 
-    const tokenSorted = [...membersWithAggregated].sort(
-      (a, b) => b.aggregated.totalTokens - a.aggregated.totalTokens
-    )
-    const feedbackSorted = [...membersWithAggregated].sort(
-      (a, b) => b.aggregated.totalFeedbacks - a.aggregated.totalFeedbacks
-    )
-
-    const tokenRank = tokenSorted.findIndex((m) => m.memberName === currentMemberName) + 1
-    const feedbackRank = feedbackSorted.findIndex((m) => m.memberName === currentMemberName) + 1
-
-    // Overall rank based on average of token and feedback ranks
-    const memberRanks = membersWithAggregated.map((m) => {
-      const tRank = tokenSorted.findIndex((x) => x.memberName === m.memberName) + 1
-      const fRank = feedbackSorted.findIndex((x) => x.memberName === m.memberName) + 1
-      return {
-        memberName: m.memberName,
-        avgRank: (tRank + fRank) / 2,
-      }
+    const tokenRanks = buildSharedRankMap({
+      items: membersWithAggregated,
+      getKey: (member) => member.memberName,
+      getScore: (member) => member.aggregated.totalTokens,
     })
-    memberRanks.sort((a, b) => a.avgRank - b.avgRank)
-    const overallRank = memberRanks.findIndex((m) => m.memberName === currentMemberName) + 1
+    const feedbackRanks = buildSharedRankMap({
+      items: membersWithAggregated,
+      getKey: (member) => member.memberName,
+      getScore: (member) => member.aggregated.totalFeedbacks,
+    })
+
+    // Overall rank is still based on the average metric rank, but tied averages now share the same place.
+    const memberRanks = membersWithAggregated.map((member) => ({
+      memberName: member.memberName,
+      avgRank: ((tokenRanks.get(member.memberName) ?? 0) + (feedbackRanks.get(member.memberName) ?? 0)) / 2,
+    }))
+    const overallRanks = buildSharedRankMap({
+      items: memberRanks,
+      getKey: (member) => member.memberName,
+      getScore: (member) => member.avgRank,
+      direction: 'asc',
+    })
+
+    const currentMemberKey = currentMemberName ?? ''
+    const tokenRank = tokenRanks.get(currentMemberKey) ?? 0
+    const feedbackRank = feedbackRanks.get(currentMemberKey) ?? 0
+    const overallRank = overallRanks.get(currentMemberKey) ?? 0
 
     return {
       tokenRank,

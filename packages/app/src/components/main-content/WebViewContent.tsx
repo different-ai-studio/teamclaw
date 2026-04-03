@@ -132,12 +132,19 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
             // Create new native webview
             setIsLoading(true)
 
-            // Resolve team identity for window.teamclaw injection
+            // Resolve team identity for window.teamclaw injection.
+            // Use a short timeout to avoid blocking webview creation when
+            // the P2P mutex is held by a long-running operation.
             let deviceNo: string | undefined
             let deviceName: string | undefined
             if (useTeamModeStore.getState().teamMode) {
               try {
-                const info = await invoke<{ nodeId: string }>("get_device_info")
+                const info = await Promise.race([
+                  invoke<{ nodeId: string }>("get_device_info"),
+                  new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error("timeout")), 500),
+                  ),
+                ])
                 deviceNo = info.nodeId
                 const members = useTeamMembersStore.getState().members
                 const me = members.find((m) => m.nodeId === deviceNo)

@@ -29,6 +29,7 @@ interface UpdaterStore {
   setUpdate: (info: UpdateInfo) => void
   checkForUpdates: (silent?: boolean) => Promise<void>
   installUpdate: () => Promise<void>
+  retryUpdate: () => Promise<void>
   restart: () => Promise<void>
 }
 
@@ -148,6 +149,12 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => ({
         },
       })
     }
+  },
+
+  retryUpdate: async () => {
+    // Re-run the full check + download flow
+    set({ update: { state: "idle" }, pendingUpdate: null })
+    await get().checkForUpdates(false)
   },
 
   restart: async () => {

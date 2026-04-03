@@ -14,8 +14,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { SettingCard, SectionHeader } from './shared'
-import { useEnvVarsStore, type EnvVarEntry } from '@/stores/env-vars'
-import { useSharedSecretsStore, type SecretMeta } from '@/stores/shared-secrets'
+import { useEnvVarsStore } from '@/stores/env-vars'
+import { useSharedSecretsStore } from '@/stores/shared-secrets'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { initOpenCodeClient } from '@/lib/opencode/client'

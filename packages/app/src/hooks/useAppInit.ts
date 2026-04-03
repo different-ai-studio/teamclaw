@@ -20,6 +20,7 @@ import { useGitReposStore } from "@/stores/git-repos";
 import { useUIStore } from "@/stores/ui";
 import { useDepsStore, getSetupDecision, markSetupCompleted } from "@/stores/deps";
 import { useTelemetryStore } from "@/stores/telemetry";
+import { useTeamModeStore } from "@/stores/team-mode";
 import { useTeamOssStore } from "@/stores/team-oss";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { useCronStore } from "@/stores/cron";
@@ -441,16 +442,14 @@ export function useGitReposInit() {
 export function useP2pAutoReconnect() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+  const teamMode = useTeamModeStore((s) => s.teamMode);
 
   useEffect(() => {
-    if (!workspacePath || !openCodeReady || !isTauri()) return;
+    if (!workspacePath || !openCodeReady || !teamMode || !isTauri()) return;
 
     // Delay P2P reconnect so it doesn't compete with app startup
     const timer = setTimeout(async () => {
       try {
-        const { useTeamModeStore } = await import("@/stores/team-mode");
-        if (!useTeamModeStore.getState().teamMode) return;
-
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("p2p_reconnect");
 
@@ -466,6 +465,7 @@ export function useP2pAutoReconnect() {
         // Initialize engine store so sidebar icon and popover reflect connection state
         const { useP2pEngineStore } = await import("@/stores/p2p-engine");
         await useP2pEngineStore.getState().init();
+        await useP2pEngineStore.getState().fetch();
 
         console.log("[P2P] Auto-reconnect completed");
       } catch (err) {
@@ -474,7 +474,7 @@ export function useP2pAutoReconnect() {
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, [workspacePath, openCodeReady]);
+  }, [workspacePath, openCodeReady, teamMode]);
 }
 
 export function useCronInit() {

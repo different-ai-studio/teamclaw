@@ -10,16 +10,17 @@ import {
   ExternalLink,
   ShieldAlert,
   Ban,
-  TrendingUp,
   Clock,
   ChevronDown,
   AlertTriangle,
   FolderOpen,
   Globe,
+  RefreshCw,
+  Trash2,
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { useWorkspaceStore } from "@/stores/workspace"
-import { cn } from "@/lib/utils"
+import { openExternalUrl } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SettingCard } from "./shared"
@@ -47,15 +48,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-
-type SortOption = "updated" | "downloads" | "stars" | "trending" | "installsCurrent"
-
-const SORT_OPTIONS: { value: SortOption; labelKey: string; fallback: string; icon: typeof Clock }[] = [
-  { value: "updated", labelKey: "clawhub.sortNewest", fallback: "Newest", icon: Clock },
-  { value: "trending", labelKey: "clawhub.sortTrending", fallback: "Trending", icon: TrendingUp },
-  { value: "downloads", labelKey: "clawhub.sortDownloads", fallback: "Downloads", icon: Download },
-  { value: "stars", labelKey: "clawhub.sortStars", fallback: "Stars", icon: Star },
-]
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface ClawHubMarketplaceProps {
   onInstalled?: () => void | Promise<void>
@@ -75,7 +73,6 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   const [exploreItems, setExploreItems] = React.useState<ClawHubSkillListItem[]>([])
   const [searchResults, setSearchResults] = React.useState<ClawHubSearchResultEntry[]>([])
   const [isSearchMode, setIsSearchMode] = React.useState(false)
-  const [sort, setSort] = React.useState<SortOption>("trending")
   const [nextCursor, setNextCursor] = React.useState<string | null>(null)
   const [isLoadingMore, setIsLoadingMore] = React.useState(false)
 
@@ -94,17 +91,46 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   const [pendingInstallSlug, setPendingInstallSlug] = React.useState<string | null>(null)
 
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasLoadedExploreRef = React.useRef(false)
 
   const loadInstalled = React.useCallback(async () => {
     if (!workspacePath) return
-    try {
-      const lock = await invoke<ClawHubLockfile>("clawhub_list_installed", {
-        workspacePath,
-      })
-      setInstalledSlugs(new Set(Object.keys(lock.skills)))
-    } catch {
-      // no lockfile yet
+    const allSlugs = new Set<string>()
+
+    const [, fsModule, pathModule] = await Promise.all([
+      invoke<ClawHubLockfile>("clawhub_list_installed", { workspacePath })
+        .then(lock => { for (const slug of Object.keys(lock.skills)) allSlugs.add(slug) })
+        .catch(() => {}),
+      import("@tauri-apps/plugin-fs").catch(() => null),
+      import("@tauri-apps/api/path").catch(() => null),
+    ])
+
+    if (fsModule && pathModule) {
+      try {
+        const home = await pathModule.homeDir()
+        const dirsToCheck = [
+          `${workspacePath}/.opencode/skills`,
+          `${workspacePath}/.claude/skills`,
+          `${workspacePath}/.agents/skills`,
+          `${home.replace(/\/$/, '')}/.config/opencode/skills`,
+          `${home.replace(/\/$/, '')}/.claude/skills`,
+          `${home.replace(/\/$/, '')}/.agents/skills`,
+        ]
+
+        await Promise.allSettled(dirsToCheck.map(async (dir) => {
+          if (await fsModule.exists(dir)) {
+            const entries = await fsModule.readDir(dir)
+            entries
+              .filter((e: { isDirectory?: boolean; name?: string }) => e.isDirectory && e.name)
+              .forEach((e: { name?: string }) => allSlugs.add(e.name!))
+          }
+        }))
+      } catch {
+        // fs scan failed
+      }
     }
+
+    setInstalledSlugs(allSlugs)
   }, [workspacePath])
 
   const loadExplore = React.useCallback(
@@ -119,7 +145,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
       try {
         const result = await invoke<ClawHubExploreResults>("clawhub_explore", {
           limit: 25,
-          sort,
+          sort: null,
           cursor: cursor ?? null,
         })
         if (append === true) {
@@ -135,7 +161,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
         setIsLoadingMore(false)
       }
     },
-    [sort]
+    []
   )
 
   const doSearch = React.useCallback(async (query: string) => {
@@ -160,10 +186,12 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
     }
   }, [])
 
-  // Initial load
   React.useEffect(() => {
     loadInstalled()
-    loadExplore()
+    if (!hasLoadedExploreRef.current) {
+      hasLoadedExploreRef.current = true
+      loadExplore()
+    }
   }, [loadInstalled, loadExplore])
 
   // Debounced search
@@ -183,13 +211,6 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
     },
     [doSearch]
   )
-
-  // Re-fetch when sort changes (explore mode only)
-  React.useEffect(() => {
-    if (!isSearchMode) {
-      loadExplore()
-    }
-  }, [sort, isSearchMode, loadExplore])
 
   const handleInstall = React.useCallback(
     async (slug: string, location: 'workspace' | 'global') => {
@@ -243,6 +264,30 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
           const next = new Set(prev)
           next.delete(slug)
           return next
+        })
+        await onInstalled?.()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setInstallingSlugs((prev) => {
+          const next = new Set(prev)
+          next.delete(slug)
+          return next
+        })
+      }
+    },
+    [workspacePath, onInstalled]
+  )
+
+  const handleUpdate = React.useCallback(
+    async (slug: string) => {
+      if (!workspacePath) return
+      setInstallingSlugs((prev) => new Set(prev).add(slug))
+      try {
+        await invoke<string>("clawhub_update", {
+          workspacePath,
+          slug,
+          version: null,
         })
         await onInstalled?.()
       } catch (err) {
@@ -323,34 +368,49 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
               )}
             </div>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
             {isInstalled ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
-                disabled={isInstalling}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleUninstall(slug)
-                }}
-              >
-                {isInstalling ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Check className="h-3.5 w-3.5" />
-                )}
-                {t("clawhub.installed", "Installed")}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
+                    disabled={isInstalling}
+                  >
+                    {isInstalling ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
+                    {t("clawhub.installed", "Installed")}
+                    <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => handleUpdate(slug)}
+                    disabled={isInstalling}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 mr-2" />
+                    {t("clawhub.update", "Update")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleUninstall(slug)}
+                    disabled={isInstalling}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-2" />
+                    {t("clawhub.uninstall", "Uninstall")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : (
               <Button
                 size="sm"
                 className="gap-1.5"
                 disabled={isInstalling}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  openInstallDialog(slug)
-                }}
+                onClick={() => openInstallDialog(slug)}
               >
                 {isInstalling ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -368,40 +428,15 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
 
   return (
     <div className="space-y-4">
-      {/* Search + Sort */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={t("clawhub.searchPlaceholder", "Search ClawHub skills...")}
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            className="pl-9 h-9"
-          />
-        </div>
-        {!isSearchMode && (
-          <div className="flex items-center rounded-lg border border-input overflow-hidden shrink-0">
-            {SORT_OPTIONS.map((opt) => {
-              const Icon = opt.icon
-              const isActive = sort === opt.value
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => setSort(opt.value)}
-                  className={cn(
-                    "flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors",
-                    isActive
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50"
-                  )}
-                >
-                  <Icon className="h-3 w-3" />
-                  {t(opt.labelKey, opt.fallback)}
-                </button>
-              )
-            })}
-          </div>
-        )}
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder={t("clawhub.searchPlaceholder", "Search ClawHub skills...")}
+          value={searchQuery}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          className="pl-9 h-9"
+        />
       </div>
 
       {/* Error */}
@@ -572,15 +607,13 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
               )}
 
               {/* ClawHub link */}
-              <a
-                href={`https://clawhub.ai/skills/${detailSlug}`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => openExternalUrl(`https://cn.clawhub-mirror.com/${detail?.owner?.handle ?? ''}/${detailSlug}`)}
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 {t("clawhub.viewOnClawHub", "View on ClawHub")}
-              </a>
+              </button>
             </div>
           ) : null}
 

@@ -830,6 +830,30 @@ impl OssSyncManager {
         let mtime_changed = Self::scan_local_files_incremental(&dir, since)?;
 
         if mtime_changed.is_empty() {
+            // No mtime changes, but files may have been deleted since the
+            // last scan.  Check the CRDT for entries that are not marked
+            // deleted yet whose files no longer exist on disk.  If any are
+            // found, delegate to the full `upload_local_changes` which
+            // handles deletion marking + upload in one shot.
+            let local_files = Self::scan_local_files(&dir)?;
+            let doc = self.get_doc(doc_type);
+            let files_map = doc.get_map("files");
+            let map_value = files_map.get_deep_value();
+            if let loro::LoroValue::Map(entries) = &map_value {
+                for (path, value) in entries.iter() {
+                    if let loro::LoroValue::Map(entry) = value {
+                        let deleted = match entry.get("deleted") {
+                            Some(loro::LoroValue::Bool(b)) => *b,
+                            _ => false,
+                        };
+                        if !deleted && !local_files.contains_key(path.as_str()) {
+                            // At least one file was deleted locally — hand off
+                            // to the full upload path which marks deletions.
+                            return self.upload_local_changes(doc_type).await;
+                        }
+                    }
+                }
+            }
             return Ok(false);
         }
 
@@ -2348,6 +2372,15 @@ impl OssSyncManager {
             return Err("Cannot remove the team Owner".to_string());
         }
 
+        // If caller is manager (not owner), block removing other managers
+        let is_owner = manifest.owner_node_id == self.node_id;
+        if !is_owner {
+            let target_role = manifest.members.iter().find(|m| m.node_id == node_id).map(|m| &m.role);
+            if matches!(target_role, Some(MemberRole::Owner) | Some(MemberRole::Manager)) {
+                return Err("Managers can only remove editors and viewers".to_string());
+            }
+        }
+
         manifest.members.retain(|m| m.node_id != node_id);
         self.upload_members_manifest(&manifest).await
     }
@@ -2361,6 +2394,24 @@ impl OssSyncManager {
 
         if manifest.owner_node_id == node_id && role != MemberRole::Owner {
             return Err("Cannot change the Owner's role".to_string());
+        }
+
+        // Cannot assign Owner role
+        if matches!(role, MemberRole::Owner) {
+            return Err("Cannot assign the owner role".to_string());
+        }
+
+        let is_owner = manifest.owner_node_id == self.node_id;
+        let target_role = manifest.members.iter().find(|m| m.node_id == node_id).map(|m| m.role.clone());
+
+        // Manager restrictions
+        if !is_owner {
+            if matches!(role, MemberRole::Manager) {
+                return Err("Only the owner can promote to manager".to_string());
+            }
+            if matches!(target_role, Some(MemberRole::Manager)) {
+                return Err("Managers cannot change another manager's role".to_string());
+            }
         }
 
         if let Some(member) = manifest.members.iter_mut().find(|m| m.node_id == node_id) {

@@ -334,6 +334,7 @@ function WorkspaceSelectorButton() {
   const engineStatus = useP2pEngineStore(s => s.snapshot.status)
   const engineStreamHealth = useP2pEngineStore(s => s.snapshot.streamHealth)
   const engineInit = useP2pEngineStore(s => s.init)
+  const engineFetch = useP2pEngineStore(s => s.fetch)
   const [isSelecting, setIsSelecting] = React.useState(false)
 
   // Initialize P2P engine store when in team mode
@@ -341,8 +342,9 @@ function WorkspaceSelectorButton() {
     if (!teamMode || !isTauri()) return
     let cleanup: (() => void) | undefined
     engineInit().then((c) => { cleanup = c })
+    void engineFetch()
     return () => { cleanup?.() }
-  }, [teamMode, engineInit])
+  }, [teamMode, engineFetch, engineInit])
 
   // Prefer the engine snapshot for connection truth. Keep a narrow fallback to the
   // mirrored team-mode flag only before the engine store finishes initialization.

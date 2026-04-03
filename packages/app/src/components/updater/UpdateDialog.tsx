@@ -15,7 +15,7 @@ import { useUpdaterStore } from "@/stores/updater"
 
 export function UpdateDialogContainer() {
   const { t } = useTranslation()
-  const { update, checkForUpdates, restart } = useUpdaterStore()
+  const { update, checkForUpdates, retryUpdate, restart } = useUpdaterStore()
   const [dismissed, setDismissed] = useState(false)
 
   // Check for updates on app startup (3s delay) and every 4 hours
@@ -124,9 +124,15 @@ export function UpdateDialogContainer() {
           )}
 
           {update.state === "error" && (
-            <Button variant="outline" onClick={handleDismiss} className="w-full sm:w-auto">
-              {t('common.close', 'Close')}
-            </Button>
+            <>
+              <Button variant="outline" onClick={handleDismiss} className="w-full sm:w-auto">
+                {t('common.close', 'Close')}
+              </Button>
+              <Button onClick={retryUpdate} className="w-full sm:w-auto">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                {t('updater.retry', 'Retry')}
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>
