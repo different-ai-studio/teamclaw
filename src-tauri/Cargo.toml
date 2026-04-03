@@ -52,7 +52,7 @@ minisign-verify = "0.2"
 semver = "1"
 futures-util = "0.3"
 tempfile = "3"
-cron = "0.12"
+cron = "0.16"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.9"
 uuid = { version = "1", features = ["v4"] }
