@@ -98,12 +98,42 @@ fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde
     map
 }
 
+/// Context available to system env var default generators.
+pub(crate) struct SystemEnvVarContext {
+    pub device_id: String,
+}
+
+/// Definition of a system-managed env var.
+pub(crate) struct SystemEnvVarDef {
+    pub key: &'static str,
+    pub description: &'static str,
+    pub default_fn: fn(&SystemEnvVarContext) -> Option<String>,
+}
+
+/// Registry of all system env vars.
+/// To add a new one: append an entry here — nothing else changes.
+pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[
+    SystemEnvVarDef {
+        key: "tc_api_key",
+        description: "Team LLM API Key",
+        default_fn: |ctx| {
+            if ctx.device_id.is_empty() {
+                return None;
+            }
+            let id = &ctx.device_id;
+            Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
+        },
+    },
+];
+
 /// A single environment variable entry (key + description, no value).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvVarEntry {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,  // "system" | None
 }
 
 // ─── Internal helpers ───────────────────────────────────────────────────
@@ -209,7 +239,7 @@ pub async fn env_var_set(
     if let Some(existing) = entries.iter_mut().find(|e| e.key == key) {
         existing.description = description;
     } else {
-        entries.push(EnvVarEntry { key, description });
+        entries.push(EnvVarEntry { key, description, category: None });
     }
 
     set_env_vars_in_json(&mut json, &entries);
@@ -238,6 +268,15 @@ pub async fn env_var_get(
 #[tauri::command]
 pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
+
+    // Check category in index — system vars cannot be deleted
+    let json = read_teamclaw_json(&workspace_path)?;
+    let entries = get_env_vars_from_json(&json);
+    if let Some(entry) = entries.iter().find(|e| e.key == key) {
+        if entry.category.as_deref() == Some("system") {
+            return Err(format!("System variable '{}' cannot be deleted", key));
+        }
+    }
 
     // Read-modify-write atomically on a blocking thread
     let key_clone = key.clone();
@@ -338,4 +377,56 @@ pub async fn env_var_resolve(
     }
 
     Ok(result)
+}
+
+/// Ensure all system env vars exist in keychain blob and in the teamclaw.json index.
+/// If a key is missing from the blob, its default value is generated and written.
+/// If a key already has a value (user customized), it is left unchanged.
+/// This must be called on a blocking thread (keychain I/O).
+pub(crate) fn ensure_system_env_vars(
+    workspace_path: &str,
+    device_id: &str,
+) -> Result<(), String> {
+    let ctx = SystemEnvVarContext { device_id: device_id.to_string() };
+    let mut blob = read_env_blob(workspace_path)?;
+    let mut json = read_teamclaw_json(workspace_path)?;
+    let mut entries = get_env_vars_from_json(&json);
+    let mut blob_changed = false;
+    let mut index_changed = false;
+
+    for def in SYSTEM_ENV_VARS {
+        // Generate default value if not already set
+        if !blob.contains_key(def.key) || blob[def.key].as_str().map_or(true, |v| v.is_empty()) {
+            if let Some(default_value) = (def.default_fn)(&ctx) {
+                blob.insert(def.key.to_string(), serde_json::Value::String(default_value));
+                blob_changed = true;
+                println!("[EnvVars] Generated default value for system var: {}", def.key);
+            }
+        }
+
+        // Ensure index entry exists with category: "system"
+        if let Some(existing) = entries.iter_mut().find(|e| e.key == def.key) {
+            if existing.category.as_deref() != Some("system") {
+                existing.category = Some("system".to_string());
+                index_changed = true;
+            }
+        } else {
+            entries.push(EnvVarEntry {
+                key: def.key.to_string(),
+                description: Some(def.description.to_string()),
+                category: Some("system".to_string()),
+            });
+            index_changed = true;
+        }
+    }
+
+    if blob_changed {
+        write_env_blob(&blob)?;
+    }
+    if index_changed {
+        set_env_vars_in_json(&mut json, &entries);
+        write_teamclaw_json(workspace_path, &json)?;
+    }
+
+    Ok(())
 }
