@@ -6,6 +6,7 @@ import { withAsync } from '@/lib/store-utils'
 export interface EnvVarEntry {
   key: string
   description?: string
+  category?: 'system' | null
 }
 
 interface EnvVarsState {
