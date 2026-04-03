@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { TodoList } from '@/components/chat/TodoList'
 import { SessionDiffPanel } from '@/components/chat/SessionDiffPanel'
 import { SessionList } from '@/components/chat/SessionList'
@@ -51,10 +52,12 @@ export function RightPanel({ todos, diff, defaultTab, compact }: RightPanelProps
 
 // Tasks tab content
 function TasksTab({ todos, compact }: { todos: Todo[], compact?: boolean }) {
+  const { t } = useTranslation()
+
   if (todos.length === 0) {
     return (
       <div className={`text-muted-foreground text-center ${compact ? 'text-xs py-3' : 'text-xs py-4'}`}>
-        No tasks yet
+        {t('navigation.noTasks')}
       </div>
     )
   }
@@ -64,10 +67,12 @@ function TasksTab({ todos, compact }: { todos: Todo[], compact?: boolean }) {
 
 // Diff tab content
 function DiffTab({ diff, compact }: { diff: FileDiff[], compact?: boolean }) {
+  const { t } = useTranslation()
+
   if (diff.length === 0) {
     return (
       <div className={`text-muted-foreground text-center ${compact ? 'text-xs py-3' : 'text-xs py-4'}`}>
-        No changes yet
+        {t('navigation.noChanges')}
       </div>
     )
   }

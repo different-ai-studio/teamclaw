@@ -3,6 +3,7 @@
  * accumulated by the super-agent network. Polls every 10 seconds.
  */
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { useSuperAgentStore } from '@/stores/super-agent'
 import type { Experience, ExperienceOutcome, Strategy, StrategyType, DistilledSkill, ValidationStatus } from '@/stores/super-agent'
@@ -58,6 +59,7 @@ function validationDotClass(status: ValidationStatus): string {
 // ─── Record Experience Form ───────────────────────────────────────────────────
 
 function RecordExperienceForm({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
   const recordExperience = useSuperAgentStore((s) => s.recordExperience)
   const [taskId, setTaskId] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
@@ -73,11 +75,11 @@ function RecordExperienceForm({ onClose }: { onClose: () => void }) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-4 space-y-3">
-      <p className="text-sm font-medium">Record Experience from Task</p>
+      <p className="text-sm font-medium">{t('settings.superAgent.knowledge.recordExperience')}</p>
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Task ID</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.knowledge.taskId')}</label>
         <Input
-          placeholder="Enter task ID…"
+          placeholder={t('settings.superAgent.knowledge.taskIdPlaceholder')}
           value={taskId}
           onChange={(e) => setTaskId(e.target.value)}
           required
@@ -85,10 +87,10 @@ function RecordExperienceForm({ onClose }: { onClose: () => void }) {
       </div>
       <div className="flex gap-2 pt-1">
         <Button type="submit" size="sm" disabled={submitting || !taskId.trim()}>
-          {submitting ? 'Recording…' : 'Record'}
+          {submitting ? t('settings.superAgent.knowledge.recording') : t('settings.superAgent.knowledge.record')}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={onClose}>
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
     </form>
@@ -104,6 +106,7 @@ function ValidateStrategyForm({
   strategyId: string
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const validateStrategy = useSuperAgentStore((s) => s.validateStrategy)
   const [score, setScore] = React.useState(0.75)
   const [submitting, setSubmitting] = React.useState(false)
@@ -118,10 +121,10 @@ function ValidateStrategyForm({
 
   return (
     <form onSubmit={handleSubmit} className="mt-2 rounded-lg border bg-muted/40 p-3 space-y-2">
-      <p className="text-xs font-medium text-muted-foreground">Validate Strategy</p>
+      <p className="text-xs font-medium text-muted-foreground">{t('settings.superAgent.knowledge.validateStrategy')}</p>
       <div className="space-y-1">
         <div className="flex items-center justify-between">
-          <label className="text-xs text-muted-foreground">Score</label>
+          <label className="text-xs text-muted-foreground">{t('settings.superAgent.knowledge.score')}</label>
           <span className="text-xs font-medium">{score.toFixed(2)}</span>
         </div>
         <input
@@ -136,10 +139,10 @@ function ValidateStrategyForm({
       </div>
       <div className="flex gap-2">
         <Button type="submit" size="xs" disabled={submitting}>
-          {submitting ? 'Validating…' : 'Submit'}
+          {submitting ? t('settings.superAgent.knowledge.validating') : t('common.confirm')}
         </Button>
         <Button type="button" size="xs" variant="ghost" onClick={onClose}>
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
     </form>
@@ -149,6 +152,7 @@ function ValidateStrategyForm({
 // ─── Experience Card ──────────────────────────────────────────────────────────
 
 function ExperienceCard({ experience }: { experience: Experience }) {
+  const { t } = useTranslation()
   const shortId = experience.id.slice(0, 8)
 
   return (
@@ -172,8 +176,8 @@ function ExperienceCard({ experience }: { experience: Experience }) {
         <p className="text-sm leading-snug line-clamp-2">{experience.context}</p>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>Score: <span className="font-medium">{experience.metrics.score}</span></span>
-          <span>Tokens: <span className="font-medium">{experience.metrics.tokensUsed}</span></span>
+          <span>{t('settings.superAgent.knowledge.score')}: <span className="font-medium">{experience.metrics.score}</span></span>
+          <span>{t('settings.superAgent.knowledge.tokens')}: <span className="font-medium">{experience.metrics.tokensUsed}</span></span>
           <span>{Math.round(experience.metrics.duration / 1000)}s</span>
         </div>
       </div>
@@ -184,6 +188,7 @@ function ExperienceCard({ experience }: { experience: Experience }) {
 // ─── Strategy Card ────────────────────────────────────────────────────────────
 
 function StrategyCard({ strategy }: { strategy: Strategy }) {
+  const { t } = useTranslation()
   const shortId = strategy.id.slice(0, 8)
   const successPct = Math.round(strategy.successRate * 100)
   const canValidate =
@@ -220,14 +225,14 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
           <p className="text-sm leading-snug">{strategy.recommendation}</p>
 
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>Success: <span className="font-medium">{successPct}%</span></span>
-            <span>Samples: <span className="font-medium">{strategy.sampleSize}</span></span>
+            <span>{t('settings.superAgent.knowledge.success')}: <span className="font-medium">{successPct}%</span></span>
+            <span>{t('settings.superAgent.knowledge.samples')}: <span className="font-medium">{strategy.sampleSize}</span></span>
           </div>
 
           {canValidate && !showValidateForm && (
             <div className="pt-1">
               <Button size="xs" variant="outline" onClick={() => setShowValidateForm(true)}>
-                Validate
+                {t('settings.superAgent.knowledge.validate')}
               </Button>
             </div>
           )}
@@ -247,6 +252,7 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
 // ─── Skill Card ───────────────────────────────────────────────────────────────
 
 function SkillCard({ skill }: { skill: DistilledSkill }) {
+  const { t } = useTranslation()
   const effectivenessPct = Math.round(skill.avgEffectiveness * 100)
 
   return (
@@ -259,8 +265,8 @@ function SkillCard({ skill }: { skill: DistilledSkill }) {
         <p className="text-sm text-muted-foreground leading-snug">{skill.skillContent}</p>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>Effectiveness: <span className="font-medium">{effectivenessPct}%</span></span>
-          <span>Adopted: <span className="font-medium">{skill.adoptionCount}x</span></span>
+          <span>{t('settings.superAgent.knowledge.effectiveness')}: <span className="font-medium">{effectivenessPct}%</span></span>
+          <span>{t('settings.superAgent.knowledge.adopted')}: <span className="font-medium">{skill.adoptionCount}x</span></span>
         </div>
       </div>
     </div>
@@ -270,6 +276,7 @@ function SkillCard({ skill }: { skill: DistilledSkill }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function KnowledgeExplorer() {
+  const { t } = useTranslation()
   const knowledge = useSuperAgentStore((s) => s.knowledge)
   const fetchKnowledge = useSuperAgentStore((s) => s.fetchKnowledge)
   const [showRecordForm, setShowRecordForm] = React.useState(false)
@@ -288,16 +295,16 @@ export function KnowledgeExplorer() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium">Experiences</p>
+            <p className="text-sm font-medium">{t('settings.superAgent.knowledge.experiences')}</p>
             {experiences.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                {experiences.length} recorded
+                {t('settings.superAgent.knowledge.experienceCount', { count: experiences.length })}
               </p>
             )}
           </div>
           {!showRecordForm && (
             <Button size="xs" variant="outline" onClick={() => setShowRecordForm(true)}>
-              Record from Task
+              {t('settings.superAgent.knowledge.recordFromTask')}
             </Button>
           )}
         </div>
@@ -308,7 +315,7 @@ export function KnowledgeExplorer() {
 
         {experiences.length === 0 ? (
           <div className="rounded-xl border bg-card p-6 text-center">
-            <p className="text-sm text-muted-foreground">No experiences recorded</p>
+            <p className="text-sm text-muted-foreground">{t('settings.superAgent.knowledge.noExperiences')}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -323,10 +330,10 @@ export function KnowledgeExplorer() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium">Strategies</p>
+            <p className="text-sm font-medium">{t('settings.superAgent.knowledge.strategies')}</p>
             {strategies.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                {strategies.length} distilled
+                {t('settings.superAgent.knowledge.strategyCount', { count: strategies.length })}
               </p>
             )}
           </div>
@@ -334,7 +341,7 @@ export function KnowledgeExplorer() {
 
         {strategies.length === 0 ? (
           <div className="rounded-xl border bg-card p-6 text-center">
-            <p className="text-sm text-muted-foreground">No strategies distilled</p>
+            <p className="text-sm text-muted-foreground">{t('settings.superAgent.knowledge.noStrategies')}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -349,10 +356,10 @@ export function KnowledgeExplorer() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium">Skills</p>
+            <p className="text-sm font-medium">{t('settings.superAgent.knowledge.skills')}</p>
             {distilledSkills.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                {distilledSkills.length} available
+                {t('settings.superAgent.knowledge.skillCount', { count: distilledSkills.length })}
               </p>
             )}
           </div>
@@ -360,7 +367,7 @@ export function KnowledgeExplorer() {
 
         {distilledSkills.length === 0 ? (
           <div className="rounded-xl border bg-card p-6 text-center">
-            <p className="text-sm text-muted-foreground">No skills distilled</p>
+            <p className="text-sm text-muted-foreground">{t('settings.superAgent.knowledge.noSkills')}</p>
           </div>
         ) : (
           <div className="space-y-2">

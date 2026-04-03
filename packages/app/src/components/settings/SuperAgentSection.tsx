@@ -19,11 +19,13 @@ function TabSwitcher({
   activeTab: SuperAgentTab
   onTabChange: (tab: SuperAgentTab) => void
 }) {
-  const tabs: { id: SuperAgentTab; label: string }[] = [
-    { id: 'network', label: 'Agent Network' },
-    { id: 'tasks', label: 'Task Board' },
-    { id: 'knowledge', label: 'Knowledge' },
-    { id: 'deliberation', label: 'Deliberation' },
+  const { t } = useTranslation()
+
+  const tabs: { id: SuperAgentTab; labelKey: string }[] = [
+    { id: 'network', labelKey: 'settings.superAgent.tabs.network' },
+    { id: 'tasks', labelKey: 'settings.superAgent.tabs.tasks' },
+    { id: 'knowledge', labelKey: 'settings.superAgent.tabs.knowledge' },
+    { id: 'deliberation', labelKey: 'settings.superAgent.tabs.deliberation' },
   ]
 
   return (
@@ -41,7 +43,7 @@ function TabSwitcher({
               : 'text-muted-foreground hover:text-foreground'
           )}
         >
-          {tab.label}
+          {t(tab.labelKey)}
         </button>
       ))}
     </div>

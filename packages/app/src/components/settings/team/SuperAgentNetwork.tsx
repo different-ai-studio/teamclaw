@@ -2,6 +2,7 @@
  * SuperAgentNetwork - shows connected agents with status indicators and capability tags.
  */
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { useSuperAgentStore } from '@/stores/super-agent'
 import type { AgentProfile, AgentStatus } from '@/stores/super-agent'
@@ -31,6 +32,8 @@ interface AgentCardProps {
 }
 
 function AgentCard({ agent, isLocal }: AgentCardProps) {
+  const { t } = useTranslation()
+
   return (
     <div className="rounded-xl border bg-card p-4 transition-all">
       <div className="flex items-start gap-3">
@@ -51,7 +54,7 @@ function AgentCard({ agent, isLocal }: AgentCardProps) {
             <span className="text-sm font-medium leading-tight">{agent.name}</span>
             {isLocal && (
               <span className="rounded-full border px-1.5 py-0.5 text-xs text-muted-foreground leading-none">
-                you
+                {t('settings.superAgent.network.you')}
               </span>
             )}
           </div>
@@ -79,6 +82,7 @@ function AgentCard({ agent, isLocal }: AgentCardProps) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function SuperAgentNetwork() {
+  const { t } = useTranslation()
   const snapshot = useSuperAgentStore((s) => s.snapshot)
   const init = useSuperAgentStore((s) => s.init)
 
@@ -122,10 +126,10 @@ export function SuperAgentNetwork() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium">Connected Agents</p>
+          <p className="text-sm font-medium">{t('settings.superAgent.network.connectedAgents')}</p>
           {totalCount > 0 && (
             <p className="text-xs text-muted-foreground">
-              {onlineCount} of {totalCount} online
+              {t('settings.superAgent.network.onlineCount', { online: onlineCount, total: totalCount })}
             </p>
           )}
         </div>
@@ -134,7 +138,7 @@ export function SuperAgentNetwork() {
       {/* Agent list or empty state */}
       {allAgents.length === 0 ? (
         <div className="rounded-xl border bg-card p-6 text-center">
-          <p className="text-sm text-muted-foreground">No agents connected</p>
+          <p className="text-sm text-muted-foreground">{t('settings.superAgent.network.noAgents')}</p>
         </div>
       ) : (
         <div className="space-y-2">

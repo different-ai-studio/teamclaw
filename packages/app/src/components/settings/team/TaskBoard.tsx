@@ -3,6 +3,7 @@
  * bid counts, capability tags, and creator/assignee info.
  */
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn, isTauri } from '@/lib/utils'
 import { useSuperAgentStore } from '@/stores/super-agent'
 import type { Task, TaskStatus, TaskUrgency, TaskComplexity } from '@/stores/super-agent'
@@ -33,19 +34,6 @@ function statusDotClass(status: TaskStatus): string {
   }
 }
 
-function statusLabel(status: TaskStatus): string {
-  switch (status) {
-    case 'open':      return 'Open'
-    case 'bidding':   return 'Bidding'
-    case 'assigned':  return 'Assigned'
-    case 'running':   return 'Running'
-    case 'completed': return 'Completed'
-    case 'failed':    return 'Failed'
-    case 'aborted':   return 'Aborted'
-    default:          return status
-  }
-}
-
 // ─── Urgency Badge ────────────────────────────────────────────────────────────
 
 function urgencyBadgeClass(urgency: TaskUrgency): string {
@@ -66,6 +54,7 @@ function urgencyBadgeClass(urgency: TaskUrgency): string {
 // ─── Create Task Form ─────────────────────────────────────────────────────────
 
 function CreateTaskForm({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
   const createTask = useSuperAgentStore((s) => s.createTask)
 
   const [description, setDescription] = React.useState('')
@@ -95,12 +84,12 @@ function CreateTaskForm({ onClose }: { onClose: () => void }) {
       onSubmit={handleSubmit}
       className="rounded-xl border bg-card p-4 space-y-3"
     >
-      <p className="text-sm font-medium">New Task</p>
+      <p className="text-sm font-medium">{t('settings.superAgent.taskBoard.newTask')}</p>
 
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Description</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.taskBoard.description')}</label>
         <Textarea
-          placeholder="Describe the task…"
+          placeholder={t('settings.superAgent.taskBoard.descriptionPlaceholder')}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           className="min-h-[72px]"
@@ -109,16 +98,16 @@ function CreateTaskForm({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Capabilities (comma-separated)</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.taskBoard.capabilities')}</label>
         <Input
-          placeholder="e.g. coding, testing, analysis"
+          placeholder={t('settings.superAgent.taskBoard.capabilitiesPlaceholder')}
           value={capabilitiesRaw}
           onChange={(e) => setCapabilitiesRaw(e.target.value)}
         />
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Urgency</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.taskBoard.urgency')}</label>
         <div className="flex gap-1.5 flex-wrap">
           {urgencyOptions.map((u) => (
             <button
@@ -139,7 +128,7 @@ function CreateTaskForm({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Complexity</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.taskBoard.complexity')}</label>
         <div className="flex gap-1.5">
           {complexityOptions.map((c) => (
             <button
@@ -161,10 +150,10 @@ function CreateTaskForm({ onClose }: { onClose: () => void }) {
 
       <div className="flex gap-2 pt-1">
         <Button type="submit" size="sm" disabled={submitting || !description.trim()}>
-          {submitting ? 'Creating…' : 'Create Task'}
+          {submitting ? t('settings.superAgent.taskBoard.creating') : t('settings.superAgent.taskBoard.createTask')}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={onClose}>
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
     </form>
@@ -179,6 +168,7 @@ interface TaskCardProps {
 }
 
 function TaskCard({ task, onRefresh }: TaskCardProps) {
+  const { t } = useTranslation()
   const shortId = task.id.slice(0, 8)
   const [resolvingBid, setResolvingBid] = React.useState(false)
 
@@ -213,7 +203,7 @@ function TaskCard({ task, onRefresh }: TaskCardProps) {
           {/* Top row: status label + urgency badge */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground">
-              {statusLabel(task.status)}
+              {t(`settings.superAgent.taskBoard.status.${task.status}`)}
             </span>
             <span
               className={cn(
@@ -248,19 +238,19 @@ function TaskCard({ task, onRefresh }: TaskCardProps) {
           {/* Footer: creator, assignee, bid count */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>
-              Creator: <span className="font-medium">{task.creator.slice(0, 12)}</span>
+              {t('settings.superAgent.taskBoard.creator')}: <span className="font-medium">{task.creator.slice(0, 12)}</span>
             </span>
             {task.assignee && (
               <span>
-                Assignee: <span className="font-medium">{task.assignee.slice(0, 12)}</span>
+                {t('settings.superAgent.taskBoard.assignee')}: <span className="font-medium">{task.assignee.slice(0, 12)}</span>
               </span>
             )}
             {task.bids.length > 0 && (
-              <span>{task.bids.length} bid{task.bids.length !== 1 ? 's' : ''}</span>
+              <span>{t('settings.superAgent.taskBoard.bidCount', { count: task.bids.length })}</span>
             )}
             {task.result && (
               <span className="text-green-600 dark:text-green-400">
-                Score: {task.result.score}
+                {t('settings.superAgent.taskBoard.score')}: {task.result.score}
               </span>
             )}
           </div>
@@ -274,7 +264,7 @@ function TaskCard({ task, onRefresh }: TaskCardProps) {
                 onClick={handleResolveBidding}
                 disabled={resolvingBid}
               >
-                {resolvingBid ? 'Selecting…' : 'Select Winner'}
+                {resolvingBid ? t('settings.superAgent.taskBoard.selecting') : t('settings.superAgent.taskBoard.selectWinner')}
               </Button>
             </div>
           )}
@@ -291,6 +281,7 @@ const ACTIVE_STATUSES = new Set<TaskStatus>(['open', 'bidding', 'assigned', 'run
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function TaskBoard() {
+  const { t } = useTranslation()
   const taskBoard = useSuperAgentStore((s) => s.taskBoard)
   const fetchTasks = useSuperAgentStore((s) => s.fetchTasks)
   const [showForm, setShowForm] = React.useState(false)
@@ -312,7 +303,7 @@ export function TaskBoard() {
           <CreateTaskForm onClose={() => setShowForm(false)} />
         ) : (
           <Button size="sm" onClick={() => setShowForm(true)}>
-            Create Task
+            {t('settings.superAgent.taskBoard.createTask')}
           </Button>
         )}
       </div>
@@ -321,10 +312,10 @@ export function TaskBoard() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium">Active Tasks</p>
+            <p className="text-sm font-medium">{t('settings.superAgent.taskBoard.activeTasks')}</p>
             {activeTasks.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                {activeTasks.length} task{activeTasks.length !== 1 ? 's' : ''} in progress
+                {t('settings.superAgent.taskBoard.activeCount', { count: activeTasks.length })}
               </p>
             )}
           </div>
@@ -332,7 +323,7 @@ export function TaskBoard() {
 
         {activeTasks.length === 0 ? (
           <div className="rounded-xl border bg-card p-6 text-center">
-            <p className="text-sm text-muted-foreground">No active tasks</p>
+            <p className="text-sm text-muted-foreground">{t('settings.superAgent.taskBoard.noActiveTasks')}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -347,7 +338,7 @@ export function TaskBoard() {
       {completedTasks.length > 0 && (
         <div className="space-y-4">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Completed</p>
+            <p className="text-sm font-medium text-muted-foreground">{t('settings.superAgent.taskBoard.completed')}</p>
           </div>
           <div className="space-y-2">
             {completedTasks.map((task) => (

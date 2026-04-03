@@ -5,6 +5,7 @@
  * 3. Voting        – candidate options, tally, winner, margin, dissent
  */
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn, isTauri } from '@/lib/utils'
 import { useSuperAgentStore } from '@/stores/super-agent'
 import type {
@@ -71,6 +72,7 @@ const ALL_ANGLES: Angle[] = [
 // ─── Start Deliberation Form ──────────────────────────────────────────────────
 
 function StartDeliberationForm({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
   const startDeliberation = useSuperAgentStore((s) => s.startDeliberation)
   const [question, setQuestion] = React.useState('')
   const [context, setContext] = React.useState('')
@@ -94,12 +96,12 @@ function StartDeliberationForm({ onClose }: { onClose: () => void }) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-4 space-y-3">
-      <p className="text-sm font-medium">New Deliberation</p>
+      <p className="text-sm font-medium">{t('settings.superAgent.debate.newDeliberation')}</p>
 
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Question</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.question')}</label>
         <Textarea
-          placeholder="What should the team deliberate on?"
+          placeholder={t('settings.superAgent.debate.questionPlaceholder')}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           className="min-h-[60px]"
@@ -108,9 +110,9 @@ function StartDeliberationForm({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Context (optional)</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.context')}</label>
         <Textarea
-          placeholder="Provide background context…"
+          placeholder={t('settings.superAgent.debate.contextPlaceholder')}
           value={context}
           onChange={(e) => setContext(e.target.value)}
           className="min-h-[52px]"
@@ -118,7 +120,7 @@ function StartDeliberationForm({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Angles</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.angles')}</label>
         <div className="flex flex-wrap gap-1.5">
           {ALL_ANGLES.map((angle) => (
             <button
@@ -140,10 +142,10 @@ function StartDeliberationForm({ onClose }: { onClose: () => void }) {
 
       <div className="flex gap-2 pt-1">
         <Button type="submit" size="sm" disabled={submitting || !question.trim()}>
-          {submitting ? 'Starting…' : 'Start Deliberation'}
+          {submitting ? t('settings.superAgent.debate.starting') : t('settings.superAgent.debate.startDeliberation')}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={onClose}>
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
     </form>
@@ -159,6 +161,7 @@ function AddPerspectiveForm({
   debateId: string
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const submitPerspective = useSuperAgentStore((s) => s.submitPerspective)
   const [angle, setAngle] = React.useState<Angle>(ALL_ANGLES[0])
   const [position, setPosition] = React.useState('')
@@ -177,10 +180,10 @@ function AddPerspectiveForm({
 
   return (
     <form onSubmit={handleSubmit} className="rounded-lg border bg-muted/40 p-3 space-y-3 mt-2">
-      <p className="text-xs font-medium text-muted-foreground">Add Perspective</p>
+      <p className="text-xs font-medium text-muted-foreground">{t('settings.superAgent.debate.addPerspective')}</p>
 
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">Angle</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.angle')}</label>
         <div className="flex flex-wrap gap-1">
           {ALL_ANGLES.map((a) => (
             <button
@@ -201,9 +204,9 @@ function AddPerspectiveForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">Position</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.position')}</label>
         <Textarea
-          placeholder="Your position on this debate…"
+          placeholder={t('settings.superAgent.debate.positionPlaceholder')}
           value={position}
           onChange={(e) => setPosition(e.target.value)}
           className="min-h-[52px]"
@@ -212,9 +215,9 @@ function AddPerspectiveForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">Reasoning (optional)</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.reasoning')}</label>
         <Textarea
-          placeholder="Supporting reasoning…"
+          placeholder={t('settings.superAgent.debate.reasoningPlaceholder')}
           value={reasoning}
           onChange={(e) => setReasoning(e.target.value)}
           className="min-h-[40px]"
@@ -223,7 +226,7 @@ function AddPerspectiveForm({
 
       <div className="space-y-1">
         <div className="flex items-center justify-between">
-          <label className="text-xs text-muted-foreground">Confidence</label>
+          <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.confidence')}</label>
           <span className="text-xs font-medium">{Math.round(confidence * 100)}%</span>
         </div>
         <input
@@ -239,10 +242,10 @@ function AddPerspectiveForm({
 
       <div className="flex gap-2">
         <Button type="submit" size="xs" disabled={submitting || !position.trim()}>
-          {submitting ? 'Submitting…' : 'Submit'}
+          {submitting ? t('settings.superAgent.debate.submitting') : t('settings.superAgent.debate.submit')}
         </Button>
         <Button type="button" size="xs" variant="ghost" onClick={onClose}>
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
     </form>
@@ -260,6 +263,7 @@ function CastVoteForm({
   candidates: CandidateOption[]
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const submitVote = useSuperAgentStore((s) => s.submitVote)
   const [ranks, setRanks] = React.useState<Record<string, number>>(
     Object.fromEntries(candidates.map((c, i) => [c.id, i + 1])),
@@ -294,10 +298,10 @@ function CastVoteForm({
 
   return (
     <form onSubmit={handleSubmit} className="rounded-lg border bg-muted/40 p-3 space-y-3 mt-2">
-      <p className="text-xs font-medium text-muted-foreground">Cast Vote</p>
+      <p className="text-xs font-medium text-muted-foreground">{t('settings.superAgent.debate.castVote')}</p>
 
       <div className="space-y-2">
-        <label className="text-xs text-muted-foreground">Rank candidates (1 = preferred)</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.rankCandidates')}</label>
         {candidates.map((c) => (
           <div key={c.id} className="flex items-center gap-2">
             <Input
@@ -314,7 +318,7 @@ function CastVoteForm({
 
       <div className="space-y-1">
         <div className="flex items-center justify-between">
-          <label className="text-xs text-muted-foreground">Confidence</label>
+          <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.confidence')}</label>
           <span className="text-xs font-medium">{Math.round(confidence * 100)}%</span>
         </div>
         <input
@@ -329,9 +333,9 @@ function CastVoteForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">Final reasoning (optional)</label>
+        <label className="text-xs text-muted-foreground">{t('settings.superAgent.debate.finalReasoning')}</label>
         <Textarea
-          placeholder="Why you ranked options this way…"
+          placeholder={t('settings.superAgent.debate.finalReasoningPlaceholder')}
           value={reasoning}
           onChange={(e) => setReasoning(e.target.value)}
           className="min-h-[40px]"
@@ -340,10 +344,10 @@ function CastVoteForm({
 
       <div className="flex gap-2">
         <Button type="submit" size="xs" disabled={submitting || candidates.length === 0}>
-          {submitting ? 'Casting…' : 'Cast Vote'}
+          {submitting ? t('settings.superAgent.debate.casting') : t('settings.superAgent.debate.castVote')}
         </Button>
         <Button type="button" size="xs" variant="ghost" onClick={onClose}>
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
     </form>
@@ -357,10 +361,12 @@ interface PerspectiveListProps {
 }
 
 function PerspectiveList({ perspectives }: PerspectiveListProps) {
+  const { t } = useTranslation()
+
   if (perspectives.length === 0) {
     return (
       <div className="rounded-xl border bg-card p-6 text-center">
-        <p className="text-sm text-muted-foreground">No perspectives submitted yet</p>
+        <p className="text-sm text-muted-foreground">{t('settings.superAgent.debate.noPerspectives')}</p>
       </div>
     )
   }
@@ -376,12 +382,12 @@ function PerspectiveList({ perspectives }: PerspectiveListProps) {
                   {p.angle}
                 </span>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {Math.round(p.confidence * 100)}% confidence
+                  {Math.round(p.confidence * 100)}% {t('settings.superAgent.debate.confidence').toLowerCase()}
                 </span>
               </div>
               <p className="text-sm leading-snug">{p.position}</p>
               <p className="text-xs text-muted-foreground truncate">
-                Agent: <span className="font-medium">{p.agentId.slice(0, 12)}</span>
+                {t('settings.superAgent.debate.agent')}: <span className="font-medium">{p.agentId.slice(0, 12)}</span>
               </p>
             </div>
           </div>
@@ -423,17 +429,18 @@ interface RoundCardProps {
 }
 
 function RoundCard({ round }: RoundCardProps) {
+  const { t } = useTranslation()
   const allRebuttals = round.responses.flatMap((r) => r.rebuttals)
 
   return (
     <div className="rounded-xl border bg-card p-4 space-y-3">
       <p className="text-xs font-medium text-muted-foreground">
-        Round {round.round}
+        {t('settings.superAgent.debate.round', { number: round.round })}
       </p>
 
       {allRebuttals.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">Rebuttals</p>
+          <p className="text-xs text-muted-foreground">{t('settings.superAgent.debate.rebuttals')}</p>
           <div className="space-y-2">
             {allRebuttals.map((r, i) => (
               <RebuttalItem key={`${r.targetAgentId}-${i}`} rebuttal={r} />
@@ -454,6 +461,8 @@ interface VotingPanelProps {
 }
 
 function VotingPanel({ candidates, votes, synthesis }: VotingPanelProps) {
+  const { t } = useTranslation()
+
   // Build tally: count rank-1 votes per option
   const tally = new Map<string, number>()
   for (const candidate of candidates) {
@@ -472,7 +481,7 @@ function VotingPanel({ candidates, votes, synthesis }: VotingPanelProps) {
   if (candidates.length === 0) {
     return (
       <div className="rounded-xl border bg-card p-6 text-center">
-        <p className="text-sm text-muted-foreground">No candidate options yet</p>
+        <p className="text-sm text-muted-foreground">{t('settings.superAgent.debate.noCandidates')}</p>
       </div>
     )
   }
@@ -494,11 +503,11 @@ function VotingPanel({ candidates, votes, synthesis }: VotingPanelProps) {
             <div className="flex flex-wrap items-center gap-2">
               {isWinner && (
                 <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700 leading-none dark:bg-green-900/30 dark:text-green-400">
-                  winner
+                  {t('settings.superAgent.debate.winner')}
                 </span>
               )}
               <span className="ml-auto text-xs text-muted-foreground">
-                {voteCount} vote{voteCount !== 1 ? 's' : ''}
+                {t('settings.superAgent.debate.voteCount', { count: voteCount })}
               </span>
             </div>
             <p className="text-sm leading-snug">{candidate.description}</p>
@@ -508,15 +517,15 @@ function VotingPanel({ candidates, votes, synthesis }: VotingPanelProps) {
 
       {synthesis && (
         <div className="rounded-xl border bg-card p-4 space-y-1.5">
-          <p className="text-xs font-medium text-muted-foreground">Synthesis</p>
+          <p className="text-xs font-medium text-muted-foreground">{t('settings.superAgent.debate.synthesis')}</p>
           <p className="text-sm leading-snug">{synthesis.winningDescription}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>
-              Margin: <span className="font-medium">{Math.round(synthesis.margin * 100)}%</span>
+              {t('settings.superAgent.debate.margin')}: <span className="font-medium">{Math.round(synthesis.margin * 100)}%</span>
             </span>
             {synthesis.dissent.length > 0 && (
               <span>
-                Dissent: <span className="font-medium">{synthesis.dissent.join(', ')}</span>
+                {t('settings.superAgent.debate.dissent')}: <span className="font-medium">{synthesis.dissent.join(', ')}</span>
               </span>
             )}
           </div>
@@ -534,6 +543,7 @@ interface DebateCardProps {
 }
 
 function DebateCard({ debate, onRefresh }: DebateCardProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = React.useState(false)
   const [showPerspectiveForm, setShowPerspectiveForm] = React.useState(false)
   const [showVoteForm, setShowVoteForm] = React.useState(false)
@@ -573,10 +583,10 @@ function DebateCard({ debate, onRefresh }: DebateCardProps) {
                 debateStatusClass(debate.status),
               )}
             >
-              {debate.status}
+              {t(`settings.superAgent.debate.status.${debate.status}`)}
             </span>
             <span className="text-xs text-muted-foreground">
-              {debate.perspectives.length} perspective{debate.perspectives.length !== 1 ? 's' : ''}
+              {t('settings.superAgent.debate.perspectiveCount', { count: debate.perspectives.length })}
             </span>
             {debate.outcome?.actualResult && (
               <span className="ml-auto text-xs font-medium text-green-600 dark:text-green-400 truncate max-w-[180px]">
@@ -608,12 +618,12 @@ function DebateCard({ debate, onRefresh }: DebateCardProps) {
             <div className="flex flex-wrap gap-2">
               {canAddPerspective && !showPerspectiveForm && (
                 <Button size="xs" variant="outline" onClick={() => setShowPerspectiveForm(true)}>
-                  Add Perspective
+                  {t('settings.superAgent.debate.addPerspective')}
                 </Button>
               )}
               {canVote && !showVoteForm && debate.candidateOptions.length > 0 && (
                 <Button size="xs" variant="outline" onClick={() => setShowVoteForm(true)}>
-                  Cast Vote
+                  {t('settings.superAgent.debate.castVote')}
                 </Button>
               )}
               {canConclude && (
@@ -623,7 +633,7 @@ function DebateCard({ debate, onRefresh }: DebateCardProps) {
                   onClick={handleConclude}
                   disabled={concluding}
                 >
-                  {concluding ? 'Concluding…' : 'Conclude'}
+                  {concluding ? t('settings.superAgent.debate.concluding') : t('settings.superAgent.debate.conclude')}
                 </Button>
               )}
             </div>
@@ -647,7 +657,7 @@ function DebateCard({ debate, onRefresh }: DebateCardProps) {
           {/* Phase 1: Perspectives */}
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Perspectives
+              {t('settings.superAgent.debate.perspectives')}
             </p>
             <PerspectiveList perspectives={debate.perspectives} />
           </div>
@@ -656,7 +666,7 @@ function DebateCard({ debate, onRefresh }: DebateCardProps) {
           {debate.rounds.length > 0 && (
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Rounds
+                {t('settings.superAgent.debate.rounds')}
               </p>
               <div className="space-y-2">
                 {debate.rounds.map((round) => (
@@ -669,7 +679,7 @@ function DebateCard({ debate, onRefresh }: DebateCardProps) {
           {/* Phase 3: Voting */}
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Voting
+              {t('settings.superAgent.debate.voting')}
             </p>
             <VotingPanel
               candidates={debate.candidateOptions}
@@ -686,6 +696,7 @@ function DebateCard({ debate, onRefresh }: DebateCardProps) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function DebateView() {
+  const { t } = useTranslation()
   const debates = useSuperAgentStore((s) => s.debates)
   const fetchDebates = useSuperAgentStore((s) => s.fetchDebates)
   const [showStartForm, setShowStartForm] = React.useState(false)
@@ -711,7 +722,7 @@ export function DebateView() {
           <StartDeliberationForm onClose={() => setShowStartForm(false)} />
         ) : (
           <Button size="sm" onClick={() => setShowStartForm(true)}>
-            Start Deliberation
+            {t('settings.superAgent.debate.startDeliberation')}
           </Button>
         )}
       </div>
@@ -720,10 +731,10 @@ export function DebateView() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium">Active Deliberations</p>
+            <p className="text-sm font-medium">{t('settings.superAgent.debate.activeDeliberations')}</p>
             {activeDebates.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                {activeDebates.length} debate{activeDebates.length !== 1 ? 's' : ''} in progress
+                {t('settings.superAgent.debate.activeCount', { count: activeDebates.length })}
               </p>
             )}
           </div>
@@ -731,7 +742,7 @@ export function DebateView() {
 
         {activeDebates.length === 0 ? (
           <div className="rounded-xl border bg-card p-6 text-center">
-            <p className="text-sm text-muted-foreground">No active deliberations</p>
+            <p className="text-sm text-muted-foreground">{t('settings.superAgent.debate.noActiveDeliberations')}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -746,7 +757,7 @@ export function DebateView() {
       {concludedDebates.length > 0 && (
         <div className="space-y-4">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Concluded</p>
+            <p className="text-sm font-medium text-muted-foreground">{t('settings.superAgent.debate.concluded')}</p>
           </div>
           <div className="space-y-2">
             {concludedDebates.map((debate) => (
