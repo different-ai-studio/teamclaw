@@ -12,7 +12,7 @@ import {
   Ban,
   Clock,
   ChevronDown,
-  AlertTriangle,
+  AlertCircle,
   FolderOpen,
   Globe,
   RefreshCw,
@@ -428,23 +428,59 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
 
   return (
     <div className="space-y-4">
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder={t("clawhub.searchPlaceholder", "Search ClawHub skills...")}
-          value={searchQuery}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          className="pl-9 h-9"
-        />
+      {/* Search + Refresh */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder={t("clawhub.searchPlaceholder", "Search ClawHub skills...")}
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="pl-9 h-9"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          disabled={isLoading}
+          onClick={() => {
+            hasLoadedExploreRef.current = false
+            setSearchQuery("")
+            setIsSearchMode(false)
+            loadExplore()
+            loadInstalled()
+          }}
+          title={t("clawhub.refresh", "Refresh")}
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+        </Button>
       </div>
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <SettingCard className="bg-destructive/10 border-destructive/50">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-destructive">{t("common.error", "Error")}</p>
+              <p className="text-sm text-destructive/80 mt-1">{error}</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setError(null)
+                loadExplore()
+              }}
+              disabled={isLoading}
+              className="gap-1.5 shrink-0"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+              {t("common.retry", "Retry")}
+            </Button>
+          </div>
+        </SettingCard>
       )}
 
       {/* Loading */}
@@ -463,9 +499,9 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
             searchResults.length === 0 ? (
               <SettingCard>
                 <div className="text-center py-6 text-muted-foreground">
-                  <Search className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                  <Search className="h-8 w-8 mx-auto mb-3 opacity-50" />
                   <p className="font-medium">{t("clawhub.noResults", "No skills found")}</p>
-                  <p className="text-sm">{t("clawhub.noResultsHint", "Try different search terms")}</p>
+                  <p className="text-sm mt-1">{t("clawhub.noResultsHint", "Try different search terms")}</p>
                 </div>
               </SettingCard>
             ) : (
@@ -483,8 +519,9 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
           ) : exploreItems.length === 0 ? (
             <SettingCard>
               <div className="text-center py-6 text-muted-foreground">
-                <Download className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                <Search className="h-8 w-8 mx-auto mb-3 opacity-50" />
                 <p className="font-medium">{t("clawhub.empty", "No skills available")}</p>
+                <p className="text-sm mt-1">{t("clawhub.emptyHint", "Check back later for new skills")}</p>
               </div>
             </SettingCard>
           ) : (
@@ -524,7 +561,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
 
       {/* Detail Dialog */}
       <Dialog open={!!detailSlug} onOpenChange={(open) => { if (!open) setDetailSlug(null) }}>
-        <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{detail?.skill?.displayName ?? detailSlug}</DialogTitle>
             <DialogDescription>{detail?.skill?.slug}</DialogDescription>
@@ -683,7 +720,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
                       <FolderOpen className="h-4 w-4 text-violet-500 mt-0.5 shrink-0" />
                       <div className="flex flex-col gap-0.5 min-w-0">
                         <span className="font-medium">{t('settings.skills.locationWorkspace', 'Workspace')}</span>
-                        <span className="text-xs text-muted-foreground whitespace-normal break-words">.opencode/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
+                        <span className="text-xs text-muted-foreground whitespace-normal break-words">.agents/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
                       </div>
                     </div>
                   </SelectItem>

@@ -415,14 +415,14 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
               />
             </div>
             <Button
-              size="sm"
               variant="outline"
+              size="icon"
+              className="h-9 w-9 shrink-0"
               onClick={() => fetchLeaderboard()}
               disabled={isLoading}
-              className="gap-1.5"
+              title={t("common.refresh", "Refresh")}
             >
-              <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
-              {t("common.refresh", "Refresh")}
+              <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
             </Button>
             {!searchQuery.trim() && (
               <div className="flex items-center rounded-lg border border-input overflow-hidden shrink-0">
@@ -476,17 +476,16 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
           <div className="space-y-3">
             {isLoading ? (
               <SettingCard>
-                <div className="flex flex-col items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
-                  <p className="text-sm text-muted-foreground">{t("skillssh.loading", "Loading skills.sh marketplace...")}</p>
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               </SettingCard>
             ) : filteredSkillsSh.length === 0 ? (
               <SettingCard>
                 <div className="text-center py-6 text-muted-foreground">
-                  <Search className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                  <Search className="h-8 w-8 mx-auto mb-3 opacity-50" />
                   <p className="font-medium">{t("skillssh.noResults", "No skills found")}</p>
-                  <p className="text-sm">{t("skillssh.tryDifferent", "Try a different search term")}</p>
+                  <p className="text-sm mt-1">{t("skillssh.tryDifferent", "Try a different search term")}</p>
                 </div>
               </SettingCard>
             ) : (
@@ -871,8 +870,8 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
           </DialogHeader>
 
           {isLoadingContent ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto space-y-4 py-2">
@@ -1065,22 +1064,37 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
             <Button variant="outline" onClick={() => setDetailDialogOpen(false)}>
               {t("common.close", "Close")}
             </Button>
-            {selectedSkill && !installedSlugs.has(selectedSkill.slug) && (
-              <Button
-                className="gap-1.5"
-                disabled={installingSlugs.has(selectedSkill.slug)}
-                onClick={() => {
-                  openInstallDialog(selectedSkill.owner, selectedSkill.repo, selectedSkill.slug)
-                  setDetailDialogOpen(false)
-                }}
-              >
-                {installingSlugs.has(selectedSkill.slug) ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Download className="h-3.5 w-3.5" />
-                )}
-                {t("skillssh.install", "Install")}
-              </Button>
+            {selectedSkill && (
+              installedSlugs.has(selectedSkill.slug) ? (
+                <Button
+                  variant="outline"
+                  className="gap-1.5 text-destructive"
+                  disabled={installingSlugs.has(selectedSkill.slug)}
+                  onClick={() => {
+                    handleUninstallSkillSh(selectedSkill.slug)
+                    setDetailDialogOpen(false)
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {t("skillssh.uninstall", "Uninstall")}
+                </Button>
+              ) : (
+                <Button
+                  className="gap-1.5"
+                  disabled={installingSlugs.has(selectedSkill.slug)}
+                  onClick={() => {
+                    openInstallDialog(selectedSkill.owner, selectedSkill.repo, selectedSkill.slug)
+                    setDetailDialogOpen(false)
+                  }}
+                >
+                  {installingSlugs.has(selectedSkill.slug) ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  {t("skillssh.install", "Install")}
+                </Button>
+              )
             )}
           </DialogFooter>
         </DialogContent>
