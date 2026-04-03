@@ -1,61 +1,58 @@
 import SwiftUI
 
-struct MockAutomation: Identifiable {
-    let id: String
-    let name: String
-    let trigger: String
-    let icon: String
-    let isEnabled: Bool
-}
-
-extension MockAutomation {
-    static let mockData: [MockAutomation] = [
-        MockAutomation(id: "a1", name: "每日站会提醒", trigger: "每天 9:30", icon: "bell", isEnabled: true),
-        MockAutomation(id: "a2", name: "周报自动生成", trigger: "每周五 17:00", icon: "doc.text", isEnabled: true),
-        MockAutomation(id: "a3", name: "代码提交通知", trigger: "Git Push 时", icon: "arrow.up.circle", isEnabled: false),
-        MockAutomation(id: "a4", name: "任务超时预警", trigger: "截止前 2 小时", icon: "exclamationmark.triangle", isEnabled: true),
-    ]
-}
-
 struct MemberAutomationView: View {
     let memberName: String
+    @ObservedObject var viewModel: TaskViewModel
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        List(MockAutomation.mockData) { automation in
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.orange.opacity(0.12))
-                        .frame(width: 40, height: 40)
+        Group {
+            if viewModel.tasks.isEmpty {
+                ContentUnavailableView("暂无自动化任务", systemImage: "gearshape.2")
+            } else {
+                List(viewModel.tasks, id: \.id) { task in
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.orange.opacity(0.12))
+                                .frame(width: 40, height: 40)
 
-                    Image(systemName: automation.icon)
-                        .foregroundStyle(.orange)
+                            Image(systemName: "gearshape.2")
+                                .foregroundStyle(.orange)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(task.name)
+                                .fontWeight(.medium)
+
+                            Text(task.cronExpression)
+                                .font(.caption)
+                                .monospaced()
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Circle()
+                            .fill(task.status == .running || task.status == .idle ? Color.green : Color.gray.opacity(0.3))
+                            .frame(width: 10, height: 10)
+                    }
+                    .padding(.vertical, 2)
                 }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(automation.name)
-                        .fontWeight(.medium)
-
-                    Text(automation.trigger)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Circle()
-                    .fill(automation.isEnabled ? Color.green : Color.gray.opacity(0.3))
-                    .frame(width: 10, height: 10)
             }
-            .padding(.vertical, 2)
         }
         .navigationTitle("\(memberName) · 自动化")
         .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            viewModel.requestAutomations()
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("完成") { dismiss() }
             }
+        }
+        .onAppear {
+            viewModel.loadTasks()
         }
     }
 }

@@ -38,14 +38,24 @@ struct FunctionPanelView: View {
                     }
 
                     NavigationLink {
-                        FeaturedAllyListView()
+                        FeaturedAllyListView(
+                            viewModel: TalentViewModel(
+                                modelContext: modelContext,
+                                mqttService: mqttService
+                            )
+                        )
                     } label: {
                         Label("精选搭档", systemImage: "cpu.fill")
                             .foregroundStyle(.blue)
                     }
 
                     NavigationLink {
-                        SkillMarketListView()
+                        SkillMarketListView(
+                            viewModel: SkillViewModel(
+                                modelContext: modelContext,
+                                mqttService: mqttService
+                            )
+                        )
                     } label: {
                         Label("技能市场", systemImage: "bag.fill")
                             .foregroundStyle(.teal)

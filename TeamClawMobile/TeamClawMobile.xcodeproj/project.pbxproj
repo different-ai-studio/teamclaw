@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		02968F8E0A423B44439FAEBE /* TaskViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D5F75CF3A9E1B32799B736 /* TaskViewModelTests.swift */; };
 		08611817B203CE81AE25034B /* TeamMember.swift in Sources */ = {isa = PBXBuildFile; fileRef = D757E0623CEB9A68984B2B5C /* TeamMember.swift */; };
+		BB1111111111111111111111 /* Talent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2222222222222222222222 /* Talent.swift */; };
+		BB3333333333333333333333 /* TalentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4444444444444444444444 /* TalentViewModel.swift */; };
 		0AF570A11B033A3793E2D33C /* SkillHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC0C0BCFF2BE9EC099FB476 /* SkillHomeView.swift */; };
 		0C2B937E1220E533538447C3 /* TaskViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D5085903B62892AC036020 /* TaskViewModel.swift */; };
 		0D8C53F4805FAF764B55A175 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D086C0687DF14187A6AD3A24 /* SettingsView.swift */; };
@@ -130,6 +132,8 @@
 		D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileTests.swift; sourceTree = "<group>"; };
 		D49161288BBB6B6D11F2251A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		D757E0623CEB9A68984B2B5C /* TeamMember.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamMember.swift; sourceTree = "<group>"; };
+		BB2222222222222222222222 /* Talent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Talent.swift; sourceTree = "<group>"; };
+		BB4444444444444444444444 /* TalentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalentViewModel.swift; sourceTree = "<group>"; };
 		DDA90A38CC31873CA85B3BB7 /* SkillViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillViewModel.swift; sourceTree = "<group>"; };
 		E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeamClawMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E32DBAEC6B0FAD53F502E6C1 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
@@ -174,6 +178,7 @@
 				6CB0F6A0EBCFCC7846D3860B /* MemberSessionsView.swift */,
 				FF46DB166CC0F68E775C08FF /* MemberViewModel.swift */,
 				AA4444444444444444444444 /* SkillMarketView.swift */,
+				BB4444444444444444444444 /* TalentViewModel.swift */,
 			);
 			path = TeamMembers;
 			sourceTree = "<group>";
@@ -234,6 +239,7 @@
 				36621DE5BE808E48FCAB3565 /* ChatMessage.swift */,
 				823BC8AEA646A45ADF76AEC2 /* Session.swift */,
 				2FCB7D9D27F63BE7540362BC /* Skill.swift */,
+				BB2222222222222222222222 /* Talent.swift */,
 				D757E0623CEB9A68984B2B5C /* TeamMember.swift */,
 			);
 			path = Models;
@@ -553,6 +559,8 @@
 				32F667482A7D2D009DF3309A /* TaskListView.swift in Sources */,
 				0C2B937E1220E533538447C3 /* TaskViewModel.swift in Sources */,
 				16A0D1CCA0B263A727F89BD5 /* TeamClawMobileApp.swift in Sources */,
+				BB1111111111111111111111 /* Talent.swift in Sources */,
+				BB3333333333333333333333 /* TalentViewModel.swift in Sources */,
 				08611817B203CE81AE25034B /* TeamMember.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

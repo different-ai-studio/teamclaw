@@ -26,27 +26,14 @@ final class MemberViewModel: ObservableObject {
     // MARK: - Public Methods
 
     func loadMembers() {
-        let descriptor = FetchDescriptor<TeamMember>(
-            sortBy: [SortDescriptor(\.name)]
-        )
-        let fetched = (try? modelContext.fetch(descriptor)) ?? []
-
-        if fetched.isEmpty {
-            loadMockMembers()
-        } else {
-            members = fetched
-        }
+        loadMembersFromDB()
+        requestMembers()
     }
 
-    private func loadMockMembers() {
-        for member in TeamMember.mockMembers {
-            modelContext.insert(member)
-        }
-        try? modelContext.save()
-        let descriptor = FetchDescriptor<TeamMember>(
-            sortBy: [SortDescriptor(\.name)]
-        )
-        members = (try? modelContext.fetch(descriptor)) ?? []
+    func requestMembers() {
+        guard let creds = PairingManager().credentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        mqttService.publishRaw(topic: topic, payload: "/members", qos: 1)
     }
 
     func collaborativeSessions(for member: TeamMember) -> [Session] {
@@ -95,6 +82,13 @@ final class MemberViewModel: ObservableObject {
         }
 
         try? modelContext.save()
-        loadMembers()
+        loadMembersFromDB()
+    }
+
+    private func loadMembersFromDB() {
+        let descriptor = FetchDescriptor<TeamMember>(
+            sortBy: [SortDescriptor(\.name)]
+        )
+        members = (try? modelContext.fetch(descriptor)) ?? []
     }
 }

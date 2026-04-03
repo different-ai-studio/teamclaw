@@ -14,7 +14,8 @@ struct TeamClawMobileApp: App {
             ChatMessage.self,
             TeamMember.self,
             AutomationTask.self,
-            Skill.self
+            Skill.self,
+            Talent.self
         ])
     }
 }

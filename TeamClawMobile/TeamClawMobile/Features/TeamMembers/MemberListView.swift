@@ -2,7 +2,9 @@ import SwiftUI
 
 struct MemberListView: View {
     @ObservedObject var viewModel: MemberViewModel
+    let mqttService: MQTTServiceProtocol
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var searchText = ""
     @State private var showFeaturedAllies = false
     @State private var showSkillMarket = false
@@ -65,18 +67,37 @@ struct MemberListView: View {
                 }
             }
             .searchable(text: $searchText, prompt: "搜索")
+            .refreshable {
+                viewModel.requestMembers()
+            }
             .onAppear {
                 viewModel.loadMembers()
             }
             .sheet(isPresented: $showFeaturedAllies) {
-                FeaturedAllyView()
+                FeaturedAllyView(
+                    viewModel: TalentViewModel(
+                        modelContext: modelContext,
+                        mqttService: mqttService
+                    )
+                )
             }
             .sheet(isPresented: $showSkillMarket) {
-                SkillMarketView()
+                SkillMarketView(
+                    viewModel: SkillViewModel(
+                        modelContext: modelContext,
+                        mqttService: mqttService
+                    )
+                )
             }
             .sheet(item: $selectedMemberForAutomation) { member in
                 NavigationStack {
-                    MemberAutomationView(memberName: member.name)
+                    MemberAutomationView(
+                        memberName: member.name,
+                        viewModel: TaskViewModel(
+                            modelContext: modelContext,
+                            mqttService: mqttService
+                        )
+                    )
                 }
             }
         }

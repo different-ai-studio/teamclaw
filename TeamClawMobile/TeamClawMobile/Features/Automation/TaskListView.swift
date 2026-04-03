@@ -35,6 +35,9 @@ struct TaskListView: View {
                 TaskEditView(viewModel: viewModel, task: nil)
             }
         }
+        .refreshable {
+            viewModel.requestAutomations()
+        }
         .onAppear {
             viewModel.loadTasks()
         }

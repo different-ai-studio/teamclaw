@@ -29,6 +29,9 @@ struct SkillHomeView: View {
         }
         .navigationTitle("技能")
         .navigationBarTitleDisplayMode(.large)
+        .refreshable {
+            viewModel.requestSkills()
+        }
         .onAppear {
             viewModel.loadSkills()
         }

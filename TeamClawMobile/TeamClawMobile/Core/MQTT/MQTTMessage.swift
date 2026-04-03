@@ -11,6 +11,8 @@ enum MQTTMessageType: String, Codable {
     case memberSync = "member_sync"
     case sessionListRequest = "session_list_request"
     case sessionSync = "session_sync"
+    case automationSync = "automation_sync"
+    case talentSync = "talent_sync"
 }
 
 // MARK: - Payload Structs
@@ -109,6 +111,38 @@ struct MemberSyncPayload: Codable {
     }
 }
 
+struct AutomationSyncPayload: Codable {
+    let tasks: [AutomationTaskData]
+
+    struct AutomationTaskData: Codable {
+        let id: String
+        let name: String
+        let status: String?
+        let cronExpression: String
+        let description: String
+        let lastRunTime: TimeInterval?
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, status, description
+            case cronExpression = "cron_expression"
+            case lastRunTime = "last_run_time"
+        }
+    }
+}
+
+struct TalentSyncPayload: Codable {
+    let talents: [TalentData]
+
+    struct TalentData: Codable {
+        let id: String
+        let name: String
+        let description: String
+        let category: String
+        let icon: String?
+        let downloads: Int?
+    }
+}
+
 struct SessionSyncPayload: Codable {
     let sessions: [SessionData]
 
@@ -130,6 +164,8 @@ enum MQTTPayload {
     case memberSync(MemberSyncPayload)
     case sessionListRequest
     case sessionSync(SessionSyncPayload)
+    case automationSync(AutomationSyncPayload)
+    case talentSync(TalentSyncPayload)
 }
 
 // MARK: - MQTTMessage
@@ -182,6 +218,12 @@ extension MQTTMessage: Codable {
         case .sessionSync:
             let p = try container.decode(SessionSyncPayload.self, forKey: .payload)
             payload = .sessionSync(p)
+        case .automationSync:
+            let p = try container.decode(AutomationSyncPayload.self, forKey: .payload)
+            payload = .automationSync(p)
+        case .talentSync:
+            let p = try container.decode(TalentSyncPayload.self, forKey: .payload)
+            payload = .talentSync(p)
         }
     }
 
@@ -207,6 +249,10 @@ extension MQTTMessage: Codable {
         case .sessionListRequest:
             try container.encode([String: String](), forKey: .payload)
         case .sessionSync(let p):
+            try container.encode(p, forKey: .payload)
+        case .automationSync(let p):
+            try container.encode(p, forKey: .payload)
+        case .talentSync(let p):
             try container.encode(p, forKey: .payload)
         }
     }

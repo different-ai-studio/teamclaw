@@ -27,12 +27,14 @@ final class SkillViewModel: ObservableObject {
     // MARK: - Public Methods
 
     func loadSkills() {
-        let descriptor = FetchDescriptor<Skill>(
-            sortBy: [SortDescriptor(\.name)]
-        )
-        let allSkills = (try? modelContext.fetch(descriptor)) ?? []
-        personalSkills = allSkills.filter(\.isPersonal)
-        teamSkills = allSkills.filter { !$0.isPersonal }
+        loadSkillsFromDB()
+        requestSkills()
+    }
+
+    func requestSkills() {
+        guard let creds = PairingManager().credentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        mqttService.publishRaw(topic: topic, payload: "/skills", qos: 1)
     }
 
     // MARK: - Private Methods
@@ -74,6 +76,15 @@ final class SkillViewModel: ObservableObject {
         }
 
         try? modelContext.save()
-        loadSkills()
+        loadSkillsFromDB()
+    }
+
+    private func loadSkillsFromDB() {
+        let descriptor = FetchDescriptor<Skill>(
+            sortBy: [SortDescriptor(\.name)]
+        )
+        let allSkills = (try? modelContext.fetch(descriptor)) ?? []
+        personalSkills = allSkills.filter(\.isPersonal)
+        teamSkills = allSkills.filter { !$0.isPersonal }
     }
 }

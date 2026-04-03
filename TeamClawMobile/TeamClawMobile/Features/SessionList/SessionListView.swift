@@ -23,7 +23,7 @@ struct SessionListView: View {
         self.connectionMonitor = connectionMonitor
         self.pairingManager = pairingManager
         // Use shared app container so data persists correctly
-        let container = try! ModelContainer(for: Session.self, ChatMessage.self, TeamMember.self)
+        let container = try! ModelContainer(for: Session.self, ChatMessage.self, TeamMember.self, AutomationTask.self, Skill.self)
         _viewModel = StateObject(wrappedValue: SessionListViewModel(
             modelContext: ModelContext(container),
             mqttService: mqttService
@@ -82,10 +82,13 @@ struct SessionListView: View {
                 )
             }
             .sheet(isPresented: $showMemberPanel) {
-                MemberListView(viewModel: MemberViewModel(
-                    modelContext: modelContext,
+                MemberListView(
+                    viewModel: MemberViewModel(
+                        modelContext: modelContext,
+                        mqttService: mqttService
+                    ),
                     mqttService: mqttService
-                ))
+                )
             }
             .safeAreaInset(edge: .bottom) {
                 iMessageBar

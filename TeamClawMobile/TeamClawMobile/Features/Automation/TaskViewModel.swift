@@ -26,10 +26,14 @@ final class TaskViewModel: ObservableObject {
     // MARK: - Public Methods
 
     func loadTasks() {
-        let descriptor = FetchDescriptor<AutomationTask>(
-            sortBy: [SortDescriptor(\.name)]
-        )
-        tasks = (try? modelContext.fetch(descriptor)) ?? []
+        loadTasksFromDB()
+        requestAutomations()
+    }
+
+    func requestAutomations() {
+        guard let creds = PairingManager().credentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        mqttService.publishRaw(topic: topic, payload: "/automations", qos: 1)
     }
 
     func addTask(name: String, cron: String, description: String) {
@@ -42,14 +46,14 @@ final class TaskViewModel: ObservableObject {
         )
         modelContext.insert(task)
         try? modelContext.save()
-        loadTasks()
+        loadTasksFromDB()
         publishTaskUpdate(taskID: task.id, status: .idle)
     }
 
     func deleteTask(_ task: AutomationTask) {
         modelContext.delete(task)
         try? modelContext.save()
-        loadTasks()
+        loadTasksFromDB()
     }
 
     func updateTask(_ task: AutomationTask, name: String, cron: String, description: String) {
@@ -57,22 +61,23 @@ final class TaskViewModel: ObservableObject {
         task.cronExpression = cron
         task.taskDescription = description
         try? modelContext.save()
-        loadTasks()
+        loadTasksFromDB()
     }
 
     // MARK: - Private Methods
 
     private func subscribeToMQTT() {
         mqttService.receivedMessage
-            .compactMap { message -> TaskUpdatePayload? in
-                if case .taskUpdate(let payload) = message.payload {
-                    return payload
-                }
-                return nil
-            }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] payload in
-                self?.handleTaskUpdate(payload)
+            .sink { [weak self] message in
+                switch message.payload {
+                case .taskUpdate(let payload):
+                    self?.handleTaskUpdate(payload)
+                case .automationSync(let payload):
+                    self?.handleAutomationSync(payload)
+                default:
+                    break
+                }
             }
             .store(in: &cancellables)
     }
@@ -89,7 +94,38 @@ final class TaskViewModel: ObservableObject {
             task.lastRunTime = Date(timeIntervalSince1970: lastRunTime)
         }
         try? modelContext.save()
-        loadTasks()
+        loadTasksFromDB()
+    }
+
+    private func handleAutomationSync(_ payload: AutomationSyncPayload) {
+        let descriptor = FetchDescriptor<AutomationTask>()
+        if let existing = try? modelContext.fetch(descriptor) {
+            for task in existing {
+                modelContext.delete(task)
+            }
+        }
+
+        for data in payload.tasks {
+            let task = AutomationTask(
+                id: data.id,
+                name: data.name,
+                status: TaskStatus(rawValue: data.status ?? "") ?? .idle,
+                lastRunTime: data.lastRunTime.map { Date(timeIntervalSince1970: $0) },
+                cronExpression: data.cronExpression,
+                taskDescription: data.description
+            )
+            modelContext.insert(task)
+        }
+
+        try? modelContext.save()
+        loadTasksFromDB()
+    }
+
+    private func loadTasksFromDB() {
+        let descriptor = FetchDescriptor<AutomationTask>(
+            sortBy: [SortDescriptor(\.name)]
+        )
+        tasks = (try? modelContext.fetch(descriptor)) ?? []
     }
 
     private func publishTaskUpdate(taskID: String, status: TaskStatus) {
