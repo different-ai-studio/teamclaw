@@ -897,12 +897,6 @@ fn inherent_desktop_control_skill() -> Option<InherentSkill> {
 fn inherent_skills_common() -> Vec<InherentSkill> {
     vec![
         InherentSkill {
-            dirname: "using-superpowers",
-            content: include_str!(
-                "../../../packages/app/src/lib/skills/using-superpowers/SKILL.md"
-            ),
-        },
-        InherentSkill {
             dirname: "ai-keys",
             content: include_str!("../../../packages/app/src/lib/skills/ai-keys/SKILL.md"),
         },
