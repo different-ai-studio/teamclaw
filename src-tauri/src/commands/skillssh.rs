@@ -1537,6 +1537,130 @@ fn extract_frontmatter_name(content: &str) -> Option<String> {
     None
 }
 
+// ─── npx skills CLI integration ──────────────────────────────────────────────
+//
+// These commands delegate to the `npx skills` CLI (vercel-labs/skills) for
+// skill management operations (add, remove, update, check, list).
+// The marketplace display still fetches from skills.sh directly via HTTP.
+
+/// Run an `npx skills` subcommand and return stdout on success.
+fn run_npx_skills(args: &[&str], cwd: Option<&str>) -> Result<String, String> {
+    use std::process::Command;
+
+    let mut cmd = Command::new("npx");
+    cmd.args(args);
+    cmd.env("DISABLE_TELEMETRY", "1");
+
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+
+    let output = cmd.output().map_err(|e| {
+        format!(
+            "Failed to execute npx: {}. Please ensure Node.js is installed (https://nodejs.org/)",
+            e
+        )
+    })?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() {
+        Ok(stdout)
+    } else {
+        let msg = format!("{}\n{}", stdout, stderr);
+        Err(msg.trim().to_string())
+    }
+}
+
+/// Install a skill via `npx skills add`.
+///
+/// Supports GitHub shorthand (`owner/repo`), full URLs, and direct paths.
+#[tauri::command]
+pub async fn npx_skills_add(
+    workspace_path: Option<String>,
+    source: String,
+    skill: Option<String>,
+    is_global: bool,
+) -> Result<String, String> {
+    let mut args_owned: Vec<String> = vec!["skills".into(), "add".into(), source];
+
+    if let Some(ref s) = skill {
+        args_owned.push("--skill".into());
+        args_owned.push(s.clone());
+    }
+
+    args_owned.extend(["--agent".into(), "opencode".into()]);
+
+    if is_global {
+        args_owned.push("-g".into());
+    }
+
+    args_owned.push("-y".into());
+    args_owned.push("--copy".into());
+
+    let arg_refs: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
+    run_npx_skills(&arg_refs, workspace_path.as_deref())
+}
+
+/// Remove an installed skill via `npx skills remove`.
+#[tauri::command]
+pub async fn npx_skills_remove(
+    workspace_path: Option<String>,
+    skill_name: String,
+    is_global: bool,
+) -> Result<String, String> {
+    let mut args_owned: Vec<String> =
+        vec!["skills".into(), "remove".into(), skill_name];
+
+    args_owned.extend(["--agent".into(), "opencode".into()]);
+
+    if is_global {
+        args_owned.push("-g".into());
+    }
+
+    args_owned.push("-y".into());
+
+    let arg_refs: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
+    run_npx_skills(&arg_refs, workspace_path.as_deref())
+}
+
+/// Update all installed skills via `npx skills update`.
+#[tauri::command]
+pub async fn npx_skills_update(
+    workspace_path: Option<String>,
+) -> Result<String, String> {
+    run_npx_skills(&["skills", "update"], workspace_path.as_deref())
+}
+
+/// Check for available skill updates via `npx skills check`.
+#[tauri::command]
+pub async fn npx_skills_check(
+    workspace_path: Option<String>,
+) -> Result<String, String> {
+    run_npx_skills(&["skills", "check"], workspace_path.as_deref())
+}
+
+/// List installed skills via `npx skills list`.
+#[tauri::command]
+pub async fn npx_skills_list(
+    workspace_path: Option<String>,
+    is_global: bool,
+) -> Result<String, String> {
+    let mut args_owned: Vec<String> = vec!["skills".into(), "list".into()];
+
+    args_owned.extend(["--agent".into(), "opencode".into()]);
+
+    if is_global {
+        args_owned.push("-g".into());
+    }
+
+    let arg_refs: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
+    run_npx_skills(&arg_refs, workspace_path.as_deref())
+}
+
+// ─── Legacy helpers (still used by import_skill_from_zip) ───────────────────
+
 /// Copy skill directory excluding .git and other metadata
 fn copy_skill_directory(src: &std::path::PathBuf, dst: &std::path::PathBuf) -> Result<(), String> {
     use std::fs;

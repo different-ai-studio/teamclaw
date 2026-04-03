@@ -14,6 +14,7 @@ import {
   Loader2,
   RefreshCw,
   AlertCircle,
+  ArrowUpCircle,
   Check,
   FolderOpen,
   Globe,
@@ -175,13 +176,14 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       const home = await pathModule.homeDir()
       const allSlugs = new Set<string>()
 
+      const homeNorm = home.replace(/\/$/, '')
       const dirsToCheck = [
+        `${workspacePath}/.agents/skills`,
         `${workspacePath}/.opencode/skills`,
         `${workspacePath}/.claude/skills`,
-        `${workspacePath}/.agents/skills`,
-        `${home.replace(/\/$/, '')}/.config/opencode/skills`,
-        `${home.replace(/\/$/, '')}/.claude/skills`,
-        `${home.replace(/\/$/, '')}/.agents/skills`,
+        `${homeNorm}/.config/opencode/skills`,
+        `${homeNorm}/.claude/skills`,
+        `${homeNorm}/.agents/skills`,
       ]
 
       await Promise.allSettled(dirsToCheck.map(async (dir) => {
@@ -214,11 +216,10 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   const handleInstallSkillSh = React.useCallback(async (owner: string, repo: string, slug: string, location: 'workspace' | 'global') => {
     setInstallingSlugs((prev) => new Set(prev).add(slug))
     try {
-      await invoke<string>("install_skillssh_skill", {
+      await invoke<string>("npx_skills_add", {
         workspacePath: location === 'workspace' ? workspacePath : null,
-        owner,
-        repo,
-        slug,
+        source: `${owner}/${repo}`,
+        skill: slug,
         isGlobal: location === 'global',
       })
       setInstalledSlugs((prev) => new Set(prev).add(slug))
@@ -253,11 +254,15 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       if (!workspacePath) return
       setInstallingSlugs((prev) => new Set(prev).add(slug))
       try {
-        await invoke<string>("install_skillssh_skill", {
+        await invoke<string>("npx_skills_remove", {
           workspacePath,
-          owner,
-          repo,
-          slug,
+          skillName: slug,
+          isGlobal: false,
+        }).catch(() => {})
+        await invoke<string>("npx_skills_add", {
+          workspacePath,
+          source: `${owner}/${repo}`,
+          skill: slug,
           isGlobal: false,
         })
         await onInstalled?.()
@@ -280,11 +285,11 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       if (!workspacePath) return
       setInstallingSlugs((prev) => new Set(prev).add(slug))
       try {
-        const { remove, exists } = await import("@tauri-apps/plugin-fs")
-        const skillDir = `${workspacePath}/.opencode/skills/${slug}`
-        if (await exists(skillDir)) {
-          await remove(skillDir, { recursive: true })
-        }
+        await invoke<string>("npx_skills_remove", {
+          workspacePath,
+          skillName: slug,
+          isGlobal: false,
+        })
         setInstalledSlugs((prev) => {
           const next = new Set(prev)
           next.delete(slug)
@@ -585,60 +590,63 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
             )}
           </div>
 
-          {/* Install from Git URL */}
+          {/* npx skills install */}
           <SettingCard className="bg-muted/30">
             <div className="space-y-3">
               <h4 className="text-sm font-medium flex items-center gap-2">
                 <Package className="h-4 w-4" />
-                {t("skillssh.installFromGit", "Install from Git URL")}
+                {t("skillssh.installFromSource", "Install from Source")}
               </h4>
               <p className="text-sm text-muted-foreground">
-                {t("skillssh.installFromGitDesc", "Install skills from any git repository (GitHub, GitLab, Gitee, Bitbucket, or self-hosted)")}
+                {t("skillssh.installFromSourceDesc", "Install skills via npx skills add — supports GitHub shorthand (owner/repo), full URLs, and direct skill paths")}
               </p>
               <div className="flex items-center gap-2">
                 <Input
-                  placeholder={t("skillssh.gitUrlPlaceholder", "https://github.com/owner/repo or git@gitlab.com:owner/repo.git")}
+                  placeholder={t("skillssh.sourcePlaceholder", "owner/repo or https://github.com/owner/repo")}
                   className="flex-1 h-9 font-mono text-xs"
-                  id="git-url-input"
+                  id="npx-source-input"
                 />
                 <Input
-                  placeholder={t("skillssh.skillNamePlaceholder", "skill-name")}
-                  className="w-32 h-9 text-xs"
-                  id="skill-name-input"
+                  placeholder={t("skillssh.skillNamePlaceholder", "skill-name (optional)")}
+                  className="w-40 h-9 text-xs"
+                  id="npx-skill-input"
                 />
                 <Button
                   size="sm"
                   className="gap-1.5 h-9"
                   onClick={async () => {
-                    const urlInput = document.getElementById('git-url-input') as HTMLInputElement
-                    const nameInput = document.getElementById('skill-name-input') as HTMLInputElement
-                    const url = urlInput?.value.trim()
-                    const skillName = nameInput?.value.trim()
-                    
-                    if (!url || !skillName) {
-                      setError(t("skillssh.gitUrlRequired", "Please enter both git URL and skill name"))
+                    const srcInput = document.getElementById('npx-source-input') as HTMLInputElement
+                    const skillInput = document.getElementById('npx-skill-input') as HTMLInputElement
+                    const source = srcInput?.value.trim()
+                    const skillName = skillInput?.value.trim() || undefined
+
+                    if (!source) {
+                      setError(t("skillssh.sourceRequired", "Please enter a source (owner/repo or URL)"))
                       return
                     }
-                    
-                    setInstallingSlugs((prev) => new Set(prev).add(skillName))
+
+                    const tag = skillName || source
+                    setInstallingSlugs((prev) => new Set(prev).add(tag))
                     try {
-                      await invoke<string>("install_skill_from_git_url", {
-                        workspacePath: workspacePath,
-                        gitUrl: url,
-                        slug: skillName,
+                      await invoke<string>("npx_skills_add", {
+                        workspacePath,
+                        source,
+                        skill: skillName ?? null,
                         isGlobal: false,
                       })
-                      setInstalledSlugs((prev) => new Set(prev).add(skillName))
+                      if (skillName) {
+                        setInstalledSlugs((prev) => new Set(prev).add(skillName))
+                      }
                       onInstalled?.()
-                      urlInput.value = ''
-                      nameInput.value = ''
+                      srcInput.value = ''
+                      skillInput.value = ''
                     } catch (err) {
-                      console.error("[SkillsMarketplace] Failed to install from git URL:", err)
+                      console.error("[SkillsMarketplace] npx skills add failed:", err)
                       setError(err instanceof Error ? err.message : String(err))
                     } finally {
                       setInstallingSlugs((prev) => {
                         const next = new Set(prev)
-                        next.delete(skillName)
+                        next.delete(tag)
                         return next
                       })
                     }
@@ -649,14 +657,74 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                 </Button>
               </div>
               <div className="text-xs text-muted-foreground space-y-1">
-                <p className="font-medium">{t("skillssh.supportedPlatforms", "Supported platforms:")}</p>
+                <p className="font-medium">{t("skillssh.supportedFormats", "Supported formats:")}</p>
                 <ul className="list-disc list-inside space-y-0.5 pl-2">
-                  <li>GitHub (github.com)</li>
-                  <li>GitLab (gitlab.com and self-hosted)</li>
-                  <li>Gitee (gitee.com)</li>
-                  <li>Bitbucket (bitbucket.org)</li>
-                  <li>{t("skillssh.genericGit", "Any git repository")}</li>
+                  <li>GitHub shorthand: <code className="bg-muted px-1 rounded text-[11px]">owner/repo</code></li>
+                  <li>Full URL: <code className="bg-muted px-1 rounded text-[11px]">https://github.com/owner/repo</code></li>
+                  <li>Direct skill path: <code className="bg-muted px-1 rounded text-[11px]">https://github.com/owner/repo/tree/main/skills/my-skill</code></li>
+                  <li>GitLab / Gitee / Bitbucket / any git URL</li>
                 </ul>
+              </div>
+            </div>
+          </SettingCard>
+
+          {/* Update / Check skills */}
+          <SettingCard className="bg-muted/30">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  <ArrowUpCircle className="h-4 w-4" />
+                  {t("skillssh.manageInstalled", "Manage Installed Skills")}
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t("skillssh.manageDesc", "Check for updates or update all installed skills via npx skills")}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={isLoading}
+                  onClick={async () => {
+                    setIsLoading(true)
+                    setError(null)
+                    try {
+                      const result = await invoke<string>("npx_skills_check", { workspacePath })
+                      setError(null)
+                      console.log("[SkillsMarketplace] npx skills check:", result)
+                      alert(result || t("skillssh.allUpToDate", "All skills are up to date"))
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err))
+                    } finally {
+                      setIsLoading(false)
+                    }
+                  }}
+                >
+                  <Search className="h-3.5 w-3.5" />
+                  {t("skillssh.checkUpdates", "Check Updates")}
+                </Button>
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={isLoading}
+                  onClick={async () => {
+                    setIsLoading(true)
+                    setError(null)
+                    try {
+                      await invoke<string>("npx_skills_update", { workspacePath })
+                      await loadInstalled()
+                      await onInstalled?.()
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err))
+                    } finally {
+                      setIsLoading(false)
+                    }
+                  }}
+                >
+                  <ArrowUpCircle className="h-3.5 w-3.5" />
+                  {t("skillssh.updateAll", "Update All")}
+                </Button>
               </div>
             </div>
           </SettingCard>
@@ -728,7 +796,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                       <FolderOpen className="h-4 w-4 text-violet-500 mt-0.5 shrink-0" />
                       <div className="flex flex-col gap-0.5 min-w-0">
                         <span className="font-medium">{t('settings.skills.locationWorkspace', 'Workspace')}</span>
-                        <span className="text-xs text-muted-foreground whitespace-normal break-words">.opencode/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
+                        <span className="text-xs text-muted-foreground whitespace-normal break-words">.agents/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
                       </div>
                     </div>
                   </SelectItem>
