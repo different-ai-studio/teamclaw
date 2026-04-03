@@ -67,7 +67,7 @@ whisper-rs = { version = "0.15", optional = true }
 # RAG dependencies
 anyhow = "1"
 pulldown-cmark = "0.13"
-sha2 = "0.10"
+sha2 = "0.11"
 walkdir = "2"
 tantivy = "0.22"
 # Tantivy / zip pull in `zstd` → `zstd-sys`. On macOS, transitive native link metadata can fail to
