@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, AlertCircle, RefreshCw, Loader2, Users, User } from 'lucide-react'
+import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, AlertCircle, RefreshCw, Loader2, Users, User, Lock } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,7 +24,7 @@ import { listen } from '@tauri-apps/api/event'
 // ─── Unified type for the combined list ─────────────────────────────────
 
 type UnifiedEntry =
-  | { scope: 'personal'; key: string; description?: string; dirty?: boolean }
+  | { scope: 'personal'; key: string; description?: string; category?: 'system' | null; dirty?: boolean }
   | { scope: 'team'; key: string; description: string; category: string; createdBy: string; updatedBy: string; updatedAt: string; dirty?: boolean }
 
 // ─── Add / Edit Dialog ──────────────────────────────────────────────────
@@ -259,6 +259,7 @@ function EnvVarRow({ entry, canDelete, onEdit, onDelete }: EnvVarRowProps) {
   const [loading, setLoading] = React.useState(false)
   const { getEnvVarValue } = useEnvVarsStore()
 
+  const isSystem = entry.scope === 'personal' && entry.category === 'system'
   const isPersonal = entry.scope === 'personal'
 
   const handleReveal = async () => {
@@ -291,7 +292,12 @@ function EnvVarRow({ entry, canDelete, onEdit, onDelete }: EnvVarRowProps) {
           <code className="text-sm font-mono font-medium bg-muted px-2 py-0.5 rounded">
             {entry.key}
           </code>
-          {isPersonal ? (
+          {isSystem ? (
+            <span className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/40 px-1.5 py-0.5 rounded">
+              <Lock className="h-3 w-3" />
+              {t('settings.envVars.scopeSystem', 'System')}
+            </span>
+          ) : isPersonal ? (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
               <User className="h-3 w-3" />
               {t('settings.envVars.scopePersonal', 'Personal')}
@@ -411,6 +417,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       scope: 'personal' as const,
       key: e.key,
       description: e.description,
+      category: e.category,
       dirty: dirtyKeys.has(e.key),
     }))
     const team: UnifiedEntry[] = secrets.map((s) => ({
@@ -423,7 +430,16 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       updatedAt: s.updatedAt,
       dirty: dirtyKeys.has(s.keyId) || hasSyncDirty,
     }))
-    return [...team, ...personal]
+    const all = [...team, ...personal]
+    // System entries first; all other entries sorted alphabetically by key
+    all.sort((a, b) => {
+      const aIsSystem = a.scope === 'personal' && a.category === 'system'
+      const bIsSystem = b.scope === 'personal' && b.category === 'system'
+      if (aIsSystem && !bIsSystem) return -1
+      if (!aIsSystem && bIsSystem) return 1
+      return a.key.localeCompare(b.key)
+    })
+    return all
   }, [envVars, secrets, dirtyKeys, hasSyncDirty])
 
   const handleSave = async (key: string, value: string, description: string, shared: boolean) => {
@@ -445,8 +461,9 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     setDeleteTarget(null)
   }
 
-  // Check if current user can delete a given entry
+  // Note: the Rust env_var_delete command also enforces the system-var guard server-side.
   const canDeleteEntry = (entry: UnifiedEntry): boolean => {
+    if (entry.scope === 'personal' && entry.category === 'system') return false
     if (entry.scope === 'personal') return true
     if (myRole === 'owner') return true
     if (entry.scope === 'team' && entry.createdBy === currentNodeId) return true

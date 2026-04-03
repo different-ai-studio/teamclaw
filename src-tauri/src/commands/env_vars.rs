@@ -4,8 +4,124 @@ use tauri::State;
 
 use super::opencode::OpenCodeState;
 
-/// Keyring service name prefix for all TeamClaw environment variables.
-pub(crate) const KEYRING_SERVICE_PREFIX: &str = concat!(env!("APP_SHORT_NAME"), ".env");
+/// Single keychain entry that stores all env vars as a JSON blob.
+pub(crate) const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), ".env");
+
+/// Read the entire env var blob from keychain.
+/// Returns an empty map if the entry doesn't exist yet.
+/// On first call after migration: detects old per-key entries and consolidates them.
+/// May write to keychain on first call if legacy migration is needed.
+pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
+        .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
+
+    match entry.get_password() {
+        Ok(json_str) => {
+            let val: serde_json::Value = serde_json::from_str(&json_str)
+                .unwrap_or_else(|e| {
+                    eprintln!("[EnvVars] Failed to parse keychain blob as JSON (corrupt?): {}", e);
+                    serde_json::Value::Object(serde_json::Map::new())
+                });
+            match val {
+                serde_json::Value::Object(map) => Ok(map),
+                _ => Ok(serde_json::Map::new()),
+            }
+        }
+        Err(keyring::Error::NoEntry) => {
+            // First launch (or blob deleted): attempt migration from legacy per-key format.
+            // Note: migration only fires when the blob entry is absent (NoEntry). If the blob
+            // exists but contains empty/corrupt JSON, we return the fallback empty map above and
+            // skip migration — legacy per-key entries would remain orphaned in that case.
+            let migrated = migrate_legacy_keyring(workspace_path);
+            if !migrated.is_empty() {
+                println!("[EnvVars] Migrated {} legacy keychain entries to blob", migrated.len());
+                write_env_blob(&migrated)?;
+            }
+            Ok(migrated)
+        }
+        Err(e) => Err(format!("Failed to read keychain blob: {}", e)),
+    }
+}
+
+/// Write the entire env var blob to keychain.
+pub(crate) fn write_env_blob(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let json_str = serde_json::to_string(map)
+        .map_err(|e| format!("Failed to serialize env blob: {}", e))?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
+        .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
+    entry.set_password(&json_str)
+        .map_err(|e| format!("Failed to write keychain blob: {}", e))
+}
+
+/// Read old per-key keychain entries and consolidate into a map.
+/// Deletes old entries after reading.
+fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde_json::Value> {
+    let path = format!("{}/{}/teamclaw.json", workspace_path, super::TEAMCLAW_DIR);
+    let json: serde_json::Value = match std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+    {
+        Some(v) => v,
+        None => return serde_json::Map::new(),
+    };
+
+    let entries = match json.get("envVars").and_then(|v| v.as_array()) {
+        Some(arr) => arr.clone(),
+        None => return serde_json::Map::new(),
+    };
+
+    let mut map = serde_json::Map::new();
+    for entry_val in &entries {
+        let key = match entry_val.get("key").and_then(|k| k.as_str()) {
+            Some(k) => k,
+            None => continue,
+        };
+        // Legacy service name was `{KEYRING_SERVICE}.<KEY>`
+        let legacy_service = format!("{}.{}", KEYRING_SERVICE, key);
+        if let Ok(e) = keyring::Entry::new(&legacy_service, "teamclaw") {
+            match e.get_password() {
+                Ok(value) => {
+                    map.insert(key.to_string(), serde_json::Value::String(value));
+                    // Delete old entry
+                    let _ = e.delete_credential();
+                }
+                Err(e) => {
+                    eprintln!("[EnvVars] Migration: failed to read legacy keychain entry '{}': {}", key, e);
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Context available to system env var default generators.
+struct SystemEnvVarContext {
+    device_id: String,
+}
+
+/// Definition of a system-managed env var.
+pub(crate) struct SystemEnvVarDef {
+    key: &'static str,
+    description: &'static str,
+    default_fn: fn(&SystemEnvVarContext) -> Option<String>,
+}
+
+/// Registry of all system env vars.
+/// To add a new one: append an entry here — nothing else changes.
+pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[
+    SystemEnvVarDef {
+        key: "tc_api_key",
+        description: "Team LLM API Key",
+        default_fn: |ctx| {
+            if ctx.device_id.is_empty() {
+                return None;
+            }
+            let id = &ctx.device_id;
+            // 40 chars: matches the LiteLLM virtual key suffix length limit
+            Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
+        },
+    },
+];
 
 /// A single environment variable entry (key + description, no value).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,14 +129,11 @@ pub struct EnvVarEntry {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,  // "system" | None
 }
 
 // ─── Internal helpers ───────────────────────────────────────────────────
-
-/// Build the keyring service name for a given key.
-pub(crate) fn keyring_service(key: &str) -> String {
-    format!("{}.{}", KEYRING_SERVICE_PREFIX, key)
-}
 
 /// Get the teamclaw.json path inside the workspace.
 fn get_teamclaw_json_path(workspace_path: &str) -> String {
@@ -91,7 +204,7 @@ fn get_workspace_path(state: &State<'_, OpenCodeState>) -> Result<String, String
 
 // ─── Tauri Commands ─────────────────────────────────────────────────────
 
-/// Store (or update) an environment variable in the OS keyring and update the index in teamclaw.json.
+/// Store (or update) an environment variable in the keychain blob and update the index in teamclaw.json.
 #[tauri::command]
 pub async fn env_var_set(
     state: State<'_, OpenCodeState>,
@@ -101,52 +214,77 @@ pub async fn env_var_set(
 ) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
-    // Store value in OS keyring
-    let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
-    entry
-        .set_password(&value)
-        .map_err(|e| format!("Failed to store secret in keyring: {}", e))?;
+    // Read-modify-write atomically on a blocking thread
+    let key_clone = key.clone();
+    let value_clone = value.clone();
+    let wp = workspace_path.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut blob = read_env_blob(&wp)?;
+        blob.insert(key_clone, serde_json::Value::String(value_clone));
+        write_env_blob(&blob)
+    }).await.map_err(|e| e.to_string())??;
 
-    // Update index in teamclaw.json
+    // Update index in teamclaw.json (metadata only, no value)
     let mut json = read_teamclaw_json(&workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
     if let Some(existing) = entries.iter_mut().find(|e| e.key == key) {
-        // Update description if changed
         existing.description = description;
     } else {
-        // Add new entry
-        entries.push(EnvVarEntry { key, description });
+        entries.push(EnvVarEntry { key, description, category: None });
     }
 
     set_env_vars_in_json(&mut json, &entries);
     write_teamclaw_json(&workspace_path, &json)
 }
 
-/// Retrieve an environment variable value from the OS keyring.
+/// Retrieve an environment variable value from the keychain blob.
 #[tauri::command]
-pub async fn env_var_get(key: String) -> Result<String, String> {
-    let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
-    entry
-        .get_password()
-        .map_err(|e| format!("Key '{}' not found in keyring: {}", key, e))
+pub async fn env_var_get(
+    state: State<'_, OpenCodeState>,
+    key: String,
+) -> Result<String, String> {
+    let workspace_path = get_workspace_path(&state)?;
+    let blob = tokio::task::spawn_blocking({
+        let wp = workspace_path.clone();
+        move || read_env_blob(&wp)
+    }).await.map_err(|e| e.to_string())??;
+
+    blob.get(&key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("Key '{}' not found", key))
 }
 
-/// Delete an environment variable from both the OS keyring and teamclaw.json index.
+/// Delete an environment variable from both the keychain blob and teamclaw.json index.
 #[tauri::command]
 pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
-    // Delete from OS keyring (ignore errors if not found)
-    let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
-    let _ = entry.delete_credential();
-
-    // Remove from teamclaw.json index
+    // Read index once — used for both the guard check and the removal below.
+    // Note: concurrent deletes from multiple Tauri windows could race here (each reads,
+    // modifies, and writes the same json independently). In practice the settings UI is
+    // single-user sequential, so this is acceptable.
     let mut json = read_teamclaw_json(&workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
+
+    // Check category — system vars cannot be deleted
+    if let Some(entry) = entries.iter().find(|e| e.key == key) {
+        if entry.category.as_deref() == Some("system") {
+            return Err(format!("System variable '{}' cannot be deleted", key));
+        }
+    }
+
+    // Read-modify-write blob atomically on a blocking thread
+    let key_clone = key.clone();
+    let wp = workspace_path.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut blob = read_env_blob(&wp)?;
+        blob.remove(&key_clone);
+        write_env_blob(&blob)
+    }).await.map_err(|e| e.to_string())??;
+
+    // Remove from teamclaw.json index (reuse the already-read json)
     entries.retain(|e| e.key != key);
     set_env_vars_in_json(&mut json, &entries);
     write_teamclaw_json(&workspace_path, &json)
@@ -164,19 +302,20 @@ pub async fn env_var_list(state: State<'_, OpenCodeState>) -> Result<Vec<EnvVarE
 ///
 /// Resolution order for each `${KEY}`:
 ///   1. Shared secrets (team KMS, in-memory HashMap)
-///   2. Local keyring (per-user OS keyring)
+///   2. Local keyring blob (per-user OS keyring, single blob entry)
 ///   3. System environment variables (`std::env::var`)
 #[tauri::command]
 pub async fn env_var_resolve(
+    state: State<'_, OpenCodeState>,
     shared_secrets: State<'_, super::shared_secrets::SharedSecretsState>,
     input: String,
 ) -> Result<String, String> {
+    let workspace_path = get_workspace_path(&state)?;
     let re = regex::Regex::new(r"\$\{([^}]+)\}").map_err(|e| format!("Invalid regex: {}", e))?;
 
     let mut result = input.clone();
     let mut errors: Vec<String> = Vec::new();
 
-    // Collect all matches first to avoid borrow issues
     let matches: Vec<(String, String)> = re
         .captures_iter(&input)
         .map(|cap| {
@@ -185,6 +324,18 @@ pub async fn env_var_resolve(
             (full_match, key)
         })
         .collect();
+
+    // Read blob once upfront (one keychain access for all keys)
+    let blob = {
+        let wp = workspace_path.clone();
+        tokio::task::spawn_blocking(move || read_env_blob(&wp))
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|e| {
+                eprintln!("[EnvVars] env_var_resolve: failed to read keychain blob, proceeding without local secrets: {}", e);
+                serde_json::Map::new()
+            })
+    };
 
     for (full_match, key) in matches {
         // 1. Check shared secrets (team KMS) — try original key, then lowercase
@@ -196,15 +347,10 @@ pub async fn env_var_resolve(
             continue;
         }
 
-        // 2. Check local keyring
-        let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
-            .map_err(|e| format!("Failed to create keyring entry for '{}': {}", key, e))?;
-        match entry.get_password() {
-            Ok(value) => {
-                result = result.replace(&full_match, &value);
-                continue;
-            }
-            Err(_) => {}
+        // 2. Check local keyring blob
+        if let Some(value) = blob.get(&key).and_then(|v| v.as_str()) {
+            result = result.replace(&full_match, value);
+            continue;
         }
 
         // 3. Check system environment variables
@@ -226,4 +372,66 @@ pub async fn env_var_resolve(
     }
 
     Ok(result)
+}
+
+/// Ensure all system env vars exist in keychain blob and in the teamclaw.json index.
+/// If a key is missing from the blob, its default value is generated and written.
+/// If a key already has a value (user customized), it is left unchanged.
+/// This must be called on a blocking thread (keychain I/O).
+pub(crate) fn ensure_system_env_vars(
+    workspace_path: &str,
+    device_id: &str,
+) -> Result<(), String> {
+    let ctx = SystemEnvVarContext { device_id: device_id.to_string() };
+    let mut blob = read_env_blob(workspace_path)?;
+    let mut json = read_teamclaw_json(workspace_path)?;
+    let mut entries = get_env_vars_from_json(&json);
+    let mut blob_changed = false;
+    let mut index_changed = false;
+
+    for def in SYSTEM_ENV_VARS {
+        // Check if there's already a non-empty value in the blob
+        let has_value = blob.get(def.key).and_then(|v| v.as_str()).map_or(false, |v| !v.is_empty());
+
+        // Generate default value if not already set
+        if !has_value {
+            if let Some(default_value) = (def.default_fn)(&ctx) {
+                blob.insert(def.key.to_string(), serde_json::Value::String(default_value));
+                blob_changed = true;
+                println!("[EnvVars] Generated default value for system var: {}", def.key);
+            }
+        }
+
+        // Only register in index if the blob has a value (either pre-existing or just generated)
+        let blob_has_value_now = blob.get(def.key).and_then(|v| v.as_str()).map_or(false, |v| !v.is_empty());
+        if !blob_has_value_now {
+            // Skip index entry — no value available (e.g., device_id not ready)
+            continue;
+        }
+
+        // Ensure index entry exists with category: "system"
+        if let Some(existing) = entries.iter_mut().find(|e| e.key == def.key) {
+            if existing.category.as_deref() != Some("system") {
+                existing.category = Some("system".to_string());
+                index_changed = true;
+            }
+        } else {
+            entries.push(EnvVarEntry {
+                key: def.key.to_string(),
+                description: Some(def.description.to_string()),
+                category: Some("system".to_string()),
+            });
+            index_changed = true;
+        }
+    }
+
+    if blob_changed {
+        write_env_blob(&blob)?;
+    }
+    if index_changed {
+        set_env_vars_in_json(&mut json, &entries);
+        write_teamclaw_json(workspace_path, &json)?;
+    }
+
+    Ok(())
 }

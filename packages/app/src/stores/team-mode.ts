@@ -5,20 +5,10 @@ import {
 } from '@/lib/opencode/config'
 import { useProviderStore } from './provider'
 import { isTauri } from '@/lib/utils'
-import { appShortName, buildConfig, TEAM_API_KEY_STORAGE_KEY } from '@/lib/build-config'
+import { appShortName, buildConfig } from '@/lib/build-config'
 
 
 const TEAM_PROVIDER_ID = 'team'
-const TEAM_API_KEY_STORAGE = TEAM_API_KEY_STORAGE_KEY
-
-/** Read team API key override from persistent storage (global, not per-workspace). */
-export function getPersistedTeamApiKey(): string | null {
-  try {
-    return localStorage.getItem(TEAM_API_KEY_STORAGE) || null
-  } catch {
-    return null
-  }
-}
 
 export interface TeamModelConfig {
   baseUrl: string
@@ -30,7 +20,6 @@ interface TeamModeState {
   teamMode: boolean
   teamModeType: string | null // "p2p" | "oss" | "webdav" | "git" — from teamclaw.json
   teamModelConfig: TeamModelConfig | null
-  teamApiKey: string | null // user-overridden key, null = sk-tc-{nodeId[:40]} (FC add-member)
   _appliedConfigKey: string | null // fingerprint of last applied config to avoid redundant apply
   devUnlocked: boolean // hidden dev mode: unlocks model selector & hidden dirs in team mode
   myRole: 'owner' | 'editor' | 'viewer' | null
@@ -40,8 +29,6 @@ interface TeamModeState {
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
   applyTeamModelToOpenCode: (workspacePath: string, force?: boolean) => Promise<void>
-  setTeamApiKey: (key: string | null, workspacePath?: string) => Promise<void>
-  reAuthTeamProvider: () => Promise<void>
   clearTeamMode: (workspacePath?: string) => Promise<void>
   setDevUnlocked: (unlocked: boolean) => void
   loadP2pFileSyncStatus: () => Promise<void>
@@ -64,18 +51,6 @@ async function fetchTeamStatus(): Promise<TeamStatusResponse | null> {
   }
 }
 
-async function getDeviceNodeId(): Promise<string> {
-  if (!isTauri()) return ''
-  const { invoke } = await import('@tauri-apps/api/core')
-  const info = await invoke<{ nodeId: string }>('get_device_info')
-  return info.nodeId
-}
-
-/** Default LiteLLM virtual key for this device; must match fc/index.mjs `/ai/add-member`. */
-function defaultTeamLiteLlmApiKey(nodeId: string): string {
-  if (!nodeId) return ''
-  return `sk-tc-${nodeId.slice(0, 40)}`
-}
 
 export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   teamMode: false,
@@ -86,7 +61,6 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   myRole: null,
   p2pConnected: false,
   p2pConfigured: false,
-  teamApiKey: getPersistedTeamApiKey(),
   p2pFileSyncStatusMap: {},
 
   loadTeamConfig: async (_workspacePath: string) => {
@@ -135,11 +109,11 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   },
 
   applyTeamModelToOpenCode: async (workspacePath: string, force?: boolean) => {
-    const { teamModelConfig, teamApiKey, _appliedConfigKey } = get()
+    const { teamModelConfig, _appliedConfigKey } = get()
     if (!teamModelConfig) return
 
     // Build a fingerprint of the current config to avoid redundant restarts/toasts
-    const configKey = `${teamModelConfig.baseUrl}|${teamModelConfig.model}|${teamApiKey || ''}`
+    const configKey = `${teamModelConfig.baseUrl}|${teamModelConfig.model}`
     if (!force && configKey === _appliedConfigKey) return
     set({ _appliedConfigKey: configKey })
 
@@ -175,16 +149,9 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       await addCustomProviderToConfig(workspacePath, {
         name: 'Team',
         baseURL: teamModelConfig.baseUrl,
+        apiKey: '${tc_api_key}',
         models: [modelConfig],
       })
-
-      // Determine API key: user override or FC default virtual key (not raw nodeId)
-      const nodeId = await getDeviceNodeId()
-      const apiKey = teamApiKey || defaultTeamLiteLlmApiKey(nodeId)
-      if (!apiKey) {
-        console.error('[TeamMode] No API key and no device NodeId available')
-        return
-      }
 
       // Restart OpenCode to pick up new provider config
       if (isTauri()) {
@@ -202,52 +169,12 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         await new Promise((r) => setTimeout(r, 500))
       }
 
-      // Connect provider with key
-      await providerStore.connectProvider(TEAM_PROVIDER_ID, apiKey)
-
-      // Wait for OpenCode to register the team custom provider before selecting the model.
-      // PATCH /config returns 500 if the model isn't in OpenCode's provider registry yet.
-      const { getOpenCodeClient } = await import('@/lib/opencode/client')
-      let client: ReturnType<typeof getOpenCodeClient> | null = null
-      try { client = getOpenCodeClient() } catch { /* not initialized */ }
-      if (client) {
-        const deadline = Date.now() + 10_000
-        while (Date.now() < deadline) {
-          try {
-            const result = await client.getProviders()
-            if (result.connected.includes(TEAM_PROVIDER_ID)) break
-          } catch { /* server still initializing */ }
-          await new Promise((r) => setTimeout(r, 500))
-        }
-      }
-
       await providerStore.selectModel(TEAM_PROVIDER_ID, teamModelConfig.model, teamModelConfig.modelName)
       await providerStore.refreshConfiguredProviders()
 
       console.log('[TeamMode] Applied team model config:', teamModelConfig)
     } catch (err) {
       console.error('[TeamMode] Failed to apply team model to OpenCode:', err)
-    }
-  },
-
-  setTeamApiKey: async (key: string | null, workspacePath?: string) => {
-    set({ teamApiKey: key })
-    try {
-      if (key) {
-        localStorage.setItem(TEAM_API_KEY_STORAGE, key)
-      } else {
-        localStorage.removeItem(TEAM_API_KEY_STORAGE)
-      }
-    } catch { /* ignore */ }
-
-    // Re-apply if in team mode
-    if (get().teamMode && workspacePath) {
-      const nodeId = await getDeviceNodeId()
-      const apiKey = key || defaultTeamLiteLlmApiKey(nodeId)
-      if (apiKey) {
-        const providerStore = useProviderStore.getState()
-        await providerStore.connectProvider(TEAM_PROVIDER_ID, apiKey)
-      }
     }
   },
 
@@ -274,33 +201,12 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     }
   },
 
-  // Re-authenticate team provider without restarting sidecar.
-  // Call this after any OpenCode restart to restore auth state.
-  reAuthTeamProvider: async () => {
-    const { teamMode, teamModelConfig, teamApiKey } = get()
-    if (!teamMode || !teamModelConfig) return
-    try {
-      const nodeId = await getDeviceNodeId()
-      const apiKey = teamApiKey || defaultTeamLiteLlmApiKey(nodeId)
-      if (!apiKey) return
-      const providerStore = useProviderStore.getState()
-      await providerStore.connectProvider(TEAM_PROVIDER_ID, apiKey)
-      console.log('[TeamMode] Re-authenticated team provider after sidecar restart')
-    } catch (err) {
-      console.error('[TeamMode] Failed to re-authenticate team provider:', err)
-    }
-  },
-
   clearTeamMode: async (workspacePath?: string) => {
     // When LLM config is locked via build config, prevent exiting team mode
     if (buildConfig.team.lockLlmConfig) return
 
     // Set state immediately to trigger UI updates
     set({ teamMode: false, teamModeType: null, teamModelConfig: null, _appliedConfigKey: null, p2pFileSyncStatusMap: {} })
-
-    try {
-      localStorage.removeItem(TEAM_API_KEY_STORAGE)
-    } catch { /* ignore */ }
 
     // Remove team provider from opencode.json
     if (workspacePath) {

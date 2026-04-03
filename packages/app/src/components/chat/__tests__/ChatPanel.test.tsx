@@ -151,7 +151,6 @@ vi.mock('@/stores/provider', () => {
 const teamModeState = {
   teamMode: false,
   teamModelConfig: null,
-  teamApiKey: null,
   loadTeamConfig: vi.fn(() => Promise.resolve()),
   applyTeamModelToOpenCode: vi.fn(() => Promise.resolve()),
 };

@@ -3,7 +3,7 @@ import { UNSUPPORTED_BINARY_EXTENSIONS } from "@/components/viewers/UnsupportedF
 import { isTauri } from '@/lib/utils'
 import { ensureGitignoreEntries } from '@/lib/gitignore-manager'
 import { appShortName, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
-import { getPersistedTeamApiKey, useTeamModeStore } from './team-mode'
+import { useTeamModeStore } from './team-mode'
 
 // Directories to hide from file tree (system directories)
 const HIDDEN_DIRECTORIES = new Set([TEAMCLAW_DIR, '.opencode'])
@@ -345,8 +345,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         teamMode: false,
         teamModeType: null,
         teamModelConfig: null,
-        // API key is stored globally in localStorage; do not clear on workspace load
-        teamApiKey: getPersistedTeamApiKey(),
         _appliedConfigKey: null,
         myRole: null,
         p2pConnected: false,
@@ -446,7 +444,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       useTeamModeStore.setState({
         teamMode: false,
         teamModelConfig: null,
-        teamApiKey: null,
         _appliedConfigKey: null,
         myRole: null,
       });
