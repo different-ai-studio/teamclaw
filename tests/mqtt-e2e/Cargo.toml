@@ -1,0 +1,16 @@
+[package]
+name = "mqtt-e2e-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[test]]
+name = "mqtt_relay_e2e"
+path = "src/mqtt_relay_e2e.rs"
+
+[dependencies]
+rumqttc = { version = "0.25", features = ["use-rustls"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
