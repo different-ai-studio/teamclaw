@@ -15,6 +15,8 @@ pub mod wechat;
 pub mod wechat_config;
 pub mod wecom;
 pub mod wecom_config;
+pub mod mqtt_config;
+pub mod mqtt_relay;
 
 pub use config::*;
 pub use discord::DiscordGateway;
@@ -32,6 +34,8 @@ pub use wechat::WeChatGateway;
 pub use wechat_config::*;
 pub use wecom::WeComGateway;
 pub use wecom_config::*;
+pub use mqtt_config::*;
+pub use mqtt_relay::MqttRelay;
 
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -136,6 +140,7 @@ pub struct GatewayState {
     pub kook_gateway: Mutex<Option<KookGateway>>,
     pub wecom_gateway: Mutex<Option<WeComGateway>>,
     pub wechat_gateway: Mutex<Option<WeChatGateway>>,
+    pub mqtt_relay: Mutex<Option<MqttRelay>>,
     /// Shared session mapping across all gateways
     pub shared_session_mapping: SessionMapping,
     /// Whether the shared session mapping has been initialized with a persistence path
@@ -151,6 +156,7 @@ impl Default for GatewayState {
             kook_gateway: Mutex::new(None),
             wecom_gateway: Mutex::new(None),
             wechat_gateway: Mutex::new(None),
+            mqtt_relay: Mutex::new(None),
             shared_session_mapping: SessionMapping::new(),
             session_initialized: Mutex::new(false),
         }
@@ -2359,4 +2365,132 @@ pub async fn test_wechat_connection(bot_token: String) -> Result<String, String>
         return Err("Bot token is required".to_string());
     }
     wechat::test_connection(&bot_token).await
+}
+
+// ─── MQTT Relay Commands ───────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_mqtt_relay_config(
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
+) -> Result<MqttConfig, String> {
+    let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+    let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
+    drop(guard);
+    let config = read_config(&workspace_path)?;
+    Ok(config.channels.and_then(|c| c.mqtt).unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn save_mqtt_relay_config(
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
+    gateway_state: State<'_, GatewayState>,
+    config: MqttConfig,
+) -> Result<(), String> {
+    let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+    let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
+    drop(guard);
+
+    let mut full_config = read_config(&workspace_path).unwrap_or_default();
+    let mut channels = full_config.channels.unwrap_or_default();
+    channels.mqtt = Some(config.clone());
+    full_config.channels = Some(channels);
+    write_config(&workspace_path, &full_config)?;
+
+    if let Some(relay) = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?.as_ref() {
+        relay.set_config(config).await;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_mqtt_relay(
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
+    gateway_state: State<'_, GatewayState>,
+) -> Result<(), String> {
+    let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+    let port = guard.port;
+    let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
+    drop(guard);
+
+    let mqtt_config = read_config(&workspace_path)?
+        .channels
+        .and_then(|c| c.mqtt)
+        .ok_or("MQTT relay config not found")?;
+
+    let mut relay_guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
+
+    if relay_guard.is_none() {
+        let relay = MqttRelay::new(port, workspace_path);
+        *relay_guard = Some(relay);
+    }
+
+    if let Some(relay) = relay_guard.as_ref() {
+        relay.set_config(mqtt_config).await;
+        relay.start().await?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_mqtt_relay(
+    gateway_state: State<'_, GatewayState>,
+) -> Result<(), String> {
+    if let Some(relay) = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?.as_ref() {
+        relay.stop().await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_mqtt_relay_status(
+    gateway_state: State<'_, GatewayState>,
+) -> Result<MqttRelayStatus, String> {
+    if let Some(relay) = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?.as_ref() {
+        Ok(relay.get_status().await)
+    } else {
+        Ok(MqttRelayStatus {
+            connected: false,
+            broker_host: None,
+            paired_device_count: 0,
+            error_message: None,
+        })
+    }
+}
+
+#[tauri::command]
+pub async fn generate_mqtt_pairing_code(
+    gateway_state: State<'_, GatewayState>,
+) -> Result<String, String> {
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref()
+        .ok_or("MQTT relay not started")?
+        .clone();
+    relay.generate_pairing_code().await
+}
+
+#[tauri::command]
+pub async fn unpair_mqtt_device(
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
+    gateway_state: State<'_, GatewayState>,
+    device_id: String,
+) -> Result<(), String> {
+    let relay_guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
+    if let Some(relay) = relay_guard.as_ref() {
+        relay.unpair_device(&device_id).await?;
+
+        // Persist updated config
+        let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+        let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
+        drop(guard);
+
+        let config = relay.get_config().await;
+        let mut full_config = read_config(&workspace_path).unwrap_or_default();
+        let mut channels = full_config.channels.unwrap_or_default();
+        channels.mqtt = Some(config);
+        full_config.channels = Some(channels);
+        write_config(&workspace_path, &full_config)?;
+    }
+    Ok(())
 }
