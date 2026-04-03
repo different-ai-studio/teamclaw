@@ -99,6 +99,7 @@ futures-lite = "2"
 axum = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
 gethostname = "1.1.0"
+ignore = "0.4"
 
 # ClawHub skill registry
 zip = "8"

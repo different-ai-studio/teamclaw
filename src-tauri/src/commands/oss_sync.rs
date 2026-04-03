@@ -667,6 +667,27 @@ impl OssSyncManager {
         Ok(())
     }
 
+    /// Build a gitignore matcher that layers rules from the team root
+    /// `.gitignore` (parent of `dir`) and the doc-type subdir `.gitignore`.
+    fn build_gitignore(dir: &Path) -> ignore::gitignore::Gitignore {
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
+        // Team root .gitignore (one level up, e.g. teamclaw-team/.gitignore)
+        if let Some(parent) = dir.parent() {
+            let root_gi = parent.join(".gitignore");
+            if root_gi.exists() {
+                let _ = builder.add(root_gi);
+            }
+        }
+        // Subdir .gitignore (e.g. teamclaw-team/skills/.gitignore)
+        let sub_gi = dir.join(".gitignore");
+        if sub_gi.exists() {
+            let _ = builder.add(sub_gi);
+        }
+        builder.build().unwrap_or_else(|_| {
+            ignore::gitignore::GitignoreBuilder::new(dir).build().unwrap()
+        })
+    }
+
     fn scan_local_files(dir: &Path) -> Result<HashMap<String, Vec<u8>>, String> {
         let mut result = HashMap::new();
 
@@ -674,9 +695,12 @@ impl OssSyncManager {
             return Ok(result);
         }
 
+        let gitignore = Self::build_gitignore(dir);
+
         fn walk(
             base: &Path,
             current: &Path,
+            gitignore: &ignore::gitignore::Gitignore,
             result: &mut HashMap<String, Vec<u8>>,
         ) -> Result<(), String> {
             let entries = std::fs::read_dir(current)
@@ -688,14 +712,22 @@ impl OssSyncManager {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
 
-                // Skip hidden files/dirs
-                if name_str.starts_with('.') {
+                // Skip hidden files/dirs (but allow .gitignore)
+                if name_str.starts_with('.') && name_str != ".gitignore" {
                     continue;
                 }
 
                 if path.is_dir() {
-                    walk(base, &path, result)?;
+                    // Check gitignore for directories
+                    if gitignore.matched(&path, true).is_ignore() {
+                        continue;
+                    }
+                    walk(base, &path, gitignore, result)?;
                 } else {
+                    // Check gitignore for files
+                    if gitignore.matched(&path, false).is_ignore() {
+                        continue;
+                    }
                     // Skip files exceeding the size limit
                     if let Ok(meta) = path.metadata() {
                         if meta.len() > MAX_SYNC_FILE_SIZE {
@@ -729,7 +761,7 @@ impl OssSyncManager {
             Ok(())
         }
 
-        walk(dir, dir, &mut result)?;
+        walk(dir, dir, &gitignore, &mut result)?;
         Ok(result)
     }
 
@@ -745,10 +777,13 @@ impl OssSyncManager {
             return Ok(result);
         }
 
+        let gitignore = Self::build_gitignore(dir);
+
         fn walk_incremental(
             base: &Path,
             current: &Path,
             since: std::time::SystemTime,
+            gitignore: &ignore::gitignore::Gitignore,
             result: &mut HashMap<String, Vec<u8>>,
         ) -> Result<(), String> {
             let entries = std::fs::read_dir(current)
@@ -760,13 +795,20 @@ impl OssSyncManager {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
 
-                if name_str.starts_with('.') {
+                // Skip hidden files/dirs (but allow .gitignore)
+                if name_str.starts_with('.') && name_str != ".gitignore" {
                     continue;
                 }
 
                 if path.is_dir() {
-                    walk_incremental(base, &path, since, result)?;
+                    if gitignore.matched(&path, true).is_ignore() {
+                        continue;
+                    }
+                    walk_incremental(base, &path, since, gitignore, result)?;
                 } else {
+                    if gitignore.matched(&path, false).is_ignore() {
+                        continue;
+                    }
                     // Skip files exceeding the size limit
                     let meta = path.metadata().ok();
                     if let Some(ref m) = meta {
@@ -806,7 +848,7 @@ impl OssSyncManager {
             Ok(())
         }
 
-        walk_incremental(dir, dir, since, &mut result)?;
+        walk_incremental(dir, dir, since, &gitignore, &mut result)?;
         Ok(result)
     }
 
