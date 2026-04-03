@@ -97,7 +97,7 @@ struct SystemEnvVarContext {
 }
 
 /// Definition of a system-managed env var.
-struct SystemEnvVarDef {
+pub(crate) struct SystemEnvVarDef {
     key: &'static str,
     description: &'static str,
     default_fn: fn(&SystemEnvVarContext) -> Option<String>,
