@@ -1603,15 +1603,18 @@ pub async fn npx_skills_add(
     run_npx_skills(&arg_refs, workspace_path.as_deref())
 }
 
-/// Remove an installed skill via `npx skills remove`.
+/// Remove an installed skill via `npx skills remove`, then sweep any leftover
+/// directories so the skill is truly gone even when npx has no tracking metadata.
 #[tauri::command]
 pub async fn npx_skills_remove(
     workspace_path: Option<String>,
     skill_name: String,
     is_global: bool,
 ) -> Result<String, String> {
+    use std::fs;
+
     let mut args_owned: Vec<String> =
-        vec!["skills".into(), "remove".into(), skill_name];
+        vec!["skills".into(), "remove".into(), skill_name.clone()];
 
     args_owned.extend(["--agent".into(), "opencode".into()]);
 
@@ -1622,7 +1625,39 @@ pub async fn npx_skills_remove(
     args_owned.push("-y".into());
 
     let arg_refs: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
-    run_npx_skills(&arg_refs, workspace_path.as_deref())
+    let npx_result = run_npx_skills(&arg_refs, workspace_path.as_deref());
+
+    // Fallback: remove skill directories from all known agent paths so nothing
+    // lingers even if npx didn't track the installation.
+    let mut dirs_to_remove: Vec<std::path::PathBuf> = Vec::new();
+
+    if let Some(ref ws) = workspace_path {
+        let ws = std::path::Path::new(ws);
+        for sub in &[".agents/skills", ".opencode/skills", ".claude/skills", "skills"] {
+            dirs_to_remove.push(ws.join(sub).join(&skill_name));
+        }
+    }
+
+    if is_global {
+        if let Ok(home) = std::env::var("HOME") {
+            let home = std::path::Path::new(&home);
+            for sub in &[".config/opencode/skills", ".agents/skills", ".claude/skills"] {
+                dirs_to_remove.push(home.join(sub).join(&skill_name));
+            }
+        }
+    }
+
+    for dir in &dirs_to_remove {
+        if dir.is_dir() {
+            let _ = fs::remove_dir_all(dir);
+        }
+        // Also remove dangling symlinks
+        if dir.is_symlink() {
+            let _ = fs::remove_file(dir);
+        }
+    }
+
+    npx_result
 }
 
 /// Update all installed skills via `npx skills update`.
