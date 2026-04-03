@@ -99,15 +99,15 @@ fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde
 }
 
 /// Context available to system env var default generators.
-pub(crate) struct SystemEnvVarContext {
-    pub device_id: String,
+struct SystemEnvVarContext {
+    device_id: String,
 }
 
 /// Definition of a system-managed env var.
-pub(crate) struct SystemEnvVarDef {
-    pub key: &'static str,
-    pub description: &'static str,
-    pub default_fn: fn(&SystemEnvVarContext) -> Option<String>,
+struct SystemEnvVarDef {
+    key: &'static str,
+    description: &'static str,
+    default_fn: fn(&SystemEnvVarContext) -> Option<String>,
 }
 
 /// Registry of all system env vars.
@@ -121,6 +121,7 @@ pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[
                 return None;
             }
             let id = &ctx.device_id;
+            // 40 chars: matches the LiteLLM virtual key suffix length limit
             Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
         },
     },
@@ -269,16 +270,18 @@ pub async fn env_var_get(
 pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
-    // Check category in index — system vars cannot be deleted
-    let json = read_teamclaw_json(&workspace_path)?;
-    let entries = get_env_vars_from_json(&json);
+    // Read index once — used for both the guard check and the removal below
+    let mut json = read_teamclaw_json(&workspace_path)?;
+    let mut entries = get_env_vars_from_json(&json);
+
+    // Check category — system vars cannot be deleted
     if let Some(entry) = entries.iter().find(|e| e.key == key) {
         if entry.category.as_deref() == Some("system") {
             return Err(format!("System variable '{}' cannot be deleted", key));
         }
     }
 
-    // Read-modify-write atomically on a blocking thread
+    // Read-modify-write blob atomically on a blocking thread
     let key_clone = key.clone();
     let wp = workspace_path.clone();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
@@ -287,9 +290,7 @@ pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Res
         write_env_blob(&blob)
     }).await.map_err(|e| e.to_string())??;
 
-    // Remove from teamclaw.json index
-    let mut json = read_teamclaw_json(&workspace_path)?;
-    let mut entries = get_env_vars_from_json(&json);
+    // Remove from teamclaw.json index (reuse the already-read json)
     entries.retain(|e| e.key != key);
     set_env_vars_in_json(&mut json, &entries);
     write_teamclaw_json(&workspace_path, &json)
@@ -395,13 +396,23 @@ pub(crate) fn ensure_system_env_vars(
     let mut index_changed = false;
 
     for def in SYSTEM_ENV_VARS {
+        // Check if there's already a non-empty value in the blob
+        let has_value = blob.get(def.key).and_then(|v| v.as_str()).map_or(false, |v| !v.is_empty());
+
         // Generate default value if not already set
-        if !blob.contains_key(def.key) || blob[def.key].as_str().map_or(true, |v| v.is_empty()) {
+        if !has_value {
             if let Some(default_value) = (def.default_fn)(&ctx) {
                 blob.insert(def.key.to_string(), serde_json::Value::String(default_value));
                 blob_changed = true;
                 println!("[EnvVars] Generated default value for system var: {}", def.key);
             }
+        }
+
+        // Only register in index if the blob has a value (either pre-existing or just generated)
+        let blob_has_value_now = blob.get(def.key).and_then(|v| v.as_str()).map_or(false, |v| !v.is_empty());
+        if !blob_has_value_now {
+            // Skip index entry — no value available (e.g., device_id not ready)
+            continue;
         }
 
         // Ensure index entry exists with category: "system"
