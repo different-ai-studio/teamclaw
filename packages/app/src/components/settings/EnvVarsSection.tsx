@@ -431,7 +431,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       dirty: dirtyKeys.has(s.keyId) || hasSyncDirty,
     }))
     const all = [...team, ...personal]
-    // System entries first, then team, then personal alphabetical
+    // System entries first; all other entries sorted alphabetically by key
     all.sort((a, b) => {
       const aIsSystem = a.scope === 'personal' && a.category === 'system'
       const bIsSystem = b.scope === 'personal' && b.category === 'system'
@@ -461,7 +461,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     setDeleteTarget(null)
   }
 
-  // Check if current user can delete a given entry
+  // Note: the Rust env_var_delete command also enforces the system-var guard server-side.
   const canDeleteEntry = (entry: UnifiedEntry): boolean => {
     if (entry.scope === 'personal' && entry.category === 'system') return false
     if (entry.scope === 'personal') return true
