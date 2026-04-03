@@ -21,6 +21,7 @@ export interface CustomModelConfig {
 export interface CustomProviderConfig {
   name: string
   baseURL: string
+  apiKey?: string
   models: CustomModelConfig[]
 }
 
@@ -142,12 +143,17 @@ export async function addCustomProviderToConfig(
     modelsObj[model.modelId] = modelEntry
   }
 
+  const providerOptions: { baseURL: string; apiKey?: string } = {
+    baseURL: config.baseURL,
+  }
+  if (config.apiKey) {
+    providerOptions.apiKey = config.apiKey
+  }
+
   openCodeConfig.provider[providerId] = {
     npm: '@ai-sdk/openai-compatible',
     name: config.name,
-    options: {
-      baseURL: config.baseURL,
-    },
+    options: providerOptions,
     models: modelsObj,
   }
 
@@ -235,12 +241,17 @@ export async function updateCustomProviderConfig(
     modelsObj[model.modelId] = modelEntry
   }
 
+  const providerOptions: { baseURL: string; apiKey?: string } = {
+    baseURL: config.baseURL,
+  }
+  if (config.apiKey) {
+    providerOptions.apiKey = config.apiKey
+  }
+
   openCodeConfig.provider[providerId] = {
     npm: '@ai-sdk/openai-compatible',
     name: config.name,
-    options: {
-      baseURL: config.baseURL,
-    },
+    options: providerOptions,
     models: modelsObj,
   }
 
