@@ -7,10 +7,6 @@ use super::opencode::OpenCodeState;
 /// Single keychain entry that stores all env vars as a JSON blob.
 pub(crate) const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), ".env");
 
-/// Legacy per-key service prefix (used only for migration detection).
-/// Produces service names like `teamclaw.env.<KEY>`, distinct from the blob service `teamclaw.env`.
-const LEGACY_PER_KEY_SERVICE_PREFIX: &str = concat!(env!("APP_SHORT_NAME"), ".env");
-
 /// Read the entire env var blob from keychain.
 /// Returns an empty map if the entry doesn't exist yet.
 /// On first call after migration: detects old per-key entries and consolidates them.
@@ -77,8 +73,8 @@ fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde
             Some(k) => k,
             None => continue,
         };
-        // Legacy service name was "teamclaw.env.<KEY>"
-        let legacy_service = format!("{}.{}", LEGACY_PER_KEY_SERVICE_PREFIX, key);
+        // Legacy service name was `{KEYRING_SERVICE}.<KEY>`
+        let legacy_service = format!("{}.{}", KEYRING_SERVICE, key);
         if let Ok(e) = keyring::Entry::new(&legacy_service, "teamclaw") {
             match e.get_password() {
                 Ok(value) => {

@@ -358,7 +358,7 @@ pub async fn start_opencode_inner(
         let did = device_id.clone();
         if let Err(e) = tokio::task::spawn_blocking(move || {
             super::env_vars::ensure_system_env_vars(&ws, &did)
-        }).await.map_err(|e| e.to_string()).and_then(|r| r.map_err(|e| e)) {
+        }).await.map_err(|e| e.to_string()).and_then(|r| r) {
             eprintln!("[OpenCode] Warning: failed to ensure system env vars: {}", e);
         }
     }
@@ -414,11 +414,15 @@ pub async fn start_opencode_inner(
 
     // Keyring retry logic (unchanged from original)
     if !failed_keys.is_empty() {
-        println!(
-            "[OpenCode] {} secret(s) failed to read ({:?}), retrying after keychain unlock...",
-            failed_keys.len(),
-            failed_keys
-        );
+        if failed_keys == ["__blob__"] {
+            println!("[OpenCode] Keychain blob unavailable, retrying after keychain unlock...");
+        } else {
+            println!(
+                "[OpenCode] {} secret(s) failed to read ({:?}), retrying after keychain unlock...",
+                failed_keys.len(),
+                failed_keys
+            );
+        }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
         let ws_retry = workspace_path.clone();
@@ -431,11 +435,15 @@ pub async fn start_opencode_inner(
                 });
 
         if !still_failed.is_empty() {
-            eprintln!(
-                "[OpenCode] Warning: {} secret(s) still unavailable after retry: {:?}",
-                still_failed.len(),
-                still_failed
-            );
+            if still_failed == ["__blob__"] {
+                eprintln!("[OpenCode] Warning: keychain blob still unavailable after retry");
+            } else {
+                eprintln!(
+                    "[OpenCode] Warning: {} secret(s) still unavailable after retry: {:?}",
+                    still_failed.len(),
+                    still_failed
+                );
+            }
         }
 
         secrets = retry_secrets;
