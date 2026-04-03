@@ -192,14 +192,15 @@ pub async fn env_var_set(
 ) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
-    // Read-modify-write the blob
-    let mut blob = tokio::task::spawn_blocking({
-        let wp = workspace_path.clone();
-        move || read_env_blob(&wp)
+    // Read-modify-write atomically on a blocking thread
+    let key_clone = key.clone();
+    let value_clone = value.clone();
+    let wp = workspace_path.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut blob = read_env_blob(&wp)?;
+        blob.insert(key_clone, serde_json::Value::String(value_clone));
+        write_env_blob(&blob)
     }).await.map_err(|e| e.to_string())??;
-
-    blob.insert(key.clone(), serde_json::Value::String(value));
-    write_env_blob(&blob)?;
 
     // Update index in teamclaw.json (metadata only, no value)
     let mut json = read_teamclaw_json(&workspace_path)?;
@@ -238,14 +239,14 @@ pub async fn env_var_get(
 pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
 
-    // Read-modify-write the blob
-    let mut blob = tokio::task::spawn_blocking({
-        let wp = workspace_path.clone();
-        move || read_env_blob(&wp)
+    // Read-modify-write atomically on a blocking thread
+    let key_clone = key.clone();
+    let wp = workspace_path.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut blob = read_env_blob(&wp)?;
+        blob.remove(&key_clone);
+        write_env_blob(&blob)
     }).await.map_err(|e| e.to_string())??;
-
-    blob.remove(&key);
-    write_env_blob(&blob)?;
 
     // Remove from teamclaw.json index
     let mut json = read_teamclaw_json(&workspace_path)?;
@@ -296,7 +297,10 @@ pub async fn env_var_resolve(
         tokio::task::spawn_blocking(move || read_env_blob(&wp))
             .await
             .map_err(|e| e.to_string())?
-            .unwrap_or_default()
+            .unwrap_or_else(|e| {
+                eprintln!("[EnvVars] env_var_resolve: failed to read keychain blob, proceeding without local secrets: {}", e);
+                serde_json::Map::new()
+            })
     };
 
     for (full_match, key) in matches {
