@@ -9,6 +9,8 @@ enum MQTTMessageType: String, Codable {
     case taskUpdate = "task_update"
     case skillSync = "skill_sync"
     case memberSync = "member_sync"
+    case sessionListRequest = "session_list_request"
+    case sessionSync = "session_sync"
 }
 
 // MARK: - Payload Structs
@@ -92,14 +94,28 @@ struct MemberSyncPayload: Codable {
         let id: String
         let name: String
         let avatarURL: String
+        let department: String?
+        let isAIAlly: Bool?
         let note: String
 
         enum CodingKeys: String, CodingKey {
             case id
             case name
             case avatarURL = "avatar_url"
+            case department
+            case isAIAlly = "is_ai_ally"
             case note
         }
+    }
+}
+
+struct SessionSyncPayload: Codable {
+    let sessions: [SessionData]
+
+    struct SessionData: Codable {
+        let id: String
+        let title: String
+        let updated: Int64
     }
 }
 
@@ -112,6 +128,8 @@ enum MQTTPayload {
     case taskUpdate(TaskUpdatePayload)
     case skillSync(SkillSyncPayload)
     case memberSync(MemberSyncPayload)
+    case sessionListRequest
+    case sessionSync(SessionSyncPayload)
 }
 
 // MARK: - MQTTMessage
@@ -159,6 +177,11 @@ extension MQTTMessage: Codable {
         case .memberSync:
             let p = try container.decode(MemberSyncPayload.self, forKey: .payload)
             payload = .memberSync(p)
+        case .sessionListRequest:
+            payload = .sessionListRequest
+        case .sessionSync:
+            let p = try container.decode(SessionSyncPayload.self, forKey: .payload)
+            payload = .sessionSync(p)
         }
     }
 
@@ -180,6 +203,10 @@ extension MQTTMessage: Codable {
         case .skillSync(let p):
             try container.encode(p, forKey: .payload)
         case .memberSync(let p):
+            try container.encode(p, forKey: .payload)
+        case .sessionListRequest:
+            try container.encode([String: String](), forKey: .payload)
+        case .sessionSync(let p):
             try container.encode(p, forKey: .payload)
         }
     }

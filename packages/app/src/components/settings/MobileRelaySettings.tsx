@@ -20,33 +20,38 @@ import { SettingCard } from './shared/SettingCard'
 // ---- Types ----
 
 interface MqttRelayConfig {
-  broker_host: string
-  broker_port: number
+  brokerHost: string
+  brokerPort: number
   username: string
   password: string
-  team_id: string
-  device_name: string
+  teamId: string
+  deviceId: string
+  deviceName: string
+  pairedDevices: PairedDevice[]
 }
 
 interface PairedDevice {
-  device_id: string
-  device_name: string
-  paired_at?: string
+  deviceId: string
+  deviceName: string
+  pairedAt?: number
 }
 
 interface MqttRelayStatus {
   connected: boolean
-  error?: string
-  paired_devices: PairedDevice[]
+  brokerHost?: string
+  pairedDeviceCount: number
+  errorMessage?: string
 }
 
 const defaultConfig: MqttRelayConfig = {
-  broker_host: '',
-  broker_port: 1883,
+  brokerHost: '',
+  brokerPort: 8883,
   username: '',
   password: '',
-  team_id: '',
-  device_name: '',
+  teamId: '',
+  deviceId: '',
+  deviceName: '',
+  pairedDevices: [],
 }
 
 // ---- Connection Status Badge ----
@@ -84,7 +89,7 @@ export function MobileRelaySettings() {
   const [saveSuccess, setSaveSuccess] = React.useState(false)
 
   // Status state
-  const [status, setStatus] = React.useState<MqttRelayStatus>({ connected: false, paired_devices: [] })
+  const [status, setStatus] = React.useState<MqttRelayStatus>({ connected: false, pairedDeviceCount: 0 })
   const [isStarting, setIsStarting] = React.useState(false)
   const [isStopping, setIsStopping] = React.useState(false)
   const [statusError, setStatusError] = React.useState<string | null>(null)
@@ -127,7 +132,7 @@ export function MobileRelaySettings() {
     try {
       const s = await invoke<MqttRelayStatus>('get_mqtt_relay_status')
       setStatus(s)
-      setStatusError(s.error ?? null)
+      setStatusError(s.errorMessage ?? null)
     } catch {
       // Ignore polling errors silently
     }
@@ -191,6 +196,7 @@ export function MobileRelaySettings() {
     setUnpairingId(deviceId)
     try {
       await invoke('unpair_mqtt_device', { deviceId })
+      await loadConfig()
       await loadStatus()
     } catch {
       // Ignore
@@ -268,8 +274,8 @@ export function MobileRelaySettings() {
                 {t('settings.mobileRelay.brokerHost', 'Broker Host')}
               </label>
               <Input
-                value={config.broker_host}
-                onChange={e => updateConfig({ broker_host: e.target.value })}
+                value={config.brokerHost}
+                onChange={e => updateConfig({ brokerHost: e.target.value })}
                 placeholder="mqtt.example.com"
                 disabled={isLoadingConfig}
               />
@@ -280,8 +286,8 @@ export function MobileRelaySettings() {
               </label>
               <Input
                 type="number"
-                value={config.broker_port}
-                onChange={e => updateConfig({ broker_port: parseInt(e.target.value, 10) || 1883 })}
+                value={config.brokerPort}
+                onChange={e => updateConfig({ brokerPort: parseInt(e.target.value, 10) || 1883 })}
                 placeholder="1883"
                 disabled={isLoadingConfig}
               />
@@ -322,8 +328,8 @@ export function MobileRelaySettings() {
                 {t('settings.mobileRelay.teamId', 'Team ID')}
               </label>
               <Input
-                value={config.team_id}
-                onChange={e => updateConfig({ team_id: e.target.value })}
+                value={config.teamId}
+                onChange={e => updateConfig({ teamId: e.target.value })}
                 placeholder={t('settings.mobileRelay.teamIdPlaceholder', 'Your team identifier')}
                 disabled={isLoadingConfig}
               />
@@ -333,8 +339,8 @@ export function MobileRelaySettings() {
                 {t('settings.mobileRelay.deviceName', 'Device Name')}
               </label>
               <Input
-                value={config.device_name}
-                onChange={e => updateConfig({ device_name: e.target.value })}
+                value={config.deviceName}
+                onChange={e => updateConfig({ deviceName: e.target.value })}
                 placeholder={t('settings.mobileRelay.deviceNamePlaceholder', 'e.g. My Mac')}
                 disabled={isLoadingConfig}
               />
@@ -428,15 +434,15 @@ export function MobileRelaySettings() {
         <div className="space-y-4">
           <h4 className="font-medium text-sm">{t('settings.mobileRelay.pairedDevices', 'Paired Devices')}</h4>
 
-          {status.paired_devices.length === 0 ? (
+          {config.pairedDevices.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
               {t('settings.mobileRelay.noDevices', 'No paired devices yet.')}
             </p>
           ) : (
             <div className="space-y-2">
-              {status.paired_devices.map(device => (
+              {config.pairedDevices.map(device => (
                 <div
-                  key={device.device_id}
+                  key={device.deviceId}
                   className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border"
                 >
                   <div className="flex items-center gap-3">
@@ -444,10 +450,10 @@ export function MobileRelaySettings() {
                       <Smartphone className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium">{device.device_name || device.device_id}</p>
-                      {device.paired_at && (
+                      <p className="text-sm font-medium">{device.deviceName || device.deviceId}</p>
+                      {device.pairedAt && (
                         <p className="text-xs text-muted-foreground">
-                          {t('settings.mobileRelay.pairedAt', 'Paired')}: {new Date(device.paired_at).toLocaleDateString()}
+                          {t('settings.mobileRelay.pairedAt', 'Paired')}: {new Date(device.pairedAt * 1000).toLocaleDateString()}
                         </p>
                       )}
                     </div>
@@ -455,11 +461,11 @@ export function MobileRelaySettings() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleUnpair(device.device_id)}
-                    disabled={unpairingId === device.device_id}
+                    onClick={() => handleUnpair(device.deviceId)}
+                    disabled={unpairingId === device.deviceId}
                     className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
                   >
-                    {unpairingId === device.device_id ? (
+                    {unpairingId === device.deviceId ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Trash2 className="h-4 w-4" />

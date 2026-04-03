@@ -36,6 +36,20 @@ struct FunctionPanelView: View {
                         Label("技能", systemImage: "puzzlepiece.fill")
                             .foregroundStyle(.purple)
                     }
+
+                    NavigationLink {
+                        FeaturedAllyListView()
+                    } label: {
+                        Label("精选搭档", systemImage: "cpu.fill")
+                            .foregroundStyle(.blue)
+                    }
+
+                    NavigationLink {
+                        SkillMarketListView()
+                    } label: {
+                        Label("技能市场", systemImage: "bag.fill")
+                            .foregroundStyle(.teal)
+                    }
                 }
 
                 Section {

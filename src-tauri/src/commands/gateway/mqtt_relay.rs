@@ -96,7 +96,8 @@ impl MqttRelay {
         mqttoptions.set_keep_alive(Duration::from_secs(60));
         mqttoptions.set_clean_start(false);
 
-        // TLS
+        // TLS — ensure a CryptoProvider is installed for rustls
+        let _ = rustls::crypto::ring::default_provider().install_default();
         mqttoptions.set_transport(rumqttc::Transport::tls_with_default_config());
 
         let (client, mut eventloop) = AsyncClient::new(mqttoptions, 100);
@@ -258,8 +259,32 @@ impl MqttRelay {
     // ─── Incoming message handling ─────────────────────────────
 
     async fn handle_incoming_message(&self, topic: &str, payload: &[u8]) -> Result<(), String> {
+        // Pairing requests arrive as raw JSON on teamclaw/pairing/{code} (code-only discovery)
+        // or teamclaw/{team_id}/pairing/{code} (legacy)
+        let parts: Vec<&str> = topic.split('/').collect();
+        let is_pairing_topic = (parts.len() == 3 && parts[0] == "teamclaw" && parts[1] == "pairing")
+            || (parts.len() == 4 && parts[0] == "teamclaw" && parts[2] == "pairing");
+        if is_pairing_topic {
+            #[derive(serde::Deserialize)]
+            struct PairRequest { device_id: String, device_name: String }
+            if let Ok(req) = serde_json::from_slice::<PairRequest>(payload) {
+                match self.handle_pairing_request(&req.device_id, &req.device_name).await {
+                    Ok(device) => {
+                        eprintln!("[MQTT Relay] Paired with device: {} ({})", device.device_name, device.device_id);
+                    }
+                    Err(e) => {
+                        eprintln!("[MQTT Relay] Pairing failed: {}", e);
+                    }
+                }
+            }
+            return Ok(());
+        }
+
         let envelope: MqttMessageEnvelope = serde_json::from_slice(payload)
             .map_err(|e| format!("JSON parse failed: {}", e))?;
+
+        // Extract device_id from topic: teamclaw/{team_id}/{device_id}/chat/req
+        let device_id = parts.get(2).map(|s| s.to_string());
 
         match envelope.msg_type.as_str() {
             "chat_request" => {
@@ -267,6 +292,11 @@ impl MqttRelay {
                     serde_json::from_value(envelope.payload.clone())
                         .map_err(|e| format!("Invalid chat_request payload: {}", e))?;
                 self.handle_chat_request(topic, &request).await?;
+            }
+            "session_list_request" => {
+                if let Some(did) = device_id {
+                    self.handle_session_list_request(&did).await?;
+                }
             }
             _ => {
                 eprintln!("[MQTT Relay] Unknown message type: {}", envelope.msg_type);
@@ -438,6 +468,36 @@ impl MqttRelay {
         Ok(())
     }
 
+    // ─── Session List ──────────────────────────────────────────
+
+    async fn handle_session_list_request(&self, device_id: &str) -> Result<(), String> {
+        let port = self.opencode_port;
+        match super::opencode_list_sessions(port).await {
+            Ok(sessions) => {
+                let payload = serde_json::json!({
+                    "sessions": sessions.iter().map(|s| {
+                        serde_json::json!({
+                            "id": s.id,
+                            "title": s.title,
+                            "updated": s.updated,
+                        })
+                    }).collect::<Vec<_>>()
+                });
+                let envelope = MqttMessageEnvelope {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    msg_type: "session_sync".to_string(),
+                    timestamp: now_timestamp(),
+                    payload,
+                };
+                self.publish_to_device(device_id, "chat/res", &envelope).await?;
+            }
+            Err(e) => {
+                eprintln!("[MQTT Relay] Failed to fetch sessions: {}", e);
+            }
+        }
+        Ok(())
+    }
+
     // ─── Device Pairing ────────────────────────────────────────
 
     /// Generate a 6-digit pairing code, valid for 5 minutes
@@ -455,12 +515,40 @@ impl MqttRelay {
         };
         *self.pairing_session.lock().await = Some(session);
 
-        // Subscribe to pairing topic so we can receive the mobile's response
+        // Ensure team_id and device_id are populated before publishing
+        {
+            let mut config = self.config.write().await;
+            if config.team_id.is_empty() {
+                config.team_id = uuid::Uuid::new_v4().to_string();
+            }
+            if config.device_id.is_empty() {
+                config.device_id = format!("desktop-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+            }
+        }
+
         if let Some(client) = self.client.lock().await.as_ref() {
             let config = self.config.read().await;
-            let pairing_topic = format!("teamclaw/{}/pairing/{}", config.team_id, code);
+
+            // Publish retained discovery message so mobile can find team_id/device_id
+            // using only the 6-digit code (no prior knowledge of team_id required)
+            let discover_topic = format!("teamclaw/pairing/{}", code);
+            let info = serde_json::json!({
+                "team_id": config.team_id,
+                "device_id": config.device_id
+            });
             client
-                .subscribe(&pairing_topic, QoS::AtLeastOnce)
+                .publish(
+                    &discover_topic,
+                    QoS::AtLeastOnce,
+                    true, // retained
+                    serde_json::to_vec(&info).unwrap_or_default(),
+                )
+                .await
+                .map_err(|e| format!("Discovery publish failed: {}", e))?;
+
+            // Subscribe to pairing request topic (simpler, code-only path)
+            client
+                .subscribe(&discover_topic, QoS::AtLeastOnce)
                 .await
                 .map_err(|e| format!("Subscribe to pairing topic failed: {}", e))?;
         }
@@ -529,9 +617,10 @@ impl MqttRelay {
                 "mqtt_password": mqtt_password,
                 "team_id": config.team_id,
                 "device_id": mobile_device_id,
+                "desktop_device_id": config.device_id,
                 "desktop_device_name": config.device_name,
             });
-            let pairing_topic = format!("teamclaw/{}/pairing/{}", config.team_id, session.code);
+            let pairing_topic = format!("teamclaw/pairing/{}", session.code);
             client
                 .publish(
                     &pairing_topic,

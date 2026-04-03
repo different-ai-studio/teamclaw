@@ -129,6 +129,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 log = "0.4"
 rand = "0.8"
 rumqttc = { version = "0.25", features = ["use-rustls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # Global keyboard event monitoring (double-tap Ctrl for spotlight)
 rdev = "0.5"

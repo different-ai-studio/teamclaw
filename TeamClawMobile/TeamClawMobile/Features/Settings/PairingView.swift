@@ -63,13 +63,20 @@ struct PairingView: View {
             Button {
                 pairingManager.pair(with: code)
             } label: {
-                Text("配对")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                Group {
+                    if pairingManager.isPairing {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("配对")
+                            .font(.headline)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(code.count != 6)
+            .disabled(code.count != 6 || pairingManager.isPairing)
             .padding(.horizontal, 40)
 
             Spacer()

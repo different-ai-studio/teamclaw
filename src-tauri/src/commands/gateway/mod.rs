@@ -2391,6 +2391,32 @@ pub async fn save_mqtt_relay_config(
         guard.workspace_path.clone().ok_or("No workspace path")?
     };
 
+    let mut config = config;
+    let existing_mqtt = read_config(&workspace_path)
+        .ok()
+        .and_then(|c| c.channels)
+        .and_then(|c| c.mqtt);
+
+    // Auto-generate team_id if not set
+    if config.team_id.is_empty() {
+        let existing = existing_mqtt.as_ref().map(|c| c.team_id.clone()).unwrap_or_default();
+        config.team_id = if existing.is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            existing
+        };
+    }
+
+    // Auto-generate device_id if not set
+    if config.device_id.is_empty() {
+        let existing = existing_mqtt.as_ref().map(|c| c.device_id.clone()).unwrap_or_default();
+        config.device_id = if existing.is_empty() {
+            format!("desktop-{}", &uuid::Uuid::new_v4().to_string()[..8])
+        } else {
+            existing
+        };
+    }
+
     let mut full_config = read_config(&workspace_path).unwrap_or_default();
     let mut channels = full_config.channels.unwrap_or_default();
     channels.mqtt = Some(config.clone());

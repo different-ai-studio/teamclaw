@@ -13,31 +13,29 @@ struct SessionListView: View {
 
     @State private var showFunctionPanel = false
     @State private var showMemberPanel = false
-    @State private var showSearch = false
     @State private var navigationPath: [String] = []
+    @State private var searchText = ""
+    @State private var isSearchActive = false
+    @FocusState private var searchFocused: Bool
 
     init(mqttService: MQTTServiceProtocol, connectionMonitor: ConnectionMonitor, pairingManager: PairingManager) {
         self.mqttService = mqttService
         self.connectionMonitor = connectionMonitor
         self.pairingManager = pairingManager
-        // Temporary context placeholder; real context injected via onAppear
+        // Use shared app container so data persists correctly
+        let container = try! ModelContainer(for: Session.self, ChatMessage.self, TeamMember.self)
         _viewModel = StateObject(wrappedValue: SessionListViewModel(
-            modelContext: ModelContext(try! ModelContainer(for: Session.self)),
+            modelContext: ModelContext(container),
             mqttService: mqttService
         ))
     }
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            ZStack(alignment: .bottom) {
-                sessionList
-
-                VStack(spacing: 0) {
-                    Spacer()
-                    bottomBar
-                }
-                .ignoresSafeArea(edges: .bottom)
-            }
+            SessionListContent(
+                viewModel: viewModel,
+                navigationPath: $navigationPath
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -89,8 +87,12 @@ struct SessionListView: View {
                     mqttService: mqttService
                 ))
             }
-            .sheet(isPresented: $showSearch) {
-                searchSheet
+            .safeAreaInset(edge: .bottom) {
+                iMessageBar
+            }
+            .onChange(of: searchText) {
+                viewModel.searchText = searchText
+                viewModel.applySearch()
             }
             .onAppear {
                 viewModel.loadSessions()
@@ -98,10 +100,102 @@ struct SessionListView: View {
         }
     }
 
-    // MARK: - Session List
+    // MARK: - iMessage-style Bottom Bar
 
-    @ViewBuilder
-    private var sessionList: some View {
+    private var iMessageBar: some View {
+        HStack(spacing: 10) {
+            // Search capsule
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                if isSearchActive {
+                    TextField("搜索", text: $searchText)
+                        .focused($searchFocused)
+                } else {
+                    Text("搜索")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .modifier(GlassCapsuleModifier())
+            .contentShape(Capsule())
+            .onTapGesture {
+                withAnimation {
+                    isSearchActive = true
+                }
+                searchFocused = true
+            }
+
+            // Right button: compose or dismiss
+            if isSearchActive {
+                Button {
+                    withAnimation {
+                        searchText = ""
+                        isSearchActive = false
+                        searchFocused = false
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .modifier(GlassCircleModifier())
+                .transition(.scale.combined(with: .opacity))
+            } else {
+                Button {
+                    let newSession = viewModel.createSession()
+                    navigationPath.append(newSession.id)
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .modifier(GlassCircleModifier())
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .animation(.default, value: isSearchActive)
+        .padding(.horizontal, 16)
+    }
+}
+
+// MARK: - Glass Modifiers
+
+private struct GlassCapsuleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background {
+                Capsule()
+                    .fill(.gray.opacity(0.14))
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+    }
+}
+
+private struct GlassCircleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background {
+                Circle()
+                    .fill(.gray.opacity(0.14))
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+    }
+}
+
+// MARK: - SessionListContent
+
+private struct SessionListContent: View {
+    @ObservedObject var viewModel: SessionListViewModel
+    @Binding var navigationPath: [String]
+
+    var body: some View {
         List {
             ForEach(viewModel.filteredSessions, id: \.id) { session in
                 SessionRowView(session: session, relativeTime: viewModel.relativeTime(for: session.lastMessageTime))
@@ -117,92 +211,11 @@ struct SessionListView: View {
                     viewModel.deleteSession(session)
                 }
             }
-
-            // Bottom padding so last row isn't hidden behind the floating bar
-            Color.clear
-                .frame(height: 80)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets())
         }
         .listStyle(.plain)
-    }
-
-    // MARK: - Bottom Bar
-
-    private var bottomBar: some View {
-        LiquidGlassBar {
-            HStack {
-                Button {
-                    showSearch = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                        Text("搜索")
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-
-                Divider()
-                    .frame(height: 20)
-
-                Button {
-                    // New session: navigate to a new session placeholder
-                    navigationPath.append("new-session-\(UUID().uuidString)")
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(.blue)
-                        Text("新建")
-                            .foregroundStyle(.primary)
-                    }
-                    .font(.subheadline)
-                }
-                .frame(maxWidth: .infinity)
-            }
+        .refreshable {
+            viewModel.requestSessionsFromDesktop()
         }
-        .padding(.bottom, 20)
-    }
-
-    // MARK: - Search Sheet
-
-    private var searchSheet: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                TextField("搜索会话...", text: $viewModel.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .padding()
-                    .onChange(of: viewModel.searchText) {
-                        viewModel.applySearch()
-                    }
-
-                List(viewModel.filteredSessions, id: \.id) { session in
-                    SessionRowView(
-                        session: session,
-                        relativeTime: viewModel.relativeTime(for: session.lastMessageTime)
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        showSearch = false
-                        navigationPath.append(session.id)
-                    }
-                }
-                .listStyle(.plain)
-            }
-            .navigationTitle("搜索")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("取消") {
-                        viewModel.searchText = ""
-                        viewModel.applySearch()
-                        showSearch = false
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
     }
 }
 

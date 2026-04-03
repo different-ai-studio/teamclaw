@@ -7,6 +7,7 @@ final class MockMQTTService: MQTTServiceProtocol {
 
     private let isConnectedSubject = CurrentValueSubject<Bool, Never>(false)
     private let receivedMessageSubject = PassthroughSubject<MQTTMessage, Never>()
+    private let receivedRawSubject = PassthroughSubject<(topic: String, payload: String), Never>()
 
     // MARK: - MQTTServiceProtocol
 
@@ -16,6 +17,10 @@ final class MockMQTTService: MQTTServiceProtocol {
 
     var receivedMessage: AnyPublisher<MQTTMessage, Never> {
         receivedMessageSubject.eraseToAnyPublisher()
+    }
+
+    var receivedRaw: AnyPublisher<(topic: String, payload: String), Never> {
+        receivedRawSubject.eraseToAnyPublisher()
     }
 
     // MARK: - Recorded Calls (for assertions in tests)
@@ -40,6 +45,8 @@ final class MockMQTTService: MQTTServiceProtocol {
     func subscribe(topic: String, qos: Int) {
         subscribeCalls.append((topic: topic, qos: qos))
     }
+
+    func publishRaw(topic: String, payload: String, qos: Int) {}
 
     func publish(topic: String, message: MQTTMessage, qos: Int) {
         publishCalls.append((topic: topic, message: message, qos: qos))

@@ -29,6 +29,23 @@ final class MemberViewModel: ObservableObject {
         let descriptor = FetchDescriptor<TeamMember>(
             sortBy: [SortDescriptor(\.name)]
         )
+        let fetched = (try? modelContext.fetch(descriptor)) ?? []
+
+        if fetched.isEmpty {
+            loadMockMembers()
+        } else {
+            members = fetched
+        }
+    }
+
+    private func loadMockMembers() {
+        for member in TeamMember.mockMembers {
+            modelContext.insert(member)
+        }
+        try? modelContext.save()
+        let descriptor = FetchDescriptor<TeamMember>(
+            sortBy: [SortDescriptor(\.name)]
+        )
         members = (try? modelContext.fetch(descriptor)) ?? []
     }
 
@@ -70,6 +87,8 @@ final class MemberViewModel: ObservableObject {
                 id: data.id,
                 name: data.name,
                 avatarURL: data.avatarURL,
+                department: data.department ?? "",
+                isAIAlly: data.isAIAlly ?? false,
                 note: data.note
             )
             modelContext.insert(member)

@@ -3,6 +3,20 @@ import SwiftUI
 struct MemberListView: View {
     @ObservedObject var viewModel: MemberViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var showFeaturedAllies = false
+    @State private var showSkillMarket = false
+    @State private var selectedMemberForAutomation: TeamMember?
+
+    private var displayedMembers: [TeamMember] {
+        if searchText.isEmpty {
+            return viewModel.members
+        }
+        return viewModel.members.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+            || ($0.department?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -10,11 +24,33 @@ struct MemberListView: View {
                 if viewModel.members.isEmpty {
                     ContentUnavailableView("暂无团队成员", systemImage: "person.3")
                 } else {
-                    List(viewModel.members, id: \.id) { member in
+                    List(displayedMembers, id: \.id) { member in
                         NavigationLink {
                             MemberSessionsView(member: member, viewModel: viewModel)
                         } label: {
                             MemberRow(member: member)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button {
+                                showSkillMarket = true
+                            } label: {
+                                Label("技能", systemImage: "puzzlepiece")
+                            }
+                            .tint(.purple)
+
+                            Button {
+                                showFeaturedAllies = true
+                            } label: {
+                                Label("搭档", systemImage: "cpu")
+                            }
+                            .tint(.blue)
+
+                            Button {
+                                selectedMemberForAutomation = member
+                            } label: {
+                                Label("自动化", systemImage: "gearshape.2")
+                            }
+                            .tint(.orange)
                         }
                     }
                 }
@@ -28,8 +64,20 @@ struct MemberListView: View {
                     }
                 }
             }
+            .searchable(text: $searchText, prompt: "搜索")
             .onAppear {
                 viewModel.loadMembers()
+            }
+            .sheet(isPresented: $showFeaturedAllies) {
+                FeaturedAllyView()
+            }
+            .sheet(isPresented: $showSkillMarket) {
+                SkillMarketView()
+            }
+            .sheet(item: $selectedMemberForAutomation) { member in
+                NavigationStack {
+                    MemberAutomationView(memberName: member.name)
+                }
             }
         }
     }
@@ -44,20 +92,39 @@ private struct MemberRow: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(Color.purple.opacity(0.2))
-                    .frame(width: 40, height: 40)
+                    .fill(member.isAIAlly ? Color.blue.opacity(0.2) : Color.purple.opacity(0.2))
+                    .frame(width: 44, height: 44)
 
-                Text(String(member.name.prefix(1)))
-                    .font(.headline)
-                    .foregroundStyle(.purple)
+                if member.isAIAlly {
+                    Image(systemName: "cpu")
+                        .font(.title3)
+                        .foregroundStyle(.blue)
+                } else {
+                    Text(String(member.name.prefix(1)))
+                        .font(.headline)
+                        .foregroundStyle(.purple)
+                }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(member.name)
-                    .fontWeight(.medium)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(member.name)
+                        .fontWeight(.medium)
 
-                if let note = member.note, !note.isEmpty {
-                    Text(note)
+                    Text(member.isAIAlly ? "AI 搭档" : "成员")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(member.isAIAlly ? .blue : .secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(member.isAIAlly ? Color.blue.opacity(0.1) : Color.secondary.opacity(0.1))
+                        )
+                }
+
+                if let department = member.department, !department.isEmpty {
+                    Text(department)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

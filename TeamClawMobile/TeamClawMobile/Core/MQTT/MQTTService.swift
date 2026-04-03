@@ -6,25 +6,42 @@ final class MQTTService: NSObject, MQTTServiceProtocol {
     private var mqtt: CocoaMQTT5?
     private let connectedSubject = CurrentValueSubject<Bool, Never>(false)
     private let messageSubject = PassthroughSubject<MQTTMessage, Never>()
+    private let rawSubject = PassthroughSubject<(topic: String, payload: String), Never>()
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     var isConnected: AnyPublisher<Bool, Never> { connectedSubject.eraseToAnyPublisher() }
     var receivedMessage: AnyPublisher<MQTTMessage, Never> { messageSubject.eraseToAnyPublisher() }
+    var receivedRaw: AnyPublisher<(topic: String, payload: String), Never> { rawSubject.eraseToAnyPublisher() }
 
     func connect(host: String, port: UInt16, username: String, password: String) {
         let clientID = "teamclaw-ios-\(UUID().uuidString.prefix(8))"
+        NSLog("[MQTTService] Connecting to \(host):\(port) as \(clientID)")
+        NSLog("[MQTTService] Username: \(username), SSL enabled")
+
         let client = CocoaMQTT5(clientID: clientID, host: host, port: port)
         client.username = username
         client.password = password
         client.enableSSL = true
+        client.allowUntrustCACertificate = true
         client.cleanSession = false
         client.keepAlive = 60
         client.autoReconnect = true
         client.autoReconnectTimeInterval = 5
+        client.sslSettings = [
+            kCFStreamSSLPeerName as String: host as NSString
+        ]
+        client.didReceiveTrust = { _, _, completionHandler in
+            completionHandler(true)
+        }
         client.delegate = self
         mqtt = client
-        _ = client.connect()
+
+        let result = client.connect()
+        NSLog("[MQTTService] connect() returned: \(result)")
+        if !result {
+            NSLog("[MQTTService] Connection failed immediately - check host/port")
+        }
     }
 
     func disconnect() {
@@ -39,6 +56,12 @@ final class MQTTService: NSObject, MQTTServiceProtocol {
         default: mqttQoS = .qos1
         }
         mqtt?.subscribe(topic, qos: mqttQoS)
+    }
+
+    func publishRaw(topic: String, payload: String, qos: Int) {
+        let mqttQoS: CocoaMQTTQoS = qos == 0 ? .qos0 : qos == 2 ? .qos2 : .qos1
+        let properties = MqttPublishProperties()
+        mqtt?.publish(topic, withString: payload, qos: mqttQoS, DUP: false, retained: false, properties: properties)
     }
 
     func publish(topic: String, message: MQTTMessage, qos: Int) {
@@ -60,19 +83,32 @@ final class MQTTService: NSObject, MQTTServiceProtocol {
 extension MQTTService: CocoaMQTT5Delegate {
 
     func mqtt5(_ mqtt5: CocoaMQTT5, didConnectAck ack: CocoaMQTTCONNACKReasonCode, connAckData: MqttDecodeConnAck?) {
+        NSLog("[MQTTService] didConnectAck: \(ack.rawValue) - \(ack)")
         if ack == .success {
+            NSLog("[MQTTService] Connected successfully")
             connectedSubject.send(true)
+        } else {
+            NSLog("[MQTTService] Connection failed with reason: \(ack)")
+            connectedSubject.send(false)
         }
     }
 
     func mqtt5(_ mqtt5: CocoaMQTT5, didReceiveMessage message: CocoaMQTT5Message, id: UInt16, publishData: MqttDecodePublish?) {
-        guard let jsonString = message.string,
-              let data = jsonString.data(using: .utf8),
-              let mqttMessage = try? decoder.decode(MQTTMessage.self, from: data) else { return }
-        messageSubject.send(mqttMessage)
+        guard let jsonString = message.string else { return }
+        let topic = message.topic
+
+        // Always emit raw for callers that need topic info (e.g. pairing)
+        rawSubject.send((topic: topic, payload: jsonString))
+
+        // Also try to decode as MQTTMessage envelope
+        if let data = jsonString.data(using: .utf8),
+           let mqttMessage = try? decoder.decode(MQTTMessage.self, from: data) {
+            messageSubject.send(mqttMessage)
+        }
     }
 
     func mqtt5DidDisconnect(_ mqtt5: CocoaMQTT5, withError err: Error?) {
+        NSLog("[MQTTService] Disconnected, error: \(String(describing: err))")
         connectedSubject.send(false)
     }
 

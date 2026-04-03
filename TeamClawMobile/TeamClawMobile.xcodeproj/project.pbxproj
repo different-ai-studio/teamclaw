@@ -58,6 +58,9 @@
 		F92B8FF29F538FE5EF2E82AD /* StreamingTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304DBC8795E823C5963EE650 /* StreamingTextView.swift */; };
 		FB47D1A057337D95C268D8D1 /* MessageAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877250779DF25DFB6EA564C9 /* MessageAggregator.swift */; };
 		FC43E4D56FEA629C3A0072FB /* SessionListViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65299398879A9250C02F60B9 /* SessionListViewModelTests.swift */; };
+		AA1111111111111111111111 /* FeaturedAllyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2222222222222222222222 /* FeaturedAllyView.swift */; };
+		AA3333333333333333333333 /* SkillMarketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4444444444444444444444 /* SkillMarketView.swift */; };
+		AA5555555555555555555555 /* MemberAutomationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6666666666666666666666 /* MemberAutomationView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -101,6 +104,9 @@
 		65299398879A9250C02F60B9 /* SessionListViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListViewModelTests.swift; sourceTree = "<group>"; };
 		69658CAD73E044A864470496 /* MockMQTTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockMQTTService.swift; sourceTree = "<group>"; };
 		6AB5914BA4C210402C4A6E7C /* MemberListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberListView.swift; sourceTree = "<group>"; };
+		AA2222222222222222222222 /* FeaturedAllyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturedAllyView.swift; sourceTree = "<group>"; };
+		AA4444444444444444444444 /* SkillMarketView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillMarketView.swift; sourceTree = "<group>"; };
+		AA6666666666666666666666 /* MemberAutomationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberAutomationView.swift; sourceTree = "<group>"; };
 		6CB0F6A0EBCFCC7846D3860B /* MemberSessionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberSessionsView.swift; sourceTree = "<group>"; };
 		71C9792E0B940A8C36A0E76F /* TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskListView.swift; sourceTree = "<group>"; };
 		732086766760FC0029F08CE4 /* MQTTMessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTTMessageTests.swift; sourceTree = "<group>"; };
@@ -162,9 +168,12 @@
 		11920C86811F711D0095DBE2 /* TeamMembers */ = {
 			isa = PBXGroup;
 			children = (
+				AA2222222222222222222222 /* FeaturedAllyView.swift */,
+				AA6666666666666666666666 /* MemberAutomationView.swift */,
 				6AB5914BA4C210402C4A6E7C /* MemberListView.swift */,
 				6CB0F6A0EBCFCC7846D3860B /* MemberSessionsView.swift */,
 				FF46DB166CC0F68E775C08FF /* MemberViewModel.swift */,
+				AA4444444444444444444444 /* SkillMarketView.swift */,
 			);
 			path = TeamMembers;
 			sourceTree = "<group>";
@@ -519,8 +528,11 @@
 				DD8CCF863A9D27D3A2B1AD63 /* MQTTService.swift in Sources */,
 				E4A5A43173A9B6264E39598B /* MQTTServiceProtocol.swift in Sources */,
 				D5FF9542D765A41BD695AF63 /* MarkdownRenderer.swift in Sources */,
+				AA1111111111111111111111 /* FeaturedAllyView.swift in Sources */,
+				AA5555555555555555555555 /* MemberAutomationView.swift in Sources */,
 				BC326B3B60AC81562958E878 /* MemberListView.swift in Sources */,
 				B4A10A98AC647E600EBA6585 /* MemberSessionsView.swift in Sources */,
+				AA3333333333333333333333 /* SkillMarketView.swift in Sources */,
 				C343D107C6392BE351521B70 /* MemberViewModel.swift in Sources */,
 				FB47D1A057337D95C268D8D1 /* MessageAggregator.swift in Sources */,
 				2789906A141F3971C4DF48D6 /* MessageBubbleView.swift in Sources */,
