@@ -12,13 +12,11 @@ import { invoke } from '@tauri-apps/api/core'
 import type { DeviceInfo } from '@/lib/git/types'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useProviderStore } from '@/stores/provider'
-import { useTranslation } from 'react-i18next'
 import {
   Cloud,
   Copy,
   Eye,
   EyeOff,
-  KeyRound,
   Loader2,
   LogOut,
   RefreshCw,
@@ -49,75 +47,6 @@ function SettingCard({
   )
 }
 
-function TeamApiKeyCard() {
-  const { t } = useTranslation()
-  const teamApiKey = useTeamModeStore((s) => s.teamApiKey)
-  const setTeamApiKey = useTeamModeStore((s) => s.setTeamApiKey)
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
-  const [keyInput, setKeyInput] = useState(teamApiKey || '')
-  const [saving, setSaving] = useState(false)
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const key = keyInput.trim() || null
-      await setTeamApiKey(key, workspacePath || undefined)
-      if (!key) setKeyInput('')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <SettingCard title={t('settings.team.apiKeyTitle', 'API Key')} icon={KeyRound}>
-      <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          {t(
-            'settings.team.apiKeyDesc',
-            'Optional. Leave empty to use the team LiteLLM key auto-provisioned for this device (sk-tc- + first 40 chars of device ID).',
-          )}
-        </p>
-        <div className="flex items-center gap-2">
-          <Input
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder={t(
-              'settings.team.apiKeyPlaceholder',
-              'Override key, or leave empty for auto sk-tc- key',
-            )}
-            className="h-9 text-sm bg-background/50"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave()
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 h-9"
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('common.save', 'Save')}
-          </Button>
-          {teamApiKey && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0 h-9 text-xs text-muted-foreground"
-              onClick={async () => {
-                setKeyInput('')
-                await setTeamApiKey(null, workspacePath || undefined)
-              }}
-            >
-              {t('settings.team.useDeviceId', 'Use auto key')}
-            </Button>
-          )}
-        </div>
-      </div>
-    </SettingCard>
-  )
-}
 
 const DOC_TYPES = [
   { key: 'skills', label: 'Skills' },
@@ -534,8 +463,6 @@ export function TeamOSSConfig() {
               )}
             </div>
           </SettingCard>
-
-          <TeamApiKeyCard />
 
           <SettingCard title="团队成员">
             <TeamMemberList />

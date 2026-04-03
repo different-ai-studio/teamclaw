@@ -14,7 +14,6 @@ import {
   Unlink,
   CheckCircle2,
   Clock,
-  KeyRound,
   Copy,
   Share2,
 } from 'lucide-react'
@@ -63,78 +62,6 @@ function SettingCard({ children, className }: { children: React.ReactNode; class
     )}>
       {children}
     </div>
-  )
-}
-
-// ─── Team API Key Card ──────────────────────────────────────────────────────
-
-function TeamApiKeyCard() {
-  const { t } = useTranslation()
-  const teamApiKey = useTeamModeStore((s) => s.teamApiKey)
-  const setTeamApiKey = useTeamModeStore((s) => s.setTeamApiKey)
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
-  const [keyInput, setKeyInput] = React.useState(teamApiKey || '')
-  const [saving, setSaving] = React.useState(false)
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const key = keyInput.trim() || null
-      await setTeamApiKey(key, workspacePath || undefined)
-      if (!key) setKeyInput('')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <SettingCard>
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-amber-100 dark:bg-amber-900/30">
-            <KeyRound className="h-5 w-5 text-amber-700 dark:text-amber-400" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t('settings.team.apiKeyTitle', 'API Key')}</p>
-            <p className="text-xs text-muted-foreground">{t('settings.team.apiKeyDesc', 'Optional. Leave empty to use the team LiteLLM key auto-provisioned for this device (sk-tc- + first 40 chars of device ID).')}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Input
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder={t('settings.team.apiKeyPlaceholder', 'Override key, or leave empty for auto sk-tc- key')}
-            className="h-9 text-sm"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave()
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 h-9"
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('common.save', 'Save')}
-          </Button>
-          {teamApiKey && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0 h-9 text-xs text-muted-foreground"
-              onClick={async () => {
-                setKeyInput('')
-                await setTeamApiKey(null, workspacePath || undefined)
-              }}
-            >
-              {t('settings.team.useDeviceId', 'Use auto key')}
-            </Button>
-          )}
-        </div>
-      </div>
-    </SettingCard>
   )
 }
 
@@ -937,8 +864,6 @@ export function TeamP2PConfig() {
             </div>
           </SettingCard>
 
-          {/* API Key Override */}
-          <TeamApiKeyCard />
         </>
       )}
 

@@ -220,20 +220,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return;
     }
 
-    const { loadTeamConfig, applyTeamModelToOpenCode, reAuthTeamProvider } = useTeamModeStore.getState();
+    const { loadTeamConfig, applyTeamModelToOpenCode } = useTeamModeStore.getState();
     loadTeamConfig(workspacePath).then(async () => {
       if (useTeamModeStore.getState().teamMode) {
         // Team mode: apply team config (restarts OpenCode), then init providers.
-        // If config was already applied (sidecar restarted externally), just re-auth.
-        const { _appliedConfigKey, teamModelConfig, teamApiKey } = useTeamModeStore.getState();
-        const configKey = teamModelConfig
-          ? `${teamModelConfig.baseUrl}|${teamModelConfig.model}|${teamApiKey || ''}`
-          : null;
-        if (configKey && configKey === _appliedConfigKey) {
-          await reAuthTeamProvider();
-        } else {
-          await applyTeamModelToOpenCode(workspacePath);
-        }
+        // applyTeamModelToOpenCode is idempotent — skips if config key unchanged.
+        await applyTeamModelToOpenCode(workspacePath);
       }
       initProviderStore();
     });
