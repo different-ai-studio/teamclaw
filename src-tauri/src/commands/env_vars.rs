@@ -11,11 +11,13 @@ pub(crate) const KEYRING_SERVICE_PREFIX: &str = concat!(env!("APP_SHORT_NAME"), 
 pub(crate) const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), ".env");
 
 /// Legacy per-key service prefix (used only for migration detection).
-const LEGACY_SERVICE_PREFIX: &str = concat!(env!("APP_SHORT_NAME"), ".env");
+/// Produces service names like `teamclaw.env.<KEY>`, distinct from the blob service `teamclaw.env`.
+const LEGACY_PER_KEY_SERVICE_PREFIX: &str = concat!(env!("APP_SHORT_NAME"), ".env");
 
 /// Read the entire env var blob from keychain.
 /// Returns an empty map if the entry doesn't exist yet.
 /// On first call after migration: detects old per-key entries and consolidates them.
+/// May write to keychain on first call if legacy migration is needed.
 pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
         .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
@@ -23,7 +25,10 @@ pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<Stri
     match entry.get_password() {
         Ok(json_str) => {
             let val: serde_json::Value = serde_json::from_str(&json_str)
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                .unwrap_or_else(|e| {
+                    eprintln!("[EnvVars] Failed to parse keychain blob as JSON (corrupt?): {}", e);
+                    serde_json::Value::Object(serde_json::Map::new())
+                });
             match val {
                 serde_json::Value::Object(map) => Ok(map),
                 _ => Ok(serde_json::Map::new()),
@@ -76,12 +81,17 @@ fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde
             None => continue,
         };
         // Legacy service name was "teamclaw.env.<KEY>"
-        let legacy_service = format!("{}.{}", LEGACY_SERVICE_PREFIX, key);
+        let legacy_service = format!("{}.{}", LEGACY_PER_KEY_SERVICE_PREFIX, key);
         if let Ok(e) = keyring::Entry::new(&legacy_service, "teamclaw") {
-            if let Ok(value) = e.get_password() {
-                map.insert(key.to_string(), serde_json::Value::String(value));
-                // Delete old entry
-                let _ = e.delete_credential();
+            match e.get_password() {
+                Ok(value) => {
+                    map.insert(key.to_string(), serde_json::Value::String(value));
+                    // Delete old entry
+                    let _ = e.delete_credential();
+                }
+                Err(e) => {
+                    eprintln!("[EnvVars] Migration: failed to read legacy keychain entry '{}': {}", key, e);
+                }
             }
         }
     }
