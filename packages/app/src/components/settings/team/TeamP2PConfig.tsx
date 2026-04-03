@@ -123,6 +123,9 @@ export function TeamP2PConfig() {
   const [confirmDisconnect, setConfirmDisconnect] = React.useState(false)
   const [reconnecting, setReconnecting] = React.useState(true)
 
+  const teamModeType = useTeamModeStore((s) => s.teamModeType)
+  const configuredAsP2p = teamModeType === 'p2p'
+
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
   const isConnected = engineSnapshot?.status === 'connected' || (syncStatus?.connected ?? false)
@@ -867,7 +870,7 @@ export function TeamP2PConfig() {
         </>
       )}
 
-      {/* ─── Reconnecting State ──────────────────────────────────────── */}
+      {/* ─── Reconnecting State (initial load) ─────────────────────────── */}
       {!isConnected && reconnecting && (
         <SettingCard>
           <div className="flex items-center gap-3 py-4 justify-center">
@@ -877,8 +880,51 @@ export function TeamP2PConfig() {
         </SettingCard>
       )}
 
+      {/* ─── Configured but not connected (reconnect prompt) ─────────── */}
+      {!isConnected && !reconnecting && configuredAsP2p && (
+        <SettingCard>
+          <div className="flex flex-col items-center gap-3 py-4">
+            <p className="text-sm text-muted-foreground">
+              {t('settings.team.p2pConfiguredNotConnected', 'Team is configured but not connected. Peers may be offline or unreachable.')}
+            </p>
+            {p2pError && (
+              <p className="text-xs text-destructive text-center">{p2pError}</p>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={async () => {
+                  setReconnecting(true)
+                  setP2pError(null)
+                  try {
+                    await loadSyncStatus()
+                    await engineInit()
+                    await useP2pEngineStore.getState().fetch()
+                  } catch { /* ignore */ }
+                  setReconnecting(false)
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {t('settings.team.retryConnect', 'Retry')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-destructive hover:text-destructive border-destructive/30"
+                onClick={handleP2pDisconnect}
+              >
+                <Unlink className="h-3.5 w-3.5" />
+                {t('settings.team.disconnect', 'Disconnect')}
+              </Button>
+            </div>
+          </div>
+        </SettingCard>
+      )}
+
       {/* ─── Not Connected State ─────────────────────────────────────── */}
-      {!isConnected && !reconnecting && (
+      {!isConnected && !reconnecting && !configuredAsP2p && (
         <>
           {/* Create Team */}
           <SettingCard>

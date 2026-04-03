@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, AlertCircle, RefreshCw, Loader2, Users, User, Lock } from 'lucide-react'
+import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, AlertCircle, RefreshCw, Loader2, Users, User, Lock, Copy, Check } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -257,6 +257,7 @@ function EnvVarRow({ entry, canDelete, onEdit, onDelete }: EnvVarRowProps) {
   const [revealed, setRevealed] = React.useState(false)
   const [revealedValue, setRevealedValue] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [copied, setCopied] = React.useState(false)
   const { getEnvVarValue } = useEnvVarsStore()
 
   const isSystem = entry.scope === 'personal' && entry.category === 'system'
@@ -321,9 +322,24 @@ function EnvVarRow({ entry, canDelete, onEdit, onDelete }: EnvVarRowProps) {
           </p>
         )}
         {isPersonal && revealed && revealedValue !== null && (
-          <p className="text-xs font-mono text-muted-foreground mt-1 bg-muted/50 px-2 py-1 rounded break-all">
-            {revealedValue}
-          </p>
+          <div className="flex items-center gap-1 mt-1">
+            <p className="text-xs font-mono text-muted-foreground bg-muted/50 px-2 py-1 rounded break-all flex-1 min-w-0">
+              {revealedValue}
+            </p>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0"
+              onClick={async () => {
+                await navigator.clipboard.writeText(revealedValue)
+                setCopied(true)
+                setTimeout(() => setCopied(false), 1500)
+              }}
+              title={t('common.copy', 'Copy')}
+            >
+              {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+            </Button>
+          </div>
         )}
       </div>
 

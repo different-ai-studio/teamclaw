@@ -247,12 +247,15 @@ export function TeamOSSConfig() {
     navigator.clipboard.writeText(text)
   }, [])
 
+  const teamModeType = useTeamModeStore((s) => s.teamModeType)
+  const configuredAsOss = configured || teamModeType === 'oss'
+
   const isOwner = teamInfo?.role === 'owner' || teamInfo?.role === 'admin'
 
   return (
     <div className="space-y-4">
-      {/* State 0: Restoring connection */}
-      {!connected && restoring && (
+      {/* State 0: Restoring connection or configured via teamclaw.json but not connected yet */}
+      {!connected && (restoring || (configuredAsOss && !configured)) && (
         <SettingCard title="连接中" icon={Cloud}>
           <div className="flex items-center gap-3 py-4 justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -287,7 +290,7 @@ export function TeamOSSConfig() {
       )}
 
       {/* State 1b: Not configured — Create/Join forms */}
-      {!connected && !restoring && !configured && (
+      {!connected && !restoring && !configuredAsOss && (
         <>
           <SettingCard title="创建团队" icon={Users}>
             <div className="space-y-3">
