@@ -474,9 +474,6 @@ pub async fn oss_join_team(
     let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
     super::team::write_llm_config(&workspace_path, Some(&llm_config))?;
 
-    // Run initial sync
-    manager.initial_sync().await?;
-
     // Save config + keyring
     let config = OssTeamConfig {
         enabled: true,
@@ -498,6 +495,28 @@ pub async fn oss_join_team(
         *guard = Some(manager);
     }
     start_poll_loop(&state).await;
+
+    // Run initial sync in background so "join" can complete quickly.
+    // This avoids blocking the UI on large remote history downloads.
+    {
+        let manager_arc = state.manager.clone();
+        let joined_team_id = team_id.clone();
+        tokio::spawn(async move {
+            let mut guard = manager_arc.lock().await;
+            let Some(manager) = guard.as_mut() else {
+                return;
+            };
+            if manager.team_id() != joined_team_id {
+                return;
+            }
+            info!("oss_join_team: starting background initial sync for team {joined_team_id}");
+            if let Err(e) = manager.initial_sync().await {
+                warn!("oss_join_team: background initial sync failed: {e}");
+            } else {
+                info!("oss_join_team: background initial sync completed for team {joined_team_id}");
+            }
+        });
+    }
 
     // Init shared secrets for the joined team
     {
