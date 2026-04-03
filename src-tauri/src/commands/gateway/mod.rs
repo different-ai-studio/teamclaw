@@ -2386,9 +2386,10 @@ pub async fn save_mqtt_relay_config(
     gateway_state: State<'_, GatewayState>,
     config: MqttConfig,
 ) -> Result<(), String> {
-    let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-    let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
-    drop(guard);
+    let workspace_path = {
+        let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+        guard.workspace_path.clone().ok_or("No workspace path")?
+    };
 
     let mut full_config = read_config(&workspace_path).unwrap_or_default();
     let mut channels = full_config.channels.unwrap_or_default();
@@ -2396,7 +2397,11 @@ pub async fn save_mqtt_relay_config(
     full_config.channels = Some(channels);
     write_config(&workspace_path, &full_config)?;
 
-    if let Some(relay) = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?.as_ref() {
+    let relay_clone = {
+        let guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
+        guard.as_ref().cloned()
+    };
+    if let Some(relay) = relay_clone {
         relay.set_config(config).await;
     }
 
@@ -2408,27 +2413,34 @@ pub async fn start_mqtt_relay(
     opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-    let port = guard.port;
-    let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
-    drop(guard);
+    let (port, workspace_path) = {
+        let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+        let port = guard.port;
+        let ws = guard.workspace_path.clone().ok_or("No workspace path")?;
+        (port, ws)
+    };
 
     let mqtt_config = read_config(&workspace_path)?
         .channels
         .and_then(|c| c.mqtt)
         .ok_or("MQTT relay config not found")?;
 
-    let mut relay_guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
-
-    if relay_guard.is_none() {
-        let relay = MqttRelay::new(port, workspace_path);
-        *relay_guard = Some(relay);
+    // Create relay if not exists (need mutable access, then drop guard)
+    {
+        let mut relay_guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
+        if relay_guard.is_none() {
+            let relay = MqttRelay::new(port, workspace_path);
+            *relay_guard = Some(relay);
+        }
     }
 
-    if let Some(relay) = relay_guard.as_ref() {
-        relay.set_config(mqtt_config).await;
-        relay.start().await?;
-    }
+    // Clone relay and use it outside the lock
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref().cloned()
+        .ok_or("Failed to create MQTT relay")?;
+
+    relay.set_config(mqtt_config).await;
+    relay.start().await?;
 
     Ok(())
 }
@@ -2437,7 +2449,9 @@ pub async fn start_mqtt_relay(
 pub async fn stop_mqtt_relay(
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    if let Some(relay) = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?.as_ref() {
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref().cloned();
+    if let Some(relay) = relay {
         relay.stop().await?;
     }
     Ok(())
@@ -2447,7 +2461,9 @@ pub async fn stop_mqtt_relay(
 pub async fn get_mqtt_relay_status(
     gateway_state: State<'_, GatewayState>,
 ) -> Result<MqttRelayStatus, String> {
-    if let Some(relay) = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?.as_ref() {
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref().cloned();
+    if let Some(relay) = relay {
         Ok(relay.get_status().await)
     } else {
         Ok(MqttRelayStatus {
@@ -2476,14 +2492,17 @@ pub async fn unpair_mqtt_device(
     gateway_state: State<'_, GatewayState>,
     device_id: String,
 ) -> Result<(), String> {
-    let relay_guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
-    if let Some(relay) = relay_guard.as_ref() {
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref().cloned();
+
+    if let Some(relay) = relay {
         relay.unpair_device(&device_id).await?;
 
         // Persist updated config
-        let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
-        drop(guard);
+        let workspace_path = {
+            let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+            guard.workspace_path.clone().ok_or("No workspace path")?
+        };
 
         let config = relay.get_config().await;
         let mut full_config = read_config(&workspace_path).unwrap_or_default();
