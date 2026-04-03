@@ -7,6 +7,87 @@ use super::opencode::OpenCodeState;
 /// Keyring service name prefix for all TeamClaw environment variables.
 pub(crate) const KEYRING_SERVICE_PREFIX: &str = concat!(env!("APP_SHORT_NAME"), ".env");
 
+/// Single keychain entry that stores all env vars as a JSON blob.
+pub(crate) const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), ".env");
+
+/// Legacy per-key service prefix (used only for migration detection).
+const LEGACY_SERVICE_PREFIX: &str = concat!(env!("APP_SHORT_NAME"), ".env");
+
+/// Read the entire env var blob from keychain.
+/// Returns an empty map if the entry doesn't exist yet.
+/// On first call after migration: detects old per-key entries and consolidates them.
+pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
+        .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
+
+    match entry.get_password() {
+        Ok(json_str) => {
+            let val: serde_json::Value = serde_json::from_str(&json_str)
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+            match val {
+                serde_json::Value::Object(map) => Ok(map),
+                _ => Ok(serde_json::Map::new()),
+            }
+        }
+        Err(keyring::Error::NoEntry) => {
+            // First launch: attempt migration from legacy per-key format
+            let migrated = migrate_legacy_keyring(workspace_path);
+            if !migrated.is_empty() {
+                println!("[EnvVars] Migrated {} legacy keychain entries to blob", migrated.len());
+                write_env_blob(&migrated)?;
+            }
+            Ok(migrated)
+        }
+        Err(e) => Err(format!("Failed to read keychain blob: {}", e)),
+    }
+}
+
+/// Write the entire env var blob to keychain.
+pub(crate) fn write_env_blob(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let json_str = serde_json::to_string(map)
+        .map_err(|e| format!("Failed to serialize env blob: {}", e))?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
+        .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
+    entry.set_password(&json_str)
+        .map_err(|e| format!("Failed to write keychain blob: {}", e))
+}
+
+/// Read old per-key keychain entries and consolidate into a map.
+/// Deletes old entries after reading.
+fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde_json::Value> {
+    let path = format!("{}/{}/teamclaw.json", workspace_path, super::TEAMCLAW_DIR);
+    let json: serde_json::Value = match std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+    {
+        Some(v) => v,
+        None => return serde_json::Map::new(),
+    };
+
+    let entries = match json.get("envVars").and_then(|v| v.as_array()) {
+        Some(arr) => arr.clone(),
+        None => return serde_json::Map::new(),
+    };
+
+    let mut map = serde_json::Map::new();
+    for entry_val in &entries {
+        let key = match entry_val.get("key").and_then(|k| k.as_str()) {
+            Some(k) => k,
+            None => continue,
+        };
+        // Legacy service name was "teamclaw.env.<KEY>"
+        let legacy_service = format!("{}.{}", LEGACY_SERVICE_PREFIX, key);
+        if let Ok(e) = keyring::Entry::new(&legacy_service, "teamclaw") {
+            if let Ok(value) = e.get_password() {
+                map.insert(key.to_string(), serde_json::Value::String(value));
+                // Delete old entry
+                let _ = e.delete_credential();
+            }
+        }
+    }
+    map
+}
+
 /// A single environment variable entry (key + description, no value).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvVarEntry {
