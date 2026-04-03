@@ -2,7 +2,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { copyToClipboard } from "@/lib/utils";
+import { cn, copyToClipboard } from "@/lib/utils";
 import { type Message as StoreMessage, useSessionStore, getSessionById } from "@/stores/session";
 import { useStreamingStore } from "@/stores/streaming";
 import {
@@ -142,7 +142,7 @@ export const ChatMessage = React.memo(function ChatMessage({
   }, [textContent, t]);
 
   return (
-    <div className={isToolCallOnly ? "mb-0.5" : "mb-1.5"} data-testid="chat-message" data-message-role={message.role}>
+    <div className={cn("group/msg", isToolCallOnly ? "mb-0.5" : "mb-1.5")} data-testid="chat-message" data-message-role={message.role}>
       {/* Thinking indicator - MUST be first for assistant messages during streaming */}
       {showThinkingOnly && !hasReasoning && (
         <div className="flex items-start gap-2 pl-1 mb-2">
@@ -190,7 +190,7 @@ export const ChatMessage = React.memo(function ChatMessage({
 
       {/* User message actions */}
       {isUser && !latestMessage.isStreaming && (
-        <div className="flex justify-end mt-1 pr-1">
+        <div className={cn("flex justify-end mt-1 pr-1 transition-opacity", copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100")}>
           <button
             type="button"
             onClick={handleCopy}
@@ -244,7 +244,7 @@ export const ChatMessage = React.memo(function ChatMessage({
 
       {/* Copy action for assistant text responses */}
       {!isUser && !latestMessage.isStreaming && textContent && (
-        <div className="pl-1 mt-1 group">
+        <div className={cn("pl-1 mt-1 transition-opacity", copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100")}>
           <button
             type="button"
             onClick={handleCopy}

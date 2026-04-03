@@ -12,6 +12,7 @@ import {
   Link,
   Trash2,
   ChevronRight,
+  ChevronDown,
   Zap,
   Settings,
   ExternalLink,
@@ -35,6 +36,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { SettingCard, SectionHeader } from './shared'
+
+const MAINSTREAM_PROVIDER_IDS = new Set([
+  'anthropic',
+  'openai',
+  'google',
+  'deepseek',
+  'ollama',
+  'alibaba',
+  'alibaba-cn',
+  'zhipuai',
+])
 
 export const LLMSection = React.memo(function LLMSection() {
   const { t } = useTranslation()
@@ -100,6 +112,35 @@ export const LLMSection = React.memo(function LLMSection() {
 
   // Detail view for connected provider
   const [selectedProviderId, setSelectedProviderId] = React.useState<string | null>(null)
+
+  // Collapsible other providers
+  const [showAllProviders, setShowAllProviders] = React.useState(false)
+
+  const { visibleProviders, hiddenCount } = React.useMemo(() => {
+    const connected: typeof providers = []
+    const mainstream: typeof providers = []
+    const others: typeof providers = []
+
+    for (const p of providers) {
+      if (p.configured) {
+        connected.push(p)
+      } else if (
+        customProviderIds.includes(p.id) ||
+        MAINSTREAM_PROVIDER_IDS.has(p.id.toLowerCase())
+      ) {
+        mainstream.push(p)
+      } else {
+        others.push(p)
+      }
+    }
+
+    return {
+      visibleProviders: showAllProviders
+        ? [...connected, ...mainstream, ...others]
+        : [...connected, ...mainstream],
+      hiddenCount: others.length,
+    }
+  }, [providers, showAllProviders, customProviderIds])
 
   // Load providers on mount and when OpenCode becomes ready
   React.useEffect(() => {
@@ -438,7 +479,7 @@ export const LLMSection = React.memo(function LLMSection() {
       {/* Provider List */}
       {!providersLoading || providers.length > 0 ? (
         <div className="space-y-3">
-          {providers.map((p) => {
+          {visibleProviders.map((p) => {
             const isConnected = p.configured
             const isExpanded = selectedProviderId === p.id
             const models = isConnected ? getProviderModels(p.id) : []
@@ -577,6 +618,18 @@ export const LLMSection = React.memo(function LLMSection() {
               </SettingCard>
             )
           })}
+
+          {hiddenCount > 0 && (
+            <button
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted/50"
+              onClick={() => setShowAllProviders(!showAllProviders)}
+            >
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showAllProviders && "rotate-180")} />
+              {showAllProviders
+                ? t('settings.llm.showLess', 'Show Less')
+                : t('settings.llm.showMore', { count: hiddenCount, defaultValue: `Show ${hiddenCount} more providers` })}
+            </button>
+          )}
 
           {providers.length === 0 && !providersLoading && (
             <SettingCard>

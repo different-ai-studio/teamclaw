@@ -160,9 +160,17 @@ pub async fn env_var_list(state: State<'_, OpenCodeState>) -> Result<Vec<EnvVarE
     Ok(get_env_vars_from_json(&json))
 }
 
-/// Resolve `${KEY}` references in a string by replacing them with actual values from the keyring.
+/// Resolve `${KEY}` references in a string by replacing them with actual values.
+///
+/// Resolution order for each `${KEY}`:
+///   1. Shared secrets (team KMS, in-memory HashMap)
+///   2. Local keyring (per-user OS keyring)
+///   3. System environment variables (`std::env::var`)
 #[tauri::command]
-pub async fn env_var_resolve(input: String) -> Result<String, String> {
+pub async fn env_var_resolve(
+    shared_secrets: State<'_, super::shared_secrets::SharedSecretsState>,
+    input: String,
+) -> Result<String, String> {
     let re = regex::Regex::new(r"\$\{([^}]+)\}").map_err(|e| format!("Invalid regex: {}", e))?;
 
     let mut result = input.clone();
@@ -179,9 +187,28 @@ pub async fn env_var_resolve(input: String) -> Result<String, String> {
         .collect();
 
     for (full_match, key) in matches {
+        // 1. Check shared secrets (team KMS) — try original key, then lowercase
+        if let Some(value) =
+            super::shared_secrets::get_secret_value(&shared_secrets, &key)
+                .or_else(|| super::shared_secrets::get_secret_value(&shared_secrets, &key.to_lowercase()))
+        {
+            result = result.replace(&full_match, &value);
+            continue;
+        }
+
+        // 2. Check local keyring
         let entry = keyring::Entry::new(&keyring_service(&key), "teamclaw")
             .map_err(|e| format!("Failed to create keyring entry for '{}': {}", key, e))?;
         match entry.get_password() {
+            Ok(value) => {
+                result = result.replace(&full_match, &value);
+                continue;
+            }
+            Err(_) => {}
+        }
+
+        // 3. Check system environment variables
+        match std::env::var(&key) {
             Ok(value) => {
                 result = result.replace(&full_match, &value);
             }

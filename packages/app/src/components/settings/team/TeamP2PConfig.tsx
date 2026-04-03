@@ -198,12 +198,16 @@ export function TeamP2PConfig() {
 
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
-  const isConnected = engineSnapshot.status === 'connected' || (syncStatus?.connected ?? false)
+  const isConnected = engineSnapshot?.status === 'connected' || (syncStatus?.connected ?? false)
   const docTicket = syncStatus?.docTicket ?? null
 
   // Load device info, sync status, and reconnect on mount
   const loadSyncStatus = React.useCallback(async () => {
-    if (!isTauri()) return
+    if (!isTauri() || !workspacePath) {
+      setSyncStatus(null)
+      useTeamModeStore.setState({ myRole: null })
+      return
+    }
     try {
       const status = await tauriInvoke<typeof syncStatus>('p2p_sync_status')
       setSyncStatus(status)
@@ -213,13 +217,21 @@ export function TeamP2PConfig() {
     } catch {
       // may not be available
     }
-  }, [])
+  }, [workspacePath])
 
   React.useEffect(() => {
-    if (!isTauri()) {
+    setP2pError(null)
+    setJoinApprovalPending(false)
+    setApplications([])
+    setApproveRoles({})
+    setSyncStatus(null)
+
+    if (!isTauri() || !workspacePath) {
       setReconnecting(false)
       return
     }
+
+    setReconnecting(true)
     let cancelled = false
     ;(async () => {
       // Load device info
@@ -238,7 +250,7 @@ export function TeamP2PConfig() {
       if (!cancelled) setReconnecting(false)
     })()
     return () => { cancelled = true }
-  }, [loadSyncStatus])
+  }, [engineInit, loadSyncStatus, workspacePath])
 
   const formatLastSync = (isoString: string | null) => {
     if (!isoString) return t('settings.team.never', 'Never')

@@ -42,6 +42,7 @@ const p2pEngineStoreMocks = vi.hoisted(() => ({
     streamHealth: 'dead',
   },
   init: vi.fn(async () => () => {}),
+  fetch: vi.fn(async () => {}),
 }))
 
 // Mock i18n
@@ -70,6 +71,7 @@ vi.mock('@/stores/session', () => ({
         { id: 's2', title: 'Session Two', updatedAt: new Date('2025-01-02'), messages: [] },
       ],
       pinnedSessionIds: ['s1'],
+      importedSessionIds: [],
       activeSessionId: 's1',
       isLoading: false,
       isLoadingMore: false,
@@ -82,6 +84,8 @@ vi.mock('@/stores/session', () => ({
       toggleSessionPinned: vi.fn(),
       loadMoreSessions: vi.fn(),
       createSession: vi.fn(),
+      removeImportedSession: vi.fn(),
+      exportSession: vi.fn(),
     }),
 }))
 
@@ -197,6 +201,7 @@ describe('AppSidebar', () => {
       streamHealth: 'dead',
     }
     p2pEngineStoreMocks.init = vi.fn(async () => () => {})
+    p2pEngineStoreMocks.fetch = vi.fn(async () => {})
   })
 
   it('renders session titles in sidebar', () => {
@@ -237,19 +242,21 @@ describe('AppSidebar', () => {
     expect(buttons.length).toBeGreaterThan(2)
   })
 
-  it('with workspace UI variant shows Shortcuts above Automation and Skills', () => {
+  it('with workspace UI variant shows Shortcuts above Automation, Roles and Skills', () => {
     uiVariantMocks.workspaceShell = true
     render(<AppSidebar />)
     expect(screen.getByText('Shortcuts')).toBeDefined()
     expect(screen.getByText('Automation')).toBeDefined()
+    expect(screen.getByText('Roles')).toBeDefined()
     expect(screen.getByText('Skills')).toBeDefined()
   })
 
-  it('default mode renders Quick Access section with all four entries', () => {
+  it('default mode renders Quick Access section with all five entries', () => {
     uiVariantMocks.workspaceShell = false
     render(<AppSidebar />)
     expect(screen.getByText('Shortcuts')).toBeDefined()
     expect(screen.getByText('Automation')).toBeDefined()
+    expect(screen.getByText('Roles')).toBeDefined()
     expect(screen.getByText('Skills')).toBeDefined()
     expect(screen.getByText('Files')).toBeDefined()
   })

@@ -14,6 +14,7 @@ import { useTeamModeStore } from "@/stores/team-mode";
 import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
+import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
@@ -219,11 +220,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return;
     }
 
-    const { loadTeamConfig, applyTeamModelToOpenCode } = useTeamModeStore.getState();
+    const { loadTeamConfig, applyTeamModelToOpenCode, reAuthTeamProvider } = useTeamModeStore.getState();
     loadTeamConfig(workspacePath).then(async () => {
       if (useTeamModeStore.getState().teamMode) {
-        // Team mode: apply team config (restarts OpenCode), then init providers
-        await applyTeamModelToOpenCode(workspacePath);
+        // Team mode: apply team config (restarts OpenCode), then init providers.
+        // If config was already applied (sidecar restarted externally), just re-auth.
+        const { _appliedConfigKey, teamModelConfig, teamApiKey } = useTeamModeStore.getState();
+        const configKey = teamModelConfig
+          ? `${teamModelConfig.baseUrl}|${teamModelConfig.model}|${teamApiKey || ''}`
+          : null;
+        if (configKey && configKey === _appliedConfigKey) {
+          await reAuthTeamProvider();
+        } else {
+          await applyTeamModelToOpenCode(workspacePath);
+        }
       }
       initProviderStore();
     });
@@ -398,6 +408,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         console.error("[ChatPanel] Failed to load sessions:", err),
       );
   }, [openCodeReady, workspacePath, loadSessions, resetSessions]);
+
+  React.useEffect(() => {
+    if (!openCodeReady || !workspacePath || !isTauri()) return;
+
+    void ensureRoleSkillPlugin(workspacePath).then((result) => {
+      console.log("[RolePlugin] Startup ensure result:", {
+        workspacePath,
+        ...result,
+      });
+      if (result.status === "conflict" || result.status === "failed") {
+        console.warn("[RolePlugin] Failed to ensure managed role plugin:", result);
+      }
+    });
+  }, [openCodeReady, workspacePath]);
 
   // NOTE: No polling fallback needed.
   // SSE /event endpoint streams ALL events (Bus.subscribeAll) including

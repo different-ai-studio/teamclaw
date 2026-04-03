@@ -2,7 +2,7 @@ import * as React from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { readFile } from "@tauri-apps/plugin-fs"
-import { Download, X } from "lucide-react"
+import { Download, X, Copy, Check } from "lucide-react"
 
 import { cn, isTauri } from "@/lib/utils"
 import {
@@ -98,8 +98,10 @@ export function MessageContent({
   return (
     <div
       className={cn(
-        "max-w-[85%] rounded-2xl px-4 py-3 text-sm overflow-hidden break-words [overflow-wrap:anywhere] min-w-0",
-        from === "user" ? "bg-[#6f8c8a] text-white" : "bg-transparent",
+        "text-sm overflow-hidden break-words [overflow-wrap:anywhere] min-w-0",
+        from === "user"
+          ? "max-w-[85%] rounded-2xl px-4 py-3 bg-[#6f8c8a] text-white"
+          : "w-full",
         className
       )}
       {...props}
@@ -463,6 +465,61 @@ export function ClickableImage({ src, alt, className }: { src: string; alt?: str
   )
 }
 
+// --- Code block with syntax highlighting, language header, and copy button ---
+function CodeBlock({ language, children }: { language: string; children: string }) {
+  const [highlightedHtml, setHighlightedHtml] = React.useState<string | null>(null)
+  const [copied, setCopied] = React.useState(false)
+  const code = String(children).replace(/\n$/, '')
+
+  React.useEffect(() => {
+    let cancelled = false
+    import('@/components/diff/shiki-renderer').then(async ({ getHighlighter, mapLanguage }) => {
+      if (cancelled) return
+      try {
+        const highlighter = await getHighlighter()
+        const isDark = document.documentElement.classList.contains('dark')
+        const theme = isDark ? 'github-dark' : 'github-light'
+        const lang = mapLanguage(language)
+        const html = highlighter.codeToHtml(code, { lang, theme })
+        if (!cancelled) setHighlightedHtml(html)
+      } catch {
+        // Fallback: no highlighting
+      }
+    })
+    return () => { cancelled = true }
+  }, [code, language])
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(code)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="w-full rounded-lg bg-foreground/[0.02] overflow-hidden my-2">
+      <div className="flex items-center justify-between px-3 py-1.5">
+        <span className="text-xs text-muted-foreground font-mono">{language}</span>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+      {highlightedHtml ? (
+        <div
+          className="px-3 pb-3 overflow-x-auto text-sm [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!bg-transparent [&_code]:!p-0"
+          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+        />
+      ) : (
+        <pre className="px-3 pb-3 overflow-x-auto">
+          <code className="font-mono text-sm text-foreground">{code}</code>
+        </pre>
+      )}
+    </div>
+  )
+}
+
 // --- Stable ReactMarkdown components (no closure over basePath) ---
 // Hoisted to module level so the object reference never changes between renders.
 // The `img` component needs basePath, so it's added per-render via useMemo.
@@ -495,31 +552,21 @@ const markdownComponentsBase = {
   blockquote: ({ children }: { children?: React.ReactNode }) => (
     <blockquote className="border-l-4 border-[#5a7a64] pl-4 my-3 italic text-muted-foreground">{children}</blockquote>
   ),
-  pre: ({ children }: { children?: React.ReactNode }) => (
-    <pre className="my-2 max-w-full overflow-x-auto rounded-lg [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {children}
-    </pre>
-  ),
+  pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   code: ({ className, children, ...codeProps }: { className?: string; children?: React.ReactNode }) => {
     const isInline = !className
-    return isInline ? (
-      <code
-        className="inline-block max-w-full align-middle overflow-x-auto whitespace-nowrap rounded bg-muted px-1.5 py-px font-mono text-[0.9em] leading-snug text-[#4a6a54] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        {...codeProps}
-      >
-        {children}
-      </code>
-    ) : (
-      <code
-        className={cn(
-          "block max-w-full overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs text-foreground [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-          className,
-        )}
-        {...codeProps}
-      >
-        {children}
-      </code>
-    )
+    if (isInline) {
+      return (
+        <code
+          className="rounded bg-foreground/[0.06] px-1.5 py-0.5 font-mono text-[0.9em] leading-snug text-foreground break-words [overflow-wrap:anywhere]"
+          {...codeProps}
+        >
+          {children}
+        </code>
+      )
+    }
+    const language = className?.replace('language-', '') || ''
+    return <CodeBlock language={language}>{String(children)}</CodeBlock>
   },
   a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
     <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#5a7a64] hover:underline">{children}</a>

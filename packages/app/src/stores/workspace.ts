@@ -334,7 +334,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     // Reset team mode state — each workspace has its own team config
     try {
+      const { useP2pEngineStore } = await import("./p2p-engine");
+      const { useTeamMembersStore } = await import("./team-members");
       const { useTeamOssStore } = await import("./team-oss");
+      useP2pEngineStore.getState().reset();
+      useTeamMembersStore.getState().reset();
       // Reset OSS store first so loadTeamConfig reads clean state
       useTeamOssStore.getState().cleanup();
       useTeamModeStore.setState({
@@ -434,7 +438,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     // Reset team mode state
     try {
+      const { useP2pEngineStore } = await import("./p2p-engine");
+      const { useTeamMembersStore } = await import("./team-members");
       const { useTeamModeStore } = await import("./team-mode");
+      useP2pEngineStore.getState().reset();
+      useTeamMembersStore.getState().reset();
       useTeamModeStore.setState({
         teamMode: false,
         teamModelConfig: null,

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Mutex;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
@@ -427,6 +427,67 @@ pub async fn start_opencode_inner(
         secrets = retry_secrets;
     }
 
+    // Merge shared secrets (team KMS) into secrets vec.
+    // Shared secrets take priority over local keyring entries with the same key.
+    //
+    // Lazy init: if shared secrets haven't been initialized yet (e.g. early launch
+    // before oss_restore_sync), try to read team config and init from disk.
+    if let Some(shared_state) = app.try_state::<super::shared_secrets::SharedSecretsState>() {
+        {
+            let dk = shared_state.derived_key.lock().unwrap_or_else(|p| p.into_inner());
+            if dk.is_none() {
+                drop(dk);
+                // Try to init from workspace team config
+                let config_path = format!(
+                    "{}/{}/{}",
+                    workspace_path,
+                    super::TEAMCLAW_DIR,
+                    super::CONFIG_FILE_NAME
+                );
+                if let Ok(content) = std::fs::read_to_string(&config_path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(oss) = json.get("oss") {
+                            if let (Some(team_id), Some(true)) = (
+                                oss.get("teamId").and_then(|v| v.as_str()),
+                                oss.get("enabled").and_then(|v| v.as_bool()),
+                            ) {
+                                if let Ok(team_secret) = super::oss_sync::load_team_secret(team_id) {
+                                    let team_dir = std::path::Path::new(&workspace_path)
+                                        .join(super::TEAM_REPO_DIR);
+                                    match super::shared_secrets::init_shared_secrets(
+                                        &shared_state,
+                                        &team_secret,
+                                        &team_dir,
+                                    ) {
+                                        Ok(()) => println!("[OpenCode] Lazy-initialized shared secrets from disk"),
+                                        Err(e) => eprintln!("[OpenCode] Failed to lazy-init shared secrets: {}", e),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let shared_map = shared_state
+            .secrets
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        println!("[OpenCode] Shared secrets count: {}", shared_map.len());
+        for (key_id, entry) in shared_map.iter() {
+            // Inject both original key_id and UPPER_CASE version as env vars
+            // so ${wecom_corp_id} and WECOM_CORP_ID both resolve
+            let upper_key = key_id.to_uppercase();
+            secrets.retain(|(k, _)| k != key_id && k != &upper_key);
+            println!("[OpenCode] Loaded shared secret: {} (also {})", key_id, upper_key);
+            secrets.push((key_id.clone(), entry.key.clone()));
+            if upper_key != *key_id {
+                secrets.push((upper_key, entry.key.clone()));
+            }
+        }
+    }
+
     #[cfg(debug_assertions)]
     eprintln!(
         "[Startup] Pre-sidecar I/O (parallel): {:.1}ms",
@@ -456,6 +517,13 @@ pub async fn start_opencode_inner(
         .env("XDG_CONFIG_HOME", xdg_base.join("config").to_string_lossy().as_ref())
         .env("XDG_STATE_HOME", xdg_base.join("state").to_string_lossy().as_ref())
         .env("XDG_CACHE_HOME", xdg_base.join("cache").to_string_lossy().as_ref());
+    // Inject device identity as environment variables
+    if let Ok(device_id) = super::oss_commands::get_or_create_fallback_device_id() {
+        sidecar_command = sidecar_command.env("device_id", &device_id);
+    }
+    let device_name = gethostname::gethostname().to_string_lossy().to_string();
+    sidecar_command = sidecar_command.env("device_name", &device_name);
+
     for (key, value) in &secrets {
         sidecar_command = sidecar_command.env(key, value);
     }

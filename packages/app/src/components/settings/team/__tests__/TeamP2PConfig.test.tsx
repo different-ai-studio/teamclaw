@@ -9,6 +9,7 @@ const teamModeStoreMocks = vi.hoisted(() => ({
   clearTeamMode: vi.fn(),
   teamApiKey: null,
   setTeamApiKey: vi.fn(),
+  myRole: null as 'owner' | 'editor' | 'viewer' | null,
 }))
 
 const p2pEngineStoreMocks = vi.hoisted(() => ({
@@ -24,7 +25,15 @@ const p2pEngineStoreMocks = vi.hoisted(() => ({
     pendingFiles: 0,
   },
   init: vi.fn(async () => () => {}),
+  fetch: vi.fn(async () => {}),
 }))
+
+const workspaceStoreMocks = vi.hoisted(() => ({
+  workspacePath: '/workspace-a',
+  refreshFileTree: vi.fn(),
+}))
+
+const mockListen = vi.hoisted(() => vi.fn(async () => () => {}))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -72,8 +81,18 @@ vi.mock('@/stores/team-mode', () => ({
 }))
 
 vi.mock('@/stores/p2p-engine', () => ({
-  useP2pEngineStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel(p2pEngineStoreMocks as unknown as Record<string, unknown>),
+  useP2pEngineStore: Object.assign(
+    (sel: (s: Record<string, unknown>) => unknown) =>
+      sel(p2pEngineStoreMocks as unknown as Record<string, unknown>),
+    {
+      getState: () => ({
+        snapshot: p2pEngineStoreMocks.snapshot,
+        initialized: p2pEngineStoreMocks.initialized,
+        init: p2pEngineStoreMocks.init,
+        fetch: p2pEngineStoreMocks.fetch,
+      }),
+    },
+  ),
 }))
 
 vi.mock('@/stores/team-members', () => ({
@@ -82,7 +101,7 @@ vi.mock('@/stores/team-members', () => ({
 
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({ workspacePath: '/workspace', refreshFileTree: vi.fn() }),
+    sel(workspaceStoreMocks as unknown as Record<string, unknown>),
 }))
 
 vi.mock('@/components/settings/DeviceIdDisplay', () => ({
@@ -127,7 +146,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(async () => () => {}),
+  listen: (...args: unknown[]) => mockListen(...args),
 }))
 
 import { TeamP2PConfig } from '../TeamP2PConfig'
@@ -138,6 +157,7 @@ describe('TeamP2PConfig', () => {
     teamModeStoreMocks.teamApiKey = null
     teamModeStoreMocks.setTeamApiKey = vi.fn()
     teamModeStoreMocks.clearTeamMode = vi.fn()
+    teamModeStoreMocks.myRole = null
     p2pEngineStoreMocks.initialized = true
     p2pEngineStoreMocks.snapshot = {
       status: 'connected',
@@ -150,6 +170,17 @@ describe('TeamP2PConfig', () => {
       pendingFiles: 0,
     }
     p2pEngineStoreMocks.init = vi.fn(async () => () => {})
+    p2pEngineStoreMocks.fetch = vi.fn(async () => {})
+    workspaceStoreMocks.workspacePath = '/workspace-a'
+    workspaceStoreMocks.refreshFileTree = vi.fn()
+    mockListen.mockClear()
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      value: {
+        transformCallback: vi.fn(() => 0),
+        invoke: vi.fn(async () => null),
+      },
+      configurable: true,
+    })
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_device_info') {
         return { nodeId: 'node-123' }
@@ -183,5 +214,68 @@ describe('TeamP2PConfig', () => {
     })
 
     expect(mockInvoke).not.toHaveBeenCalledWith('p2p_reconnect', undefined)
+  })
+
+  it('reloads sync status when workspace changes', async () => {
+    let syncStatusCalls = 0
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_device_info') {
+        return { nodeId: 'node-123' }
+      }
+      if (cmd === 'p2p_sync_status') {
+        syncStatusCalls += 1
+        return syncStatusCalls === 1
+          ? {
+              connected: true,
+              role: 'owner',
+              docTicket: 'ticket-a',
+              namespaceId: 'team-a',
+              lastSyncAt: '2024-01-01T00:00:00Z',
+              members: [],
+              ownerNodeId: 'node-123',
+              seedUrl: null,
+              teamSecret: 'secret-a',
+            }
+          : {
+              connected: false,
+              role: null,
+              docTicket: null,
+              namespaceId: null,
+              lastSyncAt: null,
+              members: [],
+              ownerNodeId: null,
+              seedUrl: null,
+              teamSecret: null,
+            }
+      }
+      return null
+    })
+
+    const { rerender } = render(<TeamP2PConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Team Drive Active')).toBeDefined()
+    })
+
+    workspaceStoreMocks.workspacePath = '/workspace-b'
+    p2pEngineStoreMocks.snapshot = {
+      status: 'disconnected',
+      streamHealth: 'dead',
+      uptimeSecs: 0,
+      restartCount: 0,
+      lastSyncAt: null,
+      peers: [],
+      syncedFiles: 0,
+      pendingFiles: 0,
+    }
+    rerender(<TeamP2PConfig />)
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledTimes(4)
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Team Drive Active')).toBeNull()
+    })
   })
 })

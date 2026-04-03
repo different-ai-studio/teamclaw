@@ -80,7 +80,10 @@ vi.mock('@/stores/ui', () => ({
     (selector: (s: unknown) => unknown) =>
       selector({ layoutMode: mockLayoutMode, setFileModeRightTab: mockSetFileModeRightTab }),
     {
-      getState: () => ({ layoutMode: mockLayoutMode }),
+      getState: () => ({
+        layoutMode: mockLayoutMode,
+        switchToSession: mockSetActiveSession,
+      }),
     },
   ),
 }))

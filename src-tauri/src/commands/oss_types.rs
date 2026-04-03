@@ -122,6 +122,7 @@ pub enum DocType {
     Skills,
     Mcp,
     Knowledge,
+    Secrets,
 }
 
 impl DocType {
@@ -130,6 +131,7 @@ impl DocType {
             DocType::Skills => "skills",
             DocType::Mcp => "mcp",
             DocType::Knowledge => "knowledge",
+            DocType::Secrets => "secrets",
         }
     }
 
@@ -138,11 +140,12 @@ impl DocType {
             DocType::Skills => "skills",
             DocType::Mcp => ".mcp",
             DocType::Knowledge => "knowledge",
+            DocType::Secrets => "_secrets",
         }
     }
 
-    pub fn all() -> [DocType; 3] {
-        [DocType::Skills, DocType::Mcp, DocType::Knowledge]
+    pub fn all() -> [DocType; 4] {
+        [DocType::Skills, DocType::Mcp, DocType::Knowledge, DocType::Secrets]
     }
 }
 

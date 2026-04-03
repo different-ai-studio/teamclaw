@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import type { TeamMember } from '../lib/git/types'
 
-type MemberRole = 'owner' | 'editor' | 'viewer'
+type MemberRole = 'owner' | 'manager' | 'editor' | 'viewer'
 
 interface TeamApplication {
   nodeId: string
@@ -36,6 +36,7 @@ interface TeamMembersState {
   approveApplication: (app: TeamApplication) => Promise<void>
   listenForApplications: () => Promise<void>
   cleanupApplicationsListener: () => void
+  reset: () => void
 }
 
 export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
@@ -111,7 +112,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
 
   canManageMembers: () => {
     const { myRole } = get()
-    return myRole === 'owner' || myRole === 'editor'
+    return myRole === 'owner' || myRole === 'manager'
   },
 
   listenForApplications: async () => {
@@ -132,6 +133,21 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
       _unlistenApplications()
       set({ _unlistenApplications: null })
     }
+  },
+
+  reset: () => {
+    const { _unlistenApplications } = get()
+    if (_unlistenApplications) {
+      _unlistenApplications()
+    }
+    set({
+      members: [],
+      myRole: null,
+      loading: false,
+      error: null,
+      applications: [],
+      _unlistenApplications: null,
+    })
   },
 
   approveApplication: async (app) => {

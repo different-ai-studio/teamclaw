@@ -84,7 +84,7 @@ const SessionListItem = React.memo(function SessionListItem({
           <div className="flex items-center gap-1.5">
             <span className={cn(
               "truncate leading-snug",
-              compact ? "text-xs" : "text-sm",
+              compact ? "text-sm" : "text-[15px]",
               isActive && "font-medium",
             )}>
               {session.title}
@@ -97,7 +97,7 @@ const SessionListItem = React.memo(function SessionListItem({
               </span>
             ) : null}
           </div>
-          <span className={cn("text-muted-foreground/70", compact ? "text-[10px]" : "text-xs")}>
+          <span className={cn("text-muted-foreground/70", compact ? "text-xs" : "text-xs")}>
             {formatRelativeDate(session.updatedAt)}
             {session.messageCount !== undefined && (
               <> · {session.messageCount} msgs</>

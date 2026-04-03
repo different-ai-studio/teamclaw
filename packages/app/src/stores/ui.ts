@@ -11,10 +11,10 @@ export type LayoutMode = 'task' | 'file'
 // Right panel tab in file mode
 export type FileModeRightTab = 'shortcuts' | 'tasks' | 'changes' | 'files' | 'agent'
 
-export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
+export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
 /** Sections that can be opened in the main column from the workspace sidebar strip. */
-export type EmbeddedSidebarSettingsSection = 'automation' | 'skills'
+export type EmbeddedSidebarSettingsSection = 'automation' | 'roles' | 'skills'
 
 interface UIState {
   currentView: View

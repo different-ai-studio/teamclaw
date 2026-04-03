@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo } from "react";
 import {
   ChevronRight,
   FileEdit,
+  Trash2,
   Copy,
   CheckCheck,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import {
   statusConfig,
   extractFilePath,
   extractPatchTextFromToolArgs,
+  parseDeleteOnlyPatch,
   getFileExtension,
   getLanguageName,
   getFileName,
@@ -133,6 +135,12 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
   const config = statusConfig[toolCall.status];
   const StatusIcon = config.icon;
 
+  // Detect delete-only patches (*** Delete File: xxx)
+  const deletedFiles = useMemo(
+    () => (patchText ? parseDeleteOnlyPatch(patchText) : null),
+    [patchText],
+  );
+
   // Generate unified diff and parse into structured format (str-replace edit or raw patch)
   const diffData = useMemo(() => {
     try {
@@ -213,6 +221,53 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
     setIsExpanded((prev) => !prev);
   }, []);
 
+  // Delete-only patch: render as file deletion list
+  if (deletedFiles) {
+    return (
+      <div className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all duration-200">
+        <div
+          className="flex items-center gap-2 px-3 py-2 bg-muted/50 cursor-pointer select-none hover:bg-muted/70"
+          onClick={handleToggleExpand}
+        >
+          <ChevronRight
+            size={14}
+            className={cn(
+              "text-muted-foreground transition-transform duration-200 shrink-0",
+              isExpanded && "rotate-90",
+            )}
+          />
+          <Trash2 size={14} className="text-muted-foreground shrink-0" />
+          <span className="text-xs font-medium text-foreground">
+            Deleted {deletedFiles.length} file{deletedFiles.length !== 1 ? "s" : ""}
+          </span>
+          <span className="flex-1" />
+          {toolCall.duration && (
+            <span className="text-[10px] text-muted-foreground/70">
+              {toolCall.duration < 1000
+                ? `${toolCall.duration}ms`
+                : `${(toolCall.duration / 1000).toFixed(1)}s`}
+            </span>
+          )}
+          <StatusIcon
+            size={14}
+            className={cn(config.textColor, config.animate && "animate-spin")}
+          />
+        </div>
+        {isExpanded && (
+          <div className="px-3 pb-2 pt-1 space-y-0.5">
+            {deletedFiles.map((f, i) => (
+              <div key={i} className="flex items-center gap-2 py-0.5 text-xs text-muted-foreground">
+                <span className="text-red-500 dark:text-red-400 text-[10px]">D</span>
+                <span className="font-mono truncate line-through">{getFileName(f)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <PermissionApprovalBar toolCall={toolCall} />
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all duration-200">
       {/* Header: click chevron to toggle, click rest to open file */}
@@ -282,7 +337,7 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
       )}
 
       {/* Fallback: show error if diff generation failed but we have content */}
-      {isExpanded && (oldStr || newStr || patchText) && !diffData && (
+      {isExpanded && (oldStr || newStr || patchText) && !diffData && !deletedFiles && (
         <div className="p-3 text-xs text-muted-foreground italic">
           Unable to generate diff view
         </div>

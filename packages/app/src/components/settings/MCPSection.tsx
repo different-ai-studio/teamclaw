@@ -360,13 +360,17 @@ export const MCPSection = React.memo(function MCPSection() {
 
       {/* Empty State */}
       {!isLoading && allEntries.length === 0 && (
-        <SettingCard>
-          <div className="text-center py-8">
-            <Plug className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-            <p className="text-muted-foreground mb-2">{t('settings.mcp.noServers', 'No MCP servers configured')}</p>
-            <p className="text-sm text-muted-foreground">
+        <SettingCard className="bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950/30 dark:to-amber-950/30 border-orange-200 dark:border-orange-800">
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <Plug className="h-10 w-10 text-orange-500 mb-3" />
+            <h4 className="font-medium mb-1">{t('settings.mcp.noServers', 'No MCP servers configured')}</h4>
+            <p className="text-sm text-muted-foreground max-w-sm">
               {t('settings.mcp.addServerHint', "Add an MCP server to extend OpenCode's capabilities")}
             </p>
+            <Button size="sm" className="mt-4" onClick={() => { setEditingServer(null); setDialogOpen(true) }}>
+              <Plus className="h-4 w-4 mr-1" />
+              {t('settings.mcp.addServer', 'Add MCP Server')}
+            </Button>
           </div>
         </SettingCard>
       )}
@@ -444,17 +448,20 @@ export const MCPSection = React.memo(function MCPSection() {
       )}
 
       {/* Add Server Button */}
-      <Button
-        variant="outline"
-        className="w-full h-11 gap-2 border-dashed"
-        onClick={() => {
-          setEditingServer(null)
-          setDialogOpen(true)
-        }}
-      >
-        <Plus className="h-4 w-4" />
-        {t('settings.mcp.addServer', 'Add MCP Server')}
-      </Button>
+      {allEntries.length > 0 && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditingServer(null)
+              setDialogOpen(true)
+            }}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {t('settings.mcp.addServer', 'Add MCP Server')}
+          </Button>
+        </div>
+      )}
 
       {/* Add/Edit Dialog */}
       <AddMCPDialog
@@ -469,7 +476,7 @@ export const MCPSection = React.memo(function MCPSection() {
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('settings.mcp.deleteTitle', 'Delete MCP Server')}</DialogTitle>
             <DialogDescription>

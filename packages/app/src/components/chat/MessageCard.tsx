@@ -88,7 +88,7 @@ export function MessageCard({ message }: MessageCardProps) {
                   const isInline = !className
                   return isInline ? (
                     <code
-                      className="bg-bg-tertiary px-1.5 py-0.5 rounded text-accent-green-dark text-sm font-mono"
+                      className="bg-bg-tertiary px-1.5 py-0.5 rounded text-foreground text-sm font-mono break-words [overflow-wrap:anywhere]"
                       {...props}
                     >
                       {children}

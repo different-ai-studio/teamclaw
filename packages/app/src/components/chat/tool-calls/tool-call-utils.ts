@@ -10,6 +10,7 @@ import {
   Loader2,
   Check,
   X,
+  Sparkles,
 } from "lucide-react";
 import type { ToolCall } from "@/stores/session";
 import {
@@ -55,6 +56,9 @@ export const statusConfig = {
 // Get appropriate icon based on tool name
 export function getToolIcon(toolName: string) {
   const name = toolName.toLowerCase();
+  if (name === "role_load") {
+    return Sparkles;
+  }
   if (name === "question") {
     return HelpCircle;
   }
@@ -150,6 +154,10 @@ export function isSkillTool(toolName: string): boolean {
   return toolName.toLowerCase() === "skill";
 }
 
+export function isRoleLoadTool(toolName: string): boolean {
+  return toolName.toLowerCase() === "role_load";
+}
+
 // Get file extension from path
 export function getFileExtension(path: string): string {
   const parts = path.split(".");
@@ -192,6 +200,9 @@ export function getLanguageName(ext: string): string {
 
 // Format tool name for display
 export function formatToolName(name: string): string {
+  if (name.toLowerCase() === "role_load") {
+    return "Role Load";
+  }
   return name
     .replace(/_/g, " ")
     .replace(/([A-Z])/g, " $1")
@@ -242,11 +253,34 @@ export function extractFilePath(args: Record<string, unknown> | undefined): stri
 
 const PATCH_ARG_KEYS = [
   "patch",
+  "patchText",
   "diff",
   "unifiedDiff",
   "unified_diff",
   "udiff",
 ] as const;
+
+/**
+ * Parse a patch that only contains file deletions (*** Delete File: xxx).
+ * Returns the list of deleted file paths, or null if the patch contains non-delete operations.
+ */
+export function parseDeleteOnlyPatch(patchText: string): string[] | null {
+  const lines = patchText.trim().split('\n').filter(l => l.trim());
+  const deleteFiles: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '*** Begin Patch' || trimmed === '*** End Patch') continue;
+    const match = trimmed.match(/^\*\*\* Delete File:\s*(.+)$/);
+    if (match) {
+      deleteFiles.push(match[1].trim());
+    } else {
+      return null;
+    }
+  }
+
+  return deleteFiles.length > 0 ? deleteFiles : null;
+}
 
 /**
  * Extract raw patch / unified-diff text from apply_patch (and similar) tool arguments.

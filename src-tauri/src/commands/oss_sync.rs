@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
@@ -37,6 +37,7 @@ pub struct OssSyncManager {
     skills_doc: loro::LoroDoc,
     mcp_doc: loro::LoroDoc,
     knowledge_doc: loro::LoroDoc,
+    secrets_doc: loro::LoroDoc,
 
     team_id: String,
     node_id: String,
@@ -129,6 +130,7 @@ impl OssSyncManager {
             skills_doc: loro::LoroDoc::new(),
             mcp_doc: loro::LoroDoc::new(),
             knowledge_doc: loro::LoroDoc::new(),
+            secrets_doc: loro::LoroDoc::new(),
             team_id,
             node_id,
             team_secret,
@@ -219,12 +221,25 @@ impl OssSyncManager {
             "oss-sts",
         );
 
+        let timeout_config = aws_sdk_s3::config::timeout::TimeoutConfig::builder()
+            .operation_timeout(std::time::Duration::from_secs(30))
+            .operation_attempt_timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build();
+
+        let stalled_stream =
+            aws_sdk_s3::config::StalledStreamProtectionConfig::enabled()
+                .grace_period(std::time::Duration::from_secs(10))
+                .build();
+
         let s3_config = aws_sdk_s3::config::Builder::new()
             .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
             .endpoint_url(&config.endpoint)
             .region(aws_sdk_s3::config::Region::new(config.region.clone()))
             .credentials_provider(credentials)
             .force_path_style(force_path_style)
+            .timeout_config(timeout_config)
+            .stalled_stream_protection(stalled_stream)
             .build();
 
         aws_sdk_s3::Client::from_conf(s3_config)
@@ -465,6 +480,13 @@ impl OssSyncManager {
         Ok(keys)
     }
 
+    /// Best-effort existence check for a specific S3 object key.
+    /// Uses LIST with exact-key prefix to avoid broad scans.
+    async fn s3_key_exists(&self, key: &str) -> Result<bool, String> {
+        let keys = self.s3_list(key).await?;
+        Ok(keys.iter().any(|k| k == key))
+    }
+
     pub async fn s3_delete(&self, key: &str) -> Result<(), String> {
         let client = self.client()?;
         let bucket = self.bucket()?;
@@ -559,6 +581,7 @@ impl OssSyncManager {
             DocType::Skills => &self.skills_doc,
             DocType::Mcp => &self.mcp_doc,
             DocType::Knowledge => &self.knowledge_doc,
+            DocType::Secrets => &self.secrets_doc,
         }
     }
 
@@ -567,6 +590,7 @@ impl OssSyncManager {
             DocType::Skills => &mut self.skills_doc,
             DocType::Mcp => &mut self.mcp_doc,
             DocType::Knowledge => &mut self.knowledge_doc,
+            DocType::Secrets => &mut self.secrets_doc,
         }
     }
 
@@ -643,6 +667,27 @@ impl OssSyncManager {
         Ok(())
     }
 
+    /// Build a gitignore matcher that layers rules from the team root
+    /// `.gitignore` (parent of `dir`) and the doc-type subdir `.gitignore`.
+    fn build_gitignore(dir: &Path) -> ignore::gitignore::Gitignore {
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
+        // Team root .gitignore (one level up, e.g. teamclaw-team/.gitignore)
+        if let Some(parent) = dir.parent() {
+            let root_gi = parent.join(".gitignore");
+            if root_gi.exists() {
+                let _ = builder.add(root_gi);
+            }
+        }
+        // Subdir .gitignore (e.g. teamclaw-team/skills/.gitignore)
+        let sub_gi = dir.join(".gitignore");
+        if sub_gi.exists() {
+            let _ = builder.add(sub_gi);
+        }
+        builder.build().unwrap_or_else(|_| {
+            ignore::gitignore::GitignoreBuilder::new(dir).build().unwrap()
+        })
+    }
+
     fn scan_local_files(dir: &Path) -> Result<HashMap<String, Vec<u8>>, String> {
         let mut result = HashMap::new();
 
@@ -650,9 +695,12 @@ impl OssSyncManager {
             return Ok(result);
         }
 
+        let gitignore = Self::build_gitignore(dir);
+
         fn walk(
             base: &Path,
             current: &Path,
+            gitignore: &ignore::gitignore::Gitignore,
             result: &mut HashMap<String, Vec<u8>>,
         ) -> Result<(), String> {
             let entries = std::fs::read_dir(current)
@@ -664,14 +712,22 @@ impl OssSyncManager {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
 
-                // Skip hidden files/dirs
-                if name_str.starts_with('.') {
+                // Skip hidden files/dirs (but allow .gitignore)
+                if name_str.starts_with('.') && name_str != ".gitignore" {
                     continue;
                 }
 
                 if path.is_dir() {
-                    walk(base, &path, result)?;
+                    // Check gitignore for directories
+                    if gitignore.matched(&path, true).is_ignore() {
+                        continue;
+                    }
+                    walk(base, &path, gitignore, result)?;
                 } else {
+                    // Check gitignore for files
+                    if gitignore.matched(&path, false).is_ignore() {
+                        continue;
+                    }
                     // Skip files exceeding the size limit
                     if let Ok(meta) = path.metadata() {
                         if meta.len() > MAX_SYNC_FILE_SIZE {
@@ -705,7 +761,7 @@ impl OssSyncManager {
             Ok(())
         }
 
-        walk(dir, dir, &mut result)?;
+        walk(dir, dir, &gitignore, &mut result)?;
         Ok(result)
     }
 
@@ -721,10 +777,13 @@ impl OssSyncManager {
             return Ok(result);
         }
 
+        let gitignore = Self::build_gitignore(dir);
+
         fn walk_incremental(
             base: &Path,
             current: &Path,
             since: std::time::SystemTime,
+            gitignore: &ignore::gitignore::Gitignore,
             result: &mut HashMap<String, Vec<u8>>,
         ) -> Result<(), String> {
             let entries = std::fs::read_dir(current)
@@ -736,13 +795,20 @@ impl OssSyncManager {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
 
-                if name_str.starts_with('.') {
+                // Skip hidden files/dirs (but allow .gitignore)
+                if name_str.starts_with('.') && name_str != ".gitignore" {
                     continue;
                 }
 
                 if path.is_dir() {
-                    walk_incremental(base, &path, since, result)?;
+                    if gitignore.matched(&path, true).is_ignore() {
+                        continue;
+                    }
+                    walk_incremental(base, &path, since, gitignore, result)?;
                 } else {
+                    if gitignore.matched(&path, false).is_ignore() {
+                        continue;
+                    }
                     // Skip files exceeding the size limit
                     let meta = path.metadata().ok();
                     if let Some(ref m) = meta {
@@ -782,7 +848,7 @@ impl OssSyncManager {
             Ok(())
         }
 
-        walk_incremental(dir, dir, since, &mut result)?;
+        walk_incremental(dir, dir, since, &gitignore, &mut result)?;
         Ok(result)
     }
 
@@ -806,6 +872,30 @@ impl OssSyncManager {
         let mtime_changed = Self::scan_local_files_incremental(&dir, since)?;
 
         if mtime_changed.is_empty() {
+            // No mtime changes, but files may have been deleted since the
+            // last scan.  Check the CRDT for entries that are not marked
+            // deleted yet whose files no longer exist on disk.  If any are
+            // found, delegate to the full `upload_local_changes` which
+            // handles deletion marking + upload in one shot.
+            let local_files = Self::scan_local_files(&dir)?;
+            let doc = self.get_doc(doc_type);
+            let files_map = doc.get_map("files");
+            let map_value = files_map.get_deep_value();
+            if let loro::LoroValue::Map(entries) = &map_value {
+                for (path, value) in entries.iter() {
+                    if let loro::LoroValue::Map(entry) = value {
+                        let deleted = match entry.get("deleted") {
+                            Some(loro::LoroValue::Bool(b)) => *b,
+                            _ => false,
+                        };
+                        if !deleted && !local_files.contains_key(path.as_str()) {
+                            // At least one file was deleted locally — hand off
+                            // to the full upload path which marks deletions.
+                            return self.upload_local_changes(doc_type).await;
+                        }
+                    }
+                }
+            }
             return Ok(false);
         }
 
@@ -817,9 +907,6 @@ impl OssSyncManager {
                 .insert(doc_type, std::time::SystemTime::now());
             return Ok(false);
         }
-
-        self.last_scan_time
-            .insert(doc_type, std::time::SystemTime::now());
 
         // Update CRDT with only the changed files, then export and upload
         let now = Utc::now().to_rfc3339();
@@ -891,6 +978,11 @@ impl OssSyncManager {
             doc_type,
             updates.len()
         );
+
+        // Advance scan cursor only after a successful upload, so failed uploads
+        // are retried on the next fast-loop cycle.
+        self.last_scan_time
+            .insert(doc_type, std::time::SystemTime::now());
 
         let current_vv = self.get_doc(doc_type).oplog_vv().encode();
         self.last_exported_version.insert(doc_type, current_vv);
@@ -1078,6 +1170,19 @@ impl OssSyncManager {
                         }
                     }
                 }
+            }
+        }
+
+        // After writing Secrets files to disk, reload the in-memory secrets map
+        // and notify the frontend so that env-var resolution picks up the latest values.
+        if doc_type == DocType::Secrets {
+            if let Some(app_handle) = &self.app_handle {
+                if let Some(shared_state) = app_handle.try_state::<crate::commands::shared_secrets::SharedSecretsState>() {
+                    if let Err(e) = crate::commands::shared_secrets::load_all_secrets(&shared_state) {
+                        log::warn!("[OssSync] Failed to reload shared secrets: {}", e);
+                    }
+                }
+                let _ = app_handle.emit("secrets-changed", ());
             }
         }
 
@@ -1324,10 +1429,20 @@ impl OssSyncManager {
         let start_after = self.last_known_key.get(&doc_type).map(|s| s.as_str());
         let new_keys = self.s3_list_after(&prefix, start_after).await?;
 
-        // Race condition detection: if we had a cursor but got zero results,
-        // another node may have compacted (deleted all updates).
-        // Fall back to reloading from the latest snapshot.
-        if new_keys.is_empty() && self.last_known_key.contains_key(&doc_type) {
+        // Race condition detection: if we had a cursor and got zero results, treat
+        // it as compaction only when the cursor key itself no longer exists.
+        // Zero results alone can also mean "no new updates" and should be cheap.
+        let had_cursor = self.last_known_key.contains_key(&doc_type);
+        let cursor_missing = if had_cursor {
+            let last_key = self
+                .last_known_key
+                .get(&doc_type)
+                .ok_or_else(|| "Missing last_known_key despite cursor flag".to_string())?;
+            !self.s3_key_exists(last_key).await?
+        } else {
+            false
+        };
+        if Self::should_reload_snapshot_after_empty_listing(new_keys.is_empty(), cursor_missing) {
             let snap_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
             let snap_keys = self.s3_list(&snap_prefix).await?;
             if let Some(latest_snap) = snap_keys.last() {
@@ -1439,6 +1554,25 @@ impl OssSyncManager {
         Ok(())
     }
 
+    fn should_reload_snapshot_after_empty_listing(
+        new_keys_is_empty: bool,
+        cursor_missing: bool,
+    ) -> bool {
+        new_keys_is_empty && cursor_missing
+    }
+
+    fn select_compaction_deletion_keys(
+        pre_snapshot_updates: &[String],
+        current_updates: &[String],
+    ) -> Vec<String> {
+        let frozen: HashSet<&str> = pre_snapshot_updates.iter().map(String::as_str).collect();
+        current_updates
+            .iter()
+            .filter(|k| frozen.contains(k.as_str()))
+            .cloned()
+            .collect()
+    }
+
     pub async fn initial_sync(&mut self) -> Result<(), String> {
         for doc_type in DocType::all() {
             info!("Initial sync for {:?}...", doc_type);
@@ -1511,13 +1645,18 @@ impl OssSyncManager {
         // 1. Pull all latest updates to ensure doc is current
         self.pull_remote_changes(doc_type).await?;
 
-        // 2. Export full snapshot
+        // 2. Freeze the deletion set BEFORE snapshot upload. We only delete keys
+        // observed at this point, so concurrently written updates are preserved.
+        let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
+        let pre_snapshot_updates = self.s3_list(&update_prefix).await?;
+
+        // 3. Export full snapshot
         let doc = self.get_doc(doc_type);
         let snapshot = doc
             .export(loro::ExportMode::Snapshot)
             .map_err(|e| format!("Failed to export snapshot for {:?}: {e}", doc_type))?;
 
-        // 3. Upload new snapshot
+        // 4. Upload new snapshot
         let timestamp_ms = Utc::now().timestamp_millis();
         let snap_key = format!(
             "teams/{}/{}/snapshot/{}.bin",
@@ -1532,19 +1671,22 @@ impl OssSyncManager {
             snapshot.len()
         );
 
-        // 4. Delete all update files
-        let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
-        let update_keys = self.s3_list(&update_prefix).await?;
-        for key in &update_keys {
+        // 5. Re-list and delete only keys that already existed pre-snapshot.
+        let current_updates = self.s3_list(&update_prefix).await?;
+        let updates_to_delete = Self::select_compaction_deletion_keys(
+            &pre_snapshot_updates,
+            &current_updates,
+        );
+        for key in &updates_to_delete {
             self.s3_delete(key).await?;
         }
         info!(
-            "Compaction: deleted {} update files for {:?}",
-            update_keys.len(),
+            "Compaction: deleted {} pre-snapshot update files for {:?}",
+            updates_to_delete.len(),
             doc_type
         );
 
-        // 5. Trim old snapshots (keep only 2 most recent)
+        // 6. Trim old snapshots (keep only 2 most recent)
         let snap_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
         let snap_keys = self.s3_list(&snap_prefix).await?;
         if snap_keys.len() > 2 {
@@ -1558,12 +1700,12 @@ impl OssSyncManager {
             );
         }
 
-        // 6. Reset local state
+        // 7. Reset local state
         self.known_files.insert(doc_type, HashSet::new());
         self.last_known_key.remove(&doc_type);
         self.last_exported_version.remove(&doc_type);
 
-        // 7. Record compaction time
+        // 8. Record compaction time
         self.last_compaction_at.insert(doc_type, Utc::now());
 
         info!("Compaction complete for {:?}", doc_type);
@@ -2172,6 +2314,46 @@ impl OssSyncManager {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::OssSyncManager;
+
+    #[test]
+    fn snapshot_reload_only_when_cursor_missing() {
+        assert!(OssSyncManager::should_reload_snapshot_after_empty_listing(
+            true, true
+        ));
+        assert!(!OssSyncManager::should_reload_snapshot_after_empty_listing(
+            true, false
+        ));
+        assert!(!OssSyncManager::should_reload_snapshot_after_empty_listing(
+            false, true
+        ));
+    }
+
+    #[test]
+    fn compaction_deletes_only_pre_snapshot_updates() {
+        let pre_snapshot = vec![
+            "teams/t/notes/updates/a/100.bin".to_string(),
+            "teams/t/notes/updates/a/101.bin".to_string(),
+        ];
+        let current = vec![
+            "teams/t/notes/updates/a/100.bin".to_string(),
+            "teams/t/notes/updates/a/101.bin".to_string(),
+            "teams/t/notes/updates/b/102.bin".to_string(), // concurrent new write
+        ];
+
+        let deletion = OssSyncManager::select_compaction_deletion_keys(&pre_snapshot, &current);
+        assert_eq!(
+            deletion,
+            vec![
+                "teams/t/notes/updates/a/100.bin".to_string(),
+                "teams/t/notes/updates/a/101.bin".to_string(),
+            ]
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Members Manifest S3 Operations
 // ---------------------------------------------------------------------------
@@ -2232,6 +2414,15 @@ impl OssSyncManager {
             return Err("Cannot remove the team Owner".to_string());
         }
 
+        // If caller is manager (not owner), block removing other managers
+        let is_owner = manifest.owner_node_id == self.node_id;
+        if !is_owner {
+            let target_role = manifest.members.iter().find(|m| m.node_id == node_id).map(|m| &m.role);
+            if matches!(target_role, Some(MemberRole::Owner) | Some(MemberRole::Manager)) {
+                return Err("Managers can only remove editors and viewers".to_string());
+            }
+        }
+
         manifest.members.retain(|m| m.node_id != node_id);
         self.upload_members_manifest(&manifest).await
     }
@@ -2245,6 +2436,24 @@ impl OssSyncManager {
 
         if manifest.owner_node_id == node_id && role != MemberRole::Owner {
             return Err("Cannot change the Owner's role".to_string());
+        }
+
+        // Cannot assign Owner role
+        if matches!(role, MemberRole::Owner) {
+            return Err("Cannot assign the owner role".to_string());
+        }
+
+        let is_owner = manifest.owner_node_id == self.node_id;
+        let target_role = manifest.members.iter().find(|m| m.node_id == node_id).map(|m| m.role.clone());
+
+        // Manager restrictions
+        if !is_owner {
+            if matches!(role, MemberRole::Manager) {
+                return Err("Only the owner can promote to manager".to_string());
+            }
+            if matches!(target_role, Some(MemberRole::Manager)) {
+                return Err("Managers cannot change another manager's role".to_string());
+            }
         }
 
         if let Some(member) = manifest.members.iter_mut().find(|m| m.node_id == node_id) {

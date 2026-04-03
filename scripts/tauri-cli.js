@@ -33,6 +33,12 @@ if (isWindows && (sub === "dev" || sub === "build")) {
 const env = { ...process.env };
 delete env.CI;
 
+// Workaround: Xcode 26 beta clang reports "arm64-apple-darwin" which causes
+// bindgen to fail with an assertion error (expects "aarch64-apple-darwin").
+if (platform === "darwin" && process.arch === "arm64" && !env.BINDGEN_EXTRA_CLANG_ARGS) {
+  env.BINDGEN_EXTRA_CLANG_ARGS = "--target=aarch64-apple-darwin";
+}
+
 // Build command string with proper quoting for shell
 const commandStr = args.map((arg) => {
   // Quote arguments that contain spaces or special characters (like JSON)

@@ -12,7 +12,7 @@ let highlighterPromise: Promise<HighlighterGeneric<BundledLanguage, BundledTheme
  * Get or create a shared Shiki highlighter instance.
  * Lazy loads on first use.
  */
-async function getHighlighter() {
+export async function getHighlighter() {
   if (!highlighterPromise) {
     highlighterPromise = import('shiki').then(({ createHighlighter }) =>
       createHighlighter({
@@ -31,7 +31,7 @@ async function getHighlighter() {
 /**
  * Map common language identifiers to Shiki language identifiers.
  */
-function mapLanguage(lang: string): BundledLanguage {
+export function mapLanguage(lang: string): BundledLanguage {
   const map: Record<string, BundledLanguage> = {
     ts: 'typescript',
     tsx: 'typescript',

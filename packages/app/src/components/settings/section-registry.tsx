@@ -6,6 +6,7 @@ import { GeneralSection } from './GeneralSection'
 import { PromptSection } from './PromptSection'
 import { MCPSection } from './MCPSection'
 import { SkillsSection } from './SkillsSection'
+import { RolesSection } from './RolesSection'
 import { ChannelsSection } from './ChannelsSection'
 import { DependenciesSection } from './DependenciesSection'
 import { TeamSection } from './TeamSection'
@@ -30,6 +31,7 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
   team: TeamSection,
   envVars: EnvVarsSection,
   skills: SkillsSection,
+  roles: RolesSection,
   knowledge: KnowledgeSection,
   deps: DependenciesSection,
   tokenUsage: TokenUsageSection,

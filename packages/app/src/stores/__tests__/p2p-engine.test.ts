@@ -122,8 +122,12 @@ describe('useP2pEngineStore', () => {
   it('event updates snapshot', async () => {
     await useP2pEngineStore.getState().init()
 
-    const newSnapshot = { ...CONNECTED_SNAPSHOT, uptimeSecs: 999 }
-    eventCallback!({ payload: newSnapshot })
+    mockInvoke.mockResolvedValueOnce({ ...CONNECTED_SNAPSHOT, uptimeSecs: 999 })
+    eventCallback!({ payload: { ...CONNECTED_SNAPSHOT, uptimeSecs: 999 } })
+
+    await vi.waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledTimes(2)
+    })
 
     const { snapshot } = useP2pEngineStore.getState()
     expect(snapshot.uptimeSecs).toBe(999)
@@ -141,6 +145,22 @@ describe('useP2pEngineStore', () => {
 
     eventCallback!({ payload: { ...CONNECTED_SNAPSHOT, status: 'connected' } })
 
-    expect(mockSetState).toHaveBeenCalledWith({ p2pConnected: true })
+    await vi.waitFor(() => {
+      expect(mockSetState).toHaveBeenCalledWith({ p2pConnected: true })
+    })
+  })
+
+  it('reset clears stale snapshot and initialization state', () => {
+    useP2pEngineStore.setState({
+      snapshot: CONNECTED_SNAPSHOT,
+      initialized: true,
+    })
+
+    useP2pEngineStore.getState().reset()
+
+    const { snapshot, initialized } = useP2pEngineStore.getState()
+    expect(initialized).toBe(false)
+    expect(snapshot.status).toBe('disconnected')
+    expect(snapshot.peers).toEqual([])
   })
 })

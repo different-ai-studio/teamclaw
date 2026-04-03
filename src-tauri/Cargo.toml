@@ -1,6 +1,6 @@
 [package]
 name = "teamclaw"
-version = "0.1.29"
+version = "0.1.33"
 description = "TeamClaw - AI Agent Desktop Platform"
 authors = ["TeamClaw Team"]
 edition = "2021"
@@ -99,6 +99,7 @@ futures-lite = "2"
 axum = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
 gethostname = "1.1.0"
+ignore = "0.4"
 
 # ClawHub skill registry
 zip = "8"
@@ -119,6 +120,8 @@ aes-gcm = "0.10"
 aes = "0.8"
 cbc = { version = "0.1", features = ["alloc"] }
 pbkdf2 = { version = "0.12", features = ["simple"] }
+hmac = "0.12"
+hkdf = "0.12"
 hex = "0.4"
 getrandom = "0.2"
 url = "2"

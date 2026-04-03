@@ -964,7 +964,9 @@ function AppContent() {
                 <span className="min-w-0 truncate text-sm font-medium">
                   {embeddedSettingsSection === "automation"
                     ? t("settings.nav.automation", "Automation")
-                    : t("settings.nav.skills", "Skills")}
+                    : embeddedSettingsSection === "roles"
+                      ? t("settings.nav.roles", "Roles")
+                      : t("settings.nav.skills", "Skills")}
                 </span>
                 <div className="min-w-0 flex-1" />
               </>
@@ -1173,7 +1175,14 @@ function App() {
           >
             <AppContent />
           </SidebarProvider>
-          <Toaster position="bottom-right" richColors />
+          <Toaster
+            position="top-center"
+            offset={40}
+            toastOptions={{
+              className: '!bg-popover !text-popover-foreground !border-border !shadow-md !rounded-md !text-xs !py-2 !px-3 !min-h-0 !gap-1.5',
+              descriptionClassName: '!text-muted-foreground !text-[11px]',
+            }}
+          />
           <UpdateDialogContainer />
           <TelemetryConsentDialog
             open={showConsentDialog}

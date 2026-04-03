@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Trophy, Flame, MessageSquareHeart, RefreshCw, Loader2 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
 import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
+import { buildSharedRankMap } from '@/lib/team-leaderboard-ranks'
 import { Button } from '@/components/ui/button'
 
 async function tauriInvoke<T>(
@@ -51,6 +52,8 @@ interface TeamLeaderboard {
 
 interface MemberStats {
   name: string
+  overallRank: number
+  overallScore: number
   tokenRank: number
   feedbackRank: number
   totalTokens: number
@@ -154,21 +157,41 @@ export function LeaderboardSection() {
       aggregated: aggregateWorkspaceStats(m.workspaces)
     }))
 
-    const tokenSorted = [...membersWithAggregated].sort(
-      (a, b) => (b.aggregated.totalTokens) - (a.aggregated.totalTokens)
-    )
-    const feedbackSorted = [...membersWithAggregated].sort(
-      (a, b) => (b.aggregated.totalFeedbacks) - (a.aggregated.totalFeedbacks)
-    )
+    const tokenRanks = buildSharedRankMap({
+      items: membersWithAggregated,
+      getKey: (member) => member.memberName,
+      getScore: (member) => member.aggregated.totalTokens,
+    })
+    const feedbackRanks = buildSharedRankMap({
+      items: membersWithAggregated,
+      getKey: (member) => member.memberName,
+      getScore: (member) => member.aggregated.totalFeedbacks,
+    })
 
-    return membersWithAggregated.map((m) => ({
-      name: m.memberName || 'Unknown',
-      tokenRank: tokenSorted.findIndex((x) => x.memberName === m.memberName) + 1,
-      feedbackRank: feedbackSorted.findIndex((x) => x.memberName === m.memberName) + 1,
-      totalTokens: m.aggregated.totalTokens,
-      totalFeedbacks: m.aggregated.totalFeedbacks,
-      totalCost: m.aggregated.totalCost,
-      sessionCount: m.aggregated.sessionCount,
+    const overallScores = membersWithAggregated.map((member) => ({
+      memberName: member.memberName,
+      overallScore: ((tokenRanks.get(member.memberName) ?? 0) + (feedbackRanks.get(member.memberName) ?? 0)) / 2,
+    }))
+    const overallScoreMap = new Map(
+      overallScores.map((member) => [member.memberName, member.overallScore])
+    )
+    const overallRanks = buildSharedRankMap({
+      items: overallScores,
+      getKey: (member) => member.memberName,
+      getScore: (member) => member.overallScore,
+      direction: 'asc',
+    })
+
+    return membersWithAggregated.map((member) => ({
+      name: member.memberName || 'Unknown',
+      overallRank: overallRanks.get(member.memberName) ?? 0,
+      overallScore: overallScoreMap.get(member.memberName) ?? 0,
+      tokenRank: tokenRanks.get(member.memberName) ?? 0,
+      feedbackRank: feedbackRanks.get(member.memberName) ?? 0,
+      totalTokens: member.aggregated.totalTokens,
+      totalFeedbacks: member.aggregated.totalFeedbacks,
+      totalCost: member.aggregated.totalCost,
+      sessionCount: member.aggregated.sessionCount,
     }))
   }, [leaderboard, aggregateWorkspaceStats])
 
@@ -266,12 +289,13 @@ export function LeaderboardSection() {
             {/* Rows - sorted by overall performance (average of ranks) */}
             {[...memberStats]
               .sort((a, b) => {
-                const avgA = (a.tokenRank + a.feedbackRank) / 2
-                const avgB = (b.tokenRank + b.feedbackRank) / 2
-                return avgA - avgB
+                return a.overallScore - b.overallScore
+                  || b.totalTokens - a.totalTokens
+                  || b.totalFeedbacks - a.totalFeedbacks
+                  || a.name.localeCompare(b.name)
               })
-              .map((member, index) => {
-                const rank = index + 1
+              .map((member) => {
+                const rank = member.overallRank
                 return (
                   <div
                     key={member.name}

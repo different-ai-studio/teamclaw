@@ -288,6 +288,7 @@ pub fn run() {
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
         .manage(commands::oss_sync::OssSyncState::default())
         .manage(commands::version_commands::VersionStoreState::default())
+        .manage(commands::shared_secrets::SharedSecretsState::default())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::show_in_folder,
@@ -490,6 +491,9 @@ pub fn run() {
             commands::env_vars::env_var_delete,
             commands::env_vars::env_var_list,
             commands::env_vars::env_var_resolve,
+            commands::shared_secrets::shared_secret_set,
+            commands::shared_secrets::shared_secret_delete,
+            commands::shared_secrets::shared_secret_list,
             commands::local_stats::read_local_stats,
             commands::local_stats::write_local_stats,
             commands::local_stats::update_local_stats,

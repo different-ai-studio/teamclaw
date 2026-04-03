@@ -9,28 +9,51 @@ use crate::commands::TEAMCLAW_DIR;
 use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
-use tauri::State;
+use tauri::{Manager, State};
 use tracing::{info, warn};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Get the P2P node ID to use as the unified device identity.
+/// Get a stable device identity for OSS operations.
+/// Prefers the P2P node ID when available, falls back to a persisted UUID
+/// when P2P is disabled at compile time or the node hasn't started yet.
 async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, String> {
     let guard = iroh_state.lock().await;
     #[cfg(feature = "p2p")]
     {
-        let node = guard
-            .as_ref()
-            .ok_or("P2P node not running. Please wait for the app to fully initialize.")?;
-        Ok(get_node_id(node))
+        if let Some(node) = guard.as_ref() {
+            return Ok(get_node_id(node));
+        }
+        // P2P node not started yet — use fallback
+        drop(guard);
+        get_or_create_fallback_device_id()
     }
     #[cfg(not(feature = "p2p"))]
     {
         let _ = guard;
-        Err("P2P feature is not enabled".to_string())
+        get_or_create_fallback_device_id()
     }
+}
+
+/// Generate or load a persistent fallback device ID.
+pub(crate) fn get_or_create_fallback_device_id() -> Result<String, String> {
+    let dir = dirs::home_dir()
+        .ok_or("Cannot determine home directory")?
+        .join(".teamclaw");
+    let path = dir.join("device-id");
+    if let Ok(id) = std::fs::read_to_string(&path) {
+        let id = id.trim().to_string();
+        if !id.is_empty() {
+            return Ok(id);
+        }
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
+    std::fs::write(&path, &id).map_err(|e| format!("Failed to write device ID: {e}"))?;
+    info!("Generated fallback device ID: {id}");
+    Ok(id)
 }
 
 fn parse_doc_type(s: &str) -> Result<DocType, String> {
@@ -261,6 +284,23 @@ pub async fn oss_create_team(
     }
     start_poll_loop(&state).await;
 
+    // Init shared secrets for the new team
+    {
+        if let Some(shared_state) =
+            app_handle.try_state::<crate::commands::shared_secrets::SharedSecretsState>()
+        {
+            let team_dir_path =
+                std::path::Path::new(&workspace_path).join(super::TEAM_REPO_DIR);
+            if let Err(e) = crate::commands::shared_secrets::init_shared_secrets(
+                &shared_state,
+                &team_secret,
+                &team_dir_path,
+            ) {
+                warn!("[OSS] Failed to init shared secrets: {}", e);
+            }
+        }
+    }
+
     info!("OSS team created: {team_id}");
 
     // Fire-and-forget: register team + owner key in LiteLLM via FC (FC then calls LiteLLM).
@@ -459,6 +499,23 @@ pub async fn oss_join_team(
     }
     start_poll_loop(&state).await;
 
+    // Init shared secrets for the joined team
+    {
+        if let Some(shared_state) =
+            app_handle.try_state::<crate::commands::shared_secrets::SharedSecretsState>()
+        {
+            let team_dir_path =
+                std::path::Path::new(&workspace_path).join(super::TEAM_REPO_DIR);
+            if let Err(e) = crate::commands::shared_secrets::init_shared_secrets(
+                &shared_state,
+                &team_secret,
+                &team_dir_path,
+            ) {
+                warn!("[OSS] Failed to init shared secrets: {}", e);
+            }
+        }
+    }
+
     info!("Joined OSS team: {team_id}");
 
     // Fire-and-forget: create LiteLLM key for joining member via FC
@@ -580,6 +637,23 @@ pub async fn oss_restore_sync(
         *guard = Some(manager);
     }
     start_poll_loop(&state).await;
+
+    // Init shared secrets for the restored team
+    {
+        if let Some(shared_state) =
+            app_handle.try_state::<crate::commands::shared_secrets::SharedSecretsState>()
+        {
+            let team_dir_path =
+                std::path::Path::new(&workspace_path).join(super::TEAM_REPO_DIR);
+            if let Err(e) = crate::commands::shared_secrets::init_shared_secrets(
+                &shared_state,
+                &team_secret,
+                &team_dir_path,
+            ) {
+                warn!("[OSS] Failed to init shared secrets: {}", e);
+            }
+        }
+    }
 
     info!("Restored OSS sync for team: {team_id}");
 
