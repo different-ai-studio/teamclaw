@@ -11,7 +11,11 @@ struct FeaturedAllyView: View {
                     ContentUnavailableView("暂无精选搭档", systemImage: "cpu")
                 } else {
                     List(viewModel.talents, id: \.id) { talent in
-                        FeaturedAllyRow(talent: talent)
+                        NavigationLink {
+                            RoleDetailView(talent: talent)
+                        } label: {
+                            FeaturedAllyRow(talent: talent)
+                        }
                     }
                 }
             }
@@ -42,7 +46,11 @@ struct FeaturedAllyListView: View {
                 ContentUnavailableView("暂无精选搭档", systemImage: "cpu")
             } else {
                 List(viewModel.talents, id: \.id) { talent in
-                    FeaturedAllyRow(talent: talent)
+                    NavigationLink {
+                        RoleDetailView(talent: talent)
+                    } label: {
+                        FeaturedAllyRow(talent: talent)
+                    }
                 }
             }
         }
@@ -61,7 +69,6 @@ struct FeaturedAllyListView: View {
 
 struct FeaturedAllyRow: View {
     let talent: Talent
-    @State private var downloaded = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -94,27 +101,12 @@ struct FeaturedAllyRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
 
-                Text("\(talent.downloads) 次下载")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                if talent.downloads > 0 {
+                    Text("\(talent.downloads) 个技能")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
-
-            Spacer()
-
-            Button {
-                withAnimation { downloaded = true }
-            } label: {
-                Text(downloaded ? "已添加" : "添加")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(downloaded ? Color.gray.opacity(0.15) : Color.blue)
-                    .foregroundColor(downloaded ? .secondary : .white)
-                    .clipShape(Capsule())
-            }
-            .disabled(downloaded)
-            .buttonStyle(.plain)
         }
         .padding(.vertical, 4)
     }

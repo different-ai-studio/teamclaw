@@ -11,6 +11,7 @@
 		08611817B203CE81AE25034B /* TeamMember.swift in Sources */ = {isa = PBXBuildFile; fileRef = D757E0623CEB9A68984B2B5C /* TeamMember.swift */; };
 		BB1111111111111111111111 /* Talent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2222222222222222222222 /* Talent.swift */; };
 		BB3333333333333333333333 /* TalentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4444444444444444444444 /* TalentViewModel.swift */; };
+		DD1111111111111111111111 /* RoleDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2222222222222222222222 /* RoleDetailView.swift */; };
 		0AF570A11B033A3793E2D33C /* SkillHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC0C0BCFF2BE9EC099FB476 /* SkillHomeView.swift */; };
 		0C2B937E1220E533538447C3 /* TaskViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D5085903B62892AC036020 /* TaskViewModel.swift */; };
 		0D8C53F4805FAF764B55A175 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D086C0687DF14187A6AD3A24 /* SettingsView.swift */; };
@@ -136,6 +137,7 @@
 		D757E0623CEB9A68984B2B5C /* TeamMember.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamMember.swift; sourceTree = "<group>"; };
 		BB2222222222222222222222 /* Talent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Talent.swift; sourceTree = "<group>"; };
 		BB4444444444444444444444 /* TalentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalentViewModel.swift; sourceTree = "<group>"; };
+		DD2222222222222222222222 /* RoleDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleDetailView.swift; sourceTree = "<group>"; };
 		DDA90A38CC31873CA85B3BB7 /* SkillViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillViewModel.swift; sourceTree = "<group>"; };
 		E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeamClawMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E32DBAEC6B0FAD53F502E6C1 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
@@ -181,6 +183,7 @@
 				6AB5914BA4C210402C4A6E7C /* MemberListView.swift */,
 				6CB0F6A0EBCFCC7846D3860B /* MemberSessionsView.swift */,
 				FF46DB166CC0F68E775C08FF /* MemberViewModel.swift */,
+				DD2222222222222222222222 /* RoleDetailView.swift */,
 				AA4444444444444444444444 /* SkillMarketView.swift */,
 				BB4444444444444444444444 /* TalentViewModel.swift */,
 			);
@@ -577,6 +580,7 @@
 				16A0D1CCA0B263A727F89BD5 /* TeamClawMobileApp.swift in Sources */,
 				BB1111111111111111111111 /* Talent.swift in Sources */,
 				BB3333333333333333333333 /* TalentViewModel.swift in Sources */,
+				DD1111111111111111111111 /* RoleDetailView.swift in Sources */,
 				08611817B203CE81AE25034B /* TeamMember.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
