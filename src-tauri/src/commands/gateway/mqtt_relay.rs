@@ -11,6 +11,7 @@ use prost::Message as ProstMessage;
 
 use super::mqtt_config::{MqttConfig, PairedDevice, PairingSession, MqttRelayStatus};
 use super::mqtt_config::proto;
+use crate::commands::team_unified::{TeamManifest, MemberRole};
 
 /// MQTT relay bridging the iOS mobile client to the local OpenCode Agent.
 pub struct MqttRelay {
@@ -22,6 +23,7 @@ pub struct MqttRelay {
     is_connected: Arc<std::sync::atomic::AtomicBool>,
     pairing_session: Arc<TokioMutex<Option<PairingSession>>>,
     error_message: Arc<RwLock<Option<String>>>,
+    oss_sync_state: Option<Arc<tokio::sync::Mutex<Option<crate::commands::oss_sync::OssSyncManager>>>>,
 }
 
 impl Clone for MqttRelay {
@@ -35,6 +37,7 @@ impl Clone for MqttRelay {
             is_connected: self.is_connected.clone(),
             pairing_session: self.pairing_session.clone(),
             error_message: self.error_message.clone(),
+            oss_sync_state: self.oss_sync_state.clone(),
         }
     }
 }
@@ -50,7 +53,13 @@ impl MqttRelay {
             is_connected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             pairing_session: Arc::new(TokioMutex::new(None)),
             error_message: Arc::new(RwLock::new(None)),
+            oss_sync_state: None,
         }
+    }
+
+    /// Set the OssSyncState reference so the relay can read members from S3.
+    pub fn set_oss_sync_state(&mut self, state: Arc<tokio::sync::Mutex<Option<crate::commands::oss_sync::OssSyncManager>>>) {
+        self.oss_sync_state = Some(state);
     }
 
     pub async fn set_config(&self, config: MqttConfig) {
@@ -260,10 +269,9 @@ impl MqttRelay {
                     self.handle_session_list_request(&did).await?;
                 }
             }
-            Some(proto::mqtt_message::Payload::MemberSyncRequest(ref _req)) => {
+            Some(proto::mqtt_message::Payload::MemberSyncRequest(ref req)) => {
                 if let Some(did) = device_id {
-                    // Placeholder: gateway should look up members and respond
-                    eprintln!("[MQTT Relay] MemberSyncRequest from {}", did);
+                    self.handle_member_sync_request(&did, req).await?;
                 }
             }
             Some(proto::mqtt_message::Payload::SkillSyncRequest(ref _req)) => {
@@ -493,6 +501,72 @@ impl MqttRelay {
             }
         }
         Ok(())
+    }
+
+    // ─── Member Sync ───────────────────────────────────────────
+
+    async fn handle_member_sync_request(
+        &self,
+        device_id: &str,
+        _req: &proto::MemberSyncRequest,
+    ) -> Result<(), String> {
+        let manifest = self.fetch_team_manifest().await?;
+
+        let members: Vec<proto::MemberData> = match manifest {
+            Some(m) => m.members.into_iter().map(|tm| proto::MemberData {
+                id: tm.node_id,
+                name: if tm.name.is_empty() { tm.hostname.clone() } else { tm.name },
+                avatar_url: String::new(),
+                department: if tm.label.is_empty() { None } else { Some(tm.label) },
+                is_ai_ally: tm.role == MemberRole::Seed,
+                note: format!("{}/{} ({:?})", tm.platform, tm.arch, tm.role),
+            }).collect(),
+            None => vec![],
+        };
+
+        let total = members.len() as i32;
+        let msg = build_envelope(proto::mqtt_message::Payload::MemberSyncResponse(
+            proto::MemberSyncResponse {
+                members,
+                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total }),
+            },
+        ));
+        self.publish_proto_to_device(device_id, "member", &msg).await
+    }
+
+    /// Fetch TeamManifest: try P2P local file first, then OSS S3.
+    async fn fetch_team_manifest(&self) -> Result<Option<TeamManifest>, String> {
+        // Try P2P local file first (fast, no network)
+        let manifest_path = format!("{}/teamclaw-team/_team/members.json", self.workspace_path);
+        if let Ok(content) = std::fs::read_to_string(&manifest_path) {
+            if let Ok(manifest) = serde_json::from_str::<TeamManifest>(&content) {
+                return Ok(Some(manifest));
+            }
+        }
+
+        // Fallback to OSS S3 (if configured)
+        if let Some(ref oss_state) = self.oss_sync_state {
+            let mut guard = oss_state.lock().await;
+            if let Some(ref mut manager) = *guard {
+                manager.refresh_token_if_needed().await?;
+                let key = format!("teams/{}/_meta/members.json", manager.team_id());
+                match manager.s3_get(&key).await {
+                    Ok(data) => {
+                        let manifest: TeamManifest = serde_json::from_slice(&data)
+                            .map_err(|e| format!("Failed to parse OSS members.json: {}", e))?;
+                        return Ok(Some(manifest));
+                    }
+                    Err(e) if e.contains("NoSuchKey") || e.contains("not found") => {
+                        return Ok(None);
+                    }
+                    Err(e) => {
+                        eprintln!("[MQTT Relay] OSS members fetch failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     // ─── Device Pairing ────────────────────────────────────────

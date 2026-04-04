@@ -2438,6 +2438,7 @@ pub async fn save_mqtt_relay_config(
 pub async fn start_mqtt_relay(
     opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
+    oss_state: State<'_, crate::commands::oss_sync::OssSyncState>,
 ) -> Result<(), String> {
     let (port, workspace_path) = {
         let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
@@ -2455,7 +2456,8 @@ pub async fn start_mqtt_relay(
     {
         let mut relay_guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
         if relay_guard.is_none() {
-            let relay = MqttRelay::new(port, workspace_path);
+            let mut relay = MqttRelay::new(port, workspace_path);
+            relay.set_oss_sync_state(oss_state.manager.clone());
             *relay_guard = Some(relay);
         }
     }
