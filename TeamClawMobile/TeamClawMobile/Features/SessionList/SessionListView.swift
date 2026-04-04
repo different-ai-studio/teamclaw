@@ -32,10 +32,25 @@ struct SessionListView: View {
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            SessionListContent(
-                viewModel: viewModel,
-                navigationPath: $navigationPath
-            )
+            VStack(spacing: 0) {
+                if !connectionMonitor.isDesktopOnline {
+                    HStack(spacing: 6) {
+                        Image(systemName: "wifi.slash")
+                            .font(.caption)
+                        Text("桌面端离线")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(Color.orange)
+                }
+
+                SessionListContent(
+                    viewModel: viewModel,
+                    navigationPath: $navigationPath
+                )
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

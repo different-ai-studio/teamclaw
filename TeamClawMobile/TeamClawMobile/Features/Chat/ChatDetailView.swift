@@ -62,6 +62,20 @@ struct ChatDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Offline banner
+            if !viewModel.isDesktopOnline {
+                HStack(spacing: 6) {
+                    Image(systemName: "wifi.slash")
+                        .font(.caption)
+                    Text("桌面端离线，消息将在重新连接后发送")
+                        .font(.caption)
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(Color.orange)
+            }
+
             // Message list
             ScrollViewReader { proxy in
                 ScrollView {
