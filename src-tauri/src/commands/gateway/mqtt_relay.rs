@@ -274,19 +274,26 @@ impl MqttRelay {
                     self.handle_member_sync_request(&did, req).await?;
                 }
             }
-            Some(proto::mqtt_message::Payload::SkillSyncRequest(ref _req)) => {
+            Some(proto::mqtt_message::Payload::SkillSyncRequest(ref req)) => {
                 if let Some(did) = device_id {
-                    eprintln!("[MQTT Relay] SkillSyncRequest from {}", did);
+                    self.handle_skill_sync_request(&did, req).await?;
                 }
             }
             Some(proto::mqtt_message::Payload::TalentSyncRequest(ref _req)) => {
                 if let Some(did) = device_id {
-                    eprintln!("[MQTT Relay] TalentSyncRequest from {}", did);
+                    // Talents have no backend data source yet — return empty list
+                    let msg = build_envelope(proto::mqtt_message::Payload::TalentSyncResponse(
+                        proto::TalentSyncResponse {
+                            talents: vec![],
+                            pagination: Some(proto::PageInfo { page: 1, page_size: 50, total: 0 }),
+                        },
+                    ));
+                    self.publish_proto_to_device(&did, "talent", &msg).await?;
                 }
             }
-            Some(proto::mqtt_message::Payload::AutomationSyncRequest(ref _req)) => {
+            Some(proto::mqtt_message::Payload::AutomationSyncRequest(ref req)) => {
                 if let Some(did) = device_id {
-                    eprintln!("[MQTT Relay] AutomationSyncRequest from {}", did);
+                    self.handle_automation_sync_request(&did, req).await?;
                 }
             }
             _ => {
@@ -567,6 +574,114 @@ impl MqttRelay {
         }
 
         Ok(None)
+    }
+
+    // ─── Skill Sync ─────────────────────────────────────────────
+
+    async fn handle_skill_sync_request(
+        &self,
+        device_id: &str,
+        _req: &proto::SkillSyncRequest,
+    ) -> Result<(), String> {
+        // Read installed skills from clawhub lockfile
+        let lockfile_path = std::path::Path::new(&self.workspace_path)
+            .join(".clawhub")
+            .join("lock.json");
+
+        let skills: Vec<proto::SkillData> = if let Ok(content) = std::fs::read_to_string(&lockfile_path) {
+            if let Ok(lock) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(skills_map) = lock.get("skills").and_then(|s| s.as_object()) {
+                    skills_map.iter().map(|(slug, entry)| {
+                        let version = entry.get("version")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        proto::SkillData {
+                            id: slug.clone(),
+                            name: slug.clone(),
+                            description: format!("v{}", version),
+                            is_personal: false,
+                            is_enabled: true,
+                        }
+                    }).collect()
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        let total = skills.len() as i32;
+        let msg = build_envelope(proto::mqtt_message::Payload::SkillSyncResponse(
+            proto::SkillSyncResponse {
+                skills,
+                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total }),
+            },
+        ));
+        self.publish_proto_to_device(device_id, "skill", &msg).await
+    }
+
+    // ─── Automation Sync ──────────────────────────────────────────
+
+    async fn handle_automation_sync_request(
+        &self,
+        device_id: &str,
+        _req: &proto::AutomationSyncRequest,
+    ) -> Result<(), String> {
+        // Read cron jobs from local storage
+        let cron_path = std::path::Path::new(&self.workspace_path)
+            .join(".teamclaw")
+            .join("cron-jobs.json");
+
+        let tasks: Vec<proto::AutomationTaskData> = if let Ok(content) = std::fs::read_to_string(&cron_path) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(jobs) = data.get("jobs").and_then(|j| j.as_array()) {
+                    jobs.iter().filter_map(|job| {
+                        let id = job.get("id")?.as_str()?;
+                        let name = job.get("name")?.as_str()?;
+                        let enabled = job.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false);
+                        let cron_expr = job.get("schedule")
+                            .and_then(|s| s.get("expr"))
+                            .and_then(|e| e.as_str())
+                            .unwrap_or("");
+                        let description = job.get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("");
+                        let last_run = job.get("lastRunAt")
+                            .and_then(|t| t.as_str())
+                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                            .map(|dt| dt.timestamp() as f64);
+                        let status = if enabled { "idle" } else { "disabled" };
+
+                        Some(proto::AutomationTaskData {
+                            id: id.to_string(),
+                            name: name.to_string(),
+                            status: Some(status.to_string()),
+                            cron_expression: cron_expr.to_string(),
+                            description: description.to_string(),
+                            last_run_time: last_run,
+                        })
+                    }).collect()
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        let total = tasks.len() as i32;
+        let msg = build_envelope(proto::mqtt_message::Payload::AutomationSyncResponse(
+            proto::AutomationSyncResponse {
+                tasks,
+                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total }),
+            },
+        ));
+        self.publish_proto_to_device(device_id, "task", &msg).await
     }
 
     // ─── Device Pairing ────────────────────────────────────────
