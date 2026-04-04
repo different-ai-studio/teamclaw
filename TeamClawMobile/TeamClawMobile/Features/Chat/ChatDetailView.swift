@@ -104,11 +104,11 @@ struct ChatDetailView: View {
             ChatInputBar(
                 text: $viewModel.inputText,
                 isDisabled: !viewModel.isDesktopOnline,
+                isStreaming: viewModel.isStreaming,
                 onSend: { viewModel.sendMessage() },
+                onCancel: { viewModel.cancelStreaming() },
                 onModelTap: { showModelPicker = true },
                 onImageSelected: { image in
-                    // Image upload to OSS would happen here; for now pass a placeholder
-                    // In a real implementation, upload image to OSS then call sendImageMessage
                     _ = image
                 }
             )

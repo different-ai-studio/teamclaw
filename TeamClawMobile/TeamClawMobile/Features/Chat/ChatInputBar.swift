@@ -4,7 +4,9 @@ import SwiftUI
 struct ChatInputBar: View {
     @Binding var text: String
     let isDisabled: Bool
+    let isStreaming: Bool
     let onSend: () -> Void
+    let onCancel: () -> Void
     let onModelTap: () -> Void
     let onImageSelected: (UIImage) -> Void
 
@@ -61,16 +63,26 @@ struct ChatInputBar: View {
                     .padding(.vertical, 8)
                     .background(Color(.systemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .disabled(isDisabled)
+                    .disabled(isDisabled || isStreaming)
 
-                    Button {
-                        onSend()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(canSend ? .blue : .secondary)
+                    if isStreaming {
+                        Button {
+                            onCancel()
+                        } label: {
+                            Image(systemName: "stop.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.red)
+                        }
+                    } else {
+                        Button {
+                            onSend()
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(canSend ? .blue : .secondary)
+                        }
+                        .disabled(!canSend)
                     }
-                    .disabled(!canSend)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
