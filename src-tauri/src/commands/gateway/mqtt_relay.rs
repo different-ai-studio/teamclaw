@@ -24,6 +24,8 @@ pub struct MqttRelay {
     pairing_session: Arc<TokioMutex<Option<PairingSession>>>,
     error_message: Arc<RwLock<Option<String>>>,
     oss_sync_state: Option<Arc<tokio::sync::Mutex<Option<crate::commands::oss_sync::OssSyncManager>>>>,
+    /// Cancel tokens for active SSE streams, keyed by session_id.
+    cancel_tokens: Arc<TokioMutex<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>>,
 }
 
 impl Clone for MqttRelay {
@@ -38,6 +40,7 @@ impl Clone for MqttRelay {
             pairing_session: self.pairing_session.clone(),
             error_message: self.error_message.clone(),
             oss_sync_state: self.oss_sync_state.clone(),
+            cancel_tokens: self.cancel_tokens.clone(),
         }
     }
 }
@@ -54,6 +57,7 @@ impl MqttRelay {
             pairing_session: Arc::new(TokioMutex::new(None)),
             error_message: Arc::new(RwLock::new(None)),
             oss_sync_state: None,
+            cancel_tokens: Arc::new(TokioMutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -354,14 +358,20 @@ impl MqttRelay {
             .await
             .map_err(|e| format!("Prompt send failed: {}", e))?;
 
+        // Create cancel token for this stream
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        self.cancel_tokens.lock().await.insert(session_id.clone(), cancel_token.clone());
+
         let relay = self.clone();
+        let sid = session_id.clone();
         tokio::spawn(async move {
             if let Err(e) = relay
-                .stream_sse_to_mqtt(sse_response, &device_id, &session_id)
+                .stream_sse_to_mqtt(sse_response, &device_id, &sid, &cancel_token)
                 .await
             {
                 eprintln!("[MQTT Relay] SSE streaming error: {}", e);
             }
+            relay.cancel_tokens.lock().await.remove(&sid);
         });
 
         Ok(())
@@ -369,7 +379,16 @@ impl MqttRelay {
 
     async fn handle_chat_cancel(&self, session_id: &str) {
         eprintln!("[MQTT Relay] Chat cancel requested for session: {}", session_id);
-        // TODO: abort the running SSE stream for this session_id
+
+        // Cancel the local SSE stream
+        if let Some(token) = self.cancel_tokens.lock().await.remove(session_id) {
+            token.cancel();
+        }
+
+        // Also call OpenCode abort API
+        let port = self.opencode_port;
+        let url = format!("http://127.0.0.1:{}/session/{}/abort", port, session_id);
+        let _ = reqwest::Client::new().post(&url).send().await;
     }
 
     /// Read SSE stream, aggregate tokens every 200ms, publish to MQTT
@@ -378,6 +397,7 @@ impl MqttRelay {
         sse_response: reqwest::Response,
         device_id: &str,
         session_id: &str,
+        cancel_token: &tokio_util::sync::CancellationToken,
     ) -> Result<(), String> {
         let mut stream = sse_response.bytes_stream();
         let mut buffer = String::new();
@@ -390,6 +410,13 @@ impl MqttRelay {
 
         loop {
             tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    // Send done to client so it stops waiting
+                    let msg = build_chat_done(session_id, seq);
+                    self.publish_chat_response_proto(device_id, &msg).await?;
+                    eprintln!("[MQTT Relay] Stream cancelled for session: {}", session_id);
+                    break;
+                }
                 _ = tokio::time::sleep_until(deadline) => {
                     let msg = build_chat_done(session_id, seq);
                     self.publish_chat_response_proto(device_id, &msg).await?;

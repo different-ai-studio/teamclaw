@@ -25,13 +25,4 @@ final class TeamMember {
         self.isAIAlly = isAIAlly
         self.note = note
     }
-
-    static let mockMembers: [TeamMember] = [
-        TeamMember(id: "1", name: "张伟", department: "工程部", isAIAlly: false),
-        TeamMember(id: "2", name: "李娜", department: "产品部", isAIAlly: false),
-        TeamMember(id: "3", name: "王磊", department: "设计部", isAIAlly: false),
-        TeamMember(id: "4", name: "AI 搭档", department: "工程部", isAIAlly: true),
-        TeamMember(id: "5", name: "陈静", department: "市场部", isAIAlly: false),
-        TeamMember(id: "6", name: "AI 搭档", department: "产品部", isAIAlly: true),
-    ]
 }
