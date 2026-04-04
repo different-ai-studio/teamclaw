@@ -181,6 +181,22 @@ struct Teamclaw_MqttMessage: Sendable {
     set {payload = .taskUpdate(newValue)}
   }
 
+  var messageSyncRequest: Teamclaw_MessageSyncRequest {
+    get {
+      if case .messageSyncRequest(let v)? = payload {return v}
+      return Teamclaw_MessageSyncRequest()
+    }
+    set {payload = .messageSyncRequest(newValue)}
+  }
+
+  var messageSyncResponse: Teamclaw_MessageSyncResponse {
+    get {
+      if case .messageSyncResponse(let v)? = payload {return v}
+      return Teamclaw_MessageSyncResponse()
+    }
+    set {payload = .messageSyncResponse(newValue)}
+  }
+
   var pairingDiscovery: Teamclaw_PairingDiscovery {
     get {
       if case .pairingDiscovery(let v)? = payload {return v}
@@ -223,6 +239,8 @@ struct Teamclaw_MqttMessage: Sendable {
     case automationSyncRequest(Teamclaw_AutomationSyncRequest)
     case automationSyncResponse(Teamclaw_AutomationSyncResponse)
     case taskUpdate(Teamclaw_TaskUpdate)
+    case messageSyncRequest(Teamclaw_MessageSyncRequest)
+    case messageSyncResponse(Teamclaw_MessageSyncResponse)
     case pairingDiscovery(Teamclaw_PairingDiscovery)
     case pairingRequest(Teamclaw_PairingRequest)
     case pairingResponse(Teamclaw_PairingResponse)
@@ -753,6 +771,62 @@ struct Teamclaw_AutomationTaskData: Sendable {
   fileprivate var _lastRunTime: Double? = nil
 }
 
+struct Teamclaw_MessageSyncRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var sessionID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Teamclaw_MessageSyncResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var sessionID: String = String()
+
+  var messages: [Teamclaw_ChatMessageData] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Teamclaw_ChatMessageData: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var id: String = String()
+
+  /// "user" | "assistant"
+  var role: String = String()
+
+  var content: String = String()
+
+  var timestamp: Double = 0
+
+  var imageURL: String {
+    get {_imageURL ?? String()}
+    set {_imageURL = newValue}
+  }
+  /// Returns true if `imageURL` has been explicitly set.
+  var hasImageURL: Bool {self._imageURL != nil}
+  /// Clears the value of `imageURL`. Subsequent reads from it will return its default value.
+  mutating func clearImageURL() {self._imageURL = nil}
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+
+  fileprivate var _imageURL: String? = nil
+}
+
 struct Teamclaw_TaskUpdate: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -913,7 +987,7 @@ extension Teamclaw_PageInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
 
 extension Teamclaw_MqttMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MqttMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}timestamp\0\u{4}\u{8}chat_request\0\u{3}chat_response\0\u{3}chat_cancel\0\u{4}\u{8}status_report\0\u{4}\u{a}session_sync_request\0\u{3}session_sync_response\0\u{4}\u{9}member_sync_request\0\u{3}member_sync_response\0\u{4}\u{9}skill_sync_request\0\u{3}skill_sync_response\0\u{4}\u{9}talent_sync_request\0\u{3}talent_sync_response\0\u{4}\u{9}automation_sync_request\0\u{3}automation_sync_response\0\u{4}\u{9}task_update\0\u{4}\u{a}pairing_discovery\0\u{3}pairing_request\0\u{3}pairing_response\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}timestamp\0\u{4}\u{8}chat_request\0\u{3}chat_response\0\u{3}chat_cancel\0\u{4}\u{8}status_report\0\u{4}\u{a}session_sync_request\0\u{3}session_sync_response\0\u{4}\u{9}member_sync_request\0\u{3}member_sync_response\0\u{4}\u{9}skill_sync_request\0\u{3}skill_sync_response\0\u{4}\u{9}talent_sync_request\0\u{3}talent_sync_response\0\u{4}\u{9}automation_sync_request\0\u{3}automation_sync_response\0\u{4}\u{9}task_update\0\u{4}\u{2}message_sync_request\0\u{3}message_sync_response\0\u{4}\u{7}pairing_discovery\0\u{3}pairing_request\0\u{3}pairing_response\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1118,6 +1192,32 @@ extension Teamclaw_MqttMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
           self.payload = .taskUpdate(v)
         }
       }()
+      case 82: try {
+        var v: Teamclaw_MessageSyncRequest?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .messageSyncRequest(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .messageSyncRequest(v)
+        }
+      }()
+      case 83: try {
+        var v: Teamclaw_MessageSyncResponse?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .messageSyncResponse(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .messageSyncResponse(v)
+        }
+      }()
       case 90: try {
         var v: Teamclaw_PairingDiscovery?
         var hadOneofValue = false
@@ -1233,6 +1333,14 @@ extension Teamclaw_MqttMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
     case .taskUpdate?: try {
       guard case .taskUpdate(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 80)
+    }()
+    case .messageSyncRequest?: try {
+      guard case .messageSyncRequest(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 82)
+    }()
+    case .messageSyncResponse?: try {
+      guard case .messageSyncResponse(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 83)
     }()
     case .pairingDiscovery?: try {
       guard case .pairingDiscovery(let v)? = self.payload else { preconditionFailure() }
@@ -2198,6 +2306,125 @@ extension Teamclaw_AutomationTaskData: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if lhs.cronExpression != rhs.cronExpression {return false}
     if lhs.description_p != rhs.description_p {return false}
     if lhs._lastRunTime != rhs._lastRunTime {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Teamclaw_MessageSyncRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".MessageSyncRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Teamclaw_MessageSyncRequest, rhs: Teamclaw_MessageSyncRequest) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Teamclaw_MessageSyncResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".MessageSyncResponse"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}messages\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.messages) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
+    }
+    if !self.messages.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.messages, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Teamclaw_MessageSyncResponse, rhs: Teamclaw_MessageSyncResponse) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.messages != rhs.messages {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Teamclaw_ChatMessageData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ChatMessageData"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}role\0\u{1}content\0\u{1}timestamp\0\u{3}image_url\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.role) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.content) }()
+      case 4: try { try decoder.decodeSingularDoubleField(value: &self.timestamp) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._imageURL) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if !self.role.isEmpty {
+      try visitor.visitSingularStringField(value: self.role, fieldNumber: 2)
+    }
+    if !self.content.isEmpty {
+      try visitor.visitSingularStringField(value: self.content, fieldNumber: 3)
+    }
+    if self.timestamp.bitPattern != 0 {
+      try visitor.visitSingularDoubleField(value: self.timestamp, fieldNumber: 4)
+    }
+    try { if let v = self._imageURL {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Teamclaw_ChatMessageData, rhs: Teamclaw_ChatMessageData) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.role != rhs.role {return false}
+    if lhs.content != rhs.content {return false}
+    if lhs.timestamp != rhs.timestamp {return false}
+    if lhs._imageURL != rhs._imageURL {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

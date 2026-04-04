@@ -35,6 +35,8 @@ message MqttMessage {
     AutomationSyncRequest automation_sync_request = 70;
     AutomationSyncResponse automation_sync_response = 71;
     TaskUpdate task_update = 80;
+    MessageSyncRequest message_sync_request = 82;
+    MessageSyncResponse message_sync_response = 83;
     PairingDiscovery pairing_discovery = 90;
     PairingRequest pairing_request = 91;
     PairingResponse pairing_response = 92;
@@ -180,6 +182,25 @@ message AutomationTaskData {
   string cron_expression = 4;
   string description = 5;
   optional double last_run_time = 6;
+}
+
+// ─── Message History Sync ───
+
+message MessageSyncRequest {
+  string session_id = 1;
+}
+
+message MessageSyncResponse {
+  string session_id = 1;
+  repeated ChatMessageData messages = 2;
+}
+
+message ChatMessageData {
+  string id = 1;
+  string role = 2;        // "user" | "assistant"
+  string content = 3;
+  double timestamp = 4;
+  optional string image_url = 5;
 }
 
 // ─── Task Update (server push) ───

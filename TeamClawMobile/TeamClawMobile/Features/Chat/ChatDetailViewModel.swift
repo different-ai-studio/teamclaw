@@ -46,6 +46,20 @@ final class ChatDetailViewModel: ObservableObject {
         } catch {
             messages = []
         }
+
+        // If no local messages, request history from Desktop
+        if messages.isEmpty {
+            requestMessageHistory()
+        }
+    }
+
+    func requestMessageHistory() {
+        guard let creds = PairingManager().credentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        var req = Teamclaw_MessageSyncRequest()
+        req.sessionID = sessionID
+        let msg = ProtoMQTTCoder.makeEnvelope(.messageSyncRequest(req))
+        mqttService.publish(topic: topic, message: msg, qos: 1)
     }
 
     func sendMessage() {
@@ -117,12 +131,47 @@ final class ChatDetailViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] mqttMessage in
                 guard let self else { return }
-                if case .chatResponse(let response) = mqttMessage.payload,
-                   response.sessionID == self.sessionID {
+                switch mqttMessage.payload {
+                case .chatResponse(let response) where response.sessionID == self.sessionID:
                     self.handleStreamChunk(response: response)
+                case .messageSyncResponse(let response) where response.sessionID == self.sessionID:
+                    self.handleMessageSync(response)
+                default:
+                    break
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func handleMessageSync(_ response: Teamclaw_MessageSyncResponse) {
+        var newMessages: [ChatMessage] = []
+        let existingIDs = Set(messages.map(\.id))
+
+        for data in response.messages {
+            guard !existingIDs.contains(data.id) else { continue }
+            let role: MessageRole = data.role == "assistant" ? .assistant : .user
+            let message = ChatMessage(
+                id: data.id,
+                sessionID: sessionID,
+                role: role,
+                content: data.content,
+                timestamp: Date(timeIntervalSince1970: data.timestamp),
+                imageURL: data.hasImageURL ? data.imageURL : nil
+            )
+            modelContext.insert(message)
+            newMessages.append(message)
+        }
+
+        if !newMessages.isEmpty {
+            try? modelContext.save()
+            // Reload all messages sorted by timestamp
+            let sid = sessionID
+            let descriptor = FetchDescriptor<ChatMessage>(
+                predicate: #Predicate { $0.sessionID == sid },
+                sortBy: [SortDescriptor(\.timestamp)]
+            )
+            messages = (try? modelContext.fetch(descriptor)) ?? messages
+        }
     }
 
     func handleStreamChunk(response: Teamclaw_ChatResponse) {

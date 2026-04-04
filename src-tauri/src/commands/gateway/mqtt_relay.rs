@@ -289,6 +289,11 @@ impl MqttRelay {
                     self.handle_automation_sync_request(&did, req).await?;
                 }
             }
+            Some(proto::mqtt_message::Payload::MessageSyncRequest(ref req)) => {
+                if let Some(did) = device_id {
+                    self.handle_message_sync_request(&did, req).await?;
+                }
+            }
             _ => {
                 eprintln!("[MQTT Relay] Unknown or empty payload");
             }
@@ -729,6 +734,74 @@ impl MqttRelay {
             },
         ));
         self.publish_proto_to_device(device_id, "task", &msg).await
+    }
+
+    // ─── Message History Sync ──────────────────────────────────
+
+    async fn handle_message_sync_request(
+        &self,
+        device_id: &str,
+        req: &proto::MessageSyncRequest,
+    ) -> Result<(), String> {
+        let port = self.opencode_port;
+        let session_id = &req.session_id;
+        let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch messages: {}", e))?;
+
+        let raw_messages: Vec<serde_json::Value> = resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse messages: {}", e))?;
+
+        let messages: Vec<proto::ChatMessageData> = raw_messages
+            .iter()
+            .filter_map(|msg| {
+                let info = msg.get("info")?;
+                let id = info.get("id")?.as_str()?;
+                let role = info.get("role")?.as_str()?;
+                if role != "user" && role != "assistant" { return None; }
+
+                let parts = msg.get("parts")?.as_array()?;
+                let mut text_parts: Vec<String> = Vec::new();
+                for part in parts {
+                    if part.get("type")?.as_str()? == "text" {
+                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                            text_parts.push(text.to_string());
+                        }
+                    }
+                }
+                let content = text_parts.join("\n");
+                let timestamp = info.get("createdAt")
+                    .and_then(|t| t.as_f64())
+                    .unwrap_or(0.0);
+
+                Some(proto::ChatMessageData {
+                    id: id.to_string(),
+                    role: role.to_string(),
+                    content,
+                    timestamp,
+                    image_url: None,
+                })
+            })
+            .collect();
+
+        let msg = build_envelope(proto::mqtt_message::Payload::MessageSyncResponse(
+            proto::MessageSyncResponse {
+                session_id: session_id.clone(),
+                messages,
+            },
+        ));
+        self.publish_proto_to_device(device_id, "chat/res", &msg).await
     }
 
     // ─── Device Pairing ────────────────────────────────────────
