@@ -23,7 +23,9 @@
 		258F054107C9F77DFEE25248 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 823BC8AEA646A45ADF76AEC2 /* Session.swift */; };
 		265C9267056F4B22A4EC2218 /* NavigationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F4BF64F9A480F2B56AD7AB /* NavigationUITests.swift */; };
 		2789906A141F3971C4DF48D6 /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC5358997970581A339AEFF3 /* MessageBubbleView.swift */; };
-		2A60408C88B14FA9D6AD2E39 /* MQTTMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFB7FCF4232553873E33B198 /* MQTTMessage.swift */; };
+		CC1111111111111111111111 /* ProtoMQTTCoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2222222222222222222222 /* ProtoMQTTCoder.swift */; };
+		CC3333333333333333333333 /* teamclaw.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4444444444444444444444 /* teamclaw.pb.swift */; };
+		CC5555555555555555555555 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = CC6666666666666666666666 /* SwiftProtobuf */; };
 		317772C041CF69D648EC1919 /* PairingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9603D9BF21A1A9C40696ABA9 /* PairingManager.swift */; };
 		32241D8D5C11A518F003A23C /* ChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC4A3372C9F29BEC02488EB /* ChatInputBar.swift */; };
 		32F667482A7D2D009DF3309A /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C9792E0B940A8C36A0E76F /* TaskListView.swift */; };
@@ -137,7 +139,8 @@
 		DDA90A38CC31873CA85B3BB7 /* SkillViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillViewModel.swift; sourceTree = "<group>"; };
 		E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeamClawMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E32DBAEC6B0FAD53F502E6C1 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
-		EFB7FCF4232553873E33B198 /* MQTTMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTTMessage.swift; sourceTree = "<group>"; };
+		CC2222222222222222222222 /* ProtoMQTTCoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtoMQTTCoder.swift; sourceTree = "<group>"; };
+		CC4444444444444444444444 /* teamclaw.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = teamclaw.pb.swift; sourceTree = "<group>"; };
 		F0F4BF64F9A480F2B56AD7AB /* NavigationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationUITests.swift; sourceTree = "<group>"; };
 		F720965A2D584D64DEB44A21 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		FC5358997970581A339AEFF3 /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
@@ -153,6 +156,7 @@
 				54C7CD0A152D6ECB4B2A6641 /* CocoaMQTT in Frameworks */,
 				60BECF2B5D5D6E482F51A22C /* Markdown in Frameworks */,
 				8CF7A33A3A09AA9B58ABF70E /* Alamofire in Frameworks */,
+				CC5555555555555555555555 /* SwiftProtobuf in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -207,6 +211,7 @@
 				53FF491CBE0A78063EC506CD /* App */,
 				94AE71B20FEBE5A7B097D43F /* Core */,
 				8D436916257E63CC73D360BE /* Features */,
+				CC7777777777777777777777 /* Generated */,
 				4BA3F5D0421BDD381FA81B75 /* Models */,
 				4EAEA2F90DE6E140DFF0A398 /* Resources */,
 				10B650C9130659A8D63AFA9C /* Shared */,
@@ -355,11 +360,19 @@
 			isa = PBXGroup;
 			children = (
 				69658CAD73E044A864470496 /* MockMQTTService.swift */,
-				EFB7FCF4232553873E33B198 /* MQTTMessage.swift */,
 				014B950E4DE6034CAF59DAEA /* MQTTService.swift */,
+				CC2222222222222222222222 /* ProtoMQTTCoder.swift */,
 				D159295636E0431FC7F4A497 /* MQTTServiceProtocol.swift */,
 			);
 			path = MQTT;
+			sourceTree = "<group>";
+		};
+		CC7777777777777777777777 /* Generated */ = {
+			isa = PBXGroup;
+			children = (
+				CC4444444444444444444444 /* teamclaw.pb.swift */,
+			);
+			path = Generated;
 			sourceTree = "<group>";
 		};
 		C7004A6D00870B545EEC8C3E /* Skills */ = {
@@ -448,6 +461,7 @@
 				48D6BF74640DFCC159C17AF3 /* CocoaMQTT */,
 				9FE2D672C23A9561D53ABAB0 /* Markdown */,
 				DC38DE73255511B28B9E9765 /* Alamofire */,
+				CC6666666666666666666666 /* SwiftProtobuf */,
 			);
 			productName = TeamClawMobile;
 			productReference = E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */;
@@ -491,6 +505,7 @@
 				82CD52E1B81D00BA123626CA /* XCRemoteSwiftPackageReference "Alamofire" */,
 				079A1E85AEBDC12DC3251F07 /* XCRemoteSwiftPackageReference "CocoaMQTT" */,
 				7259BF61557A57DB0DF461B4 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				CC8888888888888888888888 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 42FD07F32500634D47E6E0EB /* Products */;
@@ -530,7 +545,8 @@
 				1A33F059A8F919BB89679A91 /* DesktopStatusBadge.swift in Sources */,
 				379AACFCE99E30DFA56DAD04 /* FunctionPanelView.swift in Sources */,
 				9A9996C594FB79340DD2F947 /* LiquidGlassBar.swift in Sources */,
-				2A60408C88B14FA9D6AD2E39 /* MQTTMessage.swift in Sources */,
+				CC1111111111111111111111 /* ProtoMQTTCoder.swift in Sources */,
+				CC3333333333333333333333 /* teamclaw.pb.swift in Sources */,
 				DD8CCF863A9D27D3A2B1AD63 /* MQTTService.swift in Sources */,
 				E4A5A43173A9B6264E39598B /* MQTTServiceProtocol.swift in Sources */,
 				D5FF9542D765A41BD695AF63 /* MarkdownRenderer.swift in Sources */,
@@ -914,6 +930,14 @@
 				minimumVersion = 5.9.0;
 			};
 		};
+		CC8888888888888888888888 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.28.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -931,6 +955,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 82CD52E1B81D00BA123626CA /* XCRemoteSwiftPackageReference "Alamofire" */;
 			productName = Alamofire;
+		};
+		CC6666666666666666666666 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC8888888888888888888888 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
