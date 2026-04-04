@@ -5,18 +5,12 @@ import SwiftData
 @MainActor
 final class SkillViewModel: ObservableObject {
 
-    // MARK: - Published Properties
-
     @Published var personalSkills: [Skill] = []
     @Published var teamSkills: [Skill] = []
-
-    // MARK: - Private
 
     private let modelContext: ModelContext
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
-
-    // MARK: - Init
 
     init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
         self.modelContext = modelContext
@@ -24,51 +18,52 @@ final class SkillViewModel: ObservableObject {
         subscribeToMQTT()
     }
 
-    // MARK: - Public Methods
-
     func loadSkills() {
         loadSkillsFromDB()
-        requestSkills()
+        requestSkills(page: 1)
     }
 
-    func requestSkills() {
+    func requestSkills(page: Int = 1) {
         guard let creds = PairingManager().credentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
-        mqttService.publishRaw(topic: topic, payload: "/skills", qos: 1)
+        var req = Teamclaw_SkillSyncRequest()
+        var pg = Teamclaw_PageRequest()
+        pg.page = Int32(page)
+        pg.pageSize = 50
+        req.pagination = pg
+        let msg = ProtoMQTTCoder.makeEnvelope(.skillSyncRequest(req))
+        mqttService.publish(topic: topic, message: msg, qos: 1)
     }
-
-    // MARK: - Private Methods
 
     private func subscribeToMQTT() {
         mqttService.receivedMessage
-            .compactMap { message -> SkillSyncPayload? in
-                if case .skillSync(let payload) = message.payload {
-                    return payload
-                }
+            .compactMap { msg -> Teamclaw_SkillSyncResponse? in
+                if case .skillSyncResponse(let resp) = msg.payload { return resp }
                 return nil
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] payload in
-                self?.handleSkillSync(payload)
+            .sink { [weak self] response in
+                self?.handleSkillSync(response)
             }
             .store(in: &cancellables)
     }
 
-    private func handleSkillSync(_ payload: SkillSyncPayload) {
-        // Delete all existing skills
-        let descriptor = FetchDescriptor<Skill>()
-        if let existing = try? modelContext.fetch(descriptor) {
-            for skill in existing {
-                modelContext.delete(skill)
+    private func handleSkillSync(_ response: Teamclaw_SkillSyncResponse) {
+        let pg = response.pagination
+        let isFirstPage = pg.page <= 1
+
+        if isFirstPage {
+            let descriptor = FetchDescriptor<Skill>()
+            if let existing = try? modelContext.fetch(descriptor) {
+                for skill in existing { modelContext.delete(skill) }
             }
         }
 
-        // Insert new skills from payload
-        for data in payload.skills {
+        for data in response.skills {
             let skill = Skill(
                 id: data.id,
                 name: data.name,
-                skillDescription: data.description,
+                skillDescription: data.description_p,
                 isPersonal: data.isPersonal,
                 isEnabled: data.isEnabled
             )
@@ -76,13 +71,17 @@ final class SkillViewModel: ObservableObject {
         }
 
         try? modelContext.save()
-        loadSkillsFromDB()
+
+        let hasMore = pg.total > pg.page * pg.pageSize
+        if hasMore {
+            requestSkills(page: Int(pg.page) + 1)
+        } else {
+            loadSkillsFromDB()
+        }
     }
 
     private func loadSkillsFromDB() {
-        let descriptor = FetchDescriptor<Skill>(
-            sortBy: [SortDescriptor(\.name)]
-        )
+        let descriptor = FetchDescriptor<Skill>(sortBy: [SortDescriptor(\.name)])
         let allSkills = (try? modelContext.fetch(descriptor)) ?? []
         personalSkills = allSkills.filter(\.isPersonal)
         teamSkills = allSkills.filter { !$0.isPersonal }

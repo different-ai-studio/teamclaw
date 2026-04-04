@@ -5,17 +5,11 @@ import SwiftData
 @MainActor
 final class MemberViewModel: ObservableObject {
 
-    // MARK: - Published Properties
-
     @Published var members: [TeamMember] = []
-
-    // MARK: - Private
 
     private let modelContext: ModelContext
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
-
-    // MARK: - Init
 
     init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
         self.modelContext = modelContext
@@ -23,17 +17,21 @@ final class MemberViewModel: ObservableObject {
         subscribeToMQTT()
     }
 
-    // MARK: - Public Methods
-
     func loadMembers() {
         loadMembersFromDB()
-        requestMembers()
+        requestMembers(page: 1)
     }
 
-    func requestMembers() {
+    func requestMembers(page: Int = 1) {
         guard let creds = PairingManager().credentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
-        mqttService.publishRaw(topic: topic, payload: "/members", qos: 1)
+        var req = Teamclaw_MemberSyncRequest()
+        var pg = Teamclaw_PageRequest()
+        pg.page = Int32(page)
+        pg.pageSize = 50
+        req.pagination = pg
+        let msg = ProtoMQTTCoder.makeEnvelope(.memberSyncRequest(req))
+        mqttService.publish(topic: topic, message: msg, qos: 1)
     }
 
     func collaborativeSessions(for member: TeamMember) -> [Session] {
@@ -42,53 +40,54 @@ final class MemberViewModel: ObservableObject {
         return allSessions.filter { $0.isCollaborative && $0.collaboratorIDs.contains(member.id) }
     }
 
-    // MARK: - Private Methods
-
     private func subscribeToMQTT() {
         mqttService.receivedMessage
-            .compactMap { message -> MemberSyncPayload? in
-                if case .memberSync(let payload) = message.payload {
-                    return payload
-                }
+            .compactMap { msg -> Teamclaw_MemberSyncResponse? in
+                if case .memberSyncResponse(let resp) = msg.payload { return resp }
                 return nil
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] payload in
-                self?.handleMemberSync(payload)
+            .sink { [weak self] response in
+                self?.handleMemberSync(response)
             }
             .store(in: &cancellables)
     }
 
-    private func handleMemberSync(_ payload: MemberSyncPayload) {
-        // Delete all existing members
-        let descriptor = FetchDescriptor<TeamMember>()
-        if let existing = try? modelContext.fetch(descriptor) {
-            for member in existing {
-                modelContext.delete(member)
+    private func handleMemberSync(_ response: Teamclaw_MemberSyncResponse) {
+        let pg = response.pagination
+        let isFirstPage = pg.page <= 1
+
+        if isFirstPage {
+            let descriptor = FetchDescriptor<TeamMember>()
+            if let existing = try? modelContext.fetch(descriptor) {
+                for member in existing { modelContext.delete(member) }
             }
         }
 
-        // Insert new members from payload
-        for data in payload.members {
+        for data in response.members {
             let member = TeamMember(
                 id: data.id,
                 name: data.name,
-                avatarURL: data.avatarURL,
-                department: data.department ?? "",
-                isAIAlly: data.isAIAlly ?? false,
+                avatarURL: data.avatarUrl,
+                department: data.hasDepartment ? data.department : "",
+                isAIAlly: data.isAiAlly,
                 note: data.note
             )
             modelContext.insert(member)
         }
 
         try? modelContext.save()
-        loadMembersFromDB()
+
+        let hasMore = pg.total > pg.page * pg.pageSize
+        if hasMore {
+            requestMembers(page: Int(pg.page) + 1)
+        } else {
+            loadMembersFromDB()
+        }
     }
 
     private func loadMembersFromDB() {
-        let descriptor = FetchDescriptor<TeamMember>(
-            sortBy: [SortDescriptor(\.name)]
-        )
+        let descriptor = FetchDescriptor<TeamMember>(sortBy: [SortDescriptor(\.name)])
         members = (try? modelContext.fetch(descriptor)) ?? []
     }
 }

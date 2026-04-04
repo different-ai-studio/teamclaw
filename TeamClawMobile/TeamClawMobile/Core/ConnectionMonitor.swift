@@ -1,34 +1,25 @@
 import Combine
 import Foundation
 
-// MARK: - ConnectionMonitor
-
-/// Observes MQTT status messages and publishes desktop online/offline state.
 final class ConnectionMonitor: ObservableObject {
-
-    // MARK: - Published Properties
 
     @Published var isDesktopOnline: Bool = false
     @Published var desktopDeviceName: String?
 
-    // MARK: - Private
-
     private var cancellables = Set<AnyCancellable>()
-
-    // MARK: - Init
 
     init(mqttService: MQTTServiceProtocol) {
         mqttService.receivedMessage
-            .compactMap { message -> StatusPayload? in
-                if case .status(let payload) = message.payload {
-                    return payload
-                }
+            .compactMap { msg -> Teamclaw_StatusReport? in
+                if case .statusReport(let status) = msg.payload { return status }
                 return nil
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] statusPayload in
-                self?.isDesktopOnline = statusPayload.online
-                self?.desktopDeviceName = statusPayload.deviceName
+            .sink { [weak self] status in
+                self?.isDesktopOnline = status.online
+                if status.hasDeviceName {
+                    self?.desktopDeviceName = status.deviceName
+                }
             }
             .store(in: &cancellables)
     }

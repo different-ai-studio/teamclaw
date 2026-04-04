@@ -278,58 +278,39 @@ actor PairingService {
     }
 
     func handleMessage(_ mqtt: CocoaMQTT5, message: CocoaMQTT5Message) {
-        guard let jsonString = message.string,
-              let data = jsonString.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
+        let data = Data(message.payload)
+        guard let msg = ProtoMQTTCoder.decode(data) else { return }
 
-        let topic = message.topic
-        let parts = topic.split(separator: "/")
+        switch msg.payload {
+        case .pairingDiscovery(let discovery):
+            guard discoveredTeamID == nil else { return }
+            discoveredTeamID = discovery.teamID
+            discoveredDesktopDeviceID = discovery.deviceID
 
-        // Pairing credentials response: {"status":"paired", "mqtt_host":..., ...}
-        if let status = json["status"] as? String, status == "paired",
-           let host    = json["mqtt_host"]           as? String,
-           let portNum = json["mqtt_port"]           as? Int,
-           let uname   = json["mqtt_username"]       as? String,
-           let pwd     = json["mqtt_password"]       as? String,
-           let tID     = json["team_id"]             as? String,
-           let dName   = json["desktop_device_name"] as? String {
+            // Send pairing request
+            var req = Teamclaw_PairingRequest()
+            req.deviceID = mobileDeviceID
+            req.deviceName = mobileDeviceName
+            let reqMsg = ProtoMQTTCoder.makeEnvelope(.pairingRequest(req))
+            guard let reqData = ProtoMQTTCoder.encode(reqMsg) else { return }
+            let pairingTopic = "teamclaw/pairing/\(code)"
+            let props = MqttPublishProperties()
+            mqtt.publish(CocoaMQTT5Message(topic: pairingTopic, payload: [UInt8](reqData)), qos: .qos1, DUP: false, retained: false, properties: props)
 
-            let desktopDeviceID = (json["desktop_device_id"] as? String) ?? discoveredDesktopDeviceID ?? ""
+        case .pairingResponse(let response):
             let result = PairingResult(
-                host: host,
-                port: UInt16(portNum),
-                username: uname,
-                password: pwd,
-                teamID: tID,
-                desktopDeviceID: desktopDeviceID,
-                desktopName: dName
+                host: response.mqttHost,
+                port: UInt16(response.mqttPort),
+                username: response.mqttUsername,
+                password: response.mqttPassword,
+                teamID: response.teamID,
+                desktopDeviceID: response.desktopDeviceID,
+                desktopName: response.desktopDeviceName
             )
             succeed(result)
-            return
-        }
 
-        // Discovery message: teamclaw/pairing/{code} → {"team_id":..., "device_id":...}
-        if parts.count == 3 && parts[0] == "teamclaw" && parts[1] == "pairing" {
-            guard let teamID   = json["team_id"]  as? String,
-                  let deviceID = json["device_id"] as? String
-            else { return }
-
-            guard discoveredTeamID == nil else { return }
-            discoveredTeamID = teamID
-            discoveredDesktopDeviceID = deviceID
-
-            // Publish pair request back to the same topic
-            let pairingTopic = "teamclaw/pairing/\(code)"
-            let request: [String: String] = [
-                "device_id":   mobileDeviceID,
-                "device_name": mobileDeviceName
-            ]
-            if let payload = try? JSONSerialization.data(withJSONObject: request),
-               let payloadStr = String(data: payload, encoding: .utf8) {
-                let properties = MqttPublishProperties()
-                mqtt.publish(pairingTopic, withString: payloadStr, qos: .qos1, DUP: false, retained: false, properties: properties)
-            }
+        default:
+            break
         }
     }
 

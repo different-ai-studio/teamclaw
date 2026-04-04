@@ -35,8 +35,6 @@ final class ChatDetailViewModel: ObservableObject {
         subscribeToMQTT()
     }
 
-    // MARK: - Load Messages
-
     func loadMessages() {
         let sid = sessionID
         let descriptor = FetchDescriptor<ChatMessage>(
@@ -49,8 +47,6 @@ final class ChatDetailViewModel: ObservableObject {
             messages = []
         }
     }
-
-    // MARK: - Send Message
 
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,19 +64,15 @@ final class ChatDetailViewModel: ObservableObject {
         messages.append(message)
         inputText = ""
 
-        let payload = ChatRequestPayload(
-            sessionID: sessionID,
-            content: text,
-            imageURL: nil,
-            model: selectedModel == "default" ? nil : selectedModel
-        )
-        let mqttMessage = MQTTMessage(
-            id: UUID().uuidString,
-            type: .chatRequest,
-            timestamp: Date().timeIntervalSince1970,
-            payload: .chatRequest(payload)
-        )
-        mqttService.publish(topic: "chat/request", message: mqttMessage, qos: 1)
+        var req = Teamclaw_ChatRequest()
+        req.sessionID = sessionID
+        req.content = text
+        if selectedModel != "default" { req.model = selectedModel }
+
+        guard let creds = PairingManager().credentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        let msg = ProtoMQTTCoder.makeEnvelope(.chatRequest(req))
+        mqttService.publish(topic: topic, message: msg, qos: 1)
     }
 
     func sendImageMessage(ossURL: String) {
@@ -98,38 +90,42 @@ final class ChatDetailViewModel: ObservableObject {
         try? modelContext.save()
         messages.append(message)
 
-        let payload = ChatRequestPayload(
-            sessionID: sessionID,
-            content: "",
-            imageURL: ossURL,
-            model: selectedModel == "default" ? nil : selectedModel
-        )
-        let mqttMessage = MQTTMessage(
-            id: UUID().uuidString,
-            type: .chatRequest,
-            timestamp: Date().timeIntervalSince1970,
-            payload: .chatRequest(payload)
-        )
-        mqttService.publish(topic: "chat/request", message: mqttMessage, qos: 1)
+        var req = Teamclaw_ChatRequest()
+        req.sessionID = sessionID
+        req.content = ""
+        req.imageURL = ossURL
+        if selectedModel != "default" { req.model = selectedModel }
+
+        guard let creds = PairingManager().credentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        let msg = ProtoMQTTCoder.makeEnvelope(.chatRequest(req))
+        mqttService.publish(topic: topic, message: msg, qos: 1)
     }
 
-    // MARK: - MQTT Subscription
+    func cancelStreaming() {
+        guard isStreaming else { return }
+        var cancel = Teamclaw_ChatCancel()
+        cancel.sessionID = sessionID
+        guard let creds = PairingManager().credentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        let msg = ProtoMQTTCoder.makeEnvelope(.chatCancel(cancel))
+        mqttService.publish(topic: topic, message: msg, qos: 1)
+    }
 
     private func subscribeToMQTT() {
         mqttService.receivedMessage
             .receive(on: DispatchQueue.main)
             .sink { [weak self] mqttMessage in
                 guard let self else { return }
-                if case .chatResponse(let payload) = mqttMessage.payload,
-                   payload.sessionID == self.sessionID {
-                    self.handleStreamChunk(payload: payload)
+                if case .chatResponse(let response) = mqttMessage.payload,
+                   response.sessionID == self.sessionID {
+                    self.handleStreamChunk(response: response)
                 }
             }
             .store(in: &cancellables)
     }
 
-    func handleStreamChunk(payload: ChatResponsePayload) {
-        // Start streaming if not already
+    func handleStreamChunk(response: Teamclaw_ChatResponse) {
         if !isStreaming {
             isStreaming = true
             streamingContent = ""
@@ -144,27 +140,35 @@ final class ChatDetailViewModel: ObservableObject {
         }
 
         guard let messageID = currentStreamingMessageID else { return }
-        aggregator.feed(messageID: messageID, chunk: payload)
+        aggregator.feed(messageID: messageID, chunk: response)
 
-        if payload.done {
-            let finalContent = payload.full ?? streamingContent
-            isStreaming = false
-
-            let assistantMessage = ChatMessage(
-                id: UUID().uuidString,
-                sessionID: sessionID,
-                role: .assistant,
-                content: finalContent,
-                timestamp: Date()
-            )
-            modelContext.insert(assistantMessage)
-            try? modelContext.save()
-            messages.append(assistantMessage)
-
-            streamingContent = ""
-            aggregator.reset(messageID: messageID)
-            currentStreamingMessageID = nil
-            aggregatorCancellable = nil
+        switch response.event {
+        case .done:
+            finishStreaming(messageID: messageID, content: streamingContent)
+        case .error(let err):
+            finishStreaming(messageID: messageID, content: streamingContent + "\n[Error: \(err.message)]")
+        default:
+            break
         }
+    }
+
+    private func finishStreaming(messageID: String, content: String) {
+        isStreaming = false
+
+        let assistantMessage = ChatMessage(
+            id: UUID().uuidString,
+            sessionID: sessionID,
+            role: .assistant,
+            content: content,
+            timestamp: Date()
+        )
+        modelContext.insert(assistantMessage)
+        try? modelContext.save()
+        messages.append(assistantMessage)
+
+        streamingContent = ""
+        aggregator.reset(messageID: messageID)
+        currentStreamingMessageID = nil
+        aggregatorCancellable = nil
     }
 }

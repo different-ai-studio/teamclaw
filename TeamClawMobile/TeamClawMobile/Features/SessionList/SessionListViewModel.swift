@@ -17,11 +17,13 @@ final class SessionListViewModel: ObservableObject {
         self.mqttService = mqttService
 
         mqttService.receivedMessage
+            .compactMap { msg -> Teamclaw_SessionSyncResponse? in
+                if case .sessionSyncResponse(let resp) = msg.payload { return resp }
+                return nil
+            }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] message in
-                if case .sessionSync(let payload) = message.payload {
-                    self?.handleSessionSync(payload)
-                }
+            .sink { [weak self] response in
+                self?.handleSessionSync(response)
             }
             .store(in: &cancellables)
     }
@@ -38,23 +40,23 @@ final class SessionListViewModel: ObservableObject {
             filteredSessions = []
         }
 
-        requestSessionsFromDesktop()
+        requestSessions(page: 1)
     }
 
-    func requestSessionsFromDesktop() {
-        let message = MQTTMessage(
-            id: UUID().uuidString,
-            type: .sessionListRequest,
-            timestamp: Date().timeIntervalSince1970,
-            payload: .sessionListRequest
-        )
+    func requestSessions(page: Int = 1) {
         guard let creds = PairingManager().credentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
-        mqttService.publish(topic: topic, message: message, qos: 1)
+        var req = Teamclaw_SessionSyncRequest()
+        var pg = Teamclaw_PageRequest()
+        pg.page = Int32(page)
+        pg.pageSize = 50
+        req.pagination = pg
+        let msg = ProtoMQTTCoder.makeEnvelope(.sessionSyncRequest(req))
+        mqttService.publish(topic: topic, message: msg, qos: 1)
     }
 
-    private func handleSessionSync(_ payload: SessionSyncPayload) {
-        for sessionData in payload.sessions {
+    private func handleSessionSync(_ response: Teamclaw_SessionSyncResponse) {
+        for sessionData in response.sessions {
             let updated = Date(timeIntervalSince1970: TimeInterval(sessionData.updated))
             if let existing = sessions.first(where: { $0.id == sessionData.id }) {
                 existing.title = sessionData.title
@@ -71,7 +73,14 @@ final class SessionListViewModel: ObservableObject {
             }
         }
         try? modelContext.save()
-        loadSessionsFromDB()
+
+        let pg = response.pagination
+        let hasMore = pg.total > pg.page * pg.pageSize
+        if hasMore {
+            requestSessions(page: Int(pg.page) + 1)
+        } else {
+            loadSessionsFromDB()
+        }
     }
 
     private func loadSessionsFromDB() {
