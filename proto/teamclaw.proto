@@ -1,0 +1,205 @@
+syntax = "proto3";
+package teamclaw;
+
+// ─── Common ───
+
+message PageRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message PageInfo {
+  int32 page = 1;
+  int32 page_size = 2;
+  int32 total = 3;
+}
+
+// ─── Unified Envelope ───
+
+message MqttMessage {
+  string id = 1;
+  double timestamp = 2;
+  oneof payload {
+    ChatRequest chat_request = 10;
+    ChatResponse chat_response = 11;
+    ChatCancel chat_cancel = 12;
+    StatusReport status_report = 20;
+    SessionSyncRequest session_sync_request = 30;
+    SessionSyncResponse session_sync_response = 31;
+    MemberSyncRequest member_sync_request = 40;
+    MemberSyncResponse member_sync_response = 41;
+    SkillSyncRequest skill_sync_request = 50;
+    SkillSyncResponse skill_sync_response = 51;
+    TalentSyncRequest talent_sync_request = 60;
+    TalentSyncResponse talent_sync_response = 61;
+    AutomationSyncRequest automation_sync_request = 70;
+    AutomationSyncResponse automation_sync_response = 71;
+    TaskUpdate task_update = 80;
+    PairingDiscovery pairing_discovery = 90;
+    PairingRequest pairing_request = 91;
+    PairingResponse pairing_response = 92;
+  }
+}
+
+// ─── Chat ───
+
+message ChatRequest {
+  string session_id = 1;
+  string content = 2;
+  optional string image_url = 3;
+  optional string model = 4;
+}
+
+message ChatResponse {
+  string session_id = 1;
+  int32 seq = 2;
+  oneof event {
+    string delta = 10;
+    StreamDone done = 11;
+    StreamError error = 12;
+  }
+}
+
+message StreamDone {}
+
+message StreamError {
+  string message = 1;
+}
+
+message ChatCancel {
+  string session_id = 1;
+}
+
+// ─── Status ───
+
+message StatusReport {
+  bool online = 1;
+  optional string device_name = 2;
+}
+
+// ─── Sessions ───
+
+message SessionSyncRequest {
+  PageRequest pagination = 1;
+}
+
+message SessionSyncResponse {
+  repeated SessionData sessions = 1;
+  PageInfo pagination = 2;
+}
+
+message SessionData {
+  string id = 1;
+  string title = 2;
+  int64 updated = 3;
+}
+
+// ─── Members ───
+
+message MemberSyncRequest {
+  PageRequest pagination = 1;
+}
+
+message MemberSyncResponse {
+  repeated MemberData members = 1;
+  PageInfo pagination = 2;
+}
+
+message MemberData {
+  string id = 1;
+  string name = 2;
+  string avatar_url = 3;
+  optional string department = 4;
+  bool is_ai_ally = 5;
+  string note = 6;
+}
+
+// ─── Skills ───
+
+message SkillSyncRequest {
+  PageRequest pagination = 1;
+}
+
+message SkillSyncResponse {
+  repeated SkillData skills = 1;
+  PageInfo pagination = 2;
+}
+
+message SkillData {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  bool is_personal = 4;
+  bool is_enabled = 5;
+}
+
+// ─── Talents ───
+
+message TalentSyncRequest {
+  PageRequest pagination = 1;
+}
+
+message TalentSyncResponse {
+  repeated TalentData talents = 1;
+  PageInfo pagination = 2;
+}
+
+message TalentData {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string category = 4;
+  optional string icon = 5;
+  int32 downloads = 6;
+}
+
+// ─── Automations ───
+
+message AutomationSyncRequest {
+  PageRequest pagination = 1;
+}
+
+message AutomationSyncResponse {
+  repeated AutomationTaskData tasks = 1;
+  PageInfo pagination = 2;
+}
+
+message AutomationTaskData {
+  string id = 1;
+  string name = 2;
+  optional string status = 3;
+  string cron_expression = 4;
+  string description = 5;
+  optional double last_run_time = 6;
+}
+
+// ─── Task Update (server push) ───
+
+message TaskUpdate {
+  string task_id = 1;
+  string status = 2;
+  optional double last_run_time = 3;
+}
+
+// ─── Pairing ───
+
+message PairingDiscovery {
+  string team_id = 1;
+  string device_id = 2;
+  string device_name = 3;
+}
+
+message PairingRequest {
+  string device_id = 1;
+  string device_name = 2;
+}
+
+message PairingResponse {
+  string mqtt_host = 1;
+  uint32 mqtt_port = 2;
+  string mqtt_username = 3;
+  string mqtt_password = 4;
+  string team_id = 5;
+  string desktop_device_id = 6;
+  string desktop_device_name = 7;
+}
