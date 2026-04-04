@@ -222,5 +222,18 @@ final class ChatDetailViewModel: ObservableObject {
         aggregator.reset(messageID: messageID)
         currentStreamingMessageID = nil
         aggregatorCancellable = nil
+
+        // Refresh session list — OpenCode may have updated the title after first reply
+        requestSessionRefresh()
+    }
+
+    private func requestSessionRefresh() {
+        guard let creds = PairingManager().credentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        var req = Teamclaw_SessionSyncRequest()
+        var pg = Teamclaw_PageRequest()
+        pg.page = 1; pg.pageSize = 50
+        req.pagination = pg
+        mqttService.publish(topic: topic, message: ProtoMQTTCoder.makeEnvelope(.sessionSyncRequest(req)), qos: 1)
     }
 }
