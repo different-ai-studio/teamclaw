@@ -217,7 +217,7 @@ private struct SessionListContent: View {
         }
         .listStyle(.plain)
         .refreshable {
-            viewModel.requestSessionsFromDesktop()
+            viewModel.requestSessions()
         }
     }
 }

@@ -41,7 +41,9 @@ final class MQTTService: NSObject, MQTTServiceProtocol {
         guard let data = ProtoMQTTCoder.encode(message) else { return }
         let q: CocoaMQTTQoS = qos == 0 ? .qos0 : qos == 2 ? .qos2 : .qos1
         let props = MqttPublishProperties()
-        mqtt?.publish(CocoaMQTT5Message(topic: topic, payload: [UInt8](data)), qos: q, DUP: false, retained: false, properties: props)
+        let message5 = CocoaMQTT5Message(topic: topic, payload: [UInt8](data))
+        message5.qos = q
+        mqtt?.publish(message5, DUP: false, retained: false, properties: props)
     }
 }
 

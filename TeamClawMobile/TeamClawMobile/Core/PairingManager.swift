@@ -295,7 +295,9 @@ actor PairingService {
             guard let reqData = ProtoMQTTCoder.encode(reqMsg) else { return }
             let pairingTopic = "teamclaw/pairing/\(code)"
             let props = MqttPublishProperties()
-            mqtt.publish(CocoaMQTT5Message(topic: pairingTopic, payload: [UInt8](reqData)), qos: .qos1, DUP: false, retained: false, properties: props)
+            let pairingMessage = CocoaMQTT5Message(topic: pairingTopic, payload: [UInt8](reqData))
+            pairingMessage.qos = .qos1
+            mqtt.publish(pairingMessage, DUP: false, retained: false, properties: props)
 
         case .pairingResponse(let response):
             let result = PairingResult(

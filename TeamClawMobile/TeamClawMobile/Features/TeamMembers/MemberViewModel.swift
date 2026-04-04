@@ -68,7 +68,7 @@ final class MemberViewModel: ObservableObject {
             let member = TeamMember(
                 id: data.id,
                 name: data.name,
-                avatarURL: data.avatarUrl,
+                avatarURL: data.avatarURL,
                 department: data.hasDepartment ? data.department : "",
                 isAIAlly: data.isAiAlly,
                 note: data.note
