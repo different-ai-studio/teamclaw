@@ -112,5 +112,11 @@ fn main() {
         );
     }
 
+    // ── Compile protobuf ──
+    let proto_path = root_dir.join("proto/teamclaw.proto");
+    println!("cargo:rerun-if-changed={}", proto_path.display());
+    prost_build::compile_protos(&[&proto_path], &[root_dir.join("proto")])
+        .expect("Failed to compile teamclaw.proto");
+
     tauri_build::build()
 }

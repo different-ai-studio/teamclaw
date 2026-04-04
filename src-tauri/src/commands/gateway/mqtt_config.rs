@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+pub mod proto {
+    include!(concat!(env!("OUT_DIR"), "/teamclaw.rs"));
+}
+
 /// MQTT relay configuration stored in .teamclaw/teamclaw.json
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -56,44 +60,4 @@ pub struct MqttRelayStatus {
     pub broker_host: Option<String>,
     pub paired_device_count: usize,
     pub error_message: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MqttMessageEnvelope {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub msg_type: String,
-    pub timestamp: f64,
-    pub payload: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatRequestPayload {
-    pub session_id: String,
-    pub content: String,
-    pub image_url: Option<String>,
-    pub model: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatResponsePayload {
-    pub session_id: String,
-    pub seq: u32,
-    pub delta: String,
-    pub done: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub full: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusPayload {
-    pub online: bool,
-    pub device_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskUpdatePayload {
-    pub task_id: String,
-    pub status: String,
-    pub last_run_time: Option<f64>,
 }
