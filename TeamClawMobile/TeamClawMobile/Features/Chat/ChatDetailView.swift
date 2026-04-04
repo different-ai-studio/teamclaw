@@ -83,6 +83,9 @@ struct ChatDetailView: View {
                     }
                     .padding(.top, 8)
                 }
+                .refreshable {
+                    viewModel.requestMessageHistory()
+                }
                 .onAppear {
                     scrollProxy = proxy
                 }
