@@ -3,122 +3,155 @@ import XCTest
 
 final class MQTTMessageTests: XCTestCase {
 
-    // MARK: - testDecodeChatResponse
+    func testChatRequestRoundTrip() throws {
+        var req = Teamclaw_ChatRequest()
+        req.sessionID = "s1"
+        req.content = "Hello"
+        req.model = "claude-3-5-sonnet"
 
-    func testDecodeChatResponse() throws {
-        let json = """
-        {"id":"msg1","type":"chat_response","timestamp":1712000000,"payload":{"session_id":"s1","seq":0,"delta":"你好","done":false}}
-        """
-        let data = try XCTUnwrap(json.data(using: .utf8))
-        let message = try JSONDecoder().decode(MQTTMessage.self, from: data)
+        let msg = ProtoMQTTCoder.makeEnvelope(.chatRequest(req))
+        let data = try XCTUnwrap(ProtoMQTTCoder.encode(msg))
+        let decoded = try XCTUnwrap(ProtoMQTTCoder.decode(data))
 
-        XCTAssertEqual(message.id, "msg1")
-        XCTAssertEqual(message.type, .chatResponse)
-        XCTAssertEqual(message.timestamp, 1712000000)
+        guard case .chatRequest(let payload) = decoded.payload else {
+            XCTFail("Expected chatRequest")
+            return
+        }
+        XCTAssertEqual(payload.sessionID, "s1")
+        XCTAssertEqual(payload.content, "Hello")
+        XCTAssertEqual(payload.model, "claude-3-5-sonnet")
+    }
 
-        guard case .chatResponse(let payload) = message.payload else {
-            XCTFail("Expected chatResponse payload")
+    func testChatResponseDelta() throws {
+        var resp = Teamclaw_ChatResponse()
+        resp.sessionID = "s1"
+        resp.seq = 0
+        resp.event = .delta("你好")
+
+        let msg = ProtoMQTTCoder.makeEnvelope(.chatResponse(resp))
+        let data = try XCTUnwrap(ProtoMQTTCoder.encode(msg))
+        let decoded = try XCTUnwrap(ProtoMQTTCoder.decode(data))
+
+        guard case .chatResponse(let payload) = decoded.payload else {
+            XCTFail("Expected chatResponse")
             return
         }
         XCTAssertEqual(payload.sessionID, "s1")
         XCTAssertEqual(payload.seq, 0)
-        XCTAssertEqual(payload.delta, "你好")
-        XCTAssertFalse(payload.done)
-        XCTAssertNil(payload.full)
-    }
-
-    // MARK: - testDecodeFinalChatResponse
-
-    func testDecodeFinalChatResponse() throws {
-        let json = """
-        {"id":"msg2","type":"chat_response","timestamp":1712000001,"payload":{"session_id":"s1","seq":5,"delta":"","done":true,"full":"你好，世界！"}}
-        """
-        let data = try XCTUnwrap(json.data(using: .utf8))
-        let message = try JSONDecoder().decode(MQTTMessage.self, from: data)
-
-        XCTAssertEqual(message.id, "msg2")
-        XCTAssertEqual(message.type, .chatResponse)
-
-        guard case .chatResponse(let payload) = message.payload else {
-            XCTFail("Expected chatResponse payload")
+        guard case .delta(let text) = payload.event else {
+            XCTFail("Expected delta event")
             return
         }
-        XCTAssertEqual(payload.sessionID, "s1")
-        XCTAssertEqual(payload.seq, 5)
-        XCTAssertEqual(payload.delta, "")
-        XCTAssertTrue(payload.done)
-        XCTAssertEqual(payload.full, "你好，世界！")
+        XCTAssertEqual(text, "你好")
     }
 
-    // MARK: - testDecodeStatusMessage
+    func testChatResponseDone() throws {
+        var resp = Teamclaw_ChatResponse()
+        resp.sessionID = "s1"
+        resp.seq = 5
+        resp.event = .done(Teamclaw_StreamDone())
 
-    func testDecodeStatusMessage() throws {
-        let json = """
-        {"id":"msg3","type":"status","timestamp":1712000002,"payload":{"online":true,"device_name":"iPhone 15 Pro"}}
-        """
-        let data = try XCTUnwrap(json.data(using: .utf8))
-        let message = try JSONDecoder().decode(MQTTMessage.self, from: data)
+        let msg = ProtoMQTTCoder.makeEnvelope(.chatResponse(resp))
+        let data = try XCTUnwrap(ProtoMQTTCoder.encode(msg))
+        let decoded = try XCTUnwrap(ProtoMQTTCoder.decode(data))
 
-        XCTAssertEqual(message.id, "msg3")
-        XCTAssertEqual(message.type, .status)
+        guard case .chatResponse(let payload) = decoded.payload else {
+            XCTFail("Expected chatResponse")
+            return
+        }
+        guard case .done = payload.event else {
+            XCTFail("Expected done event")
+            return
+        }
+    }
 
-        guard case .status(let payload) = message.payload else {
-            XCTFail("Expected status payload")
+    func testChatResponseError() throws {
+        var err = Teamclaw_StreamError()
+        err.message = "rate limited"
+        var resp = Teamclaw_ChatResponse()
+        resp.sessionID = "s1"
+        resp.seq = 3
+        resp.event = .error(err)
+
+        let msg = ProtoMQTTCoder.makeEnvelope(.chatResponse(resp))
+        let data = try XCTUnwrap(ProtoMQTTCoder.encode(msg))
+        let decoded = try XCTUnwrap(ProtoMQTTCoder.decode(data))
+
+        guard case .chatResponse(let payload) = decoded.payload,
+              case .error(let streamErr) = payload.event else {
+            XCTFail("Expected error event")
+            return
+        }
+        XCTAssertEqual(streamErr.message, "rate limited")
+    }
+
+    func testMemberSyncWithPagination() throws {
+        var member = Teamclaw_MemberData()
+        member.id = "m1"
+        member.name = "Alice"
+        member.avatarUrl = "https://example.com/a.png"
+        member.isAiAlly = false
+        member.note = ""
+
+        var pageInfo = Teamclaw_PageInfo()
+        pageInfo.page = 1
+        pageInfo.pageSize = 50
+        pageInfo.total = 1
+
+        var resp = Teamclaw_MemberSyncResponse()
+        resp.members = [member]
+        resp.pagination = pageInfo
+
+        let msg = ProtoMQTTCoder.makeEnvelope(.memberSyncResponse(resp))
+        let data = try XCTUnwrap(ProtoMQTTCoder.encode(msg))
+        let decoded = try XCTUnwrap(ProtoMQTTCoder.decode(data))
+
+        guard case .memberSyncResponse(let payload) = decoded.payload else {
+            XCTFail("Expected memberSyncResponse")
+            return
+        }
+        XCTAssertEqual(payload.members.count, 1)
+        XCTAssertEqual(payload.members[0].name, "Alice")
+        XCTAssertEqual(payload.pagination.total, 1)
+    }
+
+    func testStatusReport() throws {
+        var status = Teamclaw_StatusReport()
+        status.online = true
+        status.deviceName = "MacBook Pro"
+
+        let msg = ProtoMQTTCoder.makeEnvelope(.statusReport(status))
+        let data = try XCTUnwrap(ProtoMQTTCoder.encode(msg))
+        let decoded = try XCTUnwrap(ProtoMQTTCoder.decode(data))
+
+        guard case .statusReport(let payload) = decoded.payload else {
+            XCTFail("Expected statusReport")
             return
         }
         XCTAssertTrue(payload.online)
-        XCTAssertEqual(payload.deviceName, "iPhone 15 Pro")
+        XCTAssertEqual(payload.deviceName, "MacBook Pro")
     }
 
-    // MARK: - testEncodeChatRequest
+    func testPairingResponseRoundTrip() throws {
+        var resp = Teamclaw_PairingResponse()
+        resp.mqttHost = "broker.example.com"
+        resp.mqttPort = 8883
+        resp.mqttUsername = "mobile_abc"
+        resp.mqttPassword = "secret"
+        resp.teamID = "team-1"
+        resp.desktopDeviceID = "desktop-1"
+        resp.desktopDeviceName = "MacBook"
 
-    func testEncodeChatRequest() throws {
-        let requestPayload = ChatRequestPayload(
-            sessionID: "session-abc",
-            content: "Hello!",
-            imageURL: nil,
-            model: "claude-3-5-sonnet"
-        )
-        let original = MQTTMessage(
-            id: "req1",
-            type: .chatRequest,
-            timestamp: 1712000010,
-            payload: .chatRequest(requestPayload)
-        )
+        let msg = ProtoMQTTCoder.makeEnvelope(.pairingResponse(resp))
+        let data = try XCTUnwrap(ProtoMQTTCoder.encode(msg))
+        let decoded = try XCTUnwrap(ProtoMQTTCoder.decode(data))
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        let data = try encoder.encode(original)
-
-        let decoded = try JSONDecoder().decode(MQTTMessage.self, from: data)
-        XCTAssertEqual(decoded.id, original.id)
-        XCTAssertEqual(decoded.type, original.type)
-        XCTAssertEqual(decoded.timestamp, original.timestamp)
-
-        guard case .chatRequest(let payload) = decoded.payload else {
-            XCTFail("Expected chatRequest payload")
+        guard case .pairingResponse(let payload) = decoded.payload else {
+            XCTFail("Expected pairingResponse")
             return
         }
-        XCTAssertEqual(payload.sessionID, "session-abc")
-        XCTAssertEqual(payload.content, "Hello!")
-        XCTAssertNil(payload.imageURL)
-        XCTAssertEqual(payload.model, "claude-3-5-sonnet")
-    }
-
-    // MARK: - testDecodeStatusOfflineNoDeviceName
-
-    func testDecodeStatusOfflineNoDeviceName() throws {
-        let json = """
-        {"id":"msg4","type":"status","timestamp":1712000003,"payload":{"online":false}}
-        """
-        let data = try XCTUnwrap(json.data(using: .utf8))
-        let message = try JSONDecoder().decode(MQTTMessage.self, from: data)
-
-        guard case .status(let payload) = message.payload else {
-            XCTFail("Expected status payload")
-            return
-        }
-        XCTAssertFalse(payload.online)
-        XCTAssertNil(payload.deviceName)
+        XCTAssertEqual(payload.mqttHost, "broker.example.com")
+        XCTAssertEqual(payload.mqttPort, 8883)
+        XCTAssertEqual(payload.teamID, "team-1")
     }
 }
