@@ -13,7 +13,7 @@ final class SessionListViewModelTests: XCTestCase {
         super.setUp()
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         container = try! ModelContainer(
-            for: Session.self, ChatMessage.self, TeamMember.self, AutomationTask.self, Skill.self,
+            for: Session.self, ChatMessage.self, TeamMember.self, AutomationTask.self, Skill.self, Talent.self,
             configurations: config
         )
         context = container.mainContext
@@ -21,78 +21,146 @@ final class SessionListViewModelTests: XCTestCase {
     }
 
     override func tearDown() {
-        context = nil
-        container = nil
-        mockMQTT = nil
+        context = nil; container = nil; mockMQTT = nil
         super.tearDown()
     }
 
-    // MARK: - Test 1: Sessions sorted by lastMessageTime descending
+    private func makeVM() -> SessionListViewModel {
+        SessionListViewModel(modelContext: context, mqttService: mockMQTT)
+    }
+
+    // MARK: - Sorting & Search
 
     func testSessionsSortedByLastMessageTime() throws {
         let now = Date()
-        let older = now.addingTimeInterval(-3600) // 1 hour ago
-
-        let olderSession = Session(
-            id: "session-old",
-            title: "Older Session",
-            agentName: "运营搭档",
-            lastMessageContent: "Old message",
-            lastMessageTime: older
-        )
-        let newerSession = Session(
-            id: "session-new",
-            title: "Newer Session",
-            agentName: "代码搭档",
-            lastMessageContent: "New message",
-            lastMessageTime: now
-        )
-
-        context.insert(olderSession)
-        context.insert(newerSession)
+        context.insert(Session(id: "old", title: "Older", agentName: "AI", lastMessageContent: "", lastMessageTime: now.addingTimeInterval(-3600)))
+        context.insert(Session(id: "new", title: "Newer", agentName: "AI", lastMessageContent: "", lastMessageTime: now))
         try context.save()
 
-        let viewModel = SessionListViewModel(modelContext: context, mqttService: mockMQTT)
-        viewModel.loadSessions()
+        let vm = makeVM()
+        vm.loadSessions()
 
-        XCTAssertEqual(viewModel.sessions.count, 2)
-        XCTAssertEqual(viewModel.sessions[0].id, "session-new", "Newest session should be first")
-        XCTAssertEqual(viewModel.sessions[1].id, "session-old", "Oldest session should be last")
+        XCTAssertEqual(vm.sessions.count, 2)
+        XCTAssertEqual(vm.sessions[0].id, "new")
+        XCTAssertEqual(vm.sessions[1].id, "old")
     }
-
-    // MARK: - Test 2: Search filters sessions
 
     func testSearchFiltersSessions() throws {
         let now = Date()
-
-        let session1 = Session(
-            id: "session-1",
-            title: "运营搭档",
-            agentName: "运营助手",
-            lastMessageContent: "帮你整理了日报",
-            lastMessageTime: now
-        )
-        let session2 = Session(
-            id: "session-2",
-            title: "代码搭档",
-            agentName: "代码助手",
-            lastMessageContent: "方案可以优化",
-            lastMessageTime: now.addingTimeInterval(-60)
-        )
-
-        context.insert(session1)
-        context.insert(session2)
+        context.insert(Session(id: "s1", title: "运营搭档", agentName: "AI", lastMessageContent: "", lastMessageTime: now))
+        context.insert(Session(id: "s2", title: "代码搭档", agentName: "AI", lastMessageContent: "", lastMessageTime: now))
         try context.save()
 
-        let viewModel = SessionListViewModel(modelContext: context, mqttService: mockMQTT)
-        viewModel.loadSessions()
+        let vm = makeVM()
+        vm.loadSessions()
+        vm.searchText = "运营"
+        vm.applySearch()
 
-        XCTAssertEqual(viewModel.sessions.count, 2)
+        XCTAssertEqual(vm.filteredSessions.count, 1)
+        XCTAssertEqual(vm.filteredSessions[0].id, "s1")
+    }
 
-        viewModel.searchText = "运营"
-        viewModel.applySearch()
+    // MARK: - Sync
 
-        XCTAssertEqual(viewModel.filteredSessions.count, 1)
-        XCTAssertEqual(viewModel.filteredSessions[0].id, "session-1")
+    func testSessionSyncCreatesNewSessions() {
+        let vm = makeVM()
+
+        var session = Teamclaw_SessionData()
+        session.id = "synced-1"
+        session.title = "From Desktop"
+        session.updated = Int64(Date().timeIntervalSince1970)
+
+        var pg = Teamclaw_PageInfo()
+        pg.page = 1; pg.pageSize = 50; pg.total = 1
+
+        var resp = Teamclaw_SessionSyncResponse()
+        resp.sessions = [session]
+        resp.pagination = pg
+
+        mockMQTT.simulateMessage(ProtoMQTTCoder.makeEnvelope(.sessionSyncResponse(resp)))
+
+        let exp = expectation(description: "Session synced")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            XCTAssertEqual(vm.sessions.count, 1)
+            XCTAssertEqual(vm.sessions[0].title, "From Desktop")
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1.0)
+    }
+
+    func testSessionSyncUpdatesExistingTitle() throws {
+        context.insert(Session(id: "s1", title: "Old Title", agentName: "AI", lastMessageContent: "", lastMessageTime: Date()))
+        try context.save()
+
+        let vm = makeVM()
+        vm.loadSessions()
+        XCTAssertEqual(vm.sessions[0].title, "Old Title")
+
+        var session = Teamclaw_SessionData()
+        session.id = "s1"
+        session.title = "New Title"
+        session.updated = Int64(Date().timeIntervalSince1970)
+
+        var pg = Teamclaw_PageInfo()
+        pg.page = 1; pg.pageSize = 50; pg.total = 1
+
+        var resp = Teamclaw_SessionSyncResponse()
+        resp.sessions = [session]
+        resp.pagination = pg
+
+        mockMQTT.simulateMessage(ProtoMQTTCoder.makeEnvelope(.sessionSyncResponse(resp)))
+
+        let exp = expectation(description: "Title updated")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            XCTAssertEqual(vm.sessions[0].title, "New Title")
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1.0)
+    }
+
+    // MARK: - Loading State
+
+    func testLoadingClearsOnSyncResponse() {
+        let vm = makeVM()
+        // Manually set loading (requestSessions needs credentials)
+        vm.isLoading = true
+
+        var pg = Teamclaw_PageInfo()
+        pg.page = 1; pg.pageSize = 50; pg.total = 0
+
+        var resp = Teamclaw_SessionSyncResponse()
+        resp.sessions = []
+        resp.pagination = pg
+
+        mockMQTT.simulateMessage(ProtoMQTTCoder.makeEnvelope(.sessionSyncResponse(resp)))
+
+        let exp = expectation(description: "Loading cleared")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            XCTAssertFalse(vm.isLoading)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1.0)
+    }
+
+    // MARK: - CRUD
+
+    func testCreateSession() {
+        let vm = makeVM()
+        let session = vm.createSession()
+
+        XCTAssertEqual(vm.sessions.count, 1)
+        XCTAssertEqual(session.title, "新会话")
+    }
+
+    func testDeleteSession() throws {
+        context.insert(Session(id: "s1", title: "Test", agentName: "AI", lastMessageContent: "", lastMessageTime: Date()))
+        try context.save()
+
+        let vm = makeVM()
+        vm.loadSessions()
+        XCTAssertEqual(vm.sessions.count, 1)
+
+        vm.deleteSession(vm.sessions[0])
+        XCTAssertTrue(vm.sessions.isEmpty)
     }
 }

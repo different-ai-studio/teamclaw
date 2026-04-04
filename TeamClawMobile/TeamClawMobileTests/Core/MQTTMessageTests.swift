@@ -89,7 +89,7 @@ final class MQTTMessageTests: XCTestCase {
         var member = Teamclaw_MemberData()
         member.id = "m1"
         member.name = "Alice"
-        member.avatarUrl = "https://example.com/a.png"
+        member.avatarURL = "https://example.com/a.png"
         member.isAiAlly = false
         member.note = ""
 
