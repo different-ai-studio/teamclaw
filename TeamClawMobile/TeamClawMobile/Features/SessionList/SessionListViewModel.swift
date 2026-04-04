@@ -46,7 +46,7 @@ final class SessionListViewModel: ObservableObject {
     }
 
     func requestSessions(page: Int = 1) {
-        guard let creds = PairingManager().credentials else { return }
+        guard let creds = PairingManager.currentCredentials else { return }
         if page == 1 { isLoading = true; startLoadingTimeout() }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         var req = Teamclaw_SessionSyncRequest()

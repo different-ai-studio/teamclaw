@@ -24,7 +24,7 @@ final class SkillViewModel: ObservableObject {
     }
 
     func requestSkills(page: Int = 1) {
-        guard let creds = PairingManager().credentials else { return }
+        guard let creds = PairingManager.currentCredentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         var req = Teamclaw_SkillSyncRequest()
         var pg = Teamclaw_PageRequest()

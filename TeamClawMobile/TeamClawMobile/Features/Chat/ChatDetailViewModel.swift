@@ -55,7 +55,7 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     func requestMessageHistory() {
-        guard let creds = PairingManager().credentials else { return }
+        guard let creds = PairingManager.currentCredentials else { return }
         isLoadingHistory = true
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         var req = Teamclaw_MessageSyncRequest()
@@ -85,7 +85,7 @@ final class ChatDetailViewModel: ObservableObject {
         req.content = text
         if selectedModel != "default" { req.model = selectedModel }
 
-        guard let creds = PairingManager().credentials else { return }
+        guard let creds = PairingManager.currentCredentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         let msg = ProtoMQTTCoder.makeEnvelope(.chatRequest(req))
         mqttService.publish(topic: topic, message: msg, qos: 1)
@@ -112,7 +112,7 @@ final class ChatDetailViewModel: ObservableObject {
         req.imageURL = ossURL
         if selectedModel != "default" { req.model = selectedModel }
 
-        guard let creds = PairingManager().credentials else { return }
+        guard let creds = PairingManager.currentCredentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         let msg = ProtoMQTTCoder.makeEnvelope(.chatRequest(req))
         mqttService.publish(topic: topic, message: msg, qos: 1)
@@ -122,7 +122,7 @@ final class ChatDetailViewModel: ObservableObject {
         guard isStreaming else { return }
         var cancel = Teamclaw_ChatCancel()
         cancel.sessionID = sessionID
-        guard let creds = PairingManager().credentials else { return }
+        guard let creds = PairingManager.currentCredentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         let msg = ProtoMQTTCoder.makeEnvelope(.chatCancel(cancel))
         mqttService.publish(topic: topic, message: msg, qos: 1)
@@ -228,7 +228,7 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     private func requestSessionRefresh() {
-        guard let creds = PairingManager().credentials else { return }
+        guard let creds = PairingManager.currentCredentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         var req = Teamclaw_SessionSyncRequest()
         var pg = Teamclaw_PageRequest()

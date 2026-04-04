@@ -23,7 +23,7 @@ final class MemberViewModel: ObservableObject {
     }
 
     func requestMembers(page: Int = 1) {
-        guard let creds = PairingManager().credentials else { return }
+        guard let creds = PairingManager.currentCredentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         var req = Teamclaw_MemberSyncRequest()
         var pg = Teamclaw_PageRequest()

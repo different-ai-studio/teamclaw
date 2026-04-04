@@ -56,6 +56,31 @@ final class PairingManager: ObservableObject {
 
     // MARK: - Computed Properties
 
+    /// Static accessor — avoids creating a PairingManager instance just to read credentials.
+    static var currentCredentials: PairingCredentials? {
+        let ud = UserDefaults.standard
+        guard ud.bool(forKey: Keys.isPaired),
+              let host        = ud.string(forKey: Keys.mqttHost),
+              let username    = ud.string(forKey: Keys.mqttUsername),
+              let password    = ud.string(forKey: Keys.mqttPassword),
+              let teamID      = ud.string(forKey: Keys.teamID),
+              let deviceID    = ud.string(forKey: Keys.deviceID),
+              let desktopID   = ud.string(forKey: Keys.desktopDeviceID),
+              let deviceName  = ud.string(forKey: Keys.pairedDeviceName)
+        else { return nil }
+        let port = UInt16(ud.integer(forKey: Keys.mqttPort))
+        return PairingCredentials(
+            mqttHost: host,
+            mqttPort: port == 0 ? 8883 : port,
+            mqttUsername: username,
+            mqttPassword: password,
+            teamID: teamID,
+            deviceID: deviceID,
+            desktopDeviceID: desktopID,
+            desktopDeviceName: deviceName
+        )
+    }
+
     var credentials: PairingCredentials? {
         guard isPaired,
               let host        = UserDefaults.standard.string(forKey: Keys.mqttHost),
