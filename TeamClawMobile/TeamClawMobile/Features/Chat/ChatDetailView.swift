@@ -66,6 +66,12 @@ struct ChatDetailView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        if viewModel.isLoadingHistory {
+                            ProgressView("加载历史消息...")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 40)
+                        }
+
                         ForEach(viewModel.messages, id: \.id) { message in
                             MessageBubbleView(message: message)
                                 .id(message.id)

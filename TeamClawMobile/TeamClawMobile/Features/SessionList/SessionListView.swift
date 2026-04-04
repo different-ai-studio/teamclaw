@@ -199,25 +199,37 @@ private struct SessionListContent: View {
     @Binding var navigationPath: [String]
 
     var body: some View {
-        List {
-            ForEach(viewModel.filteredSessions, id: \.id) { session in
-                SessionRowView(session: session, relativeTime: viewModel.relativeTime(for: session.lastMessageTime))
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        navigationPath.append(session.id)
+        Group {
+            if viewModel.filteredSessions.isEmpty && viewModel.isLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("加载会话列表...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(viewModel.filteredSessions, id: \.id) { session in
+                        SessionRowView(session: session, relativeTime: viewModel.relativeTime(for: session.lastMessageTime))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                navigationPath.append(session.id)
+                            }
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     }
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-            }
-            .onDelete { offsets in
-                for index in offsets {
-                    let session = viewModel.filteredSessions[index]
-                    viewModel.deleteSession(session)
+                    .onDelete { offsets in
+                        for index in offsets {
+                            let session = viewModel.filteredSessions[index]
+                            viewModel.deleteSession(session)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .refreshable {
+                    viewModel.requestSessions()
                 }
             }
-        }
-        .listStyle(.plain)
-        .refreshable {
-            viewModel.requestSessions()
         }
     }
 }

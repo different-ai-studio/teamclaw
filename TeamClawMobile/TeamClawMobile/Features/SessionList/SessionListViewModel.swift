@@ -7,10 +7,12 @@ final class SessionListViewModel: ObservableObject {
     @Published var sessions: [Session] = []
     @Published var filteredSessions: [Session] = []
     @Published var searchText = ""
+    @Published var isLoading = false
 
     private let modelContext: ModelContext
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
+    private var loadingTimer: AnyCancellable?
 
     init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
         self.modelContext = modelContext
@@ -45,6 +47,7 @@ final class SessionListViewModel: ObservableObject {
 
     func requestSessions(page: Int = 1) {
         guard let creds = PairingManager().credentials else { return }
+        if page == 1 { isLoading = true; startLoadingTimeout() }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         var req = Teamclaw_SessionSyncRequest()
         var pg = Teamclaw_PageRequest()
@@ -53,6 +56,13 @@ final class SessionListViewModel: ObservableObject {
         req.pagination = pg
         let msg = ProtoMQTTCoder.makeEnvelope(.sessionSyncRequest(req))
         mqttService.publish(topic: topic, message: msg, qos: 1)
+    }
+
+    private func startLoadingTimeout() {
+        loadingTimer?.cancel()
+        loadingTimer = Just(())
+            .delay(for: .seconds(10), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.isLoading = false }
     }
 
     private func handleSessionSync(_ response: Teamclaw_SessionSyncResponse) {
@@ -79,6 +89,8 @@ final class SessionListViewModel: ObservableObject {
         if hasMore {
             requestSessions(page: Int(pg.page) + 1)
         } else {
+            isLoading = false
+            loadingTimer?.cancel()
             loadSessionsFromDB()
         }
     }

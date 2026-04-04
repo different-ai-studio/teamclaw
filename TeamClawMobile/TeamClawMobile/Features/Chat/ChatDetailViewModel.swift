@@ -8,6 +8,7 @@ final class ChatDetailViewModel: ObservableObject {
     @Published var inputText = ""
     @Published var streamingContent = ""
     @Published var isStreaming = false
+    @Published var isLoadingHistory = false
     @Published var isDesktopOnline = true
     @Published var selectedModel: String = "default"
     @Published var availableModels: [String] = ["default"]
@@ -55,6 +56,7 @@ final class ChatDetailViewModel: ObservableObject {
 
     func requestMessageHistory() {
         guard let creds = PairingManager().credentials else { return }
+        isLoadingHistory = true
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         var req = Teamclaw_MessageSyncRequest()
         req.sessionID = sessionID
@@ -144,6 +146,7 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     private func handleMessageSync(_ response: Teamclaw_MessageSyncResponse) {
+        isLoadingHistory = false
         var newMessages: [ChatMessage] = []
         let existingIDs = Set(messages.map(\.id))
 
