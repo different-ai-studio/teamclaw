@@ -151,6 +151,15 @@ message TalentData {
   string category = 4;
   optional string icon = 5;
   int32 downloads = 6;
+  string role = 7;              // Core mandate and expertise
+  string when_to_use = 8;       // Trigger patterns
+  string working_style = 9;     // Behavioral guidelines
+  repeated RoleSkillLink role_skills = 10;
+}
+
+message RoleSkillLink {
+  string name = 1;
+  string description = 2;
 }
 
 // ─── Automations ───

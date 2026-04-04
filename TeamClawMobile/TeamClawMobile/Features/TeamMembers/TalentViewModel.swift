@@ -65,7 +65,10 @@ final class TalentViewModel: ObservableObject {
                 talentDescription: data.description_p,
                 category: data.category,
                 icon: data.hasIcon ? data.icon : "cpu",
-                downloads: Int(data.downloads)
+                downloads: Int(data.downloads),
+                role: data.role,
+                whenToUse: data.whenToUse,
+                workingStyle: data.workingStyle
             )
             modelContext.insert(talent)
         }

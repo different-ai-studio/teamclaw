@@ -9,6 +9,9 @@ final class Talent {
     var category: String
     var icon: String
     var downloads: Int
+    var role: String
+    var whenToUse: String
+    var workingStyle: String
 
     init(
         id: String,
@@ -16,7 +19,10 @@ final class Talent {
         talentDescription: String,
         category: String,
         icon: String,
-        downloads: Int
+        downloads: Int,
+        role: String = "",
+        whenToUse: String = "",
+        workingStyle: String = ""
     ) {
         self.id = id
         self.name = name
@@ -24,5 +30,8 @@ final class Talent {
         self.category = category
         self.icon = icon
         self.downloads = downloads
+        self.role = role
+        self.whenToUse = whenToUse
+        self.workingStyle = workingStyle
     }
 }

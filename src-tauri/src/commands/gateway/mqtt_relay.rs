@@ -641,14 +641,19 @@ impl MqttRelay {
                     if !role_md.exists() { continue; }
 
                     if let Ok(content) = std::fs::read_to_string(&role_md) {
-                        let (name, description) = parse_role_frontmatter(&content);
+                        let parsed = parse_role_md(&content);
+                        let skill_count = parsed.role_skills.len() as i32;
                         talents.push(proto::TalentData {
                             id: slug.clone(),
-                            name: if name.is_empty() { slug } else { name },
-                            description,
+                            name: if parsed.name.is_empty() { slug } else { parsed.name },
+                            description: parsed.description,
                             category: "Role".to_string(),
                             icon: Some("cpu".to_string()),
-                            downloads: 0,
+                            downloads: skill_count,
+                            role: parsed.role,
+                            when_to_use: parsed.when_to_use,
+                            working_style: parsed.working_style,
+                            role_skills: parsed.role_skills,
                         });
                     }
                 }
@@ -976,12 +981,23 @@ fn build_chat_error(session_id: &str, seq: i32, message: &str) -> proto::MqttMes
     ))
 }
 
-/// Parse ROLE.md frontmatter for name and description.
-fn parse_role_frontmatter(content: &str) -> (String, String) {
+struct ParsedRole {
+    name: String,
+    description: String,
+    role: String,
+    when_to_use: String,
+    working_style: String,
+    role_skills: Vec<proto::RoleSkillLink>,
+}
+
+/// Parse ROLE.md: frontmatter (name, description) + markdown sections.
+fn parse_role_md(content: &str) -> ParsedRole {
+    let normalized = content.replace("\r\n", "\n");
     let mut name = String::new();
     let mut description = String::new();
-    let normalized = content.replace("\r\n", "\n");
+    let body;
 
+    // Parse frontmatter
     if let Some(rest) = normalized.strip_prefix("---\n") {
         if let Some(end) = rest.find("\n---") {
             let frontmatter = &rest[..end];
@@ -996,8 +1012,50 @@ fn parse_role_frontmatter(content: &str) -> (String, String) {
                     }
                 }
             }
+            body = rest[end + 4..].trim().to_string(); // skip "\n---"
+        } else {
+            body = normalized;
         }
+    } else {
+        body = normalized;
     }
 
-    (name, description)
+    // Extract sections by ## heading
+    let get_section = |heading: &str| -> String {
+        let pattern = format!("## {}", heading);
+        if let Some(start) = body.find(&pattern) {
+            let after = &body[start + pattern.len()..];
+            let trimmed = after.trim_start_matches(|c: char| c == '\n' || c == '\r');
+            if let Some(next) = trimmed.find("\n## ") {
+                trimmed[..next].trim().to_string()
+            } else {
+                trimmed.trim().to_string()
+            }
+        } else {
+            String::new()
+        }
+    };
+
+    let role = get_section("Role");
+    let when_to_use = get_section("When to use");
+    let working_style = get_section("Working style");
+    let skills_section = get_section("Available role skills");
+
+    // Parse role skill links: "- `name`: description"
+    let role_skills: Vec<proto::RoleSkillLink> = skills_section
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim().strip_prefix('-')?.trim();
+            let backtick_start = trimmed.find('`')?;
+            let backtick_end = trimmed[backtick_start + 1..].find('`')? + backtick_start + 1;
+            let skill_name = &trimmed[backtick_start + 1..backtick_end];
+            let rest = trimmed[backtick_end + 1..].trim().strip_prefix(':')?.trim();
+            Some(proto::RoleSkillLink {
+                name: skill_name.to_string(),
+                description: rest.to_string(),
+            })
+        })
+        .collect();
+
+    ParsedRole { name, description, role, when_to_use, working_style, role_skills }
 }
