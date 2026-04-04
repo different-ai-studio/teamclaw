@@ -279,16 +279,9 @@ impl MqttRelay {
                     self.handle_skill_sync_request(&did, req).await?;
                 }
             }
-            Some(proto::mqtt_message::Payload::TalentSyncRequest(ref _req)) => {
+            Some(proto::mqtt_message::Payload::TalentSyncRequest(ref req)) => {
                 if let Some(did) = device_id {
-                    // Talents have no backend data source yet — return empty list
-                    let msg = build_envelope(proto::mqtt_message::Payload::TalentSyncResponse(
-                        proto::TalentSyncResponse {
-                            talents: vec![],
-                            pagination: Some(proto::PageInfo { page: 1, page_size: 50, total: 0 }),
-                        },
-                    ));
-                    self.publish_proto_to_device(&did, "talent", &msg).await?;
+                    self.handle_talent_sync_request(&did, req).await?;
                 }
             }
             Some(proto::mqtt_message::Payload::AutomationSyncRequest(ref req)) => {
@@ -623,6 +616,55 @@ impl MqttRelay {
         self.publish_proto_to_device(device_id, "skill", &msg).await
     }
 
+    // ─── Talent Sync (roles from .opencode/roles/) ─────────────────
+
+    async fn handle_talent_sync_request(
+        &self,
+        device_id: &str,
+        _req: &proto::TalentSyncRequest,
+    ) -> Result<(), String> {
+        let roles_dir = std::path::Path::new(&self.workspace_path)
+            .join(".opencode")
+            .join("roles");
+
+        let mut talents: Vec<proto::TalentData> = vec![];
+
+        if roles_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&roles_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_dir() { continue; }
+                    let slug = entry.file_name().to_string_lossy().to_string();
+                    if slug == "skill" || slug == "config.json" { continue; }
+
+                    let role_md = path.join("ROLE.md");
+                    if !role_md.exists() { continue; }
+
+                    if let Ok(content) = std::fs::read_to_string(&role_md) {
+                        let (name, description) = parse_role_frontmatter(&content);
+                        talents.push(proto::TalentData {
+                            id: slug.clone(),
+                            name: if name.is_empty() { slug } else { name },
+                            description,
+                            category: "Role".to_string(),
+                            icon: Some("cpu".to_string()),
+                            downloads: 0,
+                        });
+                    }
+                }
+            }
+        }
+
+        let total = talents.len() as i32;
+        let msg = build_envelope(proto::mqtt_message::Payload::TalentSyncResponse(
+            proto::TalentSyncResponse {
+                talents,
+                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total }),
+            },
+        ));
+        self.publish_proto_to_device(device_id, "talent", &msg).await
+    }
+
     // ─── Automation Sync ──────────────────────────────────────────
 
     async fn handle_automation_sync_request(
@@ -932,4 +974,30 @@ fn build_chat_error(session_id: &str, seq: i32, message: &str) -> proto::MqttMes
             })),
         },
     ))
+}
+
+/// Parse ROLE.md frontmatter for name and description.
+fn parse_role_frontmatter(content: &str) -> (String, String) {
+    let mut name = String::new();
+    let mut description = String::new();
+    let normalized = content.replace("\r\n", "\n");
+
+    if let Some(rest) = normalized.strip_prefix("---\n") {
+        if let Some(end) = rest.find("\n---") {
+            let frontmatter = &rest[..end];
+            for line in frontmatter.lines() {
+                if let Some(idx) = line.find(':') {
+                    let key = line[..idx].trim();
+                    let value = line[idx + 1..].trim();
+                    match key {
+                        "name" => name = value.to_string(),
+                        "description" => description = value.to_string(),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    (name, description)
 }
