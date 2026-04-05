@@ -34,6 +34,7 @@ final class ChatDetailViewModel: ObservableObject {
         self.aggregator = aggregator
 
         subscribeToMQTT()
+        subscribeToStatus()
     }
 
     func loadMessages() {
@@ -141,6 +142,19 @@ final class ChatDetailViewModel: ObservableObject {
                 default:
                     break
                 }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func subscribeToStatus() {
+        mqttService.receivedMessage
+            .compactMap { msg -> Teamclaw_StatusReport? in
+                if case .statusReport(let status) = msg.payload { return status }
+                return nil
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.isDesktopOnline = status.online
             }
             .store(in: &cancellables)
     }
