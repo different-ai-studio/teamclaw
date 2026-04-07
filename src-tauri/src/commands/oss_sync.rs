@@ -877,11 +877,12 @@ impl OssSyncManager {
         })
     }
 
-    fn scan_local_files(dir: &Path) -> Result<HashMap<String, Vec<u8>>, String> {
+    fn scan_local_files(dir: &Path) -> Result<(HashMap<String, Vec<u8>>, Vec<SkippedFile>), String> {
         let mut result = HashMap::new();
+        let mut skipped = Vec::new();
 
         if !dir.exists() {
-            return Ok(result);
+            return Ok((result, skipped));
         }
 
         let gitignore = Self::build_gitignore(dir);
@@ -891,6 +892,7 @@ impl OssSyncManager {
             current: &Path,
             gitignore: &ignore::gitignore::Gitignore,
             result: &mut HashMap<String, Vec<u8>>,
+            skipped: &mut Vec<SkippedFile>,
         ) -> Result<(), String> {
             let entries = std::fs::read_dir(current)
                 .map_err(|e| format!("Failed to read dir {}: {e}", current.display()))?;
@@ -911,7 +913,7 @@ impl OssSyncManager {
                     if gitignore.matched(&path, true).is_ignore() {
                         continue;
                     }
-                    walk(base, &path, gitignore, result)?;
+                    walk(base, &path, gitignore, result, skipped)?;
                 } else {
                     // Check gitignore for files
                     if gitignore.matched(&path, false).is_ignore() {
@@ -920,11 +922,21 @@ impl OssSyncManager {
                     // Skip files exceeding the size limit
                     if let Ok(meta) = path.metadata() {
                         if meta.len() > MAX_SYNC_FILE_SIZE {
+                            let rel = path
+                                .strip_prefix(base)
+                                .map_err(|e| format!("Path strip error: {e}"))?;
+                            let rel_str = rel.to_string_lossy().to_string();
+                            let size_mb = meta.len() as f64 / (1024.0 * 1024.0);
                             tracing::warn!(
                                 "Skipping oversized file ({} bytes): {}",
                                 meta.len(),
                                 path.display()
                             );
+                            skipped.retain(|f| f.path != rel_str);
+                            skipped.push(SkippedFile {
+                                path: rel_str,
+                                reason: format!("文件过大 ({:.1}MB)", size_mb),
+                            });
                             continue;
                         }
                     }
@@ -942,6 +954,11 @@ impl OssSyncManager {
                             "Skipping non-UTF-8 file: {}",
                             path.display()
                         );
+                        skipped.retain(|f| f.path != rel_str);
+                        skipped.push(SkippedFile {
+                            path: rel_str,
+                            reason: "二进制文件，无法同步".to_string(),
+                        });
                         continue;
                     }
                     result.insert(rel_str, content);
@@ -950,8 +967,8 @@ impl OssSyncManager {
             Ok(())
         }
 
-        walk(dir, dir, &gitignore, &mut result)?;
-        Ok(result)
+        walk(dir, dir, &gitignore, &mut result, &mut skipped)?;
+        Ok((result, skipped))
     }
 
     /// Like `scan_local_files`, but only reads files whose mtime is newer than `since`.
@@ -959,11 +976,12 @@ impl OssSyncManager {
     fn scan_local_files_incremental(
         dir: &Path,
         since: std::time::SystemTime,
-    ) -> Result<HashMap<String, Vec<u8>>, String> {
+    ) -> Result<(HashMap<String, Vec<u8>>, Vec<SkippedFile>), String> {
         let mut result = HashMap::new();
+        let mut skipped = Vec::new();
 
         if !dir.exists() {
-            return Ok(result);
+            return Ok((result, skipped));
         }
 
         let gitignore = Self::build_gitignore(dir);
@@ -974,6 +992,7 @@ impl OssSyncManager {
             since: std::time::SystemTime,
             gitignore: &ignore::gitignore::Gitignore,
             result: &mut HashMap<String, Vec<u8>>,
+            skipped: &mut Vec<SkippedFile>,
         ) -> Result<(), String> {
             let entries = std::fs::read_dir(current)
                 .map_err(|e| format!("Failed to read dir {}: {e}", current.display()))?;
@@ -993,7 +1012,7 @@ impl OssSyncManager {
                     if gitignore.matched(&path, true).is_ignore() {
                         continue;
                     }
-                    walk_incremental(base, &path, since, gitignore, result)?;
+                    walk_incremental(base, &path, since, gitignore, result, skipped)?;
                 } else {
                     if gitignore.matched(&path, false).is_ignore() {
                         continue;
@@ -1002,11 +1021,21 @@ impl OssSyncManager {
                     let meta = path.metadata().ok();
                     if let Some(ref m) = meta {
                         if m.len() > MAX_SYNC_FILE_SIZE {
+                            let rel = path
+                                .strip_prefix(base)
+                                .map_err(|e| format!("Path strip error: {e}"))?;
+                            let rel_str = rel.to_string_lossy().to_string();
+                            let size_mb = m.len() as f64 / (1024.0 * 1024.0);
                             tracing::warn!(
                                 "Skipping oversized file ({} bytes): {}",
                                 m.len(),
                                 path.display()
                             );
+                            skipped.retain(|f| f.path != rel_str);
+                            skipped.push(SkippedFile {
+                                path: rel_str,
+                                reason: format!("文件过大 ({:.1}MB)", size_mb),
+                            });
                             continue;
                         }
                     }
@@ -1028,6 +1057,11 @@ impl OssSyncManager {
                                 "Skipping non-UTF-8 file: {}",
                                 path.display()
                             );
+                            skipped.retain(|f| f.path != rel_str);
+                            skipped.push(SkippedFile {
+                                path: rel_str,
+                                reason: "二进制文件，无法同步".to_string(),
+                            });
                             continue;
                         }
                         result.insert(rel_str, content);
@@ -1037,8 +1071,8 @@ impl OssSyncManager {
             Ok(())
         }
 
-        walk_incremental(dir, dir, since, &gitignore, &mut result)?;
-        Ok(result)
+        walk_incremental(dir, dir, since, &gitignore, &mut result, &mut skipped)?;
+        Ok((result, skipped))
     }
 
     /// Fast-path upload: only check files modified since last scan (mtime-based).
@@ -1058,7 +1092,8 @@ impl OssSyncManager {
             .copied()
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
-        let mtime_changed = Self::scan_local_files_incremental(&dir, since)?;
+        let (mtime_changed, inc_skipped) = Self::scan_local_files_incremental(&dir, since)?;
+        self.skipped_files.extend(inc_skipped);
 
         if mtime_changed.is_empty() {
             // No mtime changes, but files may have been deleted since the
@@ -1066,7 +1101,7 @@ impl OssSyncManager {
             // deleted yet whose files no longer exist on disk.  If any are
             // found, delegate to the full `upload_local_changes` which
             // handles deletion marking + upload in one shot.
-            let local_files = Self::scan_local_files(&dir)?;
+            let (local_files, _skipped) = Self::scan_local_files(&dir)?;
             let doc = self.get_doc(doc_type);
             let files_map = doc.get_map("files");
             let map_value = files_map.get_deep_value();
@@ -1253,7 +1288,7 @@ impl OssSyncManager {
 
         for dt in doc_types {
             let dir = self.team_dir.join(dt.dir_name());
-            let local_files = Self::scan_local_files(&dir)?;
+            let (local_files, _skipped) = Self::scan_local_files(&dir)?;
             let doc = self.get_doc(dt);
             let files_map = doc.get_map("files");
 
@@ -1410,7 +1445,7 @@ impl OssSyncManager {
         // which exist locally — they are re-absorbed with deleted=false.
         let mut absorbed = false;
         if dir.exists() {
-            let disk_files = Self::scan_local_files(&dir)?;
+            let (disk_files, _skipped) = Self::scan_local_files(&dir)?;
             let now = Utc::now().to_rfc3339();
             let node_id = &self.node_id;
 
@@ -1579,8 +1614,10 @@ impl OssSyncManager {
     }
 
     pub async fn upload_local_changes(&mut self, doc_type: DocType) -> Result<bool, String> {
+        self.skipped_files.clear();
         let dir = self.team_dir.join(doc_type.dir_name());
-        let local_files = Self::scan_local_files(&dir)?;
+        let (local_files, scan_skipped) = Self::scan_local_files(&dir)?;
+        self.skipped_files.extend(scan_skipped);
         let changed = self.detect_local_changes(doc_type, &local_files);
 
         if changed.is_empty() {
