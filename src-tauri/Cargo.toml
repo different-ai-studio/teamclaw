@@ -1,6 +1,6 @@
 [package]
 name = "teamclaw"
-version = "0.1.35"
+version = "0.1.36"
 description = "TeamClaw - AI Agent Desktop Platform"
 authors = ["TeamClaw Team"]
 edition = "2021"
