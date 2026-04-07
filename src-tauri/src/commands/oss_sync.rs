@@ -1308,10 +1308,15 @@ impl OssSyncManager {
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("Failed to create dir {}: {e}", dir.display()))?;
 
+        let tmp_dir = dir.join(".tmp");
+        std::fs::create_dir_all(&tmp_dir)
+            .map_err(|e| format!("Failed to create tmp dir {}: {e}", tmp_dir.display()))?;
+
         let files_map = doc.get_map("files");
 
         // Collect files that should exist on disk from the LoroDoc
         let mut doc_files: HashSet<String> = HashSet::new();
+        let mut pending_writes: Vec<(PathBuf, PathBuf)> = Vec::new();
 
         let map_value = files_map.get_deep_value();
         if let loro::LoroValue::Map(entries) = map_value {
@@ -1350,19 +1355,40 @@ impl OssSyncManager {
                         doc_files.insert(path.to_string());
 
                         if let Some(loro::LoroValue::String(content_str)) = entry.get("content") {
-                            let file_path = dir.join(path.as_str());
-                            if let Some(parent) = file_path.parent() {
+                            let tmp_path = tmp_dir.join(path.as_str());
+                            let final_path = dir.join(path.as_str());
+                            if let Some(parent) = tmp_path.parent() {
                                 std::fs::create_dir_all(parent).map_err(|e| {
-                                    format!("Failed to create dir {}: {e}", parent.display())
+                                    let _ = std::fs::remove_dir_all(&tmp_dir);
+                                    format!("Failed to create tmp dir {}: {e}", parent.display())
                                 })?;
                             }
-                            std::fs::write(&file_path, content_str.as_bytes()).map_err(|e| {
-                                format!("Failed to write {}: {e}", file_path.display())
+                            std::fs::write(&tmp_path, content_str.as_bytes()).map_err(|e| {
+                                let _ = std::fs::remove_dir_all(&tmp_dir);
+                                format!("Failed to write {}: {e}", tmp_path.display())
                             })?;
+                            pending_writes.push((tmp_path, final_path));
                         }
                     }
                 }
             }
+        }
+
+        // Phase 2: Atomically rename all temp files to their final paths
+        for (tmp_path, final_path) in &pending_writes {
+            if let Some(parent) = final_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    let _ = std::fs::remove_dir_all(&tmp_dir);
+                    format!("Failed to create dir {}: {e}", parent.display())
+                })?;
+            }
+            std::fs::rename(tmp_path, final_path).map_err(|e| {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                format!("Failed to rename {} -> {}: {e}", tmp_path.display(), final_path.display())
+            })?;
+        }
+        if tmp_dir.exists() {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
         }
 
         // After writing Secrets files to disk, reload the in-memory secrets map
