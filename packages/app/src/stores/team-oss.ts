@@ -174,7 +174,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         try {
           // Safety timeout: if backend hangs (e.g. unreachable S3), stop the
           // spinner so the user can still interact with the UI.
-          const RESTORE_TIMEOUT_MS = 90_000
+          const RESTORE_TIMEOUT_MS = 30_000
           const info = await Promise.race([
             invoke<OssTeamInfo>('oss_restore_sync', {
               workspacePath,
@@ -188,7 +188,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         } catch (e) {
           // Offline or restore failed — still configured, just not connected
           console.warn('OSS restore failed (offline?):', e)
-          set({ restoring: false })
+          set({ restoring: false, error: String(e) })
         }
       } else {
         // Check for pending application
@@ -211,7 +211,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         set({ restoring: false, configured: false })
         return
       }
-      const RESTORE_TIMEOUT_MS = 90_000
+      const RESTORE_TIMEOUT_MS = 30_000
       const info = await Promise.race([
         invoke<OssTeamInfo>('oss_restore_sync', {
           workspacePath,

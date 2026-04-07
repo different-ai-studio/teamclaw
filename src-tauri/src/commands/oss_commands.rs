@@ -6,10 +6,11 @@ use crate::commands::team_p2p::get_node_id;
 #[allow(unused_imports)]
 use crate::commands::TEAMCLAW_DIR;
 
+use chrono::Utc;
 use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tracing::{info, warn};
 
 // ---------------------------------------------------------------------------
@@ -265,6 +266,13 @@ pub async fn oss_create_team(
     manager.s3_put(&team_key, &team_bytes).await?;
     info!("oss_create_team: team.json uploaded, saving config...");
 
+    // Cache team meta locally for fast restore
+    let meta_cache_dir = Path::new(&workspace_path)
+        .join(super::TEAMCLAW_DIR)
+        .join("team");
+    let _ = std::fs::create_dir_all(&meta_cache_dir);
+    let _ = std::fs::write(meta_cache_dir.join("team-meta.json"), &team_bytes);
+
     // Save config
     let config = OssTeamConfig {
         enabled: true,
@@ -474,6 +482,15 @@ pub async fn oss_join_team(
     let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
     super::team::write_llm_config(&workspace_path, Some(&llm_config))?;
 
+    // Cache team meta locally for fast restore
+    if !team_data.is_empty() {
+        let meta_cache_dir = Path::new(&workspace_path)
+            .join(super::TEAMCLAW_DIR)
+            .join("team");
+        let _ = std::fs::create_dir_all(&meta_cache_dir);
+        let _ = std::fs::write(meta_cache_dir.join("team-meta.json"), &team_data);
+    }
+
     // Save config + keyring
     let config = OssTeamConfig {
         enabled: true,
@@ -590,8 +607,12 @@ pub async fn oss_restore_sync(
     workspace_path: String,
     team_id: String,
 ) -> Result<OssTeamInfo, String> {
+    let t0 = std::time::Instant::now();
+    info!("[OssRestore] Starting oss_restore_sync for team {}", team_id);
     let team_secret = load_team_secret(&team_id)?;
+    info!("[OssRestore] team_secret loaded ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
     let node_id = get_p2p_node_id(&iroh_state).await?;
+    info!("[OssRestore] Got node_id ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
 
     // Read existing config for team_endpoint and poll_interval
     let config = read_oss_config(&workspace_path)
@@ -608,54 +629,102 @@ pub async fn oss_restore_sync(
         Some(app_handle.clone()),
     );
 
-    // Call FC /token
+    // ── Phase 1: Connect (get FC token — proves auth + network) ────────
+    info!("[OssRestore] Requesting token from FC...");
     let body = serde_json::json!({
         "teamId": team_id,
         "teamSecret": team_secret,
         "nodeId": node_id,
     });
     let resp = manager.call_fc("/token", &body).await?;
+    info!("[OssRestore] Token received ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
 
     let role: MemberRole =
         serde_json::from_str(&format!("\"{}\"", resp.role)).unwrap_or(MemberRole::Editor);
     manager.set_role(role.clone());
 
-    // Restore from local snapshots, then pull remote, then reconcile disk.
-    // write_doc_to_disk must always run so that files the user added while
-    // the app was closed are absorbed into the LoroDoc (even when there are
-    // no new remote keys and pull_remote_changes returns early).
+    // ── Phase 2: Restore local snapshots (fast, no network) ────────────
     for doc_type in DocType::all() {
         let _ = manager.restore_from_local_snapshot(doc_type);
-        if let Err(e) = manager.pull_remote_changes(doc_type).await {
-            warn!("Restore pull for {:?} failed: {}", doc_type, e);
-        }
+        // Absorb local files the user added while offline into LoroDoc
         if let Err(e) = manager.write_doc_to_disk(doc_type) {
-            warn!("Restore write_doc_to_disk for {:?} failed: {}", doc_type, e);
+            warn!("[OssRestore] write_doc_to_disk for {:?} failed: {}", doc_type, e);
         }
     }
+    info!("[OssRestore] Local snapshots restored ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
 
-    // Read _meta/team.json for display info
-    let team_key = format!("teams/{}/_meta/team.json", team_id);
-    let team_data = manager.s3_get(&team_key).await.unwrap_or_default();
-    let team_meta: Value = serde_json::from_slice(&team_data).unwrap_or(Value::Null);
-    let team_name = team_meta
-        .get("teamName")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown Team")
-        .to_string();
-    let owner_name = team_meta
-        .get("ownerName")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown")
-        .to_string();
+    // Read team_name from local _meta cache (written by create/join).
+    // Falls back to "Team" if not cached yet — background sync will update.
+    let meta_cache_path = Path::new(&workspace_path)
+        .join(super::TEAMCLAW_DIR)
+        .join("team")
+        .join("team-meta.json");
+    let (team_name, owner_name) = if let Ok(data) = std::fs::read(&meta_cache_path) {
+        let meta: Value = serde_json::from_slice(&data).unwrap_or(Value::Null);
+        let tn = meta.get("teamName").and_then(|v| v.as_str()).unwrap_or("Team").to_string();
+        let on = meta.get("ownerName").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        (tn, on)
+    } else {
+        ("Team".to_string(), String::new())
+    };
 
-    // Store manager in state, start poll loop
+    // ── Phase 3: Store manager, start poll loop, return immediately ────
+    // Remote update pulling + team meta fetch happen in the background.
     {
         let mut guard = state.manager.lock().await;
         *guard = Some(manager);
     }
     start_poll_loop(&state).await;
+
+    // Emit connected status immediately so the frontend listener picks it
+    // up even if the command return is delayed by the Tauri message queue.
+    let _ = app_handle.emit("oss-sync-status", &SyncStatus {
+        connected: true,
+        syncing: true,
+        last_sync_at: None,
+        next_sync_at: None,
+        docs: std::collections::HashMap::new(),
+    });
+
+    // Trigger an immediate background sync so updates arrive quickly
+    // without waiting for the first poll interval.
+    {
+        let sync_arc = state.manager.clone();
+        let sync_app_handle = app_handle.clone();
+        let bg_team_id = team_id.clone();
+        let bg_meta_cache_path = meta_cache_path.clone();
+        tokio::spawn(async move {
+            let mut guard = sync_arc.lock().await;
+            if let Some(manager) = guard.as_mut() {
+                info!("[OssRestore] Background initial sync starting...");
+                let _ = manager.refresh_token_if_needed().await;
+
+                // Fetch and cache team meta from S3 (for display name)
+                let team_key = format!("teams/{}/_meta/team.json", bg_team_id);
+                if let Ok(data) = manager.s3_get(&team_key).await {
+                    if let Some(parent) = bg_meta_cache_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::write(&bg_meta_cache_path, &data);
+                }
+
+                for doc_type in DocType::all() {
+                    if let Err(e) = manager.pull_remote_changes(doc_type).await {
+                        warn!("[OssRestore] Background pull for {:?} failed: {}", doc_type, e);
+                    }
+                    if let Err(e) = manager.write_doc_to_disk(doc_type) {
+                        warn!("[OssRestore] Background write_doc_to_disk for {:?} failed: {}", doc_type, e);
+                    }
+                }
+                let now = Utc::now().to_rfc3339();
+                manager.set_last_sync_at(Some(now));
+                let status = manager.get_sync_status();
+                let _ = sync_app_handle.emit("oss-sync-status", &status);
+                info!("[OssRestore] Background initial sync complete");
+            }
+        });
+    }
 
     // Init shared secrets for the restored team
     {
@@ -674,7 +743,7 @@ pub async fn oss_restore_sync(
         }
     }
 
-    info!("Restored OSS sync for team: {team_id}");
+    info!("[OssRestore] Connected in {:.1}ms (sync continues in background)", t0.elapsed().as_secs_f64() * 1000.0);
 
     Ok(OssTeamInfo {
         team_id,
@@ -842,6 +911,19 @@ pub async fn oss_cleanup_updates(
         .ok_or_else(|| "OSS sync not active".to_string())?;
 
     manager.cleanup_old_updates(dt).await
+}
+
+#[tauri::command]
+pub async fn oss_delete_s3_key(
+    state: State<'_, OssSyncState>,
+    key: String,
+) -> Result<(), String> {
+    let guard = state.manager.lock().await;
+    let manager = guard
+        .as_ref()
+        .ok_or_else(|| "OSS sync not active".to_string())?;
+    info!("[OssAdmin] Deleting S3 key: {}", key);
+    manager.s3_delete(&key).await
 }
 
 #[tauri::command]

@@ -22,6 +22,10 @@ const TOKEN_REFRESH_MARGIN_SECS: i64 = 300; // refresh 5 min before expiry
 /// are silently skipped during scan to prevent OOM and oversized S3 PUTs.
 /// 2 MB is generous for config/skill/knowledge text files.
 const MAX_SYNC_FILE_SIZE: u64 = 2 * 1024 * 1024;
+/// Maximum size (in bytes) for a single S3 update download.
+/// Protects against legacy oversized CRDT updates that predate the upload cap.
+/// 10 MB should cover any legitimate CRDT delta.
+const MAX_DOWNLOAD_SIZE: u64 = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // OssSyncManager
@@ -47,6 +51,10 @@ pub struct OssSyncManager {
 
     /// Last processed S3 key per DocType, for start_after pruning
     last_known_key: HashMap<DocType, String>,
+    /// Per-node cursor: (DocType, node_prefix) → last processed S3 key.
+    /// Each node subdirectory has monotonically increasing timestamps,
+    /// so per-node cursors are safe for start_after pruning.
+    last_known_key_per_node: HashMap<(DocType, String), String>,
     /// Last exported Loro version vector bytes per DocType, for incremental export
     last_exported_version: HashMap<DocType, Vec<u8>>,
     /// Last local file scan time per DocType, for mtime-based incremental scanning
@@ -121,6 +129,33 @@ impl OssSyncManager {
         }
         let known_signal_keys: HashSet<String> = cursor.known_signal_keys.into_iter().collect();
 
+        // Restore per-node cursors from persisted sync cursor
+        let mut last_known_key_per_node: HashMap<(DocType, String), String> = HashMap::new();
+        for (cursor_key, key) in &cursor.last_known_keys_per_node {
+            // cursor_key format: "docType:nodePrefix"
+            if let Some(colon_pos) = cursor_key.find(':') {
+                let dt_str = &cursor_key[..colon_pos];
+                let node_prefix = &cursor_key[colon_pos + 1..];
+                if let Some(dt) = DocType::from_path(dt_str) {
+                    last_known_key_per_node.insert((dt, node_prefix.to_string()), key.clone());
+                }
+            }
+        }
+
+        // Migrate from old single-cursor format: derive per-node cursor from
+        // the old last_known_key. Key format is
+        // "teams/{teamId}/{docType}/updates/{nodeId}/{ts}.bin", so the node
+        // prefix is everything up to and including the nodeId segment + "/".
+        if last_known_key_per_node.is_empty() {
+            for (dt, key) in &last_known_key {
+                // Find the node prefix: everything up to the last '/' + 1
+                if let Some(last_slash) = key.rfind('/') {
+                    let node_prefix = format!("{}/", &key[..last_slash]);
+                    last_known_key_per_node.insert((*dt, node_prefix), key.clone());
+                }
+            }
+        }
+
         Self {
             s3_client: None,
             credentials: None,
@@ -137,6 +172,7 @@ impl OssSyncManager {
             role: MemberRole::Editor,
             known_files,
             last_known_key,
+            last_known_key_per_node,
             last_exported_version: HashMap::new(),
             last_scan_time: HashMap::new(),
             last_compaction_at: last_compaction_at_map,
@@ -170,6 +206,10 @@ impl OssSyncManager {
     }
 
     pub fn set_credentials(&mut self, creds: OssCredentials, oss: OssConfig) {
+        info!(
+            "[OssRestore] S3 endpoint={}, region={}, bucket={}",
+            oss.endpoint, oss.region, oss.bucket
+        );
         self.s3_client = Some(Self::create_s3_client(&creds, &oss, self.force_path_style));
         self.credentials = Some(creds);
         self.oss_config = Some(oss);
@@ -193,12 +233,18 @@ impl OssSyncManager {
         for (dt, key) in &self.last_known_key {
             last_known_keys.insert(dt.path().to_string(), key.clone());
         }
+        let mut last_known_keys_per_node = HashMap::new();
+        for ((dt, node_prefix), key) in &self.last_known_key_per_node {
+            let cursor_key = format!("{}:{}", dt.path(), node_prefix);
+            last_known_keys_per_node.insert(cursor_key, key.clone());
+        }
         let mut last_compaction_at = HashMap::new();
         for (dt, ts) in &self.last_compaction_at {
             last_compaction_at.insert(dt.path().to_string(), ts.to_rfc3339());
         }
         SyncCursor {
             last_known_keys,
+            last_known_keys_per_node,
             known_signal_keys: self.known_signal_keys.iter().cloned().collect(),
             last_compaction_at,
         }
@@ -222,9 +268,9 @@ impl OssSyncManager {
         );
 
         let timeout_config = aws_sdk_s3::config::timeout::TimeoutConfig::builder()
-            .operation_timeout(std::time::Duration::from_secs(30))
-            .operation_attempt_timeout(std::time::Duration::from_secs(15))
-            .connect_timeout(std::time::Duration::from_secs(10))
+            .operation_timeout(std::time::Duration::from_secs(15))
+            .operation_attempt_timeout(std::time::Duration::from_secs(8))
+            .connect_timeout(std::time::Duration::from_secs(5))
             .build();
 
         let stalled_stream =
@@ -289,7 +335,7 @@ impl OssSyncManager {
     pub async fn call_fc(&self, path: &str, body: &Value) -> Result<FcResponse, String> {
         let url = format!("{}{}", self.team_endpoint, path);
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(15))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -480,6 +526,49 @@ impl OssSyncManager {
         Ok(keys)
     }
 
+    /// List "subdirectories" (common prefixes) under the given prefix using
+    /// the S3 delimiter. For example, listing `teams/t1/skills/updates/` with
+    /// delimiter `/` returns `["teams/t1/skills/updates/nodeA/", ...]`.
+    async fn s3_list_common_prefixes(&self, prefix: &str) -> Result<Vec<String>, String> {
+        let client = self.client()?;
+        let bucket = self.bucket()?;
+
+        let mut prefixes: Vec<String> = Vec::new();
+        let mut continuation_token: Option<String> = None;
+
+        loop {
+            let mut req = client
+                .list_objects_v2()
+                .bucket(bucket)
+                .prefix(prefix)
+                .delimiter("/");
+
+            if let Some(token) = &continuation_token {
+                req = req.continuation_token(token);
+            }
+
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| format!("S3 LIST prefixes {prefix} failed: {e}"))?;
+
+            for cp in resp.common_prefixes() {
+                if let Some(p) = cp.prefix() {
+                    prefixes.push(p.to_string());
+                }
+            }
+
+            if resp.is_truncated() == Some(true) {
+                continuation_token = resp.next_continuation_token().map(|s| s.to_string());
+            } else {
+                break;
+            }
+        }
+
+        prefixes.sort();
+        Ok(prefixes)
+    }
+
     /// Best-effort existence check for a specific S3 object key.
     /// Uses LIST with exact-key prefix to avoid broad scans.
     async fn s3_key_exists(&self, key: &str) -> Result<bool, String> {
@@ -500,6 +589,22 @@ impl OssSyncManager {
             .map_err(|e| format!("S3 DELETE {key} failed: {e}"))?;
 
         Ok(())
+    }
+
+    /// Get the size of an S3 object without downloading it.
+    pub async fn s3_head_size(&self, key: &str) -> Result<u64, String> {
+        let client = self.client()?;
+        let bucket = self.bucket()?;
+
+        let resp = client
+            .head_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| format!("S3 HEAD {key} failed: {e}"))?;
+
+        Ok(resp.content_length().unwrap_or(0) as u64)
     }
 
     // -----------------------------------------------------------------------
@@ -1409,6 +1514,23 @@ impl OssSyncManager {
             timestamp_ms
         );
 
+        // Guard: skip upload if the exported update is oversized.
+        // This happens when last_exported_version is lost (app restart) and
+        // ExportMode::all_updates() dumps the full LoroDoc history.
+        // The data is already in S3 via prior uploads; re-uploading a huge
+        // blob is wasteful and blocks the sync loop.
+        if updates.len() as u64 > MAX_SYNC_FILE_SIZE {
+            warn!(
+                "Skipping oversized update upload for {:?} ({:.1} MB) — full history export, data already synced",
+                doc_type,
+                updates.len() as f64 / 1_048_576.0
+            );
+            // Still record the version vector so subsequent uploads are incremental
+            let current_vv = self.get_doc(doc_type).oplog_vv().encode();
+            self.last_exported_version.insert(doc_type, current_vv);
+            return Ok(true);
+        }
+
         self.s3_put(&key, &updates).await?;
         info!(
             "Uploaded {} changes for {:?} ({} bytes)",
@@ -1426,19 +1548,41 @@ impl OssSyncManager {
 
     pub async fn pull_remote_changes(&mut self, doc_type: DocType) -> Result<(), String> {
         let prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
-        let start_after = self.last_known_key.get(&doc_type).map(|s| s.as_str());
-        let new_keys = self.s3_list_after(&prefix, start_after).await?;
 
-        // Race condition detection: if we had a cursor and got zero results, treat
-        // it as compaction only when the cursor key itself no longer exists.
-        // Zero results alone can also mean "no new updates" and should be cheap.
-        let had_cursor = self.last_known_key.contains_key(&doc_type);
-        let cursor_missing = if had_cursor {
-            let last_key = self
-                .last_known_key
-                .get(&doc_type)
-                .ok_or_else(|| "Missing last_known_key despite cursor flag".to_string())?;
-            !self.s3_key_exists(last_key).await?
+        // Discover all node subdirectories under updates/
+        let node_prefixes = self.s3_list_common_prefixes(&prefix).await?;
+
+        // Pull each node's updates using a per-node cursor so that
+        // lexicographic ordering across different nodeIds cannot cause
+        // keys to be skipped.
+        let mut new_keys: Vec<String> = Vec::new();
+        for node_prefix in &node_prefixes {
+            let cursor = self.last_known_key_per_node.get(&(doc_type, node_prefix.clone())).map(|s| s.as_str());
+            let node_keys = self.s3_list_after(node_prefix, cursor).await?;
+            if let Some(last) = node_keys.last() {
+                self.last_known_key_per_node.insert((doc_type, node_prefix.clone()), last.clone());
+            }
+            new_keys.extend(node_keys);
+        }
+        new_keys.sort();
+
+        // Compaction detection: if we had per-node cursors and got zero new
+        // keys, check whether any cursor key has been deleted (compacted away).
+        let cursor_keys_for_doc: Vec<String> = self
+            .last_known_key_per_node
+            .iter()
+            .filter(|((dt, _), _)| *dt == doc_type)
+            .map(|(_, key)| key.clone())
+            .collect();
+        let cursor_missing = if !cursor_keys_for_doc.is_empty() && new_keys.is_empty() {
+            let mut any_missing = false;
+            for key in &cursor_keys_for_doc {
+                if !self.s3_key_exists(key).await? {
+                    any_missing = true;
+                    break;
+                }
+            }
+            any_missing
         } else {
             false
         };
@@ -1455,11 +1599,23 @@ impl OssSyncManager {
                 doc.import(&data)
                     .map_err(|e| format!("Failed to import snapshot after compaction: {e}"))?;
 
-                // Reset cursor and re-list updates (there may be new ones after the snapshot)
+                // Reset per-node cursors and re-list updates
+                self.last_known_key_per_node.retain(|k, _| k.0 != doc_type);
                 self.last_known_key.remove(&doc_type);
                 self.known_files.insert(doc_type, HashSet::new());
 
-                let fresh_keys = self.s3_list(&prefix).await?;
+                // Re-discover nodes and pull all remaining updates
+                let fresh_node_prefixes = self.s3_list_common_prefixes(&prefix).await?;
+                let mut fresh_keys: Vec<String> = Vec::new();
+                for np in &fresh_node_prefixes {
+                    let nk = self.s3_list(np).await?;
+                    if let Some(last) = nk.last() {
+                        self.last_known_key_per_node.insert((doc_type, np.clone()), last.clone());
+                    }
+                    fresh_keys.extend(nk);
+                }
+                fresh_keys.sort();
+
                 for key in &fresh_keys {
                     let data = self.s3_get(key).await?;
                     let doc = self.get_doc_mut(doc_type);
@@ -1491,13 +1647,16 @@ impl OssSyncManager {
 
         // Download concurrently (up to 5 at a time)
         if !new_keys.is_empty() {
+            let total_keys = new_keys.len();
             let download_results: Vec<(String, Result<Vec<u8>, String>)> = stream::iter(
-                new_keys.iter().cloned(),
+                new_keys.iter().cloned().enumerate(),
             )
-            .map(|key| {
+            .map(|(idx, key)| {
                 let client = self.client().cloned();
                 let bucket = self.bucket().map(|b| b.to_string());
                 async move {
+                    info!("[S3 GET] ({}/{}) starting: {}", idx + 1, total_keys, key);
+                    let t0 = std::time::Instant::now();
                     let result = match (client, bucket) {
                         (Ok(c), Ok(b)) => {
                             match c
@@ -1507,17 +1666,29 @@ impl OssSyncManager {
                                 .send()
                                 .await
                             {
-                                Ok(resp) => resp
-                                    .body
-                                    .collect()
-                                    .await
-                                    .map(|d| d.into_bytes().to_vec())
-                                    .map_err(|e| format!("S3 GET {key} body read failed: {e}")),
+                                Ok(resp) => {
+                                    let size = resp.content_length().unwrap_or(0) as u64;
+                                    if size > MAX_DOWNLOAD_SIZE {
+                                        warn!("[S3 GET] Skipping oversized update ({:.1} MB): {}", size as f64 / 1_048_576.0, key);
+                                        Err(format!("Skipped oversized update ({size} bytes): {key}"))
+                                    } else {
+                                        resp.body
+                                            .collect()
+                                            .await
+                                            .map(|d| d.into_bytes().to_vec())
+                                            .map_err(|e| format!("S3 GET {key} body read failed: {e}"))
+                                    }
+                                }
                                 Err(e) => Err(format!("S3 GET {key} failed: {e}")),
                             }
                         }
                         (Err(e), _) | (_, Err(e)) => Err(e),
                     };
+                    let elapsed = t0.elapsed();
+                    match &result {
+                        Ok(data) => info!("[S3 GET] ({}/{}) done in {:.1}s, {} bytes: {}", idx + 1, total_keys, elapsed.as_secs_f64(), data.len(), key),
+                        Err(e) => warn!("[S3 GET] ({}/{}) FAILED in {:.1}s: {} — {}", idx + 1, total_keys, elapsed.as_secs_f64(), key, e),
+                    }
                     (key, result)
                 }
             })
@@ -1530,10 +1701,18 @@ impl OssSyncManager {
             sorted_results.sort_by(|a, b| a.0.cmp(&b.0));
 
             for (key, result) in sorted_results {
-                let data = result?;
-                let doc = self.get_doc_mut(doc_type);
-                doc.import(&data)
-                    .map_err(|e| format!("Failed to import update {key}: {e}"))?;
+                match result {
+                    Ok(data) => {
+                        let doc = self.get_doc_mut(doc_type);
+                        if let Err(e) = doc.import(&data) {
+                            warn!("Failed to import update {key}: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        // Oversized or failed downloads are skipped, not fatal
+                        warn!("Skipping update {key}: {e}");
+                    }
+                }
             }
         }
 
@@ -1703,6 +1882,7 @@ impl OssSyncManager {
         // 7. Reset local state
         self.known_files.insert(doc_type, HashSet::new());
         self.last_known_key.remove(&doc_type);
+        self.last_known_key_per_node.retain(|k, _| k.0 != doc_type);
         self.last_exported_version.remove(&doc_type);
 
         // 8. Record compaction time
