@@ -144,6 +144,16 @@ impl DocType {
         }
     }
 
+    pub fn from_path(s: &str) -> Option<DocType> {
+        match s {
+            "skills" => Some(DocType::Skills),
+            "mcp" => Some(DocType::Mcp),
+            "knowledge" => Some(DocType::Knowledge),
+            "secrets" => Some(DocType::Secrets),
+            _ => None,
+        }
+    }
+
     pub fn all() -> [DocType; 4] {
         [DocType::Skills, DocType::Mcp, DocType::Knowledge, DocType::Secrets]
     }
@@ -171,6 +181,9 @@ pub struct SyncCursor {
     /// Last processed update key per DocType (for start_after pruning)
     #[serde(default)]
     pub last_known_keys: HashMap<String, String>,
+    /// Per-node cursors: key = "docType:nodePrefix", value = last processed S3 key.
+    #[serde(default)]
+    pub last_known_keys_per_node: HashMap<String, String>,
     /// Signal flag keys already processed
     #[serde(default)]
     pub known_signal_keys: Vec<String>,
