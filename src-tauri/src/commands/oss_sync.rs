@@ -1708,6 +1708,32 @@ impl OssSyncManager {
     }
 
     pub async fn pull_remote_changes(&mut self, doc_type: DocType) -> Result<(), String> {
+        // Check remote generation — if mismatched, re-bootstrap from snapshot
+        let gen_key = format!("teams/{}/{}/generation.json", self.team_id, doc_type.path());
+        if let Ok(gen_data) = self.s3_get(&gen_key).await {
+            if let Ok(gen_json) = serde_json::from_slice::<Value>(&gen_data) {
+                let remote_gen = gen_json.get("generationId").and_then(|v| v.as_str()).unwrap_or("");
+                let local_gen = self.generation.get(&doc_type).map(|s| s.as_str()).unwrap_or("");
+
+                if !remote_gen.is_empty() && remote_gen != local_gen {
+                    info!("Generation mismatch for {:?}: local={}, remote={}", doc_type, local_gen, remote_gen);
+
+                    if let Some(snap_key) = gen_json.get("snapshotKey").and_then(|v| v.as_str()) {
+                        let snap_data = self.s3_get(snap_key).await?;
+                        let doc = self.get_doc_mut(doc_type);
+                        doc.import(&snap_data).map_err(|e| format!("Re-bootstrap import failed: {e}"))?;
+
+                        self.last_known_key_per_node.retain(|k, _| k.0 != doc_type);
+                        self.last_known_key.remove(&doc_type);
+                        self.generation.insert(doc_type, remote_gen.to_string());
+
+                        self.health = SyncHealth::Warning;
+                        self.health_message = Some("检测到数据压缩，正在重新同步".to_string());
+                    }
+                }
+            }
+        }
+
         let prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
 
         // Discover all node subdirectories under updates/
@@ -1987,6 +2013,16 @@ impl OssSyncManager {
             // 3. Pull remote changes
             self.pull_remote_changes(doc_type).await?;
 
+            // 3b. Populate live_keyset with current S3 keys for safe compaction
+            let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
+            if let Ok(keys) = self.s3_list(&update_prefix).await {
+                self.live_keyset.extend(keys);
+            }
+            let snap_prefix = format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
+            if let Ok(keys) = self.s3_list(&snap_prefix).await {
+                self.live_keyset.extend(keys);
+            }
+
             // 4. Write to disk
             self.write_doc_to_disk(doc_type)?;
 
@@ -2041,35 +2077,63 @@ impl OssSyncManager {
         let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
         let pre_snapshot_updates = self.s3_list(&update_prefix).await?;
 
-        // 3. Export full snapshot
+        // 3. Export shallow snapshot (fallback to full if shallow fails)
         let doc = self.get_doc(doc_type);
-        let snapshot = doc
-            .export(loro::ExportMode::Snapshot)
-            .map_err(|e| format!("Failed to export snapshot for {:?}: {e}", doc_type))?;
+        let frontiers = doc.oplog_frontiers();
+        let snapshot = match doc.export(loro::ExportMode::shallow_snapshot(&frontiers)) {
+            Ok(s) => s,
+            Err(_) => {
+                warn!("Shallow snapshot failed for {:?}, falling back to full snapshot", doc_type);
+                doc.export(loro::ExportMode::Snapshot)
+                    .map_err(|e| format!("Failed to export snapshot for {:?}: {e}", doc_type))?
+            }
+        };
 
-        // 4. Upload new snapshot
-        let timestamp_ms = Utc::now().timestamp_millis();
+        // 4. Upload content-addressed snapshot (keyed by frontiers hash)
+        let heads_hash = {
+            let mut hasher = Sha256::new();
+            hasher.update(format!("{:?}", frontiers).as_bytes());
+            hex::encode(&hasher.finalize()[..8])
+        };
         let snap_key = format!(
-            "teams/{}/{}/snapshot/{}.bin",
+            "teams/{}/{}/snapshots/{}.bin",
             self.team_id,
             doc_type.path(),
-            timestamp_ms
+            heads_hash
         );
         self.s3_put(&snap_key, &snapshot).await?;
         info!(
-            "Compaction: uploaded snapshot for {:?} ({} bytes)",
+            "Compaction: uploaded snapshot for {:?} ({} bytes, key={})",
             doc_type,
-            snapshot.len()
+            snapshot.len(),
+            snap_key
         );
 
-        // 5. Re-list and delete only keys that already existed pre-snapshot.
+        // 5. Upload generation.json to signal compaction to other nodes
+        let generation_id = uuid::Uuid::new_v4().to_string();
+        let generation_json = serde_json::json!({
+            "generationId": generation_id,
+            "snapshotKey": snap_key,
+            "createdAt": Utc::now().to_rfc3339(),
+        });
+        let gen_key = format!("teams/{}/{}/generation.json", self.team_id, doc_type.path());
+        self.s3_put(&gen_key, generation_json.to_string().as_bytes()).await?;
+        self.generation.insert(doc_type, generation_id);
+
+        // 6. Re-list and delete only keys that already existed pre-snapshot
+        //    AND are present in our live_keyset (safe deletion).
         let current_updates = self.s3_list(&update_prefix).await?;
-        let updates_to_delete = Self::select_compaction_deletion_keys(
+        let candidate_deletions = Self::select_compaction_deletion_keys(
             &pre_snapshot_updates,
             &current_updates,
         );
+        let updates_to_delete: Vec<String> = candidate_deletions
+            .into_iter()
+            .filter(|key| self.live_keyset.contains(key.as_str()))
+            .collect();
         for key in &updates_to_delete {
             self.s3_delete(key).await?;
+            self.live_keyset.remove(key.as_str());
         }
         info!(
             "Compaction: deleted {} pre-snapshot update files for {:?}",
@@ -2077,27 +2141,44 @@ impl OssSyncManager {
             doc_type
         );
 
-        // 6. Trim old snapshots (keep only 2 most recent)
-        let snap_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
-        let snap_keys = self.s3_list(&snap_prefix).await?;
-        if snap_keys.len() > 2 {
-            for key in &snap_keys[..snap_keys.len() - 2] {
-                self.s3_delete(key).await?;
+        // 7. Trim old snapshots/ (plural — new format), keep only 2 most recent
+        let snap_prefix_new = format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
+        let snap_keys_new = self.s3_list(&snap_prefix_new).await?;
+        if snap_keys_new.len() > 2 {
+            for key in &snap_keys_new[..snap_keys_new.len() - 2] {
+                if self.live_keyset.contains(key.as_str()) {
+                    self.s3_delete(key).await?;
+                    self.live_keyset.remove(key.as_str());
+                }
             }
             info!(
-                "Compaction: trimmed {} old snapshots for {:?}",
-                snap_keys.len() - 2,
+                "Compaction: trimmed old snapshots/ for {:?}",
                 doc_type
             );
         }
 
-        // 7. Reset local state
+        // 8. Clean up old snapshot/ (singular — legacy format) for migration
+        let snap_prefix_old = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
+        let snap_keys_old = self.s3_list(&snap_prefix_old).await?;
+        for key in &snap_keys_old {
+            self.s3_delete(key).await?;
+            self.live_keyset.remove(key.as_str());
+        }
+        if !snap_keys_old.is_empty() {
+            info!(
+                "Compaction: cleaned up {} legacy snapshot/ files for {:?}",
+                snap_keys_old.len(),
+                doc_type
+            );
+        }
+
+        // 9. Reset local state
         self.known_files.insert(doc_type, HashSet::new());
         self.last_known_key.remove(&doc_type);
         self.last_known_key_per_node.retain(|k, _| k.0 != doc_type);
         self.last_exported_version.remove(&doc_type);
 
-        // 8. Record compaction time
+        // 10. Record compaction time
         self.last_compaction_at.insert(doc_type, Utc::now());
 
         info!("Compaction complete for {:?}", doc_type);
