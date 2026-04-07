@@ -174,7 +174,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         try {
           // Safety timeout: if backend hangs (e.g. unreachable S3), stop the
           // spinner so the user can still interact with the UI.
-          const RESTORE_TIMEOUT_MS = 30_000
+          const RESTORE_TIMEOUT_MS = 120_000
           const info = await Promise.race([
             invoke<OssTeamInfo>('oss_restore_sync', {
               workspacePath,
@@ -211,7 +211,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         set({ restoring: false, configured: false })
         return
       }
-      const RESTORE_TIMEOUT_MS = 30_000
+      const RESTORE_TIMEOUT_MS = 120_000
       const info = await Promise.race([
         invoke<OssTeamInfo>('oss_restore_sync', {
           workspacePath,

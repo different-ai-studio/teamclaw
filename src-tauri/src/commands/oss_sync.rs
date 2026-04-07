@@ -2057,27 +2057,132 @@ impl OssSyncManager {
         for doc_type in DocType::all() {
             info!("Initial sync for {:?}...", doc_type);
 
-            // 1. Restore from local snapshot
-            let _ = self.restore_from_local_snapshot(doc_type);
-
-            // 2. Find latest snapshot on OSS
-            let snapshot_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
-            let snapshot_keys = self.s3_list(&snapshot_prefix).await?;
-
-            if let Some(latest_key) = snapshot_keys.last() {
-                info!("Found remote snapshot: {latest_key}");
-                let data = self.s3_get(latest_key).await?;
-                let doc = self.get_doc_mut(doc_type);
-                doc.import(&data).map_err(|e| {
-                    format!("Failed to import remote snapshot for {:?}: {e}", doc_type)
-                })?;
+            // 1. Emit snapshot phase progress
+            if let Some(handle) = self.app_handle.as_ref() {
+                let _ = handle.emit("sync-progress", serde_json::json!({
+                    "phase": "snapshot",
+                    "docType": doc_type.path(),
+                }));
             }
 
-            // 3. Pull remote changes
-            self.pull_remote_changes(doc_type).await?;
+            // 2. Restore from local snapshot
+            let _ = self.restore_from_local_snapshot(doc_type);
 
-            // 3b. Populate live_keyset with current S3 keys for safe compaction
+            // 3. Find latest snapshot on OSS — check generation.json first, then
+            //    fall back to listing snapshots/ (new format) and snapshot/ (legacy).
+            let gen_key = format!("teams/{}/{}/generation.json", self.team_id, doc_type.path());
+            let mut snapshot_loaded = false;
+            if let Ok(gen_data) = self.s3_get(&gen_key).await {
+                if let Ok(gen_json) = serde_json::from_slice::<Value>(&gen_data) {
+                    let remote_gen = gen_json.get("generationId").and_then(|v| v.as_str()).unwrap_or("");
+                    if let Some(snap_key) = gen_json.get("snapshotKey").and_then(|v| v.as_str()) {
+                        info!("Initial sync: loading snapshot from generation.json: {snap_key}");
+                        let snap_data = self.s3_get(snap_key).await?;
+                        let doc = self.get_doc_mut(doc_type);
+                        doc.import(&snap_data).map_err(|e| {
+                            format!("Failed to import generation snapshot for {:?}: {e}", doc_type)
+                        })?;
+                        if !remote_gen.is_empty() {
+                            self.generation.insert(doc_type, remote_gen.to_string());
+                        }
+                        snapshot_loaded = true;
+                    }
+                }
+            }
+
+            if !snapshot_loaded {
+                // Fall back: check snapshots/ (new format)
+                let snap_prefix_new = format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
+                let snap_keys_new = self.s3_list(&snap_prefix_new).await.unwrap_or_default();
+                if let Some(latest_key) = snap_keys_new.last() {
+                    info!("Initial sync: found remote snapshot (snapshots/): {latest_key}");
+                    let data = self.s3_get(latest_key).await?;
+                    let doc = self.get_doc_mut(doc_type);
+                    doc.import(&data).map_err(|e| {
+                        format!("Failed to import remote snapshot for {:?}: {e}", doc_type)
+                    })?;
+                    snapshot_loaded = true;
+                }
+
+                // Also try legacy snapshot/ (singular)
+                if !snapshot_loaded {
+                    let snapshot_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
+                    let snapshot_keys = self.s3_list(&snapshot_prefix).await.unwrap_or_default();
+                    if let Some(latest_key) = snapshot_keys.last() {
+                        info!("Initial sync: found remote snapshot (legacy snapshot/): {latest_key}");
+                        let data = self.s3_get(latest_key).await?;
+                        let doc = self.get_doc_mut(doc_type);
+                        doc.import(&data).map_err(|e| {
+                            format!("Failed to import remote snapshot for {:?}: {e}", doc_type)
+                        })?;
+                    }
+                }
+            }
+
+            // 4. List all update keys across all nodes
             let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
+            let node_prefixes = self.s3_list_common_prefixes(&update_prefix).await.unwrap_or_default();
+            let mut all_update_keys: Vec<String> = Vec::new();
+            for node_prefix in &node_prefixes {
+                let node_keys = self.s3_list(node_prefix).await.unwrap_or_default();
+                if let Some(last) = node_keys.last() {
+                    self.last_known_key_per_node.insert((doc_type, node_prefix.clone()), last.clone());
+                }
+                all_update_keys.extend(node_keys);
+            }
+            all_update_keys.sort();
+
+            let total_updates = all_update_keys.len();
+            info!("Initial sync: {} update files for {:?}", total_updates, doc_type);
+
+            // 5. Download each update with progress events, decompress .zst
+            for (idx, key) in all_update_keys.iter().enumerate() {
+                // Emit progress event for each update
+                if let Some(handle) = self.app_handle.as_ref() {
+                    let _ = handle.emit("sync-progress", serde_json::json!({
+                        "phase": "updates",
+                        "docType": doc_type.path(),
+                        "current": idx,
+                        "total": total_updates,
+                    }));
+                }
+
+                match self.s3_get(key).await {
+                    Ok(bytes) => {
+                        // Decompress .zst if needed
+                        let data = if key.ends_with(".zst") {
+                            match zstd::decode_all(std::io::Cursor::new(&bytes)) {
+                                Ok(decompressed) => decompressed,
+                                Err(e) => {
+                                    warn!("Initial sync: failed to decompress {key}: {e}");
+                                    bytes
+                                }
+                            }
+                        } else {
+                            bytes
+                        };
+                        let doc = self.get_doc_mut(doc_type);
+                        if let Err(e) = doc.import(&data) {
+                            warn!("Initial sync: failed to import update {key}: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Initial sync: skipping update {key}: {e}");
+                    }
+                }
+            }
+
+            // 6. Record cursors + populate live_keyset
+            if let Some(last) = all_update_keys.last() {
+                self.last_known_key.insert(doc_type, last.clone());
+            }
+            let known_set = self.known_files.entry(doc_type).or_default();
+            for key in &all_update_keys {
+                known_set.insert(key.clone());
+            }
+
+            // Populate live_keyset with update and snapshot keys for safe compaction
+            self.live_keyset.extend(all_update_keys);
             if let Ok(keys) = self.s3_list(&update_prefix).await {
                 self.live_keyset.extend(keys);
             }
@@ -2086,10 +2191,8 @@ impl OssSyncManager {
                 self.live_keyset.extend(keys);
             }
 
-            // 4. Write to disk
+            // 7. Write to disk + persist snapshot
             self.write_doc_to_disk(doc_type)?;
-
-            // 5. Persist local snapshot
             let _ = self.persist_local_snapshot(doc_type);
 
             info!("Initial sync complete for {:?}", doc_type);
