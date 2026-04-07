@@ -682,8 +682,12 @@ pub async fn oss_restore_sync(
     let _ = app_handle.emit("oss-sync-status", &SyncStatus {
         connected: true,
         syncing: true,
-        last_sync_at: None,
+        last_data_sync_at: None,
+        last_check_at: None,
         next_sync_at: None,
+        health: SyncHealth::default(),
+        health_message: None,
+        skipped_files: Vec::new(),
         docs: std::collections::HashMap::new(),
     });
 
@@ -718,7 +722,8 @@ pub async fn oss_restore_sync(
                     }
                 }
                 let now = Utc::now().to_rfc3339();
-                manager.set_last_sync_at(Some(now));
+                manager.set_last_data_sync_at(Some(now.clone()));
+                manager.set_last_check_at(Some(now));
                 let status = manager.get_sync_status();
                 let _ = sync_app_handle.emit("oss-sync-status", &status);
                 info!("[OssRestore] Background initial sync complete");
@@ -852,7 +857,8 @@ pub async fn oss_sync_now(state: State<'_, OssSyncState>) -> Result<SyncStatus, 
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    manager.set_last_sync_at(Some(now));
+    manager.set_last_data_sync_at(Some(now.clone()));
+    manager.set_last_check_at(Some(now));
 
     Ok(manager.get_sync_status())
 }

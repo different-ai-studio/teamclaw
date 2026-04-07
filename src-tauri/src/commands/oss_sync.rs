@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
+use base64::Engine;
 use tracing::{info, warn};
 
 const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), "-oss");
@@ -21,11 +22,10 @@ const TOKEN_REFRESH_MARGIN_SECS: i64 = 300; // refresh 5 min before expiry
 /// Maximum file size (in bytes) that will be synced. Files larger than this
 /// are silently skipped during scan to prevent OOM and oversized S3 PUTs.
 /// 2 MB is generous for config/skill/knowledge text files.
-const MAX_SYNC_FILE_SIZE: u64 = 2 * 1024 * 1024;
-/// Maximum size (in bytes) for a single S3 update download.
+const MAX_SYNC_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB (was 2 MB)
+/// Maximum cumulative size (in bytes) for S3 update downloads per pull cycle.
 /// Protects against legacy oversized CRDT updates that predate the upload cap.
-/// 10 MB should cover any legitimate CRDT delta.
-const MAX_DOWNLOAD_SIZE: u64 = 10 * 1024 * 1024;
+const MAX_DOWNLOAD_SIZE: u64 = 50 * 1024 * 1024; // 50 MB cumulative per pull
 
 // ---------------------------------------------------------------------------
 // OssSyncManager
@@ -64,13 +64,21 @@ pub struct OssSyncManager {
     /// Signal flag keys already seen (to avoid re-triggering pulls)
     known_signal_keys: HashSet<String>,
 
+    health: SyncHealth,
+    health_message: Option<String>,
+    skipped_files: Vec<SkippedFile>,
+    last_data_sync_at: Option<String>,
+    last_check_at: Option<String>,
+    live_keyset: HashSet<String>,
+    generation: HashMap<DocType, String>,
+    failed_import_keys: HashMap<String, u8>,
+
     poll_interval: Duration,
     workspace_path: String,
     team_dir: PathBuf,
     loro_cache_dir: PathBuf,
     connected: bool,
     syncing: bool,
-    last_sync_at: Option<String>,
     app_handle: Option<tauri::AppHandle>,
 }
 
@@ -107,11 +115,6 @@ impl OssSyncManager {
     ) -> Self {
         let team_dir = Path::new(&workspace_path).join(TEAM_REPO_DIR);
         let loro_cache_dir = Path::new(&workspace_path).join(TEAMCLAW_DIR).join("loro");
-
-        let mut known_files = HashMap::new();
-        for dt in DocType::all() {
-            known_files.insert(dt, HashSet::new());
-        }
 
         let cursor = read_sync_cursor(&workspace_path);
 
@@ -156,6 +159,43 @@ impl OssSyncManager {
             }
         }
 
+        // Restore last_exported_version from base64-encoded strings
+        let mut last_exported_version = HashMap::new();
+        let b64 = base64::engine::general_purpose::STANDARD;
+        for (dt_str, encoded) in &cursor.last_exported_version {
+            if let Some(dt) = DocType::from_path(dt_str) {
+                if let Ok(bytes) = b64.decode(encoded) {
+                    last_exported_version.insert(dt, bytes);
+                }
+            }
+        }
+
+        // Restore last_scan_time from unix millis
+        let mut last_scan_time = HashMap::new();
+        for (dt_str, millis) in &cursor.last_scan_time {
+            if let Some(dt) = DocType::from_path(dt_str) {
+                let time = std::time::UNIX_EPOCH + Duration::from_millis(*millis);
+                last_scan_time.insert(dt, time);
+            }
+        }
+
+        // Restore known_files from Vec<String> to HashSet<String>
+        let mut known_files = HashMap::new();
+        for dt in DocType::all() {
+            let set = cursor.known_files.get(dt.path())
+                .map(|v| v.iter().cloned().collect::<HashSet<String>>())
+                .unwrap_or_default();
+            known_files.insert(dt, set);
+        }
+
+        // Restore generation
+        let mut generation = HashMap::new();
+        for (dt_str, gen_id) in &cursor.generation {
+            if let Some(dt) = DocType::from_path(dt_str) {
+                generation.insert(dt, gen_id.clone());
+            }
+        }
+
         Self {
             s3_client: None,
             credentials: None,
@@ -173,17 +213,24 @@ impl OssSyncManager {
             known_files,
             last_known_key,
             last_known_key_per_node,
-            last_exported_version: HashMap::new(),
-            last_scan_time: HashMap::new(),
+            last_exported_version,
+            last_scan_time,
             last_compaction_at: last_compaction_at_map,
             known_signal_keys,
+            health: SyncHealth::default(),
+            health_message: None,
+            skipped_files: Vec::new(),
+            last_data_sync_at: None,
+            last_check_at: None,
+            live_keyset: HashSet::new(),
+            generation,
+            failed_import_keys: HashMap::new(),
             poll_interval,
             workspace_path,
             team_dir,
             loro_cache_dir,
             connected: false,
             syncing: false,
-            last_sync_at: None,
             app_handle,
         }
     }
@@ -224,8 +271,12 @@ impl OssSyncManager {
         self.role = role;
     }
 
-    pub fn set_last_sync_at(&mut self, ts: Option<String>) {
-        self.last_sync_at = ts;
+    pub fn set_last_data_sync_at(&mut self, ts: Option<String>) {
+        self.last_data_sync_at = ts;
+    }
+
+    pub fn set_last_check_at(&mut self, ts: Option<String>) {
+        self.last_check_at = ts;
     }
 
     pub fn export_sync_cursor(&self) -> SyncCursor {
@@ -242,11 +293,43 @@ impl OssSyncManager {
         for (dt, ts) in &self.last_compaction_at {
             last_compaction_at.insert(dt.path().to_string(), ts.to_rfc3339());
         }
+
+        // Serialize last_exported_version as base64
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let mut last_exported_version_map = HashMap::new();
+        for (dt, bytes) in &self.last_exported_version {
+            last_exported_version_map.insert(dt.path().to_string(), b64.encode(bytes));
+        }
+
+        // Serialize last_scan_time as unix millis
+        let mut last_scan_time_map = HashMap::new();
+        for (dt, time) in &self.last_scan_time {
+            if let Ok(duration) = time.duration_since(std::time::UNIX_EPOCH) {
+                last_scan_time_map.insert(dt.path().to_string(), duration.as_millis() as u64);
+            }
+        }
+
+        // Serialize known_files as Vec<String>
+        let mut known_files_map = HashMap::new();
+        for (dt, set) in &self.known_files {
+            known_files_map.insert(dt.path().to_string(), set.iter().cloned().collect());
+        }
+
+        // Serialize generation
+        let mut generation_map = HashMap::new();
+        for (dt, gen_id) in &self.generation {
+            generation_map.insert(dt.path().to_string(), gen_id.clone());
+        }
+
         SyncCursor {
             last_known_keys,
             last_known_keys_per_node,
             known_signal_keys: self.known_signal_keys.iter().cloned().collect(),
             last_compaction_at,
+            last_exported_version: last_exported_version_map,
+            last_scan_time: last_scan_time_map,
+            known_files: known_files_map,
+            generation: generation_map,
         }
     }
 
@@ -2198,7 +2281,8 @@ impl OssSyncManager {
 
                         // Emit status event (data changed)
                         let now = Utc::now().to_rfc3339();
-                        manager.last_sync_at = Some(now);
+                        manager.last_data_sync_at = Some(now.clone());
+                        manager.last_check_at = Some(now);
                         if let Some(handle) = &manager.app_handle {
                             let status = manager.get_sync_status();
                             let _ = handle.emit("oss-sync-status", &status);
@@ -2209,6 +2293,14 @@ impl OssSyncManager {
                         warn!("Failed to check signal flags: {}", e);
                         had_network_error = true;
                     }
+                }
+            }
+
+            // Persist cursor after fast loop cycle
+            {
+                let cursor = manager.export_sync_cursor();
+                if let Err(e) = write_sync_cursor(&manager.workspace_path, &cursor) {
+                    warn!("Failed to persist sync cursor in fast loop: {}", e);
                 }
             }
 
@@ -2312,7 +2404,20 @@ impl OssSyncManager {
 
                     manager.syncing = false;
                     let now = Utc::now().to_rfc3339();
-                    manager.last_sync_at = Some(now);
+                    // slow_loop always updates last_check_at; only set last_data_sync_at
+                    // when data was actually exchanged (uploads or absorb-uploads happened)
+                    if needs_absorb_upload {
+                        manager.last_data_sync_at = Some(now.clone());
+                    }
+                    manager.last_check_at = Some(now);
+
+                    // Persist cursor after compaction block
+                    {
+                        let cursor = manager.export_sync_cursor();
+                        if let Err(e) = write_sync_cursor(&manager.workspace_path, &cursor) {
+                            warn!("Failed to persist sync cursor after slow loop: {}", e);
+                        }
+                    }
 
                     // Emit status event to frontend
                     if let Some(handle) = &manager.app_handle {
@@ -2477,7 +2582,7 @@ impl OssSyncManager {
             );
         }
 
-        let next_sync_at = self.last_sync_at.as_ref().and_then(|last| {
+        let next_sync_at = self.last_check_at.as_ref().and_then(|last| {
             chrono::DateTime::parse_from_rfc3339(last).ok().map(|dt| {
                 (dt + chrono::Duration::from_std(self.poll_interval).unwrap_or_default())
                     .to_rfc3339()
@@ -2487,8 +2592,12 @@ impl OssSyncManager {
         SyncStatus {
             connected: self.connected,
             syncing: self.syncing,
-            last_sync_at: self.last_sync_at.clone(),
+            last_data_sync_at: self.last_data_sync_at.clone(),
+            last_check_at: self.last_check_at.clone(),
             next_sync_at,
+            health: self.health.clone(),
+            health_message: self.health_message.clone(),
+            skipped_files: self.skipped_files.clone(),
             docs,
         }
     }
@@ -2794,8 +2903,12 @@ pub fn write_sync_cursor(workspace_path: &str, cursor: &SyncCursor) -> Result<()
     }
     let json = serde_json::to_string_pretty(cursor)
         .map_err(|e| format!("Failed to serialize sync cursor: {e}"))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Failed to write sync cursor: {e}"))?;
+    // Atomic write: write to tmp file, then rename
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, json)
+        .map_err(|e| format!("Failed to write sync cursor tmp: {e}"))?;
+    std::fs::rename(&tmp_path, &path)
+        .map_err(|e| format!("Failed to rename sync cursor tmp: {e}"))?;
     Ok(())
 }
 
