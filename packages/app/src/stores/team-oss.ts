@@ -14,8 +14,12 @@ interface OssTeamInfo {
 interface SyncStatus {
   connected: boolean
   syncing: boolean
-  lastSyncAt: string | null
+  lastDataSyncAt: string | null
+  lastCheckAt: string | null
   nextSyncAt: string | null
+  health: 'healthy' | 'warning' | 'error' | 'offline'
+  healthMessage: string | null
+  skippedFiles: Array<{ path: string; reason: string }>
   docs: Record<string, DocSyncStatus>
 }
 
@@ -43,7 +47,7 @@ interface OssTeamConfig {
   teamId: string
   teamEndpoint: string
   forcePathStyle: boolean
-  lastSyncAt: string | null
+  lastDataSyncAt: string | null
   pollIntervalSecs: number
 }
 
@@ -78,6 +82,7 @@ interface TeamOssState {
   restoring: boolean // true while oss_restore_sync is in progress on startup
   syncing: boolean
   syncStatus: SyncStatus | null
+  syncProgress: { phase: string; docType: string; current?: number; total?: number } | null
   teamInfo: OssTeamInfo | null
   members: TeamMember[]
   error: string | null
@@ -127,6 +132,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   restoring: false,
   syncing: false,
   syncStatus: null,
+  syncProgress: null,
   teamInfo: null,
   members: [],
   error: null,
@@ -149,6 +155,10 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         }
       })
 
+      const unlistenProgress = await listen<{ phase: string; docType: string; current?: number; total?: number }>('sync-progress', (event) => {
+        set({ syncProgress: event.payload })
+      })
+
       // Refresh per-file sync status when teamclaw-team/ files change locally,
       // so the "modified" (orange) state is visible before the next sync poll.
       let fileChangeTimer: ReturnType<typeof setTimeout> | null = null
@@ -163,6 +173,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       set({
         _unlisten: () => {
           unlistenSync()
+          unlistenProgress()
           unlistenFileChange()
           if (fileChangeTimer) clearTimeout(fileChangeTimer)
         },
@@ -385,6 +396,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       restoring: false,
       syncing: false,
       syncStatus: null,
+      syncProgress: null,
       teamInfo: null,
       members: [],
       error: null,

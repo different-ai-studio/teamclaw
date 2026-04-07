@@ -63,6 +63,7 @@ export function TeamOSSConfig() {
     restoring,
     syncing,
     syncStatus,
+    syncProgress,
     teamInfo,
     error,
     createTeam,
@@ -257,9 +258,30 @@ export function TeamOSSConfig() {
       {/* State 0: Restoring connection or configured via teamclaw.json but not connected yet */}
       {!connected && (restoring || (configuredAsOss && !configured)) && (
         <SettingCard title="连接中" icon={Cloud}>
-          <div className="flex items-center gap-3 py-4 justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">正在连接团队...</p>
+          <div className="flex flex-col gap-3 py-4 items-center">
+            <div className="flex items-center gap-3 justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">正在连接团队...</p>
+            </div>
+            {restoring && syncProgress && (
+              <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground w-full">
+                <div className="mb-1">正在同步团队数据...</div>
+                {syncProgress.phase === 'snapshot' && (
+                  <div>下载快照: {syncProgress.docType}</div>
+                )}
+                {syncProgress.phase === 'updates' && syncProgress.total && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${((syncProgress.current || 0) / syncProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <span>{syncProgress.docType} ({syncProgress.current}/{syncProgress.total})</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </SettingCard>
       )}
@@ -489,9 +511,38 @@ export function TeamOSSConfig() {
                   {syncing ? '同步中...' : '立即同步'}
                 </Button>
               </div>
-              {syncStatus?.lastSyncAt && (
-                <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  上次同步: {new Date(syncStatus.lastSyncAt).toLocaleString()}
+              {/* Sync health indicator */}
+              <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 text-xs">
+                {syncStatus && (
+                  <>
+                    <span className={`inline-block h-2 w-2 rounded-full ${
+                      syncStatus.health === 'healthy' ? 'bg-green-500' :
+                      syncStatus.health === 'warning' ? 'bg-yellow-500' :
+                      syncStatus.health === 'error' ? 'bg-red-500' :
+                      'bg-gray-400'
+                    }`} />
+                    <span className="text-muted-foreground">
+                      {syncStatus.health === 'healthy' && '同步正常'}
+                      {syncStatus.health === 'warning' && `同步警告: ${syncStatus.healthMessage || ''}`}
+                      {syncStatus.health === 'error' && `同步异常: ${syncStatus.healthMessage || ''}`}
+                      {syncStatus.health === 'offline' && '离线'}
+                    </span>
+                    {syncStatus.lastDataSyncAt && (
+                      <span className="ml-auto text-muted-foreground/60">
+                        上次同步: {new Date(syncStatus.lastDataSyncAt).toLocaleString()}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Skipped files warning */}
+              {syncStatus?.skippedFiles && syncStatus.skippedFiles.length > 0 && (
+                <div className="rounded-lg bg-yellow-500/10 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+                  <div className="font-medium mb-1">以下文件无法同步：</div>
+                  {syncStatus.skippedFiles.map((f) => (
+                    <div key={f.path} className="ml-2">• {f.path} — {f.reason}</div>
+                  ))}
                 </div>
               )}
             </div>
