@@ -1828,16 +1828,28 @@ impl OssSyncManager {
                                 .await
                             {
                                 Ok(resp) => {
-                                    let size = resp.content_length().unwrap_or(0) as u64;
-                                    if size > MAX_DOWNLOAD_SIZE {
-                                        warn!("[S3 GET] Skipping oversized update ({:.1} MB): {}", size as f64 / 1_048_576.0, key);
-                                        Err(format!("Skipped oversized update ({size} bytes): {key}"))
-                                    } else {
-                                        resp.body
-                                            .collect()
-                                            .await
-                                            .map(|d| d.into_bytes().to_vec())
-                                            .map_err(|e| format!("S3 GET {key} body read failed: {e}"))
+                                    match resp.body
+                                        .collect()
+                                        .await
+                                        .map(|d| d.into_bytes().to_vec())
+                                        .map_err(|e| format!("S3 GET {key} body read failed: {e}"))
+                                    {
+                                        Ok(bytes) => {
+                                            // Decompress .zst files
+                                            let data = if key.ends_with(".zst") {
+                                                match zstd::decode_all(std::io::Cursor::new(&bytes)) {
+                                                    Ok(decompressed) => decompressed,
+                                                    Err(e) => {
+                                                        warn!("Failed to decompress {key}: {e}");
+                                                        bytes // fall back to raw bytes
+                                                    }
+                                                }
+                                            } else {
+                                                bytes
+                                            };
+                                            Ok(data)
+                                        }
+                                        Err(e) => Err(e),
                                     }
                                 }
                                 Err(e) => Err(format!("S3 GET {key} failed: {e}")),
@@ -1861,18 +1873,57 @@ impl OssSyncManager {
             let mut sorted_results = download_results;
             sorted_results.sort_by(|a, b| a.0.cmp(&b.0));
 
+            let mut cumulative_bytes: u64 = 0;
             for (key, result) in sorted_results {
                 match result {
                     Ok(data) => {
+                        cumulative_bytes += data.len() as u64;
                         let doc = self.get_doc_mut(doc_type);
                         if let Err(e) = doc.import(&data) {
                             warn!("Failed to import update {key}: {e}");
+                            let count = self.failed_import_keys.entry(key.clone()).or_insert(0);
+                            *count += 1;
+                            if *count >= 3 {
+                                // Max retries reached — advance cursor but flag error
+                                warn!("Import for {key} failed 3 times, giving up");
+                                self.health = SyncHealth::Error;
+                                self.health_message = Some(format!(
+                                    "Permanently failed to import update after 3 retries: {key}"
+                                ));
+                            } else {
+                                // Don't advance cursor for this node — remove its entry
+                                // so next pull re-fetches from before this key
+                                if let Some(np) = node_prefixes.iter().find(|np| key.starts_with(np.as_str())) {
+                                    self.last_known_key_per_node.remove(&(doc_type, np.clone()));
+                                }
+                            }
+                        } else {
+                            // Successful import — clear any prior failure tracking
+                            self.failed_import_keys.remove(&key);
                         }
                     }
                     Err(e) => {
-                        // Oversized or failed downloads are skipped, not fatal
+                        // Failed downloads are skipped, not fatal
                         warn!("Skipping update {key}: {e}");
                     }
+                }
+            }
+
+            // Change 3: Cumulative download size tracking (informational)
+            if cumulative_bytes > MAX_DOWNLOAD_SIZE {
+                info!(
+                    "Cumulative download size {:.1} MB exceeds {:.0} MB threshold for {:?}",
+                    cumulative_bytes as f64 / 1_048_576.0,
+                    MAX_DOWNLOAD_SIZE as f64 / 1_048_576.0,
+                    doc_type
+                );
+                if self.health == SyncHealth::Healthy || self.health == SyncHealth::default() {
+                    self.health = SyncHealth::Warning;
+                    self.health_message = Some(format!(
+                        "Large sync: downloaded {:.1} MB in one pull for {:?}",
+                        cumulative_bytes as f64 / 1_048_576.0,
+                        doc_type
+                    ));
                 }
             }
         }
