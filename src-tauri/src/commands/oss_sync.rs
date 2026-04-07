@@ -16,6 +16,7 @@ use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
 use base64::Engine;
 use tracing::{info, warn};
+use zstd;
 
 const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), "-oss");
 const TOKEN_REFRESH_MARGIN_SECS: i64 = 300; // refresh 5 min before expiry
@@ -1159,7 +1160,10 @@ impl OssSyncManager {
             timestamp_ms
         );
 
-        self.s3_put(&key, &updates).await?;
+        let uploaded = self.upload_with_fallback(doc_type, &updates, &key).await?;
+        if !uploaded {
+            return Ok(false); // All fallbacks failed, don't record VV
+        }
         info!(
             "Incremental upload: {} changes for {:?} ({} bytes)",
             changed.len(),
@@ -1460,6 +1464,94 @@ impl OssSyncManager {
     // Sync Operations
     // -----------------------------------------------------------------------
 
+    /// Layered upload strategy with compression fallback.
+    ///
+    /// - Layer 1: direct upload if ≤ MAX_SYNC_FILE_SIZE
+    /// - Layer 2: zstd compress (level 3), upload as .zst if compressed ≤ MAX_SYNC_FILE_SIZE
+    /// - Layer 3: force compact, re-export, retry layers 1 & 2
+    /// - Layer 4: all fallbacks failed → set health to Error, emit sync-error, return Ok(false)
+    async fn upload_with_fallback(
+        &mut self,
+        doc_type: DocType,
+        updates: &[u8],
+        base_key: &str,
+    ) -> Result<bool, String> {
+        // Layer 1: direct upload if within size limit
+        if updates.len() as u64 <= MAX_SYNC_FILE_SIZE {
+            self.s3_put(base_key, updates).await?;
+            return Ok(true);
+        }
+
+        // Layer 2: zstd compress and upload as .zst
+        let compressed = zstd::encode_all(std::io::Cursor::new(updates), 3)
+            .map_err(|e| format!("zstd compression failed for {:?}: {e}", doc_type))?;
+
+        if compressed.len() as u64 <= MAX_SYNC_FILE_SIZE {
+            let zst_key = base_key.replace(".bin", ".zst");
+            self.s3_put(&zst_key, &compressed).await?;
+            self.health = SyncHealth::Warning;
+            self.health_message = Some(format!(
+                "{:?} update compressed {:.1} MB → {:.1} MB for upload",
+                doc_type,
+                updates.len() as f64 / 1_048_576.0,
+                compressed.len() as f64 / 1_048_576.0,
+            ));
+            warn!("{}", self.health_message.as_ref().unwrap());
+            return Ok(true);
+        }
+
+        // Layer 3: force compact, re-export, then retry direct + compressed
+        warn!(
+            "{:?} update still too large after compression ({:.1} MB compressed). Forcing compaction...",
+            doc_type,
+            compressed.len() as f64 / 1_048_576.0
+        );
+        self.compact(doc_type).await?;
+
+        let re_exported = {
+            let doc = self.get_doc(doc_type);
+            doc.export(loro::ExportMode::all_updates())
+                .map_err(|e| format!("Failed to re-export after compaction for {:?}: {e}", doc_type))?
+        };
+
+        // Retry layer 1 with re-exported data
+        if re_exported.len() as u64 <= MAX_SYNC_FILE_SIZE {
+            self.s3_put(base_key, &re_exported).await?;
+            return Ok(true);
+        }
+
+        // Retry layer 2 with re-exported data
+        let re_compressed = zstd::encode_all(std::io::Cursor::new(&re_exported), 3)
+            .map_err(|e| format!("zstd re-compression failed for {:?}: {e}", doc_type))?;
+
+        if re_compressed.len() as u64 <= MAX_SYNC_FILE_SIZE {
+            let zst_key = base_key.replace(".bin", ".zst");
+            self.s3_put(&zst_key, &re_compressed).await?;
+            self.health = SyncHealth::Warning;
+            self.health_message = Some(format!(
+                "{:?} update compressed after compaction {:.1} MB → {:.1} MB for upload",
+                doc_type,
+                re_exported.len() as f64 / 1_048_576.0,
+                re_compressed.len() as f64 / 1_048_576.0,
+            ));
+            warn!("{}", self.health_message.as_ref().unwrap());
+            return Ok(true);
+        }
+
+        // Layer 4: all fallbacks exhausted
+        self.health = SyncHealth::Error;
+        self.health_message = Some(format!(
+            "{:?} update too large to upload even after compaction + compression ({:.1} MB compressed)",
+            doc_type,
+            re_compressed.len() as f64 / 1_048_576.0,
+        ));
+        warn!("{}", self.health_message.as_ref().unwrap());
+        if let Some(handle) = self.app_handle.as_ref() {
+            let _ = handle.emit("sync-error", &self.health_message);
+        }
+        Ok(false)
+    }
+
     pub async fn upload_local_changes(&mut self, doc_type: DocType) -> Result<bool, String> {
         let dir = self.team_dir.join(doc_type.dir_name());
         let local_files = Self::scan_local_files(&dir)?;
@@ -1597,24 +1689,10 @@ impl OssSyncManager {
             timestamp_ms
         );
 
-        // Guard: skip upload if the exported update is oversized.
-        // This happens when last_exported_version is lost (app restart) and
-        // ExportMode::all_updates() dumps the full LoroDoc history.
-        // The data is already in S3 via prior uploads; re-uploading a huge
-        // blob is wasteful and blocks the sync loop.
-        if updates.len() as u64 > MAX_SYNC_FILE_SIZE {
-            warn!(
-                "Skipping oversized update upload for {:?} ({:.1} MB) — full history export, data already synced",
-                doc_type,
-                updates.len() as f64 / 1_048_576.0
-            );
-            // Still record the version vector so subsequent uploads are incremental
-            let current_vv = self.get_doc(doc_type).oplog_vv().encode();
-            self.last_exported_version.insert(doc_type, current_vv);
-            return Ok(true);
+        let uploaded = self.upload_with_fallback(doc_type, &updates, &key).await?;
+        if !uploaded {
+            return Ok(false); // All fallbacks failed, don't record VV
         }
-
-        self.s3_put(&key, &updates).await?;
         info!(
             "Uploaded {} changes for {:?} ({} bytes)",
             changed.len(),
