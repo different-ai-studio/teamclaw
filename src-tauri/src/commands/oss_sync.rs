@@ -3017,6 +3017,85 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn zstd_roundtrip() {
+        let data = b"hello world repeated ".repeat(1000);
+        let compressed = zstd::encode_all(std::io::Cursor::new(&data[..]), 3).unwrap();
+        assert!(compressed.len() < data.len());
+        let decompressed = zstd::decode_all(std::io::Cursor::new(&compressed[..])).unwrap();
+        assert_eq!(decompressed, data);
+    }
+
+    #[test]
+    fn sync_cursor_roundtrip_with_new_fields() {
+        use crate::commands::oss_types::SyncCursor;
+        use std::collections::HashMap;
+        use base64::Engine;
+
+        let cursor = SyncCursor {
+            last_known_keys: HashMap::new(),
+            last_known_keys_per_node: HashMap::new(),
+            known_signal_keys: vec![],
+            last_compaction_at: HashMap::new(),
+            last_exported_version: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "skills".to_string(),
+                    base64::engine::general_purpose::STANDARD.encode(b"test-vv-bytes"),
+                );
+                m
+            },
+            last_scan_time: {
+                let mut m = HashMap::new();
+                m.insert("skills".to_string(), 1712500000000u64);
+                m
+            },
+            known_files: {
+                let mut m = HashMap::new();
+                m.insert("skills".to_string(), vec!["file1.md".to_string()]);
+                m
+            },
+            generation: {
+                let mut m = HashMap::new();
+                m.insert("skills".to_string(), "gen-uuid-123".to_string());
+                m
+            },
+        };
+
+        let json = serde_json::to_string(&cursor).unwrap();
+        let deserialized: SyncCursor = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            deserialized.last_exported_version.get("skills"),
+            cursor.last_exported_version.get("skills")
+        );
+        assert_eq!(
+            deserialized.last_scan_time.get("skills"),
+            cursor.last_scan_time.get("skills")
+        );
+        assert_eq!(
+            deserialized.known_files.get("skills"),
+            cursor.known_files.get("skills")
+        );
+        assert_eq!(
+            deserialized.generation.get("skills"),
+            cursor.generation.get("skills")
+        );
+    }
+
+    #[test]
+    fn sync_cursor_backward_compatible() {
+        use crate::commands::oss_types::SyncCursor;
+
+        // Old format JSON (without new fields) should deserialize fine
+        let old_json = r#"{"lastKnownKeys":{},"lastKnownKeysPerNode":{},"knownSignalKeys":[],"lastCompactionAt":{}}"#;
+        let cursor: SyncCursor = serde_json::from_str(old_json).unwrap();
+        assert!(cursor.last_exported_version.is_empty());
+        assert!(cursor.last_scan_time.is_empty());
+        assert!(cursor.known_files.is_empty());
+        assert!(cursor.generation.is_empty());
+    }
 }
 
 // ---------------------------------------------------------------------------
