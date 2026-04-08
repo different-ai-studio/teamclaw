@@ -48,6 +48,7 @@ pub fn generate_device_token() -> Result<String, String> {
     generate(&device_id, "")
 }
 
+
 /// Same as [`generate`] but accepts an explicit secret — useful for tests.
 pub fn generate_with_secret(device_id: &str, team_id: &str, secret: &str) -> Result<String, String> {
     if secret.is_empty() {

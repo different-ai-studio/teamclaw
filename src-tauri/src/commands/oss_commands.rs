@@ -18,8 +18,10 @@ use tracing::{info, warn};
 // ---------------------------------------------------------------------------
 
 /// Get a stable device identity for OSS operations.
-/// Prefers the P2P node ID when available, falls back to a persisted UUID
-/// when P2P is disabled at compile time or the node hasn't started yet.
+/// Prefers the P2P node ID when the node is running, otherwise derives the
+/// same node ID directly from the persisted iroh secret key on disk.
+/// Falls back to a persisted UUID only when no secret key exists (e.g. fresh
+/// install without P2P feature).
 async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, String> {
     let guard = iroh_state.lock().await;
     #[cfg(feature = "p2p")]
@@ -27,9 +29,12 @@ async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, St
         if let Some(node) = guard.as_ref() {
             return Ok(get_node_id(node));
         }
-        // P2P node not started yet — use fallback
+        // P2P node not started — derive node ID from persisted secret key
         drop(guard);
-        get_or_create_fallback_device_id()
+        match derive_node_id_from_secret_key() {
+            Ok(id) => Ok(id),
+            Err(_) => get_or_create_fallback_device_id(),
+        }
     }
     #[cfg(not(feature = "p2p"))]
     {
@@ -37,6 +42,25 @@ async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, St
         get_or_create_fallback_device_id()
     }
 }
+
+/// Derive the iroh node ID (hex-encoded Ed25519 public key) from the
+/// persisted secret key file without starting any networking.
+#[cfg(feature = "p2p")]
+fn derive_node_id_from_secret_key() -> Result<String, String> {
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    let key_path = home
+        .join(concat!(".", env!("APP_SHORT_NAME"), "/iroh"))
+        .join("secret_key");
+    let bytes = std::fs::read(&key_path)
+        .map_err(|e| format!("Failed to read iroh secret key: {e}"))?;
+    let bytes: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| "Secret key file has invalid length".to_string())?;
+    let secret_key = iroh::SecretKey::from_bytes(&bytes);
+    let node_id = secret_key.public();
+    Ok(node_id.to_string())
+}
+
 
 /// Tauri command: return (or create) the persistent device UUID stored in
 /// `~/.teamclaw/device-id`.  Never fails on a healthy filesystem.

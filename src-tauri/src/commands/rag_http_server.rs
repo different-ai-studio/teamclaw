@@ -433,6 +433,7 @@ async fn handle_device_token_test() -> axum::response::Response {
     <table id="fresh-claims"><tr><td colspan="2" style="color:#718096">—</td></tr></table>
   </div>
 
+
   <!-- ── Section 2: server-generated reference token ── -->
   <div class="card">
     <div class="label">server-generated reference token <span class="tag tag-server">server-side</span></div>

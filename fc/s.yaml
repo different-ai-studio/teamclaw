@@ -23,7 +23,6 @@ resources:
         ENDPOINT: https://oss-cn-shenzhen.aliyuncs.com
         LITELLM_URL: ${env('LITELLM_URL')}
         LITELLM_MASTER_KEY: ${env('LITELLM_MASTER_KEY')}
-        # Default LiteLLM team max spend (USD) for new teams; unset in deploy env → FC may omit (code defaults to 1)
         LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD: ${env('LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD')}
       triggers:
         - triggerName: http-trigger
