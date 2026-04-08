@@ -70,13 +70,39 @@ pub struct TeamApplication {
     pub applied_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncHealth {
+    Healthy,
+    Warning,
+    Error,
+    Offline,
+}
+
+impl Default for SyncHealth {
+    fn default() -> Self {
+        SyncHealth::Healthy
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedFile {
+    pub path: String,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
     pub connected: bool,
     pub syncing: bool,
-    pub last_sync_at: Option<String>,
+    pub last_data_sync_at: Option<String>,
+    pub last_check_at: Option<String>,
     pub next_sync_at: Option<String>,
+    pub health: SyncHealth,
+    pub health_message: Option<String>,
+    pub skipped_files: Vec<SkippedFile>,
     pub docs: HashMap<String, DocSyncStatus>,
 }
 
@@ -144,6 +170,16 @@ impl DocType {
         }
     }
 
+    pub fn from_path(s: &str) -> Option<DocType> {
+        match s {
+            "skills" => Some(DocType::Skills),
+            "mcp" => Some(DocType::Mcp),
+            "knowledge" => Some(DocType::Knowledge),
+            "secrets" => Some(DocType::Secrets),
+            _ => None,
+        }
+    }
+
     pub fn all() -> [DocType; 4] {
         [DocType::Skills, DocType::Mcp, DocType::Knowledge, DocType::Secrets]
     }
@@ -171,10 +207,25 @@ pub struct SyncCursor {
     /// Last processed update key per DocType (for start_after pruning)
     #[serde(default)]
     pub last_known_keys: HashMap<String, String>,
+    /// Per-node cursors: key = "docType:nodePrefix", value = last processed S3 key.
+    #[serde(default)]
+    pub last_known_keys_per_node: HashMap<String, String>,
     /// Signal flag keys already processed
     #[serde(default)]
     pub known_signal_keys: Vec<String>,
     /// Last compaction timestamp per DocType (RFC3339)
     #[serde(default)]
     pub last_compaction_at: HashMap<String, String>,
+    /// Loro version vector bytes per DocType, base64-encoded
+    #[serde(default)]
+    pub last_exported_version: HashMap<String, String>,
+    /// Last local file mtime scan time per DocType, unix timestamp millis
+    #[serde(default)]
+    pub last_scan_time: HashMap<String, u64>,
+    /// Known local files per DocType, for deletion detection across restarts
+    #[serde(default)]
+    pub known_files: HashMap<String, Vec<String>>,
+    /// Current generation ID per DocType (updated after each compaction)
+    #[serde(default)]
+    pub generation: HashMap<String, String>,
 }

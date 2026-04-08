@@ -7,8 +7,6 @@ const mockInvoke = vi.hoisted(() => vi.fn())
 const teamModeStoreMocks = vi.hoisted(() => ({
   setState: vi.fn(),
   clearTeamMode: vi.fn(),
-  teamApiKey: null,
-  setTeamApiKey: vi.fn(),
   myRole: null as 'owner' | 'editor' | 'viewer' | null,
 }))
 
@@ -154,8 +152,6 @@ import { TeamP2PConfig } from '../TeamP2PConfig'
 describe('TeamP2PConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    teamModeStoreMocks.teamApiKey = null
-    teamModeStoreMocks.setTeamApiKey = vi.fn()
     teamModeStoreMocks.clearTeamMode = vi.fn()
     teamModeStoreMocks.myRole = null
     p2pEngineStoreMocks.initialized = true

@@ -111,4 +111,3 @@ export const TEAMCLAW_DIR = `.${appShortName}`
 export const TEAM_REPO_DIR = `${appShortName}-team`
 export const CONFIG_FILE_NAME = `${appShortName}.json`
 export const TEAM_SYNCED_EVENT = `${appShortName}-team-synced`
-export const TEAM_API_KEY_STORAGE_KEY = `${appShortName}-team-api-key`

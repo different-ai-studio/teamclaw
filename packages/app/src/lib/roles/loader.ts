@@ -179,7 +179,7 @@ async function readRoleConfigPaths(workspacePath: string): Promise<string[]> {
   try {
     const content = await readTextFile(configPath)
     const parsed = JSON.parse(content)
-    const rawPaths = Array.isArray(parsed?.paths) ? parsed.paths : []
+    const rawPaths: unknown[] = Array.isArray(parsed?.paths) ? parsed.paths : []
     const home = (await homeDir()).replace(/\/$/, "")
     return rawPaths
       .filter((value): value is string => typeof value === "string" && value.trim().length > 0)

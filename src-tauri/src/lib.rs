@@ -399,6 +399,11 @@ pub fn run() {
             commands::skillssh::install_skillssh_skill,
             commands::skillssh::install_skill_from_git_url,
             commands::skillssh::import_skill_from_zip,
+            commands::skillssh::npx_skills_add,
+            commands::skillssh::npx_skills_remove,
+            commands::skillssh::npx_skills_update,
+            commands::skillssh::npx_skills_check,
+            commands::skillssh::npx_skills_list,
             commands::updater::check_update,
             commands::updater::download_and_install_update,
             commands::git::git_check_available,
@@ -475,6 +480,7 @@ pub fn run() {
             commands::oss_commands::oss_get_files_sync_status,
             commands::oss_commands::oss_create_snapshot,
             commands::oss_commands::oss_cleanup_updates,
+            commands::oss_commands::oss_delete_s3_key,
             commands::oss_commands::oss_update_members,
             commands::oss_commands::oss_reset_team_secret,
             commands::oss_commands::oss_get_team_config,
@@ -567,23 +573,34 @@ pub fn run() {
                 }
             });
 
-            // Initialize iroh P2P node in background (non-blocking)
+            // Initialize iroh P2P node only when P2P team is configured.
+            // Check the last workspace's config; if p2p.enabled != true, skip.
             #[cfg(feature = "p2p")]
             {
-                let iroh_state = app.handle().state::<commands::p2p_state::IrohState>().inner().clone();
-                tauri::async_runtime::spawn(async move {
-                    match commands::team_p2p::IrohNode::new_default().await {
-                        Ok(node) => {
-                            *iroh_state.lock().await = Some(node);
-                            #[cfg(debug_assertions)]
-                            eprintln!("[P2P] iroh node started");
+                let p2p_enabled = commands::opencode::read_last_workspace()
+                    .and_then(|ws| commands::team_p2p::read_p2p_config(&ws).ok().flatten())
+                    .map(|c| c.enabled)
+                    .unwrap_or(false);
+
+                if p2p_enabled {
+                    let iroh_state = app.handle().state::<commands::p2p_state::IrohState>().inner().clone();
+                    tauri::async_runtime::spawn(async move {
+                        match commands::team_p2p::IrohNode::new_default().await {
+                            Ok(node) => {
+                                *iroh_state.lock().await = Some(node);
+                                #[cfg(debug_assertions)]
+                                eprintln!("[P2P] iroh node started");
+                            }
+                            Err(e) => {
+                                sentry_utils::capture_err("[P2P] Failed to start iroh node", &e);
+                                eprintln!("[P2P] Failed to start iroh node (P2P disabled): {}", e);
+                            }
                         }
-                        Err(e) => {
-                            sentry_utils::capture_err("[P2P] Failed to start iroh node", &e);
-                            eprintln!("[P2P] Failed to start iroh node (P2P disabled): {}", e);
-                        }
-                    }
-                });
+                    });
+                } else {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[P2P] Skipped: p2p not enabled in config");
+                }
             }
 
             // Team sync will be triggered from the frontend after workspace is set,

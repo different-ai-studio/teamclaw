@@ -12,13 +12,11 @@ import { invoke } from '@tauri-apps/api/core'
 import type { DeviceInfo } from '@/lib/git/types'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useProviderStore } from '@/stores/provider'
-import { useTranslation } from 'react-i18next'
 import {
   Cloud,
   Copy,
   Eye,
   EyeOff,
-  KeyRound,
   Loader2,
   LogOut,
   RefreshCw,
@@ -49,75 +47,6 @@ function SettingCard({
   )
 }
 
-function TeamApiKeyCard() {
-  const { t } = useTranslation()
-  const teamApiKey = useTeamModeStore((s) => s.teamApiKey)
-  const setTeamApiKey = useTeamModeStore((s) => s.setTeamApiKey)
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
-  const [keyInput, setKeyInput] = useState(teamApiKey || '')
-  const [saving, setSaving] = useState(false)
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const key = keyInput.trim() || null
-      await setTeamApiKey(key, workspacePath || undefined)
-      if (!key) setKeyInput('')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <SettingCard title={t('settings.team.apiKeyTitle', 'API Key')} icon={KeyRound}>
-      <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          {t(
-            'settings.team.apiKeyDesc',
-            'Optional. Leave empty to use the team LiteLLM key auto-provisioned for this device (sk-tc- + first 40 chars of device ID).',
-          )}
-        </p>
-        <div className="flex items-center gap-2">
-          <Input
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder={t(
-              'settings.team.apiKeyPlaceholder',
-              'Override key, or leave empty for auto sk-tc- key',
-            )}
-            className="h-9 text-sm bg-background/50"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave()
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 h-9"
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('common.save', 'Save')}
-          </Button>
-          {teamApiKey && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0 h-9 text-xs text-muted-foreground"
-              onClick={async () => {
-                setKeyInput('')
-                await setTeamApiKey(null, workspacePath || undefined)
-              }}
-            >
-              {t('settings.team.useDeviceId', 'Use auto key')}
-            </Button>
-          )}
-        </div>
-      </div>
-    </SettingCard>
-  )
-}
 
 const DOC_TYPES = [
   { key: 'skills', label: 'Skills' },
@@ -134,6 +63,7 @@ export function TeamOSSConfig() {
     restoring,
     syncing,
     syncStatus,
+    syncProgress,
     teamInfo,
     error,
     createTeam,
@@ -318,16 +248,40 @@ export function TeamOSSConfig() {
     navigator.clipboard.writeText(text)
   }, [])
 
+  const teamModeType = useTeamModeStore((s) => s.teamModeType)
+  const configuredAsOss = configured || teamModeType === 'oss'
+
   const isOwner = teamInfo?.role === 'owner' || teamInfo?.role === 'admin'
 
   return (
     <div className="space-y-4">
-      {/* State 0: Restoring connection */}
-      {!connected && restoring && (
+      {/* State 0: Restoring connection or configured via teamclaw.json but not connected yet */}
+      {!connected && (restoring || (configuredAsOss && !configured)) && (
         <SettingCard title="连接中" icon={Cloud}>
-          <div className="flex items-center gap-3 py-4 justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">正在连接团队...</p>
+          <div className="flex flex-col gap-3 py-4 items-center">
+            <div className="flex items-center gap-3 justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">正在连接团队...</p>
+            </div>
+            {restoring && syncProgress && (
+              <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground w-full">
+                <div className="mb-1">正在同步团队数据...</div>
+                {syncProgress.phase === 'snapshot' && (
+                  <div>下载快照: {syncProgress.docType}</div>
+                )}
+                {syncProgress.phase === 'updates' && syncProgress.total && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${((syncProgress.current || 0) / syncProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <span>{syncProgress.docType} ({syncProgress.current}/{syncProgress.total})</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </SettingCard>
       )}
@@ -358,7 +312,7 @@ export function TeamOSSConfig() {
       )}
 
       {/* State 1b: Not configured — Create/Join forms */}
-      {!connected && !restoring && !configured && (
+      {!connected && !restoring && !configuredAsOss && (
         <>
           <SettingCard title="创建团队" icon={Users}>
             <div className="space-y-3">
@@ -535,8 +489,6 @@ export function TeamOSSConfig() {
             </div>
           </SettingCard>
 
-          <TeamApiKeyCard />
-
           <SettingCard title="团队成员">
             <TeamMemberList />
           </SettingCard>
@@ -559,9 +511,38 @@ export function TeamOSSConfig() {
                   {syncing ? '同步中...' : '立即同步'}
                 </Button>
               </div>
-              {syncStatus?.lastSyncAt && (
-                <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  上次同步: {new Date(syncStatus.lastSyncAt).toLocaleString()}
+              {/* Sync health indicator */}
+              <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 text-xs">
+                {syncStatus && (
+                  <>
+                    <span className={`inline-block h-2 w-2 rounded-full ${
+                      syncStatus.health === 'healthy' ? 'bg-green-500' :
+                      syncStatus.health === 'warning' ? 'bg-yellow-500' :
+                      syncStatus.health === 'error' ? 'bg-red-500' :
+                      'bg-gray-400'
+                    }`} />
+                    <span className="text-muted-foreground">
+                      {syncStatus.health === 'healthy' && '同步正常'}
+                      {syncStatus.health === 'warning' && `同步警告: ${syncStatus.healthMessage || ''}`}
+                      {syncStatus.health === 'error' && `同步异常: ${syncStatus.healthMessage || ''}`}
+                      {syncStatus.health === 'offline' && '离线'}
+                    </span>
+                    {syncStatus.lastDataSyncAt && (
+                      <span className="ml-auto text-muted-foreground/60">
+                        上次同步: {new Date(syncStatus.lastDataSyncAt).toLocaleString()}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Skipped files warning */}
+              {syncStatus?.skippedFiles && syncStatus.skippedFiles.length > 0 && (
+                <div className="rounded-lg bg-yellow-500/10 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+                  <div className="font-medium mb-1">以下文件无法同步：</div>
+                  {syncStatus.skippedFiles.map((f) => (
+                    <div key={f.path} className="ml-2">• {f.path} — {f.reason}</div>
+                  ))}
                 </div>
               )}
             </div>

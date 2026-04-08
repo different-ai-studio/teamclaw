@@ -447,8 +447,12 @@ export function useP2pAutoReconnect() {
   useEffect(() => {
     if (!workspacePath || !openCodeReady || !teamMode || !isTauri()) return;
 
-    // Delay P2P reconnect so it doesn't compete with app startup
-    const timer = setTimeout(async () => {
+    let cancelled = false;
+    const MAX_RETRIES = 5;
+    const INITIAL_DELAY = 3000;
+
+    const attemptReconnect = async (attempt: number) => {
+      if (cancelled) return;
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("p2p_reconnect");
@@ -469,11 +473,24 @@ export function useP2pAutoReconnect() {
 
         console.log("[P2P] Auto-reconnect completed");
       } catch (err) {
-        console.warn("[P2P] Auto-reconnect failed (non-critical):", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (attempt < MAX_RETRIES && msg.includes("not running")) {
+          const delay = INITIAL_DELAY * Math.pow(2, attempt);
+          console.warn(`[P2P] Auto-reconnect attempt ${attempt + 1}/${MAX_RETRIES} failed (iroh not ready), retrying in ${delay}ms`);
+          timer = setTimeout(() => attemptReconnect(attempt + 1), delay);
+        } else {
+          console.warn("[P2P] Auto-reconnect failed:", msg);
+        }
       }
-    }, 3000);
+    };
 
-    return () => clearTimeout(timer);
+    // Delay first attempt so it doesn't compete with app startup
+    let timer: ReturnType<typeof setTimeout> = setTimeout(() => attemptReconnect(0), INITIAL_DELAY);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [workspacePath, openCodeReady, teamMode]);
 }
 

@@ -14,7 +14,6 @@ import {
   Unlink,
   CheckCircle2,
   Clock,
-  KeyRound,
   Copy,
   Share2,
 } from 'lucide-react'
@@ -63,78 +62,6 @@ function SettingCard({ children, className }: { children: React.ReactNode; class
     )}>
       {children}
     </div>
-  )
-}
-
-// ─── Team API Key Card ──────────────────────────────────────────────────────
-
-function TeamApiKeyCard() {
-  const { t } = useTranslation()
-  const teamApiKey = useTeamModeStore((s) => s.teamApiKey)
-  const setTeamApiKey = useTeamModeStore((s) => s.setTeamApiKey)
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
-  const [keyInput, setKeyInput] = React.useState(teamApiKey || '')
-  const [saving, setSaving] = React.useState(false)
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const key = keyInput.trim() || null
-      await setTeamApiKey(key, workspacePath || undefined)
-      if (!key) setKeyInput('')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <SettingCard>
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-amber-100 dark:bg-amber-900/30">
-            <KeyRound className="h-5 w-5 text-amber-700 dark:text-amber-400" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t('settings.team.apiKeyTitle', 'API Key')}</p>
-            <p className="text-xs text-muted-foreground">{t('settings.team.apiKeyDesc', 'Optional. Leave empty to use the team LiteLLM key auto-provisioned for this device (sk-tc- + first 40 chars of device ID).')}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Input
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder={t('settings.team.apiKeyPlaceholder', 'Override key, or leave empty for auto sk-tc- key')}
-            className="h-9 text-sm"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave()
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 h-9"
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('common.save', 'Save')}
-          </Button>
-          {teamApiKey && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0 h-9 text-xs text-muted-foreground"
-              onClick={async () => {
-                setKeyInput('')
-                await setTeamApiKey(null, workspacePath || undefined)
-              }}
-            >
-              {t('settings.team.useDeviceId', 'Use auto key')}
-            </Button>
-          )}
-        </div>
-      </div>
-    </SettingCard>
   )
 }
 
@@ -195,6 +122,9 @@ export function TeamP2PConfig() {
   const [confirmAction, setConfirmAction] = React.useState<'create' | 'join' | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState(false)
   const [reconnecting, setReconnecting] = React.useState(true)
+
+  const teamModeType = useTeamModeStore((s) => s.teamModeType)
+  const configuredAsP2p = teamModeType === 'p2p'
 
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
@@ -937,12 +867,10 @@ export function TeamP2PConfig() {
             </div>
           </SettingCard>
 
-          {/* API Key Override */}
-          <TeamApiKeyCard />
         </>
       )}
 
-      {/* ─── Reconnecting State ──────────────────────────────────────── */}
+      {/* ─── Reconnecting State (initial load) ─────────────────────────── */}
       {!isConnected && reconnecting && (
         <SettingCard>
           <div className="flex items-center gap-3 py-4 justify-center">
@@ -952,8 +880,51 @@ export function TeamP2PConfig() {
         </SettingCard>
       )}
 
+      {/* ─── Configured but not connected (reconnect prompt) ─────────── */}
+      {!isConnected && !reconnecting && configuredAsP2p && (
+        <SettingCard>
+          <div className="flex flex-col items-center gap-3 py-4">
+            <p className="text-sm text-muted-foreground">
+              {t('settings.team.p2pConfiguredNotConnected', 'Team is configured but not connected. Peers may be offline or unreachable.')}
+            </p>
+            {p2pError && (
+              <p className="text-xs text-destructive text-center">{p2pError}</p>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={async () => {
+                  setReconnecting(true)
+                  setP2pError(null)
+                  try {
+                    await loadSyncStatus()
+                    await engineInit()
+                    await useP2pEngineStore.getState().fetch()
+                  } catch { /* ignore */ }
+                  setReconnecting(false)
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {t('settings.team.retryConnect', 'Retry')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-destructive hover:text-destructive border-destructive/30"
+                onClick={handleP2pDisconnect}
+              >
+                <Unlink className="h-3.5 w-3.5" />
+                {t('settings.team.disconnect', 'Disconnect')}
+              </Button>
+            </div>
+          </div>
+        </SettingCard>
+      )}
+
       {/* ─── Not Connected State ─────────────────────────────────────── */}
-      {!isConnected && !reconnecting && (
+      {!isConnected && !reconnecting && !configuredAsP2p && (
         <>
           {/* Create Team */}
           <SettingCard>

@@ -293,6 +293,7 @@ pub struct IrohNode {
 impl IrohNode {
     /// Create and start a new iroh node with persistent storage at the given path.
     pub async fn new(storage_path: &Path) -> Result<Self, String> {
+        let t0 = std::time::Instant::now();
         let blob_path = storage_path.join("blobs");
         let docs_path = storage_path.join("docs");
         std::fs::create_dir_all(&blob_path)
@@ -300,27 +301,32 @@ impl IrohNode {
         std::fs::create_dir_all(&docs_path)
             .map_err(|e| format!("Failed to create iroh docs dir: {}", e))?;
 
+        eprintln!("[P2P] Loading blob store...");
         let store = FsStore::load(&blob_path)
             .await
             .map_err(|e| format!("Failed to create iroh blob store: {}", e))?;
+        eprintln!("[P2P] Blob store loaded ({:.0}ms)", t0.elapsed().as_millis());
 
         let secret_key = load_or_create_secret_key(storage_path)?;
+        eprintln!("[P2P] Binding endpoint...");
         let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
             .secret_key(secret_key)
             .bind()
             .await
             .map_err(|e| format!("Failed to bind iroh endpoint: {}", e))?;
+        eprintln!("[P2P] Endpoint bound ({:.0}ms)", t0.elapsed().as_millis());
 
         let gossip = Gossip::builder().spawn(endpoint.clone());
 
         let blobs_store: iroh_blobs::api::Store = store.clone().into();
 
+        eprintln!("[P2P] Starting docs engine...");
         let docs = iroh_docs::protocol::Docs::persistent(docs_path)
             .spawn(endpoint.clone(), blobs_store.clone(), gossip.clone())
             .await
             .map_err(|e| format!("Failed to start docs engine: {}", e))?;
+        eprintln!("[P2P] Docs engine started ({:.0}ms)", t0.elapsed().as_millis());
 
-        // Get or create a persistent default author
         let author = docs
             .author_default()
             .await
@@ -334,6 +340,8 @@ impl IrohNode {
             .spawn();
 
         let (gen_tx, gen_rx) = tokio::sync::watch::channel(0u64);
+
+        eprintln!("[P2P] Node ready ({:.0}ms total)", t0.elapsed().as_millis());
 
         Ok(IrohNode {
             endpoint,
@@ -803,7 +811,10 @@ pub async fn join_team_drive(
 
     let namespace_id = doc.id().to_string();
 
-    // Read joiner's role and owner_node_id from manifest (single read)
+    // Read joiner's role and owner_node_id from manifest (single read).
+    // Fall back to existing local config so that an owner who lost their team
+    // directory but still has their config does not get downgraded to Editor.
+    let existing_config = read_p2p_config(workspace_path)?.unwrap_or_default();
     let manifest = read_members_manifest(team_dir)?;
     let joiner_role = manifest
         .as_ref()
@@ -813,8 +824,11 @@ pub async fn join_team_drive(
                 .find(|mem| mem.node_id == joiner_node_id)
                 .map(|mem| mem.role.clone())
         })
+        .or_else(|| existing_config.role.clone())
         .unwrap_or(MemberRole::Editor);
-    let manifest_owner = manifest.map(|m| m.owner_node_id);
+    let manifest_owner = manifest
+        .map(|m| m.owner_node_id)
+        .or_else(|| existing_config.owner_node_id.clone());
 
     // Reconcile offline edits (primarily for re-join scenarios)
     let is_owner = manifest_owner.as_deref() == Some(&joiner_node_id);
@@ -875,7 +889,10 @@ pub async fn join_team_drive(
     config.doc_ticket = Some(ticket_str.to_string());
 
     config.role = Some(joiner_role);
-    config.owner_node_id = manifest_owner;
+    // Only update owner_node_id if manifest provided one; preserve existing config value otherwise
+    if manifest_owner.is_some() {
+        config.owner_node_id = manifest_owner;
+    }
     config.last_sync_at = Some(chrono::Utc::now().to_rfc3339());
     write_p2p_config(workspace_path, Some(&config))?;
 
@@ -3766,16 +3783,29 @@ async fn reconnect_team_for_workspace(
 
     let team_dir = format!("{}/{}", workspace_path, super::TEAM_REPO_DIR);
 
-    // Re-check authorization on reconnect (except for owner)
+    // Check authorization on reconnect (except for owner).
+    // If the members manifest is missing locally (e.g. team dir was not synced yet),
+    // skip the check and let sync proceed — the manifest will arrive from peers.
     if !is_owner {
-        if let Err(auth_err) = check_join_authorization(&team_dir, &my_node_id) {
-            let _ = doc.close().await;
-            clear_p2p_and_team_dir(workspace_path)?;
-            return Err(format!("Reconnect rejected: {}", auth_err));
+        match check_join_authorization(&team_dir, &my_node_id) {
+            Ok(()) => {}
+            Err(ref e) if e.contains("no members manifest found") => {
+                eprintln!(
+                    "[P2P] Members manifest not found locally, skipping auth check (will sync from peers)"
+                );
+            }
+            Err(auth_err) => {
+                eprintln!("[P2P] Reconnect authorization failed: {}", auth_err);
+                let _ = doc.close().await;
+                // Don't clear config — allow user to retry or rejoin manually
+                return Err(format!("Reconnect rejected: {}", auth_err));
+            }
         }
     }
 
-    let my_role = config.role.clone().unwrap_or(MemberRole::Editor);
+    let my_role = config.role.clone().unwrap_or_else(|| {
+        if is_owner { MemberRole::Owner } else { MemberRole::Editor }
+    });
 
     // Reconcile offline edits before starting watchers
     let temp_engine: Arc<Mutex<SyncEngine>> = Arc::new(Mutex::new(SyncEngine::new()));
