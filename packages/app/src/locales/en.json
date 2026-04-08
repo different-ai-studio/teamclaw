@@ -571,9 +571,6 @@
     "rolesSkills": {
       "title": "Roles & Skills",
       "subtitle": "Roles define routing and responsibility. Skills provide reusable execution procedures.",
-      "viewLabel": "View",
-      "workspaceSummary": "Workspace summary",
-      "summaryLine": "{{roles}} roles · {{skills}} skills · {{linked}} linked · {{unlinked}} unlinked",
       "headerRoles": "{{count}} roles",
       "headerSkills": "{{count}} skills",
       "headerLinked": "{{count}} linked skills",

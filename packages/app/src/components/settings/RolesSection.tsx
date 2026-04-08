@@ -8,7 +8,7 @@ import {
   RefreshCw,
   Save,
   Search,
-  Plus,
+  Sparkles,
   Trash2,
   UserRound,
   WandSparkles,
@@ -351,43 +351,45 @@ export const RolesSection = React.memo(function RolesSection({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[14rem] flex-1">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder={t("settings.roles.searchPlaceholder", "Search roles...")}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-9 border-border/70 bg-background pl-9 shadow-none"
-          />
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button onClick={() => void loadData()} variant="outline" size="sm" className="gap-2 bg-background shadow-none" disabled={isLoading}>
-            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-            {t("common.refresh", "Refresh")}
-          </Button>
-          <div className="flex items-center">
-            <Button onClick={openCreateDialog} size="sm" className="gap-2 rounded-r-none">
-              <Plus className="h-4 w-4" />
-              {t("settings.roles.addRole", "Add Role")}
+      <div className="rounded-xl border bg-muted/20 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[14rem] flex-1">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={t("settings.roles.searchPlaceholder", "Search roles...")}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-9 border-border/70 bg-background pl-9 shadow-none"
+            />
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button onClick={() => void loadData()} variant="outline" size="sm" className="gap-2 bg-background shadow-none" disabled={isLoading}>
+              <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+              {t("common.refresh", "Refresh")}
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="rounded-l-none border-l border-white/15 px-2"
-                  aria-label={t("settings.roles.addRoleOptions", "Role creation options")}
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={openCreateRoleInChat}>
-                  {t("settings.roles.createByAgent", "Create by agent")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex items-center">
+              <Button onClick={openCreateDialog} size="sm" className="gap-2 rounded-r-none">
+                <Sparkles className="h-4 w-4" />
+                {t("settings.roles.addRole", "Add Role")}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="rounded-l-none border-l border-white/15 px-2"
+                    aria-label={t("settings.roles.addRoleOptions", "Role creation options")}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={openCreateRoleInChat}>
+                      {t("settings.roles.createByAgent", "Create by agent")}
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
       </div>
