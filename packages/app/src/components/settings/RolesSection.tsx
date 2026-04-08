@@ -2,8 +2,8 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
   AlertCircle,
+  ChevronDown,
   Copy,
-  Edit2,
   Loader2,
   RefreshCw,
   Save,
@@ -14,6 +14,8 @@ import {
   WandSparkles,
 } from "lucide-react"
 import { useWorkspaceStore } from "@/stores/workspace"
+import { useSessionStore } from "@/stores/session"
+import { useUIStore } from "@/stores/ui"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,6 +27,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { SectionHeader, SettingCard } from "./shared"
 import {
   attachSkillToRole,
@@ -41,7 +49,21 @@ import type { AttachableSkill, RoleEditorState, RoleRecord } from "@/lib/roles/t
 
 type EditorMode = "structured" | "markdown"
 
-export const RolesSection = React.memo(function RolesSection() {
+interface RolesSectionProps {
+  embeddedConsole?: boolean
+  onOpenSkill?: (skillName: string) => void
+  focusRoleSlug?: string | null
+  onFocusHandled?: () => void
+  onDataChange?: () => void
+}
+
+export const RolesSection = React.memo(function RolesSection({
+  embeddedConsole = false,
+  onOpenSkill,
+  focusRoleSlug,
+  onFocusHandled,
+  onDataChange,
+}: RolesSectionProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const [roles, setRoles] = React.useState<RoleRecord[]>([])
@@ -68,6 +90,15 @@ export const RolesSection = React.memo(function RolesSection() {
       ),
     )
   }, [roles, searchQuery])
+
+  const sortedRoles = React.useMemo(() => {
+    return [...filteredRoles].sort((a, b) => {
+      const aDefault = workspacePath ? a.filePath.startsWith(`${workspacePath}/.opencode/roles`) : false
+      const bDefault = workspacePath ? b.filePath.startsWith(`${workspacePath}/.opencode/roles`) : false
+      if (aDefault !== bDefault) return aDefault ? -1 : 1
+      return a.slug.localeCompare(b.slug)
+    })
+  }, [filteredRoles, workspacePath])
 
   const availableAttachableSkills = React.useMemo(() => {
     const attached = new Set(editor.roleSkills.map((skill) => skill.name))
@@ -97,6 +128,12 @@ export const RolesSection = React.memo(function RolesSection() {
     void loadData()
   }, [loadData])
 
+  React.useEffect(() => {
+    if (!focusRoleSlug) return
+    setSearchQuery(focusRoleSlug)
+    onFocusHandled?.()
+  }, [focusRoleSlug, onFocusHandled])
+
   const resetDialog = React.useCallback(() => {
     setEditingRole(null)
     setEditor(createEmptyRoleEditorState())
@@ -106,6 +143,13 @@ export const RolesSection = React.memo(function RolesSection() {
   const openCreateDialog = () => {
     resetDialog()
     setDialogOpen(true)
+  }
+
+  const openCreateRoleInChat = () => {
+    useUIStore.getState().startNewChat()
+    window.setTimeout(() => {
+      useSessionStore.getState().setDraftInput("/{create-role} ")
+    }, 0)
   }
 
   const openEditDialog = (role: RoleRecord) => {
@@ -190,6 +234,7 @@ export const RolesSection = React.memo(function RolesSection() {
         await deleteRole(workspacePath, editingRole.slug, editingRole.filePath)
       }
       await loadData()
+      onDataChange?.()
       setDialogOpen(false)
       resetDialog()
     } catch (err) {
@@ -207,6 +252,7 @@ export const RolesSection = React.memo(function RolesSection() {
     try {
       await deleteRole(workspacePath, roleToDelete.slug, roleToDelete.filePath)
       await loadData()
+      onDataChange?.()
       setDeleteConfirmOpen(false)
       setRoleToDelete(null)
     } catch (err) {
@@ -258,6 +304,7 @@ export const RolesSection = React.memo(function RolesSection() {
       })
       setEditingRole(updatedRole)
       await loadData()
+      onDataChange?.()
     } catch (err) {
       console.error("[RolesSection] Failed to attach skill:", err)
       setError(err instanceof Error ? err.message : t("settings.roles.attachFailed", "Failed to attach skill"))
@@ -269,12 +316,14 @@ export const RolesSection = React.memo(function RolesSection() {
   if (!workspacePath) {
     return (
       <div className="space-y-6">
-        <SectionHeader
-          icon={UserRound}
-          title={t("settings.roles.title", "Roles")}
-          description={t("settings.roles.description", "Workspace roles that progressively expose role-specific skills")}
-          iconColor="text-sky-500"
-        />
+        {!embeddedConsole ? (
+          <SectionHeader
+            icon={UserRound}
+            title={t("settings.roles.title", "Roles")}
+            description={t("settings.roles.description", "Workspace roles that progressively expose role-specific skills")}
+            iconColor="text-sky-500"
+          />
+        ) : null}
         <SettingCard>
           <div className="flex items-center gap-3 text-muted-foreground">
             <AlertCircle className="h-5 w-5" />
@@ -287,12 +336,14 @@ export const RolesSection = React.memo(function RolesSection() {
 
   return (
     <div className="space-y-5">
-      <SectionHeader
-        icon={UserRound}
-        title={t("settings.roles.title", "Roles")}
-        description={t("settings.roles.descriptionDetail", "Workspace roles stored in .opencode/roles and loaded by the role plugin")}
-        iconColor="text-sky-500"
-      />
+      {!embeddedConsole ? (
+        <SectionHeader
+          icon={UserRound}
+          title={t("settings.roles.title", "Roles")}
+          description={t("settings.roles.descriptionDetail", "Workspace roles stored in .opencode/roles and loaded by the role plugin")}
+          iconColor="text-sky-500"
+        />
+      ) : null}
 
       {error ? (
         <div className="rounded-xl border border-destructive/40 bg-destructive/8 px-3 py-2.5 text-sm text-destructive">
@@ -312,38 +363,54 @@ export const RolesSection = React.memo(function RolesSection() {
             />
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden text-xs text-muted-foreground sm:block">
-              {t("settings.roles.rolesCount", "{{count}} roles", { count: roles.length })}
-            </span>
             <Button onClick={() => void loadData()} variant="outline" size="sm" className="gap-2 bg-background shadow-none" disabled={isLoading}>
               <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
               {t("common.refresh", "Refresh")}
             </Button>
-            <Button onClick={openCreateDialog} size="sm" className="gap-2">
-              <Sparkles className="h-4 w-4" />
-              {t("settings.roles.addRole", "Add Role")}
-            </Button>
+            <div className="flex items-center">
+              <Button onClick={openCreateDialog} size="sm" className="gap-2 rounded-r-none">
+                <Sparkles className="h-4 w-4" />
+                {t("settings.roles.addRole", "Add Role")}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="rounded-l-none border-l border-white/15 px-2"
+                    aria-label={t("settings.roles.addRoleOptions", "Role creation options")}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={openCreateRoleInChat}>
+                      {t("settings.roles.createByAgent", "Create by agent")}
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className={cn(embeddedConsole ? "grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4" : "space-y-2")}>
         {isLoading ? (
-          <SettingCard className="p-0">
+          <SettingCard className={cn("p-0", embeddedConsole && "col-span-full")}>
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           </SettingCard>
         ) : roles.length === 0 ? (
-          <SettingCard className="border-dashed bg-muted/10 py-1">
+          <SettingCard className={cn("border-dashed bg-muted/10 py-1", embeddedConsole && "col-span-full")}>
             <div className="py-8 text-center text-muted-foreground">
               <UserRound className="mx-auto mb-3 h-9 w-9 opacity-45" />
               <p className="font-medium text-foreground/80">{t("settings.roles.noRoles", "No roles yet")}</p>
               <p className="mt-1 text-sm">{t("settings.roles.noRolesHint", "Create your first role to group role-specific instructions and skills")}</p>
             </div>
           </SettingCard>
-        ) : filteredRoles.length === 0 ? (
-          <SettingCard className="border-dashed bg-muted/10 py-1">
+        ) : sortedRoles.length === 0 ? (
+          <SettingCard className={cn("border-dashed bg-muted/10 py-1", embeddedConsole && "col-span-full")}>
             <div className="py-8 text-center text-muted-foreground">
               <Search className="mx-auto mb-3 h-9 w-9 opacity-45" />
               <p className="font-medium text-foreground/80">{t("settings.roles.noMatchingRoles", "No matching roles")}</p>
@@ -351,44 +418,107 @@ export const RolesSection = React.memo(function RolesSection() {
             </div>
           </SettingCard>
         ) : (
-          filteredRoles.map((role) => (
-            <div key={role.slug} className="rounded-xl border bg-card/70 px-4 py-3 transition-colors hover:bg-card">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background/80">
+          sortedRoles.map((role) => (
+            <div
+              key={role.slug}
+              role="button"
+              tabIndex={0}
+              onClick={() => openEditDialog(role)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault()
+                  openEditDialog(role)
+                }
+              }}
+              className={cn(
+                "relative w-full rounded-xl border bg-card/70 px-4 py-3 text-left transition-[background-color,border-color] duration-200 ease-out hover:bg-muted/40",
+                embeddedConsole && "h-full min-h-[236px]",
+                focusRoleSlug === role.slug && "border-primary/50 bg-primary/5",
+              )}
+            >
+              <div className={cn("flex items-start gap-3", embeddedConsole && "h-full flex-col gap-0")}>
+                <div className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background/80", embeddedConsole && "hidden")}>
                   <UserRound className="h-4 w-4 text-foreground/70" />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">{role.slug}</span>
-                    <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
-                      {t("settings.roles.roleSkillsCount", "role skills {{count}}", { count: role.roleSkills.length })}
-                    </span>
-                    <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
-                      {role.filePath.startsWith(`${workspacePath}/.opencode/roles`)
-                        ? t("settings.roles.sourceWorkspace", "Workspace")
-                        : t("settings.roles.sourceExternal", "External path")}
-                    </span>
+                <div className="min-w-0 flex-1 w-full">
+                  <div className={cn("flex items-start justify-between gap-3", embeddedConsole && "min-h-[44px] gap-2")}>
+                    <div className={cn("min-w-0 w-full", embeddedConsole && "pr-20")}>
+                      <div className={cn("flex min-w-0 flex-wrap items-center gap-2", embeddedConsole && "min-h-[44px] content-start")}>
+                        <span className={cn("min-w-0 break-all text-sm font-medium text-foreground", embeddedConsole && "text-[1.05rem] leading-8")}>{role.slug}</span>
+                        <span className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {t("settings.roles.roleSkillsCount", "role skills {{count}}", { count: role.roleSkills.length })}
+                        </span>
+                        <span className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {role.filePath.startsWith(`${workspacePath}/.opencode/roles`)
+                            ? t("settings.roles.sourceWorkspace", "Workspace")
+                            : t("settings.roles.sourceExternal", "External path")}
+                        </span>
+                      </div>
+                    </div>
+                    <div
+                      className={cn(
+                        "flex shrink-0 items-center gap-1",
+                        embeddedConsole && "absolute right-4 top-3 z-10 h-[44px] items-end pb-1",
+                      )}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setRoleToDelete(role)
+                          setDeleteConfirmOpen(true)
+                        }}
+                        className="h-8 w-8 rounded-lg bg-transparent p-0 text-destructive hover:!bg-black/8 hover:text-destructive dark:hover:!bg-white/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
-                    {role.description || extractSkillDescription(role.rawMarkdown, role.slug)}
-                  </p>
-                  <p className="mt-1 truncate text-[11px] text-muted-foreground/80">{role.filePath}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => openEditDialog(role)} className="h-8 w-8 rounded-lg p-0">
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setRoleToDelete(role)
-                      setDeleteConfirmOpen(true)
-                    }}
-                    className="h-8 w-8 rounded-lg p-0 text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className={cn(embeddedConsole && "mt-4 h-[108px] overflow-hidden")}>
+                    <p className={cn("text-sm text-muted-foreground line-clamp-2", embeddedConsole && "line-clamp-3 leading-7")}>
+                      {role.description || extractSkillDescription(role.rawMarkdown, role.slug)}
+                    </p>
+                  </div>
+                  {embeddedConsole ? (
+                    <div className="mt-auto border-t border-border/70 pt-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/75">
+                          {t("settings.roles.linkedSkills", "Linked skills")}
+                        </div>
+                      </div>
+                      <div className="min-h-[32px]">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                        {role.roleSkills.length > 0 ? (
+                          <>
+                            {role.roleSkills.slice(0, 2).map((skill) => (
+                              <button
+                                key={skill.name}
+                                type="button"
+                                onClick={() => onOpenSkill?.(skill.name)}
+                                className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                                title={skill.description}
+                              >
+                                <span className="max-w-[180px] truncate">{skill.name}</span>
+                              </button>
+                            ))}
+                            {role.roleSkills.length > 2 ? (
+                              <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                                +{role.roleSkills.length - 2}
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full border border-dashed border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                            {t("settings.roles.noLinkedSkills", "No linked skills")}
+                          </span>
+                        )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-1 truncate text-[11px] text-muted-foreground/80">{role.filePath}</p>
+                  )}
                 </div>
               </div>
             </div>

@@ -1,5 +1,5 @@
 // managed-plugin: role-skill-plugin
-// version: 9
+// version: 10
 
 import { tool } from "@opencode-ai/plugin"
 import fs from "node:fs/promises"
@@ -109,10 +109,6 @@ function parseAvailableRoleSkills(body) {
       name,
       description: description.trim(),
     })
-  }
-
-  if (!inSection) {
-    throw new Error('Missing "## Available role skills" section')
   }
 
   return skills

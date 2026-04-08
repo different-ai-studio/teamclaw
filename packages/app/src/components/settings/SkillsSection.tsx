@@ -5,14 +5,13 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   Sparkles,
+  Award,
   Loader2,
   Plus,
   RefreshCw,
   FileText,
   Trash2,
-  Edit2,
   AlertCircle,
-  Eye,
   Save,
   Upload,
   Search,
@@ -68,10 +67,30 @@ interface Skill {
   content: string
   source?: SkillSource
   dirPath?: string
+  linkedRoles?: string[]
+  isRoleSkill?: boolean
+}
+
+interface SkillsSectionProps {
+  embeddedConsole?: boolean
+  roleUsageBySkill?: Record<string, string[]>
+  onOpenRole?: (roleSlug: string) => void
+  focusSkillName?: string | null
+  onFocusHandled?: () => void
+  onDataChange?: () => void
+  sharedSearchQuery?: string
+  onSharedSearchQueryChange?: (value: string) => void
 }
 
 type RestartOptions = {
   preserveChangeFlag?: boolean
+}
+
+const EMPTY_ROLE_USAGE_BY_SKILL: Record<string, string[]> = {}
+const SKILL_DELETE_EXIT_DURATION_MS = 180
+
+function getSkillListKey(skill: Pick<Skill, 'filename' | 'dirPath' | 'source' | 'isRoleSkill'>): string {
+  return `${skill.dirPath ?? ''}::${skill.filename}::${skill.source ?? 'unknown'}::${skill.isRoleSkill ? 'role' : 'normal'}`
 }
 
 const PERMISSION_META: Record<SkillPermission, { icon: typeof ShieldCheck; colorClass: string }> = {
@@ -82,10 +101,20 @@ const PERMISSION_META: Record<SkillPermission, { icon: typeof ShieldCheck; color
 
 type SkillsTab = 'installed' | 'marketplace'
 
-export const SkillsSection = React.memo(function SkillsSection() {
+export const SkillsSection = React.memo(function SkillsSection({
+  embeddedConsole = false,
+  roleUsageBySkill = EMPTY_ROLE_USAGE_BY_SKILL,
+  onOpenRole,
+  focusSkillName,
+  onFocusHandled,
+  onDataChange,
+  sharedSearchQuery,
+  onSharedSearchQueryChange,
+}: SkillsSectionProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const [activeTab, setActiveTab] = React.useState<SkillsTab>('installed')
+  const [marketplaceContentReady, setMarketplaceContentReady] = React.useState(false)
   const [skills, setSkills] = React.useState<Skill[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -106,8 +135,34 @@ export const SkillsSection = React.memo(function SkillsSection() {
   const [isViewMode, setIsViewMode] = React.useState(false)
   const [importZipPath, setImportZipPath] = React.useState<string | null>(null)
   const [importZipLabel, setImportZipLabel] = React.useState<string | null>(null)
+  const [exitingSkillKeys, setExitingSkillKeys] = React.useState<Set<string>>(new Set())
+  const [marketplaceRefreshSignal, setMarketplaceRefreshSignal] = React.useState(0)
+  const [marketplaceSource, setMarketplaceSource] = React.useState<'clawhub' | 'skillssh'>('clawhub')
 
   const defaultPermission: SkillPermission = skillPermissions['*'] ?? 'allow'
+  const effectiveSearchQuery = embeddedConsole ? (sharedSearchQuery ?? '') : searchQuery
+
+  const switchTab = React.useCallback((nextTab: SkillsTab) => {
+    setActiveTab(nextTab)
+  }, [])
+
+  const switchMarketplaceSource = React.useCallback((nextSource: 'clawhub' | 'skillssh') => {
+    setMarketplaceContentReady(false)
+    setMarketplaceSource(nextSource)
+  }, [])
+
+  React.useEffect(() => {
+    if (activeTab !== 'marketplace') {
+      setMarketplaceContentReady(false)
+      return
+    }
+
+    setMarketplaceContentReady(false)
+    const frame = window.requestAnimationFrame(() => {
+      setMarketplaceContentReady(true)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeTab, marketplaceSource])
 
   // Parse YAML frontmatter from skill content
   const parseFrontmatter = (content: string): { metadata: Record<string, string> | null, markdownContent: string } => {
@@ -137,15 +192,19 @@ export const SkillsSection = React.memo(function SkillsSection() {
   }
 
   const filteredSkills = React.useMemo(() => {
-    if (!searchQuery.trim()) return skills
-    const query = searchQuery.toLowerCase()
+    if (!effectiveSearchQuery.trim()) return skills
+    const query = effectiveSearchQuery.toLowerCase()
     return skills.filter(
       (skill) =>
         skill.name.toLowerCase().includes(query) ||
         skill.filename.toLowerCase().includes(query) ||
         skill.content.toLowerCase().includes(query)
     )
-  }, [skills, searchQuery])
+  }, [effectiveSearchQuery, skills])
+
+  const linkedInstalledSkillSlugs = React.useMemo(() => {
+    return new Set(skills.filter((skill) => (skill.linkedRoles?.length ?? 0) > 0).map((skill) => skill.filename))
+  }, [skills])
 
   const loadPermissions = React.useCallback(async () => {
     if (!workspacePath) return
@@ -166,36 +225,73 @@ export const SkillsSection = React.memo(function SkillsSection() {
     try {
       const { exists, mkdir } = await import('@tauri-apps/plugin-fs')
       const skillsDir = `${workspacePath}/.opencode/skills`
-      
+
       if (!(await exists(skillsDir))) {
         await mkdir(skillsDir, { recursive: true })
       }
-      
-      const { loadAllSkills } = await import('@/lib/git/skill-loader')
-      const [{ skills: loadedSkills }] = await Promise.all([
-        loadAllSkills(workspacePath),
-        loadPermissions(),
-      ])
-      
-      setSkills(loadedSkills.map(s => ({
-        filename: s.filename,
-        name: s.name,
-        invocationName: s.invocationName,
-        content: s.content,
-        source: s.source,
-        dirPath: s.dirPath,
-      })))
+      if (embeddedConsole) {
+        const { loadRolesSkillsWorkspaceState } = await import('@/lib/roles/loader')
+        const [workspaceState] = await Promise.all([
+          loadRolesSkillsWorkspaceState(workspacePath),
+          loadPermissions(),
+        ])
+        setSkills(workspaceState.skills.map((skill) => ({
+          filename: skill.filename,
+          name: skill.name,
+          invocationName: skill.filename,
+          content: skill.content,
+          source: skill.source,
+          dirPath: skill.dirPath,
+          linkedRoles: skill.linkedRoles,
+          isRoleSkill: skill.isRoleSkill,
+        })))
+      } else {
+        const { loadAllSkills } = await import('@/lib/git/skill-loader')
+        const [{ skills: loadedSkills }] = await Promise.all([
+          loadAllSkills(workspacePath),
+          loadPermissions(),
+        ])
+
+        setSkills(loadedSkills.map(s => ({
+          filename: s.filename,
+          name: s.name,
+          invocationName: s.invocationName,
+          content: s.content,
+          source: s.source,
+          dirPath: s.dirPath,
+          linkedRoles: roleUsageBySkill[s.filename] ?? [],
+          isRoleSkill: false,
+        })))
+      }
     } catch (err) {
       console.error('Failed to load skills:', err)
       setError(err instanceof Error ? err.message : 'Failed to load skills')
     } finally {
       setIsLoading(false)
     }
-  }, [workspacePath, loadPermissions])
+  }, [embeddedConsole, loadPermissions, workspacePath])
 
   React.useEffect(() => {
     loadSkills()
   }, [loadSkills])
+
+  React.useEffect(() => {
+    if (!focusSkillName) return
+    if (embeddedConsole) {
+      onSharedSearchQueryChange?.(focusSkillName)
+    } else {
+      setSearchQuery(focusSkillName)
+    }
+    onFocusHandled?.()
+  }, [embeddedConsole, focusSkillName, onFocusHandled, onSharedSearchQueryChange])
+
+  const handleEmbeddedSearchChange = React.useCallback((value: string) => {
+    if (embeddedConsole) {
+      onSharedSearchQueryChange?.(value)
+      return
+    }
+    setSearchQuery(value)
+  }, [embeddedConsole, onSharedSearchQueryChange])
 
   React.useEffect(() => {
     const onTeamSynced = () => loadSkills()
@@ -265,6 +361,7 @@ export const SkillsSection = React.memo(function SkillsSection() {
         isGlobal: installLocation === 'global',
       })
       await loadSkills()
+      onDataChange?.()
       await restartOpenCodeInstance()
       setDialogOpen(false)
       setImportZipPath(null)
@@ -291,7 +388,9 @@ export const SkillsSection = React.memo(function SkillsSection() {
       
       // Determine base directory based on install location
       let skillsDir: string
-      if (installLocation === 'global') {
+      if (editingSkill?.dirPath) {
+        skillsDir = editingSkill.dirPath
+      } else if (installLocation === 'global') {
         const home = await homeDir()
         skillsDir = `${home.replace(/\/$/, '')}/.config/opencode/skills`
       } else {
@@ -326,6 +425,7 @@ ${skillContent.trim()}`
       
       await writeTextFile(`${skillDir}/SKILL.md`, finalContent)
       await loadSkills()
+      onDataChange?.()
       setHasSkillRuntimeChanges(true)
       
       setDialogOpen(false)
@@ -343,22 +443,47 @@ ${skillContent.trim()}`
 
   const deleteSkill = async () => {
     if (!workspacePath || !skillToDelete) return
+    const targetSkill = skillToDelete
+    const targetKey = getSkillListKey(targetSkill)
+
+    if (embeddedConsole && (targetSkill.linkedRoles?.length ?? 0) > 0) {
+      setDeleteConfirmOpen(false)
+      setSkillToDelete(null)
+      setError(t('settings.skills.detachBeforeDelete', 'This skill is linked to one or more roles. Detach it from those roles before deleting.'))
+      return
+    }
 
     try {
-      if (skillToDelete.source === 'clawhub') {
+      if (targetSkill.source === 'clawhub') {
         await invoke<string>('clawhub_uninstall', {
           workspacePath,
-          slug: skillToDelete.filename,
+          slug: targetSkill.filename,
         })
       } else {
         const { remove } = await import('@tauri-apps/plugin-fs')
-        const baseDir = skillToDelete.dirPath ?? `${workspacePath}/.opencode/skills`
-        await remove(`${baseDir}/${skillToDelete.filename}`, { recursive: true })
+        const baseDir = targetSkill.dirPath ?? `${workspacePath}/.opencode/skills`
+        await remove(`${baseDir}/${targetSkill.filename}`, { recursive: true })
       }
-      await loadSkills()
-      setHasSkillRuntimeChanges(true)
+
       setDeleteConfirmOpen(false)
       setSkillToDelete(null)
+      setExitingSkillKeys((prev) => {
+        const next = new Set(prev)
+        next.add(targetKey)
+        return next
+      })
+
+      window.setTimeout(() => {
+        setSkills((prev) => prev.filter((skill) => getSkillListKey(skill) !== targetKey))
+        setExitingSkillKeys((prev) => {
+          const next = new Set(prev)
+          next.delete(targetKey)
+          return next
+        })
+      }, SKILL_DELETE_EXIT_DURATION_MS)
+
+      onDataChange?.()
+      setHasSkillRuntimeChanges(true)
     } catch (err) {
       console.error('Failed to delete skill:', err)
       setError(err instanceof Error ? err.message : 'Failed to delete skill')
@@ -372,7 +497,7 @@ ${skillContent.trim()}`
     // Set location based on skill source
     setInstallLocation(skill.source?.startsWith('global-') ? 'global' : 'workspace')
     // Set view mode for non-editable skills (not local or clawhub)
-    const isEditable = skill.source === 'local' || skill.source === 'clawhub'
+    const isEditable = skill.source === 'local' || skill.source === 'clawhub' || skill.isRoleSkill
     setIsViewMode(!isEditable)
     setDialogOpen(true)
   }
@@ -437,12 +562,14 @@ ${skillContent.trim()}`
   if (!workspacePath) {
     return (
       <div className="space-y-6">
-        <SectionHeader 
-          icon={Sparkles} 
-          title={t('settings.skills.title', 'Skills')} 
-          description={t('settings.skills.description', 'Custom AI skills for your workspace')}
-          iconColor="text-yellow-500"
-        />
+        {!embeddedConsole ? (
+          <SectionHeader 
+            icon={Sparkles} 
+            title={t('settings.skills.title', 'Skills')} 
+            description={t('settings.skills.description', 'Custom AI skills for your workspace')}
+            iconColor="text-yellow-500"
+          />
+        ) : null}
         <SettingCard>
           <div className="flex items-center gap-3 text-muted-foreground">
             <AlertCircle className="h-5 w-5" />
@@ -455,59 +582,187 @@ ${skillContent.trim()}`
 
   return (
     <div className="space-y-6">
-      <SectionHeader 
-        icon={Sparkles} 
-        title={t('settings.skills.title', 'Skills')} 
-        description={t('settings.skills.descriptionDetail', 'AI skills from workspace and global directories (~/.config/opencode/skills, ~/.claude/skills, ~/.agents/skills)')}
-        iconColor="text-yellow-500"
-      />
+      {!embeddedConsole ? (
+        <SectionHeader 
+          icon={Sparkles} 
+          title={t('settings.skills.title', 'Skills')} 
+          description={t('settings.skills.descriptionDetail', 'AI skills from workspace and global directories (~/.config/opencode/skills, ~/.claude/skills, ~/.agents/skills)')}
+          iconColor="text-yellow-500"
+        />
+      ) : null}
 
-      {/* Installed / Marketplace tabs */}
-      <div className="flex items-center rounded-lg border border-input overflow-hidden w-fit">
-        <button
-          onClick={() => setActiveTab('installed')}
-          className={cn(
-            "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors",
-            activeTab === 'installed'
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50"
-          )}
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          {t('settings.skills.installed', 'Installed')}
-          {skills.length > 0 && (
-            <span className="ml-1 text-xs text-muted-foreground">({skills.length})</span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('marketplace')}
-          className={cn(
-            "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors",
-            activeTab === 'marketplace'
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50"
-          )}
-        >
-          <Store className="h-3.5 w-3.5" />
-          {t('settings.skills.marketplace', 'Marketplace')}
-        </button>
-      </div>
+      {(embeddedConsole || activeTab === 'installed') && (
+        <div className="flex items-center gap-2">
+          <div className={cn("relative flex-1", embeddedConsole ? "max-w-none" : "max-w-xs")}>
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={
+                embeddedConsole && activeTab === 'marketplace'
+                  ? t('settings.skills.marketplaceSearchPlaceholder', 'Search marketplace skills...')
+                  : t('settings.skills.searchPlaceholder', 'Search skills...')
+              }
+              value={effectiveSearchQuery}
+              onChange={(e) => handleEmbeddedSearchChange(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
+          {activeTab === 'installed' ? (
+            <>
+              <Button onClick={openCreateDialog} size="sm" className="gap-2">
+                <Plus className="h-4 w-4" />
+                {t('settings.skills.addSkill', 'Add Skill')}
+              </Button>
+              <Button onClick={loadSkills} variant="outline" size="sm" className="gap-2" disabled={isLoading}>
+                <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                {t('settings.llm.refresh', 'Refresh')}
+              </Button>
+            </>
+          ) : embeddedConsole ? (
+            <Button
+              onClick={() => setMarketplaceRefreshSignal((prev) => prev + 1)}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('settings.llm.refresh', 'Refresh')}
+            </Button>
+          ) : null}
+        </div>
+      )}
+
+      {/* Installed / Marketplace switch */}
+      {embeddedConsole ? (
+        <div className="grid gap-3 rounded-xl border bg-muted/20 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div className="space-y-1">
+            <div className="text-sm font-medium">{t('settings.skills.consoleTitle', 'Skill library')}</div>
+            <div className="text-xs text-muted-foreground">
+              {activeTab === 'installed'
+                ? t('settings.skills.consoleInstalledHint', 'Review installed skills, role usage, and workspace assets.')
+                : t('settings.skills.consoleMarketplaceHint', 'Browse and install reusable skills from connected marketplaces.')}
+            </div>
+          </div>
+          <div className={cn(
+            "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:justify-end",
+            activeTab === 'marketplace' ? "sm:max-w-full" : "sm:w-auto",
+          )}>
+            <div className="space-y-1 sm:w-auto">
+              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                {t('settings.skills.viewLabel', 'View')}
+              </div>
+              <Select value={activeTab} onValueChange={(value) => switchTab(value as SkillsTab)}>
+                <SelectTrigger className="h-11 w-full min-w-0 rounded-xl border-border/70 bg-background px-4 text-sm shadow-none sm:w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="installed">
+                    <span className="inline-flex items-center gap-2">
+                      <Sparkles className="h-4 w-4" />
+                      {t('settings.skills.installed', 'Installed')}
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="marketplace">
+                    <span className="inline-flex items-center gap-2">
+                      <Store className="h-4 w-4" />
+                      {t('settings.skills.marketplace', 'Marketplace')}
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {activeTab === 'marketplace' ? (
+              <div className="space-y-1 sm:w-auto">
+                <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  {t('settings.skills.sourceLabel', 'Source')}
+                </div>
+                <Select value={marketplaceSource} onValueChange={(value) => switchMarketplaceSource(value as 'clawhub' | 'skillssh')}>
+                  <SelectTrigger className="h-11 w-full min-w-0 rounded-xl border-border/70 bg-background px-4 text-sm shadow-none sm:w-auto">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="clawhub">
+                      <span className="inline-flex items-center gap-2">
+                        <Package className="h-4 w-4" />
+                        ClawHub
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="skillssh">
+                      <span className="inline-flex items-center gap-2">
+                        <Award className="h-4 w-4" />
+                        skills.sh
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center rounded-lg border border-input overflow-hidden w-fit">
+          <button
+            onClick={() => switchTab('installed')}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors",
+              activeTab === 'installed'
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50"
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            {t('settings.skills.installed', 'Installed')}
+            {skills.length > 0 && (
+              <span className="ml-1 text-xs text-muted-foreground">({skills.length})</span>
+            )}
+          </button>
+          <button
+            onClick={() => switchTab('marketplace')}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors",
+              activeTab === 'marketplace'
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50"
+            )}
+          >
+            <Store className="h-3.5 w-3.5" />
+            {t('settings.skills.marketplace', 'Marketplace')}
+          </button>
+        </div>
+      )}
 
       {/* Marketplace tab */}
       {activeTab === 'marketplace' && (
-        <SkillsMarketplace
-          onInstalled={async () => {
-            await loadSkills()
-            setHasSkillRuntimeChanges(true)
-          }}
-        />
+        marketplaceContentReady ? (
+          <SkillsMarketplace
+            compact={embeddedConsole}
+            linkedInstalledSlugs={linkedInstalledSkillSlugs}
+            sharedSearchQuery={embeddedConsole ? effectiveSearchQuery : undefined}
+            onSharedSearchQueryChange={embeddedConsole ? onSharedSearchQueryChange : undefined}
+            externalSearch={embeddedConsole}
+            externalRefreshSignal={marketplaceRefreshSignal}
+            activeSource={embeddedConsole ? marketplaceSource : undefined}
+            onActiveSourceChange={embeddedConsole ? setMarketplaceSource : undefined}
+            externalSourceControl={embeddedConsole}
+            onInstalled={async () => {
+              await loadSkills()
+              onDataChange?.()
+              setHasSkillRuntimeChanges(true)
+            }}
+          />
+        ) : (
+          <SettingCard className="border-dashed">
+            <div className="flex min-h-[180px] items-center justify-center gap-3 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>{t('settings.skills.marketplaceLoading', 'Loading marketplace...')}</span>
+            </div>
+          </SettingCard>
+        )
       )}
 
       {/* Installed tab content */}
       {activeTab === 'installed' && <>
       
-      {/* Restart Warning */}
-      {hasChanges && (
+      {!embeddedConsole && hasChanges && (
         <SettingCard className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border-amber-200 dark:border-amber-800">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
@@ -546,7 +801,7 @@ ${skillContent.trim()}`
         </SettingCard>
       )}
 
-      {hasSkillRuntimeChanges && (
+      {!embeddedConsole && hasSkillRuntimeChanges && (
         <SettingCard className="bg-gradient-to-br from-sky-50 to-cyan-50 dark:from-sky-950/30 dark:to-cyan-950/30 border-sky-200 dark:border-sky-800">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-sky-600 dark:text-sky-400 mt-0.5" />
@@ -591,7 +846,7 @@ ${skillContent.trim()}`
         </div>
       )}
 
-      {/* Default permission */}
+      {!embeddedConsole ? (
       <SettingCard>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -627,28 +882,8 @@ ${skillContent.trim()}`
           </div>
         </div>
       </SettingCard>
+      ) : null}
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={t('settings.skills.searchPlaceholder', 'Search skills...')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9"
-          />
-        </div>
-        <Button onClick={openCreateDialog} size="sm" className="gap-2">
-          <Plus className="h-4 w-4" />
-          {t('settings.skills.addSkill', 'Add Skill')}
-        </Button>
-        <Button onClick={loadSkills} variant="outline" size="sm" className="gap-2" disabled={isLoading}>
-          <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-          {t('settings.llm.refresh', 'Refresh')}
-        </Button>
-      </div>
-      
       {/* Skills list */}
       <div className="space-y-3">
         {isLoading ? (
@@ -681,10 +916,14 @@ ${skillContent.trim()}`
             const globalSkills = filteredSkills.filter((s) => !INHERENT_SKILL_NAMES.has(s.filename) && s.source?.startsWith('global-'))
 
             const renderSkillCard = (skill: Skill) => {
-              const resolved = resolveSkillPermission(skill.invocationName, skillPermissions)
+              const skillKey = getSkillListKey(skill)
+              const permissionKey = skill.invocationName || skill.filename
+              const resolved = resolveSkillPermission(permissionKey, skillPermissions)
               const hasExplicitOverride = resolved.isExact
               const permColor = PERMISSION_META[resolved.permission].colorClass
               const isBuiltin = INHERENT_SKILL_NAMES.has(skill.filename)
+              const linkedRoles = skill.linkedRoles ?? []
+              const isExiting = exitingSkillKeys.has(skillKey)
 
               const SOURCE_BADGE: Record<string, string> = {
                 local: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
@@ -710,124 +949,174 @@ ${skillContent.trim()}`
               }
 
               return (
-                <SettingCard
-                  key={skill.filename}
-                  className={isBuiltin ? 'border-blue-200/60 dark:border-blue-800/40 bg-blue-50/30 dark:bg-blue-950/10' : ''}
+                <div
+                  key={skillKey}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openEditDialog(skill)}
+                  onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openEditDialog(skill)
+                    }
+                  }}
+                  className={cn(
+                    "relative overflow-hidden transition-[transform,opacity,max-height,margin,filter] duration-300 ease-out",
+                    embeddedConsole && "cursor-pointer",
+                    isExiting ? "pointer-events-none -translate-y-1 opacity-0 max-h-0 scale-[0.985] blur-[1px] mb-0" : "translate-y-0 opacity-100 max-h-[420px] scale-100",
+                  )}
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                  <SettingCard
+                    className={cn(
+                      isBuiltin && 'border-blue-200/60 dark:border-blue-800/40 bg-blue-50/30 dark:bg-blue-950/10',
+                      focusSkillName === skill.filename && 'border-primary/50 bg-primary/5',
+                      embeddedConsole && 'h-full min-h-[220px] transition-[background-color,border-color] duration-200 ease-out hover:bg-muted/40',
+                    )}
+                  >
+                  <div className={cn("flex items-start justify-between gap-4", embeddedConsole && "h-full flex-col")}>
+                    <div className="flex-1 min-w-0 w-full">
+                      <div className={cn("flex items-start justify-between gap-3", embeddedConsole && "min-h-[44px] gap-2")}>
+                        <div className={cn("min-w-0 w-full", embeddedConsole && "pr-20")}>
+                          <div className={cn("flex min-w-0 flex-wrap items-center gap-2", embeddedConsole && "min-h-[44px] content-start")}>
                         <FileText className="h-4 w-4 text-yellow-500 shrink-0" />
-                        <span className="font-medium truncate">{skill.name}</span>
+                        <span className={cn("min-w-0 break-all font-medium", embeddedConsole && "text-[1.05rem] leading-8")}>{skill.name}</span>
                         {isBuiltin && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border border-blue-200/60 dark:border-blue-700/50">
+                          <span className="inline-flex max-w-full items-center gap-1 rounded border border-blue-200/60 bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-700/50 dark:bg-blue-900/50 dark:text-blue-300">
                             <Shield className="h-2.5 w-2.5" />
                             {t('settings.skills.inherent', 'Inherent')}
                           </span>
                         )}
                         {skill.source && !isBuiltin && SOURCE_BADGE[skill.source] && (
-                          <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', SOURCE_BADGE[skill.source])}>
+                          <span className={cn('inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-xs font-medium', SOURCE_BADGE[skill.source])}>
                             {SOURCE_LABEL[skill.source] ?? skill.source}
                           </span>
                         )}
+                        {skill.isRoleSkill && (
+                          <span className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                            {t('settings.skills.roleSkill', 'Role Skill')}
+                          </span>
+                        )}
+                          </div>
+                        </div>
+                        <div className={cn("flex items-center gap-2 shrink-0", embeddedConsole && "absolute right-4 top-3 z-10 h-[44px] items-end pb-1")}>
+                          {!embeddedConsole ? (
+                            <Select
+                              value={hasExplicitOverride ? resolved.permission : '__inherited__'}
+                              onValueChange={(v) => handleSkillPermissionChange(skill.filename, v)}
+                            >
+                              <SelectTrigger className={cn("h-8 w-[150px] text-xs gap-1", permColor)}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__inherited__">
+                                  <span className="flex items-center gap-1.5">
+                                    <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+                                    {t('settings.skills.permInherited', 'Default')}
+                                    <span className="text-muted-foreground">
+                                      ({skillPermissions['*'] ?? 'allow'})
+                                    </span>
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="allow">
+                                  <span className="flex items-center gap-1.5">
+                                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                                    {t('settings.skills.permAllow', 'Allow')}
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="ask">
+                                  <span className="flex items-center gap-1.5">
+                                    <ShieldQuestion className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                                    {t('settings.skills.permAsk', 'Ask')}
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="deny">
+                                  <span className="flex items-center gap-1.5">
+                                    <ShieldX className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                                    {t('settings.skills.permDeny', 'Deny')}
+                                  </span>
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : null}
+                          {isBuiltin ? (
+                            <>
+                              <div
+                                className="h-8 w-8 flex items-center justify-center text-blue-400/60 dark:text-blue-500/50 cursor-not-allowed"
+                                title={t('settings.skills.inherentCannotDelete', 'Inherent skills cannot be deleted')}
+                              >
+                                <Lock className="h-3.5 w-3.5" />
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  setSkillToDelete(skill)
+                                  setDeleteConfirmOpen(true)
+                                }}
+                                className="h-8 w-8 rounded-lg bg-transparent p-0 text-destructive hover:!bg-black/8 hover:text-destructive dark:hover:!bg-white/10"
+                                title={embeddedConsole && linkedRoles.length > 0 ? t('settings.skills.detachBeforeDelete', 'This skill is linked to one or more roles. Detach it from those roles before deleting.') : undefined}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1 truncate">
+                      <p className="text-xs text-muted-foreground mt-1 truncate" title={skill.filename}>
                         {skill.filename}
                       </p>
-                      {skill.invocationName !== skill.name && (
+                      {!embeddedConsole && skill.invocationName !== skill.name && (
                         <p className="text-xs text-muted-foreground/80 mt-1 truncate font-mono">
                           {skill.invocationName}
                         </p>
                       )}
-                      <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
+                      <p className={cn("text-sm text-muted-foreground mt-2 line-clamp-2", embeddedConsole && "line-clamp-3 leading-7")}>
                         {skill.content.split('\n').slice(1).join(' ').slice(0, 150)}...
                       </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Select
-                        value={hasExplicitOverride ? resolved.permission : '__inherited__'}
-                        onValueChange={(v) => handleSkillPermissionChange(skill.invocationName, v)}
-                      >
-                        <SelectTrigger className={cn("h-8 w-[150px] text-xs gap-1", permColor)}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__inherited__">
-                            <span className="flex items-center gap-1.5">
-                              <Shield className="h-3.5 w-3.5 text-muted-foreground" />
-                              {t('settings.skills.permInherited', 'Default')}
-                              <span className="text-muted-foreground">
-                                ({skillPermissions['*'] ?? 'allow'})
+                      <div className={cn("mt-3 flex flex-wrap items-center gap-1.5", embeddedConsole && "mt-4 border-t border-border/70 pt-3")}>
+                        {linkedRoles.length > 0 ? (
+                          <>
+                            <span className="text-[11px] text-muted-foreground">
+                              {t('settings.skills.usedByRoles', 'Used by {{count}} roles', { count: linkedRoles.length })}
+                            </span>
+                            {linkedRoles.slice(0, 2).map((roleSlug) => (
+                              <button
+                                key={roleSlug}
+                                type="button"
+                                onClick={() => onOpenRole?.(roleSlug)}
+                                className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                              >
+                                <span className="max-w-[180px] truncate">{roleSlug}</span>
+                              </button>
+                            ))}
+                            {linkedRoles.length > 2 ? (
+                              <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                                +{linkedRoles.length - 2}
                               </span>
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="allow">
-                            <span className="flex items-center gap-1.5">
-                              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                              {t('settings.skills.permAllow', 'Allow')}
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="ask">
-                            <span className="flex items-center gap-1.5">
-                              <ShieldQuestion className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                              {t('settings.skills.permAsk', 'Ask')}
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="deny">
-                            <span className="flex items-center gap-1.5">
-                              <ShieldX className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-                              {t('settings.skills.permDeny', 'Deny')}
-                            </span>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {isBuiltin ? (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(skill)}
-                            className="h-8 w-8 p-0"
-                            title={t('settings.skills.viewSkillTooltip', 'View skill (read-only)')}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <div
-                            className="h-8 w-8 flex items-center justify-center text-blue-400/60 dark:text-blue-500/50 cursor-not-allowed"
-                            title={t('settings.skills.inherentCannotDelete', 'Inherent skills cannot be deleted')}
-                          >
-                            <Lock className="h-3.5 w-3.5" />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(skill)}
-                            className="h-8 w-8 p-0"
-                            title={skill.source === 'local' || skill.source === 'clawhub' ? undefined : t('settings.skills.viewSkillTooltip', 'View skill (read-only)')}
-                          >
-                            {skill.source === 'local' ? <Edit2 className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setSkillToDelete(skill)
-                              setDeleteConfirmOpen(true)
-                            }}
-                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full border border-dashed border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                            {t('settings.skills.unlinked', 'Unlinked')}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </SettingCard>
+                  </SettingCard>
+                </div>
               )
             }
+
+            const renderSkillGrid = (items: Skill[]) => (
+              <div className={cn(embeddedConsole ? "grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4" : "space-y-3")}>
+                {items.map(renderSkillCard)}
+              </div>
+            )
 
             return (
               <>
@@ -842,7 +1131,7 @@ ${skillContent.trim()}`
                       <div className="flex-1 h-px bg-blue-200/60 dark:bg-blue-800/40" />
                       <span className="text-xs text-muted-foreground">{t('settings.skills.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
                     </div>
-                    {builtinSkills.map(renderSkillCard)}
+                    {renderSkillGrid(builtinSkills)}
                   </div>
                 )}
 
@@ -859,7 +1148,7 @@ ${skillContent.trim()}`
                         <span className="text-xs text-muted-foreground">{t('settings.skills.fromTeamConfig', 'From opencode.json → skills.paths')}</span>
                       </div>
                     )}
-                    {teamSkills.map(renderSkillCard)}
+                    {renderSkillGrid(teamSkills)}
                   </div>
                 )}
 
@@ -876,7 +1165,7 @@ ${skillContent.trim()}`
                         <span className="text-xs text-muted-foreground">{t('settings.skills.projectLevel', 'Project Level')}</span>
                       </div>
                     )}
-                    {workspaceSkills.map(renderSkillCard)}
+                    {renderSkillGrid(workspaceSkills)}
                   </div>
                 )}
 
@@ -891,7 +1180,7 @@ ${skillContent.trim()}`
                       <div className="flex-1 h-px bg-border" />
                       <span className="text-xs text-muted-foreground">{t('settings.skills.userLevel', 'User Level')}</span>
                     </div>
-                    {globalSkills.map(renderSkillCard)}
+                    {renderSkillGrid(globalSkills)}
                   </div>
                 )}
               </>
@@ -913,8 +1202,8 @@ ${skillContent.trim()}`
           }
         }}
       >
-        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="flex h-[min(90vh,980px)] w-[min(900px,85vw)] max-w-[min(900px,85vw)] sm:max-w-[min(900px,85vw)] flex-col overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b px-7 py-5">
             <DialogTitle>
               {isViewMode
                 ? t('settings.skills.viewSkill', 'View Skill')
@@ -931,7 +1220,7 @@ ${skillContent.trim()}`
             </DialogDescription>
           </DialogHeader>
           
-          <div className="flex-1 space-y-4 overflow-y-auto py-4">
+          <div className="flex-1 space-y-4 overflow-y-auto px-7 py-5">
             {!isViewMode && (
               <>
                 <div className="space-y-2">
@@ -1046,7 +1335,7 @@ ${skillContent.trim()}`
             )}
           </div>
           
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-7 py-4">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               {isViewMode ? t('common.close', 'Close') : t('common.cancel', 'Cancel')}
             </Button>
@@ -1083,22 +1372,41 @@ ${skillContent.trim()}`
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <Dialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => {
+          setDeleteConfirmOpen(open)
+          if (!open) setSkillToDelete(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('settings.skills.deleteTitle', 'Delete Skill')}</DialogTitle>
+            <DialogTitle>
+              {embeddedConsole && (skillToDelete?.linkedRoles?.length ?? 0) > 0
+                ? t('settings.skills.detachBeforeDeleteTitle', 'Detach role links first')
+                : t('settings.skills.deleteTitle', 'Delete Skill')}
+            </DialogTitle>
             <DialogDescription>
-              {t('settings.skills.deleteConfirm', { name: skillToDelete?.name ?? '', defaultValue: `Are you sure you want to delete "${skillToDelete?.name}"? This action cannot be undone.` })}
+              {embeddedConsole && (skillToDelete?.linkedRoles?.length ?? 0) > 0
+                ? t(
+                    'settings.skills.detachBeforeDeleteDetailed',
+                    `This skill is still linked to ${skillToDelete?.linkedRoles?.length ?? 0} role(s): ${skillToDelete?.linkedRoles?.join(', ') ?? ''}. Remove it from those roles before deleting.`,
+                  )
+                : t('settings.skills.deleteConfirm', { name: skillToDelete?.name ?? '', defaultValue: `Are you sure you want to delete "${skillToDelete?.name}"? This action cannot be undone.` })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
-              {t('common.cancel', 'Cancel')}
+              {embeddedConsole && (skillToDelete?.linkedRoles?.length ?? 0) > 0
+                ? t('common.close', 'Close')
+                : t('common.cancel', 'Cancel')}
             </Button>
-            <Button variant="destructive" onClick={deleteSkill}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              {t('fileExplorer.delete', 'Delete')}
-            </Button>
+            {!(embeddedConsole && (skillToDelete?.linkedRoles?.length ?? 0) > 0) ? (
+              <Button variant="destructive" onClick={deleteSkill}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                {t('fileExplorer.delete', 'Delete')}
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -964,9 +964,7 @@ function AppContent() {
                 <span className="min-w-0 truncate text-sm font-medium">
                   {embeddedSettingsSection === "automation"
                     ? t("settings.nav.automation", "Automation")
-                    : embeddedSettingsSection === "roles"
-                      ? t("settings.nav.roles", "Roles")
-                      : t("settings.nav.skills", "Skills")}
+                    : t("settings.nav.rolesSkills", "Roles & Skills")}
                 </span>
                 <div className="min-w-0 flex-1" />
               </>
