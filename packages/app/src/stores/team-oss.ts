@@ -119,6 +119,7 @@ interface TeamOssState {
     note: string
   }) => Promise<void>
   reconnect: (workspacePath: string) => Promise<void>
+  resetSync: (workspacePath: string) => Promise<void>
   loadPendingApplication: (workspacePath: string) => Promise<void>
   cancelApplication: (workspacePath: string) => Promise<void>
   cleanup: () => void
