@@ -20,6 +20,7 @@ import {
   Loader2,
   LogOut,
   RefreshCw,
+  RotateCcw,
   Shield,
   UserPlus,
   Users,
@@ -70,6 +71,7 @@ export function TeamOSSConfig() {
     joinTeam,
     leaveTeam,
     syncNow,
+    resetSync,
     loadSyncStatus,
     createSnapshot,
     cleanupUpdates,
@@ -219,6 +221,11 @@ export function TeamOSSConfig() {
     if (!workspacePath) return
     await syncNow(workspacePath)
   }, [workspacePath, syncNow])
+
+  const handleResetSync = useCallback(async () => {
+    if (!workspacePath) return
+    await resetSync(workspacePath)
+  }, [workspacePath, resetSync])
 
   const handleSnapshot = useCallback(async (docType: string) => {
     if (!workspacePath) return
@@ -500,16 +507,28 @@ export function TeamOSSConfig() {
                   <span className={`h-2.5 w-2.5 rounded-full ring-2 ${connected ? 'bg-green-500 ring-green-500/20' : 'bg-red-500 ring-red-500/20'}`} />
                   <span className="font-medium">{connected ? '已连接' : '未连接'}</span>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleSyncNow}
-                  disabled={syncing}
-                  className="h-8"
-                >
-                  <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                  {syncing ? '同步中...' : '立即同步'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleSyncNow}
+                    disabled={syncing}
+                    className="h-8"
+                  >
+                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? '同步中...' : '立即同步'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleResetSync}
+                    disabled={syncing}
+                    className="h-8 text-orange-600 hover:text-orange-700"
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    重置同步
+                  </Button>
+                </div>
               </div>
               {/* Sync health indicator */}
               <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 text-xs">

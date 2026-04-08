@@ -477,6 +477,7 @@ pub fn run() {
             commands::oss_commands::oss_restore_sync,
             commands::oss_commands::oss_leave_team,
             commands::oss_commands::oss_sync_now,
+            commands::oss_commands::oss_reset_sync,
             commands::oss_commands::oss_get_sync_status,
             commands::oss_commands::oss_get_files_sync_status,
             commands::oss_commands::oss_create_snapshot,

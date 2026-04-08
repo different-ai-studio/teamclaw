@@ -896,6 +896,40 @@ pub async fn oss_sync_now(state: State<'_, OssSyncState>) -> Result<SyncStatus, 
 }
 
 #[tauri::command]
+pub async fn oss_reset_sync(state: State<'_, OssSyncState>) -> Result<SyncStatus, String> {
+    let mut guard = state.manager.lock().await;
+    let manager = guard
+        .as_mut()
+        .ok_or_else(|| "OSS sync not active".to_string())?;
+
+    // Delete local sync cursor and snapshot files
+    let loro_dir = std::path::Path::new(manager.workspace_path())
+        .join(super::TEAMCLAW_DIR)
+        .join("loro");
+
+    let _ = std::fs::remove_file(loro_dir.join("sync_cursor.json"));
+    for doc_type in DocType::all() {
+        let _ = std::fs::remove_file(loro_dir.join(format!("{}.snapshot", doc_type.path())));
+    }
+
+    info!("[OssResetSync] Deleted local sync cursor and snapshots");
+
+    // Reset in-memory sync state and re-initialize LoroDoc instances
+    manager.reset_sync_state();
+
+    // Perform fresh initial sync from OSS
+    manager.refresh_token_if_needed().await?;
+    manager.initial_sync().await?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    manager.set_last_data_sync_at(Some(now.clone()));
+    manager.set_last_check_at(Some(now));
+
+    info!("[OssResetSync] Re-sync complete");
+    Ok(manager.get_sync_status())
+}
+
+#[tauri::command]
 pub async fn oss_get_sync_status(state: State<'_, OssSyncState>) -> Result<SyncStatus, String> {
     let guard = state.manager.lock().await;
     let manager = guard

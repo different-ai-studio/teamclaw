@@ -321,6 +321,16 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     }
   },
 
+  resetSync: async (workspacePath) => {
+    set({ syncing: true })
+    try {
+      const status = await invoke<SyncStatus>('oss_reset_sync', { workspacePath })
+      set({ syncStatus: status, syncing: false })
+    } catch (e) {
+      set({ syncing: false, error: String(e) })
+    }
+  },
+
   loadSyncStatus: async (workspacePath) => {
     try {
       const status = await invoke<SyncStatus>('oss_get_sync_status', { workspacePath })

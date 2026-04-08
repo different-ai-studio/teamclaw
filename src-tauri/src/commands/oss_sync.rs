@@ -280,6 +280,27 @@ impl OssSyncManager {
         self.last_check_at = ts;
     }
 
+    /// Reset all in-memory sync state so a fresh initial_sync can re-pull everything.
+    pub fn reset_sync_state(&mut self) {
+        self.last_known_key.clear();
+        self.last_known_key_per_node.clear();
+        self.last_exported_version.clear();
+        self.last_scan_time.clear();
+        self.known_files.clear();
+        self.known_signal_keys.clear();
+        self.generation.clear();
+        self.last_compaction_at.clear();
+        self.live_keyset.clear();
+        self.connected = false;
+        self.health = SyncHealth::Healthy;
+        self.health_message = None;
+
+        // Re-initialize LoroDoc instances
+        for doc_type in DocType::all() {
+            *self.get_doc_mut(doc_type) = loro::LoroDoc::new();
+        }
+    }
+
     pub fn export_sync_cursor(&self) -> SyncCursor {
         let mut last_known_keys = HashMap::new();
         for (dt, key) in &self.last_known_key {
@@ -2208,8 +2229,9 @@ impl OssSyncManager {
 
     /// Check if compaction is needed for a given DocType.
     async fn should_compact(&self, doc_type: DocType) -> bool {
-        // Only Owner/Editor can compact
-        if self.role != MemberRole::Owner && self.role != MemberRole::Editor {
+        // Only Owner can compact to prevent members from cleaning up
+        // each other's update files before they've been pulled
+        if self.role != MemberRole::Owner {
             return false;
         }
 
