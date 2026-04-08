@@ -533,11 +533,12 @@ export function useCronInit() {
 
 export function useOssSyncInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
+  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
   const initialize = useTeamOssStore((s) => s.initialize);
   const cleanup = useTeamOssStore((s) => s.cleanup);
 
   useEffect(() => {
-    if (!workspacePath || !isTauri()) return;
+    if (!workspacePath || !openCodeReady || !isTauri()) return;
 
     // Clean up previous workspace listener, reset state, then re-initialize
     cleanup();
@@ -548,7 +549,7 @@ export function useOssSyncInit() {
     return () => {
       cleanup();
     };
-  }, [workspacePath, initialize, cleanup]);
+  }, [workspacePath, openCodeReady, initialize, cleanup]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
