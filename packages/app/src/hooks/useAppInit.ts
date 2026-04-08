@@ -80,6 +80,7 @@ export function useOpenCodeInit() {
 
       if (!cancelled) {
         setInitialWorkspaceResolved(true);
+        performance.mark('workspace-restored');
       }
     })();
 
@@ -129,6 +130,12 @@ export function useOpenCodeInit() {
         initOpenCodeClient({ baseUrl: status.url, workspacePath });
         setOpenCodeError(null);
         setOpenCodeReady(true, status.url);
+        performance.mark('opencode-ready');
+        if (performance.getEntriesByName('react-mount').length) {
+          performance.measure('startup-total', 'react-mount', 'opencode-ready');
+          const total = performance.getEntriesByName('startup-total')[0];
+          console.log(`[Startup] react→ready: ${Math.round(total.duration)}ms`);
+        }
       })
       .catch((error) => {
         if (cancelled) return;

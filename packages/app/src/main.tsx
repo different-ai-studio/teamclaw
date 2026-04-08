@@ -44,6 +44,7 @@ document.addEventListener('contextmenu', (event) => {
 
 // Remove skeleton screen (shown by index.html before JS loads)
 document.getElementById('skeleton')?.remove();
+performance.mark('react-mount');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

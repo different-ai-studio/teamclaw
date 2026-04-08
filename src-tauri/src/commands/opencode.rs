@@ -128,11 +128,9 @@ pub async fn start_opencode_inner(
     state: &OpenCodeState,
     config: OpenCodeConfig,
 ) -> Result<OpenCodeStatus, String> {
-    #[cfg(debug_assertions)]
     let inner_t0 = std::time::Instant::now();
     // Serialize concurrent calls — only one start_opencode runs at a time.
     let _start_guard = state.start_lock.lock().await;
-    #[cfg(debug_assertions)]
     eprintln!(
         "[Startup] start_opencode_inner: lock acquired in {:.1}ms",
         inner_t0.elapsed().as_secs_f64() * 1000.0
@@ -509,7 +507,6 @@ pub async fn start_opencode_inner(
         }
     }
 
-    #[cfg(debug_assertions)]
     eprintln!(
         "[Startup] Pre-sidecar I/O (parallel): {:.1}ms",
         inner_t0.elapsed().as_secs_f64() * 1000.0
@@ -688,7 +685,6 @@ pub async fn start_opencode_inner(
         inner.workspace_path = Some(workspace_path.clone());
     }
 
-    #[cfg(debug_assertions)]
     eprintln!(
         "[Startup] start_opencode_inner TOTAL: {:.1}ms",
         inner_t0.elapsed().as_secs_f64() * 1000.0
