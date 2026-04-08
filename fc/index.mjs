@@ -164,6 +164,11 @@ function memberPolicy(teamId, nodeId) {
         Action: ["oss:PutObject"],
         Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/updates/${nodeId}/*`,
       },
+      {
+        Effect: "Allow",
+        Action: ["oss:PutObject"],
+        Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/signal/${nodeId}/*`,
+      },
     ],
   });
 }
