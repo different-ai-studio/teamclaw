@@ -44,7 +44,7 @@ pub fn generate(device_id: &str, team_id: &str) -> Result<String, String> {
 ///   const token = await window.__TAURI__.core.invoke('generate_device_token');
 #[tauri::command]
 pub fn generate_device_token() -> Result<String, String> {
-    let device_id = super::oss_commands::get_or_create_fallback_device_id()?;
+    let device_id = super::oss_commands::get_persistent_device_id()?;
     generate(&device_id, "")
 }
 

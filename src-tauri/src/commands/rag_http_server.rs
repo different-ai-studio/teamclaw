@@ -336,7 +336,7 @@ async fn handle_memory_delete(
 async fn handle_device_token_test() -> axum::response::Response {
     // Generate a server-side reference token so the page is useful even when
     // window.teamclaw is not yet injected (e.g. first load before rebuild).
-    let server_token = match super::oss_commands::get_or_create_fallback_device_id() {
+    let server_token = match super::oss_commands::get_persistent_device_id() {
         Ok(device_id) => super::device_token::generate(&device_id, "")
             .unwrap_or_else(|e| format!("ERROR: {}", e)),
         Err(e) => format!("ERROR: {}", e),

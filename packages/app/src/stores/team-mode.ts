@@ -165,6 +165,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         })
         initOpenCodeClient({ baseUrl: status.url, workspacePath })
 
+        // Notify workspace store so SSE reconnects to the new sidecar
+        const { useWorkspaceStore } = await import('./workspace')
+        useWorkspaceStore.getState().setOpenCodeReady(true, status.url)
+
         // Wait for OpenCode to initialize
         await new Promise((r) => setTimeout(r, 500))
       }
@@ -224,6 +228,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
             config: { workspace_path: workspacePath },
           })
           initOpenCodeClient({ baseUrl: status.url, workspacePath })
+
+          // Notify workspace store so SSE reconnects to the new sidecar
+          const { useWorkspaceStore } = await import('./workspace')
+          useWorkspaceStore.getState().setOpenCodeReady(true, status.url)
 
           // Wait for OpenCode to initialize
           await new Promise((r) => setTimeout(r, 500))

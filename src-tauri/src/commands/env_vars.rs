@@ -475,14 +475,19 @@ pub(crate) fn ensure_system_env_vars(
 
     for def in SYSTEM_ENV_VARS {
         // Check if there's already a non-empty value in the blob
-        let has_value = blob.get(def.key).and_then(|v| v.as_str()).map_or(false, |v| !v.is_empty());
+        let existing_value = blob.get(def.key).and_then(|v| v.as_str()).unwrap_or("");
 
-        // Generate default value if not already set
-        if !has_value {
-            if let Some(default_value) = (def.default_fn)(&ctx) {
-                blob.insert(def.key.to_string(), serde_json::Value::String(default_value));
+        // Always regenerate: the device_id source may have changed (e.g. UUID → iroh node_id),
+        // so we overwrite whenever the generated value differs from the stored one.
+        if let Some(new_value) = (def.default_fn)(&ctx) {
+            if existing_value != new_value {
+                if !existing_value.is_empty() {
+                    println!("[EnvVars] Updating system var {} (value changed)", def.key);
+                } else {
+                    println!("[EnvVars] Generated default value for system var: {}", def.key);
+                }
+                blob.insert(def.key.to_string(), serde_json::Value::String(new_value));
                 blob_changed = true;
-                println!("[EnvVars] Generated default value for system var: {}", def.key);
             }
         }
 

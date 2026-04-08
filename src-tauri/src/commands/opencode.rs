@@ -352,8 +352,7 @@ pub async fn start_opencode_inner(
     // Ensure system env vars exist (e.g. tc_api_key) before reading keyring secrets.
     // Runs synchronously — one keychain read + optional write.
     {
-        let device_id = super::oss_commands::get_or_create_fallback_device_id()
-            .unwrap_or_default();
+        let device_id = super::oss_commands::get_device_id().unwrap_or_default();
         let ws = workspace_path.clone();
         let did = device_id.clone();
         if let Err(e) = tokio::task::spawn_blocking(move || {
@@ -516,6 +515,10 @@ pub async fn start_opencode_inner(
         inner_t0.elapsed().as_secs_f64() * 1000.0
     );
 
+    println!(
+        "[OpenCode] Secret keys available for resolution: {:?}",
+        secrets.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>()
+    );
     let original_config = resolve_config_secret_refs(&workspace_path, &secrets);
 
     println!(
@@ -540,7 +543,8 @@ pub async fn start_opencode_inner(
         .env("XDG_STATE_HOME", xdg_base.join("state").to_string_lossy().as_ref())
         .env("XDG_CACHE_HOME", xdg_base.join("cache").to_string_lossy().as_ref());
     // Inject device identity as environment variables
-    if let Ok(device_id) = super::oss_commands::get_or_create_fallback_device_id() {
+    let device_id = super::oss_commands::get_device_id().unwrap_or_default();
+    if !device_id.is_empty() {
         sidecar_command = sidecar_command.env("device_id", &device_id);
     }
     let device_name = gethostname::gethostname().to_string_lossy().to_string();
@@ -548,6 +552,11 @@ pub async fn start_opencode_inner(
 
     for (key, value) in &secrets {
         sidecar_command = sidecar_command.env(key, value);
+        // Also inject a dot-free alias so bash/skill scripts can access it
+        if key.contains('.') {
+            let alias = key.replace('.', "_");
+            sidecar_command = sidecar_command.env(&alias, value);
+        }
     }
 
     let (mut rx, child) = sidecar_command
@@ -635,7 +644,7 @@ pub async fn start_opencode_inner(
         Ok(Some(Ok(()))) => {} // Server is ready
         Ok(Some(Err(crash_msg))) => {
             // Process crashed — return the error with stderr context
-            restore_config(&workspace_path, &original_config);
+            restore_config(&workspace_path, &original_config, &secrets);
             return Err(crash_msg);
         }
         _ => {
@@ -649,7 +658,7 @@ pub async fn start_opencode_inner(
                 }
             }
             if !healthy {
-                restore_config(&workspace_path, &original_config);
+                restore_config(&workspace_path, &original_config, &secrets);
                 return Err("OpenCode server failed to start within timeout. Check opencode.json for errors.".to_string());
             }
         }
@@ -657,10 +666,11 @@ pub async fn start_opencode_inner(
 
     // Schedule async config restore: wait for MCP servers to connect (so they
     // read the resolved secrets), then put back the original ${KEY} references.
+    // Provider apiKey values stay resolved since opencode re-reads the config.
     if let Some(original) = original_config {
         let ws = workspace_path.clone();
         tauri::async_runtime::spawn(async move {
-            schedule_config_restore(port, &ws, &original).await;
+            schedule_config_restore(port, &ws, &original, secrets).await;
         });
     }
 
@@ -1128,6 +1138,7 @@ fn resolve_config_secret_refs(
     for (key, value) in secrets {
         let placeholder = format!("${{{}}}", key); // ${KEY}
         if resolved.contains(&placeholder) {
+            println!("[OpenCode] Replacing placeholder: {} (value length: {})", placeholder, value.len());
             resolved = resolved.replace(&placeholder, value);
             changed = true;
         }
@@ -1150,11 +1161,53 @@ fn resolve_config_secret_refs(
     }
 }
 
-/// Restore the original opencode.json content (with ${KEY} placeholders).
-fn restore_config(workspace_path: &str, original: &Option<String>) {
+/// Restore the original opencode.json content (with ${KEY} placeholders),
+/// but keep provider apiKey values resolved since opencode re-reads the
+/// config at request time.
+fn restore_config(workspace_path: &str, original: &Option<String>, secrets: &[(String, String)]) {
     if let Some(ref content) = original {
+        let restored = resolve_provider_api_keys(content, secrets);
         let config_path = super::mcp::get_config_path(workspace_path);
-        let _ = std::fs::write(&config_path, content);
+        let _ = std::fs::write(&config_path, &restored);
+    }
+}
+
+/// Resolve only `provider.*.options.apiKey` values in the JSON content.
+/// Other ${KEY} references (e.g. MCP env vars) are left as placeholders
+/// so they don't linger as plaintext on disk.
+fn resolve_provider_api_keys(content: &str, secrets: &[(String, String)]) -> String {
+    let mut json: serde_json::Value = match serde_json::from_str(content) {
+        Ok(v) => v,
+        Err(_) => return content.to_string(),
+    };
+
+    let mut changed = false;
+    if let Some(providers) = json.get_mut("provider").and_then(|p| p.as_object_mut()) {
+        for (_id, provider) in providers.iter_mut() {
+            if let Some(api_key) = provider
+                .get_mut("options")
+                .and_then(|o| o.get_mut("apiKey"))
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+            {
+                // Check if value contains a ${KEY} reference
+                if let Some(start) = api_key.find("${") {
+                    if let Some(end) = api_key[start..].find('}') {
+                        let key_name = &api_key[start + 2..start + end];
+                        if let Some((_, value)) = secrets.iter().find(|(k, _)| k == key_name) {
+                            let resolved = api_key.replace(&format!("${{{}}}", key_name), value);
+                            provider["options"]["apiKey"] = serde_json::Value::String(resolved);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if changed {
+        serde_json::to_string_pretty(&json).unwrap_or_else(|_| content.to_string())
+    } else {
+        content.to_string()
     }
 }
 
@@ -1162,15 +1215,21 @@ fn restore_config(workspace_path: &str, original: &Option<String>) {
 ///
 /// Polls the `/mcp` endpoint every 500ms up to 30s.  Restores unconditionally
 /// on timeout to avoid leaving plaintext secrets on disk.
-async fn schedule_config_restore(port: u16, workspace_path: &str, original: &str) {
+async fn schedule_config_restore(
+    port: u16,
+    workspace_path: &str,
+    original: &str,
+    secrets: Vec<(String, String)>,
+) {
     let config_path = super::mcp::get_config_path(workspace_path);
+    let restored = resolve_provider_api_keys(original, &secrets);
     let start = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(30);
 
     while start.elapsed() < timeout {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         if check_mcp_servers_ready(port).await {
-            let _ = std::fs::write(&config_path, original);
+            let _ = std::fs::write(&config_path, &restored);
             println!(
                 "[OpenCode] Restored opencode.json ({:.1}s, after MCP servers connected)",
                 start.elapsed().as_secs_f32()
@@ -1181,7 +1240,7 @@ async fn schedule_config_restore(port: u16, workspace_path: &str, original: &str
 
     // Timeout — restore anyway
     eprintln!("[OpenCode] MCP servers not ready after 30s, restoring config anyway");
-    let _ = std::fs::write(&config_path, original);
+    let _ = std::fs::write(&config_path, &restored);
 }
 
 /// Check if a port is in use by attempting to bind to it

@@ -19,9 +19,8 @@ use tracing::{info, warn};
 
 /// Get a stable device identity for OSS operations.
 /// Prefers the P2P node ID when the node is running, otherwise derives the
-/// same node ID directly from the persisted iroh secret key on disk.
-/// Falls back to a persisted UUID only when no secret key exists (e.g. fresh
-/// install without P2P feature).
+/// Get the device ID (iroh node_id). If the P2P node is running, reads from
+/// the live node; otherwise derives from the persisted secret key on disk.
 async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, String> {
     let guard = iroh_state.lock().await;
     #[cfg(feature = "p2p")]
@@ -29,28 +28,34 @@ async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, St
         if let Some(node) = guard.as_ref() {
             return Ok(get_node_id(node));
         }
-        // P2P node not started — derive node ID from persisted secret key
-        drop(guard);
-        match derive_node_id_from_secret_key() {
-            Ok(id) => Ok(id),
-            Err(_) => get_or_create_fallback_device_id(),
-        }
     }
-    #[cfg(not(feature = "p2p"))]
-    {
-        let _ = guard;
-        get_or_create_fallback_device_id()
-    }
+    drop(guard);
+    get_device_id()
 }
 
-/// Derive the iroh node ID (hex-encoded Ed25519 public key) from the
-/// persisted secret key file without starting any networking.
-#[cfg(feature = "p2p")]
-fn derive_node_id_from_secret_key() -> Result<String, String> {
+/// Load (or create) the iroh secret key and return the node ID
+/// (hex-encoded Ed25519 public key). This is the canonical device identity
+/// — no UUID fallback.
+pub(crate) fn get_device_id() -> Result<String, String> {
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
     let key_path = home
         .join(concat!(".", env!("APP_SHORT_NAME"), "/iroh"))
         .join("secret_key");
+    if !key_path.exists() {
+        // First launch: generate a new iroh secret key
+        let mut bytes = [0u8; 32];
+        getrandom::getrandom(&mut bytes)
+            .map_err(|e| format!("Failed to generate random bytes: {e}"))?;
+        let secret_key = iroh::SecretKey::from_bytes(&bytes);
+        let dir = key_path.parent().unwrap();
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Failed to create iroh dir: {e}"))?;
+        std::fs::write(&key_path, secret_key.to_bytes())
+            .map_err(|e| format!("Failed to write iroh secret key: {e}"))?;
+        let node_id = secret_key.public();
+        info!("Generated new iroh secret key, node_id: {node_id}");
+        return Ok(node_id.to_string());
+    }
     let bytes = std::fs::read(&key_path)
         .map_err(|e| format!("Failed to read iroh secret key: {e}"))?;
     let bytes: [u8; 32] = bytes
@@ -61,32 +66,10 @@ fn derive_node_id_from_secret_key() -> Result<String, String> {
     Ok(node_id.to_string())
 }
 
-
-/// Tauri command: return (or create) the persistent device UUID stored in
-/// `~/.teamclaw/device-id`.  Never fails on a healthy filesystem.
-/// This is the stable identifier used as the JWT `sub` claim.
+/// Tauri command: return the device ID (iroh node_id).
 #[tauri::command]
 pub fn get_persistent_device_id() -> Result<String, String> {
-    get_or_create_fallback_device_id()
-}
-
-/// Generate or load a persistent fallback device ID.
-pub(crate) fn get_or_create_fallback_device_id() -> Result<String, String> {
-    let dir = dirs::home_dir()
-        .ok_or("Cannot determine home directory")?
-        .join(".teamclaw");
-    let path = dir.join("device-id");
-    if let Ok(id) = std::fs::read_to_string(&path) {
-        let id = id.trim().to_string();
-        if !id.is_empty() {
-            return Ok(id);
-        }
-    }
-    let id = uuid::Uuid::new_v4().to_string();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
-    std::fs::write(&path, &id).map_err(|e| format!("Failed to write device ID: {e}"))?;
-    info!("Generated fallback device ID: {id}");
-    Ok(id)
+    get_device_id()
 }
 
 fn parse_doc_type(s: &str) -> Result<DocType, String> {
