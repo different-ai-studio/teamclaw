@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getOpenCodeClient } from "@/lib/opencode/client";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
 import { isTauri } from "@/lib/utils";
 import { buildConfig } from "@/lib/build-config";
 import { notificationService } from "@/lib/notification-service";
 import { shouldAutoAuthorize } from "@/lib/permission-policy";
-import type { PermissionAskedEvent } from "@/lib/opencode/types";
+import type { PermissionAskedEvent } from "@/lib/opencode/sdk-types";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type {
   ToolCallPermission,

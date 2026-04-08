@@ -8,7 +8,7 @@ import type {
   SessionDiffEvent,
   SessionErrorEvent,
   SendMessageFilePart,
-} from '@/lib/opencode/types';
+} from '@/lib/opencode/sdk-types';
 import type { TerminalPromptKind } from "@/lib/terminal-interaction";
 import type {
   SessionCreatedEvent,
@@ -19,7 +19,7 @@ import type {
   SessionStatusEvent,
   SessionStatusInfo,
   OpenCodeSSEEvent,
-} from '@/lib/opencode/sse';
+} from '@/lib/opencode/sdk-sse';
 import type { SearchResult } from '@/stores/knowledge';
 import type {
   MessageCreatedEvent,
@@ -28,7 +28,7 @@ import type {
   MessageCompletedEvent,
   ToolExecutingEvent,
   QuestionAskedEvent,
-} from '@/lib/opencode/types';
+} from '@/lib/opencode/sdk-types';
 
 // Re-export types for convenience
 export type { PermissionAskedEvent };

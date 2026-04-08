@@ -9,7 +9,7 @@ import { useEffect, useRef } from 'react'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useStreamingStore } from '@/stores/streaming'
-import { useOpenCodeSSE } from '@/lib/opencode/sse'
+import { useOpenCodeSSE } from '@/lib/opencode/sdk-sse'
 import { loadPermissionConfigCache } from '@/stores/session-permissions'
 
 export function SSEProvider() {

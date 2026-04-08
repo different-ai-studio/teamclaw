@@ -8,7 +8,7 @@ const mockUpdateConfig = vi.fn().mockResolvedValue(undefined)
 const mockSetAuth = vi.fn().mockResolvedValue(undefined)
 const mockDeleteAuth = vi.fn().mockResolvedValue(undefined)
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     getProviders: mockGetProviders,
     getConfigProviders: mockGetConfigProviders,

@@ -16,7 +16,7 @@ import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
-import type { SendMessageFilePart } from "@/lib/opencode/types";
+import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
 import { Button } from "@/components/ui/button";
 
@@ -591,7 +591,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       const status = await invoke<{ url: string }>("start_opencode", {
         config: { workspace_path: workspacePath },
       });
-      const { initOpenCodeClient } = await import("@/lib/opencode/client");
+      const { initOpenCodeClient } = await import("@/lib/opencode/sdk-client");
       initOpenCodeClient({ baseUrl: status.url, workspacePath });
       setOpenCodeReady(true, status.url);
       setHasSkillRestartPrompt(false);

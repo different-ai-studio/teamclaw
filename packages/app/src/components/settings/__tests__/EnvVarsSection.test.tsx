@@ -58,7 +58,7 @@ vi.mock('@/stores/workspace', () => ({
     selector({ workspacePath: '/test' }),
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   initOpenCodeClient: vi.fn(),
 }))
 

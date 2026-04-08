@@ -9,7 +9,7 @@ const mockGetSession = vi.fn()
 const mockGetTodos = vi.fn()
 const mockGetSessionDiff = vi.fn()
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     listSessions: mockListSessions,
     createSession: mockCreateSession,
@@ -46,7 +46,7 @@ vi.mock('@/stores/provider', () => ({
   ),
 }))
 
-vi.mock('@/lib/opencode/sse', () => ({
+vi.mock('@/lib/opencode/sdk-sse', () => ({
   clearAllChildSessions: vi.fn(),
 }))
 

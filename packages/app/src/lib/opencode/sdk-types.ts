@@ -192,7 +192,7 @@ export interface MessagePart {
   id: string
   sessionID: string
   messageID: string
-  type: 'text' | 'tool' | 'tool-call' | 'tool-result' | 'step-start' | 'step-finish' | 'reasoning'
+  type: string
   text?: string
   toolCall?: ToolCallInfo
   toolResult?: ToolResult
@@ -472,4 +472,31 @@ export interface SendMessageRequest {
   parts: Array<SendMessageTextPart | SendMessageFilePart>
   agent?: string
   systemPrompt?: string
+}
+
+// SSE event types used by session store handlers
+// These were previously in types.ts and sse.ts
+
+export interface QuestionAskedEvent {
+  id: string
+  sessionId: string
+  questions: Question[]
+  tool?: {
+    callId: string
+    messageId: string
+  }
+}
+
+export interface QuestionToolInput {
+  questions: Question[]
+}
+
+export interface TodoUpdatedEvent {
+  sessionId: string
+  todos: Todo[]
+}
+
+export interface SessionDiffEvent {
+  sessionId: string
+  diff: FileDiff[]
 }

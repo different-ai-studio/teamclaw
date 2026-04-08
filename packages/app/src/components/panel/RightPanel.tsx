@@ -5,7 +5,7 @@ import { FileBrowser } from '@/components/workspace/FileBrowser'
 import { ShortcutsPanel } from './ShortcutsPanel'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useSessionStore } from '@/stores/session'
-import type { Todo, FileDiff } from '@/lib/opencode/types'
+import type { Todo, FileDiff } from '@/lib/opencode/sdk-types'
 
 interface RightPanelProps {
   todos?: Todo[]

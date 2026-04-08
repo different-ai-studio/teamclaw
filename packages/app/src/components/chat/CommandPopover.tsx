@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Command as CommandIcon, Zap, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getOpenCodeClient, type Command as OpenCodeCommand } from '@/lib/opencode/client'
+import { getOpenCodeClient, type Command as OpenCodeCommand } from '@/lib/opencode/sdk-client'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isTauri } from '@/lib/utils'
 import { loadAllSkills } from '@/lib/git/skill-loader'

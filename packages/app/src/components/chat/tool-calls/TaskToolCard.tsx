@@ -12,7 +12,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn, openExternalUrl } from "@/lib/utils";
-import { getOpenCodeClient } from "@/lib/opencode/client";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
 import { ToolCall, useSessionStore, convertMessage } from "@/stores/session";
 import { useStreamingStore } from "@/stores/streaming";
 import { useWorkspaceStore } from "@/stores/workspace";

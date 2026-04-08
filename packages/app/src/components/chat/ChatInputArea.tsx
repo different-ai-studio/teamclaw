@@ -17,7 +17,7 @@ import {
 } from "@/packages/ai/prompt-input";
 import { FileMentionPopover } from "./FileMentionPopover";
 import { CommandPopover } from "./CommandPopover";
-import type { Command as OpenCodeCommand } from "@/lib/opencode/client";
+import type { Command as OpenCodeCommand } from "@/lib/opencode/sdk-client";
 import { useTeamModeStore } from "@/stores/team-mode";
 import {
   ModelSelector,

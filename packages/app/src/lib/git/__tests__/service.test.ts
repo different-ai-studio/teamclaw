@@ -1,13 +1,13 @@
 // Test file - vitest globals (describe, it, expect) provided by vitest/globals type config
 import { vi } from 'vitest'
 import { GitService, GitStatus, normalizePath, pathsEqual, isChildPath } from '../service'
-import { getOpenCodeClient } from '@/lib/opencode/client'
+import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 
 const { mockGetOpenCodeClient } = vi.hoisted(() => ({
   mockGetOpenCodeClient: vi.fn(),
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: mockGetOpenCodeClient,
 }))
 

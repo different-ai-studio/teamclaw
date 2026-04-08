@@ -112,7 +112,7 @@ vi.mock('@/stores/telemetry', () => ({
     }),
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   initOpenCodeClient: vi.fn(),
 }))
 

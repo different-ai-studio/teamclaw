@@ -24,7 +24,7 @@ import { useTeamModeStore } from "@/stores/team-mode";
 import { useTeamOssStore } from "@/stores/team-oss";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { useCronStore } from "@/stores/cron";
-import { initOpenCodeClient } from "@/lib/opencode/client";
+import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
 import {
   startOpenCode,
   hasPreloadFor,

@@ -11,7 +11,7 @@ vi.mock('@/stores/workspace', () => ({
   }),
 }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('@/lib/opencode/client', () => ({ initOpenCodeClient: vi.fn() }))
+vi.mock('@/lib/opencode/sdk-client', () => ({ initOpenCodeClient: vi.fn() }))
 vi.mock('@/lib/utils', () => ({ cn: (...a: string[]) => a.join(' '), isTauri: () => false }))
 vi.mock('@/lib/opencode/config', () => ({
   readSkillPermissions: vi.fn(async () => ({})),

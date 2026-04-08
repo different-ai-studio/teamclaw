@@ -1,4 +1,4 @@
-import type { Question } from "@/lib/opencode/types";
+import type { Question } from "@/lib/opencode/sdk-types";
 
 export type TerminalPromptKind =
   | "confirm"

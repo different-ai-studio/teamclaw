@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { PermissionDialog } from '../PermissionDialog'
-import type { PermissionAskedEvent } from '@/lib/opencode/types'
+import type { PermissionAskedEvent } from '@/lib/opencode/sdk-types'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
