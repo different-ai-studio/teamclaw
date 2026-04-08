@@ -811,7 +811,10 @@ pub async fn join_team_drive(
 
     let namespace_id = doc.id().to_string();
 
-    // Read joiner's role and owner_node_id from manifest (single read)
+    // Read joiner's role and owner_node_id from manifest (single read).
+    // Fall back to existing local config so that an owner who lost their team
+    // directory but still has their config does not get downgraded to Editor.
+    let existing_config = read_p2p_config(workspace_path)?.unwrap_or_default();
     let manifest = read_members_manifest(team_dir)?;
     let joiner_role = manifest
         .as_ref()
@@ -821,8 +824,11 @@ pub async fn join_team_drive(
                 .find(|mem| mem.node_id == joiner_node_id)
                 .map(|mem| mem.role.clone())
         })
+        .or_else(|| existing_config.role.clone())
         .unwrap_or(MemberRole::Editor);
-    let manifest_owner = manifest.map(|m| m.owner_node_id);
+    let manifest_owner = manifest
+        .map(|m| m.owner_node_id)
+        .or_else(|| existing_config.owner_node_id.clone());
 
     // Reconcile offline edits (primarily for re-join scenarios)
     let is_owner = manifest_owner.as_deref() == Some(&joiner_node_id);
@@ -883,7 +889,10 @@ pub async fn join_team_drive(
     config.doc_ticket = Some(ticket_str.to_string());
 
     config.role = Some(joiner_role);
-    config.owner_node_id = manifest_owner;
+    // Only update owner_node_id if manifest provided one; preserve existing config value otherwise
+    if manifest_owner.is_some() {
+        config.owner_node_id = manifest_owner;
+    }
     config.last_sync_at = Some(chrono::Utc::now().to_rfc3339());
     write_p2p_config(workspace_path, Some(&config))?;
 
@@ -3794,7 +3803,9 @@ async fn reconnect_team_for_workspace(
         }
     }
 
-    let my_role = config.role.clone().unwrap_or(MemberRole::Editor);
+    let my_role = config.role.clone().unwrap_or_else(|| {
+        if is_owner { MemberRole::Owner } else { MemberRole::Editor }
+    });
 
     // Reconcile offline edits before starting watchers
     let temp_engine: Arc<Mutex<SyncEngine>> = Arc::new(Mutex::new(SyncEngine::new()));
