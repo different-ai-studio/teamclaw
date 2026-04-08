@@ -34,6 +34,20 @@ pub fn generate(device_id: &str, team_id: &str) -> Result<String, String> {
     generate_with_secret(device_id, team_id, DEVICE_JWT_SECRET)
 }
 
+/// Tauri command: generate a fresh device JWT on demand.
+///
+/// The frontend should call this before every API request that requires a
+/// device token, instead of reusing the token injected at webview creation
+/// time (which expires after 90 s and never refreshes on page reload).
+///
+/// Usage from JS:
+///   const token = await window.__TAURI__.core.invoke('generate_device_token');
+#[tauri::command]
+pub fn generate_device_token() -> Result<String, String> {
+    let device_id = super::oss_commands::get_or_create_fallback_device_id()?;
+    generate(&device_id, "")
+}
+
 /// Same as [`generate`] but accepts an explicit secret — useful for tests.
 pub fn generate_with_secret(device_id: &str, team_id: &str, secret: &str) -> Result<String, String> {
     if secret.is_empty() {

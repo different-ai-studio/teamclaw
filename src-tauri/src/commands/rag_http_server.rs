@@ -394,7 +394,11 @@ async fn handle_device_token_test() -> axum::response::Response {
   </div>
 
   <div class="card">
-    <div class="label">device_token from window.teamclaw <span class="tag tag-webview">webview</span></div>
+    <div class="label">
+      device_token from window.teamclaw
+      <span class="tag tag-webview">webview</span>
+      <span class="tag" style="background:#3a2a10;color:#f6c90e">⚠ fixed at webview creation — expires in 90 s, never refreshes on page reload</span>
+    </div>
     <div id="tc-token" class="value">—</div>
     <button class="btn" onclick="copyTok('tc-token')">Copy</button>
     <button class="btn" onclick="alertTok('tc-token')">Alert</button>
@@ -409,6 +413,24 @@ async fn handle_device_token_test() -> axum::response::Response {
   <div class="card">
     <div class="label">window.teamclaw — all fields <span class="tag tag-webview">webview</span></div>
     <table id="tc-fields"><tr><td colspan="2" style="color:#718096">—</td></tr></table>
+  </div>
+
+  <!-- ── Section 1b: on-demand fresh token via Tauri invoke ── -->
+  <div class="card">
+    <div class="label">
+      on-demand fresh token via <code>invoke('generate_device_token')</code>
+      <span class="tag tag-webview">webview</span>
+      <span class="tag" style="background:#1a2a1a;color:#7ee787">✓ always fresh — use this before every API call</span>
+    </div>
+    <div id="fresh-token" class="value" style="color:#718096">click "Generate" to fetch</div>
+    <button class="btn" onclick="genFreshToken()">Generate</button>
+    <button class="btn" onclick="copyTok('fresh-token')">Copy</button>
+    <div id="status-fresh"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">JWT claims (fresh token decoded) <span class="tag tag-webview">webview</span></div>
+    <table id="fresh-claims"><tr><td colspan="2" style="color:#718096">—</td></tr></table>
   </div>
 
   <!-- ── Section 2: server-generated reference token ── -->
@@ -467,14 +489,18 @@ async fn handle_device_token_test() -> axum::response::Response {
     // ── Decode server token immediately ──
     decodeAndRender(SERVER_TOKEN, 'srv-claims');
 
-    // ── Inspect window.teamclaw (injected by Tauri) ──
+    // ── Inspect window.teamclaw (injected by Tauri initialization_script) ──
+    // NOTE: window.teamclaw.deviceToken is FIXED at webview creation time.
+    // It does NOT refresh on page reload — the same token is re-injected every
+    // navigation until the webview is destroyed and recreated.
+    // For API calls always use invoke('generate_device_token') instead.
     (function checkWebview() {{
       const tc = window.teamclaw;
       const presEl  = document.getElementById('tc-presence');
       const tokenEl = document.getElementById('tc-token');
 
       if (!tc) {{
-        presEl.textContent = 'NOT present — app needs to be rebuilt so get_persistent_device_id is registered';
+        presEl.textContent = 'NOT present — app needs to be rebuilt so generate_device_token is registered';
         presEl.className = 'value warn';
         return;
       }}
@@ -493,8 +519,26 @@ async fn handle_device_token_test() -> axum::response::Response {
       tokenEl.textContent = token;
       tokenEl.className = 'value ok';
       decodeAndRender(token, 'tc-claims');
-      alert('window.teamclaw.deviceToken:\n\n' + token);
     }})();
+
+    // ── Generate a fresh token on demand via Tauri invoke ──
+    async function genFreshToken() {{
+      const el     = document.getElementById('fresh-token');
+      const status = document.getElementById('status-fresh');
+      el.textContent = 'generating…';
+      el.className = 'value';
+      try {{
+        const token = await window.__TAURI__.core.invoke('generate_device_token');
+        el.textContent = token;
+        el.className = 'value ok';
+        decodeAndRender(token, 'fresh-claims');
+        status.textContent = '✅ fresh token generated at ' + new Date().toLocaleTimeString();
+      }} catch (e) {{
+        el.textContent = 'ERROR: ' + e;
+        el.className = 'value err';
+        status.textContent = '';
+      }}
+    }}
   </script>
 </body>
 </html>"#,
