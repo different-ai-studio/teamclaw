@@ -247,11 +247,22 @@ pub async fn webview_create(
 
     // Inject window.teamclaw identity global before any page scripts run.
     if let (Some(ref dno), Some(ref dname)) = (&device_no, &device_name) {
+        let device_token = match super::device_token::generate(dno, "") {
+            Ok(tok) => tok,
+            Err(e) => {
+                eprintln!("[Webview] Failed to generate device_token: {}", e);
+                return Err(format!("Failed to generate device_token: {}", e));
+            }
+        };
         let escaped_no = serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
         let escaped_name = serde_json::to_string(dname).unwrap_or_else(|_| "\"\"".to_string());
+        let escaped_token =
+            serde_json::to_string(&device_token).unwrap_or_else(|_| "\"\"".to_string());
         let script = format!(
-            "Object.defineProperty(window, 'teamclaw', {{ value: Object.freeze({{ deviceNo: {}, deviceName: {} }}), writable: false, configurable: false }});",
-            escaped_no, escaped_name,
+            "Object.defineProperty(window, 'teamclaw', {{ value: Object.freeze({{ deviceNo: {no}, deviceName: {name}, deviceToken: {token} }}), writable: false, configurable: false }});",
+            no = escaped_no,
+            name = escaped_name,
+            token = escaped_token,
         );
         webview_builder = webview_builder.initialization_script(&script);
     }

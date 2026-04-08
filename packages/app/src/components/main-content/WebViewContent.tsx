@@ -132,26 +132,36 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
             // Create new native webview
             setIsLoading(true)
 
-            // Resolve team identity for window.teamclaw injection.
-            // Use a short timeout to avoid blocking webview creation when
-            // the P2P mutex is held by a long-running operation.
+            // Resolve device identity for window.teamclaw injection.
+            // Always inject: use the persistent fallback device ID so the
+            // JWT device_token is available regardless of teamMode / P2P state.
             let deviceNo: string | undefined
             let deviceName: string | undefined
-            if (useTeamModeStore.getState().teamMode) {
-              try {
-                const info = await Promise.race([
-                  invoke<{ nodeId: string }>("get_device_info"),
-                  new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error("timeout")), 500),
-                  ),
-                ])
-                deviceNo = info.nodeId
-                const members = useTeamMembersStore.getState().members
-                const me = members.find((m) => m.nodeId === deviceNo)
-                deviceName = me?.name ?? ""
-              } catch {
-                // Non-critical: webview works without identity
+            try {
+              // Prefer the P2P node ID when teamMode is active and P2P is running;
+              // always fall back to the stable persisted UUID.
+              if (useTeamModeStore.getState().teamMode) {
+                try {
+                  const info = await Promise.race([
+                    invoke<{ nodeId: string }>("get_device_info"),
+                    new Promise<never>((_, reject) =>
+                      setTimeout(() => reject(new Error("timeout")), 500),
+                    ),
+                  ])
+                  deviceNo = info.nodeId
+                  const members = useTeamMembersStore.getState().members
+                  const me = members.find((m) => m.nodeId === deviceNo)
+                  deviceName = me?.name ?? ""
+                } catch {
+                  // P2P not running — fall through to persistent ID below
+                }
               }
+              if (!deviceNo) {
+                deviceNo = await invoke<string>("get_persistent_device_id")
+                deviceName = deviceName ?? ""
+              }
+            } catch {
+              // Non-critical: webview works without identity
             }
 
             await invoke("webview_create", {

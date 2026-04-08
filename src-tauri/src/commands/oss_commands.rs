@@ -37,6 +37,14 @@ async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, St
     }
 }
 
+/// Tauri command: return (or create) the persistent device UUID stored in
+/// `~/.teamclaw/device-id`.  Never fails on a healthy filesystem.
+/// This is the stable identifier used as the JWT `sub` claim.
+#[tauri::command]
+pub fn get_persistent_device_id() -> Result<String, String> {
+    get_or_create_fallback_device_id()
+}
+
 /// Generate or load a persistent fallback device ID.
 pub(crate) fn get_or_create_fallback_device_id() -> Result<String, String> {
     let dir = dirs::home_dir()
