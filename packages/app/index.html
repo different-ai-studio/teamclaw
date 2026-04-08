@@ -4,9 +4,74 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TeamClaw</title>
+    <style>
+      /* Skeleton — removed by React on mount */
+      #skeleton {
+        display: flex;
+        height: 100vh;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      #skeleton .sidebar {
+        width: 320px;
+        border-right: 1px solid var(--sk-border);
+        padding: 16px;
+        flex-shrink: 0;
+      }
+      #skeleton .main {
+        flex: 1;
+        padding: 16px;
+      }
+      #skeleton .bone {
+        background: var(--sk-bone);
+        border-radius: 6px;
+        margin-bottom: 10px;
+      }
+      /* Light theme (default) */
+      :root {
+        --sk-bg: #ffffff;
+        --sk-border: #e4e4e7;
+        --sk-bone: #f4f4f5;
+      }
+      /* Dark theme */
+      .dark {
+        --sk-bg: #09090b;
+        --sk-border: #27272a;
+        --sk-bone: #18181b;
+      }
+      #skeleton { background: var(--sk-bg); }
+    </style>
+    <script>
+      // Apply theme before first paint (matches main.tsx logic)
+      (function() {
+        var sn = 'teamclaw';
+        try {
+          var k = localStorage.getItem(sn + '-shortname');
+          if (k) sn = k;
+        } catch(e) {}
+        var theme;
+        try { theme = localStorage.getItem(sn + '-theme'); } catch(e) {}
+        if (!theme) theme = 'system';
+        if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <div id="skeleton">
+      <div class="sidebar">
+        <div class="bone" style="height:20px;width:55%"></div>
+        <div class="bone" style="height:14px;width:80%;margin-top:20px"></div>
+        <div class="bone" style="height:14px;width:65%"></div>
+        <div class="bone" style="height:14px;width:75%"></div>
+        <div class="bone" style="height:14px;width:60%"></div>
+      </div>
+      <div class="main">
+        <div class="bone" style="height:24px;width:35%"></div>
+        <div class="bone" style="height:14px;width:50%;margin-top:24px"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

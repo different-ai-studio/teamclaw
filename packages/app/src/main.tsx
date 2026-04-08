@@ -42,6 +42,9 @@ document.addEventListener('contextmenu', (event) => {
   event.preventDefault()
 })
 
+// Remove skeleton screen (shown by index.html before JS loads)
+document.getElementById('skeleton')?.remove();
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary scope="TeamClaw">
