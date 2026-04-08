@@ -2779,6 +2779,11 @@ impl OssSyncManager {
                     }
 
                     manager.syncing = false;
+                    // Clear transient warning/error after a successful sync cycle
+                    if !had_network_error {
+                        manager.health = SyncHealth::Healthy;
+                        manager.health_message = None;
+                    }
                     let now = Utc::now().to_rfc3339();
                     // slow_loop always updates last_check_at; only set last_data_sync_at
                     // when data was actually exchanged (uploads or absorb-uploads happened)
