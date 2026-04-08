@@ -314,7 +314,7 @@ pub async fn oss_create_team(
         poll_interval_secs: 300,
     };
     write_oss_config(&workspace_path, &config)?;
-    save_team_secret(&team_id, &team_secret)?;
+    save_team_secret(&workspace_path, &team_id, &team_secret)?;
 
     // Store manager in state, start poll loop
     {
@@ -532,7 +532,7 @@ pub async fn oss_join_team(
         poll_interval_secs: 300,
     };
     write_oss_config(&workspace_path, &config)?;
-    save_team_secret(&team_id, &team_secret)?;
+    save_team_secret(&workspace_path, &team_id, &team_secret)?;
 
     // Clear any pending application
     let _ = clear_pending_application(&workspace_path);
@@ -640,7 +640,7 @@ pub async fn oss_restore_sync(
 ) -> Result<OssTeamInfo, String> {
     let t0 = std::time::Instant::now();
     info!("[OssRestore] Starting oss_restore_sync for team {}", team_id);
-    let team_secret = load_team_secret(&team_id)?;
+    let team_secret = load_team_secret(&workspace_path, &team_id)?;
     info!("[OssRestore] team_secret loaded ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
     let node_id = get_p2p_node_id(&iroh_state).await?;
     info!("[OssRestore] Got node_id ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
@@ -832,7 +832,7 @@ pub async fn oss_leave_team(
 
     // Read config to get team_id, then clean up
     if let Some(config) = read_oss_config(&workspace_path) {
-        let _ = delete_team_secret(&config.team_id);
+        let _ = delete_team_secret(&workspace_path, &config.team_id);
     }
 
     // Disable OSS in teamclaw.json
@@ -988,7 +988,7 @@ pub async fn oss_update_members(
 #[tauri::command]
 pub async fn oss_reset_team_secret(
     state: State<'_, OssSyncState>,
-    _workspace_path: String,
+    workspace_path: String,
 ) -> Result<String, String> {
     let new_secret = generate_team_secret()?;
 
@@ -998,7 +998,7 @@ pub async fn oss_reset_team_secret(
         .ok_or_else(|| "OSS sync not active".to_string())?;
 
     let team_id = manager.team_id().to_string();
-    let old_secret = load_team_secret(&team_id)?;
+    let old_secret = load_team_secret(&workspace_path, &team_id)?;
 
     let body = serde_json::json!({
         "teamId": team_id,
@@ -1007,8 +1007,8 @@ pub async fn oss_reset_team_secret(
     });
     manager.call_fc("/reset-secret", &body).await?;
 
-    // Update keyring with new secret
-    save_team_secret(&team_id, &new_secret)?;
+    // Update secret in env blob
+    save_team_secret(&workspace_path, &team_id, &new_secret)?;
 
     info!("Team secret reset for team: {team_id}");
     Ok(new_secret)
@@ -1080,7 +1080,7 @@ pub async fn oss_apply_team(
     write_pending_application(&workspace_path, &pending)?;
 
     // Save team secret so we can re-check later
-    save_team_secret(&team_id, &team_secret)?;
+    save_team_secret(&workspace_path, &team_id, &team_secret)?;
 
     info!("Application submitted for team: {team_id}");
     Ok(())

@@ -629,7 +629,14 @@ pub async fn download_and_install_update<R: Runtime>(
     let pubkey = get_updater_pubkey();
     verify_signature(&bytes, &signature, pubkey)?;
 
-    // 3. Install (extract tar.gz and replace .app bundle)
+    // 3. Snapshot keychain env blob to disk before replacing the app bundle.
+    //    The current process still has keychain access (matching code signature).
+    //    After the bundle is replaced, the new binary's signature won't match the
+    //    keychain ACL, so this disk snapshot is the only way the new version can
+    //    recover secrets on first launch.
+    super::env_vars::snapshot_env_blob_to_disk();
+
+    // 4. Install (extract tar.gz and replace .app bundle)
     install_update(&bytes)?;
 
     Ok(())

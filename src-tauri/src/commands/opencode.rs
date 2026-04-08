@@ -473,7 +473,7 @@ pub async fn start_opencode_inner(
                                 oss.get("teamId").and_then(|v| v.as_str()),
                                 oss.get("enabled").and_then(|v| v.as_bool()),
                             ) {
-                                if let Ok(team_secret) = super::oss_sync::load_team_secret(team_id) {
+                                if let Ok(team_secret) = super::oss_sync::load_team_secret(&workspace_path, team_id) {
                                     let team_dir = std::path::Path::new(&workspace_path)
                                         .join(super::TEAM_REPO_DIR);
                                     match super::shared_secrets::init_shared_secrets(
