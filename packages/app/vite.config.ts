@@ -141,6 +141,17 @@ export default defineConfig({
           ],
           // Markdown rendering
           'markdown': ['react-markdown', 'remark-gfm'],
+          // Tauri APIs — loaded async, not needed for skeleton
+          'tauri': [
+            '@tauri-apps/api',
+            '@tauri-apps/plugin-fs',
+            '@tauri-apps/plugin-shell',
+            '@tauri-apps/plugin-dialog',
+            '@tauri-apps/plugin-notification',
+            '@tauri-apps/plugin-process',
+          ],
+          // i18n runtime
+          'i18n': ['i18next', 'react-i18next'],
         },
       },
     },
