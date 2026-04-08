@@ -84,6 +84,13 @@ fn main() {
         println!("cargo:warning=Using UPDATER_PUBKEY={}", pubkey);
     }
 
+    // Export device JWT secret for HS256 token generation.
+    let device_jwt_secret = config["device"]["jwtSecret"].as_str().unwrap_or("");
+    println!("cargo:rustc-env=DEVICE_JWT_SECRET={}", device_jwt_secret);
+    if device_jwt_secret.is_empty() {
+        println!("cargo:warning=device.jwtSecret is not set — device token generation will fail at runtime");
+    }
+
     // Check that the OpenCode sidecar binary exists before building.
     // The binary is not checked into git (>100MB). Developers must download it:
     //   Unix: ./src-tauri/binaries/download-opencode.sh

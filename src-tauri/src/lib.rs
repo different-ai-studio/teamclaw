@@ -426,6 +426,7 @@ pub fn run() {
             commands::team::get_team_config,
             commands::team::save_team_config,
             commands::team::clear_team_config,
+            commands::oss_commands::get_persistent_device_id,
             #[cfg(feature = "p2p")]
             commands::team_p2p::get_device_node_id,
             #[cfg(feature = "p2p")]
