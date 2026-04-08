@@ -348,10 +348,12 @@ export function useChannelGatewayInit() {
 
 export function useGitReposInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
+  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
   const { initialize: initGitRepos, syncAll: syncGitRepos } = useGitReposStore();
   const hasGitSynced = useRef(false);
   const teamSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Local git repos init — runs immediately when workspace is set
   useEffect(() => {
     if (workspacePath && !hasGitSynced.current) {
       hasGitSynced.current = true;
@@ -365,62 +367,64 @@ export function useGitReposInit() {
         .catch((err: unknown) => {
           console.warn("[App] Git repos init failed (non-critical):", err);
         });
+    }
+  }, [workspacePath, initGitRepos, syncGitRepos]);
 
-      // Auto-sync team workspace repo on startup + every 5 minutes, and load team shortcuts
-      if (isTauri()) {
-        import("@tauri-apps/api/core")
-          .then(({ invoke }) => {
-            invoke("get_team_config")
-              .then((config: unknown) => {
-                const teamConfig = config as { enabled?: boolean } | null;
-                if (teamConfig?.enabled) {
-                  const doSync = () => {
-                    invoke("team_sync_repo")
-                      .then((result: unknown) => {
-                        const r = result as { success: boolean; message: string };
-                        if (r.success) {
-                          console.log("[App] Team repo sync completed (MCP configs updated)");
-                        } else {
-                          console.warn("[App] Team repo sync skipped:", r.message);
-                        }
-                      })
-                      .catch((err: unknown) => {
-                        console.warn("[App] Team repo sync failed (non-critical):", err);
-                      });
-                  };
+  // Team sync — deferred until sidecar is ready to avoid I/O contention
+  useEffect(() => {
+    if (!workspacePath || !openCodeReady || !isTauri()) return;
 
-                  console.log("[App] Team config found, syncing team repo...");
-                  doSync();
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) => {
+        invoke("get_team_config")
+          .then((config: unknown) => {
+            const teamConfig = config as { enabled?: boolean } | null;
+            if (teamConfig?.enabled) {
+              const doSync = () => {
+                invoke("team_sync_repo")
+                  .then((result: unknown) => {
+                    const r = result as { success: boolean; message: string };
+                    if (r.success) {
+                      console.log("[App] Team repo sync completed (MCP configs updated)");
+                    } else {
+                      console.warn("[App] Team repo sync skipped:", r.message);
+                    }
+                  })
+                  .catch((err: unknown) => {
+                    console.warn("[App] Team repo sync failed (non-critical):", err);
+                  });
+              };
 
-                  // Periodic sync every 5 minutes
-                  const intervalId = setInterval(() => {
-                    console.log("[App] Periodic team repo sync...");
-                    doSync();
-                  }, 5 * 60 * 1000);
-                  teamSyncIntervalRef.current = intervalId;
-                }
-              })
-              .catch((err: unknown) => {
-                console.warn("[App] Failed to check team config (non-critical):", err);
-              });
-          })
-          .catch(() => {
-            // Tauri not available, skip
-          });
+              console.log("[App] Team config found, syncing team repo...");
+              doSync();
 
-        // Load team shortcuts after team config
-        import("@/lib/team-shortcuts")
-          .then(({ loadTeamShortcutsFile }) => {
-            return loadTeamShortcutsFile(workspacePath);
-          })
-          .then((teamShortcuts) => {
-            useShortcutsStore.getState().setTeamNodes(teamShortcuts || []);
+              // Periodic sync every 5 minutes
+              const intervalId = setInterval(() => {
+                console.log("[App] Periodic team repo sync...");
+                doSync();
+              }, 5 * 60 * 1000);
+              teamSyncIntervalRef.current = intervalId;
+            }
           })
           .catch((err: unknown) => {
-            console.warn("[App] Failed to load team shortcuts (non-critical):", err);
+            console.warn("[App] Failed to check team config (non-critical):", err);
           });
-      }
-    }
+      })
+      .catch(() => {
+        // Tauri not available, skip
+      });
+
+    // Load team shortcuts after team config
+    import("@/lib/team-shortcuts")
+      .then(({ loadTeamShortcutsFile }) => {
+        return loadTeamShortcutsFile(workspacePath);
+      })
+      .then((teamShortcuts) => {
+        useShortcutsStore.getState().setTeamNodes(teamShortcuts || []);
+      })
+      .catch((err: unknown) => {
+        console.warn("[App] Failed to load team shortcuts (non-critical):", err);
+      });
 
     return () => {
       if (teamSyncIntervalRef.current) {
@@ -428,7 +432,7 @@ export function useGitReposInit() {
         teamSyncIntervalRef.current = null;
       }
     };
-  }, [workspacePath, initGitRepos, syncGitRepos]);
+  }, [workspacePath, openCodeReady]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
