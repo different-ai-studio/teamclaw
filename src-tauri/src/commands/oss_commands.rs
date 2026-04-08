@@ -61,6 +61,7 @@ fn derive_node_id_from_secret_key() -> Result<String, String> {
     Ok(node_id.to_string())
 }
 
+
 /// Tauri command: return (or create) the persistent device UUID stored in
 /// `~/.teamclaw/device-id`.  Never fails on a healthy filesystem.
 /// This is the stable identifier used as the JWT `sub` claim.
