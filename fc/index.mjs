@@ -164,6 +164,11 @@ function memberPolicy(teamId, nodeId) {
         Action: ["oss:PutObject"],
         Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/updates/${nodeId}/*`,
       },
+      {
+        Effect: "Allow",
+        Action: ["oss:PutObject"],
+        Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/signal/${nodeId}/*`,
+      },
     ],
   });
 }
@@ -199,6 +204,17 @@ function editorPolicy(teamId, nodeId) {
       Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/snapshot/*`,
     }
   );
+  return JSON.stringify(base);
+}
+
+function managerPolicy(teamId, nodeId) {
+  const base = JSON.parse(editorPolicy(teamId, nodeId));
+  // Managers can update team metadata (members.json, etc.)
+  base.Statement.push({
+    Effect: "Allow",
+    Action: ["oss:PutObject"],
+    Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/_meta/*`,
+  });
   return JSON.stringify(base);
 }
 
@@ -329,7 +345,10 @@ async function handleToken(body) {
     const manifest = await ossGet(`teams/${teamId}/_meta/members.json`);
     if (manifest) {
       const member = manifest.members?.find((m) => (m.nodeId ?? m.node_id) === nodeId);
-      if (member?.role === "editor" || member?.role === "manager") {
+      if (member?.role === "manager") {
+        role = member.role;
+        policy = managerPolicy(teamId, nodeId);
+      } else if (member?.role === "editor") {
         role = member.role;
         policy = editorPolicy(teamId, nodeId);
       }
