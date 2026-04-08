@@ -328,7 +328,7 @@ async function handleToken(body) {
   if (!isOwner) {
     const manifest = await ossGet(`teams/${teamId}/_meta/members.json`);
     if (manifest) {
-      const member = manifest.members?.find((m) => m.node_id === nodeId);
+      const member = manifest.members?.find((m) => (m.nodeId ?? m.node_id) === nodeId);
       if (member?.role === "editor" || member?.role === "manager") {
         role = member.role;
         policy = editorPolicy(teamId, nodeId);
