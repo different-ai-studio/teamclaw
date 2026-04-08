@@ -1372,6 +1372,9 @@ impl OssSyncManager {
 
         // Collect files that should exist on disk from the LoroDoc
         let mut doc_files: HashSet<String> = HashSet::new();
+        // Files whose disk copy was modified externally (e.g. via Finder)
+        // while the app was closed — these must be absorbed, not overwritten.
+        let mut locally_modified: HashSet<String> = HashSet::new();
         let mut pending_writes: Vec<(PathBuf, PathBuf)> = Vec::new();
 
         let map_value = files_map.get_deep_value();
@@ -1411,19 +1414,48 @@ impl OssSyncManager {
                         doc_files.insert(path.to_string());
 
                         if let Some(loro::LoroValue::String(content_str)) = entry.get("content") {
-                            let tmp_path = tmp_dir.join(path.as_str());
                             let final_path = dir.join(path.as_str());
-                            if let Some(parent) = tmp_path.parent() {
-                                std::fs::create_dir_all(parent).map_err(|e| {
+
+                            // Check whether the file on disk was modified
+                            // externally (e.g. replaced via Finder while the
+                            // app was closed).  If the disk hash differs from
+                            // the CRDT's recorded hash the local copy is newer
+                            // — skip the write so the absorb phase below picks
+                            // it up instead of overwriting it.
+                            let disk_modified = if final_path.exists() {
+                                match entry.get("hash") {
+                                    Some(loro::LoroValue::String(doc_hash)) => {
+                                        match std::fs::read(&final_path) {
+                                            Ok(disk_content) => {
+                                                let disk_hash = Self::compute_hash(&disk_content);
+                                                disk_hash != doc_hash.as_ref()
+                                            }
+                                            Err(_) => false,
+                                        }
+                                    }
+                                    _ => false,
+                                }
+                            } else {
+                                false
+                            };
+
+                            if disk_modified {
+                                info!("Disk file modified externally, preserving local version: {path}");
+                                locally_modified.insert(path.to_string());
+                            } else {
+                                let tmp_path = tmp_dir.join(path.as_str());
+                                if let Some(parent) = tmp_path.parent() {
+                                    std::fs::create_dir_all(parent).map_err(|e| {
+                                        let _ = std::fs::remove_dir_all(&tmp_dir);
+                                        format!("Failed to create tmp dir {}: {e}", parent.display())
+                                    })?;
+                                }
+                                std::fs::write(&tmp_path, content_str.as_bytes()).map_err(|e| {
                                     let _ = std::fs::remove_dir_all(&tmp_dir);
-                                    format!("Failed to create tmp dir {}: {e}", parent.display())
+                                    format!("Failed to write {}: {e}", tmp_path.display())
                                 })?;
+                                pending_writes.push((tmp_path, final_path));
                             }
-                            std::fs::write(&tmp_path, content_str.as_bytes()).map_err(|e| {
-                                let _ = std::fs::remove_dir_all(&tmp_dir);
-                                format!("Failed to write {}: {e}", tmp_path.display())
-                            })?;
-                            pending_writes.push((tmp_path, final_path));
                         }
                     }
                 }
@@ -1461,7 +1493,9 @@ impl OssSyncManager {
         }
 
         // Absorb files on disk that are not yet in the LoroDoc (e.g. copied
-        // via Finder while the app was closed or between sync cycles).
+        // via Finder while the app was closed or between sync cycles),
+        // as well as files that were modified externally while the app was
+        // closed (detected by hash mismatch above).
         // This also catches files that the CRDT marks as deleted but
         // which exist locally — they are re-absorbed with deleted=false.
         let mut absorbed = false;
@@ -1471,7 +1505,7 @@ impl OssSyncManager {
             let node_id = &self.node_id;
 
             for (path, content) in &disk_files {
-                if !doc_files.contains(path) {
+                if !doc_files.contains(path) || locally_modified.contains(path) {
                     let hash = Self::compute_hash(content);
                     let content_str = String::from_utf8_lossy(content).to_string();
 
@@ -1494,7 +1528,11 @@ impl OssSyncManager {
                         .insert("updatedAt", now.as_str())
                         .map_err(|e| format!("Failed to set updatedAt for {path}: {e}"))?;
 
-                    info!("Absorbed local-only file into LoroDoc: {path}");
+                    if locally_modified.contains(path) {
+                        info!("Absorbed externally modified file into LoroDoc: {path}");
+                    } else {
+                        info!("Absorbed local-only file into LoroDoc: {path}");
+                    }
                     absorbed = true;
                 }
             }
