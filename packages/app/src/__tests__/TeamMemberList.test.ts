@@ -3,23 +3,10 @@ import { render, screen, act, cleanup } from '@testing-library/react'
 import * as React from 'react'
 import type { TeamMember } from '@/lib/git/types'
 
+// Mock Tauri event API to prevent transformCallback errors
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }))
-
-vi.mock('@/stores/workspace', () => ({
-  useWorkspaceStore: (selector: (s: { workspacePath: string }) => unknown) =>
-    selector({ workspacePath: '/workspace/test' }),
-}))
-
-vi.mock('@/stores/p2p-engine', () => {
-  const engineState = {
-    snapshot: { status: 'idle', streamHealth: 'good', uptimeSecs: 0, restartCount: 0, peers: [], syncedFiles: 0, pendingFiles: 0 },
-  }
-  return {
-    useP2pEngineStore: (selector: (s: typeof engineState) => unknown) => selector(engineState),
-  }
-})
 
 const ownerMember: TeamMember = {
   nodeId: 'owner-node-id-abcdef',

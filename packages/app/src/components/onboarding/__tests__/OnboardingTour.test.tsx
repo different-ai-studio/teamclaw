@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
-import { appShortName } from "@/lib/build-config"
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -91,11 +90,11 @@ describe("OnboardingTour", () => {
 
     fireEvent.click(await screen.findByText("Done"))
 
-    expect(localStorage.getItem(`${appShortName}-onboarding-main-workspace`)).toBe("done")
+    expect(localStorage.getItem("teamclaw-onboarding-main-workspace")).toBe("done")
   })
 
   it("does not reopen after completion", () => {
-    localStorage.setItem(`${appShortName}-onboarding-main-workspace`, "done")
+    localStorage.setItem("teamclaw-onboarding-main-workspace", "done")
 
     const target = document.createElement("div")
     target.setAttribute("data-onboarding-id", "target")

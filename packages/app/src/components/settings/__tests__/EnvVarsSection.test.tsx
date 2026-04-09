@@ -2,12 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import React from 'react'
 
-const { mockLoadEnvVars, mockLoadSecrets, mockListenForChanges } = vi.hoisted(() => ({
-  mockLoadEnvVars: vi.fn(),
-  mockLoadSecrets: vi.fn(),
-  mockListenForChanges: vi.fn(async () => () => {}),
-}))
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, fallback: string) => fallback,
@@ -44,6 +38,8 @@ vi.mock('@/components/settings/shared', () => ({
     React.createElement('div', { 'data-testid': 'section-header' }, title),
 }))
 
+const mockLoadEnvVars = vi.fn()
+
 vi.mock('@/stores/env-vars', () => ({
   useEnvVarsStore: () => ({
     envVars: [],
@@ -66,34 +62,17 @@ vi.mock('@/lib/opencode/sdk-client', () => ({
   initOpenCodeClient: vi.fn(),
 }))
 
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(async () => () => {}),
-}))
-
-vi.mock('@/stores/shared-secrets', () => ({
-  useSharedSecretsStore: () => ({
-    secrets: [],
-    isLoading: false,
-    loadSecrets: mockLoadSecrets,
-    listenForChanges: mockListenForChanges,
-    setSecret: vi.fn(),
-    deleteSecret: vi.fn(),
-  }),
-}))
-
-vi.mock('@/stores/team-members', () => ({
-  useTeamMembersStore: (selector?: (s: Record<string, unknown>) => unknown) => {
-    const state = { members: [], myRole: null, loading: false, currentNodeId: null }
-    return selector ? selector(state) : state
-  },
-}))
-
-const icon = () => React.createElement('span')
 vi.mock('lucide-react', () => ({
-  KeyRound: icon, Plus: icon, Eye: icon, EyeOff: icon, Pencil: icon,
-  Trash2: icon, ShieldCheck: icon, AlertCircle: icon, RefreshCw: icon,
-  Loader2: icon, Users: icon, User: icon, Lock: icon, Copy: icon,
-  Check: icon, CheckIcon: icon,
+  KeyRound: () => React.createElement('span', null, 'KeyRound'),
+  Plus: () => React.createElement('span', null, 'Plus'),
+  Eye: () => React.createElement('span', null, 'Eye'),
+  EyeOff: () => React.createElement('span', null, 'EyeOff'),
+  Pencil: () => React.createElement('span', null, 'Pencil'),
+  Trash2: () => React.createElement('span', null, 'Trash2'),
+  ShieldCheck: () => React.createElement('span', null, 'ShieldCheck'),
+  AlertCircle: () => React.createElement('span', null, 'AlertCircle'),
+  RefreshCw: () => React.createElement('span', null, 'RefreshCw'),
+  Loader2: () => React.createElement('span', null, 'Loader2'),
 }))
 
 beforeEach(() => {
