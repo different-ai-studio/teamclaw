@@ -72,7 +72,7 @@ teamclaw-rag = { path = "crates/teamclaw-rag" }
 
 # RAG dependencies (still used by main crate)
 anyhow = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 walkdir = "2"
 # zstd: used by oss_sync for compression; also a transitive dep of tantivy (via teamclaw-rag).
 # A direct dep on zstd-sys unifies features and links bundled libzstd (avoids wrong-arch pkg-config).

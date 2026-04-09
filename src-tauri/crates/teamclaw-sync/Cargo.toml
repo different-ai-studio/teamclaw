@@ -18,7 +18,7 @@ aes-gcm = "0.10"
 pbkdf2 = { version = "0.12", features = ["simple"] }
 
 # Crypto
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 getrandom = "0.2"
 base64 = "0.22"
