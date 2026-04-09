@@ -154,7 +154,7 @@ describe('useOpenCodeInit', () => {
   })
 
   it('restores the last workspace when one is saved', async () => {
-    localStorage.setItem('teamclaw-workspace-path', '/tmp/teamclaw-last')
+    localStorage.setItem('ac360-workspace-path', '/tmp/teamclaw-last')
 
     const { useOpenCodeInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useOpenCodeInit())
@@ -168,14 +168,14 @@ describe('useOpenCodeInit', () => {
   it('clears a saved workspace when it no longer exists in Tauri', async () => {
     mockIsTauri.mockReturnValue(true)
     mockExists.mockResolvedValue(false)
-    localStorage.setItem('teamclaw-workspace-path', '/tmp/missing-workspace')
+    localStorage.setItem('ac360-workspace-path', '/tmp/missing-workspace')
 
     const { useOpenCodeInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useOpenCodeInit())
 
     await waitFor(() => {
       expect(mockSetWorkspace).not.toHaveBeenCalled()
-      expect(localStorage.getItem('teamclaw-workspace-path')).toBeNull()
+      expect(localStorage.getItem('ac360-workspace-path')).toBeNull()
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
   })

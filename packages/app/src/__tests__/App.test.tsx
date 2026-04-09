@@ -109,6 +109,7 @@ vi.mock('@/stores/tabs', () => ({
     { getState: () => ({ openTab: vi.fn(), closeTab: vi.fn(), tabs: [], activeTabId: null }) }
   ),
   selectActiveTab: (_s: any) => null,
+  selectHasHiddenTabs: (_s: any) => false,
 }))
 vi.mock('@/components/tab-bar/TabBar', () => ({ TabBar: () => null }))
 vi.mock('@/components/tab-bar/TabContentRenderer', () => ({ TabContentRenderer: () => null }))

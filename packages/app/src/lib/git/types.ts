@@ -173,6 +173,7 @@ export type SkillSource =
   | 'personal' 
   | 'team' 
   | 'builtin'
+  | 'plugin'
   | 'global-opencode'
   | 'global-claude'
   | 'global-agent'
