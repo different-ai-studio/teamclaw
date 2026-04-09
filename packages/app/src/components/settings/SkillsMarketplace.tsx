@@ -29,12 +29,6 @@ import { Input } from "@/components/ui/input"
 import { SettingCard } from "./shared"
 import { ClawHubMarketplace } from "./ClawHubMarketplace"
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -56,8 +50,31 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+function formatTauriInvokeError(err: unknown): string {
+  if (err == null) return String(err)
+  if (typeof err === 'string') return err
+  if (err instanceof Error) return err.message
+  if (
+    typeof err === 'object' &&
+    'message' in err &&
+    typeof (err as { message: unknown }).message === 'string'
+  ) {
+    return (err as { message: string }).message
+  }
+  return String(err)
+}
+
 interface SkillsMarketplaceProps {
   onInstalled?: () => void | Promise<void>
+  linkedInstalledSlugs?: Set<string>
+  compact?: boolean
+  sharedSearchQuery?: string
+  onSharedSearchQueryChange?: (value: string) => void
+  externalSearch?: boolean
+  externalRefreshSignal?: number
+  activeSource?: "clawhub" | "skillssh"
+  onActiveSourceChange?: (value: "clawhub" | "skillssh") => void
+  externalSourceControl?: boolean
 }
 
 type SkillsShCategory = "all-time" | "trending" | "hot"
@@ -79,10 +96,20 @@ interface SkillsShLeaderboard {
 
 export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   onInstalled,
+  linkedInstalledSlugs = new Set<string>(),
+  compact = false,
+  sharedSearchQuery,
+  onSharedSearchQueryChange,
+  externalSearch = false,
+  externalRefreshSignal = 0,
+  activeSource: controlledActiveSource,
+  onActiveSourceChange,
+  externalSourceControl = false,
 }: SkillsMarketplaceProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const [activeSource, setActiveSource] = React.useState<"clawhub" | "skillssh">("clawhub")
+  const [sourceContentReady, setSourceContentReady] = React.useState(true)
   const [skillsShCategory, setSkillsShCategory] = React.useState<SkillsShCategory>("trending")
   const [searchQuery, setSearchQuery] = React.useState("")
   const [leaderboard, setLeaderboard] = React.useState<SkillsShLeaderboard | null>(null)
@@ -99,6 +126,17 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   const [selectedSkill, setSelectedSkill] = React.useState<SkillsShEntry | null>(null)
   const [skillContent, setSkillContent] = React.useState<string | null>(null)
   const [isLoadingContent, setIsLoadingContent] = React.useState(false)
+  const effectiveSearchQuery = externalSearch ? (sharedSearchQuery ?? "") : searchQuery
+  const effectiveActiveSource = controlledActiveSource ?? activeSource
+
+  const switchSource = React.useCallback((nextSource: "clawhub" | "skillssh") => {
+    setSourceContentReady(false)
+    if (onActiveSourceChange) {
+      onActiveSourceChange(nextSource)
+    } else {
+      setActiveSource(nextSource)
+    }
+  }, [onActiveSourceChange])
 
   // Check if running in Tauri
   const isTauri = React.useMemo(() => {
@@ -124,7 +162,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       setLeaderboard(data)
     } catch (err) {
       console.error("[SkillsMarketplace] Failed to fetch leaderboard:", err)
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatTauriInvokeError(err))
     } finally {
       setIsLoading(false)
     }
@@ -147,7 +185,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       setLeaderboard(data)
     } catch (err) {
       console.error("[SkillsMarketplace] Failed to search skills:", err)
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatTauriInvokeError(err))
     } finally {
       setIsLoading(false)
     }
@@ -156,14 +194,18 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleSearchChange = React.useCallback((value: string) => {
-    setSearchQuery(value)
+    if (externalSearch) {
+      onSharedSearchQueryChange?.(value)
+    } else {
+      setSearchQuery(value)
+    }
     if (searchTimerRef.current) {
       clearTimeout(searchTimerRef.current)
     }
     searchTimerRef.current = setTimeout(() => {
       doSearchSkillSh(value)
     }, 400)
-  }, [doSearchSkillSh])
+  }, [doSearchSkillSh, externalSearch, onSharedSearchQueryChange])
 
   const loadInstalled = React.useCallback(async () => {
     if (!workspacePath) return
@@ -204,10 +246,36 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   // Load on mount or when category changes
   React.useEffect(() => {
     loadInstalled()
-    if (activeSource === "skillssh" && !searchQuery.trim()) {
+    if (effectiveActiveSource === "skillssh" && !effectiveSearchQuery.trim()) {
       fetchLeaderboard()
     }
-  }, [activeSource, skillsShCategory, fetchLeaderboard, searchQuery, loadInstalled])
+  }, [effectiveActiveSource, effectiveSearchQuery, skillsShCategory, fetchLeaderboard, loadInstalled])
+
+  React.useEffect(() => {
+    if (!externalSearch || effectiveActiveSource !== "skillssh") return
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current)
+    }
+    searchTimerRef.current = setTimeout(() => {
+      void doSearchSkillSh(effectiveSearchQuery)
+    }, 300)
+  }, [effectiveActiveSource, doSearchSkillSh, effectiveSearchQuery, externalSearch])
+
+  React.useEffect(() => {
+    if (!externalRefreshSignal || effectiveActiveSource !== "skillssh") return
+    if (effectiveSearchQuery.trim()) {
+      void doSearchSkillSh(effectiveSearchQuery)
+    } else {
+      void fetchLeaderboard()
+    }
+  }, [effectiveActiveSource, doSearchSkillSh, effectiveSearchQuery, externalRefreshSignal, fetchLeaderboard])
+
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setSourceContentReady(true)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [effectiveActiveSource])
 
   const filteredSkillsSh = React.useMemo(() => {
     return leaderboard?.skills ?? []
@@ -226,7 +294,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       await onInstalled?.()
     } catch (err) {
       console.error("[SkillsMarketplace] Failed to install skill:", err)
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatTauriInvokeError(err))
     } finally {
       setInstallingSlugs((prev) => {
         const next = new Set(prev)
@@ -359,27 +427,93 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   }, [])
 
   return (
-    <div className="space-y-4">
-      {/* Source Tabs */}
-      <Tabs value={activeSource} onValueChange={(v) => setActiveSource(v as typeof activeSource)}>
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="clawhub" className="flex items-center gap-2">
+    <div className="min-w-0 space-y-4">
+      {compact && !externalSourceControl ? (
+        <div className="grid gap-3 rounded-xl border bg-muted/20 p-4 lg:grid-cols-[minmax(0,1fr)_16rem] lg:items-center">
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <div className="text-sm font-medium">{t("settings.skills.marketplace", "Marketplace")}</div>
+            <div className="text-xs text-muted-foreground">
+              {t("settings.skills.marketplaceSourceHint", "Choose a source and install workspace-ready skills.")}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              {t("settings.skills.sourceLabel", "Source")}
+            </div>
+              <Select
+              value={effectiveActiveSource}
+              onValueChange={(value) => switchSource(value as "clawhub" | "skillssh")}
+            >
+              <SelectTrigger className="h-11 rounded-xl border-border/70 bg-background text-sm shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="clawhub">
+                  <span className="inline-flex items-center gap-2">
+                    <Package className="h-4 w-4" />
+                    ClawHub
+                  </span>
+                </SelectItem>
+                <SelectItem value="skillssh">
+                  <span className="inline-flex items-center gap-2">
+                    <Award className="h-4 w-4" />
+                    skills.sh
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      ) : !externalSourceControl ? (
+        <div className="inline-flex rounded-xl border border-border/70 bg-background p-1">
+          <button
+            type="button"
+            onClick={() => switchSource("clawhub")}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              effectiveActiveSource === "clawhub"
+                ? "bg-accent text-accent-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
             <Package className="h-4 w-4" />
             ClawHub Marketplace
-          </TabsTrigger>
-          <TabsTrigger value="skillssh" className="flex items-center gap-2">
+          </button>
+          <button
+            type="button"
+            onClick={() => switchSource("skillssh")}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              effectiveActiveSource === "skillssh"
+                ? "bg-accent text-accent-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
             <Award className="h-4 w-4" />
             skills.sh Marketplace
-          </TabsTrigger>
-        </TabsList>
+          </button>
+        </div>
+      ) : null}
 
-        {/* ClawHub Tab – forceMount keeps state alive across tab switches */}
-        <TabsContent value="clawhub" className="mt-4" forceMount style={{ display: activeSource === 'clawhub' ? undefined : 'none' }}>
-          <ClawHubMarketplace onInstalled={onInstalled} />
-        </TabsContent>
-
-        {/* skills.sh Tab */}
-        <TabsContent value="skillssh" className="mt-4 space-y-4" forceMount style={{ display: activeSource === 'skillssh' ? undefined : 'none' }}>
+      {!sourceContentReady ? (
+        <SettingCard className={compact ? "" : "mt-4"}>
+          <div className="flex min-h-[180px] items-center justify-center gap-3 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>{t('settings.skills.marketplaceLoading', 'Loading marketplace...')}</span>
+          </div>
+        </SettingCard>
+      ) : effectiveActiveSource === 'clawhub' ? (
+        <div className={compact ? "" : "mt-4"}>
+          <ClawHubMarketplace
+            onInstalled={onInstalled}
+            externalSearch={externalSearch}
+            sharedSearchQuery={externalSearch ? effectiveSearchQuery : undefined}
+            onSharedSearchQueryChange={externalSearch ? onSharedSearchQueryChange : undefined}
+            externalRefreshSignal={externalRefreshSignal}
+          />
+        </div>
+      ) : (
+        <div className={cn("min-w-0 space-y-4", compact ? "" : "mt-4")}>
           {/* Error */}
           {error && (
             <SettingCard className="bg-destructive/10 border-destructive/50">
@@ -404,28 +538,32 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
           )}
 
           {/* Search + Category Filters */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={t("skillssh.searchPlaceholder", "Search skills...")}
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="pl-9 h-9"
-              />
-            </div>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 shrink-0"
-              onClick={() => fetchLeaderboard()}
-              disabled={isLoading}
-              title={t("common.refresh", "Refresh")}
-            >
-              <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-            </Button>
-            {!searchQuery.trim() && (
-              <div className="flex items-center rounded-lg border border-input overflow-hidden shrink-0">
+          <div className="grid gap-2">
+            {!externalSearch ? (
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="relative min-w-0">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder={t("skillssh.searchPlaceholder", "Search skills...")}
+                    value={searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    className="pl-9 h-9"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  onClick={() => fetchLeaderboard()}
+                  disabled={isLoading}
+                  title={t("common.refresh", "Refresh")}
+                >
+                  <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                </Button>
+              </div>
+            ) : null}
+            {!effectiveSearchQuery.trim() && (
+              <div className="flex max-w-full flex-wrap items-center rounded-lg border border-input overflow-hidden shrink-0 sm:col-span-2">
                 <button
                   onClick={() => setSkillsShCategory("all-time")}
                   disabled={isLoading}
@@ -472,123 +610,6 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
             )}
           </div>
 
-          {/* Marketplace */}
-          <div className="space-y-3">
-            {isLoading ? (
-              <SettingCard>
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              </SettingCard>
-            ) : filteredSkillsSh.length === 0 ? (
-              <SettingCard>
-                <div className="text-center py-6 text-muted-foreground">
-                  <Search className="h-8 w-8 mx-auto mb-3 opacity-50" />
-                  <p className="font-medium">{t("skillssh.noResults", "No skills found")}</p>
-                  <p className="text-sm mt-1">{t("skillssh.tryDifferent", "Try a different search term")}</p>
-                </div>
-              </SettingCard>
-            ) : (
-              filteredSkillsSh.map((skill) => {
-                return (
-                  <SettingCard
-                    key={skill.slug}
-                    className="hover:border-primary/30 transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0" onClick={() => openSkillDetail(skill)}>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium truncate">{skill.slug}</span>
-                          {skill.category && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary shrink-0">
-                              {skill.category}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          <a
-                            href={`https://github.com/${skill.owner}/${skill.repo}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {skill.owner}/{skill.repo}
-                          </a>
-                        </p>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Download className="h-3 w-3" />
-                            {skill.installs.toLocaleString()}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Award className="h-3 w-3" />
-                            #{skill.rank}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {installedSlugs.has(skill.slug) ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="gap-1.5 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
-                                disabled={installingSlugs.has(skill.slug)}
-                              >
-                                {installingSlugs.has(skill.slug) ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Check className="h-3.5 w-3.5" />
-                                )}
-                                {t("skillssh.installed", "Installed")}
-                                <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => handleReinstallSkillSh(skill.owner, skill.repo, skill.slug)}
-                                disabled={installingSlugs.has(skill.slug)}
-                              >
-                                <RefreshCw className="h-3.5 w-3.5 mr-2" />
-                                {t("skillssh.reinstall", "Reinstall")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleUninstallSkillSh(skill.slug)}
-                                disabled={installingSlugs.has(skill.slug)}
-                                className="text-destructive focus:text-destructive"
-                              >
-                                <Trash2 className="h-3.5 w-3.5 mr-2" />
-                                {t("skillssh.uninstall", "Uninstall")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : (
-                          <Button
-                            size="sm"
-                            className="gap-1.5"
-                            disabled={installingSlugs.has(skill.slug)}
-                            onClick={() => openInstallDialog(skill.owner, skill.repo, skill.slug)}
-                          >
-                            {installingSlugs.has(skill.slug) ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Download className="h-3.5 w-3.5" />
-                            )}
-                            {t("skillssh.install", "Install")}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </SettingCard>
-                )
-              })
-            )}
-          </div>
-
           {/* npx skills install */}
           <SettingCard className="bg-muted/30">
             <div className="space-y-3">
@@ -599,15 +620,15 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
               <p className="text-sm text-muted-foreground">
                 {t("skillssh.installFromSourceDesc", "Install skills via npx skills add — supports GitHub shorthand (owner/repo), full URLs, and direct skill paths")}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_10rem_auto] md:items-center">
                 <Input
                   placeholder={t("skillssh.sourcePlaceholder", "owner/repo or https://github.com/owner/repo")}
-                  className="flex-1 h-9 font-mono text-xs"
+                  className="h-9 min-w-0 font-mono text-xs"
                   id="npx-source-input"
                 />
                 <Input
                   placeholder={t("skillssh.skillNamePlaceholder", "skill-name (optional)")}
-                  className="w-40 h-9 text-xs"
+                  className="h-9 w-full text-xs"
                   id="npx-skill-input"
                 />
                 <Button
@@ -621,6 +642,16 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
 
                     if (!source) {
                       setError(t("skillssh.sourceRequired", "Please enter a source (owner/repo or URL)"))
+                      return
+                    }
+
+                    if (!workspacePath) {
+                      setError(
+                        t(
+                          "skillssh.workspaceRequiredForGit",
+                          "Open a workspace folder first — skills install into .opencode/skills in that project.",
+                        ),
+                      )
                       return
                     }
 
@@ -641,7 +672,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                       skillInput.value = ''
                     } catch (err) {
                       console.error("[SkillsMarketplace] npx skills add failed:", err)
-                      setError(err instanceof Error ? err.message : String(err))
+                      setError(formatTauriInvokeError(err))
                     } finally {
                       setInstallingSlugs((prev) => {
                         const next = new Set(prev)
@@ -650,6 +681,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                       })
                     }
                   }}
+                  disabled={!workspacePath}
                 >
                   <Download className="h-3.5 w-3.5" />
                   {t("skillssh.install", "Install")}
@@ -669,8 +701,8 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
 
           {/* Update / Check skills */}
           <SettingCard className="bg-muted/30">
-            <div className="flex items-center justify-between gap-3">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
                 <h4 className="text-sm font-medium flex items-center gap-2">
                   <ArrowUpCircle className="h-4 w-4" />
                   {t("skillssh.manageInstalled", "Manage Installed Skills")}
@@ -679,7 +711,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                   {t("skillssh.manageDesc", "Check for updates or update all installed skills via npx skills")}
                 </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <Button
                   size="sm"
                   variant="outline"
@@ -747,7 +779,9 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                     <span className="text-xs">{t("skillssh.total", "Total")}</span>
                   </div>
                   <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                    {(leaderboard.totalInstalls / 1000).toFixed(0)}K+
+                    {Number.isFinite(leaderboard.totalInstalls) && leaderboard.totalInstalls >= 0
+                      ? `${Math.round(leaderboard.totalInstalls / 1000)}K+`
+                      : '—'}
                   </span>
                   <span className="text-xs text-muted-foreground">{t("skillssh.totalInstalls", "installs")}</span>
                 </div>
@@ -758,15 +792,141 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                     <span className="text-xs">{t("skillssh.updated", "Updated")}</span>
                   </div>
                   <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                    {new Date(leaderboard.lastUpdated * 1000).toLocaleDateString()}
+                    {Number.isFinite(leaderboard.lastUpdated) && leaderboard.lastUpdated > 0
+                      ? new Date(leaderboard.lastUpdated * 1000).toLocaleDateString()
+                      : t('skillssh.unknownDate', '—')}
                   </span>
                   <span className="text-xs text-muted-foreground">{t("skillssh.lastSync", "last sync")}</span>
                 </div>
               </div>
             </SettingCard>
           )}
-        </TabsContent>
-      </Tabs>
+
+          {/* Marketplace */}
+          <div className="space-y-3">
+            {isLoading ? (
+              <SettingCard>
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              </SettingCard>
+            ) : filteredSkillsSh.length === 0 ? (
+              <SettingCard>
+                <div className="text-center py-6 text-muted-foreground">
+                  <Search className="h-8 w-8 mx-auto mb-3 opacity-50" />
+                  <p className="font-medium">{t("skillssh.noResults", "No skills found")}</p>
+                  <p className="text-sm mt-1">{t("skillssh.tryDifferent", "Try a different search term")}</p>
+                </div>
+              </SettingCard>
+            ) : (
+              filteredSkillsSh.map((skill) => {
+                return (
+                  <SettingCard
+                    key={skill.slug}
+                    className="cursor-pointer transition-colors hover:border-primary/30"
+                  >
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                      <div className="flex-1 min-w-0" onClick={() => openSkillDetail(skill)}>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium truncate">{skill.slug}</span>
+                          {skill.category && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary shrink-0">
+                              {skill.category}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          <a
+                            href={`https://github.com/${skill.owner}/${skill.repo}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {skill.owner}/{skill.repo}
+                          </a>
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Download className="h-3 w-3" />
+                            {skill.installs.toLocaleString()}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Award className="h-3 w-3" />
+                            #{skill.rank}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex shrink-0 self-start" onClick={(e) => e.stopPropagation()}>
+                        {installedSlugs.has(skill.slug) && linkedInstalledSlugs.has(skill.slug) ? (
+                          <div className="mb-2 flex justify-end">
+                            <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {t("settings.skills.linkedToRoles", "Linked to roles")}
+                            </span>
+                          </div>
+                        ) : null}
+                        {installedSlugs.has(skill.slug) ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
+                                disabled={installingSlugs.has(skill.slug)}
+                              >
+                                {installingSlugs.has(skill.slug) ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5" />
+                                )}
+                                {t("skillssh.installed", "Installed")}
+                                <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => handleReinstallSkillSh(skill.owner, skill.repo, skill.slug)}
+                                disabled={installingSlugs.has(skill.slug)}
+                              >
+                                <RefreshCw className="h-3.5 w-3.5 mr-2" />
+                                {t("skillssh.reinstall", "Reinstall")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleUninstallSkillSh(skill.slug)}
+                                disabled={installingSlugs.has(skill.slug)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                {t("skillssh.uninstall", "Uninstall")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="gap-1.5"
+                            disabled={installingSlugs.has(skill.slug)}
+                            onClick={() => openInstallDialog(skill.owner, skill.repo, skill.slug)}
+                          >
+                            {installingSlugs.has(skill.slug) ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            {t("skillssh.install", "Install")}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </SettingCard>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Install Location Dialog */}
       <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>

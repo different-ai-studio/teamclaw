@@ -13,7 +13,7 @@ vi.mock('@/stores/session', () => ({
     { getState: () => ({ sessions: [], getSessionMessages: () => [] }) },
   ),
 }))
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: vi.fn(() => ({ getMessages: vi.fn(async () => []) })),
 }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))

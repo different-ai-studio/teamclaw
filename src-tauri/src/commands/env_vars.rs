@@ -7,10 +7,45 @@ use super::opencode::OpenCodeState;
 /// Single keychain entry that stores all env vars as a JSON blob.
 pub(crate) const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), ".env");
 
+/// Disk-based fallback path for the env blob.
+/// Used when keychain is inaccessible (e.g. after an unsigned app update
+/// changes the binary signature and macOS revokes keychain access).
+fn env_blob_fallback_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(concat!(".", env!("APP_SHORT_NAME"), "/env-blob.json")))
+}
+
+/// Read the env blob from the disk fallback file.
+fn read_env_blob_from_disk() -> Option<serde_json::Map<String, serde_json::Value>> {
+    let path = env_blob_fallback_path()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+    match val {
+        serde_json::Value::Object(map) => Some(map),
+        _ => None,
+    }
+}
+
+/// Write the env blob to the disk fallback file.
+fn write_env_blob_to_disk(map: &serde_json::Map<String, serde_json::Value>) {
+    if let Some(path) = env_blob_fallback_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let json_str = match serde_json::to_string(map) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        if let Err(e) = std::fs::write(&path, &json_str) {
+            eprintln!("[EnvVars] Failed to write disk fallback: {}", e);
+        }
+    }
+}
+
 /// Read the entire env var blob from keychain.
 /// Returns an empty map if the entry doesn't exist yet.
 /// On first call after migration: detects old per-key entries and consolidates them.
 /// May write to keychain on first call if legacy migration is needed.
+/// Falls back to a disk file when keychain is inaccessible (e.g. after app update).
 pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
         .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
@@ -29,28 +64,77 @@ pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<Stri
         }
         Err(keyring::Error::NoEntry) => {
             // First launch (or blob deleted): attempt migration from legacy per-key format.
-            // Note: migration only fires when the blob entry is absent (NoEntry). If the blob
-            // exists but contains empty/corrupt JSON, we return the fallback empty map above and
-            // skip migration — legacy per-key entries would remain orphaned in that case.
             let migrated = migrate_legacy_keyring(workspace_path);
             if !migrated.is_empty() {
                 println!("[EnvVars] Migrated {} legacy keychain entries to blob", migrated.len());
                 write_env_blob(&migrated)?;
+                return Ok(migrated);
             }
-            Ok(migrated)
+            // Try disk fallback (handles post-update keychain loss)
+            if let Some(disk_blob) = read_env_blob_from_disk() {
+                if !disk_blob.is_empty() {
+                    println!("[EnvVars] Restored {} entries from disk fallback", disk_blob.len());
+                    // Re-populate keychain so subsequent reads are fast
+                    let _ = write_env_blob_to_keychain(&disk_blob);
+                    return Ok(disk_blob);
+                }
+            }
+            Ok(serde_json::Map::new())
         }
-        Err(e) => Err(format!("Failed to read keychain blob: {}", e)),
+        Err(e) => {
+            // Keychain error (e.g. access denied after app update) — try disk fallback
+            eprintln!("[EnvVars] Keychain read failed: {}. Trying disk fallback...", e);
+            if let Some(disk_blob) = read_env_blob_from_disk() {
+                if !disk_blob.is_empty() {
+                    println!("[EnvVars] Restored {} entries from disk fallback", disk_blob.len());
+                    return Ok(disk_blob);
+                }
+            }
+            Err(format!("Failed to read keychain blob: {}", e))
+        }
     }
 }
 
-/// Write the entire env var blob to keychain.
-pub(crate) fn write_env_blob(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+/// Write the env blob to keychain only (no disk fallback).
+fn write_env_blob_to_keychain(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
     let json_str = serde_json::to_string(map)
         .map_err(|e| format!("Failed to serialize env blob: {}", e))?;
     let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
         .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
     entry.set_password(&json_str)
         .map_err(|e| format!("Failed to write keychain blob: {}", e))
+}
+
+/// Write the entire env var blob to keychain and disk fallback.
+pub(crate) fn write_env_blob(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    // Always write disk fallback (survives app updates)
+    write_env_blob_to_disk(map);
+    // Write to keychain (may fail after update, but that's OK — disk has it)
+    match write_env_blob_to_keychain(map) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            eprintln!("[EnvVars] Keychain write failed (disk fallback saved): {}", e);
+            Ok(())
+        }
+    }
+}
+
+/// Snapshot the current keychain env blob to the disk fallback file.
+/// Called by the updater before replacing the app bundle so the new binary
+/// (which may have a different code signature) can recover secrets.
+pub(crate) fn snapshot_env_blob_to_disk() {
+    let entry = match keyring::Entry::new(KEYRING_SERVICE, "teamclaw") {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    if let Ok(json_str) = entry.get_password() {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            if let serde_json::Value::Object(map) = val {
+                write_env_blob_to_disk(&map);
+                println!("[EnvVars] Snapshot {} keychain entries to disk before update", map.len());
+            }
+        }
+    }
 }
 
 /// Read old per-key keychain entries and consolidate into a map.
@@ -391,14 +475,19 @@ pub(crate) fn ensure_system_env_vars(
 
     for def in SYSTEM_ENV_VARS {
         // Check if there's already a non-empty value in the blob
-        let has_value = blob.get(def.key).and_then(|v| v.as_str()).map_or(false, |v| !v.is_empty());
+        let existing_value = blob.get(def.key).and_then(|v| v.as_str()).unwrap_or("");
 
-        // Generate default value if not already set
-        if !has_value {
-            if let Some(default_value) = (def.default_fn)(&ctx) {
-                blob.insert(def.key.to_string(), serde_json::Value::String(default_value));
+        // Always regenerate: the device_id source may have changed (e.g. UUID → iroh node_id),
+        // so we overwrite whenever the generated value differs from the stored one.
+        if let Some(new_value) = (def.default_fn)(&ctx) {
+            if existing_value != new_value {
+                if !existing_value.is_empty() {
+                    println!("[EnvVars] Updating system var {} (value changed)", def.key);
+                } else {
+                    println!("[EnvVars] Generated default value for system var: {}", def.key);
+                }
+                blob.insert(def.key.to_string(), serde_json::Value::String(new_value));
                 blob_changed = true;
-                println!("[EnvVars] Generated default value for system var: {}", def.key);
             }
         }
 

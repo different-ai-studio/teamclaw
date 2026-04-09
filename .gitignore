@@ -5,6 +5,7 @@ node_modules/
 # Build outputs
 dist/
 target/
+.cargo-target/
 *.tsbuildinfo
 
 # IDE
@@ -117,3 +118,6 @@ tests/stress/reports/
 
 sre/
 .superpowers/
+
+# TeamClaw system directories
+.ac360/

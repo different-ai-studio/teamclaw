@@ -2,6 +2,7 @@
 "use strict";
 
 const { spawn } = require("child_process");
+const { createRustBuildEnv } = require("./rust-build-env");
 const { platform } = process;
 
 const args = process.argv.slice(2);
@@ -29,28 +30,11 @@ if (isWindows && (sub === "dev" || sub === "build")) {
   args.push(...filtered);
 }
 
-// Unset CI so tauri/cargo don't treat this as CI (e.g. for build output).
-const env = { ...process.env };
-delete env.CI;
+const env = createRustBuildEnv(process.env, __dirname);
 
-// Workaround: Xcode 26 beta clang reports "arm64-apple-darwin" which causes
-// bindgen to fail with an assertion error (expects "aarch64-apple-darwin").
-if (platform === "darwin" && process.arch === "arm64" && !env.BINDGEN_EXTRA_CLANG_ARGS) {
-  env.BINDGEN_EXTRA_CLANG_ARGS = "--target=aarch64-apple-darwin";
-}
-
-// Build command string with proper quoting for shell
-const commandStr = args.map((arg) => {
-  // Quote arguments that contain spaces or special characters (like JSON)
-  if (/[\s'"${}\\]/.test(arg)) {
-    return "'" + arg.replace(/'/g, "'\\''") + "'";
-  }
-  return arg;
-}).join(" ");
-
-const child = spawn("tauri " + commandStr, [], {
+const child = spawn("pnpm", ["exec", "tauri", ...args], {
   stdio: "inherit",
-  shell: true,
+  shell: isWindows,
   env,
 });
 child.on("exit", (code) => process.exit(code ?? 0));

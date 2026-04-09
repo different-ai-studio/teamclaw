@@ -20,6 +20,7 @@ import {
   Loader2,
   LogOut,
   RefreshCw,
+  RotateCcw,
   Shield,
   UserPlus,
   Users,
@@ -63,12 +64,14 @@ export function TeamOSSConfig() {
     restoring,
     syncing,
     syncStatus,
+    syncProgress,
     teamInfo,
     error,
     createTeam,
     joinTeam,
     leaveTeam,
     syncNow,
+    resetSync,
     loadSyncStatus,
     createSnapshot,
     cleanupUpdates,
@@ -80,6 +83,7 @@ export function TeamOSSConfig() {
   } = useTeamOssStore()
 
   const teamMembersStore = useTeamMembersStore()
+  const myRole = useTeamMembersStore((s) => s.myRole)
 
   // Create team form
   const [teamName, setTeamName] = useState('')
@@ -219,6 +223,11 @@ export function TeamOSSConfig() {
     await syncNow(workspacePath)
   }, [workspacePath, syncNow])
 
+  const handleResetSync = useCallback(async () => {
+    if (!workspacePath) return
+    await resetSync(workspacePath)
+  }, [workspacePath, resetSync])
+
   const handleSnapshot = useCallback(async (docType: string) => {
     if (!workspacePath) return
     setSnapshotLoading(docType)
@@ -250,16 +259,37 @@ export function TeamOSSConfig() {
   const teamModeType = useTeamModeStore((s) => s.teamModeType)
   const configuredAsOss = configured || teamModeType === 'oss'
 
-  const isOwner = teamInfo?.role === 'owner' || teamInfo?.role === 'admin'
+  const isOwner = myRole === 'owner' || myRole === 'manager'
 
   return (
     <div className="space-y-4">
       {/* State 0: Restoring connection or configured via teamclaw.json but not connected yet */}
       {!connected && (restoring || (configuredAsOss && !configured)) && (
         <SettingCard title="连接中" icon={Cloud}>
-          <div className="flex items-center gap-3 py-4 justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">正在连接团队...</p>
+          <div className="flex flex-col gap-3 py-4 items-center">
+            <div className="flex items-center gap-3 justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">正在连接团队...</p>
+            </div>
+            {restoring && syncProgress && (
+              <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground w-full">
+                <div className="mb-1">正在同步团队数据...</div>
+                {syncProgress.phase === 'snapshot' && (
+                  <div>下载快照: {syncProgress.docType}</div>
+                )}
+                {syncProgress.phase === 'updates' && syncProgress.total && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${((syncProgress.current || 0) / syncProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <span>{syncProgress.docType} ({syncProgress.current}/{syncProgress.total})</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </SettingCard>
       )}
@@ -455,7 +485,9 @@ export function TeamOSSConfig() {
                 <span className="text-muted-foreground">角色</span>
                 <div className="flex items-center gap-1.5">
                   <Shield className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="font-medium">{isOwner ? '管理员' : '成员'}</span>
+                  <span className="font-medium">
+                    {myRole === 'owner' ? '管理员' : myRole === 'manager' ? '经理' : myRole === 'editor' ? '编辑' : myRole === 'viewer' ? '只读' : '成员'}
+                  </span>
                 </div>
               </div>
               {deviceInfo && (
@@ -478,20 +510,61 @@ export function TeamOSSConfig() {
                   <span className={`h-2.5 w-2.5 rounded-full ring-2 ${connected ? 'bg-green-500 ring-green-500/20' : 'bg-red-500 ring-red-500/20'}`} />
                   <span className="font-medium">{connected ? '已连接' : '未连接'}</span>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleSyncNow}
-                  disabled={syncing}
-                  className="h-8"
-                >
-                  <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                  {syncing ? '同步中...' : '立即同步'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleSyncNow}
+                    disabled={syncing}
+                    className="h-8"
+                  >
+                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? '同步中...' : '立即同步'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleResetSync}
+                    disabled={syncing}
+                    className="h-8 text-orange-600 hover:text-orange-700"
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    重置同步
+                  </Button>
+                </div>
               </div>
-              {syncStatus?.lastSyncAt && (
-                <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  上次同步: {new Date(syncStatus.lastSyncAt).toLocaleString()}
+              {/* Sync health indicator */}
+              <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 text-xs">
+                {syncStatus && (
+                  <>
+                    <span className={`inline-block h-2 w-2 rounded-full ${
+                      syncStatus.health === 'healthy' ? 'bg-green-500' :
+                      syncStatus.health === 'warning' ? 'bg-yellow-500' :
+                      syncStatus.health === 'error' ? 'bg-red-500' :
+                      'bg-gray-400'
+                    }`} />
+                    <span className="text-muted-foreground">
+                      {syncStatus.health === 'healthy' && '同步正常'}
+                      {syncStatus.health === 'warning' && `同步警告: ${syncStatus.healthMessage || ''}`}
+                      {syncStatus.health === 'error' && `同步异常: ${syncStatus.healthMessage || ''}`}
+                      {syncStatus.health === 'offline' && '离线'}
+                    </span>
+                    {syncStatus.lastDataSyncAt && (
+                      <span className="ml-auto text-muted-foreground/60">
+                        上次同步: {new Date(syncStatus.lastDataSyncAt).toLocaleString()}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Skipped files warning */}
+              {syncStatus?.skippedFiles && syncStatus.skippedFiles.length > 0 && (
+                <div className="rounded-lg bg-yellow-500/10 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+                  <div className="font-medium mb-1">以下文件无法同步：</div>
+                  {syncStatus.skippedFiles.map((f) => (
+                    <div key={f.path} className="ml-2">• {f.path} — {f.reason}</div>
+                  ))}
                 </div>
               )}
             </div>

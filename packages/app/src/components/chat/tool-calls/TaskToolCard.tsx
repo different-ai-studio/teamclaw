@@ -12,7 +12,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn, openExternalUrl } from "@/lib/utils";
-import { getOpenCodeClient } from "@/lib/opencode/client";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
 import { ToolCall, useSessionStore, convertMessage } from "@/stores/session";
 import { useStreamingStore } from "@/stores/streaming";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -125,6 +125,102 @@ export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
                 <div className="mt-1 p-2 rounded-md bg-muted/30 border border-border/30 max-h-[400px] overflow-y-auto">
                   <pre className="whitespace-pre-wrap text-xs text-foreground/90 m-0 p-0 font-mono">
                     {String(typeof toolCall.result === 'string' ? toolCall.result : JSON.stringify(toolCall.result, null, 2))}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+export function RoleSkillToolCard({ toolCall }: { toolCall: ToolCall }) {
+  const [expanded, setExpanded] = useState(false);
+  const isTimedOut = useToolCallTimeout(toolCall);
+  const forceComplete = useSessionStore((s) => s.forceCompleteToolCall);
+
+  const args = toolCall.arguments as {
+    name?: string;
+    [key: string]: unknown;
+  };
+
+  const skillName = args?.name || "Unknown Skill";
+  const config = statusConfig[toolCall.status];
+  const StatusIcon = config.icon;
+
+  const handleForceComplete = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      forceComplete(toolCall.id);
+    },
+    [forceComplete, toolCall.id],
+  );
+
+  const formatDuration = (ms: number) => {
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
+
+  return (
+    <Collapsible open={expanded} onOpenChange={setExpanded}>
+      <div className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all duration-200">
+        <CollapsibleTrigger asChild>
+          <button className="w-full flex items-center gap-2 px-3 py-2 text-left bg-muted/50 hover:bg-muted/70 transition-colors">
+            <ChevronRight
+              size={14}
+              className={cn(
+                "text-muted-foreground transition-transform duration-200 shrink-0",
+                expanded && "rotate-90",
+              )}
+            />
+            <Zap size={14} className="text-muted-foreground shrink-0" />
+            <span className="text-xs font-medium text-foreground">
+              Role skill
+            </span>
+            <span className="rounded-full border border-border bg-background/80 px-2 py-0.5 text-[11px] font-mono text-foreground/90">
+              {skillName}
+            </span>
+
+            <div className="ml-auto flex items-center gap-2">
+              {toolCall.duration && (
+                <span className="text-[10px] text-muted-foreground/70">
+                  {formatDuration(toolCall.duration)}
+                </span>
+              )}
+
+              {isTimedOut ? (
+                <button
+                  onClick={handleForceComplete}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors"
+                  title="Tool call timed out - click to mark as done"
+                >
+                  <AlertTriangle size={10} />
+                  <span>Timed out</span>
+                  <CheckCircle2 size={10} />
+                </button>
+              ) : (
+                <StatusIcon
+                  size={14}
+                  className={cn(
+                    config.textColor,
+                    config.animate && "animate-spin",
+                  )}
+                />
+              )}
+            </div>
+          </button>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <div className="px-3 pb-3 pt-1 text-xs space-y-2 border-t border-border/50">
+            {toolCall.result !== undefined && toolCall.result !== null && (
+              <div>
+                <span className="text-muted-foreground font-medium">Result</span>
+                <div className="mt-1 p-2 rounded-md bg-muted/30 border border-border/30 max-h-[400px] overflow-y-auto">
+                  <pre className="whitespace-pre-wrap break-words text-xs text-foreground/90 m-0 p-0 font-mono">
+                    {String(typeof toolCall.result === "string" ? toolCall.result : JSON.stringify(toolCall.result, null, 2))}
                   </pre>
                 </div>
               </div>

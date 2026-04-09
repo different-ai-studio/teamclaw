@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { copyToClipboard } from '@/lib/utils'
-import type { SessionErrorEvent } from '@/lib/opencode/types'
+import type { SessionErrorEvent } from '@/lib/opencode/sdk-types'
 
 interface SessionErrorAlertProps {
   error: SessionErrorEvent | string

@@ -170,6 +170,7 @@ mod tests {
             key: "super-secret-value".to_string(),
             description: "Production API key".to_string(),
             category: "api".to_string(),
+            created_by: "alice".to_string(),
             updated_by: "alice".to_string(),
             updated_at: "2026-04-01T00:00:00Z".to_string(),
         }

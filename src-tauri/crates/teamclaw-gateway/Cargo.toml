@@ -1,0 +1,46 @@
+[package]
+name = "teamclaw-gateway"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Discord
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
+
+# Email
+imap = "2"
+native-tls = "0.2"
+mail-parser = "0.9"
+lettre = { version = "0.11", features = ["native-tls", "smtp-transport"] }
+yup-oauth2 = "12"
+flate2 = "1"
+
+# WebSocket-based gateways (Kook, Feishu, WeChat, WeCom)
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
+
+# Image processing (WeChat/WeCom media)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+
+# WeCom AES decryption
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+
+# Core
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "process", "io-util"] }
+reqwest = { version = "0.11", features = ["json", "blocking", "stream", "rustls-tls-native-roots"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+futures = "0.3"
+futures-util = "0.3"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+anyhow = "1"
+regex = "1"
+url = "2"
+nanoid = "0.4"
+libsql = "0.9"
+indexmap = { version = "2", features = ["serde"] }
+urlencoding = "2"
+getrandom = "0.2"

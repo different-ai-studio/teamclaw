@@ -92,6 +92,23 @@ pnpm tauri dev
 
 启动后，在 TeamClaw 界面中选择一个 Workspace 目录即可。
 
+### 更快的 Rust 开发迭代
+
+现在 Rust 和 Tauri 命令会在不同 worktree 之间共享 `.cargo-target/`，并在本机安装了 `sccache` 时自动启用它。
+
+```bash
+# 快速检查 Rust 编译是否通过
+pnpm rust:check
+
+# 使用同一份共享缓存执行完整 Rust build
+pnpm rust:build
+```
+
+说明：
+- `pnpm tauri:dev` 和 `pnpm tauri:build` 也会使用同一套共享 Rust 构建环境。
+- `.cargo-target/` 只用于本地缓存，已被 git 忽略。
+- 如果希望额外获得编译缓存命中，请先安装 `sccache`。
+
 ### 更新 OpenCode
 
 OpenCode 发版频繁，随时可以一条命令更新到最新版：

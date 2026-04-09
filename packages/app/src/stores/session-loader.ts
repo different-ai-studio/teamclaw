@@ -1,5 +1,5 @@
-import { getOpenCodeClient } from "@/lib/opencode/client";
-import type { Todo, FileDiff } from "@/lib/opencode/types";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
+import type { Todo, FileDiff } from "@/lib/opencode/sdk-types";
 import { notificationService } from "@/lib/notification-service";
 import { useProviderStore } from "@/stores/provider";
 import { appShortName } from "@/lib/build-config";

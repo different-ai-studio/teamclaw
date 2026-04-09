@@ -1,136 +1,22 @@
-pub mod config;
-pub mod discord;
-pub mod email;
-pub mod email_config;
-pub mod i18n;
-pub mod email_db;
-pub mod feishu;
-pub mod feishu_config;
-pub mod kook;
-pub mod kook_config;
-pub mod pending_question;
-pub mod session;
-pub mod session_queue;
-pub mod wechat;
-pub mod wechat_config;
-pub mod wecom;
-pub mod wecom_config;
+// Re-export everything from the teamclaw-gateway crate so that existing
+// `crate::commands::gateway::*` paths throughout the main crate continue to work.
+pub use teamclaw_gateway::*;
+
 pub mod mqtt_config;
 pub mod mqtt_relay;
 
-pub use config::*;
-pub use discord::DiscordGateway;
-pub use email::EmailGateway;
-pub use feishu::FeishuGateway;
-pub use feishu_config::*;
-pub use kook::KookGateway;
-pub use kook_config::*;
-pub use pending_question::{
-    extract_question_marker, format_question_message, handle_question_event, parse_question_event,
-    ForwardedQuestion, PendingQuestionStore, QuestionContext,
-};
-pub use session::SessionMapping;
-pub use wechat::WeChatGateway;
-pub use wechat_config::*;
-pub use wecom::WeComGateway;
-pub use wecom_config::*;
 pub use mqtt_config::*;
 pub use mqtt_relay::MqttRelay;
 
-use futures_util::StreamExt;
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
+
+use futures::StreamExt;
+use serde::Deserialize;
 use tauri::State;
 
 use crate::commands::opencode::OpenCodeState;
-
-/// Identity of the person who sent a message through a gateway channel.
-#[derive(Debug, Clone)]
-pub struct ChannelSender {
-    pub platform: String,
-    #[allow(dead_code)]
-    pub external_id: String,
-    pub display_name: String,
-}
-
-pub const MAX_PROCESSED_MESSAGES: usize = 1000;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum FilterResult {
-    Allow,
-    Ignore,
-    UserNotAllowed,
-    ChannelNotConfigured,
-}
-
-pub struct ProcessedMessageTracker {
-    messages: HashSet<String>,
-    max_size: usize,
-}
-
-impl ProcessedMessageTracker {
-    pub fn new(max_size: usize) -> Self {
-        Self {
-            messages: HashSet::new(),
-            max_size,
-        }
-    }
-
-    pub fn is_duplicate(&mut self, id: &str) -> bool {
-        if self.messages.contains(id) {
-            return true;
-        }
-        self.messages.insert(id.to_string());
-        if self.messages.len() > self.max_size {
-            let to_remove: Vec<String> = self.messages.iter().take(100).cloned().collect();
-            for r in to_remove {
-                self.messages.remove(&r);
-            }
-        }
-        false
-    }
-}
-
-/// Create a new OpenCode session
-pub async fn create_opencode_session(port: u16) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
-    let url = format!("http://127.0.0.1:{}/session", port);
-
-    // Set an explicit title to avoid OpenCode auto-generating titles that might conflict
-    let now = chrono::Local::now();
-    let title = format!("New Chat {}", now.format("%Y-%m-%d %H:%M:%S"));
-    let body = serde_json::json!({ "title": title });
-
-    let response = client
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to create session: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!(
-            "Failed to create session: HTTP {}",
-            response.status()
-        ));
-    }
-
-    let response_body: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse session response: {}", e))?;
-
-    response_body["id"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "No session ID in response".to_string())
-}
 
 /// Gateway state managed by Tauri
 pub struct GatewayState {
@@ -179,7 +65,7 @@ async fn ensure_session_initialized(gateway_state: &GatewayState, workspace_path
             *initialized = true;
             true
         }
-    }; // MutexGuard is dropped here before the await
+    };
 
     if needs_init {
         gateway_state
@@ -744,14 +630,25 @@ pub async fn opencode_get_available_models(port: u16) -> Result<(Vec<ModelInfo>,
 }
 
 /// Format the model list response for chat commands
-fn format_model_list(models: &[ModelInfo], active_model: &str, is_custom: bool, locale: i18n::Locale) -> String {
+fn format_model_list(
+    models: &[ModelInfo],
+    active_model: &str,
+    is_custom: bool,
+    locale: i18n::Locale,
+) -> String {
     const MAX_LENGTH: usize = 1900; // Leave buffer for Discord's 2000 char limit
 
     let mut text = String::new();
     if is_custom {
-        text.push_str(&i18n::t(i18n::MsgKey::CurrentModelCustom(active_model), locale));
+        text.push_str(&i18n::t(
+            i18n::MsgKey::CurrentModelCustom(active_model),
+            locale,
+        ));
     } else {
-        text.push_str(&i18n::t(i18n::MsgKey::CurrentModelDefault(active_model), locale));
+        text.push_str(&i18n::t(
+            i18n::MsgKey::CurrentModelDefault(active_model),
+            locale,
+        ));
     }
     text.push_str(&i18n::t(i18n::MsgKey::AvailableModels, locale));
 
@@ -947,7 +844,11 @@ pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, Strin
 }
 
 /// Fetch the latest assistant message text from a session
-async fn fetch_latest_assistant_message(port: u16, session_id: &str, locale: i18n::Locale) -> Result<String, String> {
+async fn fetch_latest_assistant_message(
+    port: u16,
+    session_id: &str,
+    locale: i18n::Locale,
+) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -1101,12 +1002,11 @@ pub async fn handle_sessions_command(
 
                 // Fetch latest assistant message
                 match fetch_latest_assistant_message(port, &target.id, locale).await {
-                    Ok(latest) => {
-                        i18n::t(i18n::MsgKey::SwitchedToSessionWithLatest(title, &latest), locale)
-                    }
-                    Err(_) => {
-                        i18n::t(i18n::MsgKey::SwitchedToSessionNoLatest(title), locale)
-                    }
+                    Ok(latest) => i18n::t(
+                        i18n::MsgKey::SwitchedToSessionWithLatest(title, &latest),
+                        locale,
+                    ),
+                    Err(_) => i18n::t(i18n::MsgKey::SwitchedToSessionNoLatest(title), locale),
                 }
             }
             Err(e) => i18n::t(i18n::MsgKey::FailedToListSessions(&e), locale),
@@ -1146,7 +1046,10 @@ pub async fn handle_stop_command(
             } else {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                i18n::t(i18n::MsgKey::FailedToStopSessionWithStatus(status.as_u16(), &body), locale)
+                i18n::t(
+                    i18n::MsgKey::FailedToStopSessionWithStatus(status.as_u16(), &body),
+                    locale,
+                )
             }
         }
         Err(e) => i18n::t(i18n::MsgKey::FailedToStopSession(&e.to_string()), locale),
@@ -1252,7 +1155,7 @@ pub async fn save_channel_config(
 #[tauri::command]
 pub async fn get_discord_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<Option<DiscordConfig>, String> {
+) -> Result<Option<config::DiscordConfig>, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.discord)
 }
@@ -1260,7 +1163,7 @@ pub async fn get_discord_config(
 /// Save Discord configuration
 #[tauri::command]
 pub async fn save_discord_config(
-    discord: DiscordConfig,
+    discord: config::DiscordConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -1277,7 +1180,6 @@ pub async fn save_discord_config(
     channels.discord = Some(discord.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .discord_gateway
@@ -1317,15 +1219,15 @@ pub async fn start_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    // Get OpenCode port and workspace path
     let (port, workspace_path) = {
         let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let ws = inner.workspace_path.clone()
+        let ws = inner
+            .workspace_path
+            .clone()
             .ok_or("No workspace path set. Please select a workspace first.")?;
         (inner.port, ws)
     };
 
-    // Read config
     println!("[Gateway] Reading config from: {}", workspace_path);
     let config = read_config(&workspace_path)?;
     let discord_config = config
@@ -1339,10 +1241,8 @@ pub async fn start_gateway(
         discord_config.guilds.keys().collect::<Vec<_>>()
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
-    // Create or get gateway
     let gateway_clone = {
         let mut gateway_guard = gateway_state
             .discord_gateway
@@ -1350,8 +1250,9 @@ pub async fn start_gateway(
             .map_err(|e| e.to_string())?;
 
         let session_mapping = gateway_state.shared_session_mapping.clone();
-        let gateway =
-            gateway_guard.get_or_insert_with(|| DiscordGateway::new(port, session_mapping, workspace_path.clone()));
+        let gateway = gateway_guard.get_or_insert_with(|| {
+            DiscordGateway::new(port, session_mapping, workspace_path.clone())
+        });
         gateway.clone()
     };
 
@@ -1414,7 +1315,7 @@ pub async fn test_discord_token(token: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_feishu_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<Option<FeishuConfig>, String> {
+) -> Result<Option<feishu_config::FeishuConfig>, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.feishu)
 }
@@ -1422,7 +1323,7 @@ pub async fn get_feishu_config(
 /// Save Feishu configuration
 #[tauri::command]
 pub async fn save_feishu_config(
-    feishu: FeishuConfig,
+    feishu: feishu_config::FeishuConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -1439,7 +1340,6 @@ pub async fn save_feishu_config(
     channels.feishu = Some(feishu.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .feishu_gateway
@@ -1463,7 +1363,9 @@ pub async fn start_feishu_gateway(
 ) -> Result<(), String> {
     let (port, workspace_path) = {
         let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let ws = inner.workspace_path.clone()
+        let ws = inner
+            .workspace_path
+            .clone()
             .ok_or("No workspace path set. Please select a workspace first.")?;
         (inner.port, ws)
     };
@@ -1479,7 +1381,6 @@ pub async fn start_feishu_gateway(
         feishu_config.enabled, feishu_config.app_id
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
@@ -1489,8 +1390,9 @@ pub async fn start_feishu_gateway(
             .map_err(|e| e.to_string())?;
 
         let session_mapping = gateway_state.shared_session_mapping.clone();
-        let gateway =
-            gateway_guard.get_or_insert_with(|| FeishuGateway::new(port, session_mapping, workspace_path.clone()));
+        let gateway = gateway_guard.get_or_insert_with(|| {
+            FeishuGateway::new(port, session_mapping, workspace_path.clone())
+        });
         gateway.clone()
     };
 
@@ -1543,7 +1445,6 @@ pub async fn test_feishu_credentials(app_id: String, app_secret: String) -> Resu
 }
 
 /// Update the shared gateway model preference for an existing OpenCode session.
-/// This lets UI model changes apply to gateway-backed sessions such as Feishu chats.
 #[tauri::command]
 pub async fn sync_gateway_session_model(
     session_id: String,
@@ -1600,7 +1501,6 @@ pub async fn save_email_config(
     channels.email = Some(email.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .email_gateway
@@ -1624,7 +1524,9 @@ pub async fn start_email_gateway(
 ) -> Result<(), String> {
     let (port, workspace_path) = {
         let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let ws = inner.workspace_path.clone()
+        let ws = inner
+            .workspace_path
+            .clone()
             .ok_or("No workspace path set. Please select a workspace first.")?;
         (inner.port, ws)
     };
@@ -1640,7 +1542,6 @@ pub async fn start_email_gateway(
         email_config.enabled, email_config.provider
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
@@ -1742,7 +1643,7 @@ pub async fn check_gmail_auth(opencode_state: State<'_, OpenCodeState>) -> Resul
 #[tauri::command]
 pub async fn get_kook_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<KookConfig, String> {
+) -> Result<kook_config::KookConfig, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.kook.unwrap_or_default())
 }
@@ -1750,7 +1651,7 @@ pub async fn get_kook_config(
 /// Save KOOK configuration
 #[tauri::command]
 pub async fn save_kook_config(
-    kook: KookConfig,
+    kook: kook_config::KookConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -1767,7 +1668,6 @@ pub async fn save_kook_config(
     channels.kook = Some(kook.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .kook_gateway
@@ -1791,7 +1691,9 @@ pub async fn start_kook_gateway(
 ) -> Result<(), String> {
     let (port, workspace_path) = {
         let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let ws = inner.workspace_path.clone()
+        let ws = inner
+            .workspace_path
+            .clone()
             .ok_or("No workspace path set. Please select a workspace first.")?;
         (inner.port, ws)
     };
@@ -1812,7 +1714,6 @@ pub async fn start_kook_gateway(
         }
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     if !kook_config.enabled {
@@ -1826,7 +1727,11 @@ pub async fn start_kook_gateway(
             .map_err(|e| e.to_string())?;
 
         if guard.is_none() {
-            let gateway = KookGateway::new(port, gateway_state.shared_session_mapping.clone(), workspace_path.clone());
+            let gateway = KookGateway::new(
+                port,
+                gateway_state.shared_session_mapping.clone(),
+                workspace_path.clone(),
+            );
             *guard = Some(gateway);
         }
 
@@ -1930,7 +1835,7 @@ pub async fn test_kook_token(token: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_wecom_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<WeComConfig, String> {
+) -> Result<wecom_config::WeComConfig, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.wecom.unwrap_or_default())
 }
@@ -1938,7 +1843,7 @@ pub async fn get_wecom_config(
 /// Save WeCom configuration
 #[tauri::command]
 pub async fn save_wecom_config(
-    wecom: WeComConfig,
+    wecom: wecom_config::WeComConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -1955,7 +1860,6 @@ pub async fn save_wecom_config(
     channels.wecom = Some(wecom.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .wecom_gateway
@@ -1979,7 +1883,9 @@ pub async fn start_wecom_gateway(
 ) -> Result<(), String> {
     let (port, workspace_path) = {
         let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let ws = inner.workspace_path.clone()
+        let ws = inner
+            .workspace_path
+            .clone()
             .ok_or("No workspace path set. Please select a workspace first.")?;
         (inner.port, ws)
     };
@@ -2004,7 +1910,6 @@ pub async fn start_wecom_gateway(
         wecom_config.bot_id.is_empty()
     );
 
-    // Auto-enable WeCom when user explicitly clicks Start
     if !wecom_config.enabled {
         wecom_config.enabled = true;
         let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -2022,7 +1927,6 @@ pub async fn start_wecom_gateway(
         }
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
@@ -2032,7 +1936,11 @@ pub async fn start_wecom_gateway(
             .map_err(|e| e.to_string())?;
 
         if guard.is_none() {
-            let gateway = WeComGateway::new(port, gateway_state.shared_session_mapping.clone(), workspace_path.clone());
+            let gateway = WeComGateway::new(
+                port,
+                gateway_state.shared_session_mapping.clone(),
+                workspace_path.clone(),
+            );
             *guard = Some(gateway);
         }
 
@@ -2126,7 +2034,6 @@ pub async fn test_wecom_credentials(bot_id: String, secret: String) -> Result<St
     if let tokio_tungstenite::tungstenite::Message::Text(text) = response {
         let resp: serde_json::Value =
             serde_json::from_str(&text).map_err(|e| format!("Invalid response: {}", e))?;
-        // WeCom API uses "errcode"/"errmsg" fields (not "code"/"msg")
         let code = resp.get("errcode").and_then(|c| c.as_i64()).unwrap_or(-1);
         if code == 0 {
             Ok("Credentials verified successfully".to_string())
@@ -2142,7 +2049,7 @@ pub async fn test_wecom_credentials(bot_id: String, secret: String) -> Result<St
     }
 }
 
-/// Start WeCom QR code authorization — returns scode and auth_url
+/// Start WeCom QR code authorization
 #[tauri::command]
 pub async fn start_wecom_qr_auth() -> Result<wecom_config::WeComQrAuthStart, String> {
     wecom::fetch_wecom_qr_code().await
@@ -2150,7 +2057,9 @@ pub async fn start_wecom_qr_auth() -> Result<wecom_config::WeComQrAuthStart, Str
 
 /// Poll WeCom QR code authorization result
 #[tauri::command]
-pub async fn poll_wecom_qr_auth(scode: String) -> Result<wecom_config::WeComQrAuthPollResult, String> {
+pub async fn poll_wecom_qr_auth(
+    scode: String,
+) -> Result<wecom_config::WeComQrAuthPollResult, String> {
     wecom::poll_wecom_qr_result(&scode).await
 }
 
@@ -2160,7 +2069,7 @@ pub async fn poll_wecom_qr_auth(scode: String) -> Result<wecom_config::WeComQrAu
 #[tauri::command]
 pub async fn get_wechat_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<WeChatConfig, String> {
+) -> Result<wechat_config::WeChatConfig, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.wechat.unwrap_or_default())
 }
@@ -2168,7 +2077,7 @@ pub async fn get_wechat_config(
 /// Save WeChat configuration
 #[tauri::command]
 pub async fn save_wechat_config(
-    wechat: WeChatConfig,
+    wechat: wechat_config::WeChatConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -2185,7 +2094,6 @@ pub async fn save_wechat_config(
     channels.wechat = Some(wechat.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .wechat_gateway
@@ -2209,7 +2117,9 @@ pub async fn start_wechat_gateway(
 ) -> Result<(), String> {
     let (port, workspace_path) = {
         let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let ws = inner.workspace_path.clone()
+        let ws = inner
+            .workspace_path
+            .clone()
             .ok_or("No workspace path set. Please select a workspace first.")?;
         (inner.port, ws)
     };
@@ -2234,7 +2144,6 @@ pub async fn start_wechat_gateway(
         wechat_cfg.bot_token.is_empty()
     );
 
-    // Auto-enable WeChat when user explicitly clicks Start
     if !wechat_cfg.enabled {
         wechat_cfg.enabled = true;
         let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -2252,7 +2161,6 @@ pub async fn start_wechat_gateway(
         }
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
@@ -2262,7 +2170,11 @@ pub async fn start_wechat_gateway(
             .map_err(|e| e.to_string())?;
 
         if guard.is_none() {
-            let gateway = WeChatGateway::new(port, gateway_state.shared_session_mapping.clone(), workspace_path.clone());
+            let gateway = WeChatGateway::new(
+                port,
+                gateway_state.shared_session_mapping.clone(),
+                workspace_path.clone(),
+            );
             *guard = Some(gateway);
         }
 
@@ -2335,7 +2247,7 @@ pub async fn poll_wechat_qr_status(
                 .baseurl
                 .clone()
                 .unwrap_or_else(wechat_config::default_ilink_base_url);
-            let wechat_cfg = WeChatConfig {
+            let wechat_cfg = wechat_config::WeChatConfig {
                 enabled: false,
                 bot_token: token.clone(),
                 account_id: bot_id.clone(),
@@ -2343,7 +2255,6 @@ pub async fn poll_wechat_qr_status(
                 sync_buf: None,
                 context_tokens: std::collections::HashMap::new(),
             };
-            // Save to config if workspace is set
             if let Ok(inner) = opencode_state.inner.lock() {
                 if let Some(ref workspace_path) = inner.workspace_path {
                     if let Ok(mut config) = read_config(workspace_path) {

@@ -2,7 +2,7 @@ import type {
   Session as OpenCodeSession,
   SessionListItem,
   Message as OpenCodeMessage,
-} from "@/lib/opencode/types";
+} from "@/lib/opencode/sdk-types";
 import type { ToolCall, MessagePart, Message, Session } from './session-types';
 
 // Convert OpenCode message to our format

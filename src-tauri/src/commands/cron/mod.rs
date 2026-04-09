@@ -43,7 +43,10 @@ pub async fn cron_init(
 ) -> Result<(), String> {
     let (workspace_path, port) = {
         let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let ws = inner.workspace_path.clone().ok_or("No workspace path set.")?;
+        let ws = inner
+            .workspace_path
+            .clone()
+            .ok_or("No workspace path set.")?;
         (ws, inner.port)
     };
 

@@ -38,9 +38,7 @@ use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
 mod commands;
-mod rag;
 pub mod sentry_utils;
-mod stt;
 mod telemetry;
 
 /// Get the mtime of the user's shell profile file as a u64 (seconds since epoch).
@@ -168,12 +166,10 @@ fn fix_path_env() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(debug_assertions)]
     let startup_t0 = std::time::Instant::now();
 
     // Fix PATH before anything else so all child processes can find tools
     fix_path_env();
-    #[cfg(debug_assertions)]
     eprintln!(
         "[Startup] fix_path_env: {:.1}ms",
         startup_t0.elapsed().as_secs_f64() * 1000.0
@@ -274,7 +270,7 @@ pub fn run() {
         .manage(rag_state)
         .manage(telemetry::commands::TelemetryState::default())
         .manage(telemetry::commands::IdentityState::default())
-        .manage(crate::stt::SttState::default())
+        .manage(teamclaw_stt::SttState::default())
         .manage({
             #[allow(unused_mut)]
             let mut wvm = commands::webview::WebviewManager::default();
@@ -433,6 +429,8 @@ pub fn run() {
             commands::team::get_team_config,
             commands::team::save_team_config,
             commands::team::clear_team_config,
+            commands::oss_commands::get_persistent_device_id,
+            commands::device_token::generate_device_token,
             #[cfg(feature = "p2p")]
             commands::team_p2p::get_device_node_id,
             #[cfg(feature = "p2p")]
@@ -482,10 +480,12 @@ pub fn run() {
             commands::oss_commands::oss_restore_sync,
             commands::oss_commands::oss_leave_team,
             commands::oss_commands::oss_sync_now,
+            commands::oss_commands::oss_reset_sync,
             commands::oss_commands::oss_get_sync_status,
             commands::oss_commands::oss_get_files_sync_status,
             commands::oss_commands::oss_create_snapshot,
             commands::oss_commands::oss_cleanup_updates,
+            commands::oss_commands::oss_delete_s3_key,
             commands::oss_commands::oss_update_members,
             commands::oss_commands::oss_reset_team_secret,
             commands::oss_commands::oss_get_team_config,
@@ -560,7 +560,6 @@ pub fn run() {
             commands::team_unified::unified_team_get_my_role,
         ])
         .setup(|app| {
-            #[cfg(debug_assertions)]
             let setup_t0 = std::time::Instant::now();
 
             // Register aptabase here (inside setup) so the Tokio runtime is available
@@ -578,30 +577,40 @@ pub fn run() {
                 }
             });
 
-            // Initialize iroh P2P node in background (non-blocking)
+            // Initialize iroh P2P node only when P2P team is configured.
+            // Check the last workspace's config; if p2p.enabled != true, skip.
             #[cfg(feature = "p2p")]
             {
-                let iroh_state = app.handle().state::<commands::p2p_state::IrohState>().inner().clone();
-                tauri::async_runtime::spawn(async move {
-                    match commands::team_p2p::IrohNode::new_default().await {
-                        Ok(node) => {
-                            *iroh_state.lock().await = Some(node);
-                            #[cfg(debug_assertions)]
-                            eprintln!("[P2P] iroh node started");
+                let p2p_enabled = commands::opencode::read_last_workspace()
+                    .and_then(|ws| commands::team_p2p::read_p2p_config(&ws, commands::TEAMCLAW_DIR, commands::CONFIG_FILE_NAME).ok().flatten())
+                    .map(|c| c.enabled)
+                    .unwrap_or(false);
+
+                if p2p_enabled {
+                    let iroh_state = app.handle().state::<commands::p2p_state::IrohState>().inner().clone();
+                    tauri::async_runtime::spawn(async move {
+                        match commands::team_p2p::IrohNode::new_default().await {
+                            Ok(node) => {
+                                *iroh_state.lock().await = Some(node);
+                                #[cfg(debug_assertions)]
+                                eprintln!("[P2P] iroh node started");
+                            }
+                            Err(e) => {
+                                sentry_utils::capture_err("[P2P] Failed to start iroh node", &e);
+                                eprintln!("[P2P] Failed to start iroh node (P2P disabled): {}", e);
+                            }
                         }
-                        Err(e) => {
-                            sentry_utils::capture_err("[P2P] Failed to start iroh node", &e);
-                            eprintln!("[P2P] Failed to start iroh node (P2P disabled): {}", e);
-                        }
-                    }
-                });
+                    });
+                } else {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[P2P] Skipped: p2p not enabled in config");
+                }
             }
 
             // Team sync will be triggered from the frontend after workspace is set,
             // since workspace_path is not available at setup time.
             // The frontend calls team_sync_repo on startup when team config is enabled.
 
-            #[cfg(debug_assertions)]
             eprintln!("[Startup] Setup hook (before early launch): {:.1}ms", setup_t0.elapsed().as_secs_f64() * 1000.0);
 
             // --- Early sidecar launch ---

@@ -16,7 +16,7 @@ import {
 
 import { useMCPStore, type MCPServerConfig } from '@/stores/mcp'
 import { useDepsStore } from '@/stores/deps'
-import type { MCPServerStatus } from '@/lib/opencode/types'
+import type { MCPServerStatus } from '@/lib/opencode/sdk-types'
 import { cn } from '@/lib/utils'
 import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'

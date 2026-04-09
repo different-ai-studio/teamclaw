@@ -6,7 +6,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     getMCPStatus: vi.fn().mockResolvedValue({}),
   }),

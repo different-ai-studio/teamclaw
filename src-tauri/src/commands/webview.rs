@@ -165,7 +165,11 @@ pub async fn webview_create(
     device_name: Option<String>,
 ) -> Result<(), String> {
     // If webview with this label already exists, just show and reposition it
-    let exists = state.labels.lock().map_err(|e| e.to_string())?.contains_key(&label);
+    let exists = state
+        .labels
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&label);
     if exists {
         if let Some(webview) = app.get_webview(&label) {
             eprintln!(
@@ -179,7 +183,11 @@ pub async fn webview_create(
             return Ok(());
         } else {
             // Label tracked but webview gone — clean up
-            state.labels.lock().map_err(|e| e.to_string())?.remove(&label);
+            state
+                .labels
+                .lock()
+                .map_err(|e| e.to_string())?
+                .remove(&label);
         }
     }
 
@@ -247,11 +255,22 @@ pub async fn webview_create(
 
     // Inject window.teamclaw identity global before any page scripts run.
     if let (Some(ref dno), Some(ref dname)) = (&device_no, &device_name) {
+        let device_token = match super::device_token::generate(dno, "") {
+            Ok(tok) => tok,
+            Err(e) => {
+                eprintln!("[Webview] Failed to generate device_token: {}", e);
+                return Err(format!("Failed to generate device_token: {}", e));
+            }
+        };
         let escaped_no = serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
         let escaped_name = serde_json::to_string(dname).unwrap_or_else(|_| "\"\"".to_string());
+        let escaped_token =
+            serde_json::to_string(&device_token).unwrap_or_else(|_| "\"\"".to_string());
         let script = format!(
-            "Object.defineProperty(window, 'teamclaw', {{ value: Object.freeze({{ deviceNo: {}, deviceName: {} }}), writable: false, configurable: false }});",
-            escaped_no, escaped_name,
+            "Object.defineProperty(window, 'teamclaw', {{ value: Object.freeze({{ deviceNo: {no}, deviceName: {name}, deviceToken: {token} }}), writable: false, configurable: false }});",
+            no = escaped_no,
+            name = escaped_name,
+            token = escaped_token,
         );
         webview_builder = webview_builder.initialization_script(&script);
     }
@@ -268,7 +287,11 @@ pub async fn webview_create(
     let _ = webview.set_focus();
 
     // Track the label
-    state.labels.lock().map_err(|e| e.to_string())?.insert(label.clone(), ());
+    state
+        .labels
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(label.clone(), ());
 
     eprintln!("[Webview] Created successfully: {}", label);
     Ok(())
@@ -279,7 +302,11 @@ fn webview_close_inner(
     state: &tauri::State<'_, WebviewManager>,
     label: &str,
 ) {
-    state.labels.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
+    state
+        .labels
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(label);
     if let Some(webview) = app.get_webview(label) {
         let _ = webview.close();
     }

@@ -42,6 +42,8 @@ document.addEventListener('contextmenu', (event) => {
   event.preventDefault()
 })
 
+performance.mark('react-mount')
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary scope="TeamClaw">

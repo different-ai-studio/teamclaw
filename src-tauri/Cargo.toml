@@ -1,6 +1,10 @@
+[workspace]
+members = [".", "crates/*"]
+resolver = "2"
+
 [package]
 name = "teamclaw"
-version = "0.1.35"
+version = "0.1.43"
 description = "TeamClaw - AI Agent Desktop Platform"
 authors = ["TeamClaw Team"]
 edition = "2021"
@@ -12,8 +16,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 default = ["p2p"]
 # P2P team sync (iroh); disabled on Windows to avoid wmi/windows-core version conflict.
-p2p = ["dep:iroh", "dep:iroh-blobs", "dep:iroh-docs", "dep:iroh-gossip"]
-stt-whisper = ["dep:whisper-rs"]
+p2p = ["dep:teamclaw-p2p"]
+stt-whisper = ["teamclaw-stt/whisper"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -37,16 +41,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"
 reqwest = { version = "0.11", features = ["json", "blocking", "stream", "rustls-tls-native-roots"], default-features = false }
 notify = { version = "8", features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.7"
-notify-debouncer-full = "0.7"
-serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
 futures = "0.3"
 base64 = "0.22"
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
-imap = "2"
-native-tls = "0.2"
-mail-parser = "0.9"
-lettre = { version = "0.11", features = ["native-tls", "smtp-transport"] }
-yup-oauth2 = "12"
 flate2 = "1"
 tar = "0.4"
 minisign-verify = "0.2"
@@ -62,36 +59,32 @@ regex = "1"
 libsql = "0.9"
 nanoid = "0.4"
 markitdown = "0.1.10"
-cpal = "0.17"
-whisper-rs = { version = "0.15", optional = true }
+# STT crate
+teamclaw-stt = { path = "crates/teamclaw-stt" }
 
-# RAG dependencies
+# Gateway crate
+teamclaw-gateway = { path = "crates/teamclaw-gateway" }
+
+# Sync crate (OSS/S3, WebDAV, CRDT sync)
+teamclaw-sync = { path = "crates/teamclaw-sync" }
+
+# RAG crate
+teamclaw-rag = { path = "crates/teamclaw-rag" }
+
+# RAG dependencies (still used by main crate)
 anyhow = "1"
-pulldown-cmark = "0.13"
 sha2 = "0.10"
 walkdir = "2"
-tantivy = "0.22"
-# Tantivy / zip pull in `zstd` → `zstd-sys`. On macOS, transitive native link metadata can fail to
-# reach the final `teamclaw` binary (undefined `ZSTD_*`), especially if `ZSTD_SYS_USE_PKG_CONFIG`
-# picks a wrong-arch Homebrew lib. A direct `zstd-sys` dep unifies features and links bundled libzstd.
+# zstd: used by oss_sync for compression; also a transitive dep of tantivy (via teamclaw-rag).
+# A direct dep on zstd-sys unifies features and links bundled libzstd (avoids wrong-arch pkg-config).
 zstd-sys = { version = "2.0.16", default-features = false, features = ["legacy", "zdict_builder", "bindgen"] }
-tree-sitter = "0.26"
-tree-sitter-rust = "0.23"
-tree-sitter-typescript = "0.23"
-tree-sitter-python = "0.25"
-tree-sitter-go = "0.25"
+zstd = "0.13"
 thiserror = "2"
 tracing = { version = "0.1", features = ["log"] }
 tauri-plugin-log = "2"
 
-# P2P team sync (optional; enable with p2p feature; off by default on Windows build)
-iroh = { version = "0.97", optional = true }
-iroh-blobs = { version = "0.99", features = ["fs-store"], optional = true }
-iroh-docs = { version = "0.97", optional = true }
-iroh-gossip = { version = "0.97", optional = true }
-aws-sdk-s3 = "1"
-aws-config = "1"
-loro = "1"
+# P2P crate (optional; enable with p2p feature; off by default on Windows build)
+teamclaw-p2p = { path = "crates/teamclaw-p2p", optional = true }
 filetime = "0.2"
 arboard = "3"
 futures-lite = "2"
@@ -115,18 +108,13 @@ rayon = "1.10"  # Parallel iterator for recursive skill search
 # MCP plugin for AI agent integration (debug only)
 tauri-plugin-mcp = { path = "tauri-plugin-mcp-local" }
 
-# WebDAV team sync dependencies
-quick-xml = "0.36"
+# Crypto (used by shared_secrets_crypto, device_token)
 aes-gcm = "0.10"
-aes = "0.8"
-cbc = { version = "0.1", features = ["alloc"] }
-pbkdf2 = { version = "0.12", features = ["simple"] }
 hmac = "0.12"
 hkdf = "0.12"
 hex = "0.4"
 getrandom = "0.2"
 url = "2"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 log = "0.4"
 rand = "0.8"
 prost = "0.13"

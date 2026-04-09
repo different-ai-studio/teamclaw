@@ -7,8 +7,8 @@ use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
 use super::knowledge::RagState;
-use crate::rag::hybrid_search::SearchMode;
-use crate::rag::search;
+use teamclaw_rag::hybrid_search::SearchMode;
+use teamclaw_rag::search;
 
 pub struct AppState {
     pub rag_state: Arc<RagState>,
@@ -57,6 +57,7 @@ pub async fn start_http_server(rag_state: Arc<RagState>, port: u16) -> anyhow::R
         .route("/api/rag/workspaces", get(handle_workspaces))
         .route("/api/rag/current-workspace", get(handle_current_workspace))
         .route("/health", get(|| async { "OK" }))
+        .route("/device-token-test", get(handle_device_token_test))
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
@@ -325,4 +326,230 @@ async fn handle_memory_delete(
     }
 
     Ok(Json(serde_json::json!({ "success": true })))
+}
+
+/// GET /device-token-test
+///
+/// A self-contained test page that reads `window.teamclaw.deviceToken` from the
+/// webview initialization script and displays it.  Open this URL inside a
+/// Teamclaw webview tab: http://127.0.0.1:13143/device-token-test
+async fn handle_device_token_test() -> axum::response::Response {
+    // Generate a server-side reference token so the page is useful even when
+    // window.teamclaw is not yet injected (e.g. first load before rebuild).
+    let server_token = match super::oss_commands::get_persistent_device_id() {
+        Ok(device_id) => super::device_token::generate(&device_id, "")
+            .unwrap_or_else(|e| format!("ERROR: {}", e)),
+        Err(e) => format!("ERROR: {}", e),
+    };
+
+    // Escape the server token for safe embedding inside a JS string literal.
+    let server_token_js = server_token.replace('\\', "\\\\").replace('"', "\\\"");
+
+    let html = format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Device Token Test</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           background: #0f1117; color: #e2e8f0; min-height: 100vh;
+           display: flex; flex-direction: column; align-items: center;
+           justify-content: flex-start; padding: 40px 24px; }}
+    h1   {{ font-size: 1.4rem; font-weight: 700; color: #7ee787; margin-bottom: 24px; }}
+    h2   {{ font-size: 0.95rem; font-weight: 600; color: #a0aec0; margin: 24px 0 12px; }}
+    .card {{ background: #1a1f2e; border: 1px solid #2d3748; border-radius: 12px;
+            padding: 24px; width: 100%; max-width: 820px; margin-bottom: 20px; }}
+    .label {{ font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+             letter-spacing: .08em; color: #718096; margin-bottom: 6px; }}
+    .value {{ font-family: "SF Mono", "Fira Code", monospace; font-size: 0.80rem;
+             color: #e2e8f0; word-break: break-all; background: #0d1117;
+             border-radius: 6px; padding: 10px 14px; }}
+    .value.ok   {{ border-left: 3px solid #7ee787; color: #7ee787; }}
+    .value.warn {{ border-left: 3px solid #f6c90e; color: #f6c90e; }}
+    .value.err  {{ border-left: 3px solid #fc8181; color: #fc8181; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 0.82rem; }}
+    td    {{ padding: 7px 10px; border-bottom: 1px solid #2d3748; vertical-align: top; }}
+    td:first-child {{ color: #718096; width: 130px; white-space: nowrap; }}
+    td:last-child  {{ font-family: "SF Mono", "Fira Code", monospace; word-break: break-all; }}
+    .btn {{ margin-top: 14px; padding: 7px 18px; background: #2d3748;
+            border: 1px solid #4a5568; border-radius: 8px; color: #e2e8f0;
+            font-size: 0.83rem; cursor: pointer; margin-right: 8px; }}
+    .btn:hover {{ background: #3d4f63; }}
+    #status {{ font-size: 0.78rem; color: #718096; margin-top: 8px; min-height: 1.2em; }}
+    .tag {{ display: inline-block; font-size: 0.68rem; padding: 2px 7px;
+            border-radius: 4px; font-weight: 600; margin-left: 8px; vertical-align: middle; }}
+    .tag-webview {{ background:#1a3a1a; color:#7ee787; }}
+    .tag-server  {{ background:#1a2040; color:#7eb8f7; }}
+  </style>
+</head>
+<body>
+  <h1>&#x1F511; Device Token Test</h1>
+
+  <!-- ── Section 1: window.teamclaw (injected by Tauri webview) ── -->
+  <div class="card">
+    <div class="label">window.teamclaw presence <span class="tag tag-webview">webview</span></div>
+    <div id="tc-presence" class="value">checking…</div>
+  </div>
+
+  <div class="card">
+    <div class="label">
+      device_token from window.teamclaw
+      <span class="tag tag-webview">webview</span>
+      <span class="tag" style="background:#3a2a10;color:#f6c90e">⚠ fixed at webview creation — expires in 90 s, never refreshes on page reload</span>
+    </div>
+    <div id="tc-token" class="value">—</div>
+    <button class="btn" onclick="copyTok('tc-token')">Copy</button>
+    <button class="btn" onclick="alertTok('tc-token')">Alert</button>
+    <div id="status-tc"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">JWT claims (webview token decoded) <span class="tag tag-webview">webview</span></div>
+    <table id="tc-claims"><tr><td colspan="2" style="color:#718096">—</td></tr></table>
+  </div>
+
+  <div class="card">
+    <div class="label">window.teamclaw — all fields <span class="tag tag-webview">webview</span></div>
+    <table id="tc-fields"><tr><td colspan="2" style="color:#718096">—</td></tr></table>
+  </div>
+
+  <!-- ── Section 1b: on-demand fresh token via Tauri invoke ── -->
+  <div class="card">
+    <div class="label">
+      on-demand fresh token via <code>invoke('generate_device_token')</code>
+      <span class="tag tag-webview">webview</span>
+      <span class="tag" style="background:#1a2a1a;color:#7ee787">✓ always fresh — use this before every API call</span>
+    </div>
+    <div id="fresh-token" class="value" style="color:#718096">click "Generate" to fetch</div>
+    <button class="btn" onclick="genFreshToken()">Generate</button>
+    <button class="btn" onclick="copyTok('fresh-token')">Copy</button>
+    <div id="status-fresh"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">JWT claims (fresh token decoded) <span class="tag tag-webview">webview</span></div>
+    <table id="fresh-claims"><tr><td colspan="2" style="color:#718096">—</td></tr></table>
+  </div>
+
+
+  <!-- ── Section 2: server-generated reference token ── -->
+  <div class="card">
+    <div class="label">server-generated reference token <span class="tag tag-server">server-side</span></div>
+    <div class="value ok" id="srv-token">{server_token}</div>
+    <button class="btn" onclick="copyTok('srv-token')">Copy</button>
+    <button class="btn" onclick="alertTok('srv-token')">Alert</button>
+    <div id="status-srv"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">JWT claims (server token decoded) <span class="tag tag-server">server-side</span></div>
+    <table id="srv-claims"><tr><td colspan="2" style="color:#718096">loading…</td></tr></table>
+  </div>
+
+  <script>
+    const SERVER_TOKEN = "{server_token_js}";
+
+    function b64url(s) {{
+      try {{ return JSON.parse(atob(s.replace(/-/g,'+').replace(/_/g,'/'))); }}
+      catch {{ return null; }}
+    }}
+
+    function renderTable(id, obj) {{
+      const t = document.getElementById(id);
+      if (!obj) {{ t.innerHTML = '<tr><td colspan="2" style="color:#fc8181">parse error</td></tr>'; return; }}
+      t.innerHTML = Object.entries(obj).map(([k,v]) => {{
+        let val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        if ((k==='iat'||k==='exp') && typeof v === 'number')
+          val = v + ' (' + new Date(v*1000).toISOString() + ')';
+        return '<tr><td>'+k+'</td><td>'+val+'</td></tr>';
+      }}).join('');
+    }}
+
+    function decodeAndRender(token, tableId) {{
+      const parts = token.split('.');
+      if (parts.length !== 3) return;
+      const claims = b64url(parts[1]);
+      renderTable(tableId, claims);
+    }}
+
+    function copyTok(elId) {{
+      const tok = document.getElementById(elId).textContent.trim();
+      navigator.clipboard.writeText(tok).then(() => {{
+        const sid = elId.startsWith('srv') ? 'status-srv' : 'status-tc';
+        document.getElementById(sid).textContent = '✅ copied';
+        setTimeout(() => {{ document.getElementById(sid).textContent = ''; }}, 2000);
+      }});
+    }}
+
+    function alertTok(elId) {{
+      alert(document.getElementById(elId).textContent.trim());
+    }}
+
+    // ── Decode server token immediately ──
+    decodeAndRender(SERVER_TOKEN, 'srv-claims');
+
+    // ── Inspect window.teamclaw (injected by Tauri initialization_script) ──
+    // NOTE: window.teamclaw.deviceToken is FIXED at webview creation time.
+    // It does NOT refresh on page reload — the same token is re-injected every
+    // navigation until the webview is destroyed and recreated.
+    // For API calls always use invoke('generate_device_token') instead.
+    (function checkWebview() {{
+      const tc = window.teamclaw;
+      const presEl  = document.getElementById('tc-presence');
+      const tokenEl = document.getElementById('tc-token');
+
+      if (!tc) {{
+        presEl.textContent = 'NOT present — app needs to be rebuilt so generate_device_token is registered';
+        presEl.className = 'value warn';
+        return;
+      }}
+
+      presEl.textContent = 'present ✓';
+      presEl.className = 'value ok';
+      renderTable('tc-fields', tc);
+
+      const token = tc.deviceToken;
+      if (!token) {{
+        tokenEl.textContent = '(empty)';
+        tokenEl.className = 'value err';
+        return;
+      }}
+
+      tokenEl.textContent = token;
+      tokenEl.className = 'value ok';
+      decodeAndRender(token, 'tc-claims');
+    }})();
+
+    // ── Generate a fresh token on demand via Tauri invoke ──
+    async function genFreshToken() {{
+      const el     = document.getElementById('fresh-token');
+      const status = document.getElementById('status-fresh');
+      el.textContent = 'generating…';
+      el.className = 'value';
+      try {{
+        const token = await window.__TAURI__.core.invoke('generate_device_token');
+        el.textContent = token;
+        el.className = 'value ok';
+        decodeAndRender(token, 'fresh-claims');
+        status.textContent = '✅ fresh token generated at ' + new Date().toLocaleTimeString();
+      }} catch (e) {{
+        el.textContent = 'ERROR: ' + e;
+        el.className = 'value err';
+        status.textContent = '';
+      }}
+    }}
+  </script>
+</body>
+</html>"#,
+        server_token = server_token,
+        server_token_js = server_token_js,
+    );
+
+    axum::response::Response::builder()
+        .status(200)
+        .header("Content-Type", "text/html; charset=utf-8")
+        .body(axum::body::Body::from(html))
+        .unwrap()
 }

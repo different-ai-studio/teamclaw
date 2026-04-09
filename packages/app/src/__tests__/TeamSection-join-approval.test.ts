@@ -77,6 +77,23 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   exists: vi.fn(async () => false),
 }))
 
+vi.mock('@/stores/workspace', () => ({
+  useWorkspaceStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) =>
+      selector({ workspacePath: '/tmp/test-workspace', refreshFileTree: vi.fn() }),
+    { getState: () => ({ workspacePath: '/tmp/test-workspace', refreshFileTree: vi.fn() }) },
+  ),
+}))
+
+vi.mock('@/stores/version-history', () => ({
+  useVersionHistoryStore: () => ({
+    versionedFiles: [],
+    loading: false,
+    loadVersionedFiles: vi.fn(),
+  }),
+}))
+
+
 beforeEach(() => {
   joinDriveError = null
   joinCompleted = false

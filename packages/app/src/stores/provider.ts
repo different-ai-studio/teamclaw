@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import { getOpenCodeClient } from '@/lib/opencode/client'
+import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { toast } from 'sonner'
 import { appShortName } from '@/lib/build-config'
+import { invoke } from '@tauri-apps/api/core'
 import {
   type CustomProviderConfig,
   addCustomProviderToConfig,
@@ -9,6 +10,7 @@ import {
   getCustomProviderConfig,
   removeCustomProviderFromConfig,
   getCustomProviderIds,
+  providerApiKeyName,
 } from '@/lib/opencode/config'
 
 // Safe helper: returns client or null if not initialized yet
@@ -389,9 +391,16 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   },
 
   // Add a custom OpenAI-compatible provider
-  addCustomProvider: async (workspacePath: string, config: CustomProviderConfig, _apiKey: string) => {
+  addCustomProvider: async (workspacePath: string, config: CustomProviderConfig, apiKey: string) => {
     try {
       const providerId = await addCustomProviderToConfig(workspacePath, config)
+      // Store raw API key in keychain so ${ref} gets resolved at startup.
+      // Skip if the value is already a ${ref} (user referencing an existing secret).
+      const isRef = /^\$\{?.+\}?$/.test(apiKey)
+      if (apiKey && !isRef) {
+        const keyName = providerApiKeyName(providerId)
+        await invoke('env_var_set', { key: keyName, value: apiKey, description: `API key for provider ${config.name}` })
+      }
       toast.success('Custom provider added', {
         description: `${config.name} has been added to opencode.json. Restarting OpenCode...`,
       })
@@ -410,6 +419,11 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     try {
       const success = await updateCustomProviderConfig(workspacePath, providerId, config)
       if (success) {
+        // Update API key in keychain if provided (skip ${ref} values)
+        if (config.apiKey && !/^\$\{?.+\}?$/.test(config.apiKey)) {
+          const keyName = providerApiKeyName(providerId)
+          await invoke('env_var_set', { key: keyName, value: config.apiKey, description: `API key for provider ${config.name}` })
+        }
         toast.success('Custom provider updated', {
           description: `${config.name} has been updated. Restarting OpenCode...`,
         })

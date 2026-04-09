@@ -534,7 +534,12 @@ pub async fn check_update<R: Runtime>(app: AppHandle<R>) -> Result<Option<Update
         // Mode 2: Fetch from GitHub API (fallback)
         let token = match get_token() {
             Some(t) if !t.is_empty() => t,
-            _ => return Err("Updater token not configured (GitHub mode requires UPDATER_GITHUB_TOKEN)".to_string()),
+            _ => {
+                return Err(
+                    "Updater token not configured (GitHub mode requires UPDATER_GITHUB_TOKEN)"
+                        .to_string(),
+                )
+            }
         };
 
         let release = fetch_latest_release(&client, token).await?;
@@ -629,7 +634,14 @@ pub async fn download_and_install_update<R: Runtime>(
     let pubkey = get_updater_pubkey();
     verify_signature(&bytes, &signature, pubkey)?;
 
-    // 3. Install (extract tar.gz and replace .app bundle)
+    // 3. Snapshot keychain env blob to disk before replacing the app bundle.
+    //    The current process still has keychain access (matching code signature).
+    //    After the bundle is replaced, the new binary's signature won't match the
+    //    keychain ACL, so this disk snapshot is the only way the new version can
+    //    recover secrets on first launch.
+    super::env_vars::snapshot_env_blob_to_disk();
+
+    // 4. Install (extract tar.gz and replace .app bundle)
     install_update(&bytes)?;
 
     Ok(())

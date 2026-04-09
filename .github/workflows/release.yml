@@ -36,8 +36,8 @@ jobs:
           BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
         run: |
           if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
-            echo "$BUILD_CONFIG_PRODUCTION" > build.config.production.json
-            echo "✅ Production build config written"
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.json
+            echo "✅ Production build config written (replaces repo default)"
           else
             echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
           fi
@@ -217,8 +217,8 @@ jobs:
         shell: bash
         run: |
           if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
-            echo "$BUILD_CONFIG_PRODUCTION" > build.config.production.json
-            echo "✅ Production build config written"
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.json
+            echo "✅ Production build config written (replaces repo default)"
           else
             echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
           fi

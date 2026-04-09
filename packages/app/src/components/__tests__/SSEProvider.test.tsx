@@ -3,7 +3,7 @@ import { render } from '@testing-library/react'
 
 const mockUseOpenCodeSSE = vi.fn()
 
-vi.mock('@/lib/opencode/sse', () => ({
+vi.mock('@/lib/opencode/sdk-sse', () => ({
   useOpenCodeSSE: (...args: unknown[]) => mockUseOpenCodeSSE(...args),
 }))
 

@@ -8,6 +8,17 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }))
 
+vi.mock('@/stores/workspace', () => ({
+  useWorkspaceStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({ workspacePath: '/tmp/test-workspace' }),
+}))
+
+vi.mock('@/stores/p2p-engine', () => ({
+  useP2pEngineStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({ snapshot: { peers: [] } }),
+}))
+
+
 const ownerMember: TeamMember = {
   nodeId: 'owner-node-id-abcdef',
   label: 'Owner Device',

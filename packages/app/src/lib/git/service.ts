@@ -1,4 +1,4 @@
-import { getOpenCodeClient } from '@/lib/opencode/client'
+import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 
 /**
  * 跨平台路径规范化工具

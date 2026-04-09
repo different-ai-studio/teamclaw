@@ -156,7 +156,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       // Restart OpenCode to pick up new provider config
       if (isTauri()) {
         const { invoke } = await import('@tauri-apps/api/core')
-        const { initOpenCodeClient } = await import('@/lib/opencode/client')
+        const { initOpenCodeClient } = await import('@/lib/opencode/sdk-client')
 
         await invoke('stop_opencode')
         await new Promise((r) => setTimeout(r, 500))
@@ -164,6 +164,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
           config: { workspace_path: workspacePath },
         })
         initOpenCodeClient({ baseUrl: status.url, workspacePath })
+
+        // Notify workspace store so SSE reconnects to the new sidecar
+        const { useWorkspaceStore } = await import('./workspace')
+        useWorkspaceStore.getState().setOpenCodeReady(true, status.url)
 
         // Wait for OpenCode to initialize
         await new Promise((r) => setTimeout(r, 500))
@@ -216,7 +220,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         // Restart OpenCode to apply the removal of the custom provider
         if (isTauri()) {
           const { invoke } = await import('@tauri-apps/api/core')
-          const { initOpenCodeClient } = await import('@/lib/opencode/client')
+          const { initOpenCodeClient } = await import('@/lib/opencode/sdk-client')
 
           await invoke('stop_opencode')
           await new Promise((r) => setTimeout(r, 500))
@@ -224,6 +228,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
             config: { workspace_path: workspacePath },
           })
           initOpenCodeClient({ baseUrl: status.url, workspacePath })
+
+          // Notify workspace store so SSE reconnects to the new sidecar
+          const { useWorkspaceStore } = await import('./workspace')
+          useWorkspaceStore.getState().setOpenCodeReady(true, status.url)
 
           // Wait for OpenCode to initialize
           await new Promise((r) => setTimeout(r, 500))
@@ -241,7 +249,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
       // Wait for OpenCode to be fully ready before initializing
       if (isTauri()) {
-        const { getOpenCodeClient } = await import('@/lib/opencode/client')
+        const { getOpenCodeClient } = await import('@/lib/opencode/sdk-client')
         let retries = 10
         while (retries > 0) {
           try {
