@@ -965,7 +965,7 @@ export function useOpenCodeSSE(
 
     activeSseInstance = sseRef.current
     sseRef.current.connect()
-  }, [baseUrl]) // Only baseUrl — sessionId changes are handled by setSessionId()
+  }, [baseUrl, workspacePath]) // sessionId changes are handled by setSessionId()
 
   const disconnect = useCallback(() => {
     sseRef.current?.disconnect()
