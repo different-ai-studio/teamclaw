@@ -7,7 +7,16 @@ use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
 
-use crate::stt::{run_pipeline_streaming, stt_models_dir, SttState};
+use teamclaw_stt::{run_pipeline_streaming, SttState};
+
+/// Compute the STT models directory from the Tauri app handle.
+fn stt_models_dir(app_handle: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    Ok(dir.join("stt_models"))
+}
 
 const HF_BASE: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 const INSTALLED_MIN_RATIO_NUM: u64 = 90;
@@ -116,8 +125,13 @@ pub fn stt_start_listening(
         *guard = Some(Arc::clone(&stop));
     }
     let handle = app_handle.clone();
+    let models_dir = stt_models_dir(&app_handle)?;
     std::thread::spawn(move || {
-        run_pipeline_streaming(&handle, stop, language);
+        let emit_handle = handle.clone();
+        let on_event: teamclaw_stt::EventEmitter = Box::new(move |event, payload| {
+            let _ = emit_handle.emit(event, payload);
+        });
+        run_pipeline_streaming(on_event, models_dir, stop, language);
         if let Some(s) = handle.try_state::<SttState>() {
             s.listening.store(false, Ordering::SeqCst);
             if let Ok(mut g) = s.stop.lock() {

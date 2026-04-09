@@ -17,7 +17,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 default = ["p2p"]
 # P2P team sync (iroh); disabled on Windows to avoid wmi/windows-core version conflict.
 p2p = ["dep:iroh", "dep:iroh-blobs", "dep:iroh-docs", "dep:iroh-gossip"]
-stt-whisper = ["dep:whisper-rs"]
+stt-whisper = ["teamclaw-stt/whisper"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -64,8 +64,8 @@ regex = "1"
 libsql = "0.9"
 nanoid = "0.4"
 markitdown = "0.1.10"
-cpal = "0.17"
-whisper-rs = { version = "0.15", optional = true }
+# STT crate
+teamclaw-stt = { path = "crates/teamclaw-stt" }
 
 # RAG crate
 teamclaw-rag = { path = "crates/teamclaw-rag" }

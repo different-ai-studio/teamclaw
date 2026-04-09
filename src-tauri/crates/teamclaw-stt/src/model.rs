@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 #[allow(dead_code)]
 pub const DEFAULT_MODEL_NAME: &str = "ggml-small.bin";
 
-#[cfg(feature = "stt-whisper")]
+#[cfg(feature = "whisper")]
 use whisper_rs::{WhisperContext, WhisperContextParameters};
 
-#[cfg(feature = "stt-whisper")]
+#[cfg(feature = "whisper")]
 /// Load a Whisper model from the given path (path to .bin file or dir containing it).
 pub fn load_model(models_dir: &Path, model_name: &str) -> Result<WhisperContext, String> {
     let path = models_dir.join(model_name);

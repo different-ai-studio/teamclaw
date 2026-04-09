@@ -2,9 +2,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
-use tauri::{Emitter, Runtime};
-
-use crate::stt::audio;
+use crate::audio;
 
 const WHISPER_SAMPLE_RATE: u32 = 16000;
 
@@ -12,6 +10,11 @@ const STREAM_STEP_MS: u32 = 500;
 const STREAM_LENGTH_MS: u32 = 5000;
 const STREAM_KEEP_MS: u32 = 200;
 const MIN_WHISPER_SAMPLES: usize = 16000;
+
+/// Generic event emitter callback.
+/// First argument is event name (e.g. "stt:transcript", "stt:error"),
+/// second argument is the JSON payload.
+pub type EventEmitter = Box<dyn Fn(&str, serde_json::Value) + Send>;
 
 /// Resample mono f32 to 16kHz (linear interpolation).
 #[allow(dead_code)]
@@ -37,8 +40,9 @@ fn resample_to_16k(samples: &[f32], from_rate: u32) -> Vec<f32> {
 
 /// Streaming pipeline: receive chunks from `rx`, accumulate into windows of `length_ms`,
 /// transcribe each full window, then on channel close transcribe remainder and emit one final transcript.
-pub fn run_pipeline_streaming_from_rx<R: Runtime>(
-    app_handle: &tauri::AppHandle<R>,
+pub fn run_pipeline_streaming_from_rx(
+    on_event: &EventEmitter,
+    models_dir: &std::path::Path,
     rx: Receiver<Vec<f32>>,
     language: Option<&str>,
 ) {
@@ -50,7 +54,7 @@ pub fn run_pipeline_streaming_from_rx<R: Runtime>(
         segment_window.extend(chunk);
         while segment_window.len() >= n_samples_window {
             let window: Vec<f32> = segment_window.drain(..n_samples_window).collect();
-            let text = transcribe_audio(app_handle, &window, WHISPER_SAMPLE_RATE, language);
+            let text = transcribe_audio(on_event, models_dir, &window, WHISPER_SAMPLE_RATE, language);
             if !text.is_empty() {
                 segments.push(text);
             }
@@ -69,105 +73,100 @@ pub fn run_pipeline_streaming_from_rx<R: Runtime>(
         for _ in 0..pad {
             segment_window.push(0.0);
         }
-        let text = transcribe_audio(app_handle, &segment_window, WHISPER_SAMPLE_RATE, language);
+        let text = transcribe_audio(on_event, models_dir, &segment_window, WHISPER_SAMPLE_RATE, language);
         if !text.is_empty() {
             segments.push(text);
         }
     }
     let full = segments.join(" ").trim().to_string();
-    let _ = app_handle.emit(
+    on_event(
         "stt:transcript",
         serde_json::json!({ "partial": false, "text": full }),
     );
 }
 
 /// Run streaming pipeline: chunked capture, sliding-window transcription, single emit on stop.
-pub fn run_pipeline_streaming<R: Runtime>(
-    app_handle: &tauri::AppHandle<R>,
+pub fn run_pipeline_streaming(
+    on_event: EventEmitter,
+    models_dir: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     language: Option<String>,
 ) {
     let rx = match audio::stream_chunks_until_stopped(stop, STREAM_STEP_MS) {
         Ok(r) => r,
         Err(e) => {
-            let _ = app_handle.emit("stt:error", serde_json::json!({ "message": e }));
+            on_event("stt:error", serde_json::json!({ "message": e }));
             return;
         }
     };
-    run_pipeline_streaming_from_rx(app_handle, rx, language.as_deref());
+    run_pipeline_streaming_from_rx(&on_event, &models_dir, rx, language.as_deref());
 }
 
 /// Record until stop is set, then transcribe (when Whisper is built) and emit final transcript.
 /// `language` is the Whisper language code (e.g. "en", "zh"); None = auto-detect.
 #[allow(dead_code)]
-pub fn run_pipeline<R: Runtime>(
-    app_handle: &tauri::AppHandle<R>,
+pub fn run_pipeline(
+    on_event: EventEmitter,
+    models_dir: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     language: Option<String>,
 ) {
     let recorded = match audio::record_until_stopped(stop) {
         Ok(r) => r,
         Err(e) => {
-            let _ = app_handle.emit("stt:error", serde_json::json!({ "message": e }));
+            on_event("stt:error", serde_json::json!({ "message": e }));
             return;
         }
     };
 
     let text = transcribe_audio(
-        app_handle,
+        &on_event,
+        &models_dir,
         &recorded.samples,
         recorded.sample_rate,
         language.as_deref(),
     );
-    let _ = app_handle.emit(
+    on_event(
         "stt:transcript",
         serde_json::json!({ "partial": false, "text": text }),
     );
 }
 
-#[cfg(feature = "stt-whisper")]
-fn transcribe_audio<R: Runtime>(
-    app_handle: &tauri::AppHandle<R>,
+#[cfg(feature = "whisper")]
+fn transcribe_audio(
+    on_event: &EventEmitter,
+    models_dir: &std::path::Path,
     samples: &[f32],
     sample_rate: u32,
     language: Option<&str>,
 ) -> String {
-    use std::path::PathBuf;
-
-    use crate::stt::{list_models, load_model, stt_models_dir};
+    use crate::{list_models, load_model, DEFAULT_MODEL_NAME};
     use whisper_rs::{FullParams, SamplingStrategy};
 
-    let models_dir: PathBuf = match stt_models_dir(app_handle) {
-        Ok(d) => d,
-        Err(e) => {
-            let _ = app_handle.emit("stt:error", serde_json::json!({ "message": e }));
-            return String::new();
-        }
-    };
-    let model_names: Vec<String> = match list_models(&models_dir) {
+    let model_names: Vec<String> = match list_models(models_dir) {
         Ok(n) => n,
         Err(e) => {
-            let _ = app_handle.emit("stt:error", serde_json::json!({ "message": e }));
+            on_event("stt:error", serde_json::json!({ "message": e }));
             return String::new();
         }
     };
     let model_name = model_names
         .iter()
-        .find(|n| *n == crate::stt::DEFAULT_MODEL_NAME)
+        .find(|n| *n == DEFAULT_MODEL_NAME)
         .map(String::as_str)
         .or_else(|| model_names.first().map(String::as_str))
         .unwrap_or_default();
     if model_name.is_empty() {
-        let _ = app_handle.emit(
+        on_event(
             "stt:error",
             serde_json::json!({ "message": "No Whisper model in stt_models dir" }),
         );
         return String::new();
     }
-    let ctx = match load_model(&models_dir, model_name) {
+    let ctx = match load_model(models_dir, model_name) {
         Ok(c) => c,
         Err(e) => {
-            let _ = app_handle.emit("stt:error", serde_json::json!({ "message": e }));
+            on_event("stt:error", serde_json::json!({ "message": e }));
             return String::new();
         }
     };
@@ -178,7 +177,7 @@ fn transcribe_audio<R: Runtime>(
     let mut state = match ctx.create_state() {
         Ok(s) => s,
         Err(e) => {
-            let _ = app_handle.emit(
+            on_event(
                 "stt:error",
                 serde_json::json!({ "message": format!("Whisper state: {}", e) }),
             );
@@ -192,7 +191,7 @@ fn transcribe_audio<R: Runtime>(
         params.set_detect_language(true);
     }
     if let Err(e) = state.full(params, &pcm_16k) {
-        let _ = app_handle.emit(
+        on_event(
             "stt:error",
             serde_json::json!({ "message": format!("Whisper transcribe: {}", e) }),
         );
@@ -207,9 +206,10 @@ fn transcribe_audio<R: Runtime>(
     text.trim().to_string()
 }
 
-#[cfg(not(feature = "stt-whisper"))]
-fn transcribe_audio<R: Runtime>(
-    _app_handle: &tauri::AppHandle<R>,
+#[cfg(not(feature = "whisper"))]
+fn transcribe_audio(
+    _on_event: &EventEmitter,
+    _models_dir: &std::path::Path,
     _samples: &[f32],
     _sample_rate: u32,
     _language: Option<&str>,

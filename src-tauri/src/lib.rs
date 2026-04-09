@@ -39,7 +39,6 @@ use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
 mod commands;
 pub mod sentry_utils;
-mod stt;
 mod telemetry;
 
 /// Get the mtime of the user's shell profile file as a u64 (seconds since epoch).
@@ -271,7 +270,7 @@ pub fn run() {
         .manage(rag_state)
         .manage(telemetry::commands::TelemetryState::default())
         .manage(telemetry::commands::IdentityState::default())
-        .manage(crate::stt::SttState::default())
+        .manage(teamclaw_stt::SttState::default())
         .manage({
             #[allow(unused_mut)]
             let mut wvm = commands::webview::WebviewManager::default();
