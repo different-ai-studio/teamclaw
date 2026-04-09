@@ -412,7 +412,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         ...result,
       });
       if (result.status === "conflict" || result.status === "failed") {
-        console.warn("[RolePlugin] Failed to ensure managed role plugin:", result);
+        console.warn("[RolePlugin] Failed to ensure role plugin config:", result);
       }
     });
   }, [openCodeReady, workspacePath]);

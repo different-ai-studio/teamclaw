@@ -1,47 +1,46 @@
-import pluginTemplateSource from "./templates/role-skill-plugin.ts.txt?raw"
-
 export interface EnsureRolePluginResult {
   status: "installed" | "updated" | "unchanged" | "conflict" | "failed"
   path: string
   reason?: string
 }
 
-const MANAGED_PLUGIN_MARKER = "managed-plugin: role-skill-plugin"
-const PLUGIN_TARGET_RELATIVE_PATH = ".opencode/plugins/role-skill.ts"
+interface OpenCodePluginConfig {
+  $schema?: string
+  plugin?: unknown
+  [key: string]: unknown
+}
+
+const OPENCODE_CONFIG_RELATIVE_PATH = "opencode.json"
+const ROLE_PLUGIN_PACKAGE = "opencode-roles"
+const OPENCODE_CONFIG_SCHEMA = "https://opencode.ai/config.json"
 const ROLE_ROOT_RELATIVE_PATH = ".opencode/roles"
 const ROLE_CONFIG_RELATIVE_PATH = ".opencode/roles/config.json"
 const ROLE_CONFIG_SAMPLE = `${JSON.stringify(
   {
-    paths: []
+    paths: [],
+    _example: {
+      paths: ["<relative-role-root>", "<absolute-or-home-role-root>"],
+    },
   },
   null,
   2,
 )}\n`
 
-export function getBundledRoleSkillPluginSource(): string {
-  return pluginTemplateSource
-}
-
-export function parseManagedPluginVersion(content: string): number | null {
-  if (!content.includes(MANAGED_PLUGIN_MARKER)) return null
-  const match = content.match(/^[ \t]*\/\/[ \t]*version:[ \t]*(\d+)\s*$/m)
-  return match ? Number(match[1]) : null
+function normalizePluginList(value: unknown): string[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) return null
+  if (!value.every((entry) => typeof entry === "string")) return null
+  return [...value]
 }
 
 export async function ensureRoleSkillPlugin(workspacePath: string): Promise<EnsureRolePluginResult> {
-  const targetPath = `${workspacePath}/${PLUGIN_TARGET_RELATIVE_PATH}`
+  const configPath = `${workspacePath}/${OPENCODE_CONFIG_RELATIVE_PATH}`
   const roleRootPath = `${workspacePath}/${ROLE_ROOT_RELATIVE_PATH}`
   const roleConfigPath = `${workspacePath}/${ROLE_CONFIG_RELATIVE_PATH}`
 
   try {
     const { exists, mkdir, readTextFile, writeTextFile } = await import("@tauri-apps/plugin-fs")
-    const targetDir = targetPath.slice(0, targetPath.lastIndexOf("/"))
-    const bundledSource = getBundledRoleSkillPluginSource()
-    const bundledVersion = parseManagedPluginVersion(bundledSource)
 
-    if (!(await exists(targetDir))) {
-      await mkdir(targetDir, { recursive: true })
-    }
     if (!(await exists(roleRootPath))) {
       await mkdir(roleRootPath, { recursive: true })
     }
@@ -49,49 +48,60 @@ export async function ensureRoleSkillPlugin(workspacePath: string): Promise<Ensu
       await writeTextFile(roleConfigPath, ROLE_CONFIG_SAMPLE)
     }
 
-    if (!(await exists(targetPath))) {
-      await writeTextFile(targetPath, bundledSource)
-      const result = { status: "installed", path: targetPath } as const
-      console.log("[RolePluginInstaller] Installed managed role plugin:", result)
+    if (!(await exists(configPath))) {
+      const config: OpenCodePluginConfig = {
+        $schema: OPENCODE_CONFIG_SCHEMA,
+        plugin: [ROLE_PLUGIN_PACKAGE],
+      }
+      await writeTextFile(configPath, `${JSON.stringify(config, null, 2)}\n`)
+      const result = { status: "installed", path: configPath } as const
+      console.log("[RolePluginInstaller] Added role plugin to new opencode.json:", result)
       return result
     }
 
-    const existingContent = await readTextFile(targetPath)
-    const existingVersion = parseManagedPluginVersion(existingContent)
-    if (existingVersion === null) {
+    const existingContent = await readTextFile(configPath)
+    const parsedConfig = JSON.parse(existingContent) as OpenCodePluginConfig
+    const pluginList = normalizePluginList(parsedConfig.plugin)
+
+    if (pluginList === null) {
       const result = {
         status: "conflict",
-        path: targetPath,
-        reason: "Existing plugin file is not managed by the bundled installer",
+        path: configPath,
+        reason: 'Existing opencode.json "plugin" field is not a string array',
       } as const
-      console.warn("[RolePluginInstaller] Plugin conflict:", result)
+      console.warn("[RolePluginInstaller] Plugin config conflict:", result)
       return result
     }
 
-    if (bundledVersion !== null && existingVersion < bundledVersion) {
-      await writeTextFile(targetPath, bundledSource)
-      const result = { status: "updated", path: targetPath } as const
-      console.log("[RolePluginInstaller] Updated managed role plugin:", {
-        ...result,
-        previousVersion: existingVersion,
-        nextVersion: bundledVersion,
-      })
+    let changed = false
+    if (parsedConfig.$schema !== OPENCODE_CONFIG_SCHEMA) {
+      parsedConfig.$schema = OPENCODE_CONFIG_SCHEMA
+      changed = true
+    }
+
+    if (!pluginList.includes(ROLE_PLUGIN_PACKAGE)) {
+      pluginList.push(ROLE_PLUGIN_PACKAGE)
+      parsedConfig.plugin = pluginList
+      changed = true
+    }
+
+    if (changed) {
+      await writeTextFile(configPath, `${JSON.stringify(parsedConfig, null, 2)}\n`)
+      const result = { status: "updated", path: configPath } as const
+      console.log("[RolePluginInstaller] Updated opencode.json plugin list:", result)
       return result
     }
 
-    const result = { status: "unchanged", path: targetPath } as const
-    console.log("[RolePluginInstaller] Managed role plugin already current:", {
-      ...result,
-      version: existingVersion,
-    })
+    const result = { status: "unchanged", path: configPath } as const
+    console.log("[RolePluginInstaller] Role plugin already present in opencode.json:", result)
     return result
   } catch (error) {
     const result = {
       status: "failed",
-      path: targetPath,
+      path: configPath,
       reason: error instanceof Error ? error.message : String(error),
     } as const
-    console.error("[RolePluginInstaller] Failed to ensure managed role plugin:", result)
+    console.error("[RolePluginInstaller] Failed to ensure role plugin config:", result)
     return result
   }
 }

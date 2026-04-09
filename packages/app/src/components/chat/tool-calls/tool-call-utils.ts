@@ -154,6 +154,10 @@ export function isSkillTool(toolName: string): boolean {
   return toolName.toLowerCase() === "skill";
 }
 
+export function isRoleSkillTool(toolName: string): boolean {
+  return toolName.toLowerCase() === "role_skill";
+}
+
 export function isRoleLoadTool(toolName: string): boolean {
   return toolName.toLowerCase() === "role_load";
 }
@@ -200,6 +204,9 @@ export function getLanguageName(ext: string): string {
 
 // Format tool name for display
 export function formatToolName(name: string): string {
+  if (name.toLowerCase() === "role_skill") {
+    return "Role skill";
+  }
   if (name.toLowerCase() === "role_load") {
     return "Role Load";
   }
