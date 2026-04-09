@@ -58,22 +58,36 @@ vi.mock('@/stores/workspace', () => ({
     selector({ workspacePath: '/test' }),
 }))
 
+vi.mock('@/stores/shared-secrets', () => ({
+  useSharedSecretsStore: () => ({
+    secrets: [],
+    isLoading: false,
+    loadSecrets: vi.fn(),
+    setSecret: vi.fn(),
+    deleteSecret: vi.fn(),
+    listenForChanges: vi.fn(async () => () => {}),
+  }),
+}))
+
+vi.mock('@/stores/team-members', () => ({
+  useTeamMembersStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({ currentNodeId: null, myRole: null }),
+}))
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async () => () => {}),
+}))
+
 vi.mock('@/lib/opencode/sdk-client', () => ({
   initOpenCodeClient: vi.fn(),
 }))
 
-vi.mock('lucide-react', () => ({
-  KeyRound: () => React.createElement('span', null, 'KeyRound'),
-  Plus: () => React.createElement('span', null, 'Plus'),
-  Eye: () => React.createElement('span', null, 'Eye'),
-  EyeOff: () => React.createElement('span', null, 'EyeOff'),
-  Pencil: () => React.createElement('span', null, 'Pencil'),
-  Trash2: () => React.createElement('span', null, 'Trash2'),
-  ShieldCheck: () => React.createElement('span', null, 'ShieldCheck'),
-  AlertCircle: () => React.createElement('span', null, 'AlertCircle'),
-  RefreshCw: () => React.createElement('span', null, 'RefreshCw'),
-  Loader2: () => React.createElement('span', null, 'Loader2'),
-}))
+vi.mock('lucide-react', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>
+  return {
+    ...actual,
+  }
+})
 
 beforeEach(() => {
   vi.clearAllMocks()

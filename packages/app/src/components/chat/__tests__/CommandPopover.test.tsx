@@ -16,7 +16,7 @@ vi.mock('@/lib/utils', async () => {
   }
 })
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     listCommands: mockListCommands,
   }),

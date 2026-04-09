@@ -981,6 +981,10 @@ fn inherent_desktop_control_skill() -> Option<InherentSkill> {
 fn inherent_skills_common() -> Vec<InherentSkill> {
     vec![
         InherentSkill {
+            dirname: "create-role",
+            content: include_str!("../../../packages/app/src/lib/skills/create-role/SKILL.md"),
+        },
+        InherentSkill {
             dirname: "ai-keys",
             content: include_str!("../../../packages/app/src/lib/skills/ai-keys/SKILL.md"),
         },

@@ -1,5 +1,5 @@
 // managed-plugin: role-skill-plugin
-// version: 9
+// version: 10
 
 import { tool } from "@opencode-ai/plugin"
 import fs from "node:fs/promises"
@@ -8,6 +8,7 @@ import path from "node:path"
 
 const ROLE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const sessionRoleState = new Map()
+let runtimeConfig: any = null
 const NORMAL_SKILL_PATHS = [
   [".opencode", "skills"],
   [".claude", "skills"],
@@ -109,10 +110,6 @@ function parseAvailableRoleSkills(body) {
       name,
       description: description.trim(),
     })
-  }
-
-  if (!inSection) {
-    throw new Error('Missing "## Available role skills" section')
   }
 
   return skills
@@ -356,7 +353,9 @@ async function resolveNormalSkill(name, workspaceDir) {
 
   const config = await readOpenCodeConfig(workspaceDir)
   const configuredPaths = Array.isArray(config?.skills?.paths) ? config.skills.paths : []
-  for (const configuredPath of configuredPaths) {
+  const runtimePaths = Array.isArray(runtimeConfig?.skills?.paths) ? runtimeConfig.skills.paths : []
+  const allConfiguredPaths = [...configuredPaths, ...runtimePaths]
+  for (const configuredPath of allConfiguredPaths) {
     if (typeof configuredPath !== "string") continue
     candidateDirs.push(
       configuredPath === "~"
@@ -492,6 +491,9 @@ export const RoleSkillPlugin = async ({ directory, worktree }) => {
   const pluginWorkspaceDir = directory || worktree
 
   return {
+    config: async (config) => {
+      runtimeConfig = config
+    },
     "experimental.chat.system.transform": async (_input, output) => {
       const workspaceDir =
         pluginWorkspaceDir ||

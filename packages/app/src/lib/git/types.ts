@@ -173,12 +173,14 @@ export type SkillSource =
   | 'personal' 
   | 'team' 
   | 'builtin'
+  | 'plugin'
   | 'global-opencode'
   | 'global-claude'
   | 'global-agent'
 
 /** Skill directory names that TeamClaw auto-provisions as inherent (cannot be deleted) */
 export const INHERENT_SKILL_NAMES = new Set([
+  'create-role',
   'macos-control',
   'windows-control',
 ])

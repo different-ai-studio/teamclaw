@@ -57,10 +57,18 @@ import {
 
 interface ClawHubMarketplaceProps {
   onInstalled?: () => void | Promise<void>
+  sharedSearchQuery?: string
+  onSharedSearchQueryChange?: (value: string) => void
+  externalSearch?: boolean
+  externalRefreshSignal?: number
 }
 
 export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   onInstalled,
+  sharedSearchQuery,
+  onSharedSearchQueryChange,
+  externalSearch = false,
+  externalRefreshSignal = 0,
 }: ClawHubMarketplaceProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
@@ -89,6 +97,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   const [installDialogOpen, setInstallDialogOpen] = React.useState(false)
   const [installLocation, setInstallLocation] = React.useState<'workspace' | 'global'>('workspace')
   const [pendingInstallSlug, setPendingInstallSlug] = React.useState<string | null>(null)
+  const effectiveSearchQuery = externalSearch ? (sharedSearchQuery ?? "") : searchQuery
 
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasLoadedExploreRef = React.useRef(false)
@@ -197,7 +206,11 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   // Debounced search
   const handleSearchChange = React.useCallback(
     (value: string) => {
-      setSearchQuery(value)
+      if (externalSearch) {
+        onSharedSearchQueryChange?.(value)
+      } else {
+        setSearchQuery(value)
+      }
       if (searchTimerRef.current) {
         clearTimeout(searchTimerRef.current)
       }
@@ -209,8 +222,34 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
         doSearch(value)
       }, 400)
     },
-    [doSearch]
+    [doSearch, externalSearch, onSharedSearchQueryChange]
   )
+
+  React.useEffect(() => {
+    if (!externalSearch) return
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current)
+    }
+    if (!effectiveSearchQuery.trim()) {
+      setIsSearchMode(false)
+      return
+    }
+    searchTimerRef.current = setTimeout(() => {
+      void doSearch(effectiveSearchQuery)
+    }, 300)
+  }, [doSearch, effectiveSearchQuery, externalSearch])
+
+  React.useEffect(() => {
+    if (!externalRefreshSignal) return
+    hasLoadedExploreRef.current = false
+    if (effectiveSearchQuery.trim()) {
+      void doSearch(effectiveSearchQuery)
+      return
+    }
+    setIsSearchMode(false)
+    void loadExplore()
+    void loadInstalled()
+  }, [doSearch, effectiveSearchQuery, externalRefreshSignal, loadExplore, loadInstalled])
 
   const handleInstall = React.useCallback(
     async (slug: string, location: 'workspace' | 'global') => {
@@ -328,8 +367,8 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
     const parsed = parseStats(stats)
 
     return (
-      <SettingCard key={slug} className="hover:border-primary/30 transition-colors cursor-pointer">
-        <div className="flex items-start justify-between gap-3">
+      <SettingCard key={slug} className="cursor-pointer transition-colors hover:border-primary/30">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div className="flex-1 min-w-0" onClick={() => openDetail(slug)}>
             <div className="flex items-center gap-2">
               <span className="font-medium truncate">{name}</span>
@@ -341,7 +380,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
             {summary && (
               <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{summary}</p>
             )}
-            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {parsed.stars != null && parsed.stars > 0 && (
                 <span className="flex items-center gap-1">
                   <Star className="h-3 w-3" />
@@ -368,7 +407,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
               )}
             </div>
           </div>
-          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+          <div className="flex shrink-0 self-start" onClick={(e) => e.stopPropagation()}>
             {isInstalled ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -427,35 +466,36 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Search + Refresh */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={t("clawhub.searchPlaceholder", "Search ClawHub skills...")}
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            className="pl-9 h-9"
-          />
+    <div className="min-w-0 space-y-4">
+      {!externalSearch ? (
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div className="relative min-w-0">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={t("clawhub.searchPlaceholder", "Search ClawHub skills...")}
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            disabled={isLoading}
+            onClick={() => {
+              hasLoadedExploreRef.current = false
+              setSearchQuery("")
+              setIsSearchMode(false)
+              loadExplore()
+              loadInstalled()
+            }}
+            title={t("clawhub.refresh", "Refresh")}
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-9 w-9 shrink-0"
-          disabled={isLoading}
-          onClick={() => {
-            hasLoadedExploreRef.current = false
-            setSearchQuery("")
-            setIsSearchMode(false)
-            loadExplore()
-            loadInstalled()
-          }}
-          title={t("clawhub.refresh", "Refresh")}
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-        </Button>
-      </div>
+      ) : null}
 
       {/* Error */}
       {error && (
