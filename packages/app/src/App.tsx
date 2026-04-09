@@ -362,27 +362,6 @@ function ResizeHandle({
   );
 }
 
-/** Full-screen overlay shown when OpenCode server is starting/restarting.
- *  Uses `fixed` positioning to cover the entire viewport (sidebar + content),
- *  blocking all user interaction until the server is ready. */
-function ConnectingOverlay() {
-  const { t } = useTranslation();
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="flex flex-col items-center gap-4">
-        <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <div className="text-center">
-          <p className="text-lg font-medium">
-            {t("app.connecting", "Connecting to Core Agent...")}
-          </p>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t("app.startingServer", "Starting server for workspace")}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // Inner component to access sidebar context
 function AppContent() {
@@ -542,17 +521,18 @@ function AppContent() {
     }
   }, [leftDockActive, sidebarOpen, setSidebarOpen, closePanel]);
 
-  // Full-screen loading overlay when OpenCode server is starting/restarting
+  // Remove HTML skeleton once OpenCode server is bootstrapped (sessions can load)
   const openCodeBootstrapped = useWorkspaceStore((s) => s.openCodeBootstrapped);
-  const showConnectingOverlay =
-    workspacePath && !openCodeBootstrapped && !openCodeError && isTauri();
+  useEffect(() => {
+    if (openCodeBootstrapped || !isTauri()) {
+      document.getElementById('skeleton')?.remove();
+    }
+  }, [openCodeBootstrapped]);
 
   // If settings is open, show settings page (check first so it works regardless of workspace state)
   if (currentView === "settings") {
     return (
       <>
-        {/* Global connecting overlay — fixed to viewport, covers sidebar + content */}
-        {showConnectingOverlay && <ConnectingOverlay />}
         <AppSidebar />
         <SidebarInset className="flex h-svh flex-col overflow-hidden">
           {/* Header for settings - with traffic light space when collapsed */}
@@ -722,7 +702,6 @@ function AppContent() {
     return (
       <div className="flex h-svh w-full flex-col overflow-hidden bg-background">
         {/* Global connecting overlay — fixed to viewport, covers everything */}
-        {showConnectingOverlay && <ConnectingOverlay />}
         {/* Header for file mode */}
         <header
           className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 bg-background border-b px-4"
@@ -895,8 +874,6 @@ function AppContent() {
   // Task Mode: Standard layout with sidebar
   return (
     <>
-      {/* Global connecting overlay — fixed to viewport, covers sidebar + content */}
-      {showConnectingOverlay && <ConnectingOverlay />}
       <AppSidebar />
       <SidebarInset className="flex flex-row h-svh overflow-hidden relative">
         <div

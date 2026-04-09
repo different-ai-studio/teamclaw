@@ -65,6 +65,13 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    // Inject build-config values into index.html (skeleton theme script)
+    {
+      name: 'inject-app-short-name',
+      transformIndexHtml(html) {
+        return html.replace(/__APP_SHORT_NAME__/g, sn as string)
+      },
+    },
     // Bundle analysis: run with ANALYZE=true pnpm build
     process.env.ANALYZE && visualizer({
       open: true,

@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TeamClaw</title>
     <style>
-      /* Skeleton — removed by React on mount */
+      /* Skeleton — covers viewport until openCodeBootstrapped */
       #skeleton {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
         display: flex;
         height: 100vh;
         font-family: system-ui, -apple-system, sans-serif;
@@ -28,9 +31,9 @@
       }
       /* Light theme (default) */
       :root {
-        --sk-bg: #ffffff;
+        --sk-bg: #f2f5f9;
         --sk-border: #e4e4e7;
-        --sk-bone: #f4f4f5;
+        --sk-bone: #e4e7eb;
       }
       /* Dark theme */
       .dark {
@@ -42,12 +45,9 @@
     </style>
     <script>
       // Apply theme before first paint (matches main.tsx logic)
+      // __APP_SHORT_NAME__ is replaced by Vite transformIndexHtml
       (function() {
-        var sn = 'teamclaw';
-        try {
-          var k = localStorage.getItem(sn + '-shortname');
-          if (k) sn = k;
-        } catch(e) {}
+        var sn = '__APP_SHORT_NAME__';
         var theme;
         try { theme = localStorage.getItem(sn + '-theme'); } catch(e) {}
         if (!theme) theme = 'system';
