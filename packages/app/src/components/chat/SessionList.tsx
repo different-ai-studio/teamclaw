@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { MessageSquare, Loader2 } from 'lucide-react'
+import { MessageSquare, Loader2, Bot, CheckCircle2 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session'
 import { useStreamingStore } from '@/stores/streaming'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -8,6 +8,7 @@ import { useUIStore } from '@/stores/ui'
 import { useCronStore } from '@/stores/cron'
 import { cn } from '@/lib/utils'
 import { formatRelativeDate } from '@/lib/date-format'
+import type { Session } from '@/stores/session-types'
 
 interface SessionListProps {
   compact?: boolean
@@ -22,10 +23,9 @@ interface SessionListItemProps {
   isHighlighted: boolean
   compact?: boolean
   onSelect: (id: string) => void
+  children?: React.ReactNode
 }
 
-// Extracted sub-component: only rendered when isActive, so non-active items
-// don't subscribe to sessionStatus/streamingMessageId stores (keeps memo stable).
 function SessionStatusIndicator({ compact }: { compact?: boolean }) {
   const sessionStatus = useSessionStore(s => s.sessionStatus)
   const pendingPermissions = useSessionStore(s => s.pendingPermissions)
@@ -40,8 +40,6 @@ function SessionStatusIndicator({ compact }: { compact?: boolean }) {
     )
   }
 
-  // Both checks needed: sessionStatus covers pre-streaming busy (tool exec),
-  // streamingMessageId covers streaming when status may lag
   if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry' || streamingMessageId) {
     return (
       <Loader2 className={cn(
@@ -60,50 +58,109 @@ const SessionListItem = React.memo(function SessionListItem({
   isHighlighted,
   compact,
   onSelect,
+  children,
 }: SessionListItemProps) {
+  return (
+    <div>
+      <button
+        onClick={() => onSelect(session.id)}
+        className={cn(
+          "w-full text-left rounded-lg transition-all duration-200 group",
+          compact ? "px-3 py-2" : "px-3 py-2.5",
+          isHighlighted
+            ? "bg-emerald-500/10 ring-1 ring-emerald-500/25 text-foreground"
+            : isActive
+              ? "bg-primary/8 text-foreground"
+              : "hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+        )}
+      >
+        <div className="flex items-start gap-2.5 min-w-0">
+          <MessageSquare className={cn(
+            "shrink-0 mt-0.5",
+            compact ? "h-3.5 w-3.5" : "h-4 w-4",
+            isActive ? "text-primary" : "text-muted-foreground/50 group-hover:text-muted-foreground/70",
+          )} />
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className={cn(
+                "truncate leading-snug",
+                compact ? "text-sm" : "text-[15px]",
+                isActive && "font-medium",
+              )}>
+                {session.title}
+              </span>
+              {isActive ? (
+                <SessionStatusIndicator compact={compact} />
+              ) : isHighlighted ? (
+                <span className="shrink-0 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                  NEW
+                </span>
+              ) : null}
+            </div>
+            <span className={cn("text-muted-foreground/70", compact ? "text-xs" : "text-xs")}>
+              {formatRelativeDate(session.updatedAt)}
+              {session.messageCount !== undefined && (
+                <> · {session.messageCount} msgs</>
+              )}
+            </span>
+          </div>
+        </div>
+      </button>
+      {children}
+    </div>
+  )
+})
+
+// ── Child session item ──
+
+interface ChildSessionItemProps {
+  session: Session
+  isViewing: boolean
+  compact?: boolean
+  onSelect: (id: string) => void
+}
+
+function ChildSessionStatusIcon({ sessionId, compact }: { sessionId: string; compact?: boolean }) {
+  const isStreaming = useStreamingStore(s => !!s.childSessionStreaming[sessionId]?.isStreaming)
+  const iconSize = compact ? 10 : 12
+
+  if (isStreaming) {
+    return <Loader2 size={iconSize} className="shrink-0 animate-spin text-muted-foreground" />
+  }
+  return <CheckCircle2 size={iconSize} className="shrink-0 text-foreground/40" />
+}
+
+const ChildSessionItem = React.memo(function ChildSessionItem({
+  session,
+  isViewing,
+  compact,
+  onSelect,
+}: ChildSessionItemProps) {
   return (
     <button
       onClick={() => onSelect(session.id)}
       className={cn(
-        "w-full text-left rounded-lg transition-all duration-200 group",
-        compact ? "px-3 py-2" : "px-3 py-2.5",
-        isHighlighted
-          ? "bg-emerald-500/10 ring-1 ring-emerald-500/25 text-foreground"
-          : isActive
-            ? "bg-primary/8 text-foreground"
-            : "hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+        "w-full text-left rounded-md transition-all duration-200 group",
+        compact ? "pl-8 pr-3 py-1.5" : "pl-9 pr-3 py-1.5",
+        isViewing
+          ? "bg-primary/8 text-foreground"
+          : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
       )}
     >
-      <div className="flex items-start gap-2.5 min-w-0">
-        <MessageSquare className={cn(
-          "shrink-0 mt-0.5",
-          compact ? "h-3.5 w-3.5" : "h-4 w-4",
-          isActive ? "text-primary" : "text-muted-foreground/50 group-hover:text-muted-foreground/70",
+      <div className="flex items-center gap-2 min-w-0">
+        <Bot className={cn(
+          "shrink-0",
+          compact ? "h-3 w-3" : "h-3.5 w-3.5",
+          isViewing ? "text-primary" : "text-muted-foreground/50 group-hover:text-muted-foreground/70",
         )} />
-        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className={cn(
-              "truncate leading-snug",
-              compact ? "text-sm" : "text-[15px]",
-              isActive && "font-medium",
-            )}>
-              {session.title}
-            </span>
-            {isActive ? (
-              <SessionStatusIndicator compact={compact} />
-            ) : isHighlighted ? (
-              <span className="shrink-0 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
-                NEW
-              </span>
-            ) : null}
-          </div>
-          <span className={cn("text-muted-foreground/70", compact ? "text-xs" : "text-xs")}>
-            {formatRelativeDate(session.updatedAt)}
-            {session.messageCount !== undefined && (
-              <> · {session.messageCount} msgs</>
-            )}
-          </span>
-        </div>
+        <span className={cn(
+          "truncate flex-1 min-w-0",
+          compact ? "text-xs" : "text-[13px]",
+          isViewing && "font-medium",
+        )}>
+          {session.title || "Sub-agent"}
+        </span>
+        <ChildSessionStatusIcon sessionId={session.id} compact={compact} />
       </div>
     </button>
   )
@@ -117,17 +174,32 @@ const ROW_HEIGHT_COMPACT = 40
 export function SessionList({ compact, onSessionSelected }: SessionListProps) {
   const allSessions = useSessionStore(s => s.sessions)
   const activeSessionId = useSessionStore(s => s.activeSessionId)
+  const viewingChildSessionId = useSessionStore(s => s.viewingChildSessionId)
   const cronSessionIds = useCronStore(s => s.cronSessionIds)
   const showCronSessions = useCronStore(s => s.showCronSessions)
 
-  // Filter sessions by cron toggle
-  const sessions = useMemo(
-    () => allSessions.filter(s => showCronSessions
+  const { parentSessions, childrenMap } = useMemo(() => {
+    const parents: Session[] = []
+    const children = new Map<string, Session[]>()
+
+    const filtered = allSessions.filter(s => showCronSessions
       ? cronSessionIds.has(s.id)
       : !cronSessionIds.has(s.id) || s.id === activeSessionId
-    ),
-    [allSessions, cronSessionIds, showCronSessions, activeSessionId],
-  )
+    )
+
+    for (const s of filtered) {
+      if (s.parentID) {
+        const list = children.get(s.parentID) || []
+        list.push(s)
+        children.set(s.parentID, list)
+      } else {
+        parents.push(s)
+      }
+    }
+
+    return { parentSessions: parents, childrenMap: children }
+  }, [allSessions, cronSessionIds, showCronSessions, activeSessionId])
+
   const isLoading = useSessionStore(s => s.isLoading)
   const highlightedSessionIds = useSessionStore(s => s.highlightedSessionIds)
   const setActiveSession = useSessionStore(s => s.setActiveSession)
@@ -135,21 +207,22 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
   const setFileModeRightTab = useUIStore(s => s.setFileModeRightTab)
 
   const parentRef = useRef<HTMLDivElement>(null)
-  const useVirtual = sessions.length > VIRTUAL_THRESHOLD
+  const useVirtual = parentSessions.length > VIRTUAL_THRESHOLD
   const rowHeight = compact ? ROW_HEIGHT_COMPACT : ROW_HEIGHT
 
   const virtualizer = useVirtualizer({
-    count: useVirtual ? sessions.length : 0,
+    count: useVirtual ? parentSessions.length : 0,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowHeight,
     overscan: 10,
   })
 
-  // Keep selection hooks wired for future multi-select UX without changing current behavior
   void setActiveSession
   void clearSelection
 
   const handleSelectSession = useCallback((id: string) => {
+    const { viewingChildSessionId: vcid, setViewingChildSession: setVcs } = useSessionStore.getState()
+    if (vcid) setVcs(null)
     useUIStore.getState().switchToSession(id)
     if (useUIStore.getState().layoutMode === 'file') {
       setFileModeRightTab('agent')
@@ -157,7 +230,12 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
     onSessionSelected?.()
   }, [setFileModeRightTab, onSessionSelected])
 
-  if (isLoading && sessions.length === 0) {
+  const handleSelectChildSession = useCallback((childId: string) => {
+    useSessionStore.getState().setViewingChildSession(childId)
+    onSessionSelected?.()
+  }, [onSessionSelected])
+
+  if (isLoading && parentSessions.length === 0) {
     return (
       <div className="flex items-center justify-center py-8">
         <Loader2 className={cn("animate-spin text-muted-foreground", compact ? "h-4 w-4" : "h-5 w-5")} />
@@ -165,7 +243,7 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
     )
   }
 
-  if (sessions.length === 0) {
+  if (parentSessions.length === 0) {
     return (
       <div className={cn("flex flex-col items-center justify-center text-center", compact ? "py-8" : "py-12")}>
         <div className={cn("rounded-full bg-muted/50 mb-3", compact ? "p-2.5" : "p-3")}>
@@ -178,7 +256,24 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
     )
   }
 
-  // Virtualized rendering for large session lists
+  const renderChildSessions = (parentId: string) => {
+    const children = childrenMap.get(parentId)
+    if (!children || children.length === 0) return null
+    return (
+      <div className="space-y-0.5 mt-0.5">
+        {children.map((child) => (
+          <ChildSessionItem
+            key={child.id}
+            session={child}
+            isViewing={viewingChildSessionId === child.id}
+            compact={compact}
+            onSelect={handleSelectChildSession}
+          />
+        ))}
+      </div>
+    )
+  }
+
   if (useVirtual) {
     return (
       <div
@@ -194,7 +289,7 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
           }}
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
-            const session = sessions[virtualItem.index]
+            const session = parentSessions[virtualItem.index]
             return (
               <div
                 key={session.id}
@@ -213,7 +308,9 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
                   isHighlighted={highlightedSessionIds.includes(session.id)}
                   compact={compact}
                   onSelect={handleSelectSession}
-                />
+                >
+                  {renderChildSessions(session.id)}
+                </SessionListItem>
               </div>
             )
           })}
@@ -222,10 +319,9 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
     )
   }
 
-  // Non-virtualized rendering for small lists
   return (
     <div className={cn("space-y-0.5", compact ? "p-1.5" : "p-2")}>
-      {sessions.map((session) => (
+      {parentSessions.map((session) => (
         <SessionListItem
           key={session.id}
           session={session}
@@ -233,7 +329,9 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
           isHighlighted={highlightedSessionIds.includes(session.id)}
           compact={compact}
           onSelect={handleSelectSession}
-        />
+        >
+          {renderChildSessions(session.id)}
+        </SessionListItem>
       ))}
     </div>
   )

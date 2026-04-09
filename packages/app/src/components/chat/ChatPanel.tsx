@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Bot, Loader2, RefreshCw, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn, isTauri } from "@/lib/utils";
 
@@ -20,6 +20,7 @@ import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
 import { Button } from "@/components/ui/button";
 
+import type { Message } from "@/stores/session";
 import { ChatInputArea } from "./ChatInputArea";
 import { getFileName } from "./utils/fileUtils";
 import { MessageList, type MessageListHandle } from "./MessageList";
@@ -61,6 +62,8 @@ async function saveImageToWorkspace(
   }
 }
 
+const EMPTY_MESSAGES: Message[] = [];
+
 // ─── Main component ────────────────────────────────────────────────────────
 
 interface ChatPanelProps {
@@ -88,6 +91,19 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const sessionError = useSessionStore(s => s.sessionError);
   const inactivityWarning = useSessionStore(s => s.inactivityWarning);
   const draftInput = useSessionStore(s => s.draftInput);
+
+  // ── Child session viewing ──────────────────────────────────────────
+  const viewingChildSessionId = useSessionStore(s => s.viewingChildSessionId);
+  const childSessionMessages = useSessionStore(s =>
+    s.viewingChildSessionId
+      ? (s.childSessionMessages[s.viewingChildSessionId] || EMPTY_MESSAGES)
+      : EMPTY_MESSAGES
+  );
+  const isLoadingChildMessages = useSessionStore(s => s.isLoadingChildMessages);
+  const childStreamingContent = useStreamingStore(s =>
+    viewingChildSessionId ? s.childSessionStreaming[viewingChildSessionId] : undefined
+  );
+  const isViewingChild = !!viewingChildSessionId;
 
   // Actions — accessed via getState() to avoid creating subscriptions.
   // Zustand actions are stable references; subscribing to them wastes equality checks.
@@ -707,60 +723,100 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         </div>
       )}
 
+      {/* ─── Child session back bar ─── */}
+      {isViewingChild && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/30">
+          <button
+            type="button"
+            onClick={() => useSessionStore.getState().setViewingChildSession(null)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft size={14} />
+            <span>返回主会话</span>
+          </button>
+          <div className="flex items-center gap-1.5 ml-auto text-xs text-muted-foreground">
+            <Bot size={12} />
+            <span>Sub-agent</span>
+            {childStreamingContent?.isStreaming && (
+              <Loader2 size={12} className="animate-spin" />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ─── Message List (fade on session switch; input stays stable) ─── */}
       <div
         className={cn(
           "flex-1 min-h-0 flex flex-col overflow-hidden",
           "transition-opacity duration-150 ease-in-out motion-reduce:transition-none",
         )}
-        style={{ opacity: sessionFadeOpacity }}
+        style={{ opacity: isViewingChild ? 1 : sessionFadeOpacity }}
       >
-        <MessageList
-          ref={messageListRef}
-          messages={displaySession?.messages ?? []}
-          activeSessionId={displaySessionId}
-          isStreaming={isStreaming}
-          streamingMessageId={streamingMessageId}
-          compact={compact}
-          emptyState={emptyState}
-        />
+        {isViewingChild ? (
+          isLoadingChildMessages ? (
+            <div className="flex items-center justify-center flex-1">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <MessageList
+              ref={messageListRef}
+              messages={childSessionMessages}
+              activeSessionId={viewingChildSessionId}
+              isStreaming={!!childStreamingContent?.isStreaming}
+              streamingMessageId={null}
+              compact={compact}
+            />
+          )
+        ) : (
+          <MessageList
+            ref={messageListRef}
+            messages={displaySession?.messages ?? []}
+            activeSessionId={displaySessionId}
+            isStreaming={isStreaming}
+            streamingMessageId={streamingMessageId}
+            compact={compact}
+            emptyState={emptyState}
+          />
+        )}
       </div>
 
       {/* ─── Input Area (with Permission & Error UI above it) ─────────── */}
-      <ChatInputArea
-        compact={compact}
-        inputValue={inputValue}
-        onInputChange={handleInputChange}
-        attachedFiles={attachedFiles}
-            onFilesChange={handleFilesChange}
-        onRemoveFile={removeFile}
-        imageFiles={imageFiles}
-        onImageFilesChange={handleImageFilesChange}
-        onRemoveImageFile={removeImageFile}
-        onSubmit={handleSubmit}
-        isStreaming={isStreaming}
-        onAbort={abortSession}
-        messageQueue={messageQueue}
-        onRemoveFromQueue={removeFromQueue}
-        onHeightChange={handleInputHeightChange}
-        headerContent={
-          <>
-            <PendingPermissionInline />
-            {sessionError && (
-              <SessionErrorAlert
-                error={sessionError}
-                onDismiss={clearSessionError}
-              />
-            )}
-            {error && !sessionError && (
-              <SessionErrorAlert
-                error={error}
-                onDismiss={() => setError(null)}
-              />
-            )}
-          </>
-        }
-      />
+      {!isViewingChild && (
+        <ChatInputArea
+          compact={compact}
+          inputValue={inputValue}
+          onInputChange={handleInputChange}
+          attachedFiles={attachedFiles}
+              onFilesChange={handleFilesChange}
+          onRemoveFile={removeFile}
+          imageFiles={imageFiles}
+          onImageFilesChange={handleImageFilesChange}
+          onRemoveImageFile={removeImageFile}
+          onSubmit={handleSubmit}
+          isStreaming={isStreaming}
+          onAbort={abortSession}
+          messageQueue={messageQueue}
+          onRemoveFromQueue={removeFromQueue}
+          onHeightChange={handleInputHeightChange}
+          headerContent={
+            <>
+              <PendingPermissionInline />
+              {sessionError && (
+                <SessionErrorAlert
+                  error={sessionError}
+                  onDismiss={clearSessionError}
+                />
+              )}
+              {error && !sessionError && (
+                <SessionErrorAlert
+                  error={error}
+                  onDismiss={() => setError(null)}
+                />
+              )}
+            </>
+          }
+        />
+      )}
     </div>
   );
 }

@@ -15,6 +15,8 @@ import {
   loadPinnedSessionIds,
   savePinnedSessionIds,
 } from "./session-pins";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
+import { convertMessage } from "./session-converters";
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   // Initial state
@@ -38,6 +40,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   inactivityWarning: false,
   highlightedSessionIds: [],
   draftInput: "",
+  viewingChildSessionId: null,
+  childSessionMessages: {},
+  isLoadingChildMessages: false,
   dashboardLoading: false,
   dashboardLoadProgress: { loaded: 0, total: 0 },
   dashboardLoadError: undefined,
@@ -71,6 +76,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
   setInactivityWarning: (active: boolean) => {
     set({ inactivityWarning: active });
+  },
+
+  // Child session viewing
+  setViewingChildSession: (sessionId: string | null) => {
+    set({ viewingChildSessionId: sessionId });
+    if (sessionId && !get().childSessionMessages[sessionId]) {
+      get().loadChildSessionMessages(sessionId);
+    }
+  },
+  loadChildSessionMessages: async (sessionId: string) => {
+    set({ isLoadingChildMessages: true });
+    try {
+      const client = getOpenCodeClient();
+      const rawMessages = await client.getMessages(sessionId);
+      const converted = rawMessages.map(convertMessage);
+      set((s) => ({
+        childSessionMessages: { ...s.childSessionMessages, [sessionId]: converted },
+        isLoadingChildMessages: false,
+      }));
+    } catch (err) {
+      console.error("[Session] Failed to load child session messages:", err);
+      set({ isLoadingChildMessages: false });
+    }
   },
 
   // Getters

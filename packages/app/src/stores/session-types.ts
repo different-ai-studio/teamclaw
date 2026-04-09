@@ -211,6 +211,11 @@ export interface SessionState {
   // Draft input text (preserved when navigating away from chat)
   draftInput: string;
 
+  // Child session viewing - browse sub-agent conversations without changing SSE subscription
+  viewingChildSessionId: string | null;
+  childSessionMessages: Record<string, Message[]>;
+  isLoadingChildMessages: boolean;
+
   // Actions - Session management
   loadSessions: (workspacePath?: string) => Promise<void>;
   loadMoreSessions: () => Promise<void>;
@@ -283,6 +288,10 @@ export interface SessionState {
 
   // Actions - Tool call management
   forceCompleteToolCall: (toolCallId: string) => void;
+
+  // Actions - Child session viewing
+  setViewingChildSession: (sessionId: string | null) => void;
+  loadChildSessionMessages: (sessionId: string) => Promise<void>;
 
   // Actions - Dashboard batch loading
   dashboardLoading: boolean;

@@ -476,8 +476,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       isPanelOpen: true,
       ...(tab ? { activeTab: tab } : {}),
     }),
-  closePanel: () => set({ isPanelOpen: false }),
-  togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
+  closePanel: () => {
+    set({ isPanelOpen: false })
+  },
+  togglePanel: () => {
+    set((state) => ({ isPanelOpen: !state.isPanelOpen }))
+  },
   setActiveTab: (tab: RightPanelTab) => set({ activeTab: tab }),
 
   // Load directory contents using Tauri FS plugin

@@ -240,6 +240,10 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         pendingQuestions: currentPendingQuestions,
       } = get();
 
+      if (id !== prevSessionId) {
+        set({ viewingChildSessionId: null, childSessionMessages: {} });
+      }
+
       // Save current session's todos, diff, message queue, and pending questions to cache before switching
       if (prevSessionId) {
         const prevCached = sessionDataCache.get(prevSessionId) || { todos: [], diff: [] };

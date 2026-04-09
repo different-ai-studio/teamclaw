@@ -66,6 +66,7 @@ export interface SessionCreatedEvent {
 export interface SessionUpdatedEvent {
   sessionId: string
   directory?: string
+  title?: string
 }
 
 // External message detected (message.updated for a message not in local state)
@@ -633,10 +634,11 @@ export class OpenCodeSSE {
       case 'session.updated': {
         const updatedData = properties as {
           sessionID?: string
-          info?: { id?: string; directory?: string }
+          info?: { id?: string; directory?: string; title?: string }
         }
         const updatedSessionId = updatedData.sessionID || updatedData.info?.id
         const updatedDir = updatedData.info?.directory || (properties.directory as string | undefined)
+        const updatedTitle = updatedData.info?.title || (properties.title as string | undefined)
 
         if (OpenCodeSSE.debug()) console.log('[SSE] Session updated:', updatedSessionId)
 
@@ -644,6 +646,7 @@ export class OpenCodeSSE {
           this.handlers.onSessionUpdated?.({
             sessionId: updatedSessionId,
             directory: updatedDir,
+            title: updatedTitle,
           })
         }
         break

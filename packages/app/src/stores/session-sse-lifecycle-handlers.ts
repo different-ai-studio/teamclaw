@@ -80,6 +80,20 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
           reasoning: "",
           isStreaming: true,
         });
+
+        set((state) => {
+          const exists = state.sessions.some((s) => s.id === event.sessionId);
+          if (exists) return {};
+          const childSession = {
+            id: event.sessionId,
+            title: "Sub-agent",
+            messages: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            parentID: event.parentID,
+          };
+          return { sessions: [...state.sessions, childSession] };
+        });
         return;
       }
 
@@ -126,7 +140,13 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
       }
 
       if (isChildSession(event.sessionId)) {
-        console.log("[Session] Ignoring SSE update for child session:", event.sessionId);
+        if (event.title) {
+          set((state) => ({
+            sessions: state.sessions.map((s) =>
+              s.id === event.sessionId ? { ...s, title: event.title!, updatedAt: new Date() } : s,
+            ),
+          }));
+        }
         return;
       }
 
@@ -210,7 +230,6 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         if (event.status.type === 'idle') {
           console.log("[Session] Child session idle, finalizing:", event.sessionId);
           cleanupChildSession(event.sessionId);
-          // Clean up permissions and questions belonging to this child session
           set((state) => ({
             pendingPermissions: state.pendingPermissions.filter(
               (e) => e.childSessionId !== event.sessionId,
@@ -219,6 +238,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
               (q) => q.sessionId !== event.sessionId,
             ),
           }));
+          get().loadChildSessionMessages(event.sessionId);
         }
         return;
       }
