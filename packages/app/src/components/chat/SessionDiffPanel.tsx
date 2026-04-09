@@ -12,7 +12,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { FileDiff } from '@/lib/opencode/types'
+import type { FileDiff } from '@/lib/opencode/sdk-types'
 import { copyToClipboard } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTabsStore } from '@/stores/tabs'

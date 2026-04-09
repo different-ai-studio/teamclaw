@@ -106,7 +106,7 @@ vi.mock('@/lib/utils', () => ({
   cn: (...classes: unknown[]) => classes.filter(Boolean).join(' '),
 }));
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     executeCommand: vi.fn(),
   }),
@@ -251,6 +251,20 @@ describe('ChatPanel submission flow', () => {
 
       // setDraftInput should be called with empty string to clear
       expect(mockSetDraftInput).toHaveBeenCalledWith('');
+    });
+
+    it('preserves namespaced skill mentions in submitted content', async () => {
+      mockSessionState.draftInput = '/{superpowers/brainstorming}';
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      const submitBtn = screen.getByTestId('mock-submit');
+      await act(async () => {
+        fireEvent.click(submitBtn);
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith('[Skill: superpowers/brainstorming]', undefined, undefined);
     });
   });
 

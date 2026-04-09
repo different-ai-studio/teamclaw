@@ -8,9 +8,9 @@ vi.mock('@/lib/notification-service', () => ({
   notificationService: { send: vi.fn() },
 }))
 
-vi.mock('@/lib/opencode/types', () => ({}))
+vi.mock('@/lib/opencode/sdk-types', () => ({}))
 
-vi.mock('@/lib/opencode/sse', () => ({
+vi.mock('@/lib/opencode/sdk-sse', () => ({
   registerChildSession: vi.fn(),
   isChildSession: vi.fn(() => false),
 }))

@@ -1,5 +1,5 @@
-import { getOpenCodeClient } from "@/lib/opencode/client";
-import type { SendMessageFilePart, SessionErrorEvent } from "@/lib/opencode/types";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
+import type { SendMessageFilePart, SessionErrorEvent } from "@/lib/opencode/sdk-types";
 import type {
   Message,
   QueuedMessage,
@@ -21,7 +21,7 @@ import {
   cleanupAllChildSessions,
 } from "@/stores/streaming";
 import { trackEvent } from "@/stores/telemetry";
-import { syncSetSessionId } from "@/lib/opencode/sse";
+import { syncSetSessionId } from "@/lib/opencode/sdk-sse";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
 import { appShortName } from "@/lib/build-config";
 

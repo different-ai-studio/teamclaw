@@ -78,7 +78,7 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   initOpenCodeClient: vi.fn(),
 }))
 

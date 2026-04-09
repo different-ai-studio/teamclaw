@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSessionStore } from '@/stores/session'
-import type { Question } from '@/lib/opencode/types'
+import type { Question } from '@/lib/opencode/sdk-types'
 
 interface QuestionCardProps {
   toolCallId: string

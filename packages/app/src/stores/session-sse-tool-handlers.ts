@@ -1,4 +1,4 @@
-import { getOpenCodeClient } from "@/lib/opencode/client";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
 import type {
   ToolExecutingEvent,
   QuestionToolInput,
@@ -6,7 +6,7 @@ import type {
   FileDiff,
   TodoUpdatedEvent,
   SessionDiffEvent,
-} from "@/lib/opencode/types";
+} from "@/lib/opencode/sdk-types";
 import type {
   SessionState,
   ToolCall,

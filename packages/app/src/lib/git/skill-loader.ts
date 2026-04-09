@@ -20,12 +20,38 @@ function extractSkillName(content: string, fallback: string): string {
   return fallback
 }
 
+function getLastPathSegment(path: string): string {
+  return path.replace(/\/+$/, '').split('/').pop() || ''
+}
+
+export function buildSkillInvocationName(parentDir: string, filename: string): string {
+  const scope = getLastPathSegment(parentDir)
+  return scope && scope !== 'skills' ? `${scope}/${filename}` : filename
+}
+
 /** Load skills from a single directory, recording the directory path on each skill */
 async function loadSkillsFromDir(
   dirPath: string,
   source: SkillSource,
 ): Promise<SkillWithSource[]> {
   const skills: SkillWithSource[] = []
+
+  const tryLoadSkill = async (skillRoot: string, skillDirName: string, parentDir: string) => {
+    const skillMdPath = `${skillRoot}/SKILL.md`
+    if (!(await exists(skillMdPath))) return false
+
+    const content = await readTextFile(skillMdPath)
+    const name = extractSkillName(content, skillDirName)
+    skills.push({
+      filename: skillDirName,
+      name,
+      invocationName: buildSkillInvocationName(parentDir, skillDirName),
+      content,
+      source,
+      dirPath: parentDir,
+    })
+    return true
+  }
 
   try {
     if (!(await exists(dirPath))) return skills
@@ -34,18 +60,16 @@ async function loadSkillsFromDir(
 
     for (const entry of entries) {
       if (entry.isDirectory && entry.name) {
-        const skillMdPath = `${dirPath}/${entry.name}/SKILL.md`
         try {
-          if (await exists(skillMdPath)) {
-            const content = await readTextFile(skillMdPath)
-            const name = extractSkillName(content, entry.name)
-            skills.push({
-              filename: entry.name,
-              name,
-              content,
-              source,
-              dirPath,
-            })
+          const entryPath = `${dirPath}/${entry.name}`
+          if (await tryLoadSkill(entryPath, entry.name, dirPath)) {
+            continue
+          }
+
+          const nestedEntries = await readDir(entryPath)
+          for (const nestedEntry of nestedEntries) {
+            if (!nestedEntry.isDirectory || !nestedEntry.name) continue
+            await tryLoadSkill(`${entryPath}/${nestedEntry.name}`, nestedEntry.name, entryPath)
           }
         } catch {
           console.warn(`[SkillLoader] Failed to load skill ${entry.name} from ${dirPath}`)

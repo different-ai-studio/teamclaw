@@ -13,7 +13,7 @@ vi.mock('@/stores/session', () => ({
   getSessionById: vi.fn(() => null),
 }))
 
-vi.mock('@/lib/opencode/sse', () => ({
+vi.mock('@/lib/opencode/sdk-sse', () => ({
   clearAllChildSessions: vi.fn(),
 }))
 

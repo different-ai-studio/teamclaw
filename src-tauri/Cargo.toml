@@ -1,6 +1,6 @@
 [package]
 name = "teamclaw"
-version = "0.1.35"
+version = "0.1.41"
 description = "TeamClaw - AI Agent Desktop Platform"
 authors = ["TeamClaw Team"]
 edition = "2021"
@@ -74,6 +74,7 @@ tantivy = "0.22"
 # reach the final `teamclaw` binary (undefined `ZSTD_*`), especially if `ZSTD_SYS_USE_PKG_CONFIG`
 # picks a wrong-arch Homebrew lib. A direct `zstd-sys` dep unifies features and links bundled libzstd.
 zstd-sys = { version = "2.0.16", default-features = false, features = ["legacy", "zdict_builder", "bindgen"] }
+zstd = "0.13"
 tree-sitter = "0.26"
 tree-sitter-rust = "0.23"
 tree-sitter-typescript = "0.23"

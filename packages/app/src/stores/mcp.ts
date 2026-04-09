@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
-import { getOpenCodeClient } from '@/lib/opencode/client'
-import type { MCPRuntimeStatus } from '@/lib/opencode/types'
+import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
+import type { MCPRuntimeStatus } from '@/lib/opencode/sdk-types'
 import { withAsync } from '@/lib/store-utils'
 
 // MCP Server configuration types
@@ -202,7 +202,7 @@ export const useMCPStore = create<MCPState>((set) => ({
       }
 
       await Promise.all(ops)
-      const runtimeStatus = await client.getMCPStatus().catch(() => ({} as Record<string, import('@/lib/opencode/types').MCPRuntimeStatus>))
+      const runtimeStatus = await client.getMCPStatus().catch(() => ({} as Record<string, import('@/lib/opencode/sdk-types').MCPRuntimeStatus>))
       set({ servers: newConfig, runtimeStatus })
     } catch (error) {
       console.error('[MCP] syncFromFile failed:', error)

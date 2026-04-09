@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   })),
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     replyPermission: mockReplyPermission,
     listPermissions: mockListPermissions,

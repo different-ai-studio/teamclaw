@@ -7,7 +7,7 @@
     "bash": "allow",
     "edit": "allow",
     "write": "ask",
-    "external_directory": "ask",
+    "external_directory": "allow",
     "doom_loop": "ask"
   },
   "mcp": {

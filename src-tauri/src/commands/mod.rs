@@ -1,4 +1,5 @@
 pub mod clawhub;
+pub mod device_token;
 pub mod cron;
 pub mod deps;
 pub mod env_vars;
@@ -22,6 +23,7 @@ pub mod stt;
 pub mod team;
 #[cfg(feature = "p2p")]
 pub mod team_p2p;
+pub mod trash;
 pub mod team_unified;
 pub mod team_webdav;
 pub mod updater;

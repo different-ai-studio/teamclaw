@@ -115,7 +115,7 @@ vi.mock('@/components/tab-bar/TabBar', () => ({ TabBar: () => null }))
 vi.mock('@/components/tab-bar/TabContentRenderer', () => ({ TabContentRenderer: () => null }))
 vi.mock('@/components/tab-bar/WebViewToolbar', () => ({ WebViewToolbar: () => null }))
 vi.mock('@/lib/webview-utils', () => ({ urlToLabel: (u: string) => u }))
-vi.mock('@/lib/opencode/client', () => ({ initOpenCodeClient: vi.fn() }))
+vi.mock('@/lib/opencode/sdk-client', () => ({ initOpenCodeClient: vi.fn() }))
 vi.mock('@/stores/team-mode', () => ({
   useTeamModeStore: vi.fn((sel: (s: any) => any) => sel({ devUnlocked: false, teamMode: false })),
 }))

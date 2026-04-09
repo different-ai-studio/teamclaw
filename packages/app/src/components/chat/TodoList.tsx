@@ -1,6 +1,6 @@
 import React from 'react'
 import { CheckCircle2, Circle, Clock, XCircle } from 'lucide-react'
-import type { Todo } from '@/lib/opencode/types'
+import type { Todo } from '@/lib/opencode/sdk-types'
 
 interface TodoListProps {
   todos: Todo[]

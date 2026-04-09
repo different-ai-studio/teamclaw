@@ -13,7 +13,7 @@ const { mockCreateSession, mockInvoke, mockGetCurrentWindow } = vi.hoisted(() =>
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mockInvoke }))
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: mockGetCurrentWindow }))
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     createSession: mockCreateSession,
     getSessions: vi.fn().mockResolvedValue([]),
@@ -21,7 +21,7 @@ vi.mock('@/lib/opencode/client', () => ({
   }),
 }))
 
-vi.mock('@/lib/opencode/sse', () => ({
+vi.mock('@/lib/opencode/sdk-sse', () => ({
   registerChildSession: vi.fn(),
   isChildSession: vi.fn(() => false),
   clearAllChildSessions: vi.fn(),
@@ -111,7 +111,7 @@ describe('session store', () => {
     })
 
     // Mock client.getMessages
-    const { getOpenCodeClient } = await import('@/lib/opencode/client')
+    const { getOpenCodeClient } = await import('@/lib/opencode/sdk-client')
     const client = getOpenCodeClient() as unknown as Record<string, ReturnType<typeof vi.fn>>
     client.getMessages = vi.fn().mockResolvedValue([])
     client.loadAllMessages = vi.fn().mockResolvedValue([])

@@ -94,8 +94,19 @@ async function writeOpenCodeConfig(workspacePath: string, config: OpenCodeConfig
 }
 
 /**
+ * Generate the keychain key name for a provider's API key.
+ */
+export function providerApiKeyName(providerId: string): string {
+  return `${providerId}_api_key`
+}
+
+/**
  * Add a custom OpenAI-compatible provider to opencode.json.
  * Returns the generated provider ID.
+ *
+ * NOTE: The actual API key value is NOT written here — only a `${ref}`
+ * placeholder.  The caller must store the real value in the keychain
+ * via `env_var_set` using the key name from `providerApiKeyName()`.
  */
 export async function addCustomProviderToConfig(
   workspacePath: string,
@@ -110,20 +121,20 @@ export async function addCustomProviderToConfig(
   }
 
   // Build models object from the models array
-  const modelsObj: Record<string, { 
+  const modelsObj: Record<string, {
     name: string
     limit?: { context?: number; output?: number }
     modalities?: { input: string[]; output: string[] }
   }> = {}
   for (const model of config.models) {
-    const modelEntry: { 
+    const modelEntry: {
       name: string
       limit?: { context?: number; output?: number }
       modalities?: { input: string[]; output: string[] }
     } = {
       name: model.modelName || model.modelId,
     }
-    
+
     // Add limit if any values are specified
     if (model.limit && (model.limit.context !== undefined || model.limit.output !== undefined)) {
       modelEntry.limit = {}
@@ -134,12 +145,12 @@ export async function addCustomProviderToConfig(
         modelEntry.limit.output = model.limit.output
       }
     }
-    
+
     // Add modalities if specified (no default)
     if (model.modalities) {
       modelEntry.modalities = model.modalities
     }
-    
+
     modelsObj[model.modelId] = modelEntry
   }
 
@@ -147,7 +158,14 @@ export async function addCustomProviderToConfig(
     baseURL: config.baseURL,
   }
   if (config.apiKey) {
-    providerOptions.apiKey = config.apiKey
+    if (/^\$\{.+\}$/.test(config.apiKey) || /^\$.+/.test(config.apiKey)) {
+      // Already a ${ref} or $ref — write as-is
+      providerOptions.apiKey = config.apiKey
+    } else {
+      // Raw key value — write a placeholder, caller stores actual value in keychain
+      const keyName = providerApiKeyName(providerId)
+      providerOptions.apiKey = `\${${keyName}}`
+    }
   }
 
   openCodeConfig.provider[providerId] = {
@@ -245,7 +263,14 @@ export async function updateCustomProviderConfig(
     baseURL: config.baseURL,
   }
   if (config.apiKey) {
-    providerOptions.apiKey = config.apiKey
+    if (/^\$\{.+\}$/.test(config.apiKey) || /^\$.+/.test(config.apiKey)) {
+      // Already a ${ref} or $ref — write as-is
+      providerOptions.apiKey = config.apiKey
+    } else {
+      // Raw key value — write a placeholder, caller stores actual value in keychain
+      const keyName = providerApiKeyName(providerId)
+      providerOptions.apiKey = `\${${keyName}}`
+    }
   }
 
   openCodeConfig.provider[providerId] = {

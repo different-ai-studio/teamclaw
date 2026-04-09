@@ -4,7 +4,7 @@ import { sessionLookupCache, getSessionById } from "@/stores/session-cache";
 import { useSessionStore } from "@/stores/session";
 import {
   clearAllChildSessions,
-} from "@/lib/opencode/sse";
+} from "@/lib/opencode/sdk-sse";
 
 // Re-export for convenience
 export type { ChildStreamingState };

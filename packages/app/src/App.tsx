@@ -90,7 +90,7 @@ import { TabBar } from "@/components/tab-bar/TabBar";
 import { TabContentRenderer } from "@/components/tab-bar/TabContentRenderer";
 import { WebViewToolbar } from "@/components/tab-bar/WebViewToolbar";
 import { urlToLabel } from "@/lib/webview-utils";
-import { initOpenCodeClient } from "@/lib/opencode/client";
+import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
 import {
   startOpenCode,
   clearPreload,

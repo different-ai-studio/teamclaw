@@ -28,7 +28,7 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import { SKILLS_CHANGED_EVENT } from '@/hooks/useAppInit'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { initOpenCodeClient } from '@/lib/opencode/client'
+import { initOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { cn } from '@/lib/utils'
 import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
@@ -64,6 +64,7 @@ import { SkillsMarketplace } from './SkillsMarketplace'
 interface Skill {
   filename: string
   name: string
+  invocationName: string
   content: string
   source?: SkillSource
   dirPath?: string
@@ -179,6 +180,7 @@ export const SkillsSection = React.memo(function SkillsSection() {
       setSkills(loadedSkills.map(s => ({
         filename: s.filename,
         name: s.name,
+        invocationName: s.invocationName,
         content: s.content,
         source: s.source,
         dirPath: s.dirPath,
@@ -679,7 +681,7 @@ ${skillContent.trim()}`
             const globalSkills = filteredSkills.filter((s) => !INHERENT_SKILL_NAMES.has(s.filename) && s.source?.startsWith('global-'))
 
             const renderSkillCard = (skill: Skill) => {
-              const resolved = resolveSkillPermission(skill.filename, skillPermissions)
+              const resolved = resolveSkillPermission(skill.invocationName, skillPermissions)
               const hasExplicitOverride = resolved.isExact
               const permColor = PERMISSION_META[resolved.permission].colorClass
               const isBuiltin = INHERENT_SKILL_NAMES.has(skill.filename)
@@ -732,6 +734,11 @@ ${skillContent.trim()}`
                       <p className="text-xs text-muted-foreground mt-1 truncate">
                         {skill.filename}
                       </p>
+                      {skill.invocationName !== skill.name && (
+                        <p className="text-xs text-muted-foreground/80 mt-1 truncate font-mono">
+                          {skill.invocationName}
+                        </p>
+                      )}
                       <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
                         {skill.content.split('\n').slice(1).join(' ').slice(0, 150)}...
                       </p>
@@ -739,7 +746,7 @@ ${skillContent.trim()}`
                     <div className="flex items-center gap-2 shrink-0">
                       <Select
                         value={hasExplicitOverride ? resolved.permission : '__inherited__'}
-                        onValueChange={(v) => handleSkillPermissionChange(skill.filename, v)}
+                        onValueChange={(v) => handleSkillPermissionChange(skill.invocationName, v)}
                       >
                         <SelectTrigger className={cn("h-8 w-[150px] text-xs gap-1", permColor)}>
                           <SelectValue />

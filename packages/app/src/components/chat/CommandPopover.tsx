@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Command as CommandIcon, Zap, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getOpenCodeClient, type Command as OpenCodeCommand } from '@/lib/opencode/client'
+import { getOpenCodeClient, type Command as OpenCodeCommand } from '@/lib/opencode/sdk-client'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isTauri } from '@/lib/utils'
 import { loadAllSkills } from '@/lib/git/skill-loader'
@@ -16,9 +16,14 @@ interface CommandPopoverProps {
 
 interface SkillEntry {
   name: string
+  invocationName: string
   description: string
   path: string
   permissionKey: string
+}
+
+function isSkillEntry(item: CommandOrSkill): item is SkillEntry {
+  return 'invocationName' in item
 }
 
 // Unified type for display in the list
@@ -32,13 +37,14 @@ async function scanAvailableSkills(workspacePath: string): Promise<SkillEntry[]>
       const frontmatter = frontmatterMatch?.[1] ?? ""
       const descMatch = frontmatter.match(/^description:\s*(.+)$/m)
 
-      return {
-        name: skill.name,
-        description: descMatch?.[1]?.trim() || "",
-        path: skill.filename,
-        permissionKey: skill.filename,
-      }
-    })
+        return {
+          name: skill.name,
+          invocationName: skill.invocationName,
+          description: descMatch?.[1]?.trim() || "",
+          path: skill.filename,
+          permissionKey: skill.invocationName,
+        }
+      })
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -162,7 +168,7 @@ export function CommandPopover({
   const handleSelect = React.useCallback((item: (SkillEntry | OpenCodeCommand) & { _itemType: 'skill' | 'command' }) => {
     console.log('[CommandPopover] 🎯 handleSelect called, item:', item.name, 'type:', item._itemType);
     onSelect({
-      name: item.name,
+      name: item._itemType === 'skill' && isSkillEntry(item) ? item.invocationName : item.name,
       description: item.description,
     } as OpenCodeCommand)
     console.log('[CommandPopover] ✅ onSelect called, closing popover');
@@ -263,8 +269,15 @@ export function CommandPopover({
                       )}
                     >
                       <Zap className="h-4 w-4 text-yellow-500 shrink-0" />
-                      <div className="text-xs font-medium truncate">
-                        {skill.name}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium truncate">
+                          {skill.name}
+                        </div>
+                        {isSkillEntry(skill) && skill.invocationName !== skill.name && (
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {skill.invocationName}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )

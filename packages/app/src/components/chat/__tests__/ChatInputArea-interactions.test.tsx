@@ -27,7 +27,7 @@ vi.mock('@/stores/provider', () => ({
   }),
 }));
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     executeCommand: vi.fn(),
   }),

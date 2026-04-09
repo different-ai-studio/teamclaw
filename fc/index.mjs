@@ -164,8 +164,58 @@ function memberPolicy(teamId, nodeId) {
         Action: ["oss:PutObject"],
         Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/updates/${nodeId}/*`,
       },
+      {
+        Effect: "Allow",
+        Action: ["oss:PutObject"],
+        Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/signal/${nodeId}/*`,
+      },
     ],
   });
+}
+
+function editorPolicy(teamId, nodeId) {
+  const base = JSON.parse(memberPolicy(teamId, nodeId));
+  // Compaction: upload snapshots + generation signal
+  base.Statement.push(
+    {
+      Effect: "Allow",
+      Action: ["oss:PutObject"],
+      Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/snapshots/*`,
+    },
+    {
+      Effect: "Allow",
+      Action: ["oss:PutObject"],
+      Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/generation.json`,
+    },
+    // Compaction cleanup: old updates, snapshots, and legacy snapshot/
+    {
+      Effect: "Allow",
+      Action: ["oss:DeleteObject"],
+      Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/updates/*`,
+    },
+    {
+      Effect: "Allow",
+      Action: ["oss:DeleteObject"],
+      Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/snapshots/*`,
+    },
+    {
+      Effect: "Allow",
+      Action: ["oss:DeleteObject"],
+      Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/snapshot/*`,
+    }
+  );
+  return JSON.stringify(base);
+}
+
+function managerPolicy(teamId, nodeId) {
+  const base = JSON.parse(editorPolicy(teamId, nodeId));
+  // Managers can update team metadata (members.json, etc.)
+  base.Statement.push({
+    Effect: "Allow",
+    Action: ["oss:PutObject"],
+    Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/_meta/*`,
+  });
+  return JSON.stringify(base);
 }
 
 function ownerPolicy(teamId, nodeId) {
@@ -179,7 +229,17 @@ function ownerPolicy(teamId, nodeId) {
     {
       Effect: "Allow",
       Action: ["oss:PutObject"],
+      Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/snapshots/*`,
+    },
+    {
+      Effect: "Allow",
+      Action: ["oss:PutObject"],
       Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/snapshot/*`,
+    },
+    {
+      Effect: "Allow",
+      Action: ["oss:PutObject"],
+      Resource: `acs:oss:*:*:${BUCKET()}/teams/${teamId}/*/generation.json`,
     },
     {
       Effect: "Allow",
@@ -275,10 +335,26 @@ async function handleToken(body) {
   }
 
   const isOwner = nodeId === auth.ownerNodeId;
-  const role = isOwner ? "owner" : "member";
-  const policy = isOwner
+  let role = isOwner ? "owner" : "member";
+  let policy = isOwner
     ? ownerPolicy(teamId, nodeId)
     : memberPolicy(teamId, nodeId);
+
+  // Check members manifest so editors/managers get compaction permissions
+  if (!isOwner) {
+    const manifest = await ossGet(`teams/${teamId}/_meta/members.json`);
+    if (manifest) {
+      const member = manifest.members?.find((m) => (m.nodeId ?? m.node_id) === nodeId);
+      if (member?.role === "manager") {
+        role = member.role;
+        policy = managerPolicy(teamId, nodeId);
+      } else if (member?.role === "editor") {
+        role = member.role;
+        policy = editorPolicy(teamId, nodeId);
+      }
+    }
+  }
+
   // RoleSessionName max 32 chars, alphanumeric + '-_.'
   const hashedId = createHash("sha256").update(nodeId).digest("hex").slice(0, 16);
   const sessionName = `${role}-${hashedId}`;

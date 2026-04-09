@@ -18,7 +18,7 @@ import { useEnvVarsStore } from '@/stores/env-vars'
 import { useSharedSecretsStore } from '@/stores/shared-secrets'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { initOpenCodeClient } from '@/lib/opencode/client'
+import { initOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { listen } from '@tauri-apps/api/event'
 
 // ─── Unified type for the combined list ─────────────────────────────────

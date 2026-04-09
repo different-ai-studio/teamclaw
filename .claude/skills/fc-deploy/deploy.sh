@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+cd "$REPO_ROOT/fc"
 
 # Load .env if present
 if [ -f .env ]; then
-  # shellcheck disable=SC1091
   source .env
 fi
-# Repo-root .env.local (gitignored): SLS_* keys, liteLLM_*, optional ROLE_ARN
-if [ -f ../.env.local ]; then
-  # shellcheck disable=SC1091
+if [ -f "$REPO_ROOT/.env.local" ]; then
   set -a
-  source ../.env.local
+  source "$REPO_ROOT/.env.local"
   set +a
 fi
 
@@ -41,9 +41,5 @@ fi
 export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
 npm install --omit=dev
 
-# Deploy (requires: s config add --AccessKeyID … --AccessKeySecret … --AccountID …)
-# If this fails with "Not found access: default", run the config command once, or publish
-# code with: zip + aliyun oss cp to oss://teamclaw-team/_deploy/fc-latest.zip then
-# aliyun fc UpdateFunction --functionName teamclaw-sync --region cn-shenzhen \
-#   --body '{"runtime":"nodejs20","handler":"index.handler","code":{"ossBucketName":"teamclaw-team","ossObjectName":"_deploy/fc-latest.zip"}}'
+# Deploy
 s deploy -y

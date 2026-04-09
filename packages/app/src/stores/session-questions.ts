@@ -1,10 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getOpenCodeClient } from "@/lib/opencode/client";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
 import { notificationService } from "@/lib/notification-service";
 import { buildConfig } from "@/lib/build-config";
 import type {
   QuestionAskedEvent,
-} from "@/lib/opencode/types";
+} from "@/lib/opencode/sdk-types";
 import type {
   ToolCall,
   SessionState,

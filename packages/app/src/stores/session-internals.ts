@@ -1,4 +1,4 @@
-import type { PermissionAskedEvent } from '@/lib/opencode/types';
+import type { PermissionAskedEvent } from '@/lib/opencode/sdk-types';
 import type { SessionState } from './session-types';
 import type { StreamingState } from './streaming';
 import { sessionLookupCache, getSessionById, updateSessionCache } from './session-cache';
