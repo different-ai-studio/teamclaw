@@ -107,6 +107,10 @@ docs/superpowers/
 # Internal planning documents
 docs/plans/
 docs/*
+!docs/superpowers/
+!docs/superpowers/specs/
+!docs/superpowers/specs/*.md
+!docs/superpowers/specs/*.html
 
 # Scripts
 scripts/ship-pr.sh

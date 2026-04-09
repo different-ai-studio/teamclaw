@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TeamClaw Long-Term Memory</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --bg-strong: #e7dccc;
+      --paper: rgba(255, 251, 244, 0.82);
+      --paper-strong: rgba(255, 248, 238, 0.94);
+      --ink: #1f2421;
+      --muted: #5d645f;
+      --accent: #c5562e;
+      --accent-2: #1f6c5b;
+      --accent-3: #9a7c2f;
+      --line: rgba(31, 36, 33, 0.12);
+      --shadow: 0 30px 80px rgba(76, 48, 24, 0.14);
+      --radius: 28px;
+      --slide-w: min(1180px, calc(100vw - 56px));
+      --slide-h: min(760px, calc(100vh - 120px));
+      --font-display: "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-body: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-mono: "IBM Plex Mono", "SFMono-Regular", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top left, rgba(197, 86, 46, 0.20), transparent 28%),
+        radial-gradient(circle at 85% 20%, rgba(31, 108, 91, 0.18), transparent 26%),
+        radial-gradient(circle at 40% 100%, rgba(154, 124, 47, 0.16), transparent 32%),
+        linear-gradient(160deg, var(--bg) 0%, #f8f4ee 42%, #efe3d1 100%);
+      color: var(--ink);
+      font-family: var(--font-body);
+      overflow: hidden;
+    }
+
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      inset: auto;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.75;
+    }
+
+    body::before {
+      width: 42vw;
+      height: 42vw;
+      right: -14vw;
+      top: -12vw;
+      border-radius: 45% 55% 50% 50%;
+      background: rgba(197, 86, 46, 0.08);
+      filter: blur(8px);
+    }
+
+    body::after {
+      width: 30vw;
+      height: 30vw;
+      left: -10vw;
+      bottom: -8vw;
+      border-radius: 50%;
+      background: rgba(31, 108, 91, 0.08);
+      filter: blur(8px);
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 22px 28px 18px;
+      gap: 14px;
+    }
+
+    .topbar,
+    .bottombar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      background:
+        linear-gradient(145deg, rgba(197, 86, 46, 0.92), rgba(31, 108, 91, 0.95));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 14px 34px rgba(52, 39, 26, 0.16);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .brand-mark::before,
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      background: rgba(255,255,255,0.86);
+      border-radius: 999px;
+    }
+
+    .brand-mark::before {
+      width: 22px;
+      height: 4px;
+      left: 10px;
+      top: 12px;
+      transform: rotate(35deg);
+    }
+
+    .brand-mark::after {
+      width: 22px;
+      height: 4px;
+      left: 10px;
+      top: 24px;
+      transform: rotate(-35deg);
+    }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .top-title {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.56);
+      border: 1px solid rgba(255,255,255,0.7);
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .status-pill strong {
+      color: var(--ink);
+    }
+
+    .stage {
+      position: relative;
+      display: grid;
+      place-items: center;
+    }
+
+    .slide-deck {
+      width: var(--slide-w);
+      height: var(--slide-h);
+      position: relative;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 38px 42px 34px;
+      border-radius: var(--radius);
+      border: 1px solid rgba(255,255,255,0.72);
+      background:
+        linear-gradient(180deg, var(--paper-strong), var(--paper));
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateX(40px) scale(0.98);
+      pointer-events: none;
+      transition: opacity 240ms ease, transform 240ms ease;
+      overflow: hidden;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(130deg, rgba(197, 86, 46, 0.04), transparent 30%),
+        linear-gradient(320deg, rgba(31, 108, 91, 0.05), transparent 34%);
+      pointer-events: none;
+    }
+
+    .slide.active {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .slide-header,
+    .slide-footer {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .slide-index {
+      font-family: var(--font-mono);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .slide-label {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(31, 36, 33, 0.05);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      align-content: center;
+      gap: 20px;
+      padding: 8px 0;
+    }
+
+    h1, h2 {
+      margin: 0;
+      font-family: var(--font-display);
+      line-height: 0.95;
+      letter-spacing: -0.03em;
+    }
+
+    h1 {
+      font-size: clamp(52px, 7vw, 86px);
+      max-width: 10ch;
+    }
+
+    h2 {
+      font-size: clamp(36px, 4.2vw, 56px);
+      max-width: 14ch;
+    }
+
+    .subtitle {
+      max-width: 60ch;
+      font-size: clamp(18px, 2vw, 24px);
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .summary-band {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 4px;
+    }
+
+    .metric,
+    .card,
+    .mini-card {
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.58);
+      padding: 18px 18px 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 28px;
+      margin-bottom: 6px;
+    }
+
+    .metric span,
+    .card p,
+    .mini-card p,
+    li {
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 16px;
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4 {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .card h3,
+    .mini-card h3 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      line-height: 1.1;
+    }
+
+    .card .tagline {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent-2);
+      margin-bottom: 10px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .emphasis {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .accent-2 {
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+
+    .accent-3 {
+      color: var(--accent-3);
+      font-weight: 700;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .flow-step {
+      position: relative;
+      padding: 18px 16px 16px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.62);
+      border: 1px solid var(--line);
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -11px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .flow-step strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 18px;
+    }
+
+    .code-block {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre;
+      overflow: auto;
+      padding: 18px 20px;
+      border-radius: 22px;
+      background: #201c1a;
+      color: #f7efe4;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: 1.1fr 1.1fr 1.3fr;
+      gap: 12px;
+    }
+
+    .comparison .card {
+      min-height: 100%;
+    }
+
+    .comparison .card.teamclaw {
+      border-color: rgba(31, 108, 91, 0.28);
+      background: linear-gradient(180deg, rgba(230, 247, 242, 0.84), rgba(255,255,255,0.62));
+    }
+
+    .prompt-layout {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .rail {
+      display: grid;
+      gap: 12px;
+    }
+
+    .rail .mini-card {
+      position: relative;
+      padding-top: 44px;
+    }
+
+    .rail .mini-card::before {
+      content: attr(data-badge);
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .button {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.62);
+      color: var(--ink);
+      padding: 10px 14px;
+      font: inherit;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255,255,255,0.78);
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .progress-wrap {
+      flex: 1;
+      min-width: 180px;
+      max-width: 440px;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.52);
+      border: 1px solid rgba(255,255,255,0.72);
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+
+    .progress {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width 240ms ease;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .footer-note {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    @media (max-width: 980px) {
+      .app {
+        padding: 14px;
+      }
+
+      .slide {
+        padding: 26px 24px 24px;
+      }
+
+      .grid-2,
+      .grid-3,
+      .grid-4,
+      .comparison,
+      .summary-band,
+      .flow,
+      .prompt-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-step:not(:last-child)::after {
+        content: "↓";
+        top: auto;
+        bottom: -14px;
+        right: 50%;
+        transform: translateX(50%);
+      }
+
+      .topbar,
+      .bottombar,
+      .slide-header,
+      .slide-footer {
+        flex-wrap: wrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <div class="eyebrow">TeamClaw Developer Brief</div>
+          <div class="top-title">Workspace-Scoped Long-Term Memory / 2026-04-09</div>
+        </div>
+      </div>
+      <div class="status-pill"><strong>Scope:</strong> single workspace first, team sync optional</div>
+    </div>
+
+    <div class="stage">
+      <div class="slide-deck" id="deck">
+        <section class="slide active" data-title="Title">
+          <div class="slide-header">
+            <div class="slide-label">01 / Brief</div>
+            <div class="slide-index">TeamClaw Memory Direction</div>
+          </div>
+          <div class="content">
+            <div class="eyebrow">For developers</div>
+            <h1>TeamClaw 的长期记忆系统</h1>
+            <p class="subtitle">目标不是“做一个万能大记忆库”，而是做一个 <span class="emphasis">workspace-scoped</span>、<span class="accent-2">file-first</span>、支持 <span class="accent-3">personal + team</span> 的 local agent memory system。</p>
+            <div class="summary-band">
+              <div class="metric">
+                <strong>Workspace First</strong>
+                <span>所有记忆暂时只存在于当前工作目录内，不跨 workspace。</span>
+              </div>
+              <div class="metric">
+                <strong>Prompt Discipline</strong>
+                <span>默认只注入少量高价值记忆，其余通过检索召回。</span>
+              </div>
+              <div class="metric">
+                <strong>Team Sync</strong>
+                <span>共享记忆通过 <span class="accent-2">teamclaw-team/</span> 目录走 P2P 或 OSS。</span>
+              </div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Why now: make the agent improve with repeated use</div>
+            <div class="hint">Use ← → / Space / J K</div>
+          </div>
+        </section>
+
+        <section class="slide" data-title="Why">
+          <div class="slide-header">
+            <div class="slide-label">02 / Problem</div>
+            <div class="slide-index">Why memory now</div>
+          </div>
+          <div class="content">
+            <h2>我们缺的不是 RAG，缺的是统一的 memory model</h2>
+            <div class="grid-2">
+              <div class="card">
+                <div class="tagline">Today</div>
+                <h3>已有能力</h3>
+                <ul>
+                  <li>workspace RAG 与 hybrid search</li>
+                  <li>team sync: `teamclaw-team/` + P2P / OSS</li>
+                  <li>skills、session history、knowledge/memory 入口</li>
+                </ul>
+              </div>
+              <div class="card">
+                <div class="tagline">Gap</div>
+                <h3>缺失的统一规则</h3>
+                <ul>
+                  <li>哪些信息该沉淀为 personal memory</li>
+                  <li>哪些信息该进入 team memory</li>
+                  <li>哪些记忆默认注入，哪些只做检索</li>
+                  <li>新旧结论冲突时如何保留历史</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Main pain: durable knowledge currently has no home</div>
+            <div class="hint">Key priorities: 历史决策 / 调试经验 / 项目约定</div>
+          </div>
+        </section>
+
+        <section class="slide" data-title="Benchmark">
+          <div class="slide-header">
+            <div class="slide-label">03 / Benchmark</div>
+            <div class="slide-index">Hermes vs OpenClaw vs TeamClaw</div>
+          </div>
+          <div class="content">
+            <h2>我们最像什么</h2>
+            <div class="comparison">
+              <div class="card">
+                <div class="tagline">Hermes Agent</div>
+                <h3>分层很强</h3>
+                <ul>
+                  <li>`MEMORY.md` / `USER.md` 是高价值长期记忆</li>
+                  <li>skills 是程序性记忆</li>
+                  <li>sessions 用 DB / JSONL，不和长期记忆混在一起</li>
+                </ul>
+              </div>
+              <div class="card">
+                <div class="tagline">OpenClaw</div>
+                <h3>file-first 很强</h3>
+                <ul>
+                  <li>Markdown 是 source of truth</li>
+                  <li>长期记忆与 daily memory 分层</li>
+                  <li>hybrid search + recency / decay 很适合本地 agent</li>
+                </ul>
+              </div>
+              <div class="card teamclaw">
+                <div class="tagline">TeamClaw Target</div>
+                <h3>OpenClaw 骨架 + Hermes 分层</h3>
+                <ul>
+                  <li><span class="accent-2">workspace-first</span>、<span class="accent-2">file-first</span></li>
+                  <li>raw episodes / personal / team / derived index 四层</li>
+                  <li>额外支持 `teamclaw-team/` 共享 scope</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Conclusion: not graph-first, not DB-first</div>
+            <div class="hint">Direction: inspectable files + derived retrieval</div>
+          </div>
+        </section>
+
+        <section class="slide" data-title="Model">
+          <div class="slide-header">
+            <div class="slide-label">04 / Model</div>
+            <div class="slide-index">Layered memory model</div>
+          </div>
+          <div class="content">
+            <h2>四层模型</h2>
+            <div class="flow">
+              <div class="flow-step">
+                <strong>Raw Episodes</strong>
+                <p>聊天、tool 输出、报错、测试结果、关键代码变更。是来源材料，不默认注入。</p>
+              </div>
+              <div class="flow-step">
+                <strong>Personal Memory</strong>
+                <p>私有且 durable 的 workspace 记忆，允许 agent 主动写入。</p>
+              </div>
+              <div class="flow-step">
+                <strong>Team Memory</strong>
+                <p>共享给当前 workspace 团队，存放在 `teamclaw-team/knowledge/memory/`。</p>
+              </div>
+              <div class="flow-step">
+                <strong>Derived Index</strong>
+                <p>向量、BM25、rerank、prompt cache。它们是派生物，不是 source of truth。</p>
+              </div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Most important boundary: source files vs derived index</div>
+            <div class="hint">This keeps rebuilds, sync, and debugging simple</div>
+          </div>
+        </section>
+
+        <section class="slide" data-title="Memory Kinds">
+          <div class="slide-header">
+            <div class="slide-label">05 / Scope</div>
+            <div class="slide-index">What gets remembered</div>
+          </div>
+          <div class="content">
+            <h2>优先沉淀的三类记忆</h2>
+            <div class="grid-3">
+              <div class="card">
+                <div class="tagline">Kind 01</div>
+                <h3>历史决策</h3>
+                <p>为什么采用某方案、为什么放弃某方案。要保留历史，支持 `active / superseded`。</p>
+              </div>
+              <div class="card">
+                <div class="tagline">Kind 02</div>
+                <h3>调试经验</h3>
+                <p>定位过程、根因、修复手法。大多走检索，不适合大量常驻 prompt。</p>
+              </div>
+              <div class="card">
+                <div class="tagline">Kind 03</div>
+                <h3>项目约定</h3>
+                <p>命名、测试、目录、流程约束。最适合进入 always-on memory。</p>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="mini-card">
+                <h3>默认 scope</h3>
+                <p>先写入 <span class="emphasis">personal</span>；只有明显对多人有价值时才写入 <span class="accent-2">team</span>。</p>
+              </div>
+              <div class="mini-card">
+                <h3>来源必须足够丰富</h3>
+                <p>不只看聊天，还要看代码变更、tool 结果、错误、测试输出。</p>
+              </div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Memory kinds align with the product’s real value</div>
+            <div class="hint">Not all session data deserves promotion</div>
+          </div>
+        </section>
+
+        <section class="slide" data-title="Prompt">
+          <div class="slide-header">
+            <div class="slide-label">06 / Prompt</div>
+            <div class="slide-index">How memory enters the prompt</div>
+          </div>
+          <div class="content">
+            <h2>两段式 prompt 注入</h2>
+            <div class="prompt-layout">
+              <div class="rail">
+                <div class="mini-card" data-badge="Always-On">
+                  <h3>系统提示词中的稳定块</h3>
+                  <p>只放少量高价值、当前有效的记忆。建议 `5-12` 条，控制在 `300-800 tokens`。</p>
+                </div>
+                <div class="mini-card" data-badge="Retrieved">
+                  <h3>每轮动态替换的记忆块</h3>
+                  <p>根据当前任务检索相关 memory。适合调试经验、旧决策细节、历史上下文。</p>
+                </div>
+                <div class="mini-card" data-badge="Never Always-On">
+                  <h3>Raw Episodes 不常驻</h3>
+                  <p>原始 episode 只作为检索源或 consolidation 原料，不直接塞进系统 prompt。</p>
+                </div>
+              </div>
+              <div class="code-block">[Workspace Memory - Always On]
+
+Team conventions:
+- All new backend endpoints require tests.
+- P2P membership treats manifest as authoritative.
+
+Active decisions:
+- Shared assets live in teamclaw-team/.
+
+Personal:
+- Prefer concise developer-facing summaries.
+
+[Relevant Memory Retrieved For This Task]
+
+- [team][debugging][active]
+  Watcher re-entry caused duplicate indexing; debounce fixes it.
+
+- [team][decision][superseded]
+  Older reconnect logic trusted local state more than manifest.</div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Prompt discipline matters more than memory volume</div>
+            <div class="hint">Convention: always / Decision: mixed / Debugging: retrieve</div>
+          </div>
+        </section>
+
+        <section class="slide" data-title="Write Rules">
+          <div class="slide-header">
+            <div class="slide-label">07 / Write Rules</div>
+            <div class="slide-index">How proactive writes stay sane</div>
+          </div>
+          <div class="content">
+            <h2>允许主动写，但必须带护栏</h2>
+            <div class="grid-2">
+              <div class="card">
+                <div class="tagline">Write when</div>
+                <ul>
+                  <li>明确说“记住这个”</li>
+                  <li>一个方案已经被采纳或废弃</li>
+                  <li>一个 bug 根因已验证</li>
+                  <li>重复工作形成了稳定约定</li>
+                </ul>
+              </div>
+              <div class="card">
+                <div class="tagline">Do not write when</div>
+                <ul>
+                  <li>只是猜测，尚未验证</li>
+                  <li>只是临时状态或一次性上下文</li>
+                  <li>明显是个人偏好，却被误判成 team rule</li>
+                  <li>高时效信息很快就会过期</li>
+                </ul>
+              </div>
+            </div>
+            <div class="grid-3">
+              <div class="mini-card">
+                <h3>Every memory has provenance</h3>
+                <p>记录 session、file、tool、error、test 等来源。</p>
+              </div>
+              <div class="mini-card">
+                <h3>Every memory has status</h3>
+                <p>`active / superseded / stale`，避免静默覆盖历史。</p>
+              </div>
+              <div class="mini-card">
+                <h3>Every team write is reversible</h3>
+                <p>冲突时保留旧记录，当前结论成为新版本。</p>
+              </div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Auto-write, not auto-chaos</div>
+            <div class="hint">Main safeguard: provenance + status + supersedes</div>
+          </div>
+        </section>
+
+        <section class="slide" data-title="Layout">
+          <div class="slide-header">
+            <div class="slide-label">08 / Layout</div>
+            <div class="slide-index">Where the files live</div>
+          </div>
+          <div class="content">
+            <h2>建议的目录布局</h2>
+            <div class="code-block">&lt;workspace&gt;/
+├── .teamclaw/
+│   └── memory/
+│       ├── episodes/
+│       ├── personal/
+│       │   ├── conventions/
+│       │   ├── decisions/
+│       │   └── debugging/
+│       └── index/
+└── teamclaw-team/
+    └── knowledge/
+        └── memory/
+            ├── conventions/
+            ├── decisions/
+            └── debugging/</div>
+            <div class="grid-2">
+              <div class="mini-card">
+                <h3>Source of truth</h3>
+                <p>可读可改的 memory files。适合 sync、review、diff、回滚。</p>
+              </div>
+              <div class="mini-card">
+                <h3>Derived only</h3>
+                <p>index 可以删掉重建，不应成为唯一真相源。</p>
+              </div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Simple file layout beats opaque state</div>
+            <div class="hint">This also matches the current TeamClaw architecture better</div>
+          </div>
+        </section>
+
+        <section class="slide" data-title="Decision">
+          <div class="slide-header">
+            <div class="slide-label">09 / Decision</div>
+            <div class="slide-index">What v1 should be</div>
+          </div>
+          <div class="content">
+            <h2>v1 应该像什么，不应该像什么</h2>
+            <div class="grid-2">
+              <div class="card">
+                <div class="tagline">Should be</div>
+                <ul>
+                  <li>workspace-scoped</li>
+                  <li>file-first source of truth</li>
+                  <li>small always-on memory + strong retrieval</li>
+                  <li>personal/team scope split</li>
+                  <li>history-preserving conflict model</li>
+                </ul>
+              </div>
+              <div class="card">
+                <div class="tagline">Should not be</div>
+                <ul>
+                  <li>a giant prompt blob</li>
+                  <li>a graph-first system in v1</li>
+                  <li>a DB-only black box</li>
+                  <li>manual-only memory curation</li>
+                  <li>cross-workspace memory too early</li>
+                </ul>
+              </div>
+            </div>
+            <div class="mini-card">
+              <h3>一句话结论</h3>
+              <p><span class="emphasis">OpenClaw 风格的 file-first memory</span> 作为骨架，借鉴 <span class="accent-2">Hermes 的分层思路</span>，再补上 <span class="accent-3">TeamClaw 的 teamclaw-team 共享 scope</span>。</p>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Recommended next step: schema + retrieval contract</div>
+            <div class="hint">Enough direction for implementation discussion</div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="bottombar">
+      <div class="controls">
+        <button class="button" id="prevBtn" type="button">← Prev</button>
+        <button class="button" id="nextBtn" type="button">Next →</button>
+      </div>
+      <div class="progress-wrap" aria-label="Slide progress">
+        <div class="progress" id="progressBar"></div>
+      </div>
+      <div class="status-pill"><strong id="pageLabel">1 / 9</strong><span id="pageTitle">Title</span></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const progressBar = document.getElementById('progressBar');
+      const pageLabel = document.getElementById('pageLabel');
+      const pageTitle = document.getElementById('pageTitle');
+      let index = 0;
+
+      function clamp(value) {
+        if (value < 0) return 0;
+        if (value > slides.length - 1) return slides.length - 1;
+        return value;
+      }
+
+      function render(nextIndex) {
+        index = clamp(nextIndex);
+        slides.forEach((slide, i) => {
+          slide.classList.toggle('active', i === index);
+        });
+        const pct = ((index + 1) / slides.length) * 100;
+        progressBar.style.width = pct + '%';
+        pageLabel.textContent = (index + 1) + ' / ' + slides.length;
+        pageTitle.textContent = slides[index].dataset.title || 'Slide';
+        prevBtn.disabled = index === 0;
+        nextBtn.disabled = index === slides.length - 1;
+      }
+
+      function next() { render(index + 1); }
+      function prev() { render(index - 1); }
+
+      prevBtn.addEventListener('click', prev);
+      nextBtn.addEventListener('click', next);
+
+      window.addEventListener('keydown', (event) => {
+        if (['ArrowRight', 'PageDown', ' ', 'j', 'J'].includes(event.key)) {
+          event.preventDefault();
+          next();
+        }
+        if (['ArrowLeft', 'PageUp', 'k', 'K'].includes(event.key)) {
+          event.preventDefault();
+          prev();
+        }
+        if (event.key === 'Home') {
+          event.preventDefault();
+          render(0);
+        }
+        if (event.key === 'End') {
+          event.preventDefault();
+          render(slides.length - 1);
+        }
+      });
+
+      let touchStartX = 0;
+      window.addEventListener('touchstart', (event) => {
+        touchStartX = event.changedTouches[0].clientX;
+      }, { passive: true });
+
+      window.addEventListener('touchend', (event) => {
+        const deltaX = event.changedTouches[0].clientX - touchStartX;
+        if (Math.abs(deltaX) < 48) return;
+        if (deltaX < 0) next();
+        else prev();
+      }, { passive: true });
+
+      render(0);
+    })();
+  </script>
+</body>
+</html>
