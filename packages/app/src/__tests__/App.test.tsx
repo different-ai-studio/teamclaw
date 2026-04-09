@@ -94,11 +94,11 @@ vi.mock('@/stores/ui', () => ({
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: vi.fn((sel: (s: any) => any) => {
     const state = {
-      workspacePath: null, openCodeReady: false, isPanelOpen: false,
+      workspacePath: null, openCodeBootstrapped: false, openCodeReady: false, isPanelOpen: false,
       activeTab: 'tasks', openPanel: vi.fn(), closePanel: vi.fn(),
       clearWorkspace: vi.fn(), selectedFile: null, fileContent: '',
       isLoadingFile: false, clearSelection: vi.fn(), selectFile: vi.fn(),
-      setOpenCodeReady: vi.fn(),
+      setOpenCodeBootstrapped: vi.fn(), setOpenCodeReady: vi.fn(),
     }
     return sel(state)
   }),
@@ -118,7 +118,7 @@ vi.mock('@/lib/opencode/sdk-client', () => ({ initOpenCodeClient: vi.fn() }))
 vi.mock('@/stores/team-mode', () => ({
   useTeamModeStore: vi.fn((sel: (s: any) => any) => sel({ devUnlocked: false, teamMode: false })),
 }))
-vi.mock('@/lib/opencode/preloader', () => ({ startOpenCode: vi.fn(), clearPreload: vi.fn() }))
+vi.mock('@/lib/opencode/preloader', () => ({ startOpenCode: vi.fn(), waitForOpenCodeBootstrapped: vi.fn(), clearPreload: vi.fn() }))
 vi.mock('@/components/ui/sidebar', () => ({
   SidebarInset: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SidebarProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
