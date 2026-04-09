@@ -1,6 +1,6 @@
-use super::i18n;
-use super::session::SessionMapping;
-use super::wecom_config::{WeComConfig, WeComGatewayStatus, WeComGatewayStatusResponse};
+use crate::i18n;
+use crate::session::SessionMapping;
+use crate::wecom_config::{WeComConfig, WeComGatewayStatus, WeComGatewayStatusResponse};
 use futures_util::stream::SplitSink;
 #[allow(unused_imports)]
 use futures_util::StreamExt;
@@ -179,7 +179,7 @@ const WECOM_QR_POLL_URL: &str = "https://work.weixin.qq.com/ai/qc/query_result";
 
 /// Fetch a QR code for WeCom bot authorization
 pub async fn fetch_wecom_qr_code() -> Result<super::wecom_config::WeComQrAuthStart, String> {
-    use super::wecom_config::{WeComQrGenerateResponse, WeComQrAuthStart};
+    use crate::wecom_config::{WeComQrGenerateResponse, WeComQrAuthStart};
 
     let url = format!("{}?source=teamclaw&plat={}", WECOM_QR_GENERATE_URL, get_plat_code());
     let client = reqwest::Client::builder()
@@ -214,7 +214,7 @@ pub async fn fetch_wecom_qr_code() -> Result<super::wecom_config::WeComQrAuthSta
 
 /// Poll WeCom QR code scan result
 pub async fn poll_wecom_qr_result(scode: &str) -> Result<super::wecom_config::WeComQrAuthPollResult, String> {
-    use super::wecom_config::{WeComQrPollResponse, WeComQrAuthPollResult};
+    use crate::wecom_config::{WeComQrPollResponse, WeComQrAuthPollResult};
 
     let url = format!("{}?scode={}", WECOM_QR_POLL_URL, urlencoding::encode(scode));
     let client = reqwest::Client::builder()
@@ -279,8 +279,8 @@ pub const WECOM_WS_ENDPOINT: &str = "wss://openws.work.weixin.qq.com";
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 #[allow(dead_code)]
 const HEARTBEAT_TIMEOUT_SECS: u64 = 6;
-use super::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
-use super::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
+use crate::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 
 #[derive(Clone)]
 pub struct WeComGateway {

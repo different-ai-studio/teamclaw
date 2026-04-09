@@ -7,10 +7,10 @@ use serenity::all::{
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-use super::config::{DiscordConfig, GatewayStatus, GatewayStatusResponse};
-use super::session::SessionMapping;
+use crate::config::{DiscordConfig, GatewayStatus, GatewayStatusResponse};
+use crate::session::SessionMapping;
 
-use super::{i18n, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::{i18n, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 
 /// Discord bot handler
 pub struct DiscordHandler {

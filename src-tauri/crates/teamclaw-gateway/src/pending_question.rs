@@ -464,7 +464,7 @@ mod tests {
                 },
             ],
         }];
-        let msg = format_question_message(&questions, "q_123", crate::commands::gateway::i18n::Locale::En);
+        let msg = format_question_message(&questions, "q_123", crate::i18n::Locale::En);
         assert!(msg.contains("Continue with the refactor?"));
         assert!(msg.contains("1. Yes"));
         assert!(msg.contains("2. No"));
@@ -478,7 +478,7 @@ mod tests {
             question: "What should I name this variable?".to_string(),
             options: vec![],
         }];
-        let msg = format_question_message(&questions, "q_456", crate::commands::gateway::i18n::Locale::En);
+        let msg = format_question_message(&questions, "q_456", crate::i18n::Locale::En);
         assert!(msg.contains("What should I name this variable?"));
         assert!(!msg.contains("1."));
         assert!(msg.contains("[Q:q_456]"));
@@ -496,7 +496,7 @@ mod tests {
                 options: vec![],
             },
         ];
-        let msg = format_question_message(&questions, "q_multi", crate::commands::gateway::i18n::Locale::En);
+        let msg = format_question_message(&questions, "q_multi", crate::i18n::Locale::En);
         assert!(msg.contains("**Question 1:**"));
         assert!(msg.contains("**Question 2:**"));
     }

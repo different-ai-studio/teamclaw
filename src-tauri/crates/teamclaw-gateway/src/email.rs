@@ -4,11 +4,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 
-use super::email_config::{
+use crate::email_config::{
     EmailConfig, EmailGatewayStatus, EmailGatewayStatusResponse, EmailProvider,
 };
-use super::email_db::EmailDb;
-use super::session::SessionMapping;
+use crate::email_db::EmailDb;
+use crate::session::SessionMapping;
 
 /// Maximum number of processed message UIDs to keep in the dedup set.
 /// With UID watermark, this set only grows within a single gateway session,
@@ -108,7 +108,7 @@ impl GmailTokenManager {
         let token_path = format!(
             "{}/{}/{}",
             workspace_path,
-            crate::commands::TEAMCLAW_DIR,
+            crate::TEAMCLAW_DIR,
             TOKEN_FILE_NAME
         );
         Self {
@@ -251,7 +251,7 @@ impl EmailGateway {
 
         // Initialize email database
         let db_path = std::path::PathBuf::from(workspace_path)
-            .join(crate::commands::TEAMCLAW_DIR)
+            .join(crate::TEAMCLAW_DIR)
             .join("email.db");
 
         match EmailDb::new(&db_path).await {
@@ -439,7 +439,7 @@ impl EmailGateway {
         let token_path = format!(
             "{}/{}/{}",
             workspace_path,
-            crate::commands::TEAMCLAW_DIR,
+            crate::TEAMCLAW_DIR,
             TOKEN_FILE_NAME
         );
         std::path::Path::new(&token_path).exists()
@@ -1724,7 +1724,7 @@ fn process_and_reply_sync(
 
     let model_param = model_preference
         .as_ref()
-        .and_then(|m| crate::commands::gateway::parse_model_preference(m));
+        .and_then(|m| crate::parse_model_preference(m));
 
     // Build question forwarder for email
     let pending_questions_clone = Arc::clone(pending_questions);

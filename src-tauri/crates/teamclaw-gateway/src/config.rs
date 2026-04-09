@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::email_config::EmailConfig;
-use super::feishu_config::FeishuConfig;
-use super::kook_config::KookConfig;
-use super::wechat_config::WeChatConfig;
-use super::wecom_config::WeComConfig;
+use crate::email_config::EmailConfig;
+use crate::feishu_config::FeishuConfig;
+use crate::kook_config::KookConfig;
+use crate::wechat_config::WeChatConfig;
+use crate::wecom_config::WeComConfig;
 
 /// Root channels configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

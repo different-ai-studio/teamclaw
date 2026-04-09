@@ -60,7 +60,7 @@ impl SessionMapping {
 
     /// Set the persistence path and load existing sessions
     pub async fn set_persist_path(&self, workspace_path: &str) {
-        let teamclaw_dir = PathBuf::from(workspace_path).join(crate::commands::TEAMCLAW_DIR);
+        let teamclaw_dir = PathBuf::from(workspace_path).join(crate::TEAMCLAW_DIR);
         let _ = std::fs::create_dir_all(&teamclaw_dir);
         let path = teamclaw_dir.join("sessions.json");
         println!("[Session] Persistence path: {:?}", path);

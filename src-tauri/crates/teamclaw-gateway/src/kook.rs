@@ -7,11 +7,11 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
-use super::kook_config::{KookConfig, KookGatewayStatus, KookGatewayStatusResponse};
-use super::session::SessionMapping;
+use crate::kook_config::{KookConfig, KookGatewayStatus, KookGatewayStatusResponse};
+use crate::session::SessionMapping;
 
-use super::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
-use super::i18n;
+use crate::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::i18n;
 
 /// Maximum number of buffered out-of-order messages
 const MAX_BUFFER_SIZE: usize = 100;

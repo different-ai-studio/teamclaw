@@ -1,11 +1,11 @@
-use super::i18n;
-use super::session::SessionMapping;
-use super::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
-use super::wechat_config::{
+use crate::i18n;
+use crate::session::SessionMapping;
+use crate::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
+use crate::wechat_config::{
     WeChatConfig, WeChatGatewayStatus, WeChatGatewayStatusResponse, WeChatQrLoginResponse,
     WeChatQrStatusResponse,
 };
-use super::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -448,8 +448,8 @@ impl WeChatGateway {
         let path = format!(
             "{}/{}/{}",
             self.workspace_path,
-            crate::commands::TEAMCLAW_DIR,
-            crate::commands::CONFIG_FILE_NAME
+            crate::TEAMCLAW_DIR,
+            crate::CONFIG_FILE_NAME
         );
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,

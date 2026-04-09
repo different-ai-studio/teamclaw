@@ -1,4 +1,4 @@
-use super::read_config;
+use crate::read_config;
 
 /// Supported locales
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

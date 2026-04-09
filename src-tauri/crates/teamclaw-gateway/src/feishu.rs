@@ -2,12 +2,12 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 
-use super::feishu_config::{FeishuConfig, FeishuGatewayStatus, FeishuGatewayStatusResponse};
-use super::i18n;
-use super::session::SessionMapping;
+use crate::feishu_config::{FeishuConfig, FeishuGatewayStatus, FeishuGatewayStatusResponse};
+use crate::i18n;
+use crate::session::SessionMapping;
 
-use super::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
-use super::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
+use crate::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 
 /// Feishu API base URL
 const FEISHU_API_BASE: &str = "https://open.feishu.cn";
