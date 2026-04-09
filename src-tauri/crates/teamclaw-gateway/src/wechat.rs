@@ -373,7 +373,11 @@ pub struct WeChatGateway {
 }
 
 impl WeChatGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
+    pub fn new(
+        opencode_port: u16,
+        session_mapping: SessionMapping,
+        workspace_path: String,
+    ) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeChatConfig::default())),
             session_mapping,
@@ -679,10 +683,18 @@ impl WeChatGateway {
                     qid, answer_text
                 );
                 let _ = self
-                    .send_to_user(sender_id, &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale))
+                    .send_to_user(
+                        sender_id,
+                        &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale),
+                    )
                     .await;
             } else {
-                let _ = self.send_to_user(sender_id, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale)).await;
+                let _ = self
+                    .send_to_user(
+                        sender_id,
+                        &i18n::t(i18n::MsgKey::NoPendingQuestions, locale),
+                    )
+                    .await;
             }
             return Ok(());
         }
@@ -725,9 +737,15 @@ impl WeChatGateway {
                 let sender_id = sender_id.clone();
                 Box::pin(async move {
                     let msg = match reason {
-                        RejectReason::Timeout => i18n::t(i18n::MsgKey::QueueTimeout, locale_for_notify),
-                        RejectReason::QueueFull => i18n::t(i18n::MsgKey::QueueFull, locale_for_notify),
-                        RejectReason::SessionClosed => i18n::t(i18n::MsgKey::GatewayShuttingDown, locale_for_notify),
+                        RejectReason::Timeout => {
+                            i18n::t(i18n::MsgKey::QueueTimeout, locale_for_notify)
+                        }
+                        RejectReason::QueueFull => {
+                            i18n::t(i18n::MsgKey::QueueFull, locale_for_notify)
+                        }
+                        RejectReason::SessionClosed => {
+                            i18n::t(i18n::MsgKey::GatewayShuttingDown, locale_for_notify)
+                        }
                     };
                     let _ = gateway.send_to_user(&sender_id, &msg).await;
                 })
@@ -771,9 +789,7 @@ impl WeChatGateway {
         let arg = parts.get(1).copied().unwrap_or("").trim();
 
         match cmd.as_str() {
-            "/help" => {
-                i18n::t(i18n::MsgKey::HelpWechat, locale)
-            }
+            "/help" => i18n::t(i18n::MsgKey::HelpWechat, locale),
             "/reset" => {
                 self.session_mapping.remove_session(session_key).await;
                 i18n::t(i18n::MsgKey::SessionReset, locale)
@@ -854,7 +870,11 @@ impl WeChatGateway {
                 let gateway = gateway_for_q.clone();
                 let sid = sender_for_q.clone();
                 Box::pin(async move {
-                    let text = super::format_question_message(&fq.questions, &fq.question_id, locale_for_q);
+                    let text = super::format_question_message(
+                        &fq.questions,
+                        &fq.question_id,
+                        locale_for_q,
+                    );
                     gateway.send_to_user(&sid, &text).await?;
                     Ok(uuid::Uuid::new_v4().to_string())
                 })

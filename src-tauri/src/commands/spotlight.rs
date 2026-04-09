@@ -155,7 +155,10 @@ fn save_spotlight_position(win: &tauri::WebviewWindow, state: &SpotlightState) {
             .flatten()
             .map(|m| m.scale_factor())
             .unwrap_or(1.0);
-        let mut last_pos = state.spotlight_position.lock().unwrap_or_else(|e| e.into_inner());
+        let mut last_pos = state
+            .spotlight_position
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *last_pos = Some((pos.x as f64 / scale, pos.y as f64 / scale));
     }
 }
@@ -176,7 +179,10 @@ fn default_spotlight_position(win: &tauri::WebviewWindow) -> (f64, f64) {
 
 /// Restore the saved spotlight position, or default to top-right of the current monitor.
 fn restore_spotlight_position(win: &tauri::WebviewWindow, state: &SpotlightState) {
-    let last_pos = state.spotlight_position.lock().unwrap_or_else(|e| e.into_inner());
+    let last_pos = state
+        .spotlight_position
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if let Some((x, y)) = *last_pos {
         let _ = win.set_position(LogicalPosition::new(x, y));
     } else {
@@ -206,7 +212,10 @@ fn configure_as_main(win: &tauri::WebviewWindow, state: &SpotlightState) {
     let _ = win.set_min_size(Some(LogicalSize::new(800.0, 600.0)));
 
     // Restore saved main geometry or center at default size
-    let geom = state.main_geometry.lock().unwrap_or_else(|e| e.into_inner());
+    let geom = state
+        .main_geometry
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if let Some((x, y, w, h)) = *geom {
         let _ = win.set_size(LogicalSize::new(w, h));
         let _ = win.set_position(LogicalPosition::new(x, y));
@@ -229,7 +238,10 @@ pub fn save_main_geometry(win: &tauri::WebviewWindow, state: &SpotlightState) {
         .unwrap_or(1.0);
 
     if let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) {
-        let mut geom = state.main_geometry.lock().unwrap_or_else(|e| e.into_inner());
+        let mut geom = state
+            .main_geometry
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *geom = Some((
             pos.x as f64 / scale,
             pos.y as f64 / scale,

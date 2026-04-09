@@ -90,7 +90,7 @@ import { TabBar } from "@/components/tab-bar/TabBar";
 import { TabContentRenderer } from "@/components/tab-bar/TabContentRenderer";
 import { WebViewToolbar } from "@/components/tab-bar/WebViewToolbar";
 import { urlToLabel } from "@/lib/webview-utils";
-import { initOpenCodeClient } from "@/lib/opencode/client";
+import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
 import {
   startOpenCode,
   clearPreload,
@@ -400,7 +400,6 @@ function AppContent() {
 
   // Workspace store - individual selectors
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
   const isPanelOpen = useWorkspaceStore((s) => s.isPanelOpen);
   const activeTab = useWorkspaceStore((s) => s.activeTab);
   const openPanel = useWorkspaceStore((s) => s.openPanel);
@@ -544,8 +543,9 @@ function AppContent() {
   }, [leftDockActive, sidebarOpen, setSidebarOpen, closePanel]);
 
   // Full-screen loading overlay when OpenCode server is starting/restarting
+  const openCodeBootstrapped = useWorkspaceStore((s) => s.openCodeBootstrapped);
   const showConnectingOverlay =
-    workspacePath && !openCodeReady && !openCodeError && isTauri();
+    workspacePath && !openCodeBootstrapped && !openCodeError && isTauri();
 
   // If settings is open, show settings page (check first so it works regardless of workspace state)
   if (currentView === "settings") {
@@ -964,9 +964,7 @@ function AppContent() {
                 <span className="min-w-0 truncate text-sm font-medium">
                   {embeddedSettingsSection === "automation"
                     ? t("settings.nav.automation", "Automation")
-                    : embeddedSettingsSection === "roles"
-                      ? t("settings.nav.roles", "Roles")
-                      : t("settings.nav.skills", "Skills")}
+                    : t("settings.nav.rolesSkills", "Roles & Skills")}
                 </span>
                 <div className="min-w-0 flex-1" />
               </>

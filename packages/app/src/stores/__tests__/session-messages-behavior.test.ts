@@ -9,7 +9,7 @@ const { mockSendMessageAsync, mockSendMessageWithPartsAsync, mockAbortSession, m
   mockGetMessages: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     createSession: vi.fn().mockResolvedValue({
       id: 'new-sess',
@@ -36,7 +36,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   })),
 }));
 
-vi.mock('@/lib/opencode/sse', () => ({
+vi.mock('@/lib/opencode/sdk-sse', () => ({
   registerChildSession: vi.fn(),
   isChildSession: vi.fn(() => false),
   clearAllChildSessions: vi.fn(),

@@ -1,10 +1,10 @@
-import { getOpenCodeClient } from "@/lib/opencode/client";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
 import type {
   MessageCreatedEvent,
   MessagePartCreatedEvent,
   MessagePartUpdatedEvent,
   MessageCompletedEvent,
-} from "@/lib/opencode/types";
+} from "@/lib/opencode/sdk-types";
 import type {
   SessionState,
 } from "./session-types";

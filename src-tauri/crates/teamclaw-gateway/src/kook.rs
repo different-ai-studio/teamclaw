@@ -110,7 +110,11 @@ pub struct KookGateway {
 }
 
 impl KookGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
+    pub fn new(
+        opencode_port: u16,
+        session_mapping: SessionMapping,
+        workspace_path: String,
+    ) -> Self {
         Self {
             config: Arc::new(RwLock::new(KookConfig::default())),
             session_mapping,
@@ -941,10 +945,15 @@ impl KookGateway {
                     qid, answer_text
                 );
                 let _ = self
-                    .send_reply(msg, &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale))
+                    .send_reply(
+                        msg,
+                        &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale),
+                    )
                     .await;
             } else {
-                let _ = self.send_reply(msg, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale)).await;
+                let _ = self
+                    .send_reply(msg, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale))
+                    .await;
             }
             return Ok(());
         }
@@ -977,7 +986,11 @@ impl KookGateway {
                 let target = target.clone();
                 let ct = channel_type.clone();
                 Box::pin(async move {
-                    let text = super::format_question_message(&fq.questions, &fq.question_id, locale_for_q);
+                    let text = super::format_question_message(
+                        &fq.questions,
+                        &fq.question_id,
+                        locale_for_q,
+                    );
                     let client = reqwest::Client::builder()
                         .timeout(std::time::Duration::from_secs(30))
                         .build()
@@ -1318,11 +1331,8 @@ impl KookGateway {
         match command.as_str() {
             "/reset" => {
                 self.session_mapping.remove_session(session_key).await;
-                self.send_reply(
-                    msg,
-                    &i18n::t(i18n::MsgKey::SessionReset, locale),
-                )
-                .await?;
+                self.send_reply(msg, &i18n::t(i18n::MsgKey::SessionReset, locale))
+                    .await?;
             }
             "/model" if arg.is_empty() => {
                 // List models - use dedicated card layout

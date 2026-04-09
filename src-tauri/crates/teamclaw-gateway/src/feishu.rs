@@ -415,7 +415,11 @@ pub struct FeishuGateway {
 }
 
 impl FeishuGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
+    pub fn new(
+        opencode_port: u16,
+        session_mapping: SessionMapping,
+        workspace_path: String,
+    ) -> Self {
         Self {
             config: Arc::new(RwLock::new(FeishuConfig::default())),
             session_mapping,
@@ -1114,7 +1118,12 @@ async fn handle_message_event(
                 .await;
             }
         } else if let Ok(token) = token_manager.get_tenant_token().await {
-            let _ = reply_feishu_message(&token, &message_id, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale)).await;
+            let _ = reply_feishu_message(
+                &token,
+                &message_id,
+                &i18n::t(i18n::MsgKey::NoPendingQuestions, locale),
+            )
+            .await;
         }
         return;
     }
@@ -1129,7 +1138,8 @@ async fn handle_message_event(
         };
         println!("[Feishu] Model command received, arg: '{}'", arg);
         let response =
-            super::handle_model_command(opencode_port, session_mapping, &session_key, arg, locale).await;
+            super::handle_model_command(opencode_port, session_mapping, &session_key, arg, locale)
+                .await;
 
         if let Ok(token) = token_manager.get_tenant_token().await {
             let chunks = split_message(&response, 4000);
@@ -1181,8 +1191,14 @@ async fn handle_message_event(
             ""
         };
         println!("[Feishu] Sessions command received, arg: '{}'", arg);
-        let response =
-            super::handle_sessions_command(opencode_port, session_mapping, &session_key, arg, locale).await;
+        let response = super::handle_sessions_command(
+            opencode_port,
+            session_mapping,
+            &session_key,
+            arg,
+            locale,
+        )
+        .await;
 
         if let Ok(token) = token_manager.get_tenant_token().await {
             let chunks = split_message(&response, 4000);

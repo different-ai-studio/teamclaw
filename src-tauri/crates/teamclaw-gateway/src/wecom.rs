@@ -1,14 +1,14 @@
 use crate::i18n;
 use crate::session::SessionMapping;
 use crate::wecom_config::{WeComConfig, WeComGatewayStatus, WeComGatewayStatusResponse};
+use base64::Engine as _;
 use futures_util::stream::SplitSink;
 #[allow(unused_imports)]
 use futures_util::StreamExt;
-use base64::Engine as _;
 use serde::Deserialize;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, RwLock};
 use std::sync::OnceLock;
+use tokio::sync::{mpsc, oneshot, RwLock};
 
 /// Global reference to the active WeComGateway for proactive message sending.
 static ACTIVE_GATEWAY: OnceLock<Arc<RwLock<Option<WeComGateway>>>> = OnceLock::new();
@@ -21,7 +21,7 @@ fn get_active_gateway_holder() -> &'static Arc<RwLock<Option<WeComGateway>>> {
 /// WeCom images/files are encrypted with a per-message aeskey.
 /// Algorithm: AES-256-CBC, PKCS#7 padding (32-byte aligned), IV = first 16 bytes of key.
 fn decrypt_wecom_media(encrypted: &[u8], aeskey_b64: &str) -> Result<Vec<u8>, String> {
-    use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::NoPadding};
+    use aes::cipher::{block_padding::NoPadding, BlockDecryptMut, KeyIvInit};
 
     type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
@@ -44,8 +44,8 @@ fn decrypt_wecom_media(encrypted: &[u8], aeskey_b64: &str) -> Result<Vec<u8>, St
 
     // Decrypt
     let mut buf = encrypted.to_vec();
-    let decryptor = Aes256CbcDec::new_from_slices(&key, iv)
-        .map_err(|e| format!("AES init failed: {}", e))?;
+    let decryptor =
+        Aes256CbcDec::new_from_slices(&key, iv).map_err(|e| format!("AES init failed: {}", e))?;
     let decrypted = decryptor
         .decrypt_padded_mut::<NoPadding>(&mut buf)
         .map_err(|e| format!("AES decryption failed: {:?}", e))?;
@@ -146,11 +146,15 @@ fn detect_mime_from_filename(filename: &str) -> Option<String> {
         // Documents
         "pdf" => Some("application/pdf".into()),
         "doc" => Some("application/msword".into()),
-        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".into()),
+        "docx" => {
+            Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".into())
+        }
         "xls" => Some("application/vnd.ms-excel".into()),
         "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into()),
         "ppt" => Some("application/vnd.ms-powerpoint".into()),
-        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation".into()),
+        "pptx" => {
+            Some("application/vnd.openxmlformats-officedocument.presentationml.presentation".into())
+        }
         "csv" => Some("text/csv".into()),
         "txt" => Some("text/plain".into()),
         "json" => Some("application/json".into()),
@@ -165,13 +169,21 @@ fn detect_mime_from_filename(filename: &str) -> Option<String> {
 /// Get platform code for WeCom QR auth API
 fn get_plat_code() -> u8 {
     #[cfg(target_os = "macos")]
-    { 1 }
+    {
+        1
+    }
     #[cfg(target_os = "windows")]
-    { 2 }
+    {
+        2
+    }
     #[cfg(target_os = "linux")]
-    { 3 }
+    {
+        3
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    { 0 }
+    {
+        0
+    }
 }
 
 const WECOM_QR_GENERATE_URL: &str = "https://work.weixin.qq.com/ai/qc/generate";
@@ -179,9 +191,13 @@ const WECOM_QR_POLL_URL: &str = "https://work.weixin.qq.com/ai/qc/query_result";
 
 /// Fetch a QR code for WeCom bot authorization
 pub async fn fetch_wecom_qr_code() -> Result<super::wecom_config::WeComQrAuthStart, String> {
-    use crate::wecom_config::{WeComQrGenerateResponse, WeComQrAuthStart};
+    use crate::wecom_config::{WeComQrAuthStart, WeComQrGenerateResponse};
 
-    let url = format!("{}?source=teamclaw&plat={}", WECOM_QR_GENERATE_URL, get_plat_code());
+    let url = format!(
+        "{}?source=teamclaw&plat={}",
+        WECOM_QR_GENERATE_URL,
+        get_plat_code()
+    );
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -213,8 +229,10 @@ pub async fn fetch_wecom_qr_code() -> Result<super::wecom_config::WeComQrAuthSta
 }
 
 /// Poll WeCom QR code scan result
-pub async fn poll_wecom_qr_result(scode: &str) -> Result<super::wecom_config::WeComQrAuthPollResult, String> {
-    use crate::wecom_config::{WeComQrPollResponse, WeComQrAuthPollResult};
+pub async fn poll_wecom_qr_result(
+    scode: &str,
+) -> Result<super::wecom_config::WeComQrAuthPollResult, String> {
+    use crate::wecom_config::{WeComQrAuthPollResult, WeComQrPollResponse};
 
     let url = format!("{}?scode={}", WECOM_QR_POLL_URL, urlencoding::encode(scode));
     let client = reqwest::Client::builder()
@@ -249,7 +267,9 @@ pub async fn poll_wecom_qr_result(scode: &str) -> Result<super::wecom_config::We
     };
 
     if data.status == "success" {
-        let bot_info = data.bot_info.ok_or("QR poll success but missing bot_info")?;
+        let bot_info = data
+            .bot_info
+            .ok_or("QR poll success but missing bot_info")?;
         Ok(WeComQrAuthPollResult {
             status: "success".into(),
             bot_id: Some(bot_info.botid),
@@ -358,7 +378,11 @@ enum WsExitReason {
 }
 
 impl WeComGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
+    pub fn new(
+        opencode_port: u16,
+        session_mapping: SessionMapping,
+        workspace_path: String,
+    ) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeComConfig::default())),
             session_mapping,
@@ -677,13 +701,15 @@ impl WeComGateway {
                             self.handle_enter_chat(&req_id, &ws_sink).await;
                         }
                         "template_card_event" => {
-                            self.handle_template_card_event(&body, &req_id, &ws_sink).await;
+                            self.handle_template_card_event(&body, &req_id, &ws_sink)
+                                .await;
                         }
                         "disconnected_event" => {
                             println!("[WeCom] Disconnected by server (new connection established)");
                         }
                         "feedback_event" => {
-                            let feedback = body.get("event")
+                            let feedback = body
+                                .get("event")
                                 .and_then(|e| e.get("feedback"))
                                 .and_then(|f| f.as_str())
                                 .unwrap_or("unknown");
@@ -883,11 +909,19 @@ impl WeComGateway {
                     qid, answer_text
                 );
                 let _ = self
-                    .send_reply(&req_id, &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale), &ws_sink)
+                    .send_reply(
+                        &req_id,
+                        &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale),
+                        &ws_sink,
+                    )
                     .await;
             } else {
                 let _ = self
-                    .send_reply(&req_id, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale), &ws_sink)
+                    .send_reply(
+                        &req_id,
+                        &i18n::t(i18n::MsgKey::NoPendingQuestions, locale),
+                        &ws_sink,
+                    )
                     .await;
             }
             return;
@@ -976,9 +1010,13 @@ impl WeComGateway {
                         Box::pin(async move {
                             let locale = i18n::get_locale(&gateway2.workspace_path);
                             let msg = match reason {
-                                RejectReason::Timeout => i18n::t(i18n::MsgKey::QueueTimeout, locale),
+                                RejectReason::Timeout => {
+                                    i18n::t(i18n::MsgKey::QueueTimeout, locale)
+                                }
                                 RejectReason::QueueFull => i18n::t(i18n::MsgKey::QueueFull, locale),
-                                RejectReason::SessionClosed => i18n::t(i18n::MsgKey::MessageCouldNotBeProcessed, locale),
+                                RejectReason::SessionClosed => {
+                                    i18n::t(i18n::MsgKey::MessageCouldNotBeProcessed, locale)
+                                }
                             };
                             let _ = gateway2.send_reply(&req_id2, &msg, &ws_sink2).await;
                         })
@@ -1114,24 +1152,25 @@ impl WeComGateway {
 
         // Compress image if too large for AI model (limit ~258KB base64 → ~190KB raw)
         const MAX_RAW_BYTES: usize = 190_000;
-        let (final_bytes, final_mime) = if bytes.len() > MAX_RAW_BYTES && content_type.starts_with("image/") {
-            match compress_image(&bytes, MAX_RAW_BYTES) {
-                Ok(compressed) => {
-                    println!(
-                        "[WeCom] Compressed image: {} -> {} bytes",
-                        bytes.len(),
-                        compressed.len()
-                    );
-                    (compressed, "image/jpeg".to_string())
+        let (final_bytes, final_mime) =
+            if bytes.len() > MAX_RAW_BYTES && content_type.starts_with("image/") {
+                match compress_image(&bytes, MAX_RAW_BYTES) {
+                    Ok(compressed) => {
+                        println!(
+                            "[WeCom] Compressed image: {} -> {} bytes",
+                            bytes.len(),
+                            compressed.len()
+                        );
+                        (compressed, "image/jpeg".to_string())
+                    }
+                    Err(e) => {
+                        println!("[WeCom] Image compression failed, using original: {}", e);
+                        (bytes.clone(), content_type.clone())
+                    }
                 }
-                Err(e) => {
-                    println!("[WeCom] Image compression failed, using original: {}", e);
-                    (bytes.clone(), content_type.clone())
-                }
-            }
-        } else {
-            (bytes.clone(), content_type.clone())
-        };
+            } else {
+                (bytes.clone(), content_type.clone())
+            };
 
         let b64 = base64::engine::general_purpose::STANDARD.encode(&final_bytes);
         let data_url = format!("data:{};base64,{}", final_mime, b64);
@@ -1194,7 +1233,10 @@ impl WeComGateway {
         }
         if let Some(url) = image_url {
             // Download file from WeCom, decrypt if encrypted, and convert to data URL
-            match self.download_as_data_url(url, media_aeskey, filename_hint).await {
+            match self
+                .download_as_data_url(url, media_aeskey, filename_hint)
+                .await
+            {
                 Ok((data_url, mime, raw_bytes)) => {
                     // Save image to workspace so the UI can display it
                     let ext = mime.split('/').last().unwrap_or("png");
@@ -1222,7 +1264,8 @@ impl WeComGateway {
                     } else {
                         // Append attachment ref to existing text
                         let existing = parts.pop().unwrap();
-                        let existing_text = existing.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                        let existing_text =
+                            existing.get("text").and_then(|t| t.as_str()).unwrap_or("");
                         if attachment_ref.is_empty() {
                             existing_text.to_string()
                         } else {
@@ -1583,7 +1626,11 @@ impl WeComGateway {
                                         .send_stream_chunk(
                                             req_id,
                                             &stream_id,
-                                            if finish_text.is_empty() { " " } else { &finish_text },
+                                            if finish_text.is_empty() {
+                                                " "
+                                            } else {
+                                                &finish_text
+                                            },
                                             true,
                                             ws_sink,
                                         )
@@ -1609,14 +1656,19 @@ impl WeComGateway {
                                     let q_stream_id = uuid::Uuid::new_v4().to_string();
                                     let _ = self
                                         .send_stream_chunk(
-                                            req_id, &q_stream_id, &text, true, ws_sink,
+                                            req_id,
+                                            &q_stream_id,
+                                            &text,
+                                            true,
+                                            ws_sink,
                                         )
                                         .await;
                                 }
 
                                 println!(
                                     "[WeCom] Question displayed as text: id={}, {} question(s)",
-                                    question_id, questions.len()
+                                    question_id,
+                                    questions.len()
                                 );
 
                                 // Prepare new stream for post-question response
@@ -1625,10 +1677,7 @@ impl WeComGateway {
                                 accumulated_reasoning.clear();
                                 last_send_len = 0;
 
-                                println!(
-                                    "[WeCom] Question displayed: {}",
-                                    question_id
-                                );
+                                println!("[WeCom] Question displayed: {}", question_id);
 
                                 // Set up reply channel
                                 let prefix = &session_id[..session_id.len().min(8)];
@@ -1680,7 +1729,9 @@ impl WeComGateway {
                                 if is_text {
                                     has_seen_activity = true;
                                     // If we were streaming reasoning, switch to text-only
-                                    if accumulated_text.is_empty() && !accumulated_reasoning.is_empty() {
+                                    if accumulated_text.is_empty()
+                                        && !accumulated_reasoning.is_empty()
+                                    {
                                         // Start fresh stream for text content
                                         stream_id = uuid::Uuid::new_v4().to_string();
                                         last_send_len = 0;
@@ -1712,10 +1763,7 @@ impl WeComGateway {
                                             )
                                             .await
                                         {
-                                            eprintln!(
-                                                "[WeCom] Failed to send first chunk: {}",
-                                                e
-                                            );
+                                            eprintln!("[WeCom] Failed to send first chunk: {}", e);
                                         }
                                         last_send_len = stream_len;
                                         last_send_time = tokio::time::Instant::now();
@@ -1799,11 +1847,14 @@ impl WeComGateway {
                                             accumulated_text = accumulated_reasoning.clone();
                                         } else {
                                             // Last resort: fetch the full message from API
-                                            let msg_id =
-                                                info.get("id").and_then(|id| id.as_str()).unwrap_or("");
-                                            if let Ok(full_text) =
-                                                super::fetch_message_content(port, session_id, msg_id)
-                                                    .await
+                                            let msg_id = info
+                                                .get("id")
+                                                .and_then(|id| id.as_str())
+                                                .unwrap_or("");
+                                            if let Ok(full_text) = super::fetch_message_content(
+                                                port, session_id, msg_id,
+                                            )
+                                            .await
                                             {
                                                 accumulated_text = full_text;
                                             }
@@ -1972,9 +2023,16 @@ impl WeComGateway {
         let option_value = parts[3];
 
         // Answer the pending question
-        if let Some(entry) = self.pending_questions.take_by_question_id(question_id).await {
+        if let Some(entry) = self
+            .pending_questions
+            .take_by_question_id(question_id)
+            .await
+        {
             let _ = entry.answer_tx.send(option_value.to_string());
-            println!("[WeCom] Question {} answered via card: {}", question_id, option_value);
+            println!(
+                "[WeCom] Question {} answered via card: {}",
+                question_id, option_value
+            );
         } else {
             println!("[WeCom] No pending question found for id={}", question_id);
         }
@@ -2103,7 +2161,10 @@ impl WeComGateway {
             },
         );
 
-        println!("[WeCom] Question card sent successfully: task_id={}", task_id);
+        println!(
+            "[WeCom] Question card sent successfully: task_id={}",
+            task_id
+        );
         Ok(())
     }
 
@@ -2176,17 +2237,17 @@ impl WeComGateway {
     /// Send a proactive message to a WeCom conversation via aibot_send_msg.
     /// Requires the gateway to be connected and the target user to have
     /// previously messaged the bot in that conversation.
-    pub async fn send_chat_message(&self, chatid: &str, chat_type: u32, text: &str) -> Result<(), String> {
+    pub async fn send_chat_message(
+        &self,
+        chatid: &str,
+        chat_type: u32,
+        text: &str,
+    ) -> Result<(), String> {
         use futures_util::SinkExt;
 
-        let ws_sink = self
-            .shared_ws_sink
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| {
-                "WeCom gateway is not connected. Cannot send proactive message.".to_string()
-            })?;
+        let ws_sink = self.shared_ws_sink.read().await.clone().ok_or_else(|| {
+            "WeCom gateway is not connected. Cannot send proactive message.".to_string()
+        })?;
 
         let msg = serde_json::json!({
             "cmd": "aibot_send_msg",
@@ -2208,7 +2269,10 @@ impl WeComGateway {
             .await
             .map_err(|e| format!("Failed to send proactive message: {}", e))?;
 
-        println!("[WeCom] Proactive message sent to chatid={}, chat_type={}", chatid, chat_type);
+        println!(
+            "[WeCom] Proactive message sent to chatid={}, chat_type={}",
+            chatid, chat_type
+        );
         Ok(())
     }
 
@@ -2223,7 +2287,11 @@ impl WeComGateway {
 /// Send a proactive message to a WeCom conversation.
 /// Called by cron delivery and other modules that don't have direct gateway access.
 /// Requires the WeCom gateway to be running and connected.
-pub async fn send_proactive_message(chatid: &str, chat_type: u32, text: &str) -> Result<(), String> {
+pub async fn send_proactive_message(
+    chatid: &str,
+    chat_type: u32,
+    text: &str,
+) -> Result<(), String> {
     let gateway = get_active_gateway_holder()
         .read()
         .await

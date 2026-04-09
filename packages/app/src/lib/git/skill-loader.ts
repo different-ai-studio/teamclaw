@@ -20,12 +20,38 @@ function extractSkillName(content: string, fallback: string): string {
   return fallback
 }
 
+function getLastPathSegment(path: string): string {
+  return path.replace(/\/+$/, '').split('/').pop() || ''
+}
+
+export function buildSkillInvocationName(parentDir: string, filename: string): string {
+  const scope = getLastPathSegment(parentDir)
+  return scope && scope !== 'skills' ? `${scope}/${filename}` : filename
+}
+
 /** Load skills from a single directory, recording the directory path on each skill */
 async function loadSkillsFromDir(
   dirPath: string,
   source: SkillSource,
 ): Promise<SkillWithSource[]> {
   const skills: SkillWithSource[] = []
+
+  const tryLoadSkill = async (skillRoot: string, skillDirName: string, parentDir: string) => {
+    const skillMdPath = `${skillRoot}/SKILL.md`
+    if (!(await exists(skillMdPath))) return false
+
+    const content = await readTextFile(skillMdPath)
+    const name = extractSkillName(content, skillDirName)
+    skills.push({
+      filename: skillDirName,
+      name,
+      invocationName: buildSkillInvocationName(parentDir, skillDirName),
+      content,
+      source,
+      dirPath: parentDir,
+    })
+    return true
+  }
 
   try {
     if (!(await exists(dirPath))) return skills
@@ -34,18 +60,16 @@ async function loadSkillsFromDir(
 
     for (const entry of entries) {
       if (entry.isDirectory && entry.name) {
-        const skillMdPath = `${dirPath}/${entry.name}/SKILL.md`
         try {
-          if (await exists(skillMdPath)) {
-            const content = await readTextFile(skillMdPath)
-            const name = extractSkillName(content, entry.name)
-            skills.push({
-              filename: entry.name,
-              name,
-              content,
-              source,
-              dirPath,
-            })
+          const entryPath = `${dirPath}/${entry.name}`
+          if (await tryLoadSkill(entryPath, entry.name, dirPath)) {
+            continue
+          }
+
+          const nestedEntries = await readDir(entryPath)
+          for (const nestedEntry of nestedEntries) {
+            if (!nestedEntry.isDirectory || !nestedEntry.name) continue
+            await tryLoadSkill(`${entryPath}/${nestedEntry.name}`, nestedEntry.name, entryPath)
           }
         } catch {
           console.warn(`[SkillLoader] Failed to load skill ${entry.name} from ${dirPath}`)
@@ -223,9 +247,36 @@ export async function loadAllSkills(
   const globalAgentSkills = await loadSkillsFromDir(globalAgentDir, 'global-agent')
   for (const s of globalAgentSkills) pushSkill({ ...s, isGlobal: true })
 
+  // ============ OpenCode Plugin Skills ============
+
+  // 7. Scan plugin cache for skills installed via opencode.json "plugin" array
+  if (workspacePath) {
+    const pluginCacheDir = `${workspacePath}/.opencode/cache/opencode/node_modules`
+    try {
+      if (await exists(pluginCacheDir)) {
+        const pluginEntries = await readDir(pluginCacheDir)
+        for (const entry of pluginEntries) {
+          if (entry.isDirectory && entry.name && !entry.name.startsWith('.')) {
+            const skillsDir = `${pluginCacheDir}/${entry.name}/skills`
+            try {
+              if (await exists(skillsDir)) {
+                const pluginSkills = await loadSkillsFromDir(skillsDir, 'plugin')
+                for (const s of pluginSkills) pushSkill({ ...s, isGlobal: false })
+              }
+            } catch {
+              // skip inaccessible plugin
+            }
+          }
+        }
+      }
+    } catch {
+      console.warn('[SkillLoader] Cannot access plugin cache directory')
+    }
+  }
+
   // ============ Dynamic paths from opencode.json ============
 
-  // 7+. Load dynamic paths from opencode.json skills.paths
+  // 8+. Load dynamic paths from opencode.json skills.paths
   if (workspacePath) {
     const configPaths = await readConfigSkillPaths(workspacePath)
     for (const dirPath of configPaths) {
@@ -247,10 +298,11 @@ export async function loadAllSkills(
     shared: 3,
     team: 4,
     builtin: 5,
-    'global-opencode': 6,
-    'global-claude': 7,
-    'global-agent': 8,
-    personal: 9,
+    plugin: 6,
+    'global-opencode': 7,
+    'global-claude': 8,
+    'global-agent': 9,
+    personal: 10,
   }
   const seen = new Map<string, SkillWithSource>()
 
@@ -299,6 +351,8 @@ export function getSourceLabel(source: SkillSource): string {
       return 'Team'
     case 'builtin':
       return '内置'
+    case 'plugin':
+      return 'Plugin'
     case 'personal':
       return 'Personal'
     case 'global-opencode':
@@ -327,6 +381,8 @@ export function getSourceDirHint(source: SkillSource): string {
       return 'opencode.json → skills.paths'
     case 'builtin':
       return `.opencode/skills/ (${buildConfig.app.name} 内置)`
+    case 'plugin':
+      return 'opencode.json → plugin'
     case 'personal':
       return ''
     case 'global-opencode':
@@ -355,6 +411,8 @@ export function getSourceBadgeClass(source: SkillSource): string {
       return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300'
     case 'builtin':
       return 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border border-blue-200/60 dark:border-blue-700/50'
+    case 'plugin':
+      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300'
     case 'personal':
       return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
     case 'global-opencode':

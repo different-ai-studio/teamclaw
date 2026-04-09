@@ -1,6 +1,14 @@
 import { homeDir } from "@tauri-apps/api/path"
 import { exists, mkdir, readDir, readFile, readTextFile, remove, rename, writeFile, writeTextFile } from "@tauri-apps/plugin-fs"
-import type { AttachableSkill, AttachSkillToRoleInput, RoleEditorState, RoleRecord, RoleSkillLink } from "./types"
+import type {
+  AttachableSkill,
+  AttachSkillToRoleInput,
+  ManagedSkillRecord,
+  RoleEditorState,
+  RoleRecord,
+  RoleSkillLink,
+  RolesSkillsWorkspaceState,
+} from "./types"
 import { loadAllSkills } from "@/lib/git/skill-loader"
 
 const ROLE_ROOT = ".opencode/roles"
@@ -208,6 +216,35 @@ async function getRoleRoots(workspacePath: string): Promise<RoleRoot[]> {
   return roots
 }
 
+async function loadRoleManagedSkills(workspacePath: string): Promise<ManagedSkillRecord[]> {
+  const roots = await getRoleRoots(workspacePath)
+  const roleSkills: ManagedSkillRecord[] = []
+
+  for (const root of roots) {
+    const roleSkillRoot = `${root.rootPath}/skill`
+    if (!(await exists(roleSkillRoot))) continue
+    const entries = await readDir(roleSkillRoot)
+    for (const entry of entries) {
+      if (!entry.isDirectory || !entry.name) continue
+      const skillPath = `${roleSkillRoot}/${entry.name}/SKILL.md`
+      if (!(await exists(skillPath))) continue
+      const content = await readTextFile(skillPath)
+      roleSkills.push({
+        filename: entry.name,
+        name: entry.name,
+        content,
+        description: extractSkillDescription(content, entry.name),
+        source: "local",
+        dirPath: roleSkillRoot,
+        linkedRoles: [],
+        isRoleSkill: true,
+      })
+    }
+  }
+
+  return roleSkills
+}
+
 export async function loadAllRoles(workspacePath: string | null): Promise<RoleRecord[]> {
   if (!workspacePath) return []
   const roles: RoleRecord[] = []
@@ -229,6 +266,85 @@ export async function loadAllRoles(workspacePath: string | null): Promise<RoleRe
   }
 
   return roles.sort((a, b) => a.slug.localeCompare(b.slug))
+}
+
+export async function loadRolesSkillsWorkspaceState(workspacePath: string | null): Promise<RolesSkillsWorkspaceState> {
+  if (!workspacePath) {
+    return {
+      roles: [],
+      skills: [],
+      roleUsageBySkill: {},
+      skillNamesByRole: {},
+      metrics: {
+        rolesCount: 0,
+        skillsCount: 0,
+        linkedSkillsCount: 0,
+        unlinkedSkillsCount: 0,
+      },
+    }
+  }
+
+  const [roles, { skills: normalSkills }, roleManagedSkills] = await Promise.all([
+    loadAllRoles(workspacePath),
+    loadAllSkills(workspacePath),
+    loadRoleManagedSkills(workspacePath),
+  ])
+
+  const roleUsageBySkill: Record<string, string[]> = {}
+  const skillNamesByRole: Record<string, string[]> = {}
+
+  for (const role of roles) {
+    skillNamesByRole[role.slug] = role.roleSkills.map((skill) => skill.name)
+    for (const roleSkill of role.roleSkills) {
+      const owners = roleUsageBySkill[roleSkill.name] ?? []
+      owners.push(role.slug)
+      roleUsageBySkill[roleSkill.name] = owners
+    }
+  }
+
+  const managedSkillsByKey = new Map<string, ManagedSkillRecord>()
+
+  for (const skill of normalSkills) {
+    const key = `${skill.dirPath ?? ""}:${skill.filename}`
+    managedSkillsByKey.set(key, {
+      filename: skill.filename,
+      name: skill.name,
+      content: skill.content,
+      description: extractSkillDescription(skill.content, skill.name),
+      source: skill.source,
+      dirPath: skill.dirPath ?? `${workspacePath}/.opencode/skills`,
+      linkedRoles: roleUsageBySkill[skill.filename] ?? [],
+      isRoleSkill: false,
+    })
+  }
+
+  for (const skill of roleManagedSkills) {
+    const key = `${skill.dirPath}:${skill.filename}`
+    managedSkillsByKey.set(key, {
+      ...skill,
+      linkedRoles: roleUsageBySkill[skill.filename] ?? [],
+    })
+  }
+
+  const skills = Array.from(managedSkillsByKey.values()).sort((a, b) => {
+    if (a.isRoleSkill !== b.isRoleSkill) return a.isRoleSkill ? 1 : -1
+    return a.filename.localeCompare(b.filename)
+  })
+
+  const linkedSkillsCount = Object.values(roleUsageBySkill).filter((owners) => owners.length > 0).length
+
+  return {
+    roles,
+    skills,
+    roleUsageBySkill,
+    skillNamesByRole,
+    metrics: {
+      rolesCount: roles.length,
+      skillsCount: skills.length,
+      linkedSkillsCount,
+      unlinkedSkillsCount: Math.max(skills.length - linkedSkillsCount, 0),
+    },
+  }
 }
 
 export async function saveRole(workspacePath: string, editor: RoleEditorState, targetFilePath?: string): Promise<RoleRecord> {

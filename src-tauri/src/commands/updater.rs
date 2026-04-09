@@ -534,7 +534,12 @@ pub async fn check_update<R: Runtime>(app: AppHandle<R>) -> Result<Option<Update
         // Mode 2: Fetch from GitHub API (fallback)
         let token = match get_token() {
             Some(t) if !t.is_empty() => t,
-            _ => return Err("Updater token not configured (GitHub mode requires UPDATER_GITHUB_TOKEN)".to_string()),
+            _ => {
+                return Err(
+                    "Updater token not configured (GitHub mode requires UPDATER_GITHUB_TOKEN)"
+                        .to_string(),
+                )
+            }
         };
 
         let release = fetch_latest_release(&client, token).await?;

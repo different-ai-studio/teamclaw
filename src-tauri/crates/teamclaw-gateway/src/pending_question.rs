@@ -582,15 +582,27 @@ mod tests {
             QuestionInfo {
                 question: "Language?".to_string(),
                 options: vec![
-                    QuestionOption { label: "Python".to_string(), value: Some("python".to_string()) },
-                    QuestionOption { label: "Rust".to_string(), value: Some("rust".to_string()) },
+                    QuestionOption {
+                        label: "Python".to_string(),
+                        value: Some("python".to_string()),
+                    },
+                    QuestionOption {
+                        label: "Rust".to_string(),
+                        value: Some("rust".to_string()),
+                    },
                 ],
             },
             QuestionInfo {
                 question: "Framework?".to_string(),
                 options: vec![
-                    QuestionOption { label: "React".to_string(), value: Some("react".to_string()) },
-                    QuestionOption { label: "Vue".to_string(), value: Some("vue".to_string()) },
+                    QuestionOption {
+                        label: "React".to_string(),
+                        value: Some("react".to_string()),
+                    },
+                    QuestionOption {
+                        label: "Vue".to_string(),
+                        value: Some("vue".to_string()),
+                    },
                 ],
             },
         ];

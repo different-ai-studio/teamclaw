@@ -266,6 +266,7 @@ describe('workspace store: behavioral tests', () => {
   describe('setOpenCodeReady', () => {
     it('sets ready state with url', () => {
       useWorkspaceStore.getState().setOpenCodeReady(true, 'http://localhost:13141');
+      expect(useWorkspaceStore.getState().openCodeBootstrapped).toBe(true);
       expect(useWorkspaceStore.getState().openCodeReady).toBe(true);
       expect(useWorkspaceStore.getState().openCodeUrl).toBe('http://localhost:13141');
     });
@@ -276,6 +277,20 @@ describe('workspace store: behavioral tests', () => {
       expect(useWorkspaceStore.getState().openCodeReady).toBe(false);
       // URL not cleared because no url param
       expect(useWorkspaceStore.getState().openCodeUrl).toBe('http://localhost:13141');
+    });
+  });
+
+  describe('setOpenCodeBootstrapped', () => {
+    it('clears ready state and url when reset', () => {
+      useWorkspaceStore.setState({
+        openCodeBootstrapped: true,
+        openCodeReady: true,
+        openCodeUrl: 'http://localhost:13141',
+      });
+      useWorkspaceStore.getState().setOpenCodeBootstrapped(false);
+      expect(useWorkspaceStore.getState().openCodeBootstrapped).toBe(false);
+      expect(useWorkspaceStore.getState().openCodeReady).toBe(false);
+      expect(useWorkspaceStore.getState().openCodeUrl).toBeNull();
     });
   });
 

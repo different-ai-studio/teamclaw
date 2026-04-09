@@ -1,10 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { notificationService } from "@/lib/notification-service";
 import { buildConfig } from "@/lib/build-config";
-import { getOpenCodeClient } from "@/lib/opencode/client";
+import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
 import type {
   SessionErrorEvent,
-} from "@/lib/opencode/types";
+} from "@/lib/opencode/sdk-types";
 import type {
   SessionCreatedEvent,
   SessionUpdatedEvent,
@@ -13,11 +13,11 @@ import type {
   SessionIdleEvent,
   SessionStatusEvent,
   OpenCodeSSEEvent,
-} from "@/lib/opencode/sse";
+} from "@/lib/opencode/sdk-sse";
 import {
   registerChildSession,
   isChildSession,
-} from "@/lib/opencode/sse";
+} from "@/lib/opencode/sdk-sse";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type {
   SessionState,

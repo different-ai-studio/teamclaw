@@ -8,9 +8,9 @@ import type {
 import { ScoringEngine } from '@/lib/telemetry/scoring-engine'
 import { buildSessionReport } from '@/lib/telemetry/report-builder'
 import { useSessionStore } from '@/stores/session'
-import { getOpenCodeClient } from '@/lib/opencode/client'
+import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { isTauri } from '@/lib/utils'
-import type { Message as OpenCodeMessage } from '@/lib/opencode/types'
+import type { Message as OpenCodeMessage } from '@/lib/opencode/sdk-types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 

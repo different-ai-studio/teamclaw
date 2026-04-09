@@ -4,7 +4,7 @@ import { sessionDataCache } from "@/stores/session-data-cache";
 
 const mockReplyQuestion = vi.fn();
 
-vi.mock("@/lib/opencode/client", () => ({
+vi.mock("@/lib/opencode/sdk-client", () => ({
   getOpenCodeClient: () => ({
     replyQuestion: mockReplyQuestion,
   }),

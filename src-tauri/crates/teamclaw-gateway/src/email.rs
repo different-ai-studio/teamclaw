@@ -1737,7 +1737,11 @@ fn process_and_reply_sync(
             let reply_email = reply_to_email_for_q.clone();
             let at = access_token_for_q.clone();
             Box::pin(async move {
-                let text = super::format_question_message(&fq.questions, &fq.question_id, super::i18n::Locale::En);
+                let text = super::format_question_message(
+                    &fq.questions,
+                    &fq.question_id,
+                    super::i18n::Locale::En,
+                );
                 let outgoing_msg_id = tokio::task::spawn_blocking(move || {
                     send_reply_sync(&cfg, &reply_email, &text, at.as_deref())
                 })

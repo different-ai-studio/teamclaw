@@ -84,8 +84,10 @@ interface WorkspaceState {
   isLoadingWorkspace: boolean;
 
   // OpenCode server state
+  openCodeBootstrapped: boolean;
   openCodeReady: boolean;
   openCodeUrl: string | null;
+  setOpenCodeBootstrapped: (bootstrapped: boolean, url?: string) => void;
   setOpenCodeReady: (ready: boolean, url?: string) => void;
 
   // Right panel state
@@ -189,10 +191,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspacePath: null,
   workspaceName: null,
   isLoadingWorkspace: false,
+  openCodeBootstrapped: false,
   openCodeReady: false,
   openCodeUrl: null,
+  setOpenCodeBootstrapped: (bootstrapped: boolean, url?: string) =>
+    set(
+      bootstrapped
+        ? { openCodeBootstrapped: true, ...(url ? { openCodeUrl: url } : {}) }
+        : { openCodeBootstrapped: false, openCodeReady: false, openCodeUrl: null },
+    ),
   setOpenCodeReady: (ready: boolean, url?: string) =>
-    set({ openCodeReady: ready, ...(url ? { openCodeUrl: url } : {}) }),
+    set({
+      openCodeReady: ready,
+      ...(ready ? { openCodeBootstrapped: true } : {}),
+      ...(url ? { openCodeUrl: url } : {}),
+    }),
   isPanelOpen: false,
   activeTab: "tasks",
   fileTree: [],
@@ -284,6 +297,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     set({
       isLoadingWorkspace: true,
+      openCodeBootstrapped: false,
       openCodeReady: false,
       openCodeUrl: null,
       workspacePath: expandedPath,
@@ -452,6 +466,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({
       workspacePath: null,
       workspaceName: null,
+      openCodeBootstrapped: false,
       openCodeReady: false,
       openCodeUrl: null,
       fileTree: [],

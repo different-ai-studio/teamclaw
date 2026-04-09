@@ -169,6 +169,7 @@ pub struct SkillsShEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SkillsShLeaderboard {
     pub skills: Vec<SkillsShEntry>,
     pub total_installs: u64,
@@ -1127,8 +1128,9 @@ pub async fn install_skill_from_git_url(
     let target_dir = if is_global {
         // "Global" install is workspace-scoped under XDG isolation:
         // <workspace>/.opencode/config/opencode/skills/<slug>
-        let ws_path = workspace_path
-            .ok_or_else(|| "Workspace path required for global skill installation under XDG isolation".to_string())?;
+        let ws_path = workspace_path.ok_or_else(|| {
+            "Workspace path required for global skill installation under XDG isolation".to_string()
+        })?;
         Path::new(&ws_path)
             .join(".opencode")
             .join("config")
@@ -1182,8 +1184,7 @@ fn sanitize_skill_zip_path(raw: &str) -> Option<String> {
 }
 
 fn extract_skill_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<(), String> {
-    let file =
-        std::fs::File::open(zip_path).map_err(|e| format!("Failed to open zip: {}", e))?;
+    let file = std::fs::File::open(zip_path).map_err(|e| format!("Failed to open zip: {}", e))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip archive: {}", e))?;
 
@@ -1227,18 +1228,10 @@ fn extract_skill_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<(), St
         }
 
         let mut buf = Vec::new();
-        file.read_to_end(&mut buf).map_err(|e| {
-            format!(
-                "Failed to read zip entry bytes {}: {}",
-                safe_path, e
-            )
-        })?;
-        std::fs::write(&out_path, &buf).map_err(|e| {
-            format!(
-                "Failed to write extracted file {}: {}",
-                safe_path, e
-            )
-        })?;
+        file.read_to_end(&mut buf)
+            .map_err(|e| format!("Failed to read zip entry bytes {}: {}", safe_path, e))?;
+        std::fs::write(&out_path, &buf)
+            .map_err(|e| format!("Failed to write extracted file {}: {}", safe_path, e))?;
     }
 
     Ok(())
@@ -1371,7 +1364,8 @@ pub fn import_skill_from_zip(
             // "Global" install is workspace-scoped under XDG isolation:
             // <workspace>/.opencode/config/opencode/skills/<slug>
             let ws_path = workspace_path.ok_or_else(|| {
-                "Workspace path required for global skill installation under XDG isolation".to_string()
+                "Workspace path required for global skill installation under XDG isolation"
+                    .to_string()
             })?;
             Path::new(&ws_path)
                 .join(".opencode")
@@ -1380,9 +1374,8 @@ pub fn import_skill_from_zip(
                 .join("skills")
                 .join(&slug)
         } else {
-            let ws_path = workspace_path.ok_or_else(|| {
-                "Workspace path required for workspace installation".to_string()
-            })?;
+            let ws_path = workspace_path
+                .ok_or_else(|| "Workspace path required for workspace installation".to_string())?;
             Path::new(&ws_path)
                 .join(".opencode")
                 .join("skills")

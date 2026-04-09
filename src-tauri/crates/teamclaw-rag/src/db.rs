@@ -279,13 +279,24 @@ impl Database {
     ) -> Result<()> {
         for batch in chunks.chunks(100) {
             let conn = self.conn.lock().await;
-            conn.execute("BEGIN", ()).await.context("Failed to begin transaction")?;
+            conn.execute("BEGIN", ())
+                .await
+                .context("Failed to begin transaction")?;
 
-            for (content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line) in
-                batch
+            for (
+                content,
+                chunk_index,
+                heading,
+                embedding,
+                chunk_type,
+                name,
+                start_line,
+                end_line,
+            ) in batch
             {
                 // Convert Vec<f32> to binary blob for F32_BLOB
-                let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+                let embedding_bytes: Vec<u8> =
+                    embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
 
                 match conn.execute(
                     "INSERT INTO chunks (doc_id, content, chunk_index, heading, embedding, chunk_type, name, start_line, end_line)
@@ -312,7 +323,9 @@ impl Database {
                 }
             }
 
-            conn.execute("COMMIT", ()).await.context("Failed to commit transaction")?;
+            conn.execute("COMMIT", ())
+                .await
+                .context("Failed to commit transaction")?;
             // Lock dropped here — other operations can proceed between batches
         }
 

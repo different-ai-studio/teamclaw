@@ -184,7 +184,7 @@ vi.mock('@/stores/suggestions', () => ({
     selector({ customSuggestions: [] }),
 }));
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     executeCommand: vi.fn(),
   }),

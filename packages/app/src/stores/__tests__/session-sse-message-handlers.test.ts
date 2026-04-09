@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     getMessages: vi.fn().mockResolvedValue([]),
   }),
@@ -26,7 +26,7 @@ vi.mock('@/stores/streaming', () => {
   }
 })
 
-vi.mock('@/lib/opencode/sse', () => ({
+vi.mock('@/lib/opencode/sdk-sse', () => ({
   clearAllChildSessions: vi.fn(),
 }))
 

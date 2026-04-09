@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
@@ -66,6 +66,12 @@ pub struct OpenCodeStatus {
     pub url: String,
     pub is_dev_mode: bool,
     pub workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OpenCodeBootstrappedEvent {
+    url: String,
+    workspace_path: String,
 }
 
 /// State for the early sidecar launch (initiated from setup hook before frontend).
@@ -306,10 +312,19 @@ pub async fn start_opencode_inner(
             inner.workspace_path = Some(requested_path.clone());
         }
 
+        let url = format!("http://127.0.0.1:{}", port);
+        let _ = app.emit(
+            "opencode_bootstrapped",
+            OpenCodeBootstrappedEvent {
+                url: url.clone(),
+                workspace_path: requested_path.clone(),
+            },
+        );
+
         return Ok(OpenCodeStatus {
             is_running: true,
             port,
-            url: format!("http://127.0.0.1:{}", port),
+            url,
             is_dev_mode: true,
             workspace_path: Some(requested_path),
         });
@@ -353,10 +368,16 @@ pub async fn start_opencode_inner(
         let device_id = super::oss_commands::get_device_id().unwrap_or_default();
         let ws = workspace_path.clone();
         let did = device_id.clone();
-        if let Err(e) = tokio::task::spawn_blocking(move || {
-            super::env_vars::ensure_system_env_vars(&ws, &did)
-        }).await.map_err(|e| e.to_string()).and_then(|r| r) {
-            eprintln!("[OpenCode] Warning: failed to ensure system env vars: {}", e);
+        if let Err(e) =
+            tokio::task::spawn_blocking(move || super::env_vars::ensure_system_env_vars(&ws, &did))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r)
+        {
+            eprintln!(
+                "[OpenCode] Warning: failed to ensure system env vars: {}",
+                e
+            );
         }
     }
 
@@ -453,7 +474,10 @@ pub async fn start_opencode_inner(
     // before oss_restore_sync), try to read team config and init from disk.
     if let Some(shared_state) = app.try_state::<super::shared_secrets::SharedSecretsState>() {
         {
-            let dk = shared_state.derived_key.lock().unwrap_or_else(|p| p.into_inner());
+            let dk = shared_state
+                .derived_key
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             if dk.is_none() {
                 drop(dk);
                 // Try to init from workspace team config
@@ -470,7 +494,9 @@ pub async fn start_opencode_inner(
                                 oss.get("teamId").and_then(|v| v.as_str()),
                                 oss.get("enabled").and_then(|v| v.as_bool()),
                             ) {
-                                if let Ok(team_secret) = super::oss_sync::load_team_secret(&workspace_path, team_id) {
+                                if let Ok(team_secret) =
+                                    super::oss_sync::load_team_secret(&workspace_path, team_id)
+                                {
                                     let team_dir = std::path::Path::new(&workspace_path)
                                         .join(super::TEAM_REPO_DIR);
                                     match super::shared_secrets::init_shared_secrets(
@@ -478,8 +504,13 @@ pub async fn start_opencode_inner(
                                         &team_secret,
                                         &team_dir,
                                     ) {
-                                        Ok(()) => println!("[OpenCode] Lazy-initialized shared secrets from disk"),
-                                        Err(e) => eprintln!("[OpenCode] Failed to lazy-init shared secrets: {}", e),
+                                        Ok(()) => println!(
+                                            "[OpenCode] Lazy-initialized shared secrets from disk"
+                                        ),
+                                        Err(e) => eprintln!(
+                                            "[OpenCode] Failed to lazy-init shared secrets: {}",
+                                            e
+                                        ),
                                     }
                                 }
                             }
@@ -499,7 +530,10 @@ pub async fn start_opencode_inner(
             // so ${wecom_corp_id} and WECOM_CORP_ID both resolve
             let upper_key = key_id.to_uppercase();
             secrets.retain(|(k, _)| k != key_id && k != &upper_key);
-            println!("[OpenCode] Loaded shared secret: {} (also {})", key_id, upper_key);
+            println!(
+                "[OpenCode] Loaded shared secret: {} (also {})",
+                key_id, upper_key
+            );
             secrets.push((key_id.clone(), entry.key.clone()));
             if upper_key != *key_id {
                 secrets.push((upper_key, entry.key.clone()));
@@ -535,10 +569,22 @@ pub async fn start_opencode_inner(
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
         .args(["serve", "--port", &port_str])
         .current_dir(&workspace_path)
-        .env("XDG_DATA_HOME", xdg_base.join("data").to_string_lossy().as_ref())
-        .env("XDG_CONFIG_HOME", xdg_base.join("config").to_string_lossy().as_ref())
-        .env("XDG_STATE_HOME", xdg_base.join("state").to_string_lossy().as_ref())
-        .env("XDG_CACHE_HOME", xdg_base.join("cache").to_string_lossy().as_ref());
+        .env(
+            "XDG_DATA_HOME",
+            xdg_base.join("data").to_string_lossy().as_ref(),
+        )
+        .env(
+            "XDG_CONFIG_HOME",
+            xdg_base.join("config").to_string_lossy().as_ref(),
+        )
+        .env(
+            "XDG_STATE_HOME",
+            xdg_base.join("state").to_string_lossy().as_ref(),
+        )
+        .env(
+            "XDG_CACHE_HOME",
+            xdg_base.join("cache").to_string_lossy().as_ref(),
+        );
     // Inject device identity as environment variables
     let device_id = super::oss_commands::get_device_id().unwrap_or_default();
     if !device_id.is_empty() {
@@ -604,10 +650,7 @@ pub async fn start_opencode_inner(
                 }
                 CommandEvent::Terminated(payload) => {
                     let code = payload.code.unwrap_or(-1);
-                    eprintln!(
-                        "[OpenCode] Process terminated with code: {}",
-                        code
-                    );
+                    eprintln!("[OpenCode] Process terminated with code: {}", code);
                     if code != 0 {
                         let context = if stderr_lines.is_empty() {
                             format!("OpenCode process exited with code {}", code)
@@ -661,6 +704,15 @@ pub async fn start_opencode_inner(
         }
     };
 
+    let url = format!("http://127.0.0.1:{}", port);
+    let _ = app.emit(
+        "opencode_bootstrapped",
+        OpenCodeBootstrappedEvent {
+            url: url.clone(),
+            workspace_path: workspace_path.clone(),
+        },
+    );
+
     // Schedule async config restore: wait for MCP servers to connect (so they
     // read the resolved secrets), then put back the original ${KEY} references.
     // Provider apiKey values stay resolved since opencode re-reads the config.
@@ -696,7 +748,7 @@ pub async fn start_opencode_inner(
     Ok(OpenCodeStatus {
         is_running: true,
         port,
-        url: format!("http://127.0.0.1:{}", port),
+        url,
         is_dev_mode: false,
         workspace_path: Some(workspace_path),
     })
@@ -925,6 +977,10 @@ fn inherent_desktop_control_skill() -> Option<InherentSkill> {
 fn inherent_skills_common() -> Vec<InherentSkill> {
     vec![
         InherentSkill {
+            dirname: "create-role",
+            content: include_str!("../../../packages/app/src/lib/skills/create-role/SKILL.md"),
+        },
+        InherentSkill {
             dirname: "ai-keys",
             content: include_str!("../../../packages/app/src/lib/skills/ai-keys/SKILL.md"),
         },
@@ -956,7 +1012,10 @@ fn remove_non_native_desktop_control_skills(skills_dir: &std::path::Path) {
         let path = skills_dir.join(name);
         if path.is_dir() {
             match std::fs::remove_dir_all(&path) {
-                Ok(()) => println!("[Skills] Removed non-native desktop skill directory '{}'", name),
+                Ok(()) => println!(
+                    "[Skills] Removed non-native desktop skill directory '{}'",
+                    name
+                ),
                 Err(e) => println!(
                     "[Skills] Warning: could not remove '{}': {}",
                     path.display(),
@@ -974,6 +1033,92 @@ fn remove_non_native_desktop_control_skills(skills_dir: &std::path::Path) {
     {
         remove_if_dir("macos-control");
         remove_if_dir("windows-control");
+    }
+}
+
+/// Scan `~/.agents/skills/` for bundle directories (e.g. `superpowers/`) and
+/// create symlinks in `target_skills_dir` for each nested skill, so OpenCode
+/// discovers them alongside inherent skills without modifying `opencode.json`.
+///
+/// A "bundle directory" is a subdirectory of `~/.agents/skills/` that does NOT
+/// contain a `SKILL.md` at its root but contains child directories that do.
+fn symlink_bundle_skills(target_skills_dir: &std::path::Path) {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let agents_skills_dir = std::path::PathBuf::from(&home).join(".agents/skills");
+    if !agents_skills_dir.is_dir() {
+        return;
+    }
+
+    let entries = match std::fs::read_dir(&agents_skills_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let bundle_path = entry.path();
+        if !bundle_path.is_dir() || bundle_path.join("SKILL.md").exists() {
+            continue;
+        }
+
+        let nested = match std::fs::read_dir(&bundle_path) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        for nested_entry in nested.flatten() {
+            let skill_src = nested_entry.path();
+            if !skill_src.is_dir() || !skill_src.join("SKILL.md").exists() {
+                continue;
+            }
+            let skill_name = match nested_entry.file_name().into_string() {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            let link_path = target_skills_dir.join(&skill_name);
+
+            if link_path.exists() || link_path.symlink_metadata().is_ok() {
+                continue;
+            }
+
+            #[cfg(unix)]
+            {
+                if let Err(e) = std::os::unix::fs::symlink(&skill_src, &link_path) {
+                    println!(
+                        "[Skills] Warning: failed to symlink '{}' -> '{}': {}",
+                        link_path.display(),
+                        skill_src.display(),
+                        e
+                    );
+                } else {
+                    println!(
+                        "[Skills] Linked bundle skill '{}' -> {}",
+                        skill_name,
+                        skill_src.display()
+                    );
+                }
+            }
+
+            #[cfg(windows)]
+            {
+                if let Err(e) = std::os::windows::fs::symlink_dir(&skill_src, &link_path) {
+                    println!(
+                        "[Skills] Warning: failed to symlink '{}' -> '{}': {}",
+                        link_path.display(),
+                        skill_src.display(),
+                        e
+                    );
+                } else {
+                    println!(
+                        "[Skills] Linked bundle skill '{}' -> {}",
+                        skill_name,
+                        skill_src.display()
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -1010,6 +1155,8 @@ fn ensure_inherent_skills(workspace_path: &str) -> Result<(), String> {
 
         println!("[Skills] Provisioned inherent skill '{}'", skill.dirname);
     }
+
+    symlink_bundle_skills(&skills_dir);
 
     Ok(())
 }
@@ -1100,7 +1247,10 @@ fn read_keyring_secrets(workspace_path: &str) -> (Vec<(String, String)>, Vec<Str
                 .into_iter()
                 .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
                 .collect();
-            println!("[OpenCode] Loaded {} secrets from keychain blob", secrets.len());
+            println!(
+                "[OpenCode] Loaded {} secrets from keychain blob",
+                secrets.len()
+            );
             (secrets, Vec::new())
         }
         Err(e) => {
@@ -1134,7 +1284,11 @@ fn resolve_config_secret_refs(
     for (key, value) in secrets {
         let placeholder = format!("${{{}}}", key); // ${KEY}
         if resolved.contains(&placeholder) {
-            println!("[OpenCode] Replacing placeholder: {} (value length: {})", placeholder, value.len());
+            println!(
+                "[OpenCode] Replacing placeholder: {} (value length: {})",
+                placeholder,
+                value.len()
+            );
             resolved = resolved.replace(&placeholder, value);
             changed = true;
         }
@@ -1512,8 +1666,8 @@ pub async fn stop_opencode(state: State<'_, OpenCodeState>) -> Result<(), String
 
 fn get_opencode_db_path(workspace_path: &str) -> Result<String, String> {
     // With XDG isolation, the DB lives at <workspace>/.opencode/data/opencode/opencode.db
-    let isolated_path = std::path::PathBuf::from(workspace_path)
-        .join(".opencode/data/opencode/opencode.db");
+    let isolated_path =
+        std::path::PathBuf::from(workspace_path).join(".opencode/data/opencode/opencode.db");
     if isolated_path.exists() {
         return Ok(isolated_path.to_string_lossy().to_string());
     }

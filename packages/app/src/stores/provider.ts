@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getOpenCodeClient } from '@/lib/opencode/client'
+import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { toast } from 'sonner'
 import { appShortName } from '@/lib/build-config'
 import { invoke } from '@tauri-apps/api/core'

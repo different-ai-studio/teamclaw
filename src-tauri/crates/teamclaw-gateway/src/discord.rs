@@ -421,7 +421,11 @@ impl DiscordHandler {
             forwarder: Box::new(move |fq: super::ForwardedQuestion| {
                 let http = Arc::clone(&http);
                 Box::pin(async move {
-                    let text = super::format_question_message(&fq.questions, &fq.question_id, locale_for_q);
+                    let text = super::format_question_message(
+                        &fq.questions,
+                        &fq.question_id,
+                        locale_for_q,
+                    );
                     let sent = channel_id
                         .say(&http, &text)
                         .await
@@ -944,7 +948,11 @@ pub struct DiscordGateway {
 }
 
 impl DiscordGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping, workspace_path: String) -> Self {
+    pub fn new(
+        opencode_port: u16,
+        session_mapping: SessionMapping,
+        workspace_path: String,
+    ) -> Self {
         Self {
             config: Arc::new(RwLock::new(DiscordConfig::default())),
             session_mapping,

@@ -38,7 +38,7 @@ vi.mock('@/stores/team-mode', () => ({
   }),
 }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('@/lib/opencode/client', () => ({ initOpenCodeClient: vi.fn() }))
+vi.mock('@/lib/opencode/sdk-client', () => ({ initOpenCodeClient: vi.fn() }))
 vi.mock('@/lib/utils', () => ({ cn: (...a: string[]) => a.join(' ') }))
 vi.mock('../shared', () => ({
   SettingCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,

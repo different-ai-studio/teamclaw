@@ -6,7 +6,8 @@ import type {
   ToolExecutingEvent,
   PermissionAskedEvent,
   ErrorEvent,
-} from './types'
+  SessionErrorEvent,
+} from './sdk-types'
 
 // Question asked event
 export interface QuestionAskedEvent {
@@ -47,19 +48,8 @@ export interface SessionDiffEvent {
   }>
 }
 
-// Session error event
-export interface SessionErrorEvent {
-  sessionId?: string
-  error?: {
-    name: string
-    data: {
-      message: string
-      providerID?: string
-      statusCode?: number
-      isRetryable?: boolean
-    }
-  }
-}
+// Re-export SessionErrorEvent from sdk-types so consumers can import from this file
+export type { SessionErrorEvent } from './sdk-types'
 
 // File edited event
 export interface FileEditedEvent {
@@ -134,7 +124,7 @@ export interface SSEHandlers {
   onInactivityWarning?: (active: boolean) => void
 }
 
-// OpenCode SSE event structure
+// OpenCode SSE event structure (raw wire format)
 export interface OpenCodeSSEEvent {
   type: string
   properties: Record<string, unknown>
@@ -316,7 +306,7 @@ export class OpenCodeSSE {
 
   private handleEvent(event: OpenCodeSSEEvent): void {
     const { type, properties } = event
-    
+
     // Global events bypass session ID filtering;
     // message/tool events are filtered to the active session only
     if (!OpenCodeSSE.GLOBAL_EVENT_TYPES.has(type)) {
@@ -359,7 +349,7 @@ export class OpenCodeSSE {
             cache: { read: number; write: number }
           }
         }
-        
+
         if (info.role === 'user') {
           // User message received via SSE — this is an external message
           // (e.g., sent via Feishu gateway, not from the current app).
@@ -429,7 +419,7 @@ export class OpenCodeSSE {
         }
         const messageId = completedData.messageId || completedData.messageID
         const sessionId = completedData.sessionId || completedData.sessionID
-        
+
         if (messageId && sessionId) {
           if (OpenCodeSSE.debug()) console.log('[SSE] message.completed:', messageId)
           this.handlers.onMessageCompleted?.({
@@ -538,8 +528,8 @@ export class OpenCodeSSE {
           const state = part.state as Record<string, unknown> | undefined
           const rawResult = state?.raw || state?.output || state?.result
           const result = typeof rawResult === 'string' ? rawResult : rawResult ? JSON.stringify(rawResult) : undefined
-          const duration = (part.time?.end && part.time?.start) 
-            ? part.time.end - part.time.start 
+          const duration = (part.time?.end && part.time?.start)
+            ? part.time.end - part.time.start
             : undefined
           const hasEnded = !!part.time?.end
 
@@ -552,13 +542,13 @@ export class OpenCodeSSE {
           } else if (hasEnded) {
             mappedStatus = 'completed'
           }
-          
+
           if (OpenCodeSSE.debug() && mappedStatus === 'completed') {
             console.log('[SSE] Tool completed:', part.tool)
           }
-          
+
           const metadata = state?.metadata as ToolExecutingEvent['metadata'] | undefined
-          
+
           this.handlers.onToolExecuting?.({
             toolCallId: part.callID || part.id,
             toolName: part.tool || 'unknown',
@@ -584,7 +574,7 @@ export class OpenCodeSSE {
         if (!statusSessionId || !status) break
         if (OpenCodeSSE.debug()) console.log('[SSE] session.status:', statusSessionId, status?.type)
 
-        let statusInfo: import('./sse').SessionStatusInfo
+        let statusInfo: SessionStatusInfo
         if (status.type === 'retry') {
           statusInfo = {
             type: 'retry',
@@ -627,9 +617,9 @@ export class OpenCodeSSE {
         const createdSessionId = createdData.sessionID || createdData.info?.id
         const createdDir = createdData.info?.directory || (properties.directory as string | undefined)
         const parentID = createdData.info?.parentID
-        
+
         if (OpenCodeSSE.debug()) console.log('[SSE] Session created:', createdSessionId)
-        
+
         if (createdSessionId) {
           this.handlers.onSessionCreated?.({
             sessionId: createdSessionId,
@@ -647,9 +637,9 @@ export class OpenCodeSSE {
         }
         const updatedSessionId = updatedData.sessionID || updatedData.info?.id
         const updatedDir = updatedData.info?.directory || (properties.directory as string | undefined)
-        
+
         if (OpenCodeSSE.debug()) console.log('[SSE] Session updated:', updatedSessionId)
-        
+
         if (updatedSessionId) {
           this.handlers.onSessionUpdated?.({
             sessionId: updatedSessionId,
@@ -683,9 +673,9 @@ export class OpenCodeSSE {
             messageID: string
           }
         }
-        
+
         if (OpenCodeSSE.debug()) console.log('[SSE] Question asked:', questionData.id)
-        
+
         this.handlers.onQuestionAsked?.({
           id: questionData.id,
           sessionId: questionData.sessionID,
@@ -714,9 +704,9 @@ export class OpenCodeSSE {
             priority: string
           }>
         }
-        
+
         if (OpenCodeSSE.debug()) console.log('[SSE] Todo updated:', todoData.todos?.length || 0, 'items')
-        
+
         this.handlers.onTodoUpdated?.({
           sessionId: todoData.sessionID,
           todos: todoData.todos.map(t => ({
@@ -740,9 +730,9 @@ export class OpenCodeSSE {
             deletions: number
           }>
         }
-        
+
         if (OpenCodeSSE.debug()) console.log('[SSE] Session diff:', diffData.diff?.length || 0, 'files')
-        
+
         this.handlers.onSessionDiff?.({
           sessionId: diffData.sessionID,
           diff: diffData.diff || [],
@@ -767,9 +757,9 @@ export class OpenCodeSSE {
           metadata?: Record<string, unknown>
           tool?: { callID: string; messageID: string }
         }
-        
+
         if (OpenCodeSSE.debug()) console.log('[SSE] Permission asked:', permData.permission, permData.id)
-        
+
         this.handlers.onPermissionAsked?.({
           id: permData.id,
           sessionID: permData.sessionID,
@@ -821,7 +811,7 @@ export class OpenCodeSSE {
         }
 
         console.log('[SSE] Session error normalized message:', normalizedError?.data?.message)
-        
+
         this.handlers.onSessionError?.({
           sessionId: errorData.sessionID,
           error: normalizedError,
@@ -922,11 +912,17 @@ export function useOpenCodeSSE(
   const sseRef = useRef<OpenCodeSSE | null>(null)
   const handlersRef = useRef(handlers)
   const sessionIdRef = useRef(sessionId)
+  const workspacePathRef = useRef(workspacePath)
 
   // Update handlers ref when handlers change
   useEffect(() => {
     handlersRef.current = handlers
   }, [handlers])
+
+  // Keep workspacePath ref in sync without triggering reconnect
+  useEffect(() => {
+    workspacePathRef.current = workspacePath
+  }, [workspacePath])
 
   // Update session filter without reconnecting SSE.
   // The SSE stream is global (/event), sessionId only controls per-session event filtering.
@@ -971,11 +967,11 @@ export function useOpenCodeSSE(
       onDisconnected: () => handlersRef.current.onDisconnected?.(),
       onChildSessionEvent: (e) => handlersRef.current.onChildSessionEvent?.(e),
       onInactivityWarning: (active) => handlersRef.current.onInactivityWarning?.(active),
-    }, workspacePath || undefined)
+    }, workspacePathRef.current || undefined)
 
     activeSseInstance = sseRef.current
     sseRef.current.connect()
-  }, [baseUrl]) // Only baseUrl — sessionId changes are handled by setSessionId()
+  }, [baseUrl]) // Only baseUrl — workspacePath is captured via closure, sessionId changes are handled by setSessionId()
 
   const disconnect = useCallback(() => {
     sseRef.current?.disconnect()

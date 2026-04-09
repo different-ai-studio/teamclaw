@@ -4,7 +4,7 @@ const mockSendMessageAsync = vi.fn().mockResolvedValue(undefined)
 const mockAbortSession = vi.fn().mockResolvedValue(undefined)
 const mockGetMessages = vi.fn().mockResolvedValue([])
 
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     sendMessageAsync: mockSendMessageAsync,
     sendMessageWithPartsAsync: vi.fn().mockResolvedValue(undefined),
