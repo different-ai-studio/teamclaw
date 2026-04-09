@@ -575,7 +575,7 @@ pub fn run() {
             #[cfg(feature = "p2p")]
             {
                 let p2p_enabled = commands::opencode::read_last_workspace()
-                    .and_then(|ws| commands::team_p2p::read_p2p_config(&ws).ok().flatten())
+                    .and_then(|ws| commands::team_p2p::read_p2p_config(&ws, commands::TEAMCLAW_DIR, commands::CONFIG_FILE_NAME).ok().flatten())
                     .map(|c| c.enabled)
                     .unwrap_or(false);
 
