@@ -79,9 +79,9 @@ impl RagConfig {
     /// Load config from workspace directory
     /// Priority: .teamclaw/rag-config.json > defaults
     /// If no config file exists, creates one with default values
-    pub async fn load_from_workspace(workspace_path: &Path) -> anyhow::Result<Self> {
+    pub async fn load_from_workspace(workspace_path: &Path, teamclaw_dir: &str) -> anyhow::Result<Self> {
         let rag_config_path = workspace_path
-            .join(crate::commands::TEAMCLAW_DIR)
+            .join(teamclaw_dir)
             .join("rag-config.json");
         if rag_config_path.exists() {
             let content = tokio::fs::read_to_string(&rag_config_path).await?;
@@ -91,7 +91,7 @@ impl RagConfig {
 
         let config = Self::default();
 
-        if let Err(e) = config.save_to_workspace(workspace_path).await {
+        if let Err(e) = config.save_to_workspace(workspace_path, teamclaw_dir).await {
             tracing::warn!(
                 "[RAG] Failed to auto-create rag-config.json: {}. Using in-memory defaults.",
                 e
@@ -107,8 +107,8 @@ impl RagConfig {
     }
 
     /// Save config to .teamclaw/rag-config.json
-    pub async fn save_to_workspace(&self, workspace_path: &Path) -> anyhow::Result<()> {
-        let teamclaw_dir = workspace_path.join(crate::commands::TEAMCLAW_DIR);
+    pub async fn save_to_workspace(&self, workspace_path: &Path, teamclaw_dir: &str) -> anyhow::Result<()> {
+        let teamclaw_dir = workspace_path.join(teamclaw_dir);
         tokio::fs::create_dir_all(&teamclaw_dir).await?;
 
         let config_path = teamclaw_dir.join("rag-config.json");
@@ -119,16 +119,16 @@ impl RagConfig {
     }
 
     /// Get database path for workspace
-    pub fn db_path(&self, workspace_path: &Path) -> PathBuf {
+    pub fn db_path(&self, workspace_path: &Path, teamclaw_dir: &str) -> PathBuf {
         workspace_path
-            .join(crate::commands::TEAMCLAW_DIR)
+            .join(teamclaw_dir)
             .join("knowledge.db")
     }
 
     /// Get BM25 index path for workspace
-    pub fn bm25_index_path(&self, workspace_path: &Path) -> PathBuf {
+    pub fn bm25_index_path(&self, workspace_path: &Path, teamclaw_dir: &str) -> PathBuf {
         workspace_path
-            .join(crate::commands::TEAMCLAW_DIR)
+            .join(teamclaw_dir)
             .join("bm25_index")
     }
 

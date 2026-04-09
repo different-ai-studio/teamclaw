@@ -7,8 +7,8 @@ use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
 use super::knowledge::RagState;
-use crate::rag::hybrid_search::SearchMode;
-use crate::rag::search;
+use teamclaw_rag::hybrid_search::SearchMode;
+use teamclaw_rag::search;
 
 pub struct AppState {
     pub rag_state: Arc<RagState>,

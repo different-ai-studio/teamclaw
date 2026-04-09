@@ -38,7 +38,6 @@ use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
 mod commands;
-mod rag;
 pub mod sentry_utils;
 mod stt;
 mod telemetry;

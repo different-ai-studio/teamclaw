@@ -174,8 +174,7 @@ impl CompassReranker {
             .with_context(|| {
                 format!(
             "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=compass). \
-                 Set it in {}/rag-config.json or opencode.json mcp.rag.environment.",
-            crate::commands::TEAMCLAW_DIR
+                 Set it in .teamclaw/rag-config.json or opencode.json mcp.rag.environment."
         )
             })
     }
@@ -306,8 +305,7 @@ impl LangSearchReranker {
             .with_context(|| {
                 format!(
             "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=langsearch). \
-                 Set it in {}/rag-config.json or opencode.json mcp.rag.environment.",
-            crate::commands::TEAMCLAW_DIR
+                 Set it in .teamclaw/rag-config.json or opencode.json mcp.rag.environment."
         )
             })
     }

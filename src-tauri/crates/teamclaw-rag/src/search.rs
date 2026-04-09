@@ -4,12 +4,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 // RAG search implementation
-use crate::rag::bm25::BM25Index;
-use crate::rag::config::RagConfig;
-use crate::rag::embedding;
-use crate::rag::hybrid_search::{hybrid_search, HybridSearchResult, SearchMode};
-use crate::rag::reranker::create_reranker;
-use crate::rag::{Database, SearchResult};
+use crate::bm25::BM25Index;
+use crate::config::RagConfig;
+use crate::embedding;
+use crate::hybrid_search::{hybrid_search, HybridSearchResult, SearchMode};
+use crate::reranker::create_reranker;
+use crate::{Database, SearchResult};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

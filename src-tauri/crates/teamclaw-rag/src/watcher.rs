@@ -7,10 +7,9 @@ use notify_debouncer_full::{
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
-use crate::rag::indexer::Indexer;
+use crate::indexer::Indexer;
 
 pub struct KnowledgeWatcher {
     _debouncer: Debouncer<RecommendedWatcher, RecommendedCache>,
@@ -22,7 +21,7 @@ impl KnowledgeWatcher {
     pub fn watch(
         knowledge_dirs: Vec<PathBuf>,
         indexer: Arc<Indexer>,
-        app_handle: Option<AppHandle>,
+        on_index_changed: Option<Box<dyn Fn() + Send + Sync>>,
     ) -> Result<Self> {
         if knowledge_dirs.is_empty() {
             anyhow::bail!("No knowledge directories provided");
@@ -81,10 +80,10 @@ impl KnowledgeWatcher {
                                 }
                             }
                         }
-                        // Notify frontend to refresh index status if there were changes
+                        // Notify caller to refresh index status if there were changes
                         if has_changes {
-                            if let Some(ref app) = app_handle {
-                                let _ = app.emit("knowledge-index-changed", ());
+                            if let Some(ref callback) = on_index_changed {
+                                callback();
                             }
                         }
                     }

@@ -2,9 +2,9 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::rag::bm25::BM25Index;
-use crate::rag::db::Database;
-use crate::rag::embedding;
+use crate::bm25::BM25Index;
+use crate::db::Database;
+use crate::embedding;
 
 /// Search mode: semantic, BM25, or hybrid
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

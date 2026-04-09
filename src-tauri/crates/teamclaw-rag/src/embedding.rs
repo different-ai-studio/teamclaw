@@ -4,7 +4,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::rag::config::RagConfig;
+use crate::config::RagConfig;
 
 /// Trait for embedding providers (online API or future offline model)
 pub trait EmbeddingProvider: Send + Sync {

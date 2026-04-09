@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/*"]
+resolver = "2"
+
 [package]
 name = "teamclaw"
 version = "0.1.41"
@@ -64,22 +68,17 @@ markitdown = "0.1.10"
 cpal = "0.17"
 whisper-rs = { version = "0.15", optional = true }
 
-# RAG dependencies
+# RAG crate
+teamclaw-rag = { path = "crates/teamclaw-rag" }
+
+# RAG dependencies (still used by main crate)
 anyhow = "1"
-pulldown-cmark = "0.13"
 sha2 = "0.10"
 walkdir = "2"
-tantivy = "0.22"
-# Tantivy / zip pull in `zstd` → `zstd-sys`. On macOS, transitive native link metadata can fail to
-# reach the final `teamclaw` binary (undefined `ZSTD_*`), especially if `ZSTD_SYS_USE_PKG_CONFIG`
-# picks a wrong-arch Homebrew lib. A direct `zstd-sys` dep unifies features and links bundled libzstd.
+# zstd: used by oss_sync for compression; also a transitive dep of tantivy (via teamclaw-rag).
+# A direct dep on zstd-sys unifies features and links bundled libzstd (avoids wrong-arch pkg-config).
 zstd-sys = { version = "2.0.16", default-features = false, features = ["legacy", "zdict_builder", "bindgen"] }
 zstd = "0.13"
-tree-sitter = "0.26"
-tree-sitter-rust = "0.23"
-tree-sitter-typescript = "0.23"
-tree-sitter-python = "0.25"
-tree-sitter-go = "0.25"
 thiserror = "2"
 tracing = { version = "0.1", features = ["log"] }
 tauri-plugin-log = "2"
