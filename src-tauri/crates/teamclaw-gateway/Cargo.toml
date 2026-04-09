@@ -10,7 +10,7 @@ serenity = { version = "0.12", default-features = false, features = ["client", "
 # Email
 imap = "2"
 native-tls = "0.2"
-mail-parser = "0.9"
+mail-parser = "0.11"
 lettre = { version = "0.11", features = ["native-tls", "smtp-transport"] }
 yup-oauth2 = "12"
 flate2 = "1"
