@@ -51,6 +51,9 @@ beforeEach(() => {
     invoke: mockInvoke,
     transformCallback: vi.fn(() => Math.random()),
   }
+  ;(window as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__: unknown }).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: vi.fn(),
+  }
 })
 
 async function renderTeamSection() {

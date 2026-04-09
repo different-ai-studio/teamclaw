@@ -82,7 +82,86 @@ beforeEach(() => {
     invoke: mockInvoke,
     transformCallback: vi.fn(() => Math.random()),
   }
+  ;(window as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__: unknown }).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: vi.fn(),
+  }
 })
+
+vi.mock('@/stores/workspace', () => ({
+  useWorkspaceStore: (selector: (s: { workspacePath: string }) => unknown) =>
+    selector({ workspacePath: '/workspace/test' }),
+}))
+
+const { mockEngineInit, mockEngineFetch, mockLoadVersionedFiles } = vi.hoisted(() => ({
+  mockEngineInit: vi.fn(async () => () => {}),
+  mockEngineFetch: vi.fn(async () => undefined),
+  mockLoadVersionedFiles: vi.fn(),
+}))
+
+vi.mock('@/stores/version-history', () => ({
+  useVersionHistoryStore: () => ({
+    versionedFiles: [],
+    loading: false,
+    loadVersionedFiles: mockLoadVersionedFiles,
+  }),
+}))
+
+vi.mock('@/stores/p2p-engine', () => {
+  const engineState = {
+    snapshot: { status: 'idle', streamHealth: 'good', uptimeSecs: 0, restartCount: 0, peers: [], syncedFiles: 0, pendingFiles: 0 },
+    init: mockEngineInit,
+  }
+  const fn = Object.assign(
+    (selector: (s: typeof engineState) => unknown) => selector(engineState),
+    { getState: () => ({ ...engineState, fetch: mockEngineFetch }) },
+  )
+  return { useP2pEngineStore: fn }
+})
+
+vi.mock('@/stores/team-members', () => {
+  const membersState = {
+    members: [],
+    myRole: null,
+    loading: false,
+    fetchMembers: vi.fn(),
+    setMyRole: vi.fn(),
+    loadMembers: vi.fn(),
+    loadMyRole: vi.fn(),
+    loadCurrentNodeId: vi.fn(),
+    currentNodeId: null,
+    error: null,
+    applications: [],
+    addMember: vi.fn(),
+    removeMember: vi.fn(),
+    updateMemberRole: vi.fn(),
+    canManageMembers: () => false,
+    approveApplication: vi.fn(),
+    listenForApplications: vi.fn(),
+    cleanupApplicationsListener: vi.fn(),
+    reset: vi.fn(),
+    _unlistenApplications: null,
+  }
+  return { useTeamMembersStore: () => membersState }
+})
+
+vi.mock('@/stores/team-mode', () => {
+  const store = {
+    teamModeType: null,
+    p2pConnected: false,
+    p2pConfigured: false,
+    myRole: null,
+    clearTeamMode: vi.fn(),
+  }
+  const fn = (selector: (s: typeof store) => unknown) => selector(store)
+  fn.setState = vi.fn()
+  fn.getState = () => store
+  return { useTeamModeStore: fn }
+})
+
+vi.mock('@/stores/team-oss', () => ({
+  useTeamOssStore: (selector: (s: { configured: boolean; connected: boolean }) => unknown) =>
+    selector({ configured: false, connected: false }),
+}))
 
 describe('TeamSection Allowlist Integration', () => {
   it('P2P content shows Device ID section', async () => {

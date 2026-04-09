@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
+import { appShortName } from '@/lib/build-config'
+
+const WORKSPACE_KEY = `${appShortName}-workspace-path`
 
 // --- Hoist mocks ---
 const { mockSetWorkspace, mockSetOpenCodeReady, mockIsTauri, mockExists, mockInvoke } = vi.hoisted(() => ({
@@ -154,7 +157,7 @@ describe('useOpenCodeInit', () => {
   })
 
   it('restores the last workspace when one is saved', async () => {
-    localStorage.setItem('teamclaw-workspace-path', '/tmp/teamclaw-last')
+    localStorage.setItem(WORKSPACE_KEY, '/tmp/teamclaw-last')
 
     const { useOpenCodeInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useOpenCodeInit())
@@ -168,14 +171,14 @@ describe('useOpenCodeInit', () => {
   it('clears a saved workspace when it no longer exists in Tauri', async () => {
     mockIsTauri.mockReturnValue(true)
     mockExists.mockResolvedValue(false)
-    localStorage.setItem('teamclaw-workspace-path', '/tmp/missing-workspace')
+    localStorage.setItem(WORKSPACE_KEY, '/tmp/missing-workspace')
 
     const { useOpenCodeInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useOpenCodeInit())
 
     await waitFor(() => {
       expect(mockSetWorkspace).not.toHaveBeenCalled()
-      expect(localStorage.getItem('teamclaw-workspace-path')).toBeNull()
+      expect(localStorage.getItem(WORKSPACE_KEY)).toBeNull()
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
   })
