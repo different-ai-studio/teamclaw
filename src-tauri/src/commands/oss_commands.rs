@@ -1,8 +1,5 @@
 use crate::commands::oss_sync::*;
 use crate::commands::oss_types::*;
-use crate::commands::p2p_state::IrohState;
-#[cfg(feature = "p2p")]
-use crate::commands::team_p2p::get_node_id;
 #[allow(unused_imports)]
 use crate::commands::TEAMCLAW_DIR;
 
@@ -17,19 +14,9 @@ use tracing::{info, warn};
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Get a stable device identity for OSS operations.
-/// Prefers the P2P node ID when the node is running, otherwise derives the
-/// Get the device ID (iroh node_id). If the P2P node is running, reads from
-/// the live node; otherwise derives from the persisted secret key on disk.
-async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, String> {
-    let guard = iroh_state.lock().await;
-    #[cfg(feature = "p2p")]
-    {
-        if let Some(node) = guard.as_ref() {
-            return Ok(get_node_id(node));
-        }
-    }
-    drop(guard);
+/// Get the canonical device ID (iroh node_id derived from the persisted secret key).
+/// This is independent of whether the P2P node is running.
+fn get_p2p_node_id_sync() -> Result<String, String> {
     get_device_id()
 }
 
@@ -177,7 +164,7 @@ fn generate_team_secret() -> Result<String, String> {
 #[tauri::command]
 pub async fn oss_create_team(
     state: State<'_, OssSyncState>,
-    iroh_state: State<'_, IrohState>,
+
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_name: String,
@@ -189,7 +176,7 @@ pub async fn oss_create_team(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
 ) -> Result<OssTeamInfo, String> {
-    let node_id = get_p2p_node_id(&iroh_state).await?;
+    let node_id = get_p2p_node_id_sync()?;
     let team_secret = generate_team_secret()?;
 
     // Write LLM config to .teamclaw/teamclaw.json
@@ -405,7 +392,7 @@ pub async fn oss_create_team(
 #[tauri::command]
 pub async fn oss_join_team(
     state: State<'_, OssSyncState>,
-    iroh_state: State<'_, IrohState>,
+
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_id: String,
@@ -416,7 +403,7 @@ pub async fn oss_join_team(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
 ) -> Result<OssJoinResult, String> {
-    let node_id = get_p2p_node_id(&iroh_state).await?;
+    let node_id = get_p2p_node_id_sync()?;
 
     // Create manager and call FC /token
     let mut manager = OssSyncManager::new(
@@ -629,7 +616,7 @@ pub async fn oss_join_team(
 #[tauri::command]
 pub async fn oss_restore_sync(
     state: State<'_, OssSyncState>,
-    iroh_state: State<'_, IrohState>,
+
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_id: String,
@@ -638,7 +625,7 @@ pub async fn oss_restore_sync(
     info!("[OssRestore] Starting oss_restore_sync for team {}", team_id);
     let team_secret = load_team_secret(&workspace_path, &team_id)?;
     info!("[OssRestore] team_secret loaded ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
-    let node_id = get_p2p_node_id(&iroh_state).await?;
+    let node_id = get_p2p_node_id_sync()?;
     info!("[OssRestore] Got node_id ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
 
     // Read existing config for team_endpoint and poll_interval
@@ -1054,7 +1041,7 @@ pub async fn oss_get_team_config(workspace_path: String) -> Result<Option<OssTea
 
 #[tauri::command]
 pub async fn oss_apply_team(
-    iroh_state: State<'_, IrohState>,
+
     workspace_path: String,
     team_id: String,
     team_secret: String,
@@ -1064,7 +1051,7 @@ pub async fn oss_apply_team(
     email: String,
     note: String,
 ) -> Result<(), String> {
-    let node_id = get_p2p_node_id(&iroh_state).await?;
+    let node_id = get_p2p_node_id_sync()?;
 
     // Get device info for the application
     let hostname = gethostname::gethostname().to_string_lossy().to_string();
