@@ -10,8 +10,8 @@
   },
   "app": {
     "name": "TeamClaw",
-    "shortName": "ac360",
-    "uiVariant": "workspace"
+    "shortName": "teamclaw",
+    "uiVariant": "default"
   },
   "features": {
     "advancedMode": true,
