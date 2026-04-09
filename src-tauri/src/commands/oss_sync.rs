@@ -1407,6 +1407,10 @@ impl OssSyncManager {
                                 _ => true,
                             };
                             if should_delete {
+                                let rel = format!("{}/{}", doc_type.dir_name(), path);
+                                if let Err(e) = super::trash::trash_file(&self.team_dir, &rel) {
+                                    log::warn!("[OssSync] Failed to trash before delete {path}: {e}");
+                                }
                                 let _ = std::fs::remove_file(&file_path);
                             }
                         }
@@ -1469,6 +1473,14 @@ impl OssSyncManager {
                     let _ = std::fs::remove_dir_all(&tmp_dir);
                     format!("Failed to create dir {}: {e}", parent.display())
                 })?;
+            }
+            // Trash before overwrite
+            if final_path.exists() {
+                if let Ok(rel) = final_path.strip_prefix(&self.team_dir) {
+                    if let Err(e) = super::trash::trash_file(&self.team_dir, &rel.to_string_lossy()) {
+                        log::warn!("[OssSync] Failed to trash before overwrite {}: {e}", final_path.display());
+                    }
+                }
             }
             std::fs::rename(tmp_path, final_path).map_err(|e| {
                 let _ = std::fs::remove_dir_all(&tmp_dir);
