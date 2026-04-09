@@ -439,33 +439,45 @@ impl MqttRelay {
                                 let event_block = buffer[..pos].to_string();
                                 buffer = buffer[pos + 2..].to_string();
 
-                                let mut event_type = String::new();
+                                // OpenCode SSE: no `event:` line, all data in `data:` as JSON
+                                // Format: data: {"type": "message.part.delta", "properties": {...}}
                                 let mut data = String::new();
                                 for line in event_block.lines() {
-                                    if let Some(t) = line.strip_prefix("event: ") {
-                                        event_type = t.to_string();
-                                    } else if let Some(d) = line.strip_prefix("data: ") {
+                                    if let Some(d) = line.strip_prefix("data: ") {
                                         data = d.to_string();
                                     }
                                 }
 
-                                match event_type.as_str() {
-                                    "message.delta" => {
-                                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) {
-                                            if let Some(text) = v.get("content").and_then(|c| c.as_str()) {
-                                                pending_delta.push_str(text);
-                                                if last_flush.elapsed() >= flush_interval && !pending_delta.is_empty() {
-                                                    let msg = build_chat_delta(session_id, seq, &pending_delta);
-                                                    self.publish_chat_response_proto(device_id, &msg).await?;
-                                                    full_content.push_str(&pending_delta);
-                                                    pending_delta.clear();
-                                                    seq += 1;
-                                                    last_flush = tokio::time::Instant::now();
-                                                }
+                                if data.is_empty() { continue; }
+
+                                let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) else { continue };
+                                let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                let props = v.get("properties");
+
+                                // Filter: only process events for our session
+                                let event_sid = props
+                                    .and_then(|p| p.get("sessionID").and_then(|s| s.as_str()))
+                                    .or_else(|| props.and_then(|p| p.get("info").and_then(|i| i.get("sessionID").and_then(|s| s.as_str()))));
+                                if let Some(sid) = event_sid {
+                                    if sid != session_id { continue; }
+                                }
+
+                                match event_type {
+                                    "message.part.delta" => {
+                                        // {"type":"message.part.delta","properties":{"sessionID":"...","messageID":"...","partID":"...","field":"text","delta":"hello"}}
+                                        if let Some(text) = props.and_then(|p| p.get("delta").and_then(|d| d.as_str())) {
+                                            pending_delta.push_str(text);
+                                            if last_flush.elapsed() >= flush_interval && !pending_delta.is_empty() {
+                                                let msg = build_chat_delta(session_id, seq, &pending_delta);
+                                                self.publish_chat_response_proto(device_id, &msg).await?;
+                                                full_content.push_str(&pending_delta);
+                                                pending_delta.clear();
+                                                seq += 1;
+                                                last_flush = tokio::time::Instant::now();
                                             }
                                         }
                                     }
-                                    "message.done" => {
+                                    "message.completed" => {
                                         if !pending_delta.is_empty() {
                                             let msg = build_chat_delta(session_id, seq, &pending_delta);
                                             self.publish_chat_response_proto(device_id, &msg).await?;
@@ -475,6 +487,29 @@ impl MqttRelay {
                                         let msg = build_chat_done(session_id, seq);
                                         self.publish_chat_response_proto(device_id, &msg).await?;
                                         return Ok(());
+                                    }
+                                    "message.updated" => {
+                                        // message.updated with time.completed signals assistant message finished
+                                        let is_completed = props
+                                            .and_then(|p| p.get("info"))
+                                            .and_then(|i| i.get("time"))
+                                            .and_then(|t| t.get("completed"))
+                                            .is_some();
+                                        let is_assistant = props
+                                            .and_then(|p| p.get("info"))
+                                            .and_then(|i| i.get("role").and_then(|r| r.as_str()))
+                                            == Some("assistant");
+                                        if is_completed && is_assistant && seq > 0 {
+                                            if !pending_delta.is_empty() {
+                                                let msg = build_chat_delta(session_id, seq, &pending_delta);
+                                                self.publish_chat_response_proto(device_id, &msg).await?;
+                                                seq += 1;
+                                                pending_delta.clear();
+                                            }
+                                            let msg = build_chat_done(session_id, seq);
+                                            self.publish_chat_response_proto(device_id, &msg).await?;
+                                            return Ok(());
+                                        }
                                     }
                                     _ => {}
                                 }
@@ -513,7 +548,7 @@ impl MqttRelay {
                     .map(|s| proto::SessionData {
                         id: s.id.clone(),
                         title: s.title.clone(),
-                        updated: s.updated,
+                        updated: s.updated / 1000, // Convert ms to seconds
                     })
                     .collect();
                 let msg = build_envelope(proto::mqtt_message::Payload::SessionSyncResponse(
@@ -570,29 +605,48 @@ impl MqttRelay {
     async fn fetch_team_manifest(&self) -> Result<Option<TeamManifest>, String> {
         // Try P2P local file first (fast, no network)
         let manifest_path = format!("{}/teamclaw-team/_team/members.json", self.workspace_path);
-        if let Ok(content) = std::fs::read_to_string(&manifest_path) {
-            if let Ok(manifest) = serde_json::from_str::<TeamManifest>(&content) {
-                return Ok(Some(manifest));
+        match std::fs::read_to_string(&manifest_path) {
+            Ok(content) => match serde_json::from_str::<TeamManifest>(&content) {
+                Ok(manifest) => {
+                    return Ok(Some(manifest));
+                }
+                Err(e) => {
+                    eprintln!("[MQTT Relay] P2P members.json parse error: {}", e);
+                }
+            },
+            Err(_) => {
+                // P2P file not available — fall through to S3
             }
         }
 
         // Fallback to OSS S3 (if configured)
-        if let Some(ref oss_state) = self.oss_sync_state {
-            let mut guard = oss_state.lock().await;
-            if let Some(ref mut manager) = *guard {
-                manager.refresh_token_if_needed().await?;
-                let key = format!("teams/{}/_meta/members.json", manager.team_id());
-                match manager.s3_get(&key).await {
-                    Ok(data) => {
-                        let manifest: TeamManifest = serde_json::from_slice(&data)
-                            .map_err(|e| format!("Failed to parse OSS members.json: {}", e))?;
-                        return Ok(Some(manifest));
+        match self.oss_sync_state {
+            None => {
+                eprintln!("[MQTT Relay] No OSS sync state configured, cannot fetch members");
+            }
+            Some(ref oss_state) => {
+                let mut guard = oss_state.lock().await;
+                match *guard {
+                    None => {
+                        eprintln!("[MQTT Relay] OSS manager not initialized, cannot fetch members");
                     }
-                    Err(e) if e.contains("NoSuchKey") || e.contains("not found") => {
-                        return Ok(None);
-                    }
-                    Err(e) => {
-                        eprintln!("[MQTT Relay] OSS members fetch failed: {}", e);
+                    Some(ref mut manager) => {
+                        manager.refresh_token_if_needed().await?;
+                        let key = format!("teams/{}/_meta/members.json", manager.team_id());
+                        match manager.s3_get(&key).await {
+                            Ok(data) => {
+                                let manifest: TeamManifest = serde_json::from_slice(&data)
+                                    .map_err(|e| format!("Failed to parse OSS members.json: {}", e))?;
+                                return Ok(Some(manifest));
+                            }
+                            Err(e) if e.contains("NoSuchKey") || e.contains("not found") => {
+                                return Ok(None);
+                            }
+                            Err(e) => {
+                                eprintln!("[MQTT Relay] OSS members fetch failed: {}", e);
+                                return Err(format!("OSS members fetch failed: {}", e));
+                            }
+                        }
                     }
                 }
             }
@@ -799,18 +853,45 @@ impl MqttRelay {
                 if role != "user" && role != "assistant" { return None; }
 
                 let parts = msg.get("parts")?.as_array()?;
-                let mut text_parts: Vec<String> = Vec::new();
+                let mut content_parts: Vec<String> = Vec::new();
                 for part in parts {
-                    if part.get("type")?.as_str()? == "text" {
-                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                            text_parts.push(text.to_string());
+                    match part.get("type").and_then(|t| t.as_str()) {
+                        Some("text") => {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                content_parts.push(text.to_string());
+                            }
                         }
+                        Some("tool") => {
+                            let tool_name = part.get("tool").and_then(|t| t.as_str()).unwrap_or("tool");
+                            let input_summary = part.get("state")
+                                .and_then(|s| s.get("input"))
+                                .map(|input| {
+                                    // For websearch/webfetch, show the query/url
+                                    if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
+                                        q.to_string()
+                                    } else if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
+                                        u.to_string()
+                                    } else {
+                                        serde_json::to_string(input).unwrap_or_default()
+                                            .chars().take(80).collect()
+                                    }
+                                })
+                                .unwrap_or_default();
+                            content_parts.push(format!("🔧 {} {}", tool_name, input_summary));
+                        }
+                        _ => {}
                     }
                 }
-                let content = text_parts.join("\n");
-                let timestamp = info.get("createdAt")
+                let content = content_parts.join("\n");
+                // Skip messages with no displayable content
+                if content.trim().is_empty() { return None; }
+
+                // Timestamp: info.time.created (milliseconds) or fallback to 0
+                let timestamp_ms = info.get("time")
+                    .and_then(|t| t.get("created"))
                     .and_then(|t| t.as_f64())
                     .unwrap_or(0.0);
+                let timestamp = timestamp_ms / 1000.0;
 
                 Some(proto::ChatMessageData {
                     id: id.to_string(),
@@ -932,6 +1013,12 @@ impl MqttRelay {
                 .subscribe(&topic, QoS::AtLeastOnce)
                 .await
                 .map_err(|e| format!("Subscribe failed: {}", e))?;
+        }
+
+        // Re-publish online status so the new device receives it immediately
+        if let Some(client) = self.client.lock().await.as_ref() {
+            let config = self.config.read().await;
+            let _ = self.publish_status(client, &config, true).await;
         }
 
         if let Some(client) = self.client.lock().await.as_ref() {

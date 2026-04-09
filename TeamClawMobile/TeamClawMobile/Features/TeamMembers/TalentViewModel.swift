@@ -6,19 +6,24 @@ import SwiftData
 final class TalentViewModel: ObservableObject {
 
     @Published var talents: [Talent] = []
+    @Published private(set) var isDesktopOnline: Bool = false
 
     private let modelContext: ModelContext
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
 
+    /// IDs received across all pages of the current sync cycle.
+    private var receivedIDs: Set<String> = []
+
     init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
         self.modelContext = modelContext
         self.mqttService = mqttService
         subscribeToMQTT()
+        subscribeToStatus()
     }
 
     func loadTalents() {
-        loadTalentsFromDB()
+        guard isDesktopOnline else { return }
         requestTalents(page: 1)
     }
 
@@ -49,16 +54,16 @@ final class TalentViewModel: ObservableObject {
 
     private func handleTalentSync(_ response: Teamclaw_TalentSyncResponse) {
         let pg = response.pagination
+
+        // Don't wipe cache when server returns empty
+        guard !response.talents.isEmpty || pg.total > 0 else { return }
+
         let isFirstPage = pg.page <= 1
+        if isFirstPage { receivedIDs.removeAll() }
 
-        if isFirstPage {
-            let descriptor = FetchDescriptor<Talent>()
-            if let existing = try? modelContext.fetch(descriptor) {
-                for talent in existing { modelContext.delete(talent) }
-            }
-        }
-
+        // Upsert: @Attribute(.unique) on id makes insert act as upsert
         for data in response.talents {
+            receivedIDs.insert(data.id)
             let talent = Talent(
                 id: data.id,
                 name: data.name,
@@ -73,14 +78,33 @@ final class TalentViewModel: ObservableObject {
             modelContext.insert(talent)
         }
 
-        try? modelContext.save()
-
         let hasMore = pg.total > pg.page * pg.pageSize
         if hasMore {
             requestTalents(page: Int(pg.page) + 1)
         } else {
+            // Remove stale talents not present in this sync cycle
+            let descriptor = FetchDescriptor<Talent>()
+            if let existing = try? modelContext.fetch(descriptor) {
+                for talent in existing where !receivedIDs.contains(talent.id) {
+                    modelContext.delete(talent)
+                }
+            }
+            try? modelContext.save()
             loadTalentsFromDB()
         }
+    }
+
+    private func subscribeToStatus() {
+        mqttService.receivedMessage
+            .compactMap { msg -> Teamclaw_StatusReport? in
+                if case .statusReport(let status) = msg.payload { return status }
+                return nil
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.isDesktopOnline = status.online
+            }
+            .store(in: &cancellables)
     }
 
     private func loadTalentsFromDB() {

@@ -7,19 +7,25 @@ final class SkillViewModel: ObservableObject {
 
     @Published var personalSkills: [Skill] = []
     @Published var teamSkills: [Skill] = []
+    @Published private(set) var isDesktopOnline: Bool = false
 
     private let modelContext: ModelContext
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
 
+    /// IDs received across all pages of the current sync cycle.
+    private var receivedIDs: Set<String> = []
+
     init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
         self.modelContext = modelContext
         self.mqttService = mqttService
         subscribeToMQTT()
+        subscribeToStatus()
+        loadSkillsFromDB()
     }
 
     func loadSkills() {
-        loadSkillsFromDB()
+        guard isDesktopOnline else { return }
         requestSkills(page: 1)
     }
 
@@ -50,16 +56,16 @@ final class SkillViewModel: ObservableObject {
 
     private func handleSkillSync(_ response: Teamclaw_SkillSyncResponse) {
         let pg = response.pagination
+
+        // Don't wipe cache when server returns empty
+        guard !response.skills.isEmpty || pg.total > 0 else { return }
+
         let isFirstPage = pg.page <= 1
+        if isFirstPage { receivedIDs.removeAll() }
 
-        if isFirstPage {
-            let descriptor = FetchDescriptor<Skill>()
-            if let existing = try? modelContext.fetch(descriptor) {
-                for skill in existing { modelContext.delete(skill) }
-            }
-        }
-
+        // Upsert: @Attribute(.unique) on id makes insert act as upsert
         for data in response.skills {
+            receivedIDs.insert(data.id)
             let skill = Skill(
                 id: data.id,
                 name: data.name,
@@ -70,14 +76,33 @@ final class SkillViewModel: ObservableObject {
             modelContext.insert(skill)
         }
 
-        try? modelContext.save()
-
         let hasMore = pg.total > pg.page * pg.pageSize
         if hasMore {
             requestSkills(page: Int(pg.page) + 1)
         } else {
+            // Remove stale skills not present in this sync cycle
+            let descriptor = FetchDescriptor<Skill>()
+            if let existing = try? modelContext.fetch(descriptor) {
+                for skill in existing where !receivedIDs.contains(skill.id) {
+                    modelContext.delete(skill)
+                }
+            }
+            try? modelContext.save()
             loadSkillsFromDB()
         }
+    }
+
+    private func subscribeToStatus() {
+        mqttService.receivedMessage
+            .compactMap { msg -> Teamclaw_StatusReport? in
+                if case .statusReport(let status) = msg.payload { return status }
+                return nil
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.isDesktopOnline = status.online
+            }
+            .store(in: &cancellables)
     }
 
     private func loadSkillsFromDB() {

@@ -7,7 +7,13 @@ struct FeaturedAllyView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.talents.isEmpty {
+                if !viewModel.isDesktopOnline && viewModel.talents.isEmpty {
+                    ContentUnavailableView(
+                        "桌面端离线",
+                        systemImage: "wifi.slash",
+                        description: Text("连接桌面端后查看精选搭档")
+                    )
+                } else if viewModel.talents.isEmpty {
                     ContentUnavailableView("暂无精选搭档", systemImage: "cpu")
                 } else {
                     List(viewModel.talents, id: \.id) { talent in
@@ -42,7 +48,13 @@ struct FeaturedAllyListView: View {
 
     var body: some View {
         Group {
-            if viewModel.talents.isEmpty {
+            if !viewModel.isDesktopOnline && viewModel.talents.isEmpty {
+                ContentUnavailableView(
+                    "桌面端离线",
+                    systemImage: "wifi.slash",
+                    description: Text("连接桌面端后查看精选搭档")
+                )
+            } else if viewModel.talents.isEmpty {
                 ContentUnavailableView("暂无精选搭档", systemImage: "cpu")
             } else {
                 List(viewModel.talents, id: \.id) { talent in

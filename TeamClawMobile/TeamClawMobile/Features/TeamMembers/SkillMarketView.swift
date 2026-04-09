@@ -7,7 +7,13 @@ struct SkillMarketView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.personalSkills.isEmpty && viewModel.teamSkills.isEmpty {
+                if !viewModel.isDesktopOnline && viewModel.personalSkills.isEmpty && viewModel.teamSkills.isEmpty {
+                    ContentUnavailableView(
+                        "桌面端离线",
+                        systemImage: "wifi.slash",
+                        description: Text("连接桌面端后浏览技能市场")
+                    )
+                } else if viewModel.personalSkills.isEmpty && viewModel.teamSkills.isEmpty {
                     ContentUnavailableView("暂无技能", systemImage: "puzzlepiece")
                 } else {
                     skillList
@@ -43,7 +49,13 @@ struct SkillMarketListView: View {
 
     var body: some View {
         Group {
-            if viewModel.personalSkills.isEmpty && viewModel.teamSkills.isEmpty {
+            if !viewModel.isDesktopOnline && viewModel.personalSkills.isEmpty && viewModel.teamSkills.isEmpty {
+                ContentUnavailableView(
+                    "桌面端离线",
+                    systemImage: "wifi.slash",
+                    description: Text("连接桌面端后浏览技能市场")
+                )
+            } else if viewModel.personalSkills.isEmpty && viewModel.teamSkills.isEmpty {
                 ContentUnavailableView("暂无技能", systemImage: "puzzlepiece")
             } else {
                 let allSkills = viewModel.personalSkills + viewModel.teamSkills

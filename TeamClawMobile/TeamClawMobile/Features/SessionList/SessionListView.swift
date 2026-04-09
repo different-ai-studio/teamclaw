@@ -18,14 +18,12 @@ struct SessionListView: View {
     @State private var isSearchActive = false
     @FocusState private var searchFocused: Bool
 
-    init(mqttService: MQTTServiceProtocol, connectionMonitor: ConnectionMonitor, pairingManager: PairingManager) {
+    init(mqttService: MQTTServiceProtocol, connectionMonitor: ConnectionMonitor, pairingManager: PairingManager, modelContext: ModelContext) {
         self.mqttService = mqttService
         self.connectionMonitor = connectionMonitor
         self.pairingManager = pairingManager
-        // Use shared app container so data persists correctly
-        let container = try! ModelContainer(for: Session.self, ChatMessage.self, TeamMember.self, AutomationTask.self, Skill.self)
         _viewModel = StateObject(wrappedValue: SessionListViewModel(
-            modelContext: ModelContext(container),
+            modelContext: modelContext,
             mqttService: mqttService
         ))
     }
@@ -84,7 +82,7 @@ struct SessionListView: View {
             }
             .navigationDestination(for: String.self) { sessionID in
                 if let session = viewModel.sessions.first(where: { $0.id == sessionID }) {
-                    ChatDetailView(session: session, mqttService: mqttService)
+                    ChatDetailView(session: session, mqttService: mqttService, modelContext: modelContext)
                 } else {
                     Text("Session not found")
                 }
@@ -326,6 +324,6 @@ struct SessionRowView: View {
     let mockMQTT = MockMQTTService()
     let monitor = ConnectionMonitor(mqttService: mockMQTT)
 
-    return SessionListView(mqttService: mockMQTT, connectionMonitor: monitor, pairingManager: PairingManager())
+    return SessionListView(mqttService: mockMQTT, connectionMonitor: monitor, pairingManager: PairingManager(), modelContext: context)
         .modelContainer(container)
 }

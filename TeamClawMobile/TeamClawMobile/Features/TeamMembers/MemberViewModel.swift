@@ -6,6 +6,7 @@ import SwiftData
 final class MemberViewModel: ObservableObject {
 
     @Published var members: [TeamMember] = []
+    @Published private(set) var isDesktopOnline: Bool = false
 
     private let modelContext: ModelContext
     private let mqttService: MQTTServiceProtocol
@@ -15,10 +16,12 @@ final class MemberViewModel: ObservableObject {
         self.modelContext = modelContext
         self.mqttService = mqttService
         subscribeToMQTT()
+        subscribeToStatus()
+        loadMembersFromDB()
     }
 
     func loadMembers() {
-        loadMembersFromDB()
+        guard isDesktopOnline else { return }
         requestMembers(page: 1)
     }
 
@@ -53,18 +56,21 @@ final class MemberViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// IDs received across all pages of the current sync cycle.
+    private var receivedIDs: Set<String> = []
+
     private func handleMemberSync(_ response: Teamclaw_MemberSyncResponse) {
         let pg = response.pagination
+
+        // Don't wipe cached members when server returns empty first page
+        guard !response.members.isEmpty || pg.total > 0 else { return }
+
         let isFirstPage = pg.page <= 1
+        if isFirstPage { receivedIDs.removeAll() }
 
-        if isFirstPage {
-            let descriptor = FetchDescriptor<TeamMember>()
-            if let existing = try? modelContext.fetch(descriptor) {
-                for member in existing { modelContext.delete(member) }
-            }
-        }
-
+        // Upsert: @Attribute(.unique) on id makes insert act as upsert
         for data in response.members {
+            receivedIDs.insert(data.id)
             let member = TeamMember(
                 id: data.id,
                 name: data.name,
@@ -76,14 +82,33 @@ final class MemberViewModel: ObservableObject {
             modelContext.insert(member)
         }
 
-        try? modelContext.save()
-
         let hasMore = pg.total > pg.page * pg.pageSize
         if hasMore {
             requestMembers(page: Int(pg.page) + 1)
         } else {
+            // Remove stale members not present in this sync cycle
+            let descriptor = FetchDescriptor<TeamMember>()
+            if let existing = try? modelContext.fetch(descriptor) {
+                for member in existing where !receivedIDs.contains(member.id) {
+                    modelContext.delete(member)
+                }
+            }
+            try? modelContext.save()
             loadMembersFromDB()
         }
+    }
+
+    private func subscribeToStatus() {
+        mqttService.receivedMessage
+            .compactMap { msg -> Teamclaw_StatusReport? in
+                if case .statusReport(let status) = msg.payload { return status }
+                return nil
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.isDesktopOnline = status.online
+            }
+            .store(in: &cancellables)
     }
 
     private func loadMembersFromDB() {

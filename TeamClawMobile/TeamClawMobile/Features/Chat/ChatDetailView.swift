@@ -44,18 +44,17 @@ struct ChatDetailView: View {
     let session: Session
     let mqttService: MQTTServiceProtocol
 
-    @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel: ChatDetailViewModel
 
     @State private var showModelPicker = false
     @State private var scrollProxy: ScrollViewProxy?
 
-    init(session: Session, mqttService: MQTTServiceProtocol) {
+    init(session: Session, mqttService: MQTTServiceProtocol, modelContext: ModelContext) {
         self.session = session
         self.mqttService = mqttService
         _viewModel = StateObject(wrappedValue: ChatDetailViewModel(
             sessionID: session.id,
-            modelContext: ModelContext(try! ModelContainer(for: ChatMessage.self)),
+            modelContext: modelContext,
             mqttService: mqttService
         ))
     }
@@ -203,7 +202,7 @@ struct ChatDetailView: View {
     let mockMQTT = MockMQTTService()
 
     return NavigationStack {
-        ChatDetailView(session: session, mqttService: mockMQTT)
+        ChatDetailView(session: session, mqttService: mockMQTT, modelContext: context)
     }
     .modelContainer(container)
 }

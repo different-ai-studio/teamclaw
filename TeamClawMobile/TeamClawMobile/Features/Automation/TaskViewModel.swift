@@ -6,19 +6,25 @@ import SwiftData
 final class TaskViewModel: ObservableObject {
 
     @Published var tasks: [AutomationTask] = []
+    @Published private(set) var isDesktopOnline: Bool = false
 
     private let modelContext: ModelContext
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
 
+    /// IDs received across all pages of the current sync cycle.
+    private var receivedIDs: Set<String> = []
+
     init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
         self.modelContext = modelContext
         self.mqttService = mqttService
         subscribeToMQTT()
+        subscribeToStatus()
+        loadTasksFromDB()
     }
 
     func loadTasks() {
-        loadTasksFromDB()
+        guard isDesktopOnline else { return }
         requestAutomations(page: 1)
     }
 
@@ -95,16 +101,16 @@ final class TaskViewModel: ObservableObject {
 
     private func handleAutomationSync(_ response: Teamclaw_AutomationSyncResponse) {
         let pg = response.pagination
+
+        // Don't wipe cache when server returns empty
+        guard !response.tasks.isEmpty || pg.total > 0 else { return }
+
         let isFirstPage = pg.page <= 1
+        if isFirstPage { receivedIDs.removeAll() }
 
-        if isFirstPage {
-            let descriptor = FetchDescriptor<AutomationTask>()
-            if let existing = try? modelContext.fetch(descriptor) {
-                for task in existing { modelContext.delete(task) }
-            }
-        }
-
+        // Upsert: @Attribute(.unique) on id makes insert act as upsert
         for data in response.tasks {
+            receivedIDs.insert(data.id)
             let task = AutomationTask(
                 id: data.id,
                 name: data.name,
@@ -116,14 +122,33 @@ final class TaskViewModel: ObservableObject {
             modelContext.insert(task)
         }
 
-        try? modelContext.save()
-
         let hasMore = pg.total > pg.page * pg.pageSize
         if hasMore {
             requestAutomations(page: Int(pg.page) + 1)
         } else {
+            // Remove stale tasks not present in this sync cycle
+            let descriptor = FetchDescriptor<AutomationTask>()
+            if let existing = try? modelContext.fetch(descriptor) {
+                for task in existing where !receivedIDs.contains(task.id) {
+                    modelContext.delete(task)
+                }
+            }
+            try? modelContext.save()
             loadTasksFromDB()
         }
+    }
+
+    private func subscribeToStatus() {
+        mqttService.receivedMessage
+            .compactMap { msg -> Teamclaw_StatusReport? in
+                if case .statusReport(let status) = msg.payload { return status }
+                return nil
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.isDesktopOnline = status.online
+            }
+            .store(in: &cancellables)
     }
 
     private func loadTasksFromDB() {

@@ -49,8 +49,8 @@ final class ChatDetailViewModel: ObservableObject {
             messages = []
         }
 
-        // If no local messages, request history from Desktop
-        if messages.isEmpty {
+        // If no local messages and desktop is online, request history
+        if messages.isEmpty && isDesktopOnline {
             requestMessageHistory()
         }
     }
@@ -166,6 +166,8 @@ final class ChatDetailViewModel: ObservableObject {
 
         for data in response.messages {
             guard !existingIDs.contains(data.id) else { continue }
+            // Skip empty messages (e.g. tool_use only)
+            guard !data.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             let role: MessageRole = data.role == "assistant" ? .assistant : .user
             let message = ChatMessage(
                 id: data.id,
