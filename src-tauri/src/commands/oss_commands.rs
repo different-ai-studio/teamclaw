@@ -202,7 +202,10 @@ pub async fn oss_create_team(
         force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
-        Some(app_handle.clone()),
+        super::TEAMCLAW_DIR.to_string(),
+        super::TEAM_REPO_DIR.to_string(),
+        super::CONFIG_FILE_NAME.to_string(),
+        Some(tauri_emitter(app_handle.clone())),
     );
 
     // Call FC /register
@@ -231,7 +234,10 @@ pub async fn oss_create_team(
         force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
-        Some(app_handle.clone()),
+        super::TEAMCLAW_DIR.to_string(),
+        super::TEAM_REPO_DIR.to_string(),
+        super::CONFIG_FILE_NAME.to_string(),
+        Some(tauri_emitter(app_handle.clone())),
     );
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
     manager.set_role(MemberRole::Owner);
@@ -416,7 +422,10 @@ pub async fn oss_join_team(
         force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
-        Some(app_handle.clone()),
+        super::TEAMCLAW_DIR.to_string(),
+        super::TEAM_REPO_DIR.to_string(),
+        super::CONFIG_FILE_NAME.to_string(),
+        Some(tauri_emitter(app_handle.clone())),
     );
 
     let body = serde_json::json!({
@@ -641,7 +650,10 @@ pub async fn oss_restore_sync(
         config.force_path_style,
         workspace_path.clone(),
         Duration::from_secs(config.poll_interval_secs),
-        Some(app_handle.clone()),
+        super::TEAMCLAW_DIR.to_string(),
+        super::TEAM_REPO_DIR.to_string(),
+        super::CONFIG_FILE_NAME.to_string(),
+        Some(tauri_emitter(app_handle.clone())),
     );
 
     // ── Phase 1: Connect (get FC token — proves auth + network) ────────

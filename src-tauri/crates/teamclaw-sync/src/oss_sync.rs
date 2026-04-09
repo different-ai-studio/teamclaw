@@ -87,13 +87,13 @@ pub struct OssSyncManager {
     /// Signal flag keys already seen (to avoid re-triggering pulls)
     known_signal_keys: HashSet<String>,
 
-    health: SyncHealth,
+    pub health: SyncHealth,
     health_message: Option<String>,
     skipped_files: Vec<SkippedFile>,
     last_data_sync_at: Option<String>,
     last_check_at: Option<String>,
-    live_keyset: HashSet<String>,
-    generation: HashMap<DocType, String>,
+    pub live_keyset: HashSet<String>,
+    pub generation: HashMap<DocType, String>,
     failed_import_keys: HashMap<String, u8>,
 
     poll_interval: Duration,
@@ -102,7 +102,7 @@ pub struct OssSyncManager {
     config_file_name: String,
     team_dir: PathBuf,
     loro_cache_dir: PathBuf,
-    connected: bool,
+    pub connected: bool,
     syncing: bool,
     event_emitter: Option<Box<dyn SyncEventEmitter>>,
 }
@@ -578,7 +578,7 @@ impl OssSyncManager {
         Ok(data.into_bytes().to_vec())
     }
 
-    async fn s3_list(&self, prefix: &str) -> Result<Vec<String>, String> {
+    pub async fn s3_list(&self, prefix: &str) -> Result<Vec<String>, String> {
         let client = self.client()?;
         let bucket = self.bucket()?;
 
@@ -616,7 +616,7 @@ impl OssSyncManager {
 
     /// Like `s3_list`, but only returns keys lexicographically after `start_after`.
     /// If `start_after` is None, behaves identically to `s3_list`.
-    async fn s3_list_after(
+    pub async fn s3_list_after(
         &self,
         prefix: &str,
         start_after: Option<&str>,
@@ -663,7 +663,7 @@ impl OssSyncManager {
     /// List "subdirectories" (common prefixes) under the given prefix using
     /// the S3 delimiter. For example, listing `teams/t1/skills/updates/` with
     /// delimiter `/` returns `["teams/t1/skills/updates/nodeA/", ...]`.
-    async fn s3_list_common_prefixes(&self, prefix: &str) -> Result<Vec<String>, String> {
+    pub async fn s3_list_common_prefixes(&self, prefix: &str) -> Result<Vec<String>, String> {
         let client = self.client()?;
         let bucket = self.bucket()?;
 
@@ -705,7 +705,7 @@ impl OssSyncManager {
 
     /// Best-effort existence check for a specific S3 object key.
     /// Uses LIST with exact-key prefix to avoid broad scans.
-    async fn s3_key_exists(&self, key: &str) -> Result<bool, String> {
+    pub async fn s3_key_exists(&self, key: &str) -> Result<bool, String> {
         let keys = self.s3_list(key).await?;
         Ok(keys.iter().any(|k| k == key))
     }
@@ -759,7 +759,7 @@ impl OssSyncManager {
 
     /// Check for new signal flags from other nodes.
     /// Returns `true` if there are new flags (meaning remote changes exist).
-    async fn check_signal_flags(&mut self) -> Result<bool, String> {
+    pub async fn check_signal_flags(&mut self) -> Result<bool, String> {
         let prefix = format!("teams/{}/signal/", self.team_id);
         let all_flags = self.s3_list(&prefix).await?;
 
@@ -780,7 +780,7 @@ impl OssSyncManager {
 
     /// Delete signal flags older than 1 hour, and prune matching entries
     /// from `known_signal_keys` to prevent unbounded memory growth.
-    async fn cleanup_expired_signal_flags(&mut self) -> Result<u32, String> {
+    pub async fn cleanup_expired_signal_flags(&mut self) -> Result<u32, String> {
         let prefix = format!("teams/{}/signal/", self.team_id);
         let flags = self.s3_list(&prefix).await?;
         let one_hour_ago_ms = Utc::now().timestamp_millis() - 3_600_000;
@@ -815,7 +815,7 @@ impl OssSyncManager {
     // Loro Document Operations
     // -----------------------------------------------------------------------
 
-    fn get_doc(&self, doc_type: DocType) -> &loro::LoroDoc {
+    pub fn get_doc(&self, doc_type: DocType) -> &loro::LoroDoc {
         match doc_type {
             DocType::Skills => &self.skills_doc,
             DocType::Mcp => &self.mcp_doc,
@@ -927,7 +927,7 @@ impl OssSyncManager {
         })
     }
 
-    fn scan_local_files(dir: &Path) -> Result<(HashMap<String, Vec<u8>>, Vec<SkippedFile>), String> {
+    pub fn scan_local_files(dir: &Path) -> Result<(HashMap<String, Vec<u8>>, Vec<SkippedFile>), String> {
         let mut result = HashMap::new();
         let mut skipped = Vec::new();
 
@@ -1023,7 +1023,7 @@ impl OssSyncManager {
 
     /// Like `scan_local_files`, but only reads files whose mtime is newer than `since`.
     /// Used by the fast loop for quick change detection.
-    fn scan_local_files_incremental(
+    pub fn scan_local_files_incremental(
         dir: &Path,
         since: std::time::SystemTime,
     ) -> Result<(HashMap<String, Vec<u8>>, Vec<SkippedFile>), String> {
@@ -1267,7 +1267,7 @@ impl OssSyncManager {
         Ok(true)
     }
 
-    fn compute_hash(content: &[u8]) -> String {
+    pub fn compute_hash(content: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(content);
         format!("{:x}", hasher.finalize())
@@ -1626,7 +1626,7 @@ impl OssSyncManager {
     /// - Layer 2: zstd compress (level 3), upload as .zst if compressed ≤ MAX_SYNC_FILE_SIZE
     /// - Layer 3: force compact, re-export, retry layers 1 & 2
     /// - Layer 4: all fallbacks failed → set health to Error, emit sync-error, return Ok(false)
-    async fn upload_with_fallback(
+    pub async fn upload_with_fallback(
         &mut self,
         doc_type: DocType,
         updates: &[u8],
@@ -2129,14 +2129,14 @@ impl OssSyncManager {
         Ok(())
     }
 
-    fn should_reload_snapshot_after_empty_listing(
+    pub fn should_reload_snapshot_after_empty_listing(
         new_keys_is_empty: bool,
         cursor_missing: bool,
     ) -> bool {
         new_keys_is_empty && cursor_missing
     }
 
-    fn select_compaction_deletion_keys(
+    pub fn select_compaction_deletion_keys(
         pre_snapshot_updates: &[String],
         current_updates: &[String],
     ) -> Vec<String> {
@@ -2328,7 +2328,7 @@ impl OssSyncManager {
     }
 
     /// Compact update files into a snapshot, then delete old updates.
-    async fn compact(&mut self, doc_type: DocType) -> Result<(), String> {
+    pub async fn compact(&mut self, doc_type: DocType) -> Result<(), String> {
         info!("Starting compaction for {:?}...", doc_type);
 
         // 1. Pull all latest updates to ensure doc is current
