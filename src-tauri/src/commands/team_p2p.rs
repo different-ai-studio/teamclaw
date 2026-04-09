@@ -113,21 +113,15 @@ fn team_repo_dir() -> &'static str {
 // ─── Tauri Commands ─────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_device_info(
-    iroh_state: tauri::State<'_, IrohState>,
-) -> Result<DeviceInfo, String> {
-    let guard = iroh_state.lock().await;
-    let node = guard.as_ref().ok_or("P2P node not running")?;
+pub fn get_device_info() -> Result<DeviceInfo, String> {
     let mut info = get_device_metadata();
-    info.node_id = get_node_id(node);
+    info.node_id = super::oss_commands::get_device_id()?;
     Ok(info)
 }
 
 #[tauri::command]
-pub async fn get_device_node_id(iroh_state: tauri::State<'_, IrohState>) -> Result<String, String> {
-    let guard = iroh_state.lock().await;
-    let node = guard.as_ref().ok_or("P2P node not running")?;
-    Ok(get_node_id(node))
+pub fn get_device_node_id() -> Result<String, String> {
+    super::oss_commands::get_device_id()
 }
 
 #[tauri::command]
