@@ -64,6 +64,9 @@ teamclaw-stt = { path = "crates/teamclaw-stt" }
 # Gateway crate
 teamclaw-gateway = { path = "crates/teamclaw-gateway" }
 
+# Sync crate (OSS/S3, WebDAV, CRDT sync)
+teamclaw-sync = { path = "crates/teamclaw-sync" }
+
 # RAG crate
 teamclaw-rag = { path = "crates/teamclaw-rag" }
 

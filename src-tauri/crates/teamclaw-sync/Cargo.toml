@@ -1,0 +1,64 @@
+[package]
+name = "teamclaw-sync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# S3/OSS
+aws-sdk-s3 = "1"
+
+# CRDT
+loro = "1"
+
+# WebDAV XML parsing
+quick-xml = "0.36"
+
+# Encryption (WebDAV config export/import)
+aes-gcm = "0.10"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+
+# Crypto
+sha2 = "0.10"
+hex = "0.4"
+getrandom = "0.2"
+base64 = "0.22"
+
+# HTTP
+reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls-native-roots"], default-features = false }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "fs", "time"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Compression
+zstd = "0.13"
+
+# Logging
+tracing = "0.1"
+log = "0.4"
+
+# Error handling
+anyhow = "1"
+
+# Keyring (WebDAV credential storage)
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+# URL handling
+url = "2"
+urlencoding = "2"
+
+# Gitignore support
+ignore = "0.4"
+
+# UUID for generation IDs
+uuid = { version = "1", features = ["v4"] }
+
+# Collections
+indexmap = { version = "2", features = ["serde"] }

@@ -3,47 +3,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-// --- Shared Types ---
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum MemberRole {
-    Owner,
-    Manager,
-    #[default]
-    #[serde(alias = "member")]
-    Editor,
-    Viewer,
-    /// Always-on replication node, not a human member
-    Seed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TeamMember {
-    pub node_id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub role: MemberRole,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub platform: String,
-    #[serde(default)]
-    pub arch: String,
-    #[serde(default)]
-    pub hostname: String,
-    #[serde(default)]
-    pub added_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TeamManifest {
-    pub owner_node_id: String,
-    pub members: Vec<TeamMember>,
-}
+// --- Shared Types (canonical definitions in teamclaw-sync) ---
+pub use teamclaw_sync::oss_types::{MemberRole, TeamManifest, TeamMember};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
