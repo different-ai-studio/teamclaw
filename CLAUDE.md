@@ -15,6 +15,8 @@ pnpm install
 # Dev
 pnpm dev                    # Frontend only (Vite)
 pnpm tauri:dev              # Full Tauri desktop app
+pnpm rust:check             # Fast Rust compile check with shared .cargo-target
+pnpm rust:build             # Rust build with shared .cargo-target
 
 # Build
 pnpm tauri:build            # Production build
