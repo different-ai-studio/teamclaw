@@ -592,7 +592,7 @@ ${skillContent.trim()}`
       ) : null}
 
       {(embeddedConsole || activeTab === 'installed') && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className={cn("relative flex-1", embeddedConsole ? "max-w-none" : "max-w-xs")}>
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -606,28 +606,30 @@ ${skillContent.trim()}`
               className="pl-9 h-9"
             />
           </div>
-          {activeTab === 'installed' ? (
-            <>
-              <Button onClick={openCreateDialog} size="sm" className="gap-2">
-                <Plus className="h-4 w-4" />
-                {t('settings.skills.addSkill', 'Add Skill')}
-              </Button>
-              <Button onClick={loadSkills} variant="outline" size="sm" className="gap-2" disabled={isLoading}>
-                <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+          <div className="ml-auto flex items-center gap-2">
+            {activeTab === 'installed' ? (
+              <>
+                <Button onClick={loadSkills} variant="outline" size="sm" className="gap-2" disabled={isLoading}>
+                  <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                  {t('settings.llm.refresh', 'Refresh')}
+                </Button>
+                <Button onClick={openCreateDialog} size="sm" className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  {t('settings.skills.addSkill', 'Add Skill')}
+                </Button>
+              </>
+            ) : embeddedConsole ? (
+              <Button
+                onClick={() => setMarketplaceRefreshSignal((prev) => prev + 1)}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
                 {t('settings.llm.refresh', 'Refresh')}
               </Button>
-            </>
-          ) : embeddedConsole ? (
-            <Button
-              onClick={() => setMarketplaceRefreshSignal((prev) => prev + 1)}
-              variant="outline"
-              size="sm"
-              className="gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              {t('settings.llm.refresh', 'Refresh')}
-            </Button>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       )}
 

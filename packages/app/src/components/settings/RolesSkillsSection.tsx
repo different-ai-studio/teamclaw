@@ -1,15 +1,9 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
 import { Shapes, Sparkles, UserRound } from "lucide-react"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { SettingCard } from "./shared"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { RolesSection } from "./RolesSection"
 import { SkillsSection } from "./SkillsSection"
 import { loadRolesSkillsWorkspaceState } from "@/lib/roles/loader"
@@ -102,47 +96,57 @@ export const RolesSkillsSection = React.memo(function RolesSkillsSection() {
         </div>
       ) : null}
 
-      <SettingCard className="min-w-0 bg-muted/20 p-4">
-        <div className="grid gap-3 lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-center">
-          <div className="space-y-1">
-            <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              {t("settings.rolesSkills.viewLabel", "View")}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="relative inline-grid h-11 grid-cols-2 items-center rounded-[14px] border border-border/70 bg-muted/50 p-1">
+            <div className="absolute inset-1">
+              <div
+                aria-hidden="true"
+                className={cn(
+                  "absolute inset-y-0 left-0 w-1/2 rounded-[10px] border border-border/60 bg-background transition-transform duration-200 ease-out",
+                  activeTab === "roles" ? "translate-x-0" : "translate-x-full",
+                )}
+              />
             </div>
-            <Select value={activeTab} onValueChange={(value) => setActiveTab(value as ResourceTab)}>
-              <SelectTrigger className="h-11 rounded-xl border-border/70 bg-background text-sm shadow-none">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="roles">
-                  <span className="inline-flex items-center gap-2">
-                    <UserRound className="h-4 w-4" />
-                    {t("settings.roles.title", "Roles")}
-                  </span>
-                </SelectItem>
-                <SelectItem value="skills">
-                  <span className="inline-flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    {t("settings.skills.title", "Skills")}
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="min-w-0 rounded-2xl border border-border/60 bg-background px-4 py-3">
-            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              {t("settings.rolesSkills.workspaceSummary", "Workspace summary")}
-            </div>
-            <div className="mt-1 text-sm text-foreground/85">
-              {t("settings.rolesSkills.summaryLine", "{{roles}} roles · {{skills}} skills · {{linked}} linked · {{unlinked}} unlinked", {
-                roles: metrics.rolesCount,
-                skills: metrics.skillsCount,
-                linked: metrics.linkedSkillsCount,
-                unlinked: metrics.unlinkedSkillsCount,
-              })}
-            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab("roles")}
+              className={cn(
+                "relative z-10 inline-flex h-9 items-center justify-center gap-2 rounded-[10px] px-5 text-sm font-medium transition-colors",
+                activeTab === "roles"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <UserRound className="h-4 w-4" />
+              {t("settings.roles.title", "Roles")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("skills")}
+              className={cn(
+                "relative z-10 inline-flex h-9 items-center justify-center gap-2 rounded-[10px] px-5 text-sm font-medium transition-colors",
+                activeTab === "skills"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Sparkles className="h-4 w-4" />
+              {t("settings.skills.title", "Skills")}
+            </button>
           </div>
         </div>
-      </SettingCard>
+        <div className="min-w-0 text-right">
+          <div className="text-sm text-foreground/85">
+            {t("settings.rolesSkills.summaryLine", "{{roles}} roles · {{skills}} skills · {{linked}} linked · {{unlinked}} unlinked", {
+              roles: metrics.rolesCount,
+              skills: metrics.skillsCount,
+              linked: metrics.linkedSkillsCount,
+              unlinked: metrics.unlinkedSkillsCount,
+            })}
+          </div>
+        </div>
+      </div>
 
       <div className="min-h-[40rem] min-w-0">
         {activeTab === "roles" ? (
