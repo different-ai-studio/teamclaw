@@ -156,20 +156,21 @@ export const LLMSection = React.memo(function LLMSection() {
   // Restart OpenCode sidecar so newly connected providers take effect
   const restartOpenCodeAndRefresh = async () => {
     if (!workspacePath) return
-    const { setOpenCodeReady } = useWorkspaceStore.getState()
+    const { setOpenCodeBootstrapped, setOpenCodeReady } = useWorkspaceStore.getState()
     try {
-      setOpenCodeReady(false)
+      setOpenCodeBootstrapped(false)
       await invoke('stop_opencode')
       const status = await invoke<{ url: string }>('start_opencode', {
         config: { workspace_path: workspacePath },
       })
       // Pass workspacePath so API requests include the directory param
       initOpenCodeClient({ baseUrl: status.url, workspacePath })
+      setOpenCodeBootstrapped(true, status.url)
       setOpenCodeReady(true, status.url)
       await initAll()
     } catch (err) {
       console.error('Failed to restart OpenCode after provider connect:', err)
-      setOpenCodeReady(true)
+      setOpenCodeBootstrapped(false)
       // Fallback: just refresh without restart
       await Promise.all([refreshProviders(), refreshConfiguredProviders()])
     }

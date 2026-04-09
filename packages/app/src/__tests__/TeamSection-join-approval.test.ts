@@ -93,6 +93,7 @@ vi.mock('@/stores/version-history', () => ({
   }),
 }))
 
+
 beforeEach(() => {
   joinDriveError = null
   joinCompleted = false

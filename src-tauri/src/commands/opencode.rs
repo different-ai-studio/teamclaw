@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
@@ -66,6 +66,12 @@ pub struct OpenCodeStatus {
     pub url: String,
     pub is_dev_mode: bool,
     pub workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OpenCodeBootstrappedEvent {
+    url: String,
+    workspace_path: String,
 }
 
 /// State for the early sidecar launch (initiated from setup hook before frontend).
@@ -308,10 +314,19 @@ pub async fn start_opencode_inner(
             inner.workspace_path = Some(requested_path.clone());
         }
 
+        let url = format!("http://127.0.0.1:{}", port);
+        let _ = app.emit(
+            "opencode_bootstrapped",
+            OpenCodeBootstrappedEvent {
+                url: url.clone(),
+                workspace_path: requested_path.clone(),
+            },
+        );
+
         return Ok(OpenCodeStatus {
             is_running: true,
             port,
-            url: format!("http://127.0.0.1:{}", port),
+            url,
             is_dev_mode: true,
             workspace_path: Some(requested_path),
         });
@@ -355,10 +370,16 @@ pub async fn start_opencode_inner(
         let device_id = super::oss_commands::get_device_id().unwrap_or_default();
         let ws = workspace_path.clone();
         let did = device_id.clone();
-        if let Err(e) = tokio::task::spawn_blocking(move || {
-            super::env_vars::ensure_system_env_vars(&ws, &did)
-        }).await.map_err(|e| e.to_string()).and_then(|r| r) {
-            eprintln!("[OpenCode] Warning: failed to ensure system env vars: {}", e);
+        if let Err(e) =
+            tokio::task::spawn_blocking(move || super::env_vars::ensure_system_env_vars(&ws, &did))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r)
+        {
+            eprintln!(
+                "[OpenCode] Warning: failed to ensure system env vars: {}",
+                e
+            );
         }
     }
 
@@ -455,7 +476,10 @@ pub async fn start_opencode_inner(
     // before oss_restore_sync), try to read team config and init from disk.
     if let Some(shared_state) = app.try_state::<super::shared_secrets::SharedSecretsState>() {
         {
-            let dk = shared_state.derived_key.lock().unwrap_or_else(|p| p.into_inner());
+            let dk = shared_state
+                .derived_key
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             if dk.is_none() {
                 drop(dk);
                 // Try to init from workspace team config
@@ -472,7 +496,9 @@ pub async fn start_opencode_inner(
                                 oss.get("teamId").and_then(|v| v.as_str()),
                                 oss.get("enabled").and_then(|v| v.as_bool()),
                             ) {
-                                if let Ok(team_secret) = super::oss_sync::load_team_secret(&workspace_path, team_id) {
+                                if let Ok(team_secret) =
+                                    super::oss_sync::load_team_secret(&workspace_path, team_id)
+                                {
                                     let team_dir = std::path::Path::new(&workspace_path)
                                         .join(super::TEAM_REPO_DIR);
                                     match super::shared_secrets::init_shared_secrets(
@@ -480,8 +506,13 @@ pub async fn start_opencode_inner(
                                         &team_secret,
                                         &team_dir,
                                     ) {
-                                        Ok(()) => println!("[OpenCode] Lazy-initialized shared secrets from disk"),
-                                        Err(e) => eprintln!("[OpenCode] Failed to lazy-init shared secrets: {}", e),
+                                        Ok(()) => println!(
+                                            "[OpenCode] Lazy-initialized shared secrets from disk"
+                                        ),
+                                        Err(e) => eprintln!(
+                                            "[OpenCode] Failed to lazy-init shared secrets: {}",
+                                            e
+                                        ),
                                     }
                                 }
                             }
@@ -501,7 +532,10 @@ pub async fn start_opencode_inner(
             // so ${wecom_corp_id} and WECOM_CORP_ID both resolve
             let upper_key = key_id.to_uppercase();
             secrets.retain(|(k, _)| k != key_id && k != &upper_key);
-            println!("[OpenCode] Loaded shared secret: {} (also {})", key_id, upper_key);
+            println!(
+                "[OpenCode] Loaded shared secret: {} (also {})",
+                key_id, upper_key
+            );
             secrets.push((key_id.clone(), entry.key.clone()));
             if upper_key != *key_id {
                 secrets.push((upper_key, entry.key.clone()));
@@ -673,6 +707,15 @@ pub async fn start_opencode_inner(
         }
     };
 
+    let url = format!("http://127.0.0.1:{}", port);
+    let _ = app.emit(
+        "opencode_bootstrapped",
+        OpenCodeBootstrappedEvent {
+            url: url.clone(),
+            workspace_path: workspace_path.clone(),
+        },
+    );
+
     // Schedule async config restore: wait for MCP servers to connect (so they
     // read the resolved secrets), then put back the original ${KEY} references.
     // Provider apiKey values stay resolved since opencode re-reads the config.
@@ -709,7 +752,7 @@ pub async fn start_opencode_inner(
     Ok(OpenCodeStatus {
         is_running: true,
         port,
-        url: format!("http://127.0.0.1:{}", port),
+        url,
         is_dev_mode: false,
         workspace_path: Some(workspace_path),
     })
@@ -1208,7 +1251,10 @@ fn read_keyring_secrets(workspace_path: &str) -> (Vec<(String, String)>, Vec<Str
                 .into_iter()
                 .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
                 .collect();
-            println!("[OpenCode] Loaded {} secrets from keychain blob", secrets.len());
+            println!(
+                "[OpenCode] Loaded {} secrets from keychain blob",
+                secrets.len()
+            );
             (secrets, Vec::new())
         }
         Err(e) => {
@@ -1242,7 +1288,11 @@ fn resolve_config_secret_refs(
     for (key, value) in secrets {
         let placeholder = format!("${{{}}}", key); // ${KEY}
         if resolved.contains(&placeholder) {
-            println!("[OpenCode] Replacing placeholder: {} (value length: {})", placeholder, value.len());
+            println!(
+                "[OpenCode] Replacing placeholder: {} (value length: {})",
+                placeholder,
+                value.len()
+            );
             resolved = resolved.replace(&placeholder, value);
             changed = true;
         }

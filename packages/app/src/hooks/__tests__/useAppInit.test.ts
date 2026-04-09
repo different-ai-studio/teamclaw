@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 
 // --- Hoist mocks ---
-const { mockSetWorkspace, mockSetOpenCodeReady, mockIsTauri, mockExists, mockInvoke } = vi.hoisted(() => ({
+const { mockSetWorkspace, mockSetOpenCodeBootstrapped, mockSetOpenCodeReady, mockIsTauri, mockExists, mockInvoke } = vi.hoisted(() => ({
   mockSetWorkspace: vi.fn(),
+  mockSetOpenCodeBootstrapped: vi.fn(),
   mockSetOpenCodeReady: vi.fn(),
   mockIsTauri: vi.fn(() => false),
   mockExists: vi.fn(),
@@ -27,7 +28,9 @@ vi.mock('@tauri-apps/api/core', () => ({
 const workspaceState = {
   workspacePath: null as string | null,
   setWorkspace: mockSetWorkspace,
+  setOpenCodeBootstrapped: mockSetOpenCodeBootstrapped,
   setOpenCodeReady: mockSetOpenCodeReady,
+  openCodeBootstrapped: false,
   openCodeReady: false,
   openPanel: vi.fn(),
   closePanel: vi.fn(),
@@ -119,6 +122,7 @@ vi.mock('@/lib/opencode/sdk-client', () => ({
 vi.mock('@/lib/opencode/preloader', () => ({
   startOpenCode: vi.fn().mockResolvedValue({ url: 'http://localhost:13141' }),
   hasPreloadFor: vi.fn(() => false),
+  waitForOpenCodeBootstrapped: vi.fn().mockResolvedValue({ url: 'http://localhost:13141' }),
 }))
 
 beforeEach(() => {
@@ -128,6 +132,7 @@ beforeEach(() => {
   mockExists.mockResolvedValue(true)
   mockInvoke.mockResolvedValue(null)
   workspaceState.workspacePath = null
+  workspaceState.openCodeBootstrapped = false
   workspaceState.openCodeReady = false
   teamModeState.teamMode = false
   teamModeState.setState.mockClear()
@@ -154,7 +159,7 @@ describe('useOpenCodeInit', () => {
   })
 
   it('restores the last workspace when one is saved', async () => {
-    localStorage.setItem('ac360-workspace-path', '/tmp/teamclaw-last')
+    localStorage.setItem('teamclaw-workspace-path', '/tmp/teamclaw-last')
 
     const { useOpenCodeInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useOpenCodeInit())
@@ -168,14 +173,14 @@ describe('useOpenCodeInit', () => {
   it('clears a saved workspace when it no longer exists in Tauri', async () => {
     mockIsTauri.mockReturnValue(true)
     mockExists.mockResolvedValue(false)
-    localStorage.setItem('ac360-workspace-path', '/tmp/missing-workspace')
+    localStorage.setItem('teamclaw-workspace-path', '/tmp/missing-workspace')
 
     const { useOpenCodeInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useOpenCodeInit())
 
     await waitFor(() => {
       expect(mockSetWorkspace).not.toHaveBeenCalled()
-      expect(localStorage.getItem('ac360-workspace-path')).toBeNull()
+      expect(localStorage.getItem('teamclaw-workspace-path')).toBeNull()
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
   })

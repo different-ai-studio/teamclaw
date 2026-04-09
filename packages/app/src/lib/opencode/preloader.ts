@@ -13,7 +13,19 @@ export interface PreloadResult {
 let current: {
   path: string;
   promise: Promise<PreloadResult>;
+  bootstrapped: Promise<PreloadResult>;
+  resolveBootstrapped: (result: PreloadResult) => void;
+  bootstrappedResult: PreloadResult | null;
+  cleanup: (() => void) | null;
 } | null = null;
+
+interface OpenCodeBootstrappedEvent extends PreloadResult {
+  workspace_path: string;
+}
+
+function cleanupCurrentEntry(entry: typeof current): void {
+  entry?.cleanup?.();
+}
 
 /**
  * Start (or reuse) a `start_opencode` invocation for the given workspace.
@@ -27,22 +39,69 @@ export function startOpenCode(workspacePath: string): Promise<PreloadResult> {
     return current.promise;
   }
 
-  const promise = import("@tauri-apps/api/core")
-    .then(({ invoke }) =>
-      invoke<PreloadResult>("start_opencode", {
+  cleanupCurrentEntry(current);
+
+  let resolveBootstrapped!: (result: PreloadResult) => void;
+  const bootstrapped = new Promise<PreloadResult>((resolve) => {
+    resolveBootstrapped = resolve;
+  });
+
+  const entry = {
+    path: workspacePath,
+    promise: Promise.resolve({ url: "" }),
+    bootstrapped,
+    resolveBootstrapped,
+    bootstrappedResult: null as PreloadResult | null,
+    cleanup: null as (() => void) | null,
+  };
+
+  const promise = Promise.all([
+    import("@tauri-apps/api/core"),
+    import("@tauri-apps/api/event"),
+  ])
+    .then(async ([{ invoke }, { listen }]) => {
+      entry.cleanup = await listen<OpenCodeBootstrappedEvent>(
+        "opencode_bootstrapped",
+        (event) => {
+          if (event.payload.workspace_path !== workspacePath) return;
+          const result = { url: event.payload.url };
+          if (!entry.bootstrappedResult) {
+            entry.bootstrappedResult = result;
+            entry.resolveBootstrapped(result);
+          }
+        },
+      );
+
+      return invoke<PreloadResult>("start_opencode", {
         config: { workspace_path: workspacePath },
-      }),
-    )
+      });
+    })
     .catch((err) => {
       // Clear on failure so a retry creates a fresh invocation
       if (current?.promise === promise) {
+        cleanupCurrentEntry(current);
         current = null;
       }
       throw err;
     });
 
-  current = { path: workspacePath, promise };
+  entry.promise = promise;
+  current = entry;
   return promise;
+}
+
+export function waitForOpenCodeBootstrapped(workspacePath: string): Promise<PreloadResult> {
+  if (current?.path !== workspacePath) {
+    void startOpenCode(workspacePath);
+  }
+
+  if (!current || current.path !== workspacePath) {
+    return Promise.reject(new Error("OpenCode preload was not initialized"));
+  }
+
+  return current.bootstrappedResult
+    ? Promise.resolve(current.bootstrappedResult)
+    : current.bootstrapped;
 }
 
 /** Check whether a preload is in-flight (or resolved) for the given path. */
@@ -52,5 +111,6 @@ export function hasPreloadFor(path: string): boolean {
 
 /** Discard the current preload entry (e.g. on workspace change). */
 export function clearPreload(): void {
+  cleanupCurrentEntry(current);
   current = null;
 }

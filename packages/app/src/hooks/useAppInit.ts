@@ -28,6 +28,7 @@ import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
 import {
   startOpenCode,
   hasPreloadFor,
+  waitForOpenCodeBootstrapped,
 } from "@/lib/opencode/preloader";
 import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
 import { appShortName } from "@/lib/build-config";
@@ -41,6 +42,7 @@ export const SKILLS_CHANGED_EVENT = "skills-files-changed";
 export function useOpenCodeInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
+  const setOpenCodeBootstrapped = useWorkspaceStore((s) => s.setOpenCodeBootstrapped);
   const setOpenCodeReady = useWorkspaceStore((s) => s.setOpenCodeReady);
   const [openCodeError, setOpenCodeError] = useState<string | null>(null);
   const [initialWorkspaceResolved, setInitialWorkspaceResolved] = useState(false);
@@ -105,13 +107,14 @@ export function useOpenCodeInit() {
       );
       const url = "http://127.0.0.1:4096";
       initOpenCodeClient({ baseUrl: url, workspacePath });
+      setOpenCodeBootstrapped(true, url);
       setOpenCodeReady(true, url);
       return;
     }
 
     const alreadyPreloading = hasPreloadFor(workspacePath);
     if (!alreadyPreloading) {
-      setOpenCodeReady(false);
+      setOpenCodeBootstrapped(false);
     }
 
     let cancelled = false;
@@ -122,24 +125,38 @@ export function useOpenCodeInit() {
         : "[OpenCode] Starting server for:",
       workspacePath,
     );
+    waitForOpenCodeBootstrapped(workspacePath)
+      .then((status) => {
+        if (cancelled) return;
+        console.log("[OpenCode] Server bootstrapped:", status);
+        initOpenCodeClient({ baseUrl: status.url, workspacePath });
+        setOpenCodeError(null);
+        setOpenCodeBootstrapped(true, status.url);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("[OpenCode] Failed waiting for bootstrap event:", error);
+      });
     startOpenCode(workspacePath)
       .then((status) => {
         if (cancelled) return;
         console.log("[OpenCode] Server started:", status);
         initOpenCodeClient({ baseUrl: status.url, workspacePath });
         setOpenCodeError(null);
+        setOpenCodeBootstrapped(true, status.url);
         setOpenCodeReady(true, status.url);
       })
       .catch((error) => {
         if (cancelled) return;
         console.error("[OpenCode] Failed to start server:", error);
+        setOpenCodeBootstrapped(false);
         setOpenCodeError(String(error));
       });
 
     return () => {
       cancelled = true;
     };
-  }, [workspacePath, setOpenCodeReady]);
+  }, [workspacePath, setOpenCodeBootstrapped, setOpenCodeReady]);
 
   useEffect(() => {
     if (!workspacePath || !isTauri()) return;

@@ -400,7 +400,6 @@ function AppContent() {
 
   // Workspace store - individual selectors
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
   const isPanelOpen = useWorkspaceStore((s) => s.isPanelOpen);
   const activeTab = useWorkspaceStore((s) => s.activeTab);
   const openPanel = useWorkspaceStore((s) => s.openPanel);
@@ -544,8 +543,9 @@ function AppContent() {
   }, [leftDockActive, sidebarOpen, setSidebarOpen, closePanel]);
 
   // Full-screen loading overlay when OpenCode server is starting/restarting
+  const openCodeBootstrapped = useWorkspaceStore((s) => s.openCodeBootstrapped);
   const showConnectingOverlay =
-    workspacePath && !openCodeReady && !openCodeError && isTauri();
+    workspacePath && !openCodeBootstrapped && !openCodeError && isTauri();
 
   // If settings is open, show settings page (check first so it works regardless of workspace state)
   if (currentView === "settings") {
