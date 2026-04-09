@@ -23,16 +23,134 @@ Use a **two-layer architecture**:
 1. **OpenCode plugin layer**
    - injects compact always-on memory into the prompt
    - exposes memory tools to the agent
+   - writes file-first episodes and short-term memory
    - triggers consolidation at safe lifecycle points
 
 2. **TeamClaw backend layer**
-   - owns file layout and source of truth
-   - stores memory records
+   - does not own the write path for near-session data
+   - owns consolidation, long-term extraction, and retrieval quality
    - indexes memory for retrieval
-   - writes personal vs team memory to the correct workspace paths
+   - writes consolidated long-term memory to the correct workspace paths
    - manages status, provenance, and supersession
 
-This keeps the plugin small and agent-oriented while avoiding duplicated logic in plugin code.
+This is a **hybrid route**:
+
+- `write path` → plugin writes workspace files directly
+- `search and ranking path` → plugin relies on TeamClaw services
+- `source of truth` → workspace files
+
+This keeps the plugin close to OpenCode session behavior while keeping retrieval and consolidation logic centralized.
+
+### Architectural Boundary
+
+```mermaid
+flowchart TB
+    U["Developer / Team Member"] --> O["OpenCode Session"]
+
+    subgraph PLUGIN["teamclaw-memory (OpenCode Plugin)"]
+        H["Hooks
+- chat/session lifecycle
+- session idle
+- compaction hooks"]
+        TOOLS["Agent Tools
+- memory_search
+- memory_write
+- memory_promote
+- memory_list"]
+        EPWR["Episode Writer
+write raw events to JSONL"]
+        STWR["Short-Term Memory Writer
+update recent context / session summaries"]
+        INJECT["Prompt Injection
+always-on + retrieved memory blocks"]
+        TRIGGER["Engine Trigger
+notify / schedule consolidation"]
+    end
+
+    subgraph WORKSPACE["Workspace Storage Layer"]
+        EP[".teamclaw/memory/episodes/
+sess_*.jsonl"]
+        ST[".teamclaw/memory/short-term/
+recent-context.json
+session-summaries/"]
+        PM[".teamclaw/memory/personal/
+conventions/
+decisions/
+debugging/"]
+        IDX[".teamclaw/memory/index/
+derived indexes"]
+        TMM["teamclaw-team/knowledge/memory/
+short-term/
+long-term/
+conventions/
+decisions/
+debugging/"]
+    end
+
+    subgraph ENGINE["teamclaw-memory-engine"]
+        SCAN["Scanner
+read episodes + short-term"]
+        EXTRACT["Memory Extraction
+decision / debugging / convention"]
+        MERGE["Merge / Dedup / Supersede
+active / superseded / stale"]
+        RETRIEVE["Hybrid Retrieval
+BM25 + Vector + Rerank"]
+        RANK["Prompt Ranking
+choose compact high-value memories"]
+        SYNCVIEW["Team Memory Manager
+personal -> team promotion"]
+        INDEXER["Indexer
+rebuild / refresh derived index"]
+    end
+
+    subgraph SYNC["Team Sync Layer"]
+        P2P["P2P Sync"]
+        OSS["OSS Sync"]
+    end
+
+    O --> H
+    O --> TOOLS
+
+    H --> EPWR
+    H --> STWR
+    H --> INJECT
+    H --> TRIGGER
+
+    TOOLS --> INJECT
+    TOOLS --> EPWR
+    TOOLS --> STWR
+    TOOLS --> RETRIEVE
+    TOOLS --> SYNCVIEW
+
+    EPWR --> EP
+    STWR --> ST
+
+    TRIGGER --> SCAN
+
+    SCAN --> EP
+    SCAN --> ST
+
+    SCAN --> EXTRACT
+    EXTRACT --> MERGE
+
+    MERGE --> PM
+    MERGE --> TMM
+
+    PM --> RETRIEVE
+    TMM --> RETRIEVE
+    PM --> INDEXER
+    TMM --> INDEXER
+    INDEXER --> IDX
+    IDX --> RETRIEVE
+
+    RETRIEVE --> RANK
+    RANK --> INJECT
+
+    SYNCVIEW --> TMM
+    TMM --> P2P
+    TMM --> OSS
+```
 
 ## Responsibilities
 
@@ -41,6 +159,8 @@ This keeps the plugin small and agent-oriented while avoiding duplicated logic i
 The plugin should be responsible for:
 
 - `always-on` prompt injection
+- raw episode capture
+- short-term memory maintenance
 - custom tools:
   - `memory_search`
   - `memory_write`
@@ -55,14 +175,15 @@ The plugin should **not**:
 - own the source-of-truth file format
 - maintain its own vector index or BM25 index
 - implement team sync rules
-- directly reason about filesystem layout beyond calling TeamClaw APIs
+- own long-term dedup/supersede logic
+- own high-quality retrieval ranking
 
 ### TeamClaw Backend
 
 The backend should be responsible for:
 
-- workspace memory directory creation
-- reading/writing memory records
+- scanning plugin-written workspace memory files
+- consolidating short-term memory into durable records
 - search and indexing
 - prompt block assembly
 - record versioning
@@ -94,6 +215,21 @@ Private consolidation input:
 
 ```text
 <workspace>/.teamclaw/memory/episodes/
+```
+
+### Short-Term Memory
+
+Plugin-maintained near-session context:
+
+```text
+<workspace>/.teamclaw/memory/short-term/
+```
+
+Suggested contents:
+
+```text
+recent-context.json
+session-summaries/
 ```
 
 ### Derived Index
@@ -221,10 +357,19 @@ Response:
 
 Used to persist a new memory record.
 
-Suggested backend endpoint:
+Write path:
+
+- plugin writes file-first records directly into the workspace memory layout
+- backend does not need to sit in the middle of basic writes
+- backend later scans and consolidates those files
+
+Suggested plugin-side output targets:
 
 ```text
-POST /api/memory/write
+.teamclaw/memory/episodes/
+.teamclaw/memory/short-term/
+.teamclaw/memory/personal/
+teamclaw-team/knowledge/memory/short-term/
 ```
 
 Request:
@@ -252,7 +397,7 @@ Response:
   "id": "mem_20260409_manifest_authoritative",
   "scope": "personal",
   "path": ".teamclaw/memory/personal/decisions/mem_20260409_manifest_authoritative.md",
-  "indexed": true
+  "written": true
 }
 ```
 
@@ -277,7 +422,7 @@ Request:
 
 Behavior:
 
-- read the personal record
+- plugin or engine reads the personal record
 - write a team-scoped record
 - preserve provenance
 - optionally link back to source memory
@@ -334,8 +479,9 @@ Do **not** write memory on every tool call by default.
 Preferred flow:
 
 1. gather evidence during the session
-2. consolidate when the session is idle
-3. write at most a few high-value memories
+2. write episodes and short-term summaries immediately
+3. consolidate when the session is idle
+4. write at most a few high-value long-term memories
 
 ## Backend API Strategy
 
@@ -348,13 +494,12 @@ Current endpoints include:
 - `/api/rag/memory/save`
 - `/api/rag/memory/delete`
 
-The memory plugin implementation should extend this local server rather than inventing a separate plugin-side backend.
+The memory plugin implementation should reuse this local server for retrieval and ranking rather than inventing a separate plugin-side search stack.
 
 ### New Endpoints to Add
 
 - `POST /api/memory/prompt/always-on`
 - `POST /api/memory/search`
-- `POST /api/memory/write`
 - `POST /api/memory/promote`
 - `POST /api/memory/list`
 - `POST /api/memory/consolidate-session`
@@ -395,9 +540,9 @@ Deliver:
 - `memory_write`
 - `memory_list`
 - `memory_promote`
-- backend write/promotion endpoints
-- file routing for personal vs team
-- incremental reindex on write
+- plugin file routing for episodes, short-term, and personal memory
+- backend promotion endpoint and consolidation logic
+- incremental reindex after consolidation
 
 Success criteria:
 
@@ -448,9 +593,9 @@ Success criteria:
 ### Backend Files to Modify
 
 - `src-tauri/src/commands/rag_http_server.rs`
-  - add `/api/memory/*` endpoints
+  - add `/api/memory/*` retrieval/consolidation endpoints
 - `src-tauri/src/commands/knowledge.rs`
-  - extract reusable memory read/write/search helpers
+  - extract reusable memory read/search helpers
 
 ### Likely New Backend File
 
@@ -463,6 +608,7 @@ Responsibilities:
 - prompt block assembly
 - search orchestration across personal/team memory
 - promotion and supersession logic
+- consolidation from episodes + short-term into long-term memory
 
 ### Backend Registration
 
@@ -499,6 +645,11 @@ Args:
 - `confidence?: "low" | "medium" | "high"`
 - `tags?: string[]`
 - `promptPolicy?: "always" | "retrieve" | "never"`
+
+Primary behavior:
+
+- writes a file-first record into the correct workspace path
+- may optionally request backend re-scan or deferred consolidation
 
 ### `memory_promote`
 
@@ -593,7 +744,7 @@ Implement a usable vertical slice with the least risk:
 2. always-on memory API
 3. `memory_search`
 4. `memory_write`
-5. personal memory storage only
+5. plugin-written personal memory storage only
 
 Then expand to:
 

@@ -414,6 +414,73 @@
       align-items: start;
     }
 
+    .architecture-board {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr 1.1fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .stack-title {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent-2);
+      margin-bottom: 2px;
+    }
+
+    .arch-box {
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.62);
+      padding: 18px;
+      min-height: 110px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+
+    .arch-box h3 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.05;
+    }
+
+    .arch-box p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 15px;
+    }
+
+    .arch-link {
+      display: grid;
+      place-items: center;
+      min-height: 54px;
+      border-radius: 18px;
+      border: 1px dashed rgba(31, 36, 33, 0.18);
+      background: rgba(255,255,255,0.35);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    .storage-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .storage-grid .mini-card {
+      min-height: 128px;
+    }
+
     .rail {
       display: grid;
       gap: 12px;
@@ -724,9 +791,70 @@
           </div>
         </section>
 
+        <section class="slide" data-title="Architecture">
+          <div class="slide-header">
+            <div class="slide-label">06 / Architecture</div>
+            <div class="slide-index">Plugin collects, engine consolidates</div>
+          </div>
+          <div class="content">
+            <h2>路线 B: plugin 写近场，engine 管远场</h2>
+            <div class="architecture-board">
+              <div class="stack">
+                <div class="stack-title">OpenCode Plugin</div>
+                <div class="arch-box">
+                  <h3>teamclaw-memory</h3>
+                  <p>负责 session 附近的行为：收集 episode、维护 short-term memory、注入 prompt memory、暴露 memory tools。</p>
+                </div>
+                <div class="arch-link">write path</div>
+                <div class="arch-box">
+                  <h3>直接写 workspace files</h3>
+                  <p>插件直接写 `.teamclaw/memory/episodes/` 与 `.teamclaw/memory/short-term/`，必要时也可写 personal memory。</p>
+                </div>
+              </div>
+              <div class="stack">
+                <div class="stack-title">Storage Layer</div>
+                <div class="storage-grid">
+                  <div class="mini-card">
+                    <h3>episodes</h3>
+                    <p>JSONL 原始事件流。作为 consolidation 的输入，不直接常驻 prompt。</p>
+                  </div>
+                  <div class="mini-card">
+                    <h3>short-term</h3>
+                    <p>`recent-context.json` 与 `session-summaries/`，为近场上下文服务。</p>
+                  </div>
+                  <div class="mini-card">
+                    <h3>personal</h3>
+                    <p>个人长期记忆，沉淀后的 durable asset。</p>
+                  </div>
+                  <div class="mini-card">
+                    <h3>teamclaw-team</h3>
+                    <p>团队共享记忆边界，经 P2P / OSS 同步出去。</p>
+                  </div>
+                </div>
+              </div>
+              <div class="stack">
+                <div class="stack-title">Memory Engine</div>
+                <div class="arch-box">
+                  <h3>teamclaw-memory-engine</h3>
+                  <p>负责扫描 episodes 与 short-term、抽取 personal / team 长期记忆、去重合并、supersede、构建 index。</p>
+                </div>
+                <div class="arch-link">search and ranking path</div>
+                <div class="arch-box">
+                  <h3>Hybrid Retrieval</h3>
+                  <p>TeamClaw core 负责 BM25 + vector + rerank，把高价值 memory 排序后再返回给 plugin 注入 prompt。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="slide-footer">
+            <div class="footer-note">Plugin owns behavior, files own truth, engine owns retrieval quality</div>
+            <div class="hint">write path 走文件，search/ranking path 走 TeamClaw services</div>
+          </div>
+        </section>
+
         <section class="slide" data-title="Prompt">
           <div class="slide-header">
-            <div class="slide-label">06 / Prompt</div>
+            <div class="slide-label">07 / Prompt</div>
             <div class="slide-index">How memory enters the prompt</div>
           </div>
           <div class="content">
@@ -775,7 +903,7 @@ Personal:
 
         <section class="slide" data-title="Write Rules">
           <div class="slide-header">
-            <div class="slide-label">07 / Write Rules</div>
+            <div class="slide-label">08 / Write Rules</div>
             <div class="slide-index">How proactive writes stay sane</div>
           </div>
           <div class="content">
@@ -823,7 +951,7 @@ Personal:
 
         <section class="slide" data-title="Layout">
           <div class="slide-header">
-            <div class="slide-label">08 / Layout</div>
+            <div class="slide-label">09 / Layout</div>
             <div class="slide-index">Where the files live</div>
           </div>
           <div class="content">
@@ -832,6 +960,9 @@ Personal:
 ├── .teamclaw/
 │   └── memory/
 │       ├── episodes/
+│       ├── short-term/
+│       │   ├── recent-context.json
+│       │   └── session-summaries/
 │       ├── personal/
 │       │   ├── conventions/
 │       │   ├── decisions/
@@ -840,9 +971,11 @@ Personal:
 └── teamclaw-team/
     └── knowledge/
         └── memory/
-            ├── conventions/
-            ├── decisions/
-            └── debugging/</div>
+            ├── short-term/
+            └── long-term/
+                ├── conventions/
+                ├── decisions/
+                └── debugging/</div>
             <div class="grid-2">
               <div class="mini-card">
                 <h3>Source of truth</h3>
@@ -862,7 +995,7 @@ Personal:
 
         <section class="slide" data-title="Decision">
           <div class="slide-header">
-            <div class="slide-label">09 / Decision</div>
+            <div class="slide-label">10 / Decision</div>
             <div class="slide-index">What v1 should be</div>
           </div>
           <div class="content">
@@ -874,7 +1007,7 @@ Personal:
                   <li>workspace-scoped</li>
                   <li>file-first source of truth</li>
                   <li>small always-on memory + strong retrieval</li>
-                  <li>personal/team scope split</li>
+                  <li>plugin 写近场，engine 管远场</li>
                   <li>history-preserving conflict model</li>
                 </ul>
               </div>
@@ -884,14 +1017,14 @@ Personal:
                   <li>a giant prompt blob</li>
                   <li>a graph-first system in v1</li>
                   <li>a DB-only black box</li>
-                  <li>manual-only memory curation</li>
+                  <li>plugin 包办所有 consolidation</li>
                   <li>cross-workspace memory too early</li>
                 </ul>
               </div>
             </div>
             <div class="mini-card">
               <h3>一句话结论</h3>
-              <p><span class="emphasis">OpenClaw 风格的 file-first memory</span> 作为骨架，借鉴 <span class="accent-2">Hermes 的分层思路</span>，再补上 <span class="accent-3">TeamClaw 的 teamclaw-team 共享 scope</span>。</p>
+              <p><span class="emphasis">Plugin collects</span>，<span class="accent-2">engine consolidates</span>，<span class="accent-3">files remain the source of truth</span>。</p>
             </div>
           </div>
           <div class="slide-footer">
@@ -910,7 +1043,7 @@ Personal:
       <div class="progress-wrap" aria-label="Slide progress">
         <div class="progress" id="progressBar"></div>
       </div>
-      <div class="status-pill"><strong id="pageLabel">1 / 9</strong><span id="pageTitle">Title</span></div>
+      <div class="status-pill"><strong id="pageLabel">1 / 10</strong><span id="pageTitle">Title</span></div>
     </div>
   </div>
 
