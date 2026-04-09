@@ -54,25 +54,27 @@ describe("session-questions", () => {
 
     state = {
       activeSessionId: "sess-1",
-      pendingQuestion: {
-        questionId: "terminal-input:tc-1",
-        toolCallId: "tc-1",
-        messageId: "msg-1",
-        source: "terminal_input",
-        terminalInputContext: {
-          command: "rm -rf build",
-          prompt: "Continue? [y/N]",
-          kind: "confirm",
-        },
-        questions: [
-          {
-            id: "terminal-input",
-            header: "Terminal Input",
-            question: "Continue?",
-            options: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }],
+      pendingQuestions: [
+        {
+          questionId: "terminal-input:tc-1",
+          toolCallId: "tc-1",
+          messageId: "msg-1",
+          source: "terminal_input",
+          terminalInputContext: {
+            command: "rm -rf build",
+            prompt: "Continue? [y/N]",
+            kind: "confirm",
           },
-        ],
-      },
+          questions: [
+            {
+              id: "terminal-input",
+              header: "Terminal Input",
+              question: "Continue?",
+              options: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }],
+            },
+          ],
+        },
+      ],
       sessions: [
         {
           id: "sess-1",
@@ -104,7 +106,11 @@ describe("session-questions", () => {
       sendMessage,
     };
 
-    sessionDataCache.set("sess-1", { todos: [], diff: [], pendingQuestion: state.pendingQuestion as any });
+    sessionDataCache.set("sess-1", {
+      todos: [],
+      diff: [],
+      pendingQuestions: state.pendingQuestions as any,
+    });
 
     set = vi.fn((updater) => {
       if (typeof updater === "function") {
@@ -124,7 +130,7 @@ describe("session-questions", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0][0]).toContain("User wants this response: `yes`");
     expect(sendMessage.mock.calls[0][0]).toContain("rm -rf build");
-    expect((state as any).pendingQuestion).toBeNull();
+    expect((state as any).pendingQuestions).toEqual([]);
     expect(mockReplyQuestion).not.toHaveBeenCalled();
   });
 
@@ -133,7 +139,7 @@ describe("session-questions", () => {
 
     expect(abortSession).toHaveBeenCalledTimes(1);
     expect(sendMessage).not.toHaveBeenCalled();
-    expect((state as any).pendingQuestion).toBeNull();
+    expect((state as any).pendingQuestions).toEqual([]);
     expect(mockReplyQuestion).not.toHaveBeenCalled();
   });
 });

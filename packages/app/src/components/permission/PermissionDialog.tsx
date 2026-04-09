@@ -160,7 +160,10 @@ export function PermissionDialog({ permission: permEvent, onReply }: PermissionD
 
 // Wrapper component that connects to the store (not currently mounted)
 export function PermissionDialogContainer() {
-  const pendingPermission = useSessionStore(s => s.pendingPermission)
+  const pendingPermission = useSessionStore((s) => {
+    const entry = s.pendingPermissions.find((e) => e.childSessionId === null)
+    return entry?.permission ?? null
+  })
   const replyPermission = useSessionStore(s => s.replyPermission)
 
   const handleReply = React.useCallback(

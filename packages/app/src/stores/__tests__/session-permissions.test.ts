@@ -62,8 +62,7 @@ describe('createPermissionActions', () => {
     const get = vi.fn(() => ({
       activeSessionId: 'session-1',
       sessions: [],
-      pendingPermission: null,
-      pendingPermissionChildSessionId: null,
+      pendingPermissions: [],
       setActiveSession: vi.fn(),
     }))
     const actions = createPermissionActions(set as any, get as any)
@@ -78,8 +77,7 @@ describe('createPermissionActions', () => {
     const get = vi.fn(() => ({
       activeSessionId: 'session-1',
       sessions: [],
-      pendingPermission: null,
-      pendingPermissionChildSessionId: null,
+      pendingPermissions: [],
       setActiveSession: vi.fn(),
     }))
     const actions = createPermissionActions(set as any, get as any)
@@ -93,10 +91,45 @@ describe('createPermissionActions', () => {
     const get = vi.fn(() => ({
       activeSessionId: null,
       sessions: [],
-      pendingPermission: null,
+      pendingPermissions: [],
     }))
     const actions = createPermissionActions(set as any, get as any)
     await actions.pollPermissions()
     expect(mockListPermissions).not.toHaveBeenCalled()
+  })
+
+  it('should queue multiple permissions without overwriting', async () => {
+    const { createPermissionActions } = await import('@/stores/session-permissions')
+    const store = {
+      activeSessionId: 'session-1',
+      sessions: [{ id: 'session-1', title: 'S', messages: [] }],
+      pendingPermissions: [] as Array<{ permission: { id: string }; childSessionId: string | null }>,
+      setActiveSession: vi.fn(),
+    }
+    const set = vi.fn((fn: unknown) => {
+      if (typeof fn === 'function') {
+        Object.assign(store, (fn as (s: typeof store) => Partial<typeof store>)(store))
+      } else {
+        Object.assign(store, fn)
+      }
+    })
+    const get = vi.fn(() => store)
+    const actions = createPermissionActions(set as any, get as any)
+
+    await actions.handlePermissionAsked({
+      id: 'perm-1',
+      sessionID: 'session-1',
+      permission: 'bash',
+      patterns: ['ls'],
+    })
+    await actions.handlePermissionAsked({
+      id: 'perm-2',
+      sessionID: 'session-1',
+      permission: 'write',
+      patterns: ['file'],
+    })
+
+    expect(store.pendingPermissions).toHaveLength(2)
+    expect(store.pendingPermissions.map((e) => e.permission.id)).toEqual(['perm-1', 'perm-2'])
   })
 })

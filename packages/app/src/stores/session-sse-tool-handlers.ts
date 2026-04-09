@@ -93,6 +93,7 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
           toolCallId: event.toolCallId,
           messageId: streamingMessageId,
           questions,
+          sessionId: event.sessionId ?? activeSessionId ?? undefined,
           source: "terminal_input" as const,
           terminalInputContext: {
             command: commandText,
@@ -101,61 +102,99 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
           },
         };
 
-        const existing = get().pendingQuestion;
+        const existingQuestions = get().pendingQuestions;
+        const existingForTool = existingQuestions.find((q) => q.toolCallId === event.toolCallId);
         if (
-          !existing ||
-          existing.source !== "opencode" ||
-          existing.toolCallId === event.toolCallId
+          !existingForTool ||
+          existingForTool.source !== "opencode"
         ) {
-          set({ pendingQuestion: questionData });
+          set((state) => ({
+            pendingQuestions: [
+              ...state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
+              questionData,
+            ].slice(-20),
+          }));
           if (activeSessionId) {
             const cached = sessionDataCache.get(activeSessionId) || { todos: [], diff: [] };
-            sessionDataCache.set(activeSessionId, { ...cached, pendingQuestion: questionData });
+            const cacheQuestions = cached.pendingQuestions || [];
+            sessionDataCache.set(activeSessionId, {
+              ...cached,
+              pendingQuestions: [
+                ...cacheQuestions.filter((q) => q.toolCallId !== event.toolCallId),
+                questionData,
+              ],
+            });
           }
         }
       } else if (
-        get().pendingQuestion?.source === "terminal_input" &&
-        get().pendingQuestion?.toolCallId === event.toolCallId &&
+        get().pendingQuestions.some(
+          (q) => q.source === "terminal_input" && q.toolCallId === event.toolCallId,
+        ) &&
         event.status !== "running"
       ) {
-        set({ pendingQuestion: null });
+        set((state) => ({
+          pendingQuestions: state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
+        }));
         if (activeSessionId) {
           const cached = sessionDataCache.get(activeSessionId);
           if (cached) {
-            sessionDataCache.set(activeSessionId, { ...cached, pendingQuestion: null });
+            const cacheQs = cached.pendingQuestions || [];
+            sessionDataCache.set(activeSessionId, {
+              ...cached,
+              pendingQuestions: cacheQs.filter((q) => q.toolCallId !== event.toolCallId),
+            });
           }
         }
       }
 
       if (isQuestionTool && isRunning && questions && questions.length > 0) {
-        const existing = get().pendingQuestion;
-        if (!existing || !existing.questionId) {
+        const existingForThisTool = get().pendingQuestions.find((q) => q.toolCallId === event.toolCallId);
+        if (!existingForThisTool || !existingForThisTool.questionId) {
           // Pre-populate with tool/message info and questions, but leave questionId empty.
           // The real questionId arrives via handleQuestionAsked (question.asked SSE event).
-          // We still set pendingQuestion so the QuestionCard renders, but answerQuestion
+          // We still set pendingQuestions so the QuestionCard renders, but answerQuestion
           // won't submit until questionId is non-empty (see guard below).
           const questionData = {
             questionId: "",
             toolCallId: event.toolCallId,
             messageId: streamingMessageId,
             questions,
+            sessionId: event.sessionId ?? activeSessionId ?? undefined,
           };
-          set({ pendingQuestion: questionData });
+          set((state) => ({
+            pendingQuestions: [
+              ...state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
+              questionData,
+            ].slice(-20),
+          }));
           // Also save to cache so it survives session switching
           if (activeSessionId) {
             const cached = sessionDataCache.get(activeSessionId) || { todos: [], diff: [] };
-            sessionDataCache.set(activeSessionId, { ...cached, pendingQuestion: questionData });
+            const cacheQuestions = cached.pendingQuestions || [];
+            sessionDataCache.set(activeSessionId, {
+              ...cached,
+              pendingQuestions: [
+                ...cacheQuestions.filter((q) => q.toolCallId !== event.toolCallId),
+                questionData,
+              ],
+            });
           }
         }
       }
 
       if (isQuestionTool && event.status === "completed") {
-        set({ pendingQuestion: null });
+        set((state) => ({
+          pendingQuestions: state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
+        }));
         // Also clear from cache
         if (activeSessionId) {
           const cached = sessionDataCache.get(activeSessionId);
           if (cached) {
-            sessionDataCache.set(activeSessionId, { ...cached, pendingQuestion: null });
+            const cacheQsComplete = cached.pendingQuestions || [];
+            sessionDataCache.set(activeSessionId, {
+              ...cached,
+              pendingQuestions: cacheQsComplete.filter((q) => q.toolCallId !== event.toolCallId),
+            });
           }
         }
       }

@@ -432,13 +432,29 @@ export const cleanupChildSession = (sessionId: string) => {
   // Update streaming store
   useStreamingStore.getState().clearChildStreaming(sessionId);
 
-  // Clear permission if it belongs to this child session (lifecycle binding)
+  // Clean up permissions and questions belonging to this child session
   const sessionState = useSessionStore.getState();
-  if (sessionState.pendingPermissionChildSessionId === sessionId) {
-    useSessionStore.setState({
-      pendingPermission: null,
-      pendingPermissionChildSessionId: null,
-    });
+
+  const hasPermissions = sessionState.pendingPermissions.some(
+    (e) => e.childSessionId === sessionId,
+  );
+  if (hasPermissions) {
+    useSessionStore.setState((state) => ({
+      pendingPermissions: state.pendingPermissions.filter(
+        (e) => e.childSessionId !== sessionId,
+      ),
+    }));
+  }
+
+  const hasQuestions = sessionState.pendingQuestions.some(
+    (q) => q.sessionId === sessionId,
+  );
+  if (hasQuestions) {
+    useSessionStore.setState((state) => ({
+      pendingQuestions: state.pendingQuestions.filter(
+        (q) => q.sessionId !== sessionId,
+      ),
+    }));
   }
 };
 

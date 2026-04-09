@@ -11,13 +11,15 @@ vi.mock('react-i18next', () => ({
 
 // Session store state — mutated per test
 const sessionState = {
-  pendingPermission: null as {
-    id: string;
-    permission: string;
-    patterns: string[];
-    metadata?: Record<string, string>;
-  } | null,
-  pendingPermissionChildSessionId: null as string | null,
+  pendingPermissions: [] as Array<{
+    permission: {
+      id: string;
+      permission: string;
+      patterns: string[];
+      metadata?: Record<string, string>;
+    };
+    childSessionId: string | null;
+  }>,
   replyPermission: vi.fn(() => Promise.resolve()),
 };
 
@@ -41,19 +43,22 @@ vi.mock('@/stores/streaming', () => ({
 describe('PendingPermissionInline', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sessionState.pendingPermission = null;
-    sessionState.pendingPermissionChildSessionId = null;
+    sessionState.pendingPermissions = [];
     sessionState.replyPermission = vi.fn(() => Promise.resolve());
     streamingState.childSessionStreaming = {};
   });
 
   it('renders permission request details', async () => {
-    sessionState.pendingPermission = {
-      id: 'perm-1',
-      permission: 'bash',
-      patterns: ['ls -la'],
-    };
-    sessionState.pendingPermissionChildSessionId = 'child-sess-1';
+    sessionState.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-1',
+          permission: 'bash',
+          patterns: ['ls -la'],
+        },
+        childSessionId: 'child-sess-1',
+      },
+    ];
     streamingState.childSessionStreaming = {
       'child-sess-1': {
         sessionId: 'child-sess-1',
@@ -78,12 +83,16 @@ describe('PendingPermissionInline', () => {
   it('clicking allow calls replyPermission with correct arguments', async () => {
     const replyMock = vi.fn(() => Promise.resolve());
     sessionState.replyPermission = replyMock;
-    sessionState.pendingPermission = {
-      id: 'perm-1',
-      permission: 'bash',
-      patterns: ['ls -la'],
-    };
-    sessionState.pendingPermissionChildSessionId = 'child-sess-1';
+    sessionState.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-1',
+          permission: 'bash',
+          patterns: ['ls -la'],
+        },
+        childSessionId: 'child-sess-1',
+      },
+    ];
     streamingState.childSessionStreaming = {
       'child-sess-1': {
         sessionId: 'child-sess-1',

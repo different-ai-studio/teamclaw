@@ -210,6 +210,15 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         if (event.status.type === 'idle') {
           console.log("[Session] Child session idle, finalizing:", event.sessionId);
           cleanupChildSession(event.sessionId);
+          // Clean up permissions and questions belonging to this child session
+          set((state) => ({
+            pendingPermissions: state.pendingPermissions.filter(
+              (e) => e.childSessionId !== event.sessionId,
+            ),
+            pendingQuestions: state.pendingQuestions.filter(
+              (q) => q.sessionId !== event.sessionId,
+            ),
+          }));
         }
         return;
       }
@@ -377,18 +386,16 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
               sessionStatus: status,
               sessionError: null,
               sessions: newSessions,
-              pendingPermission: null,
-              pendingPermissionChildSessionId: null,
-              pendingQuestion: null,
+              pendingPermissions: [],
+              pendingQuestions: [],
             };
           });
         } else {
           set((state) => ({
             sessionStatus: status,
             sessionError: state.sessionError?.error?.name === 'RetryError' ? null : state.sessionError,
-            pendingPermission: null,
-            pendingPermissionChildSessionId: null,
-            pendingQuestion: null,
+            pendingPermissions: [],
+            pendingQuestions: [],
           }));
         }
       } else {
@@ -412,8 +419,8 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         activeSessionId, 
         sessions: currentSessions, 
         setActiveSession: navigateToSession,
-        pendingQuestion,
-        pendingPermission,
+        pendingQuestions,
+        pendingPermissions,
       } = get();
       const { streamingMessageId } = useStreamingStore.getState();
 
@@ -421,11 +428,11 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         // CRITICAL: Do NOT clear streaming if session is waiting for user interaction
         // When AI asks a question or requests permission, OpenCode sends session.idle
         // but the session is still active (waiting for user response)
-        if (pendingQuestion || pendingPermission) {
+        if (pendingQuestions.length > 0 || pendingPermissions.length > 0) {
           console.log("[SessionIdle] Session waiting for user interaction, preserving streaming state:", {
             streamingMessageId,
-            hasPendingQuestion: !!pendingQuestion,
-            hasPendingPermission: !!pendingPermission,
+            pendingQuestionsCount: pendingQuestions.length,
+            pendingPermissionsCount: pendingPermissions.length,
           });
           // Keep streaming state active so:
           // 1. Typewriter continues if there's buffered content
@@ -641,9 +648,66 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
           id?: string;
           type?: string;
           sessionID?: string;
+          tool?: string;
+          state?: { status: string; title?: string };
         } | undefined;
         if (part?.id && part?.type) {
           childPartTypes.set(part.id, part.type);
+        }
+
+        // Update TaskToolCard summary for tool parts in child sessions
+        const isToolPart = part?.type === "tool" || part?.type === "tool-call";
+        if (isToolPart && part?.sessionID && part?.tool) {
+          const { activeSessionId } = get();
+          const { streamingMessageId } = useStreamingStore.getState();
+          if (activeSessionId && streamingMessageId) {
+            set((state) => {
+              const session = getSessionById(activeSessionId);
+              if (!session) return state;
+
+              const msgIndex = session.messages.findIndex(m => m.id === streamingMessageId);
+              if (msgIndex === -1) return state;
+
+              const msg = session.messages[msgIndex];
+              const taskToolCall = msg.toolCalls?.find(
+                tc => tc.name === "task" && tc.metadata?.sessionId === part.sessionID,
+              );
+              if (!taskToolCall) return state;
+
+              const summaryItem = {
+                id: part.id!,
+                tool: part.tool!,
+                state: {
+                  status: part.state?.status || "running",
+                  title: part.state?.title,
+                },
+              };
+
+              const currentSummary = taskToolCall.metadata?.summary || [];
+              const existingIdx = currentSummary.findIndex(s => s.id === part.id);
+              const newSummary = existingIdx >= 0
+                ? currentSummary.map((s, i) => i === existingIdx ? summaryItem : s)
+                : [...currentSummary, summaryItem];
+
+              const updatedToolCalls = msg.toolCalls?.map(tc =>
+                tc.name === "task" && tc.metadata?.sessionId === part.sessionID
+                  ? { ...tc, metadata: { ...tc.metadata, summary: newSummary } }
+                  : tc,
+              );
+
+              const newMsg = { ...msg, toolCalls: updatedToolCalls };
+              const newMessages = [...session.messages];
+              newMessages[msgIndex] = newMsg;
+              const newSession = { ...session, messages: newMessages };
+              sessionLookupCache.set(activeSessionId, newSession);
+
+              return {
+                sessions: state.sessions.map(s =>
+                  s.id === activeSessionId ? newSession : s,
+                ),
+              };
+            });
+          }
         }
         return;
       }

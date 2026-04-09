@@ -46,9 +46,8 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         sessions: [],
         activeSessionId: null,
         messageQueue: [],
-        pendingPermission: null,
-        pendingPermissionChildSessionId: null,
-        pendingQuestion: null,
+        pendingPermissions: [],
+        pendingQuestions: [],
         todos: [],
         sessionDiff: [],
         sessionError: null,
@@ -174,13 +173,14 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
     // Create a new session
     createSession: async (_workspacePath?: string) => {
       // Save current session's message queue and pending question to cache before creating new session
-      const { activeSessionId: prevSessionId, messageQueue: currentQueue, pendingQuestion: currentPendingQuestion } = get();
+      const { activeSessionId: prevSessionId, messageQueue: currentQueue, pendingQuestions: currentPendingQuestions } = get();
       if (prevSessionId) {
         const prevCached = sessionDataCache.get(prevSessionId) || { todos: [], diff: [] };
         sessionDataCache.set(prevSessionId, {
           ...prevCached,
           messageQueue: currentQueue.length > 0 ? currentQueue : prevCached.messageQueue,
-          pendingQuestion: currentPendingQuestion,
+          pendingQuestions:
+            currentPendingQuestions.length > 0 ? currentPendingQuestions : prevCached.pendingQuestions,
         });
       }
 
@@ -212,7 +212,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
             sessionDiff: [],
             sessionError: null,
             sessionStatus: null,
-            pendingQuestion: null,
+            pendingQuestions: [],
           };
         });
 
@@ -237,17 +237,18 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         todos: currentTodos,
         sessionDiff: currentDiff,
         messageQueue: currentQueue,
-        pendingQuestion: currentPendingQuestion,
+        pendingQuestions: currentPendingQuestions,
       } = get();
 
-      // Save current session's todos, diff, message queue, and pending question to cache before switching
+      // Save current session's todos, diff, message queue, and pending questions to cache before switching
       if (prevSessionId) {
         const prevCached = sessionDataCache.get(prevSessionId) || { todos: [], diff: [] };
         sessionDataCache.set(prevSessionId, {
           todos: currentTodos.length > 0 ? currentTodos : prevCached.todos,
           diff: currentDiff.length > 0 ? currentDiff : prevCached.diff,
           messageQueue: currentQueue.length > 0 ? currentQueue : undefined,
-          pendingQuestion: currentPendingQuestion,
+          pendingQuestions:
+            currentPendingQuestions.length > 0 ? currentPendingQuestions : prevCached.pendingQuestions,
         });
       }
 
@@ -269,9 +270,8 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         sessionDiff: cachedData?.diff || [],
         sessionError: null,
         sessionStatus: null,
-        pendingPermission: null,
-        pendingPermissionChildSessionId: null,
-        pendingQuestion: cachedData?.pendingQuestion || null,
+        pendingPermissions: [],
+        pendingQuestions: cachedData?.pendingQuestions || [],
       });
 
       try {

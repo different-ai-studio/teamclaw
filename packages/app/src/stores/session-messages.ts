@@ -407,9 +407,8 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         clearMessageTimeout();
         useStreamingStore.getState().clearStreaming();
         set((state) => ({
-          pendingQuestion: null,
-          pendingPermission: null,
-          pendingPermissionChildSessionId: null,
+          pendingQuestions: [],
+          pendingPermissions: [],
           sessionError: null,
           sessions: state.sessions.map((s) => ({
             ...s,
@@ -446,9 +445,8 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         useStreamingStore.getState().clearStreaming();
         cleanupAllChildSessions();
         set((state) => ({
-          pendingQuestion: null,
-          pendingPermission: null,
-          pendingPermissionChildSessionId: null,
+          pendingQuestions: [],
+          pendingPermissions: [],
           sessions: state.sessions.map((s) => ({
             ...s,
             messages: s.messages.map((m) =>

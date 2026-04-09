@@ -3,6 +3,7 @@ import { Shield, Terminal, FileText, FolderOpen, CornerDownLeft } from "lucide-r
 import { cn, truncatePermissionSnippet } from "@/lib/utils"
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
+import type { PendingPermissionEntry } from "@/stores/session-types"
 
 const permissionMeta: Record<string, { icon: React.ComponentType<{ className?: string }>; title: string }> = {
   bash: { icon: Terminal, title: "Run command" },
@@ -14,42 +15,25 @@ const permissionMeta: Record<string, { icon: React.ComponentType<{ className?: s
   skill: { icon: Terminal, title: "Run skill" },
 }
 
-/**
- * Fallback inline permission card for the rare case where a permission
- * has no tool.callID (floating permission). Tool-call-based permissions
- * are handled by PermissionApprovalBar inside each ToolCallCard.
- */
-export function PendingPermissionInline() {
-  const pendingPermission = useSessionStore(s => s.pendingPermission)
-  const pendingPermissionChildSessionId = useSessionStore(s => s.pendingPermissionChildSessionId)
-  const childSessionStreaming = useStreamingStore(s => s.childSessionStreaming)
+function PermissionEntryCard({ entry }: { entry: PendingPermissionEntry }) {
   const replyPermission = useSessionStore(s => s.replyPermission)
   const [submitting, setSubmitting] = React.useState(false)
   const [decided, setDecided] = React.useState<string | null>(null)
 
   const prevPermIdRef = React.useRef<string | null>(null)
-  if (pendingPermission?.id !== prevPermIdRef.current) {
-    prevPermIdRef.current = pendingPermission?.id ?? null
+  if (entry.permission.id !== prevPermIdRef.current) {
+    prevPermIdRef.current = entry.permission.id
     if (decided !== null) setDecided(null)
   }
 
-  // Lifecycle binding: only render if this is a CHILD session permission and the child session is still active
-  // Main session permissions should be rendered via PermissionApprovalBar in tool call cards, not here
-  const isChildSessionPermission = !!pendingPermissionChildSessionId;
-  const isChildSessionAlive = isChildSessionPermission 
-    ? !!childSessionStreaming[pendingPermissionChildSessionId]
-    : false; // Not a child session permission, don't render
-  
-  if (!pendingPermission || !isChildSessionPermission || !isChildSessionAlive) return null
-
-  const permType = pendingPermission.permission || "write"
+  const permType = entry.permission.permission || "write"
   const isExternal = permType === "external_directory"
   const meta = permissionMeta[permType] || { icon: Shield, title: "Permission required" }
   const Icon = meta.icon
   const isBash = permType === "bash" || permType === "execute"
 
-  const commandText = pendingPermission.patterns?.join(" ") || ""
-  const metadata = pendingPermission.metadata as Record<string, string> | undefined
+  const commandText = entry.permission.patterns?.join(" ") || ""
+  const metadata = entry.permission.metadata as Record<string, string> | undefined
   const filePath = metadata?.file || metadata?.filepath || ""
   const label = commandText.split(" ")[0] || permType
   const allowListLabel = truncatePermissionSnippet(label, 42)
@@ -58,7 +42,7 @@ export function PendingPermissionInline() {
     setSubmitting(true)
     setDecided(d)
     try {
-      await replyPermission(pendingPermission.id, d)
+      await replyPermission(entry.permission.id, d)
     } finally {
       setSubmitting(false)
     }
@@ -139,6 +123,32 @@ export function PendingPermissionInline() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Fallback inline permission card for the rare case where a permission
+ * has no tool.callID (floating permission). Tool-call-based permissions
+ * are handled by PermissionApprovalBar inside each ToolCallCard.
+ */
+export function PendingPermissionInline() {
+  const pendingPermissions = useSessionStore(s => s.pendingPermissions)
+  const childSessionStreaming = useStreamingStore(s => s.childSessionStreaming)
+
+  // Filter to only child session permissions whose child session is still alive
+  const visiblePermissions = pendingPermissions.filter(entry => {
+    if (!entry.childSessionId) return false // Parent session permissions go through PermissionApprovalBar
+    return !!childSessionStreaming[entry.childSessionId]
+  })
+
+  if (visiblePermissions.length === 0) return null
+
+  return (
+    <div className="space-y-1">
+      {visiblePermissions.map(entry => (
+        <PermissionEntryCard key={entry.permission.id} entry={entry} />
+      ))}
     </div>
   )
 }

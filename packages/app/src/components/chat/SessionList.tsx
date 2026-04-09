@@ -28,11 +28,11 @@ interface SessionListItemProps {
 // don't subscribe to sessionStatus/streamingMessageId stores (keeps memo stable).
 function SessionStatusIndicator({ compact }: { compact?: boolean }) {
   const sessionStatus = useSessionStore(s => s.sessionStatus)
-  const pendingPermission = useSessionStore(s => s.pendingPermission)
-  const pendingQuestion = useSessionStore(s => s.pendingQuestion)
+  const pendingPermissions = useSessionStore(s => s.pendingPermissions)
+  const pendingQuestions = useSessionStore(s => s.pendingQuestions)
   const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
 
-  if (pendingPermission || pendingQuestion) {
+  if (pendingPermissions.length > 0 || pendingQuestions.length > 0) {
     return (
       <span className="shrink-0 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
         等待确认

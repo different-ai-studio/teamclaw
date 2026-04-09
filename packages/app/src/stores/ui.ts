@@ -89,9 +89,8 @@ export const useUIStore = create<UIState>((set, get) => ({
               sessionDiff: [],
               sessionError: null,
               sessionStatus: null,
-              pendingQuestion: null,
-              pendingPermission: null,
-              pendingPermissionChildSessionId: null,
+              pendingQuestions: [],
+              pendingPermissions: [],
             })
           })
         })

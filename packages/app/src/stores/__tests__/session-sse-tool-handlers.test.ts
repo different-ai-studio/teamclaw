@@ -65,7 +65,7 @@ describe('session-sse-tool-handlers', () => {
       sessions: [session],
       todos: [],
       sessionDiff: [],
-      pendingQuestion: null,
+      pendingQuestions: [],
     }
 
     set = vi.fn((updater) => {
@@ -158,7 +158,7 @@ describe('session-sse-tool-handlers', () => {
       messageId: 'msg-assist-1',
     } as any)
 
-    expect((state as any).pendingQuestion).toMatchObject({
+    expect((state as any).pendingQuestions[0]).toMatchObject({
       questionId: 'terminal-input:tc-bash-1',
       toolCallId: 'tc-bash-1',
       source: 'terminal_input',

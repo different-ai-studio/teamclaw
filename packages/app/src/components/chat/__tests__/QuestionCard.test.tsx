@@ -10,12 +10,12 @@ vi.mock('react-i18next', () => ({
 }));
 
 const mockSessionState = {
-  pendingQuestion: null as {
+  pendingQuestions: [] as Array<{
     questionId: string;
     toolCallId: string;
     messageId: string;
     questions: unknown[];
-  } | null,
+  }>,
   answerQuestion: vi.fn(() => Promise.resolve()),
 };
 
@@ -44,18 +44,20 @@ function makeQuestion(overrides: Record<string, unknown> = {}) {
 describe('QuestionCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSessionState.pendingQuestion = null;
+    mockSessionState.pendingQuestions = [];
     mockSessionState.answerQuestion = vi.fn(() => Promise.resolve());
   });
 
   it('renders question text and options', async () => {
     const question = makeQuestion();
-    mockSessionState.pendingQuestion = {
-      questionId: 'event-1',
-      toolCallId: 'tc-1',
-      messageId: 'msg-1',
-      questions: [question],
-    };
+    mockSessionState.pendingQuestions = [
+      {
+        questionId: 'event-1',
+        toolCallId: 'tc-1',
+        messageId: 'msg-1',
+        questions: [question],
+      },
+    ];
 
     const { QuestionCard } = await import('../QuestionCard');
 
@@ -75,12 +77,14 @@ describe('QuestionCard', () => {
   it('clicking an option and submitting calls answerQuestion with correct mapping', async () => {
     const question = makeQuestion();
     const answerMock = vi.fn(() => Promise.resolve());
-    mockSessionState.pendingQuestion = {
-      questionId: 'event-1',
-      toolCallId: 'tc-1',
-      messageId: 'msg-1',
-      questions: [question],
-    };
+    mockSessionState.pendingQuestions = [
+      {
+        questionId: 'event-1',
+        toolCallId: 'tc-1',
+        messageId: 'msg-1',
+        questions: [question],
+      },
+    ];
     mockSessionState.answerQuestion = answerMock;
 
     const { QuestionCard } = await import('../QuestionCard');
@@ -103,7 +107,7 @@ describe('QuestionCard', () => {
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(answerMock).toHaveBeenCalledWith({ 'q-1': 'option-a' });
+      expect(answerMock).toHaveBeenCalledWith({ 'q-1': 'option-a' }, 'event-1');
     });
   });
 });

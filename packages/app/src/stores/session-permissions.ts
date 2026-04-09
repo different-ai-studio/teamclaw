@@ -219,10 +219,12 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
           pendingPermissionBuffer.set(event.tool.callID, event);
         }
       } else {
-        set({
-          pendingPermission: event,
-          pendingPermissionChildSessionId: isChild ? event.sessionID : null
-        });
+        set((state) => ({
+          pendingPermissions: [
+            ...state.pendingPermissions.filter((e) => e.permission.id !== event.id),
+            { permission: event, childSessionId: isChild ? event.sessionID : null },
+          ].slice(-20), // Safety cap
+        }));
       }
 
       // Send notification for permission requests
@@ -271,7 +273,7 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
 
         // Persist "always" decisions to opencode.db and cache in memory
         if (decision === "always") {
-          const { activeSessionId, pendingPermission } = get();
+          const { activeSessionId } = get();
           const session = activeSessionId ? getSessionById(activeSessionId) : null;
           let permEvent: PermissionAskedEvent | null = null;
 
@@ -291,8 +293,11 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
               }
             }
           }
-          if (!permEvent && pendingPermission?.id === permissionId) {
-            permEvent = pendingPermission;
+          if (!permEvent) {
+            const entry = get().pendingPermissions.find((e) => e.permission.id === permissionId);
+            if (entry) {
+              permEvent = entry.permission;
+            }
           }
           if (permEvent) {
             // Cache in memory so subsequent requests for same permission type are auto-approved
@@ -328,8 +333,12 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
               return { ...m, toolCalls: newToolCalls };
             });
             if (!found) {
-              if (state.pendingPermission?.id === permissionId) {
-                return { pendingPermission: null, pendingPermissionChildSessionId: null };
+              if (state.pendingPermissions.some((e) => e.permission.id === permissionId)) {
+                return {
+                  pendingPermissions: state.pendingPermissions.filter(
+                    (e) => e.permission.id !== permissionId,
+                  ),
+                };
               }
               return {};
             }
@@ -343,11 +352,10 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
           });
         }
 
-        // Also clear floating pendingPermission if it matches
-        const { pendingPermission: floating } = get();
-        if (floating?.id === permissionId) {
-          set({ pendingPermission: null, pendingPermissionChildSessionId: null });
-        }
+        // Also remove from floating pending permissions if present
+        set((state) => ({
+          pendingPermissions: state.pendingPermissions.filter((e) => e.permission.id !== permissionId),
+        }));
       } catch (error) {
         console.error("[Session] Failed to reply permission:", error);
         set({
@@ -412,9 +420,15 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
             }
           }
         } else {
-          const { pendingPermission } = get();
-          if (!pendingPermission) {
-            set({ pendingPermission: match });
+          const { pendingPermissions } = get();
+          const alreadyPending = pendingPermissions.some((e) => e.permission.id === match.id);
+          if (!alreadyPending) {
+            set((state) => ({
+              pendingPermissions: [
+                ...state.pendingPermissions,
+                { permission: match, childSessionId: null },
+              ].slice(-20),
+            }));
           }
         }
       } catch {

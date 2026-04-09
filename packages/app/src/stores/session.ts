@@ -19,6 +19,7 @@ export { useSessionStore } from './session-store';
 // Types
 export type {
   PermissionAskedEvent,
+  PendingPermissionEntry,
   ToolCallPermission,
   ToolCall,
   MessagePart,

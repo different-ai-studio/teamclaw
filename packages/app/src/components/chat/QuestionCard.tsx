@@ -14,14 +14,15 @@ interface QuestionCardProps {
 
 export const QuestionCard = React.memo(function QuestionCard({ toolCallId, questions, isCompleted }: QuestionCardProps) {
   const questionList = Array.isArray(questions) ? (questions as Question[]) : []
-  const pendingQuestion = useSessionStore(s => s.pendingQuestion)
+  const pendingQuestions = useSessionStore(s => s.pendingQuestions)
+  const pendingQuestion = pendingQuestions.find(q => q.toolCallId === toolCallId)
   const answerQuestion = useSessionStore(s => s.answerQuestion)
   const [answers, setAnswers] = React.useState<Record<string, string>>({})
   const [customInputs, setCustomInputs] = React.useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [hasSubmitted, setHasSubmitted] = React.useState(false)
 
-  const isPending = pendingQuestion?.toolCallId === toolCallId
+  const isPending = !!pendingQuestion
   const terminalPromptKind =
     isPending && pendingQuestion?.source === 'terminal_input'
       ? pendingQuestion.terminalInputContext?.kind
@@ -59,7 +60,7 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
 
     setIsSubmitting(true)
     try {
-      await answerQuestion(finalAnswers)
+      await answerQuestion(finalAnswers, pendingQuestion?.questionId)
       setHasSubmitted(true)
     } finally {
       setIsSubmitting(false)

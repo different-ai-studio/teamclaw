@@ -78,6 +78,8 @@ vi.mock('@/stores/session', () => ({
       hasMoreSessions: false,
       visibleSessionCount: 50,
       highlightedSessionIds: [],
+      pendingPermissions: [],
+      pendingQuestions: [],
       setActiveSession: vi.fn(),
       archiveSession: vi.fn(),
       updateSessionTitle: vi.fn(),

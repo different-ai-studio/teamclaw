@@ -33,6 +33,11 @@ import type {
 // Re-export types for convenience
 export type { PermissionAskedEvent };
 
+export interface PendingPermissionEntry {
+  permission: PermissionAskedEvent;
+  childSessionId: string | null;
+}
+
 export interface ToolCallPermission {
   id: string;
   permission: string;
@@ -74,6 +79,7 @@ export interface PendingQuestionState {
   toolCallId: string;
   messageId: string;
   questions: Question[];
+  sessionId?: string; // source session ID (child or parent)
   source?: "opencode" | "terminal_input";
   terminalInputContext?: {
     command?: string;
@@ -176,14 +182,11 @@ export interface SessionState {
   // Message queue
   messageQueue: QueuedMessage[];
 
-  // Permission request (scoped to child session lifecycle)
-  // When child session ends (idle) or parent session switches, this is cleared
-  pendingPermission: PermissionAskedEvent | null;
-  // Child session ID that the permission belongs to (for lifecycle binding)
-  pendingPermissionChildSessionId: string | null;
+  // Permission requests (scoped to child session lifecycle; multiple concurrent sub-agents)
+  pendingPermissions: PendingPermissionEntry[];
 
-  // Pending question (from question tool)
-  pendingQuestion: PendingQuestionState | null;
+  // Pending questions (from question tool; multiple concurrent)
+  pendingQuestions: PendingQuestionState[];
 
   // Todo list (from todowrite tool)
   todos: Todo[];
@@ -247,7 +250,7 @@ export interface SessionState {
   pollPermissions: () => Promise<void>;
 
   // Actions - Question
-  answerQuestion: (answers: Record<string, string>) => Promise<void>;
+  answerQuestion: (answers: Record<string, string>, questionId?: string) => Promise<void>;
   setPendingQuestion: (
     question: PendingQuestionState | null,
   ) => void;
