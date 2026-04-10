@@ -1,6 +1,6 @@
 import * as React from 'react'
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
-import { Search, GitBranch, ChevronsDownUp, Undo2, LocateFixed } from 'lucide-react'
+import { Search, GitBranch, ChevronsDownUp, Undo2, LocateFixed, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -20,17 +20,17 @@ import { FileTree } from './FileTree'
 interface FileBrowserProps {
   className?: string
   // 'default' - shows header with workspace name (for right panel)
-  // 'panel' - no header, for file mode left panel (header handled by parent)
+  // 'panel' - single merged toolbar row with collapsible search
   variant?: 'default' | 'panel'
   /** Override root directory. Defaults to workspace root. */
   rootPath?: string
-  /** Hide git status indicators */
+  /** Hide git status indicators and git-specific toolbar buttons */
   hideGitStatus?: boolean
-  /** Custom toolbar rendered above the filter input */
-  toolbar?: React.ReactNode
+  /** Extra action icons shown in the panel toolbar's collapsed state (e.g. New Note, New Folder) */
+  actionIcons?: React.ReactNode
 }
 
-export function FileBrowser({ className, variant = 'default', rootPath, hideGitStatus = false, toolbar }: FileBrowserProps) {
+export function FileBrowser({ className, variant = 'default', rootPath, hideGitStatus = false, actionIcons }: FileBrowserProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const isPanelOpen = useWorkspaceStore(s => s.isPanelOpen)
@@ -42,6 +42,7 @@ export function FileBrowser({ className, variant = 'default', rootPath, hideGitS
   const [filterText, setFilterText] = React.useState('')
   const deferredFilterText = React.useDeferredValue(filterText)
   const [gitChangedOnly, setGitChangedOnly] = React.useState(false)
+  const [searchExpanded, setSearchExpanded] = React.useState(false)
 
   const isCustomRoot = !!rootPath
 
@@ -120,90 +121,211 @@ export function FileBrowser({ className, variant = 'default', rootPath, hideGitS
     }
   }, [undo, undoStack, t])
 
+  const collapseSearchAndClear = React.useCallback(() => {
+    setSearchExpanded(false)
+    setFilterText('')
+  }, [])
+
+  const iconButtonClass = 'flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground'
+
   return (
     <div className={cn('flex flex-col h-full', className)} data-file-browser data-testid="file-browser">
-      {toolbar}
-      {/* Filter input */}
-      <div className="px-2 py-1.5 border-b">
-        <div className="flex items-center gap-1">
-          <div className="relative flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder={t('fileExplorer.filterPlaceholder', 'Filter files...')}
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="pl-7 h-7 text-xs"
-            />
-          </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setGitChangedOnly(!gitChangedOnly)}
-                className={cn(
-                  'flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0',
-                  gitChangedOnly
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                )}
-              >
-                <GitBranch className="h-3.5 w-3.5" />
+
+      {variant === 'panel' ? (
+        /* Panel variant: single merged toolbar row with collapsible search */
+        <div className="flex items-center gap-0.5 px-2 py-1 border-b">
+          {searchExpanded ? (
+            <>
+              <div className="relative flex-1 min-w-0">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  autoFocus
+                  type="text"
+                  placeholder={t('fileExplorer.filterPlaceholder', 'Filter files...')}
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') collapseSearchAndClear() }}
+                  className="pl-7 h-7 text-xs"
+                />
+              </div>
+              <button onClick={collapseSearchAndClear} className={iconButtonClass}>
+                <X className="h-3.5 w-3.5" />
               </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {gitChangedOnly
-                ? t('fileExplorer.showAll', 'Show all files')
-                : t('fileExplorer.showGitChanged', 'Show git changed files only')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={collapseAll}
-                className="flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <ChevronsDownUp className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {t('fileExplorer.collapseAll', 'Collapse All')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => {
-                  const selectedFile = useWorkspaceStore.getState().selectedFile;
-                  if (selectedFile) {
-                    useWorkspaceStore.getState().revealFile(selectedFile).catch(() => {});
-                  }
-                }}
-                className="flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <LocateFixed className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {t('fileExplorer.revealActiveFile', 'Reveal Active File')}
-            </TooltipContent>
-          </Tooltip>
-          {undoStack.length > 0 && (
+            </>
+          ) : (
+            <>
+              {/* Search icon — leftmost */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={() => setSearchExpanded(true)} className={iconButtonClass}>
+                    <Search className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('fileExplorer.filterPlaceholder', 'Filter files...')}</TooltipContent>
+              </Tooltip>
+
+              {/* Separator + caller-provided action icons (e.g. New Note, New Folder) */}
+              {actionIcons && (
+                <>
+                  <div className="w-px h-4 bg-border mx-0.5 shrink-0" />
+                  {actionIcons}
+                </>
+              )}
+
+              <div className="flex-1" />
+
+              {/* Git filter — only for git-tracked directories */}
+              {!hideGitStatus && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setGitChangedOnly(!gitChangedOnly)}
+                      className={cn(
+                        iconButtonClass,
+                        gitChangedOnly && 'bg-primary/10 text-primary',
+                      )}
+                    >
+                      <GitBranch className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {gitChangedOnly
+                      ? t('fileExplorer.showAll', 'Show all files')
+                      : t('fileExplorer.showGitChanged', 'Show git changed files only')}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
+              {/* Collapse all */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={collapseAll} className={iconButtonClass}>
+                    <ChevronsDownUp className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('fileExplorer.collapseAll', 'Collapse All')}</TooltipContent>
+              </Tooltip>
+
+              {/* Locate active file — only for git-tracked directories */}
+              {!hideGitStatus && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => {
+                        const selectedFile = useWorkspaceStore.getState().selectedFile
+                        if (selectedFile) {
+                          useWorkspaceStore.getState().revealFile(selectedFile).catch(() => {})
+                        }
+                      }}
+                      className={iconButtonClass}
+                    >
+                      <LocateFixed className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{t('fileExplorer.revealActiveFile', 'Reveal Active File')}</TooltipContent>
+                </Tooltip>
+              )}
+
+              {/* Undo — only for git-tracked directories when undo stack is non-empty */}
+              {!hideGitStatus && undoStack.length > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button onClick={handleUndo} className={iconButtonClass}>
+                      <Undo2 className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t('fileExplorer.undo', 'Undo: {{desc}}', { desc: undoStack[undoStack.length - 1]?.description })}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        /* Default variant: original two-row layout (filter bar with all controls) */
+        <div className="px-2 py-1.5 border-b">
+          <div className="flex items-center gap-1">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder={t('fileExplorer.filterPlaceholder', 'Filter files...')}
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                className="pl-7 h-7 text-xs"
+              />
+            </div>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={handleUndo}
-                  className="flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => setGitChangedOnly(!gitChangedOnly)}
+                  className={cn(
+                    'flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0',
+                    gitChangedOnly
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
                 >
-                  <Undo2 className="h-3.5 w-3.5" />
+                  <GitBranch className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {t('fileExplorer.undo', 'Undo: {{desc}}', { desc: undoStack[undoStack.length - 1]?.description })}
+                {gitChangedOnly
+                  ? t('fileExplorer.showAll', 'Show all files')
+                  : t('fileExplorer.showGitChanged', 'Show git changed files only')}
               </TooltipContent>
             </Tooltip>
-          )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={collapseAll}
+                  className="flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <ChevronsDownUp className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t('fileExplorer.collapseAll', 'Collapse All')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => {
+                    const selectedFile = useWorkspaceStore.getState().selectedFile;
+                    if (selectedFile) {
+                      useWorkspaceStore.getState().revealFile(selectedFile).catch(() => {});
+                    }
+                  }}
+                  className="flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <LocateFixed className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t('fileExplorer.revealActiveFile', 'Reveal Active File')}
+              </TooltipContent>
+            </Tooltip>
+            {undoStack.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleUndo}
+                    className="flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t('fileExplorer.undo', 'Undo: {{desc}}', { desc: undoStack[undoStack.length - 1]?.description })}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
       {/* File tree - supports horizontal and vertical scroll */}
       <ScrollAreaPrimitive.Root className="flex-1 relative overflow-hidden">
         <ScrollAreaPrimitive.Viewport className="h-full w-full">
