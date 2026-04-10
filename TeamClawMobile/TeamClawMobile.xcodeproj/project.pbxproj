@@ -62,6 +62,7 @@
 		D5FF9542D765A41BD695AF63 /* MarkdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA7FDF42A97343C386C04F8 /* MarkdownRenderer.swift */; };
 		D7601B4CBD1B8F3C837F4B0B /* TalentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0C6CDCB33415476C06D5847 /* TalentViewModel.swift */; };
 		DD8CCF863A9D27D3A2B1AD63 /* MQTTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 014B950E4DE6034CAF59DAEA /* MQTTService.swift */; };
+		E3491B87F60ACD11612E1AEE /* NewSessionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A913CBF620CD2DF04140AD52 /* NewSessionSheet.swift */; };
 		E4A5A43173A9B6264E39598B /* MQTTServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D159295636E0431FC7F4A497 /* MQTTServiceProtocol.swift */; };
 		EFD3FEF6ECB8BB3196FB7E17 /* ConnectionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4BF600C2F057B605FC1015 /* ConnectionMonitorTests.swift */; };
 		F72276690532533498ED380B /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36621DE5BE808E48FCAB3565 /* ChatMessage.swift */; };
@@ -131,6 +132,7 @@
 		9DA7FDF42A97343C386C04F8 /* MarkdownRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRenderer.swift; sourceTree = "<group>"; };
 		9DC4A3372C9F29BEC02488EB /* ChatInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInputBar.swift; sourceTree = "<group>"; };
 		A0C6CDCB33415476C06D5847 /* TalentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalentViewModel.swift; sourceTree = "<group>"; };
+		A913CBF620CD2DF04140AD52 /* NewSessionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionSheet.swift; sourceTree = "<group>"; };
 		AC93E7E379872F91DF34055C /* NotificationPrefView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPrefView.swift; sourceTree = "<group>"; };
 		AD7FA2EBAD71DEAA331B0ED7 /* DesktopStatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopStatusBadge.swift; sourceTree = "<group>"; };
 		AEA5F011388B4C1DFE3CFB8B /* FunctionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FunctionPanelView.swift; sourceTree = "<group>"; };
@@ -326,6 +328,7 @@
 		883C9D7080C45BDFEECABD2A /* SessionList */ = {
 			isa = PBXGroup;
 			children = (
+				A913CBF620CD2DF04140AD52 /* NewSessionSheet.swift */,
 				267D69C246CE598FDE71DCDE /* SessionListView.swift */,
 				0FFB5A67ECFF68D836396CB0 /* SessionListViewModel.swift */,
 			);
@@ -486,7 +489,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					4BFD80CE7475206FDAB63532 = {
 						DevelopmentTeam = 43G5A6G9QV;
@@ -568,6 +571,7 @@
 				FB47D1A057337D95C268D8D1 /* MessageAggregator.swift in Sources */,
 				2789906A141F3971C4DF48D6 /* MessageBubbleView.swift in Sources */,
 				662BA0A5CCEF0788CC67D0B8 /* MockMQTTService.swift in Sources */,
+				E3491B87F60ACD11612E1AEE /* NewSessionSheet.swift in Sources */,
 				A43D7D80DECF3FBE3341E550 /* NotificationPrefView.swift in Sources */,
 				21E5D7D3B63B3B7CBB1D186A /* OSSUploader.swift in Sources */,
 				317772C041CF69D648EC1919 /* PairingManager.swift in Sources */,

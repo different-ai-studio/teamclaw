@@ -7,88 +7,80 @@ struct ChatInputBar: View {
     let isStreaming: Bool
     let onSend: () -> Void
     let onCancel: () -> Void
-    let onModelTap: () -> Void
     let onImageSelected: (UIImage) -> Void
 
     @State private var photoPickerItem: PhotosPickerItem?
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            VStack(spacing: 8) {
-                // Tool bar row
-                HStack(spacing: 16) {
-                    Button {
-                        onModelTap()
-                    } label: {
-                        Image(systemName: "gearshape")
-                            .font(.title3)
-                            .foregroundStyle(isDisabled ? .secondary : .primary)
-                    }
-                    .disabled(isDisabled)
-
-                    PhotosPicker(
-                        selection: $photoPickerItem,
-                        matching: .images
-                    ) {
-                        Image(systemName: "paperclip")
-                            .font(.title3)
-                            .foregroundStyle(isDisabled ? .secondary : .primary)
-                    }
-                    .disabled(isDisabled)
-                    .onChange(of: photoPickerItem) { _, newItem in
-                        guard let newItem else { return }
-                        Task {
-                            if let data = try? await newItem.loadTransferable(type: Data.self),
-                               let image = UIImage(data: data) {
-                                onImageSelected(image)
-                            }
-                            photoPickerItem = nil
-                        }
-                    }
-
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-
-                // Input row
-                HStack(spacing: 8) {
-                    TextField(
-                        isDisabled ? "桌面端离线" : "输入消息...",
-                        text: $text,
-                        axis: .vertical
-                    )
-                    .lineLimit(1...5)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color(.systemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .disabled(isDisabled || isStreaming)
-
-                    if isStreaming {
-                        Button {
-                            onCancel()
-                        } label: {
-                            Image(systemName: "stop.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(.red)
-                        }
-                    } else {
-                        Button {
-                            onSend()
-                        } label: {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(canSend ? .blue : .secondary)
-                        }
-                        .disabled(!canSend)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
+        HStack(alignment: .bottom, spacing: 8) {
+            PhotosPicker(
+                selection: $photoPickerItem,
+                matching: .images
+            ) {
+                Image(systemName: "plus")
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 34, height: 34)
+                    .liquidGlass(in: Circle())
             }
-            .padding(.top, 8)
-            .background(.ultraThinMaterial)
+            .disabled(isDisabled)
+            .onChange(of: photoPickerItem) { _, newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        onImageSelected(image)
+                    }
+                    photoPickerItem = nil
+                }
+            }
+
+            HStack(alignment: .bottom, spacing: 4) {
+                TextField(
+                    isDisabled ? "桌面端离线" : "输入消息...",
+                    text: $text,
+                    axis: .vertical
+                )
+                .lineLimit(1...5)
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 8)
+                .disabled(isDisabled || isStreaming)
+
+                if showActionButton {
+                    actionButton
+                        .padding(.trailing, 4)
+                        .padding(.bottom, 4)
+                }
+            }
+            .background(Color(.systemGray6), in: Capsule())
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var showActionButton: Bool {
+        isStreaming || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @ViewBuilder
+    private var actionButton: some View {
+        if isStreaming {
+            Button(action: onCancel) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(.red, in: Circle())
+            }
+        } else {
+            Button(action: onSend) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(canSend ? Color.blue : Color.secondary, in: Circle())
+            }
+            .disabled(!canSend)
         }
     }
 

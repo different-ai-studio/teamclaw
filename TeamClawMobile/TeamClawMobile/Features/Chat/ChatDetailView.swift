@@ -45,6 +45,7 @@ struct ChatDetailView: View {
     let mqttService: MQTTServiceProtocol
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: ChatDetailViewModel
 
     @State private var showModelPicker = false
@@ -126,7 +127,6 @@ struct ChatDetailView: View {
                 isStreaming: viewModel.isStreaming,
                 onSend: { viewModel.sendMessage() },
                 onCancel: { viewModel.cancelStreaming() },
-                onModelTap: { showModelPicker = true },
                 onImageSelected: { image in
                     _ = image
                 }
@@ -134,10 +134,44 @@ struct ChatDetailView: View {
         }
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
-            if session.isCollaborative && !session.collaboratorIDs.isEmpty {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    collaboratorAvatars
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button {
+                        showModelPicker = true
+                    } label: {
+                        Label("选择模型", systemImage: "cpu")
+                    }
+                    // TODO: invite member flow
+                    Button { } label: {
+                        Label("邀请成员", systemImage: "person.badge.plus")
+                    }
+                    // TODO: archive session
+                    Button { } label: {
+                        Label("归档 Session", systemImage: "archivebox")
+                    }
+                    ShareLink(item: session.title) {
+                        Label("分享", systemImage: "square.and.arrow.up")
+                    }
+                    // TODO: session detail view
+                    Button { } label: {
+                        Label("Session 详情", systemImage: "info.circle")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -150,23 +184,6 @@ struct ChatDetailView: View {
         .onAppear {
             viewModel.setModelContext(modelContext)
             viewModel.loadMessages()
-        }
-    }
-
-    // MARK: - Collaborator Avatars
-
-    private var collaboratorAvatars: some View {
-        HStack(spacing: -8) {
-            ForEach(session.collaboratorIDs.prefix(3), id: \.self) { collaboratorID in
-                ZStack {
-                    Circle()
-                        .fill(Color.green.opacity(0.2))
-                        .frame(width: 28, height: 28)
-                    Text(String(collaboratorID.prefix(1)).uppercased())
-                        .font(.caption2.bold())
-                        .foregroundStyle(.green)
-                }
-            }
         }
     }
 

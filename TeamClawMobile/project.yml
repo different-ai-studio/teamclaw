@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: tech.teamclaw
   deploymentTarget:
     iOS: "17.0"
-  xcodeVersion: "15"
+  xcodeVersion: "26"
   generateEmptyDirectories: true
 
 settings:

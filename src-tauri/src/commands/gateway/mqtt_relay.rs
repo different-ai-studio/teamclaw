@@ -256,6 +256,8 @@ impl MqttRelay {
                 match self.handle_pairing_request(&req.device_id, &req.device_name).await {
                     Ok(device) => {
                         eprintln!("[MQTT Relay] Paired with device: {} ({})", device.device_name, device.device_id);
+                        // Persist updated config (with new paired device) to disk
+                        self.persist_config().await;
                     }
                     Err(e) => {
                         eprintln!("[MQTT Relay] Pairing failed: {}", e);
@@ -543,6 +545,7 @@ impl MqttRelay {
         let port = self.opencode_port;
         match super::opencode_list_sessions(port).await {
             Ok(sessions) => {
+                eprintln!("[MQTT Relay] Sending {} session(s) to device {}", sessions.len(), &device_id[..device_id.len().min(8)]);
                 let session_data: Vec<proto::SessionData> = sessions
                     .iter()
                     .map(|s| proto::SessionData {
@@ -1063,6 +1066,23 @@ impl MqttRelay {
         }
 
         Ok(())
+    }
+
+    /// Persist current in-memory MQTT config (including paired devices) to disk.
+    async fn persist_config(&self) {
+        let config = self.config.read().await.clone();
+        let workspace_path = self.workspace_path.clone();
+        match super::read_config(&workspace_path) {
+            Ok(mut full_config) => {
+                let mut channels = full_config.channels.unwrap_or_default();
+                channels.mqtt = Some(config);
+                full_config.channels = Some(channels);
+                if let Err(e) = super::write_config(&workspace_path, &full_config) {
+                    eprintln!("[MQTT Relay] Failed to persist config: {}", e);
+                }
+            }
+            Err(e) => eprintln!("[MQTT Relay] Failed to read config for persistence: {}", e),
+        }
     }
 
     // ─── Data Sync ─────────────────────────────────────────────
