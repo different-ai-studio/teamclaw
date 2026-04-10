@@ -8,6 +8,7 @@ import type {
   RenderContext,
 } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import Suggestion from '@tiptap/suggestion'
 import { parseWikiLinkText, serializeWikiLink } from '@/lib/wiki-link-utils'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -106,6 +107,18 @@ export const WikiLinkExtension = Node.create({
     }
   },
 
+  addOptions() {
+    return {
+      suggestion: {
+        char: '[[',
+        allowSpaces: true,
+        items: () => [],
+        command: () => {},
+        render: () => ({}),
+      },
+    }
+  },
+
   addCommands() {
     return {
       insertWikiLink:
@@ -178,6 +191,10 @@ export const WikiLinkExtension = Node.create({
 
   addProseMirrorPlugins() {
     return [
+      Suggestion({
+        editor: this.editor,
+        ...this.options.suggestion,
+      }),
       new Plugin({
         key: new PluginKey('wikiLinkClick'),
         props: {
