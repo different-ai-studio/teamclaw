@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, BookOpen, } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -581,6 +581,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }
 
+  const handleOpenKnowledgePanel = () => {
+    clearSelection()
+    closeSettings()
+    closeEmbeddedSettingsSection()
+    useTabsStore.getState().hideAll()
+    if (isPanelOpen && activeWorkspacePanelTab === 'knowledge') {
+      closePanel()
+    } else {
+      openPanel('knowledge')
+    }
+  }
+
   const shortcutsStripActive =
     isPanelOpen &&
     activeWorkspacePanelTab === "shortcuts" &&
@@ -589,6 +601,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const fileStripActive =
     isPanelOpen &&
     activeWorkspacePanelTab === 'files' &&
+    !embeddedSettingsSection
+
+  const knowledgeStripActive =
+    isPanelOpen &&
+    activeWorkspacePanelTab === 'knowledge' &&
     !embeddedSettingsSection
 
   const handleSelectSession = (id: string) => {
@@ -960,6 +977,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   </span>
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'h-7 justify-start gap-1.5 px-2 font-normal',
+                  knowledgeStripActive && 'bg-primary/10 text-primary font-medium',
+                )}
+                onClick={handleOpenKnowledgePanel}
+              >
+                <BookOpen
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0',
+                    knowledgeStripActive ? 'text-emerald-500' : 'text-muted-foreground',
+                  )}
+                />
+                <span className="truncate text-xs">
+                  {t('navigation.knowledge', 'Knowledge')}
+                </span>
+              </Button>
             </div>
           )}
           <div className="flex items-center justify-between">

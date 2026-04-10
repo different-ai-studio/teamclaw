@@ -50,7 +50,8 @@
     "changes": "变更",
     "tasks": "任务",
     "session": "会话",
-    "shortcuts": "快捷方式"
+    "shortcuts": "快捷方式",
+    "knowledge": "文档"
   },
   "chat": {
     "title": "聊天",
