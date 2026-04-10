@@ -57,6 +57,7 @@ fn parse_doc_type(s: &str) -> Result<DocType, String> {
         "skills" => Ok(DocType::Skills),
         "mcp" => Ok(DocType::Mcp),
         "knowledge" => Ok(DocType::Knowledge),
+        "meta" => Ok(DocType::Meta),
         _ => Err(format!("Unknown doc type: {s}")),
     }
 }

@@ -344,10 +344,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
       unlisten = await listen<{ path: string; kind: string }>('file-change', (event) => {
-        if (!event.payload.path.includes(`${TEAM_REPO_DIR}/.shortcuts.json`)) return;
+        if (!event.payload.path.includes(`${TEAM_REPO_DIR}/_meta/shortcuts.json`)) return;
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(async () => {
-          console.log('[TeamShortcuts] .shortcuts.json changed, reloading');
+          console.log('[TeamShortcuts] _meta/shortcuts.json changed, reloading');
           const { loadTeamShortcutsFile } = await import('@/lib/team-shortcuts');
           const nodes = await loadTeamShortcutsFile(workspacePath);
           useShortcutsStore.getState().setTeamNodes(nodes || []);

@@ -33,7 +33,7 @@ describe('team-shortcuts loader', () => {
     const result = await loadTeamShortcutsFile('/workspace')
     
     expect(result).toBeNull()
-    expect(mockExists).toHaveBeenCalledWith(`/workspace/${TEAM_REPO_DIR}/.shortcuts.json`)
+    expect(mockExists).toHaveBeenCalledWith(`/workspace/${TEAM_REPO_DIR}/_meta/shortcuts.json`)
   })
 
   it('parses valid shortcuts file', async () => {
@@ -61,5 +61,20 @@ describe('team-shortcuts loader', () => {
     const result = await loadTeamShortcutsFile('/workspace')
     
     expect(result).toBeNull()
+  })
+
+  it('creates _meta directory before saving', async () => {
+    mockExists.mockResolvedValue(false)
+
+    const { saveTeamShortcutsFile } = await import('@/lib/team-shortcuts')
+    const ok = await saveTeamShortcutsFile('/workspace', [])
+
+    expect(ok).toBe(true)
+    expect(mockExists).toHaveBeenCalledWith(`/workspace/${TEAM_REPO_DIR}/_meta`)
+    expect(mockMkdir).toHaveBeenCalledWith(`/workspace/${TEAM_REPO_DIR}/_meta`, { recursive: true })
+    expect(mockWriteTextFile).toHaveBeenCalledWith(
+      `/workspace/${TEAM_REPO_DIR}/_meta/shortcuts.json`,
+      JSON.stringify({ version: 1, shortcuts: [] }, null, 2),
+    )
   })
 })

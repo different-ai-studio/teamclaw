@@ -53,6 +53,7 @@ const DOC_TYPES = [
   { key: 'skills', label: 'Skills' },
   { key: 'mcp', label: 'MCP' },
   { key: 'knowledge', label: '知识库' },
+  { key: 'meta', label: '元数据' },
 ]
 
 export function TeamOSSConfig() {
