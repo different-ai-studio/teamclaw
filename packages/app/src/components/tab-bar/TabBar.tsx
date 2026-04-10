@@ -91,8 +91,19 @@ export function TabBar() {
             }}
             onContextMenu={(e) => handleContextMenu(e, tab.id)}
           >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{tab.label}</span>
+            {tab.type === "webview" && tab.faviconUrl ? (
+              <img
+                src={tab.faviconUrl}
+                className="h-3.5 w-3.5 shrink-0"
+                alt=""
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                  (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
+                }}
+              />
+            ) : null}
+            <Icon className={cn("h-3.5 w-3.5 shrink-0", tab.type === "webview" && tab.faviconUrl && "hidden")} />
+            <span className="truncate">{(tab.type === "webview" && tab.title) || tab.label}</span>
             {tab.dirty && (
               <span className="w-2 h-2 rounded-full bg-primary shrink-0" data-dirty="true" />
             )}
