@@ -441,3 +441,215 @@ pub async fn webview_get_url(app: tauri::AppHandle, label: String) -> Result<Str
     }
     Err("Webview not found".to_string())
 }
+
+/// Get the page title of a child webview.
+#[tauri::command]
+pub async fn webview_get_title(app: tauri::AppHandle, label: String) -> Result<String, String> {
+    use tauri::Listener;
+
+    let webview = app
+        .get_webview(&label)
+        .ok_or_else(|| "Webview not found".to_string())?;
+
+    let callback_id = format!(
+        "__title_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+
+    let escaped_id = serde_json::to_string(&callback_id).unwrap_or_else(|_| "\"\"".to_string());
+    let wrapped = format!(
+        r#"try {{
+    const __r = document.title || '';
+    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
+        cmd: "plugin:event|emit",
+        event: {id},
+        payload: JSON.stringify({{ result: __r }})
+    }}));
+}} catch (__e) {{
+    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
+        cmd: "plugin:event|emit",
+        event: {id},
+        payload: JSON.stringify({{ result: '' }})
+    }}));
+}}"#,
+        id = escaped_id,
+    );
+
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    app.once(&callback_id, move |event| {
+        let _ = tx.send(event.payload().to_string());
+    });
+
+    webview
+        .eval(&wrapped)
+        .map_err(|e| format!("Failed to eval: {}", e))?;
+
+    match rx.recv_timeout(std::time::Duration::from_secs(3)) {
+        Ok(raw) => {
+            let payload_str: String = serde_json::from_str(&raw).unwrap_or(raw.clone());
+            let parsed: serde_json::Value =
+                serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::String(raw));
+            Ok(parsed
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string())
+        }
+        Err(_) => Ok(String::new()),
+    }
+}
+
+/// Get the favicon URL of a child webview.
+#[tauri::command]
+pub async fn webview_get_favicon(app: tauri::AppHandle, label: String) -> Result<String, String> {
+    use tauri::Listener;
+
+    let webview = app
+        .get_webview(&label)
+        .ok_or_else(|| "Webview not found".to_string())?;
+
+    let callback_id = format!(
+        "__favicon_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+
+    let escaped_id = serde_json::to_string(&callback_id).unwrap_or_else(|_| "\"\"".to_string());
+    let wrapped = format!(
+        r#"try {{
+    const __el = document.querySelector('link[rel="icon"], link[rel="shortcut icon"], link[rel*="icon"]');
+    const __r = __el ? __el.href : (location.origin + '/favicon.ico');
+    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
+        cmd: "plugin:event|emit",
+        event: {id},
+        payload: JSON.stringify({{ result: __r }})
+    }}));
+}} catch (__e) {{
+    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
+        cmd: "plugin:event|emit",
+        event: {id},
+        payload: JSON.stringify({{ result: '' }})
+    }}));
+}}"#,
+        id = escaped_id,
+    );
+
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    app.once(&callback_id, move |event| {
+        let _ = tx.send(event.payload().to_string());
+    });
+
+    webview
+        .eval(&wrapped)
+        .map_err(|e| format!("Failed to eval: {}", e))?;
+
+    match rx.recv_timeout(std::time::Duration::from_secs(3)) {
+        Ok(raw) => {
+            let payload_str: String = serde_json::from_str(&raw).unwrap_or(raw.clone());
+            let parsed: serde_json::Value =
+                serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::String(raw));
+            Ok(parsed
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string())
+        }
+        Err(_) => Ok(String::new()),
+    }
+}
+
+/// Find text in a child webview page. Returns whether a match was found.
+#[tauri::command]
+pub async fn webview_find_in_page(
+    app: tauri::AppHandle,
+    label: String,
+    query: String,
+    forward: bool,
+) -> Result<bool, String> {
+    use tauri::Listener;
+
+    let webview = app
+        .get_webview(&label)
+        .ok_or_else(|| "Webview not found".to_string())?;
+
+    let callback_id = format!(
+        "__find_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+
+    let escaped_id = serde_json::to_string(&callback_id).unwrap_or_else(|_| "\"\"".to_string());
+    let escaped_query = serde_json::to_string(&query).unwrap_or_else(|_| "\"\"".to_string());
+    let backward = if forward { "false" } else { "true" };
+    let wrapped = format!(
+        r#"try {{
+    const __r = window.find({query}, false, {backward}, true, false, false, false);
+    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
+        cmd: "plugin:event|emit",
+        event: {id},
+        payload: JSON.stringify({{ result: String(__r) }})
+    }}));
+}} catch (__e) {{
+    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
+        cmd: "plugin:event|emit",
+        event: {id},
+        payload: JSON.stringify({{ result: 'false' }})
+    }}));
+}}"#,
+        query = escaped_query,
+        backward = backward,
+        id = escaped_id,
+    );
+
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    app.once(&callback_id, move |event| {
+        let _ = tx.send(event.payload().to_string());
+    });
+
+    webview
+        .eval(&wrapped)
+        .map_err(|e| format!("Failed to eval: {}", e))?;
+
+    match rx.recv_timeout(std::time::Duration::from_secs(3)) {
+        Ok(raw) => {
+            let payload_str: String = serde_json::from_str(&raw).unwrap_or(raw.clone());
+            let parsed: serde_json::Value =
+                serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::String(raw));
+            let result_str = parsed
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("false");
+            Ok(result_str == "true")
+        }
+        Err(_) => Ok(false),
+    }
+}
+
+/// Clear find-in-page highlights in a child webview.
+#[tauri::command]
+pub async fn webview_clear_find(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    if let Some(webview) = app.get_webview(&label) {
+        let _ = webview.eval("window.getSelection().removeAllRanges()");
+    }
+    Ok(())
+}
+
+/// Set the zoom level of a child webview.
+#[tauri::command]
+pub async fn webview_set_zoom(
+    app: tauri::AppHandle,
+    label: String,
+    level: f64,
+) -> Result<(), String> {
+    if let Some(webview) = app.get_webview(&label) {
+        let _ = webview.eval(&format!("document.body.style.zoom = '{}'", level));
+    }
+    Ok(())
+}
