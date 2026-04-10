@@ -12,6 +12,49 @@ import { getScoreBadgeVariant } from '@/lib/knowledge-utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUIStore } from '@/stores/ui'
 import { useKnowledgeStore, type SearchResult } from '@/stores/knowledge'
+import { createWikiLinkRegex, parseWikiLinkText } from '@/lib/wiki-link-utils'
+
+function ContentWithWikiLinks({ text, onLinkClick }: {
+  text: string
+  onLinkClick: (target: string, heading?: string) => void
+}) {
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  const regex = createWikiLinkRegex()
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    // Skip wiki links inside inline code (odd number of backticks before match)
+    const before = text.slice(0, match.index)
+    if ((before.match(/`/g) ?? []).length % 2 === 1) continue
+
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+
+    const parsed = parseWikiLinkText(match[1])
+    parts.push(
+      <button
+        key={match.index}
+        className="wiki-link text-sm"
+        onClick={(e) => {
+          e.stopPropagation()
+          onLinkClick(parsed.target, parsed.heading ?? undefined)
+        }}
+      >
+        {parsed.alias || parsed.target}
+      </button>
+    )
+
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return <>{parts}</>
+}
 
 export const KnowledgeSearchPreview = React.memo(function KnowledgeSearchPreview() {
   const { t } = useTranslation()
@@ -129,7 +172,17 @@ export const KnowledgeSearchPreview = React.memo(function KnowledgeSearchPreview
                   </div>
                 )}
                 
-                <p className="text-sm line-clamp-3 break-words">{result.content}</p>
+                <p className="text-sm line-clamp-3 break-words">
+                  <ContentWithWikiLinks
+                    text={result.content}
+                    onLinkClick={(target, heading) => {
+                      const resolved = useKnowledgeStore.getState().resolveWikiLink(target)
+                      if (resolved && workspacePath) {
+                        selectFile(`${workspacePath}/${resolved}`, undefined, heading)
+                      }
+                    }}
+                  />
+                </p>
               </CardContent>
             </Card>
           ))}
