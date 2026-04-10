@@ -100,12 +100,15 @@ export const WikiLinkExtension = Node.create({
       return idx === -1 ? -1 : idx
     },
     tokenize: (src: string): MarkdownToken | undefined => {
-      const match = /^\[\[([^\]]+)\]\]/.exec(src)
+      const match = /^\[\[([^\]\n]+)\]\]/.exec(src)
       if (!match) return undefined
 
       const raw = match[0]
       const inner = match[1]
       const parts = parseWikiLinkText(inner)
+
+      // Reject empty/whitespace-only targets so marked falls through to literal text
+      if (!parts.target) return undefined
 
       return {
         type: 'wikiLink',
