@@ -253,6 +253,66 @@ pub async fn webview_create(
 })();"#,
     );
 
+    // Report page load progress via Tauri events
+    let label_json = serde_json::to_string(&label).unwrap_or_else(|_| "\"\"".to_string());
+    webview_builder = webview_builder.initialization_script(&format!(
+        r#"(function(){{
+  var __label = {label_json};
+  function __reportProgress(p) {{
+    try {{
+      window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
+        cmd: "plugin:event|emit",
+        event: "webview-progress",
+        payload: JSON.stringify({{ label: __label, progress: p }})
+      }}));
+    }} catch(e) {{}}
+  }}
+  if (document.readyState === 'loading') {{
+    __reportProgress(30);
+    document.addEventListener('DOMContentLoaded', function() {{ __reportProgress(70); }});
+    window.addEventListener('load', function() {{ __reportProgress(100); }});
+  }} else if (document.readyState === 'interactive') {{
+    __reportProgress(70);
+    window.addEventListener('load', function() {{ __reportProgress(100); }});
+  }} else {{
+    __reportProgress(100);
+  }}
+  var __origPush = history.pushState;
+  var __origReplace = history.replaceState;
+  function __onNav() {{
+    __reportProgress(30);
+    setTimeout(function() {{ __reportProgress(100); }}, 500);
+  }}
+  history.pushState = function() {{ __origPush.apply(this, arguments); __onNav(); }};
+  history.replaceState = function() {{ __origReplace.apply(this, arguments); __onNav(); }};
+  window.addEventListener('popstate', __onNav);
+}})()"#,
+        label_json = label_json,
+    ));
+
+    // Right-click context menu: collect context and send to Rust
+    webview_builder = webview_builder.initialization_script(&format!(
+        r#"(function(){{
+  var __label = {label_json};
+  document.addEventListener('contextmenu', function(e) {{
+    var ctx = {{ label: __label, selectedText: '', linkUrl: '', linkText: '', x: e.clientX, y: e.clientY }};
+    var sel = window.getSelection();
+    if (sel && sel.toString().trim()) ctx.selectedText = sel.toString().trim();
+    var a = e.target.closest && e.target.closest('a');
+    if (a && a.href) {{ ctx.linkUrl = a.href; ctx.linkText = a.textContent || ''; }}
+    e.preventDefault();
+    try {{
+      window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
+        cmd: "plugin:event|emit",
+        event: "webview-context-menu",
+        payload: JSON.stringify(ctx)
+      }}));
+    }} catch(ex) {{}}
+  }}, true);
+}})()"#,
+        label_json = label_json,
+    ));
+
     // Inject window.teamclaw identity global before any page scripts run.
     // Non-fatal: if device_token generation fails (e.g. DEVICE_JWT_SECRET not configured),
     // the webview still loads — just without the identity global.
@@ -651,5 +711,90 @@ pub async fn webview_set_zoom(
     if let Some(webview) = app.get_webview(&label) {
         let _ = webview.eval(&format!("document.body.style.zoom = '{}'", level));
     }
+    Ok(())
+}
+
+/// Show a native context menu for the webview.
+#[tauri::command]
+pub async fn webview_show_context_menu(
+    app: tauri::AppHandle,
+    label: String,
+    selected_text: String,
+    link_url: String,
+    _x: f64,
+    _y: f64,
+) -> Result<(), String> {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+
+    let window = app
+        .get_window("main")
+        .ok_or("Main window not found")?;
+
+    let mut builder = MenuBuilder::new(&app);
+
+    if !selected_text.is_empty() {
+        let copy_item = MenuItemBuilder::with_id("ctx_copy", "Copy")
+            .build(&app)
+            .map_err(|e| e.to_string())?;
+        builder = builder.item(&copy_item);
+    }
+
+    let paste_item = MenuItemBuilder::with_id("ctx_paste", "Paste")
+        .build(&app)
+        .map_err(|e| e.to_string())?;
+    builder = builder.item(&paste_item);
+
+    let select_all_item = MenuItemBuilder::with_id("ctx_select_all", "Select All")
+        .build(&app)
+        .map_err(|e| e.to_string())?;
+    builder = builder.item(&select_all_item);
+
+    if !link_url.is_empty() {
+        let sep = PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?;
+        builder = builder.item(&sep);
+        let copy_link_item = MenuItemBuilder::with_id("ctx_copy_link", "Copy Link Address")
+            .build(&app)
+            .map_err(|e| e.to_string())?;
+        builder = builder.item(&copy_link_item);
+    }
+
+    let menu = builder.build().map_err(|e| e.to_string())?;
+
+    let label_clone = label.clone();
+    let link_url_clone = link_url.clone();
+    let app_clone = app.clone();
+
+    window.on_menu_event(move |_window, event| {
+        let id = event.id.as_ref();
+        let wv = app_clone.get_webview(&label_clone);
+        match id {
+            "ctx_copy" => {
+                if let Some(ref wv) = wv {
+                    let _ = wv.eval("document.execCommand('copy')");
+                }
+            }
+            "ctx_paste" => {
+                if let Some(ref wv) = wv {
+                    let _ = wv.eval("document.execCommand('paste')");
+                }
+            }
+            "ctx_select_all" => {
+                if let Some(ref wv) = wv {
+                    let _ = wv.eval("document.execCommand('selectAll')");
+                }
+            }
+            "ctx_copy_link" => {
+                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                    let _ = clipboard.set_text(&link_url_clone);
+                }
+            }
+            _ => {}
+        }
+    });
+
+    window
+        .popup_menu(&menu)
+        .map_err(|e| e.to_string())?;
+
     Ok(())
 }

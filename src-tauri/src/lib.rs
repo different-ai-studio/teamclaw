@@ -545,6 +545,7 @@ pub fn run() {
             commands::webview::webview_find_in_page,
             commands::webview::webview_clear_find,
             commands::webview::webview_set_zoom,
+            commands::webview::webview_show_context_menu,
             commands::spotlight::toggle_spotlight,
             commands::spotlight::set_spotlight_pin,
             commands::spotlight::show_main_window,
