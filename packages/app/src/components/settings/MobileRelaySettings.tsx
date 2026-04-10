@@ -109,9 +109,12 @@ export function MobileRelaySettings() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Poll status every 5s
+  // Poll status + config every 5s so paired devices appear automatically after pairing
   React.useEffect(() => {
-    const interval = setInterval(loadStatus, 5000)
+    const interval = setInterval(async () => {
+      await loadStatus()
+      await loadConfig()
+    }, 5000)
     return () => clearInterval(interval)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

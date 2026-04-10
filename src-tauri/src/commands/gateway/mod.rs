@@ -1102,7 +1102,7 @@ pub(crate) fn read_config(workspace_path: &str) -> Result<OpenCodeJsonConfigWith
 }
 
 /// Write configuration to file
-fn write_config(
+pub(crate) fn write_config(
     workspace_path: &str,
     config: &OpenCodeJsonConfigWithChannels,
 ) -> Result<(), String> {
