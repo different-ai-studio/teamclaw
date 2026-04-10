@@ -7,7 +7,10 @@ import type {
   JSONContent,
   RenderContext,
 } from '@tiptap/core'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { parseWikiLinkText, serializeWikiLink } from '@/lib/wiki-link-utils'
+import { useKnowledgeStore } from '@/stores/knowledge'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -69,6 +72,30 @@ export const WikiLinkExtension = Node.create({
     if (heading) dataAttrs['data-heading'] = heading
 
     return ['span', mergeAttributes(HTMLAttributes, dataAttrs), displayText]
+  },
+
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement('span')
+      const { target, alias, heading } = node.attrs as {
+        target: string
+        alias: string | null
+        heading: string | null
+      }
+      const displayText = alias || (heading ? `${target}#${heading}` : target)
+
+      dom.textContent = displayText
+      dom.setAttribute('data-wiki-link', '')
+      dom.setAttribute('data-target', target)
+      if (alias) dom.setAttribute('data-alias', alias)
+      if (heading) dom.setAttribute('data-heading', heading)
+
+      // Check if target resolves in the current wiki file map
+      const resolved = useKnowledgeStore.getState().resolveWikiLink(target)
+      dom.className = resolved ? 'wiki-link' : 'wiki-link wiki-link--unresolved'
+
+      return { dom }
+    }
   },
 
   addCommands() {
@@ -139,5 +166,51 @@ export const WikiLinkExtension = Node.create({
       alias: (attrs.alias as string | null) || null,
       heading: (attrs.heading as string | null) || null,
     })
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('wikiLinkClick'),
+        props: {
+          handleClick: (_view, _pos, event) => {
+            const targetEl = event.target as HTMLElement | null
+            if (!targetEl) return false
+
+            // The click may land on the span itself or a child text node
+            const linkEl = targetEl.closest('[data-wiki-link]') as HTMLElement | null
+            if (!linkEl) return false
+
+            const wikiTarget = linkEl.getAttribute('data-target')
+            if (!wikiTarget) return false
+
+            const headingAttr = linkEl.getAttribute('data-heading') || undefined
+
+            const knowledge = useKnowledgeStore.getState()
+            const workspace = useWorkspaceStore.getState()
+            const workspacePath = workspace.workspacePath
+            if (!workspacePath) return false
+
+            const resolved = knowledge.resolveWikiLink(wikiTarget)
+            if (resolved) {
+              const absolutePath = `${workspacePath}/${resolved}`
+              workspace.selectFile(absolutePath, undefined, headingAttr)
+            } else {
+              // Create a new note from the wiki link target, then open it
+              knowledge
+                .createNoteFromLink(wikiTarget)
+                .then((newPath) => {
+                  workspace.selectFile(newPath, undefined, headingAttr)
+                })
+                .catch((err) => {
+                  console.error('[WikiLinkExtension] failed to create note:', err)
+                })
+            }
+
+            return true
+          },
+        },
+      }),
+    ]
   },
 })
