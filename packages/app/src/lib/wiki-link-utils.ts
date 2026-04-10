@@ -18,14 +18,16 @@ export function parseWikiLinkText(raw: string): WikiLinkParts {
   // Extract alias (first pipe)
   const pipeIdx = target.indexOf('|')
   if (pipeIdx !== -1) {
-    alias = target.slice(pipeIdx + 1)
+    const aliasRaw = target.slice(pipeIdx + 1)
+    alias = aliasRaw.length > 0 ? aliasRaw : null
     target = target.slice(0, pipeIdx)
   }
 
   // Extract heading (first hash)
   const hashIdx = target.indexOf('#')
   if (hashIdx !== -1) {
-    heading = target.slice(hashIdx + 1)
+    const headingRaw = target.slice(hashIdx + 1)
+    heading = headingRaw.length > 0 ? headingRaw : null
     target = target.slice(0, hashIdx)
   }
 
@@ -43,7 +45,11 @@ export function serializeWikiLink(parts: WikiLinkParts): string {
 }
 
 /**
- * Regex that matches [[...]] wiki link syntax in a string.
+ * Factory: creates a fresh regex matching `[[...]]` wiki link syntax.
+ * Always returns a new RegExp to avoid `lastIndex` state leaking across callers.
  * Capture group 1 = content inside brackets.
+ *
+ * Note: does NOT exclude matches inside code fences or inline code —
+ * that's the caller's responsibility.
  */
-export const WIKI_LINK_REGEX = /\[\[([^\]]+)\]\]/g
+export const createWikiLinkRegex = (): RegExp => /\[\[([^\]]+)\]\]/g

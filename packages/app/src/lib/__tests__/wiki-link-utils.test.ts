@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseWikiLinkText, serializeWikiLink } from '../wiki-link-utils'
+import { parseWikiLinkText, serializeWikiLink, createWikiLinkRegex } from '../wiki-link-utils'
 
 describe('parseWikiLinkText', () => {
   it('parses simple page name', () => {
@@ -66,5 +66,51 @@ describe('serializeWikiLink', () => {
 
   it('serializes with heading + alias', () => {
     expect(serializeWikiLink({ target: 'Q2排期', alias: 'Risk', heading: '风险' })).toBe('[[Q2排期#风险|Risk]]')
+  })
+})
+
+describe('parseWikiLinkText edge cases', () => {
+  it('treats # inside alias as literal (alias extracted first)', () => {
+    expect(parseWikiLinkText('Target|Display#Name')).toEqual({
+      target: 'Target',
+      alias: 'Display#Name',
+      heading: null,
+    })
+  })
+
+  it('normalizes empty heading to null', () => {
+    expect(parseWikiLinkText('Target#')).toEqual({
+      target: 'Target',
+      alias: null,
+      heading: null,
+    })
+  })
+
+  it('normalizes empty alias to null', () => {
+    expect(parseWikiLinkText('Target|')).toEqual({
+      target: 'Target',
+      alias: null,
+      heading: null,
+    })
+  })
+})
+
+describe('createWikiLinkRegex', () => {
+  it('returns a fresh regex each call (no lastIndex sharing)', () => {
+    const r1 = createWikiLinkRegex()
+    const r2 = createWikiLinkRegex()
+    expect(r1).not.toBe(r2)
+    expect(r1.global).toBe(true)
+  })
+
+  it('matches all wiki links in a string', () => {
+    const r = createWikiLinkRegex()
+    const text = 'see [[Page A]] and [[Page B|B alias]]'
+    const matches: string[] = []
+    let m: RegExpExecArray | null
+    while ((m = r.exec(text)) !== null) {
+      matches.push(m[1])
+    }
+    expect(matches).toEqual(['Page A', 'Page B|B alias'])
   })
 })
