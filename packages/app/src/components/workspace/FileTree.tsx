@@ -249,6 +249,10 @@ interface FileTreeProps {
   nodes?: import('@/stores/workspace').FileNode[];
   /** Suppress git status decorations */
   hideGitStatus?: boolean;
+  /** When set, shows an InlineInput at the top of the tree for creating a file or folder at root level */
+  rootCreating?: 'file' | 'folder' | null;
+  onRootCreateConfirm?: (name: string) => void;
+  onRootCreateCancel?: () => void;
 }
 
 export function FileTree({
@@ -256,6 +260,9 @@ export function FileTree({
   gitChangedOnly = false,
   nodes: nodesProp,
   hideGitStatus = false,
+  rootCreating,
+  onRootCreateConfirm,
+  onRootCreateCancel,
 }: FileTreeProps) {
   const { t } = useTranslation();
   const storeFileTree = useWorkspaceStore(s => s.fileTree);
@@ -1246,6 +1253,21 @@ export function FileTree({
 
   const treeContent = !useVirtual ? (
     <div className="py-1">
+      {rootCreating && onRootCreateConfirm && onRootCreateCancel && (
+        <InlineInput
+          defaultValue={rootCreating === 'file' ? 'untitled' : 'new-folder'}
+          onConfirm={onRootCreateConfirm}
+          onCancel={onRootCreateCancel}
+          level={0}
+          icon={
+            rootCreating === 'file' ? (
+              <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground rotate-90" />
+            )
+          }
+        />
+      )}
       {flatNodes.map(({ node, level, compactName, compactedPaths }, index) => (
         <React.Fragment key={node.path}>
           <FileTreeItem {...buildItemProps(node, level, compactName, compactedPaths)} />

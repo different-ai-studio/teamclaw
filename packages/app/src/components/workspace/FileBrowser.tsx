@@ -28,9 +28,13 @@ interface FileBrowserProps {
   hideGitStatus?: boolean
   /** Extra action icons shown in the panel toolbar's collapsed state (e.g. New Note, New Folder) */
   actionIcons?: React.ReactNode
+  /** When set, shows an InlineInput at the top of the file tree for root-level creation */
+  rootCreating?: 'file' | 'folder' | null
+  onRootCreateConfirm?: (name: string) => void
+  onRootCreateCancel?: () => void
 }
 
-export function FileBrowser({ className, variant = 'default', rootPath, hideGitStatus = false, actionIcons }: FileBrowserProps) {
+export function FileBrowser({ className, variant = 'default', rootPath, hideGitStatus = false, actionIcons, rootCreating, onRootCreateConfirm, onRootCreateCancel }: FileBrowserProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const isPanelOpen = useWorkspaceStore(s => s.isPanelOpen)
@@ -330,7 +334,7 @@ export function FileBrowser({ className, variant = 'default', rootPath, hideGitS
       <ScrollAreaPrimitive.Root className="flex-1 relative overflow-hidden">
         <ScrollAreaPrimitive.Viewport className="h-full w-full">
           <div className="py-1 min-w-max">
-            <FileTree filterText={deferredFilterText} gitChangedOnly={gitChangedOnly} nodes={effectiveTree} hideGitStatus={isCustomRoot || hideGitStatus} />
+            <FileTree filterText={deferredFilterText} gitChangedOnly={gitChangedOnly} nodes={effectiveTree} hideGitStatus={isCustomRoot || hideGitStatus} rootCreating={rootCreating} onRootCreateConfirm={onRootCreateConfirm} onRootCreateCancel={onRootCreateCancel} />
           </div>
         </ScrollAreaPrimitive.Viewport>
         <ScrollBar orientation="vertical" />
