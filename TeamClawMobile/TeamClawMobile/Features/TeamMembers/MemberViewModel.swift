@@ -8,16 +8,20 @@ final class MemberViewModel: ObservableObject {
     @Published var members: [TeamMember] = []
     @Published private(set) var isDesktopOnline: Bool = false
 
-    private let modelContext: ModelContext
+    private var modelContext: ModelContext?
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
 
-    init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
-        self.modelContext = modelContext
+    func setModelContext(_ context: ModelContext) {
+        guard modelContext == nil else { return }
+        modelContext = context
+        loadMembersFromDB()
+    }
+
+    init(mqttService: MQTTServiceProtocol) {
         self.mqttService = mqttService
         subscribeToMQTT()
         subscribeToStatus()
-        loadMembersFromDB()
     }
 
     func loadMembers() {
@@ -38,6 +42,7 @@ final class MemberViewModel: ObservableObject {
     }
 
     func collaborativeSessions(for member: TeamMember) -> [Session] {
+        guard let modelContext else { return [] }
         let descriptor = FetchDescriptor<Session>()
         guard let allSessions = try? modelContext.fetch(descriptor) else { return [] }
         return allSessions.filter { $0.isCollaborative && $0.collaboratorIDs.contains(member.id) }
@@ -60,6 +65,7 @@ final class MemberViewModel: ObservableObject {
     private var receivedIDs: Set<String> = []
 
     private func handleMemberSync(_ response: Teamclaw_MemberSyncResponse) {
+        guard let modelContext else { return }
         let pg = response.pagination
 
         // Don't wipe cached members when server returns empty first page
@@ -112,6 +118,7 @@ final class MemberViewModel: ObservableObject {
     }
 
     private func loadMembersFromDB() {
+        guard let modelContext else { return }
         let descriptor = FetchDescriptor<TeamMember>(sortBy: [SortDescriptor(\.name)])
         members = (try? modelContext.fetch(descriptor)) ?? []
     }

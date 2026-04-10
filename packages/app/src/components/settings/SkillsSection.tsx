@@ -1,8 +1,11 @@
 import * as React from 'react'
+import { lazy, Suspense } from 'react'
 import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+
+const CodeEditor = lazy(() => import('@/components/editors/CodeEditor'))
 import {
   Sparkles,
   Award,
@@ -1278,14 +1281,19 @@ ${skillContent.trim()}`
                         onChange={(e) => setSkillName(e.target.value)}
                       />
                     </div>
-                    <div className="space-y-2 flex-1">
+                    <div className="space-y-2 flex-1 min-h-[300px]">
                       <label className="text-sm font-medium">{t('settings.skills.content', 'Content (Markdown)')}</label>
-                      <textarea
-                        className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-                        placeholder="# My Skill&#10;&#10;Describe what this skill does and provide instructions for the AI..."
-                        value={skillContent}
-                        onChange={(e) => setSkillContent(e.target.value)}
-                      />
+                      <div className="h-[400px] rounded-md border border-input overflow-hidden">
+                        <Suspense fallback={<div className="h-full flex items-center justify-center text-muted-foreground text-sm">Loading editor...</div>}>
+                          <CodeEditor
+                            content={skillContent}
+                            filename="SKILL.md"
+                            filePath=""
+                            onChange={(value) => setSkillContent(value)}
+                            isDark={document.documentElement.classList.contains('dark')}
+                          />
+                        </Suspense>
+                      </div>
                     </div>
                   </>
                 )}

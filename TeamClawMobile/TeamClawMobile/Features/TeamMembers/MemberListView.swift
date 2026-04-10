@@ -10,6 +10,18 @@ struct MemberListView: View {
     @State private var showSkillMarket = false
     @State private var selectedMemberForAutomation: TeamMember?
 
+    @StateObject private var talentViewModel: TalentViewModel
+    @StateObject private var skillViewModel: SkillViewModel
+    @StateObject private var taskViewModel: TaskViewModel
+
+    init(viewModel: MemberViewModel, mqttService: MQTTServiceProtocol) {
+        self.viewModel = viewModel
+        self.mqttService = mqttService
+        _talentViewModel = StateObject(wrappedValue: TalentViewModel(mqttService: mqttService))
+        _skillViewModel = StateObject(wrappedValue: SkillViewModel(mqttService: mqttService))
+        _taskViewModel = StateObject(wrappedValue: TaskViewModel(mqttService: mqttService))
+    }
+
     private var displayedMembers: [TeamMember] {
         if searchText.isEmpty {
             return viewModel.members
@@ -71,32 +83,23 @@ struct MemberListView: View {
                 viewModel.requestMembers()
             }
             .onAppear {
+                viewModel.setModelContext(modelContext)
+                talentViewModel.setModelContext(modelContext)
+                skillViewModel.setModelContext(modelContext)
+                taskViewModel.setModelContext(modelContext)
                 viewModel.loadMembers()
             }
             .sheet(isPresented: $showFeaturedAllies) {
-                FeaturedAllyView(
-                    viewModel: TalentViewModel(
-                        modelContext: modelContext,
-                        mqttService: mqttService
-                    )
-                )
+                FeaturedAllyView(viewModel: talentViewModel)
             }
             .sheet(isPresented: $showSkillMarket) {
-                SkillMarketView(
-                    viewModel: SkillViewModel(
-                        modelContext: modelContext,
-                        mqttService: mqttService
-                    )
-                )
+                SkillMarketView(viewModel: skillViewModel)
             }
             .sheet(item: $selectedMemberForAutomation) { member in
                 NavigationStack {
                     MemberAutomationView(
                         memberName: member.name,
-                        viewModel: TaskViewModel(
-                            modelContext: modelContext,
-                            mqttService: mqttService
-                        )
+                        viewModel: taskViewModel
                     )
                 }
             }

@@ -1,6 +1,6 @@
 name: TeamClawMobile
 options:
-  bundleIdPrefix: com.teamclaw
+  bundleIdPrefix: tech.teamclaw
   deploymentTarget:
     iOS: "17.0"
   xcodeVersion: "15"
@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5"
-    PRODUCT_BUNDLE_IDENTIFIER: com.teamclaw.TeamClawMobile
-    DEVELOPMENT_TEAM: ""
+    PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile
+    DEVELOPMENT_TEAM: "43G5A6G9QV"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1,2"
 
@@ -24,6 +24,9 @@ packages:
   Alamofire:
     url: https://github.com/Alamofire/Alamofire.git
     from: 5.9.0
+  swift-protobuf:
+    url: https://github.com/apple/swift-protobuf.git
+    from: 1.28.0
 
 targets:
   TeamClawMobile:
@@ -35,7 +38,7 @@ targets:
     info:
       path: TeamClawMobile/Info.plist
       properties:
-        CFBundleDisplayName: TeamClaw Mobile
+        CFBundleDisplayName: TeamClaw
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: "1"
         UILaunchScreen:
@@ -65,6 +68,8 @@ targets:
         product: Markdown
       - package: Alamofire
         product: Alamofire
+      - package: swift-protobuf
+        product: SwiftProtobuf
 
   TeamClawMobileTests:
     type: bundle.unit-test

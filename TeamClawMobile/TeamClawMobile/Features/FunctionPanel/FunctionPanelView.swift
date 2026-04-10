@@ -9,53 +9,46 @@ struct FunctionPanelView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
+    @StateObject private var taskViewModel: TaskViewModel
+    @StateObject private var skillViewModel: SkillViewModel
+    @StateObject private var talentViewModel: TalentViewModel
+
+    init(mqttService: MQTTServiceProtocol, pairingManager: PairingManager, connectionMonitor: ConnectionMonitor) {
+        self.mqttService = mqttService
+        self.pairingManager = pairingManager
+        self.connectionMonitor = connectionMonitor
+        _taskViewModel = StateObject(wrappedValue: TaskViewModel(mqttService: mqttService))
+        _skillViewModel = StateObject(wrappedValue: SkillViewModel(mqttService: mqttService))
+        _talentViewModel = StateObject(wrappedValue: TalentViewModel(mqttService: mqttService))
+    }
+
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     NavigationLink {
-                        TaskListView(
-                            viewModel: TaskViewModel(
-                                modelContext: modelContext,
-                                mqttService: mqttService
-                            )
-                        )
+                        TaskListView(viewModel: taskViewModel)
                     } label: {
                         Label("自动化", systemImage: "bolt.fill")
                             .foregroundStyle(.orange)
                     }
 
                     NavigationLink {
-                        SkillHomeView(
-                            viewModel: SkillViewModel(
-                                modelContext: modelContext,
-                                mqttService: mqttService
-                            )
-                        )
+                        SkillHomeView(viewModel: skillViewModel)
                     } label: {
                         Label("技能", systemImage: "puzzlepiece.fill")
                             .foregroundStyle(.purple)
                     }
 
                     NavigationLink {
-                        FeaturedAllyListView(
-                            viewModel: TalentViewModel(
-                                modelContext: modelContext,
-                                mqttService: mqttService
-                            )
-                        )
+                        FeaturedAllyListView(viewModel: talentViewModel)
                     } label: {
                         Label("精选搭档", systemImage: "cpu.fill")
                             .foregroundStyle(.blue)
                     }
 
                     NavigationLink {
-                        SkillMarketListView(
-                            viewModel: SkillViewModel(
-                                modelContext: modelContext,
-                                mqttService: mqttService
-                            )
-                        )
+                        SkillMarketListView(viewModel: skillViewModel)
                     } label: {
                         Label("技能市场", systemImage: "bag.fill")
                             .foregroundStyle(.teal)
@@ -86,6 +79,11 @@ struct FunctionPanelView: View {
                         dismiss()
                     }
                 }
+            }
+            .onAppear {
+                taskViewModel.setModelContext(modelContext)
+                skillViewModel.setModelContext(modelContext)
+                talentViewModel.setModelContext(modelContext)
             }
         }
     }

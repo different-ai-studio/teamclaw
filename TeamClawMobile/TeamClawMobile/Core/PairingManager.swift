@@ -187,7 +187,8 @@ struct PairingResult {
 ///  3. Subscribe to `teamclaw/{team_id}/pairing/{code}` for credentials response
 ///  4. Publish pair request to `teamclaw/{team_id}/pairing/{code}`
 ///  5. Receive credentials, disconnect, return result
-actor PairingService {
+@MainActor
+final class PairingService {
 
     private var mqtt: CocoaMQTT5?
     private var continuation: CheckedContinuation<PairingResult, Error>?
@@ -220,9 +221,8 @@ actor PairingService {
     }
 
     private func run() async throws -> PairingResult {
-        try await withCheckedThrowingContinuation { [weak self] cont in
-            guard let self else { cont.resume(throwing: PairingError.cancelled); return }
-            Task { await self.start(continuation: cont) }
+        try await withCheckedThrowingContinuation { cont in
+            self.start(continuation: cont)
         }
     }
 
@@ -231,7 +231,6 @@ actor PairingService {
 
         let clientID = "teamclaw-ios-pair-\(UUID().uuidString.prefix(8))"
         NSLog("[Pairing] Connecting to \(PairingManager.sharedHost):\(PairingManager.sharedPort) as \(clientID)")
-        NSLog("[Pairing] Username: \(PairingManager.sharedUsername)")
 
         let client = CocoaMQTT5(
             clientID: clientID,
@@ -266,9 +265,9 @@ actor PairingService {
         }
 
         // Timeout after 20 seconds
-        Task {
+        Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 20_000_000_000)
-            await self.fail(PairingError.timeout)
+            self?.fail(PairingError.timeout)
         }
     }
 
@@ -353,7 +352,7 @@ actor PairingService {
 
 // MARK: - PairingMQTTDelegate
 
-/// NSObject delegate to handle CocoaMQTT5 callbacks and forward to PairingService actor
+/// NSObject delegate to handle CocoaMQTT5 callbacks and forward to PairingService on main thread
 private final class PairingMQTTDelegate: NSObject, CocoaMQTT5Delegate {
     weak var service: PairingService?
 
@@ -362,20 +361,23 @@ private final class PairingMQTTDelegate: NSObject, CocoaMQTT5Delegate {
     }
 
     func mqtt5(_ mqtt5: CocoaMQTT5, didConnectAck ack: CocoaMQTTCONNACKReasonCode, connAckData: MqttDecodeConnAck?) {
-        Task { [weak self] in
-            await self?.service?.handleConnectAck(mqtt5, ack: ack)
+        DispatchQueue.main.async { [weak self] in
+            self?.service?.handleConnectAck(mqtt5, ack: ack)
         }
     }
 
     func mqtt5(_ mqtt5: CocoaMQTT5, didReceiveMessage message: CocoaMQTT5Message, id: UInt16, publishData: MqttDecodePublish?) {
-        Task { [weak self] in
-            await self?.service?.handleMessage(mqtt5, message: message)
+        let payload = message.payload
+        let topic = message.topic
+        DispatchQueue.main.async { [weak self] in
+            let msg = CocoaMQTT5Message(topic: topic, payload: payload)
+            self?.service?.handleMessage(mqtt5, message: msg)
         }
     }
 
     func mqtt5DidDisconnect(_ mqtt5: CocoaMQTT5, withError err: Error?) {
-        Task { [weak self] in
-            await self?.service?.handleDisconnect(err)
+        DispatchQueue.main.async { [weak self] in
+            self?.service?.handleDisconnect(err)
         }
     }
 

@@ -30,7 +30,7 @@ final class TaskViewModelTests: XCTestCase {
     // MARK: - Test 1: Add Task
 
     func testAddTask() throws {
-        let viewModel = TaskViewModel(modelContext: context, mqttService: mockMQTT)
+        let viewModel = { let vm = TaskViewModel(mqttService: mockMQTT); vm.setModelContext(context); return vm }()
 
         viewModel.addTask(name: "每日报告", cron: "0 9 * * *", description: "生成每日运营报告")
 
@@ -42,7 +42,7 @@ final class TaskViewModelTests: XCTestCase {
     // MARK: - Test 2: Delete Task
 
     func testDeleteTask() throws {
-        let viewModel = TaskViewModel(modelContext: context, mqttService: mockMQTT)
+        let viewModel = { let vm = TaskViewModel(mqttService: mockMQTT); vm.setModelContext(context); return vm }()
 
         viewModel.addTask(name: "临时任务", cron: "*/5 * * * *", description: "测试用")
         XCTAssertEqual(viewModel.tasks.count, 1)
@@ -54,7 +54,7 @@ final class TaskViewModelTests: XCTestCase {
     // MARK: - Test 3: Update Task
 
     func testUpdateTask() throws {
-        let viewModel = TaskViewModel(modelContext: context, mqttService: mockMQTT)
+        let viewModel = { let vm = TaskViewModel(mqttService: mockMQTT); vm.setModelContext(context); return vm }()
 
         viewModel.addTask(name: "原始名称", cron: "0 0 * * *", description: "原始描述")
         XCTAssertEqual(viewModel.tasks.count, 1)

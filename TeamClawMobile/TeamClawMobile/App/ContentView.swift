@@ -5,23 +5,8 @@ struct ContentView: View {
     @ObservedObject var pairingManager: PairingManager
     @Environment(\.modelContext) private var modelContext
 
-    @StateObject private var connectionMonitor: ConnectionMonitor
+    @StateObject private var connectionMonitor = ConnectionMonitor(mqttService: MQTTService())
     @State private var hasRequestedInitialData = false
-
-    init(pairingManager: PairingManager) {
-        self.pairingManager = pairingManager
-        let mqtt = MQTTService()
-        self._connectionMonitor = StateObject(wrappedValue: ConnectionMonitor(mqttService: mqtt))
-
-        if pairingManager.isPaired {
-            mqtt.connect(
-                host: PairingManager.sharedHost,
-                port: PairingManager.sharedPort,
-                username: PairingManager.sharedUsername,
-                password: PairingManager.sharedPassword
-            )
-        }
-    }
 
     var body: some View {
         Group {
@@ -29,12 +14,14 @@ struct ContentView: View {
                 SessionListView(
                     mqttService: connectionMonitor.mqttService,
                     connectionMonitor: connectionMonitor,
-                    pairingManager: pairingManager,
-                    modelContext: modelContext
+                    pairingManager: pairingManager
                 )
             } else {
                 PairingView(pairingManager: pairingManager)
             }
+        }
+        .task {
+            connectIfPaired()
         }
         .onChange(of: connectionMonitor.isMQTTConnected) { _, connected in
             guard connected, let creds = pairingManager.credentials else { return }
@@ -47,18 +34,24 @@ struct ContentView: View {
         .onChange(of: pairingManager.isPaired) { _, paired in
             if paired {
                 hasRequestedInitialData = false
-                guard let mqtt = connectionMonitor.mqttService as? MQTTService else { return }
-                mqtt.connect(
-                    host: PairingManager.sharedHost,
-                    port: PairingManager.sharedPort,
-                    username: PairingManager.sharedUsername,
-                    password: PairingManager.sharedPassword
-                )
+                connectIfPaired()
             } else {
                 clearAllData()
                 (connectionMonitor.mqttService as? MQTTService)?.disconnect()
             }
         }
+    }
+
+    private func connectIfPaired() {
+        guard pairingManager.isPaired,
+              let creds = pairingManager.credentials,
+              let mqtt = connectionMonitor.mqttService as? MQTTService else { return }
+        mqtt.connect(
+            host: creds.mqttHost,
+            port: creds.mqttPort,
+            username: creds.mqttUsername,
+            password: creds.mqttPassword
+        )
     }
 
     private func subscribeTopics(creds: PairingCredentials) {
