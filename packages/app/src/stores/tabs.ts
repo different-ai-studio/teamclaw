@@ -6,6 +6,8 @@ export interface Tab {
   target: string;
   label: string;
   dirty: boolean;
+  title?: string;
+  faviconUrl?: string;
 }
 
 interface OpenTabInput {
@@ -32,6 +34,7 @@ interface TabsState {
   /** Re-activate the last tab after hideAll */
   restoreLastTab: () => void;
   getActiveTab: () => Tab | null;
+  updateTabMeta: (target: string, meta: { title?: string; faviconUrl?: string }) => void;
 }
 
 /** True when tabs exist but none is active (hidden via hideAll). */
@@ -127,5 +130,13 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     const { tabs, activeTabId } = get();
     if (!activeTabId) return null;
     return tabs.find((t) => t.id === activeTabId) ?? null;
+  },
+
+  updateTabMeta: (target, meta) => {
+    set({
+      tabs: get().tabs.map((t) =>
+        t.target === target ? { ...t, ...meta } : t
+      ),
+    });
   },
 }));
