@@ -26,6 +26,7 @@ import {
   RotateCw,
   MessageSquarePlus,
   AppWindow,
+  BookOpen,
 } from "lucide-react";
 // Spotlight window - lazy loaded for spotlight window label
 const SpotlightWindow = lazy(() =>
@@ -507,7 +508,7 @@ function AppContent() {
   const hasHiddenTabs = useTabsStore(selectHasHiddenTabs);
   /** Shortcuts always dock left; Files dock left only in default variant (workspace uses the right panel for Files). */
   const leftDockActive =
-    isPanelOpen && (activeTab === "shortcuts" || (!isWorkspaceUIVariant() && activeTab === "files"));
+    isPanelOpen && (activeTab === "shortcuts" || activeTab === "knowledge" || (!isWorkspaceUIVariant() && activeTab === "files"));
   const showRightWorkspacePanel = isPanelOpen && !leftDockActive;
   const isCollapsed = state === "collapsed";
   /** Native traffic lights sit over the left column; spare inset header when left dock owns that strip. */
@@ -1011,7 +1012,9 @@ function AppContent() {
                   <span className="min-w-0 truncate text-sm font-medium">
                     {activeTab === "files"
                       ? t("navigation.files", "Files")
-                      : t("navigation.shortcuts", "Shortcuts")}
+                      : activeTab === "knowledge"
+                        ? t("navigation.knowledge", "Knowledge")
+                        : t("navigation.shortcuts", "Shortcuts")}
                   </span>
                   <div className="min-w-0 flex-1" data-tauri-drag-region />
                 </div>
@@ -1136,6 +1139,12 @@ function AppContent() {
                   onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
                 />
               )}
+              <HeaderPanelTab
+                icon={BookOpen}
+                label={t("navigation.knowledge", "Knowledge")}
+                isActive={isPanelOpen && activeTab === "knowledge"}
+                onClick={() => isPanelOpen && activeTab === "knowledge" ? closePanel() : openPanel("knowledge")}
+              />
               {showRightWorkspacePanel && (
                 <button
                   className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

@@ -40,6 +40,10 @@ vi.mock('@/components/panel/ShortcutsPanel', () => ({
   ShortcutsPanel: () => React.createElement('div', { 'data-testid': 'shortcuts-panel' }),
 }));
 
+vi.mock('@/components/knowledge/KnowledgeBrowser', () => ({
+  KnowledgeBrowser: () => React.createElement('div', { 'data-testid': 'knowledge-browser' }),
+}));
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('RightPanel interactions', () => {

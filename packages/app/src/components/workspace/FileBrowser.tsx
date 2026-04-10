@@ -22,9 +22,15 @@ interface FileBrowserProps {
   // 'default' - shows header with workspace name (for right panel)
   // 'panel' - no header, for file mode left panel (header handled by parent)
   variant?: 'default' | 'panel'
+  /** Override root directory. Defaults to workspace root. */
+  rootPath?: string
+  /** Hide git status indicators */
+  hideGitStatus?: boolean
+  /** Custom toolbar rendered above the filter input */
+  toolbar?: React.ReactNode
 }
 
-export function FileBrowser({ className, variant = 'default' }: FileBrowserProps) {
+export function FileBrowser({ className, variant = 'default', rootPath, hideGitStatus = false, toolbar }: FileBrowserProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const isPanelOpen = useWorkspaceStore(s => s.isPanelOpen)
@@ -36,6 +42,24 @@ export function FileBrowser({ className, variant = 'default' }: FileBrowserProps
   const [filterText, setFilterText] = React.useState('')
   const deferredFilterText = React.useDeferredValue(filterText)
   const [gitChangedOnly, setGitChangedOnly] = React.useState(false)
+
+  const [localTree, setLocalTree] = React.useState<import('@/stores/workspace').FileNode[]>([])
+  const isCustomRoot = !!rootPath
+  const effectiveTree = isCustomRoot ? localTree : undefined
+
+  const refreshLocalTree = React.useCallback(async () => {
+    if (!rootPath) return
+    const { loadDirectory } = useWorkspaceStore.getState()
+    const nodes = await loadDirectory(rootPath)
+    setLocalTree(nodes)
+  }, [rootPath])
+
+  React.useEffect(() => {
+    if (isCustomRoot) refreshLocalTree()
+  }, [isCustomRoot, refreshLocalTree])
+
+  // Listen for file-change events for custom root
+  useFileChangeListener(() => { if (isCustomRoot) refreshLocalTree() }, 300, !!workspacePath && isCustomRoot)
 
   // Auto-refresh file tree when panel opens (default variant) or when mounted (panel variant)
   React.useEffect(() => {
@@ -90,6 +114,7 @@ export function FileBrowser({ className, variant = 'default' }: FileBrowserProps
 
   return (
     <div className={cn('flex flex-col h-full', className)} data-file-browser data-testid="file-browser">
+      {toolbar}
       {/* Filter input */}
       <div className="px-2 py-1.5 border-b">
         <div className="flex items-center gap-1">
@@ -175,7 +200,7 @@ export function FileBrowser({ className, variant = 'default' }: FileBrowserProps
       <ScrollAreaPrimitive.Root className="flex-1 relative overflow-hidden">
         <ScrollAreaPrimitive.Viewport className="h-full w-full">
           <div className="py-1 min-w-max">
-            <FileTree filterText={deferredFilterText} gitChangedOnly={gitChangedOnly} />
+            <FileTree filterText={deferredFilterText} gitChangedOnly={gitChangedOnly} nodes={effectiveTree} hideGitStatus={isCustomRoot || hideGitStatus} />
           </div>
         </ScrollAreaPrimitive.Viewport>
         <ScrollBar orientation="vertical" />

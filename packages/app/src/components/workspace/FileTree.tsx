@@ -245,14 +245,21 @@ const VIRTUAL_SCROLL_THRESHOLD = 200;
 interface FileTreeProps {
   filterText?: string;
   gitChangedOnly?: boolean;
+  /** Override tree nodes (e.g. for custom root). When provided, bypasses workspace store's fileTree. */
+  nodes?: import('@/stores/workspace').FileNode[];
+  /** Suppress git status decorations */
+  hideGitStatus?: boolean;
 }
 
 export function FileTree({
   filterText = "",
   gitChangedOnly = false,
+  nodes: nodesProp,
+  hideGitStatus = false,
 }: FileTreeProps) {
   const { t } = useTranslation();
-  const fileTree = useWorkspaceStore(s => s.fileTree);
+  const storeFileTree = useWorkspaceStore(s => s.fileTree);
+  const fileTree = nodesProp ?? storeFileTree;
   const expandedPaths = useWorkspaceStore(s => s.expandedPaths);
   const loadingPaths = useWorkspaceStore(s => s.loadingPaths);
   const selectedFile = useWorkspaceStore(s => s.selectedFile);
@@ -276,6 +283,7 @@ export function FileTree({
   const { gitStatuses } = useGitStatus();
   const { showGitStatus, showStatusIcons, statusColors } =
     useGitSettingsStore();
+  const effectiveShowGitStatus = hideGitStatus ? false : showGitStatus;
   const parentRef = useRef<HTMLDivElement>(null);
   const treeContainerRef = useRef<HTMLDivElement>(null);
 
@@ -311,7 +319,7 @@ export function FileTree({
 
   // Pre-compute git data
   const { fileGitStatusMap, dirtyDirectories } = useMemo(() => {
-    if (!showGitStatus) {
+    if (!effectiveShowGitStatus) {
       return {
         fileGitStatusMap: new Map<string, GitStatus>(),
         dirtyDirectories: new Set<string>(),
@@ -332,7 +340,7 @@ export function FileTree({
     });
 
     return { fileGitStatusMap: fileMap, dirtyDirectories: dirtyDirs };
-  }, [showGitStatus, gitStatuses, workspacePath]);
+  }, [effectiveShowGitStatus, gitStatuses, workspacePath]);
 
   // Pre-compute sync status data for team files (merge OSS and P2P sources)
   const ossFileSyncStatusMap = useTeamOssStore(s => s.fileSyncStatusMap);

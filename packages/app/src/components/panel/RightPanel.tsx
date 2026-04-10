@@ -3,6 +3,7 @@ import { SessionDiffPanel } from '@/components/chat/SessionDiffPanel'
 import { SessionList } from '@/components/chat/SessionList'
 import { FileBrowser } from '@/components/workspace/FileBrowser'
 import { ShortcutsPanel } from './ShortcutsPanel'
+import { KnowledgeBrowser } from '@/components/knowledge/KnowledgeBrowser'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useSessionStore } from '@/stores/session'
 import type { Todo, FileDiff } from '@/lib/opencode/sdk-types'
@@ -11,7 +12,7 @@ interface RightPanelProps {
   todos?: Todo[]
   diff?: FileDiff[]
   // Override the active tab from store
-  defaultTab?: 'tasks' | 'diff' | 'files' | 'session' | 'shortcuts'
+  defaultTab?: 'tasks' | 'diff' | 'files' | 'session' | 'shortcuts' | 'knowledge'
   // Compact mode for file mode layout
   compact?: boolean
 }
@@ -44,6 +45,9 @@ export function RightPanel({ todos, diff, defaultTab, compact }: RightPanelProps
       )}
       {activeTab === 'session' && (
         <SessionList compact={compact} />
+      )}
+      {activeTab === 'knowledge' && (
+        <KnowledgeBrowser />
       )}
     </div>
   )
