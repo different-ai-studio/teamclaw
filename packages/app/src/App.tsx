@@ -89,7 +89,9 @@ import { useTabsStore, selectActiveTab, selectHasHiddenTabs } from "@/stores/tab
 import { TabBar } from "@/components/tab-bar/TabBar";
 import { TabContentRenderer } from "@/components/tab-bar/TabContentRenderer";
 import { WebViewToolbar } from "@/components/tab-bar/WebViewToolbar";
+import { FindInPageBar } from "@/components/tab-bar/FindInPageBar";
 import { urlToLabel } from "@/lib/webview-utils";
+import { create } from "zustand";
 import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
 import {
   startOpenCode,
@@ -110,6 +112,114 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+// ── Webview UI micro-store (find bar + zoom levels) ────────────────────────
+const useWebviewUIStore = create<{
+  showFind: boolean
+  zoomLevels: Record<string, number>
+  setShowFind: (v: boolean) => void
+  setZoomLevel: (label: string, level: number) => void
+}>((set, get) => ({
+  showFind: false,
+  zoomLevels: {},
+  setShowFind: (v) => set({ showFind: v }),
+  setZoomLevel: (label, level) =>
+    set({ zoomLevels: { ...get().zoomLevels, [label]: level } }),
+}))
+
+/**
+ * Global keyboard shortcuts (Cmd+F, Cmd+/-/0) and context menu listener
+ * for webview tabs. Registered once, reads active tab from tabs store.
+ */
+function useWebviewShortcuts() {
+  useEffect(() => {
+    const handler = async (e: KeyboardEvent) => {
+      const activeTab = useTabsStore.getState().getActiveTab()
+      if (!activeTab || activeTab.type !== "webview") return
+      if (!isTauri()) return
+
+      const mod = e.metaKey || e.ctrlKey
+      const webviewLabel = urlToLabel(activeTab.target)
+      const { setShowFind, setZoomLevel, zoomLevels } =
+        useWebviewUIStore.getState()
+
+      if (mod && e.key === "f") {
+        e.preventDefault()
+        setShowFind(true)
+        return
+      }
+
+      if (mod && (e.key === "=" || e.key === "+")) {
+        e.preventDefault()
+        const cur = zoomLevels[webviewLabel] ?? 1.0
+        const next = Math.min(cur + 0.1, 2.0)
+        setZoomLevel(webviewLabel, next)
+        import("@tauri-apps/api/core").then(({ invoke }) => {
+          invoke("webview_set_zoom", { label: webviewLabel, level: next }).catch(
+            () => {}
+          )
+        })
+        return
+      }
+
+      if (mod && e.key === "-") {
+        e.preventDefault()
+        const cur = zoomLevels[webviewLabel] ?? 1.0
+        const next = Math.max(cur - 0.1, 0.5)
+        setZoomLevel(webviewLabel, next)
+        import("@tauri-apps/api/core").then(({ invoke }) => {
+          invoke("webview_set_zoom", { label: webviewLabel, level: next }).catch(
+            () => {}
+          )
+        })
+        return
+      }
+
+      if (mod && e.key === "0") {
+        e.preventDefault()
+        setZoomLevel(webviewLabel, 1.0)
+        import("@tauri-apps/api/core").then(({ invoke }) => {
+          invoke("webview_set_zoom", {
+            label: webviewLabel,
+            level: 1.0,
+          }).catch(() => {})
+        })
+        return
+      }
+    }
+
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [])
+
+  // Context menu listener
+  useEffect(() => {
+    if (!isTauri()) return
+    let unlisten: (() => void) | null = null
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<string>("webview-context-menu", async (event) => {
+        try {
+          const ctx = JSON.parse(event.payload)
+          const { invoke } = await import("@tauri-apps/api/core")
+          await invoke("webview_show_context_menu", {
+            label: ctx.label,
+            selectedText: ctx.selectedText || "",
+            linkUrl: ctx.linkUrl || "",
+            x: ctx.x,
+            y: ctx.y,
+          })
+        } catch {
+          // ignore
+        }
+      }).then((fn) => {
+        unlisten = fn
+      })
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [])
+}
+
 // Main content component - shows chat with tab overlay
 // ChatPanel is always mounted to preserve state, hidden when a tab is active
 function MainContent() {
@@ -119,6 +229,8 @@ function MainContent() {
   const isLoadingFile = useWorkspaceStore((s) => s.isLoadingFile);
   const clearSelection = useWorkspaceStore((s) => s.clearSelection);
   const selectFile = useWorkspaceStore((s) => s.selectFile);
+  const showFind = useWebviewUIStore((s) => s.showFind)
+  const zoomLevels = useWebviewUIStore((s) => s.zoomLevels)
   const hasActiveTab = !!activeTab;
 
   // Track previous active tab to detect tab switches (user clicking a different tab)
@@ -161,6 +273,13 @@ function MainContent() {
         <WebViewToolbar
           url={activeTab.target}
           label={urlToLabel(activeTab.target)}
+          zoomLevel={zoomLevels[urlToLabel(activeTab.target)]}
+        />
+      )}
+      {hasActiveTab && activeTab.type === "webview" && showFind && (
+        <FindInPageBar
+          label={urlToLabel(activeTab.target)}
+          onClose={() => useWebviewUIStore.getState().setShowFind(false)}
         />
       )}
 
@@ -241,8 +360,18 @@ function HeaderPanelTab({
 // WebView toolbar for file mode — only renders when active tab is a webview
 function FileModeWebViewToolbar() {
   const activeTab = useTabsStore(selectActiveTab);
+  const showFind = useWebviewUIStore((s) => s.showFind)
+  const zoomLevels = useWebviewUIStore((s) => s.zoomLevels)
   if (!activeTab || activeTab.type !== "webview") return null;
-  return <WebViewToolbar url={activeTab.target} label={urlToLabel(activeTab.target)} />;
+  const webviewLabel = urlToLabel(activeTab.target)
+  return (
+    <>
+      <WebViewToolbar url={activeTab.target} label={webviewLabel} zoomLevel={zoomLevels[webviewLabel]} />
+      {showFind && (
+        <FindInPageBar label={webviewLabel} onClose={() => useWebviewUIStore.getState().setShowFind(false)} />
+      )}
+    </>
+  );
 }
 
 // File mode tab content — renders file viewer for file tabs, delegates to TabContentRenderer for others
@@ -1094,6 +1223,9 @@ function AppContent() {
 }
 
 function App() {
+  // ── Global webview shortcuts (find, zoom, context menu) ──
+  useWebviewShortcuts()
+
   // ── Spotlight mode from UI store ──────────────────────────────────────
   const spotlightMode = useUIStore((s) => s.spotlightMode)
 

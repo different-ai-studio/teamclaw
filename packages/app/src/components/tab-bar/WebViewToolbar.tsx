@@ -9,9 +9,11 @@ interface WebViewToolbarProps {
   url: string
   /** Stable webview label for invoking Rust commands */
   label: string
+  /** Current zoom level (1.0 = 100%) */
+  zoomLevel?: number
 }
 
-export function WebViewToolbar({ url: rawUrl, label }: WebViewToolbarProps) {
+export function WebViewToolbar({ url: rawUrl, label, zoomLevel }: WebViewToolbarProps) {
   const url = normalizeUrl(rawUrl)
   const [currentUrl, setCurrentUrl] = useState(url)
   const [progress, setProgress] = useState(0)
@@ -137,6 +139,12 @@ export function WebViewToolbar({ url: rawUrl, label }: WebViewToolbarProps) {
           {isHttps && <Lock className="h-3 w-3 shrink-0 text-green-600" />}
           <span className="truncate select-text">{displayUrl}</span>
         </div>
+
+        {zoomLevel != null && zoomLevel !== 1.0 && (
+          <span className="text-[10px] text-muted-foreground shrink-0 px-1">
+            {Math.round(zoomLevel * 100)}%
+          </span>
+        )}
       </div>
     </div>
   )
