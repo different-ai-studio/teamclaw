@@ -11,6 +11,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   skill: 'Skills',
   mcp: 'MCP',
   knowledge: 'Knowledge',
+  meta: 'Meta',
 }
 
 const FILTER_OPTIONS: { label: string; value: string | null }[] = [
@@ -18,6 +19,7 @@ const FILTER_OPTIONS: { label: string; value: string | null }[] = [
   { label: 'Skills', value: 'skill' },
   { label: 'MCP', value: 'mcp' },
   { label: 'Knowledge', value: 'knowledge' },
+  { label: 'Meta', value: 'meta' },
 ]
 
 function getFileName(filePath: string): string {

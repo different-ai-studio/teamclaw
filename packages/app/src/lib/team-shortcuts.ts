@@ -6,7 +6,7 @@ interface TeamShortcutsFile {
   shortcuts: ShortcutNode[]
 }
 
-const TEAM_SHORTCUTS_PATH = `${TEAM_REPO_DIR}/.shortcuts.json`
+const TEAM_SHORTCUTS_PATH = `${TEAM_REPO_DIR}/_meta/shortcuts.json`
 
 export async function loadTeamShortcutsFile(workspacePath: string): Promise<ShortcutNode[] | null> {
   try {
@@ -35,7 +35,7 @@ export async function saveTeamShortcutsFile(workspacePath: string, shortcuts: Sh
   try {
     const { writeTextFile, exists, mkdir } = await import('@tauri-apps/plugin-fs')
     const filePath = `${workspacePath}/${TEAM_SHORTCUTS_PATH}`
-    const dirPath = `${workspacePath}/${TEAM_REPO_DIR}`
+    const dirPath = `${workspacePath}/${TEAM_REPO_DIR}/_meta`
     
     if (!(await exists(dirPath))) {
       await mkdir(dirPath, { recursive: true })

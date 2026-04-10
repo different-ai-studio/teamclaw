@@ -227,7 +227,7 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let dirs = ["skills", ".mcp", "knowledge", "_feedback"];
+    let dirs = ["skills", ".mcp", "knowledge", "_feedback", "_meta"];
     for d in &dirs {
         std::fs::create_dir_all(team_path.join(d))
             .map_err(|e| format!("Failed to create {}: {}", d, e))?;
@@ -235,7 +235,7 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
 
     let readme_path = team_path.join("README.md");
     if !readme_path.exists() {
-        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n";
+        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n- `_meta/` - Shared team metadata and app-managed files\n";
         std::fs::write(&readme_path, readme)
             .map_err(|e| format!("Failed to write README.md: {}", e))?;
     }

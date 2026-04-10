@@ -37,6 +37,7 @@ pub struct OssSyncManager {
     skills_doc: loro::LoroDoc,
     mcp_doc: loro::LoroDoc,
     knowledge_doc: loro::LoroDoc,
+    meta_doc: loro::LoroDoc,
     secrets_doc: loro::LoroDoc,
 
     team_id: String,
@@ -130,6 +131,7 @@ impl OssSyncManager {
             skills_doc: loro::LoroDoc::new(),
             mcp_doc: loro::LoroDoc::new(),
             knowledge_doc: loro::LoroDoc::new(),
+            meta_doc: loro::LoroDoc::new(),
             secrets_doc: loro::LoroDoc::new(),
             team_id,
             node_id,
@@ -581,6 +583,7 @@ impl OssSyncManager {
             DocType::Skills => &self.skills_doc,
             DocType::Mcp => &self.mcp_doc,
             DocType::Knowledge => &self.knowledge_doc,
+            DocType::Meta => &self.meta_doc,
             DocType::Secrets => &self.secrets_doc,
         }
     }
@@ -590,6 +593,7 @@ impl OssSyncManager {
             DocType::Skills => &mut self.skills_doc,
             DocType::Mcp => &mut self.mcp_doc,
             DocType::Knowledge => &mut self.knowledge_doc,
+            DocType::Meta => &mut self.meta_doc,
             DocType::Secrets => &mut self.secrets_doc,
         }
     }
