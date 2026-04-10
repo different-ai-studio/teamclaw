@@ -113,9 +113,9 @@ export function WebViewToolbar({ url: rawUrl, label, zoomLevel }: WebViewToolbar
   const displayUrl = currentUrl.replace(/^https?:\/\//, "")
 
   return (
-    <div className="flex flex-col shrink-0 pointer-events-auto">
+    <div className="relative flex flex-col shrink-0 pointer-events-auto">
       {showProgress && (
-        <div className="h-0.5 w-full bg-transparent">
+        <div className="absolute top-0 left-0 right-0 h-0.5 z-10">
           <div
             className="h-full bg-primary transition-all duration-300 ease-out"
             style={{ width: `${progress}%` }}

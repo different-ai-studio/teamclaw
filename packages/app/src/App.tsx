@@ -151,7 +151,7 @@ function useWebviewShortcuts() {
       if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault()
         const cur = zoomLevels[webviewLabel] ?? 1.0
-        const next = Math.min(cur + 0.1, 2.0)
+        const next = Math.min(Math.round((cur + 0.1) * 10) / 10, 2.0)
         setZoomLevel(webviewLabel, next)
         import("@tauri-apps/api/core").then(({ invoke }) => {
           invoke("webview_set_zoom", { label: webviewLabel, level: next }).catch(
@@ -164,7 +164,7 @@ function useWebviewShortcuts() {
       if (mod && e.key === "-") {
         e.preventDefault()
         const cur = zoomLevels[webviewLabel] ?? 1.0
-        const next = Math.max(cur - 0.1, 0.5)
+        const next = Math.max(Math.round((cur - 0.1) * 10) / 10, 0.5)
         setZoomLevel(webviewLabel, next)
         import("@tauri-apps/api/core").then(({ invoke }) => {
           invoke("webview_set_zoom", { label: webviewLabel, level: next }).catch(

@@ -739,11 +739,6 @@ pub async fn webview_show_context_menu(
         builder = builder.item(&copy_item);
     }
 
-    let paste_item = MenuItemBuilder::with_id("ctx_paste", "Paste")
-        .build(&app)
-        .map_err(|e| e.to_string())?;
-    builder = builder.item(&paste_item);
-
     let select_all_item = MenuItemBuilder::with_id("ctx_select_all", "Select All")
         .build(&app)
         .map_err(|e| e.to_string())?;
@@ -771,11 +766,6 @@ pub async fn webview_show_context_menu(
             "ctx_copy" => {
                 if let Some(ref wv) = wv {
                     let _ = wv.eval("document.execCommand('copy')");
-                }
-            }
-            "ctx_paste" => {
-                if let Some(ref wv) = wv {
-                    let _ = wv.eval("document.execCommand('paste')");
                 }
             }
             "ctx_select_all" => {
