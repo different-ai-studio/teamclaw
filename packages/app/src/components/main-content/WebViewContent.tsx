@@ -189,7 +189,7 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
           console.error("[WebView] Failed:", err)
           if (!cancelled) {
             setError(
-              err instanceof Error ? err.message : "Failed to create webview",
+              err instanceof Error ? err.message : String(err || "Failed to create webview"),
             )
             setIsLoading(false)
           }

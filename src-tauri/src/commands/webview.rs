@@ -254,25 +254,29 @@ pub async fn webview_create(
     );
 
     // Inject window.teamclaw identity global before any page scripts run.
+    // Non-fatal: if device_token generation fails (e.g. DEVICE_JWT_SECRET not configured),
+    // the webview still loads — just without the identity global.
     if let (Some(ref dno), Some(ref dname)) = (&device_no, &device_name) {
-        let device_token = match super::device_token::generate(dno, "") {
-            Ok(tok) => tok,
-            Err(e) => {
-                eprintln!("[Webview] Failed to generate device_token: {}", e);
-                return Err(format!("Failed to generate device_token: {}", e));
+        match super::device_token::generate(dno, "") {
+            Ok(device_token) => {
+                let escaped_no =
+                    serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_name =
+                    serde_json::to_string(dname).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_token =
+                    serde_json::to_string(&device_token).unwrap_or_else(|_| "\"\"".to_string());
+                let script = format!(
+                    "Object.defineProperty(window, 'teamclaw', {{ value: Object.freeze({{ deviceNo: {no}, deviceName: {name}, deviceToken: {token} }}), writable: false, configurable: false }});",
+                    no = escaped_no,
+                    name = escaped_name,
+                    token = escaped_token,
+                );
+                webview_builder = webview_builder.initialization_script(&script);
             }
-        };
-        let escaped_no = serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
-        let escaped_name = serde_json::to_string(dname).unwrap_or_else(|_| "\"\"".to_string());
-        let escaped_token =
-            serde_json::to_string(&device_token).unwrap_or_else(|_| "\"\"".to_string());
-        let script = format!(
-            "Object.defineProperty(window, 'teamclaw', {{ value: Object.freeze({{ deviceNo: {no}, deviceName: {name}, deviceToken: {token} }}), writable: false, configurable: false }});",
-            no = escaped_no,
-            name = escaped_name,
-            token = escaped_token,
-        );
-        webview_builder = webview_builder.initialization_script(&script);
+            Err(e) => {
+                eprintln!("[Webview] Skipping device_token injection: {}", e);
+            }
+        }
     }
 
     let webview = window
