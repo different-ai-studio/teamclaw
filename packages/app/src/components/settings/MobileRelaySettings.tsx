@@ -10,7 +10,9 @@ import {
   Play,
   Square,
   Hash,
+  QrCode,
 } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -410,11 +412,32 @@ export function MobileRelaySettings() {
           )}
 
           {pairingCode ? (
-            <div className="flex flex-col items-center gap-3 py-4">
+            <div className="flex flex-col items-center gap-4 py-4">
               <p className="text-sm text-muted-foreground">
-                {t('settings.mobileRelay.pairingCodeHint', 'Enter this code on your mobile device to pair it:')}
+                {t('settings.mobileRelay.pairingQrHint', 'Scan this QR code with the mobile app to pair:')}
               </p>
-              <div className="flex items-center gap-2 px-6 py-4 rounded-xl bg-muted border-2 border-dashed border-primary/30">
+              <div className="p-4 rounded-xl bg-white">
+                <QRCodeSVG
+                  value={JSON.stringify({
+                    host: config.brokerHost,
+                    port: config.brokerPort,
+                    user: config.username || undefined,
+                    pass: config.password || undefined,
+                    code: pairingCode,
+                  })}
+                  size={180}
+                  level="H"
+                  imageSettings={{
+                    src: '/logo-64.png',
+                    x: undefined,
+                    y: undefined,
+                    height: 36,
+                    width: 36,
+                    excavate: true,
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-2 px-6 py-3 rounded-xl bg-muted border-2 border-dashed border-primary/30">
                 <Hash className="h-5 w-5 text-muted-foreground" />
                 <span className="text-4xl font-mono font-bold tracking-widest text-primary select-all">
                   {pairingCode}

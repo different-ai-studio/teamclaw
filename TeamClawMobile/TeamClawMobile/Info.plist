@@ -32,6 +32,8 @@
 		<key>UIImageName</key>
 		<string></string>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>需要使用相机扫描配对二维码</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
