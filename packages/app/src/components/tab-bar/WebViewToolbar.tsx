@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowLeft, ArrowRight, RotateCw, Lock } from "lucide-react"
 import { cn, isTauri } from "@/lib/utils"
 import { normalizeUrl } from "@/lib/webview-utils"
+import { useTabsStore } from "@/stores/tabs"
 
 interface WebViewToolbarProps {
   /** The original URL from the tab target */
@@ -28,8 +29,19 @@ export function WebViewToolbar({ url: rawUrl, label }: WebViewToolbarProps) {
     const poll = async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core")
-        const result = await invoke<string>("webview_get_url", { label })
-        if (!cancelled && result) setCurrentUrl(result)
+        const [urlResult, titleResult, faviconResult] = await Promise.all([
+          invoke<string>("webview_get_url", { label }).catch(() => ""),
+          invoke<string>("webview_get_title", { label }).catch(() => ""),
+          invoke<string>("webview_get_favicon", { label }).catch(() => ""),
+        ])
+        if (cancelled) return
+        if (urlResult) setCurrentUrl(urlResult)
+        const meta: { title?: string; faviconUrl?: string } = {}
+        if (titleResult) meta.title = titleResult
+        if (faviconResult) meta.faviconUrl = faviconResult
+        if (meta.title || meta.faviconUrl) {
+          useTabsStore.getState().updateTabMeta(rawUrl, meta)
+        }
       } catch {
         // ignore
       }
