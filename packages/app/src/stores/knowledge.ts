@@ -4,6 +4,45 @@ import { toast } from 'sonner'
 import i18n from '@/lib/i18n'
 import { useWorkspaceStore } from './workspace'
 import { withAsync } from '@/lib/store-utils'
+import { readDir, mkdir, writeTextFile } from '@tauri-apps/plugin-fs'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import {
+  buildFileMap,
+  resolveWikiLink as resolveWikiLinkFn,
+  getAllPageNames as getAllPageNamesFn,
+  type WikiFileMap,
+  type PageNameEntry,
+} from '@/lib/wiki-link-index'
+
+// ============================================================================
+// Wiki link index helpers
+// ============================================================================
+
+/**
+ * Recursively list all file paths under a directory.
+ * Returns paths relative to the given directory root.
+ */
+async function readDirRecursive(rootPath: string): Promise<string[]> {
+  const results: string[] = []
+
+  async function walk(dir: string, prefix: string) {
+    const entries = await readDir(dir)
+    for (const entry of entries) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+      if (entry.isDirectory) {
+        await walk(`${dir}/${entry.name}`, rel)
+      } else {
+        results.push(rel)
+      }
+    }
+  }
+
+  await walk(rootPath, '')
+  return results
+}
+
+// Module-level handle for the wiki link file watcher listener
+let wikiFileMapUnlisten: UnlistenFn | null = null
 
 // ============================================================================
 // Types
@@ -136,6 +175,16 @@ interface KnowledgeState {
   // Auto-init when workspace changes
   initForWorkspace: () => Promise<void>
   cleanup: () => void
+
+  // Wiki link index
+  wikiFileMap: WikiFileMap
+  wikiFileMapLoaded: boolean
+
+  // Wiki link actions
+  buildWikiFileMap: () => Promise<void>
+  resolveWikiLink: (target: string) => string | null
+  getAllPageNames: () => PageNameEntry[]
+  createNoteFromLink: (pageName: string) => Promise<string>
 }
 
 export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
@@ -155,6 +204,8 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   isLoadingDocuments: false,
   config: null,
   isLoadingConfig: false,
+  wikiFileMap: new Map(),
+  wikiFileMapLoaded: false,
 
   // ============================================================================
   // Index Actions
@@ -469,9 +520,29 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
     if (config?.fileWatcherEnabled) {
       await get().startWatcher()
     }
+
+    // Build initial wiki link file map
+    await get().buildWikiFileMap()
+
+    // Listen for file changes to rebuild map (replace any previous listener)
+    if (wikiFileMapUnlisten) {
+      wikiFileMapUnlisten()
+      wikiFileMapUnlisten = null
+    }
+    try {
+      wikiFileMapUnlisten = await listen('knowledge-index-changed', () => {
+        get().buildWikiFileMap()
+      })
+    } catch (error) {
+      console.warn('[wiki-link-index] Failed to register file watcher listener:', error)
+    }
   },
 
   cleanup: () => {
+    if (wikiFileMapUnlisten) {
+      wikiFileMapUnlisten()
+      wikiFileMapUnlisten = null
+    }
     set({
       indexStatus: null,
       isIndexing: false,
@@ -482,7 +553,57 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
       searchTime: 0,
       documents: [],
       config: null,
+      wikiFileMap: new Map(),
+      wikiFileMapLoaded: false,
     })
+  },
+
+  // ============================================================================
+  // Wiki Link Index Actions
+  // ============================================================================
+
+  buildWikiFileMap: async () => {
+    const workspacePath = useWorkspaceStore.getState().workspacePath
+    if (!workspacePath) return
+
+    const knowledgePath = `${workspacePath}/knowledge`
+    try {
+      const relFiles = await readDirRecursive(knowledgePath)
+      // Prefix each with "knowledge/" so paths are relative to workspace root
+      const workspaceRelPaths = relFiles.map((f) => `knowledge/${f}`)
+      const map = buildFileMap(workspaceRelPaths)
+      set({ wikiFileMap: map, wikiFileMapLoaded: true })
+    } catch (error) {
+      // knowledge/ directory may not exist yet
+      console.warn('[wiki-link-index] Failed to scan knowledge directory:', error)
+      set({ wikiFileMap: new Map(), wikiFileMapLoaded: true })
+    }
+  },
+
+  resolveWikiLink: (target: string) => {
+    return resolveWikiLinkFn(get().wikiFileMap, target)
+  },
+
+  getAllPageNames: () => {
+    return getAllPageNamesFn(get().wikiFileMap)
+  },
+
+  createNoteFromLink: async (pageName: string) => {
+    const workspacePath = useWorkspaceStore.getState().workspacePath
+    if (!workspacePath) throw new Error('No workspace')
+
+    const filePath = `${workspacePath}/knowledge/${pageName}.md`
+    const now = new Date().toISOString()
+    const content = `---\ntitle: ${pageName}\ncreated: ${now}\nupdated: ${now}\n---\n\n`
+
+    // Ensure knowledge/ directory exists
+    await mkdir(`${workspacePath}/knowledge`, { recursive: true })
+    await writeTextFile(filePath, content)
+
+    // Rebuild map to include the new file
+    await get().buildWikiFileMap()
+
+    return filePath
   },
 }))
 
