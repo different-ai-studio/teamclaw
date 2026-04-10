@@ -120,7 +120,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── Workspace store ───────────────────────────────────────────────────
   const workspacePath = useWorkspaceStore(s => s.workspacePath);
+  const openCodeBootstrapped = useWorkspaceStore(s => s.openCodeBootstrapped);
   const openCodeReady = useWorkspaceStore(s => s.openCodeReady);
+  const setOpenCodeBootstrapped = useWorkspaceStore(s => s.setOpenCodeBootstrapped);
   const setOpenCodeReady = useWorkspaceStore(s => s.setOpenCodeReady);
 
   // ── Local state ───────────────────────────────────────────────────────
@@ -249,7 +251,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── Team config hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
-    if (!openCodeReady || !workspacePath) return;
+    if (!openCodeBootstrapped || !workspacePath) return;
     const isTauriEnv = isTauri();
     if (!isTauriEnv) return;
 
@@ -294,7 +296,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── Team shortcuts hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
-    if (!openCodeReady || !workspacePath) return;
+    if (!openCodeBootstrapped || !workspacePath) return;
     const isTauriEnv = isTauri();
     if (!isTauriEnv) return;
 
@@ -398,7 +400,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const prevWorkspaceRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
-    if (!openCodeReady || !workspacePath) return;
+    if (!openCodeBootstrapped || !workspacePath) return;
 
     const isWorkspaceChange =
       prevWorkspaceRef.current !== null &&
@@ -409,13 +411,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       resetSessions();
       }
 
-    console.log("[ChatPanel] OpenCode ready, loading sessions for:", workspacePath);
+    console.log("[ChatPanel] OpenCode bootstrapped, loading sessions for:", workspacePath);
         loadSessions(workspacePath)
       .then(() => setError(null))
       .catch((err) =>
         console.error("[ChatPanel] Failed to load sessions:", err),
       );
-  }, [openCodeReady, workspacePath, loadSessions, resetSessions]);
+  }, [openCodeBootstrapped, workspacePath, loadSessions, resetSessions]);
 
   React.useEffect(() => {
     if (!openCodeReady || !workspacePath || !isTauri()) return;
@@ -426,7 +428,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         ...result,
       });
       if (result.status === "conflict" || result.status === "failed") {
-        console.warn("[RolePlugin] Failed to ensure managed role plugin:", result);
+        console.warn("[RolePlugin] Failed to ensure role plugin config:", result);
       }
     });
   }, [openCodeReady, workspacePath]);
@@ -497,6 +499,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Submit handler ────────────────────────────────────────────────────
 
   const handleSubmit = async (message: PromptInputMessage) => {
+    if (!openCodeReady) return;
     const text = message.text?.trim() || "";
     const mentions = message.mentions || [];
     const isPlanMode = !!(message as PromptInputMessage & { _planMode?: boolean })._planMode;
@@ -600,7 +603,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const handleRestartSkillsRuntime = React.useCallback(async () => {
     if (!workspacePath) return;
     setIsRestartingSkillsRuntime(true);
-    setOpenCodeReady(false);
+    setOpenCodeBootstrapped(false);
     try {
       await invoke("stop_opencode");
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -609,16 +612,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       });
       const { initOpenCodeClient } = await import("@/lib/opencode/sdk-client");
       initOpenCodeClient({ baseUrl: status.url, workspacePath });
+      setOpenCodeBootstrapped(true, status.url);
       setOpenCodeReady(true, status.url);
       setHasSkillRestartPrompt(false);
     } catch (error) {
       console.error("[ChatPanel] Failed to restart OpenCode for skills:", error);
-      setOpenCodeReady(true);
+      setOpenCodeBootstrapped(false);
       setError(error instanceof Error ? error.message : "Failed to restart OpenCode");
     } finally {
       setIsRestartingSkillsRuntime(false);
     }
-  }, [workspacePath, setOpenCodeReady, setError]);
+  }, [workspacePath, setOpenCodeBootstrapped, setOpenCodeReady, setError]);
 
   // ── Empty state with suggestions ──────────────────────────────────────
   const emptyState = React.useMemo(() => (
@@ -740,6 +744,22 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             {childStreamingContent?.isStreaming && (
               <Loader2 size={12} className="animate-spin" />
             )}
+          </div>
+        </div>
+      )}
+
+      {openCodeBootstrapped && !openCodeReady && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 px-4 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div>
+              <p className="text-base font-medium">
+                {t("chat.startingAgent", "Starting agent...")}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("chat.waitingForAgent", "Sessions are ready. Waiting for agent runtime to finish starting.")}
+              </p>
+            </div>
           </div>
         </div>
       )}

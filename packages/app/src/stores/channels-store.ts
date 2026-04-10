@@ -355,6 +355,20 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
         console.error('[AutoStart] Email start failed:', error)
       }
     }
+
+    // MQTT Mobile Relay — auto-start if config exists with enabled flag
+    try {
+      const mqttConfig = await invoke<{ enabled: boolean; pairedDevices: unknown[] }>('get_mqtt_relay_config')
+      if (mqttConfig.enabled && mqttConfig.pairedDevices.length > 0) {
+        const mqttStatus = await invoke<{ connected: boolean }>('get_mqtt_relay_status')
+        if (!mqttStatus.connected) {
+          console.log('[AutoStart] Starting MQTT Mobile Relay...')
+          await invoke('start_mqtt_relay')
+        }
+      }
+    } catch (error) {
+      console.error('[AutoStart] MQTT relay start failed:', error)
+    }
   },
 
   // ========== Keep-Alive: Periodic Health Check ==========

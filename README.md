@@ -110,6 +110,23 @@ pnpm tauri dev
 
 After launching, select a workspace directory in the TeamClaw UI.
 
+### Faster Rust Iteration
+
+Rust and Tauri commands now reuse a shared `.cargo-target/` directory across worktrees and automatically enable `sccache` when it is installed.
+
+```bash
+# Fast Rust-only compile check
+pnpm rust:check
+
+# Full Rust build using the same shared cache
+pnpm rust:build
+```
+
+Notes:
+- `pnpm tauri:dev` and `pnpm tauri:build` use the same shared Rust build environment.
+- `.cargo-target/` is local-only and ignored by git.
+- Install `sccache` if you want compiler cache hits in addition to the shared target directory.
+
 > **MCP binaries**: For local RAG MCP use the standalone `rag-mcp-server` build (not an in-app HTTP bridge). Optional sidecar build steps are in [src-tauri/binaries/README.md](src-tauri/binaries/README.md).
 
 ### Update OpenCode

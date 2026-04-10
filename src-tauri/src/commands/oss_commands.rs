@@ -1,8 +1,5 @@
 use crate::commands::oss_sync::*;
 use crate::commands::oss_types::*;
-use crate::commands::p2p_state::IrohState;
-#[cfg(feature = "p2p")]
-use crate::commands::team_p2p::get_node_id;
 #[allow(unused_imports)]
 use crate::commands::TEAMCLAW_DIR;
 
@@ -17,20 +14,24 @@ use tracing::{info, warn};
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Get a stable device identity for OSS operations.
-/// Prefers the P2P node ID when the node is running, otherwise derives the
-/// Get the device ID (iroh node_id). If the P2P node is running, reads from
-/// the live node; otherwise derives from the persisted secret key on disk.
-async fn get_p2p_node_id(iroh_state: &State<'_, IrohState>) -> Result<String, String> {
-    let guard = iroh_state.lock().await;
-    #[cfg(feature = "p2p")]
-    {
-        if let Some(node) = guard.as_ref() {
-            return Ok(get_node_id(node));
-        }
-    }
-    drop(guard);
+/// Get the canonical device ID (iroh node_id derived from the persisted secret key).
+/// This is independent of whether the P2P node is running.
+fn get_p2p_node_id_sync() -> Result<String, String> {
     get_device_id()
+}
+
+/// Derive node ID (Ed25519 public key, hex-encoded) from 32-byte secret key.
+#[cfg(feature = "p2p")]
+fn secret_key_to_node_id(bytes: &[u8; 32]) -> (String, Vec<u8>) {
+    let sk = teamclaw_p2p::iroh::SecretKey::from_bytes(bytes);
+    (sk.public().to_string(), sk.to_bytes().to_vec())
+}
+
+#[cfg(not(feature = "p2p"))]
+fn secret_key_to_node_id(bytes: &[u8; 32]) -> (String, Vec<u8>) {
+    // Without iroh, derive via raw hex of the Ed25519 secret key bytes.
+    // The 32-byte file IS the identity; hex-encode for a stable device ID.
+    (hex::encode(bytes), bytes.to_vec())
 }
 
 /// Load (or create) the iroh secret key and return the node ID
@@ -46,24 +47,22 @@ pub(crate) fn get_device_id() -> Result<String, String> {
         let mut bytes = [0u8; 32];
         getrandom::getrandom(&mut bytes)
             .map_err(|e| format!("Failed to generate random bytes: {e}"))?;
-        let secret_key = iroh::SecretKey::from_bytes(&bytes);
+        let (node_id, key_bytes) = secret_key_to_node_id(&bytes);
         let dir = key_path.parent().unwrap();
         std::fs::create_dir_all(dir)
             .map_err(|e| format!("Failed to create iroh dir: {e}"))?;
-        std::fs::write(&key_path, secret_key.to_bytes())
+        std::fs::write(&key_path, &key_bytes)
             .map_err(|e| format!("Failed to write iroh secret key: {e}"))?;
-        let node_id = secret_key.public();
         info!("Generated new iroh secret key, node_id: {node_id}");
-        return Ok(node_id.to_string());
+        return Ok(node_id);
     }
     let bytes = std::fs::read(&key_path)
         .map_err(|e| format!("Failed to read iroh secret key: {e}"))?;
     let bytes: [u8; 32] = bytes
         .try_into()
         .map_err(|_| "Secret key file has invalid length".to_string())?;
-    let secret_key = iroh::SecretKey::from_bytes(&bytes);
-    let node_id = secret_key.public();
-    Ok(node_id.to_string())
+    let (node_id, _) = secret_key_to_node_id(&bytes);
+    Ok(node_id)
 }
 
 /// Tauri command: return the device ID (iroh node_id).
@@ -165,7 +164,7 @@ fn generate_team_secret() -> Result<String, String> {
 #[tauri::command]
 pub async fn oss_create_team(
     state: State<'_, OssSyncState>,
-    iroh_state: State<'_, IrohState>,
+
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_name: String,
@@ -177,7 +176,7 @@ pub async fn oss_create_team(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
 ) -> Result<OssTeamInfo, String> {
-    let node_id = get_p2p_node_id(&iroh_state).await?;
+    let node_id = get_p2p_node_id_sync()?;
     let team_secret = generate_team_secret()?;
 
     // Write LLM config to .teamclaw/teamclaw.json
@@ -202,7 +201,10 @@ pub async fn oss_create_team(
         force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
-        Some(app_handle.clone()),
+        super::TEAMCLAW_DIR.to_string(),
+        super::TEAM_REPO_DIR.to_string(),
+        super::CONFIG_FILE_NAME.to_string(),
+        Some(tauri_emitter(app_handle.clone())),
     );
 
     // Call FC /register
@@ -231,7 +233,10 @@ pub async fn oss_create_team(
         force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
-        Some(app_handle.clone()),
+        super::TEAMCLAW_DIR.to_string(),
+        super::TEAM_REPO_DIR.to_string(),
+        super::CONFIG_FILE_NAME.to_string(),
+        Some(tauri_emitter(app_handle.clone())),
     );
     manager.set_credentials(resp.credentials.clone(), resp.oss.clone());
     manager.set_role(MemberRole::Owner);
@@ -387,7 +392,7 @@ pub async fn oss_create_team(
 #[tauri::command]
 pub async fn oss_join_team(
     state: State<'_, OssSyncState>,
-    iroh_state: State<'_, IrohState>,
+
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_id: String,
@@ -398,7 +403,7 @@ pub async fn oss_join_team(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
 ) -> Result<OssJoinResult, String> {
-    let node_id = get_p2p_node_id(&iroh_state).await?;
+    let node_id = get_p2p_node_id_sync()?;
 
     // Create manager and call FC /token
     let mut manager = OssSyncManager::new(
@@ -409,7 +414,10 @@ pub async fn oss_join_team(
         force_path_style,
         workspace_path.clone(),
         Duration::from_secs(300),
-        Some(app_handle.clone()),
+        super::TEAMCLAW_DIR.to_string(),
+        super::TEAM_REPO_DIR.to_string(),
+        super::CONFIG_FILE_NAME.to_string(),
+        Some(tauri_emitter(app_handle.clone())),
     );
 
     let body = serde_json::json!({
@@ -608,7 +616,7 @@ pub async fn oss_join_team(
 #[tauri::command]
 pub async fn oss_restore_sync(
     state: State<'_, OssSyncState>,
-    iroh_state: State<'_, IrohState>,
+
     app_handle: tauri::AppHandle,
     workspace_path: String,
     team_id: String,
@@ -617,7 +625,7 @@ pub async fn oss_restore_sync(
     info!("[OssRestore] Starting oss_restore_sync for team {}", team_id);
     let team_secret = load_team_secret(&workspace_path, &team_id)?;
     info!("[OssRestore] team_secret loaded ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
-    let node_id = get_p2p_node_id(&iroh_state).await?;
+    let node_id = get_p2p_node_id_sync()?;
     info!("[OssRestore] Got node_id ({:.1}ms)", t0.elapsed().as_secs_f64() * 1000.0);
 
     // Read existing config for team_endpoint and poll_interval
@@ -632,7 +640,10 @@ pub async fn oss_restore_sync(
         config.force_path_style,
         workspace_path.clone(),
         Duration::from_secs(config.poll_interval_secs),
-        Some(app_handle.clone()),
+        super::TEAMCLAW_DIR.to_string(),
+        super::TEAM_REPO_DIR.to_string(),
+        super::CONFIG_FILE_NAME.to_string(),
+        Some(tauri_emitter(app_handle.clone())),
     );
 
     // ── Phase 1: Connect (get FC token — proves auth + network) ────────
@@ -1030,7 +1041,7 @@ pub async fn oss_get_team_config(workspace_path: String) -> Result<Option<OssTea
 
 #[tauri::command]
 pub async fn oss_apply_team(
-    iroh_state: State<'_, IrohState>,
+
     workspace_path: String,
     team_id: String,
     team_secret: String,
@@ -1040,7 +1051,7 @@ pub async fn oss_apply_team(
     email: String,
     note: String,
 ) -> Result<(), String> {
-    let node_id = get_p2p_node_id(&iroh_state).await?;
+    let node_id = get_p2p_node_id_sync()?;
 
     // Get device info for the application
     let hostname = gethostname::gethostname().to_string_lossy().to_string();

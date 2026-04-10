@@ -83,6 +83,7 @@ export function TeamOSSConfig() {
   } = useTeamOssStore()
 
   const teamMembersStore = useTeamMembersStore()
+  const myRole = useTeamMembersStore((s) => s.myRole)
 
   // Create team form
   const [teamName, setTeamName] = useState('')
@@ -258,7 +259,7 @@ export function TeamOSSConfig() {
   const teamModeType = useTeamModeStore((s) => s.teamModeType)
   const configuredAsOss = configured || teamModeType === 'oss'
 
-  const isOwner = teamInfo?.role === 'owner' || teamInfo?.role === 'admin'
+  const isOwner = myRole === 'owner' || myRole === 'manager'
 
   return (
     <div className="space-y-4">
@@ -484,7 +485,9 @@ export function TeamOSSConfig() {
                 <span className="text-muted-foreground">角色</span>
                 <div className="flex items-center gap-1.5">
                   <Shield className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="font-medium">{isOwner ? '管理员' : '成员'}</span>
+                  <span className="font-medium">
+                    {myRole === 'owner' ? '管理员' : myRole === 'manager' ? '经理' : myRole === 'editor' ? '编辑' : myRole === 'viewer' ? '只读' : '成员'}
+                  </span>
                 </div>
               </div>
               {deviceInfo && (

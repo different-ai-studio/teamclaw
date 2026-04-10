@@ -40,6 +40,32 @@ export interface AttachableSkill {
   source: SkillSource
 }
 
+export interface ManagedSkillRecord {
+  filename: string
+  name: string
+  content: string
+  description: string
+  source?: SkillSource
+  dirPath: string
+  linkedRoles: string[]
+  isRoleSkill: boolean
+}
+
+export interface RolesSkillsMetrics {
+  rolesCount: number
+  skillsCount: number
+  linkedSkillsCount: number
+  unlinkedSkillsCount: number
+}
+
+export interface RolesSkillsWorkspaceState {
+  roles: RoleRecord[]
+  skills: ManagedSkillRecord[]
+  roleUsageBySkill: Record<string, string[]>
+  skillNamesByRole: Record<string, string[]>
+  metrics: RolesSkillsMetrics
+}
+
 export interface AttachSkillToRoleInput {
   workspacePath: string
   roleSlug: string

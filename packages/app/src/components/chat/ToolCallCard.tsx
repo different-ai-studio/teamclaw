@@ -19,7 +19,7 @@ import { WriteToolCard } from "./tool-calls/WriteToolCard";
 import { EditToolCard } from "./tool-calls/EditToolCard";
 import { ReadToolCard } from "./tool-calls/ReadToolCard";
 import { RoleLoadToolCard } from "./tool-calls/RoleLoadToolCard";
-import { SkillToolCard, TaskToolCard } from "./tool-calls/TaskToolCard";
+import { RoleSkillToolCard, SkillToolCard, TaskToolCard } from "./tool-calls/TaskToolCard";
 import { PermissionApprovalBar } from "./tool-calls/PermissionApprovalBar";
 import {
   statusConfig,
@@ -30,6 +30,7 @@ import {
   isReadTool,
   isTaskTool,
   isSkillTool,
+  isRoleSkillTool,
   isRoleLoadTool,
   isCommandTool,
   isCommandToolLikelyWaitingForInput,
@@ -124,6 +125,10 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
   // If this is a Skill tool, render SkillToolCard
   if (isSkillTool(toolCall.name)) {
     return <SkillToolCard toolCall={toolCall} />;
+  }
+
+  if (isRoleSkillTool(toolCall.name)) {
+    return <RoleSkillToolCard toolCall={toolCall} />;
   }
 
   if (isRoleLoadTool(toolCall.name)) {

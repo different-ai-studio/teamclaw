@@ -18,6 +18,7 @@ vi.mock('@/stores/p2p-engine', () => ({
     selector({ snapshot: { peers: [] } }),
 }))
 
+
 const ownerMember: TeamMember = {
   nodeId: 'owner-node-id-abcdef',
   label: 'Owner Device',

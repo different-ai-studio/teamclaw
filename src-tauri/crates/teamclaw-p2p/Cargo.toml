@@ -1,0 +1,27 @@
+[package]
+name = "teamclaw-p2p"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iroh = "0.97"
+iroh-blobs = { version = "0.99", features = ["fs-store"] }
+iroh-docs = "0.97"
+iroh-gossip = "0.97"
+teamclaw-sync = { path = "../teamclaw-sync" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+anyhow = "1"
+futures-lite = "2"
+gethostname = "1.1.0"
+getrandom = "0.2"
+walkdir = "2"
+ignore = "0.4"
+reqwest = { version = "0.11", features = ["json", "rustls-tls-native-roots"], default-features = false }
+notify = { version = "8", features = ["macos_fsevent"] }
+
+[build-dependencies]
+serde_json = "1"

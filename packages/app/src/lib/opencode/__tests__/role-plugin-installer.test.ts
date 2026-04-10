@@ -12,13 +12,9 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   writeTextFile: (...args: unknown[]) => mockWriteTextFile(...args),
 }))
 
-vi.mock("../templates/role-skill-plugin.ts.txt?raw", () => ({
-  default: "// managed-plugin: role-skill-plugin\n// version: 2\nexport default {}\n",
-}))
-
 describe("role plugin installer", () => {
   const workspacePath = "/tmp/ws"
-  const targetPath = "/tmp/ws/.opencode/plugins/role-skill.ts"
+  const configPath = "/tmp/ws/opencode.json"
   const roleRootPath = "/tmp/ws/.opencode/roles"
   const roleConfigPath = "/tmp/ws/.opencode/roles/config.json"
 
@@ -30,12 +26,11 @@ describe("role plugin installer", () => {
     mockWriteTextFile.mockResolvedValue(undefined)
   })
 
-  it("installs the managed plugin when the target file is missing", async () => {
+  it("creates opencode.json with the published role plugin when missing", async () => {
     const { ensureRoleSkillPlugin } = await import("../role-plugin-installer")
     const result = await ensureRoleSkillPlugin(workspacePath)
 
-    expect(result).toEqual({ status: "installed", path: targetPath })
-    expect(mockMkdir).toHaveBeenCalledWith("/tmp/ws/.opencode/plugins", { recursive: true })
+    expect(result).toEqual({ status: "installed", path: configPath })
     expect(mockMkdir).toHaveBeenCalledWith(roleRootPath, { recursive: true })
     expect(mockWriteTextFile).toHaveBeenCalledTimes(2)
     expect(mockWriteTextFile).toHaveBeenCalledWith(
@@ -43,58 +38,70 @@ describe("role plugin installer", () => {
       expect.stringContaining('"paths"'),
     )
     expect(mockWriteTextFile).toHaveBeenCalledWith(
-      targetPath,
-      expect.stringContaining("managed-plugin: role-skill-plugin"),
+      configPath,
+      expect.stringContaining('"plugin": [\n    "opencode-roles"\n  ]'),
     )
   })
 
-  it("updates the managed plugin when the bundled version is newer", async () => {
+  it("adds the published role plugin to an existing opencode.json", async () => {
     mockExists.mockImplementation((path: string) => {
-      if (path === "/tmp/ws/.opencode/plugins") return Promise.resolve(true)
-      if (path === targetPath) return Promise.resolve(true)
+      if (path === roleRootPath) return Promise.resolve(true)
+      if (path === configPath) return Promise.resolve(true)
       return Promise.resolve(false)
     })
-    mockReadTextFile.mockResolvedValue("// managed-plugin: role-skill-plugin\n// version: 1\n")
+    mockReadTextFile.mockResolvedValue(
+      JSON.stringify({
+        $schema: "https://opencode.ai/config.json",
+        plugin: ["some-other-plugin"],
+      }),
+    )
 
     const { ensureRoleSkillPlugin } = await import("../role-plugin-installer")
     const result = await ensureRoleSkillPlugin(workspacePath)
 
-    expect(result).toEqual({ status: "updated", path: targetPath })
+    expect(result).toEqual({ status: "updated", path: configPath })
     expect(mockWriteTextFile).toHaveBeenCalledWith(
-      targetPath,
-      expect.stringContaining("managed-plugin: role-skill-plugin"),
+      configPath,
+      expect.stringContaining('"opencode-roles"'),
     )
   })
 
-  it("returns conflict when an unmanaged plugin already exists", async () => {
+  it("returns conflict when plugin is not a string array", async () => {
     mockExists.mockImplementation((path: string) => {
-      if (path === "/tmp/ws/.opencode/plugins") return Promise.resolve(true)
-      if (path === targetPath) return Promise.resolve(true)
+      if (path === roleRootPath) return Promise.resolve(true)
+      if (path === configPath) return Promise.resolve(true)
       return Promise.resolve(false)
     })
-    mockReadTextFile.mockResolvedValue("export default {}")
+    mockReadTextFile.mockResolvedValue(
+      JSON.stringify({
+        plugin: { name: "opencode-roles" },
+      }),
+    )
 
     const { ensureRoleSkillPlugin } = await import("../role-plugin-installer")
     const result = await ensureRoleSkillPlugin(workspacePath)
 
     expect(result.status).toBe("conflict")
-    expect(result.path).toBe(targetPath)
-    expect(mockWriteTextFile).toHaveBeenCalledTimes(1)
-    expect(mockWriteTextFile).toHaveBeenCalledWith(
-      roleConfigPath,
-      expect.stringContaining('"paths"'),
+    expect(result.path).toBe(configPath)
+    expect(mockWriteTextFile).not.toHaveBeenCalledWith(
+      configPath,
+      expect.any(String),
     )
   })
 
   it("does not overwrite an existing role config sample", async () => {
     mockExists.mockImplementation((path: string) => {
-      if (path === "/tmp/ws/.opencode/plugins") return Promise.resolve(true)
       if (path === roleRootPath) return Promise.resolve(true)
       if (path === roleConfigPath) return Promise.resolve(true)
-      if (path === targetPath) return Promise.resolve(true)
+      if (path === configPath) return Promise.resolve(true)
       return Promise.resolve(false)
     })
-    mockReadTextFile.mockResolvedValue("// managed-plugin: role-skill-plugin\n// version: 2\n")
+    mockReadTextFile.mockResolvedValue(
+      JSON.stringify({
+        $schema: "https://opencode.ai/config.json",
+        plugin: ["opencode-roles"],
+      }),
+    )
 
     const { ensureRoleSkillPlugin } = await import("../role-plugin-installer")
     await ensureRoleSkillPlugin(workspacePath)

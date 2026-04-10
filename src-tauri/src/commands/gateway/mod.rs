@@ -1,132 +1,22 @@
-pub mod config;
-pub mod discord;
-pub mod email;
-pub mod email_config;
-pub mod email_db;
-pub mod feishu;
-pub mod feishu_config;
-pub mod i18n;
-pub mod kook;
-pub mod kook_config;
-pub mod pending_question;
-pub mod session;
-pub mod session_queue;
-pub mod wechat;
-pub mod wechat_config;
-pub mod wecom;
-pub mod wecom_config;
+// Re-export everything from the teamclaw-gateway crate so that existing
+// `crate::commands::gateway::*` paths throughout the main crate continue to work.
+pub use teamclaw_gateway::*;
 
-pub use config::*;
-pub use discord::DiscordGateway;
-pub use email::EmailGateway;
-pub use feishu::FeishuGateway;
-pub use feishu_config::*;
-pub use kook::KookGateway;
-pub use kook_config::*;
-pub use pending_question::{
-    extract_question_marker, format_question_message, handle_question_event, parse_question_event,
-    ForwardedQuestion, PendingQuestionStore, QuestionContext,
-};
-pub use session::SessionMapping;
-pub use wechat::WeChatGateway;
-pub use wechat_config::*;
-pub use wecom::WeComGateway;
-pub use wecom_config::*;
+pub mod mqtt_config;
+pub mod mqtt_relay;
 
-use futures_util::StreamExt;
-use serde::Deserialize;
+pub use mqtt_config::*;
+pub use mqtt_relay::MqttRelay;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
+
+use futures::StreamExt;
+use serde::Deserialize;
 use tauri::State;
 
 use crate::commands::opencode::OpenCodeState;
-
-/// Identity of the person who sent a message through a gateway channel.
-#[derive(Debug, Clone)]
-pub struct ChannelSender {
-    pub platform: String,
-    #[allow(dead_code)]
-    pub external_id: String,
-    pub display_name: String,
-}
-
-pub const MAX_PROCESSED_MESSAGES: usize = 1000;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum FilterResult {
-    Allow,
-    Ignore,
-    UserNotAllowed,
-    ChannelNotConfigured,
-}
-
-pub struct ProcessedMessageTracker {
-    messages: HashSet<String>,
-    max_size: usize,
-}
-
-impl ProcessedMessageTracker {
-    pub fn new(max_size: usize) -> Self {
-        Self {
-            messages: HashSet::new(),
-            max_size,
-        }
-    }
-
-    pub fn is_duplicate(&mut self, id: &str) -> bool {
-        if self.messages.contains(id) {
-            return true;
-        }
-        self.messages.insert(id.to_string());
-        if self.messages.len() > self.max_size {
-            let to_remove: Vec<String> = self.messages.iter().take(100).cloned().collect();
-            for r in to_remove {
-                self.messages.remove(&r);
-            }
-        }
-        false
-    }
-}
-
-/// Create a new OpenCode session
-pub async fn create_opencode_session(port: u16) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
-    let url = format!("http://127.0.0.1:{}/session", port);
-
-    // Set an explicit title to avoid OpenCode auto-generating titles that might conflict
-    let now = chrono::Local::now();
-    let title = format!("New Chat {}", now.format("%Y-%m-%d %H:%M:%S"));
-    let body = serde_json::json!({ "title": title });
-
-    let response = client
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to create session: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!(
-            "Failed to create session: HTTP {}",
-            response.status()
-        ));
-    }
-
-    let response_body: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse session response: {}", e))?;
-
-    response_body["id"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "No session ID in response".to_string())
-}
 
 /// Gateway state managed by Tauri
 pub struct GatewayState {
@@ -136,6 +26,7 @@ pub struct GatewayState {
     pub kook_gateway: Mutex<Option<KookGateway>>,
     pub wecom_gateway: Mutex<Option<WeComGateway>>,
     pub wechat_gateway: Mutex<Option<WeChatGateway>>,
+    pub mqtt_relay: Mutex<Option<MqttRelay>>,
     /// Shared session mapping across all gateways
     pub shared_session_mapping: SessionMapping,
     /// Whether the shared session mapping has been initialized with a persistence path
@@ -151,6 +42,7 @@ impl Default for GatewayState {
             kook_gateway: Mutex::new(None),
             wecom_gateway: Mutex::new(None),
             wechat_gateway: Mutex::new(None),
+            mqtt_relay: Mutex::new(None),
             shared_session_mapping: SessionMapping::new(),
             session_initialized: Mutex::new(false),
         }
@@ -173,7 +65,7 @@ async fn ensure_session_initialized(gateway_state: &GatewayState, workspace_path
             *initialized = true;
             true
         }
-    }; // MutexGuard is dropped here before the await
+    };
 
     if needs_init {
         gateway_state
@@ -1263,7 +1155,7 @@ pub async fn save_channel_config(
 #[tauri::command]
 pub async fn get_discord_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<Option<DiscordConfig>, String> {
+) -> Result<Option<config::DiscordConfig>, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.discord)
 }
@@ -1271,7 +1163,7 @@ pub async fn get_discord_config(
 /// Save Discord configuration
 #[tauri::command]
 pub async fn save_discord_config(
-    discord: DiscordConfig,
+    discord: config::DiscordConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -1288,7 +1180,6 @@ pub async fn save_discord_config(
     channels.discord = Some(discord.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .discord_gateway
@@ -1328,7 +1219,6 @@ pub async fn start_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    // Get OpenCode port and workspace path
     let (port, workspace_path) = {
         let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
         let ws = inner
@@ -1338,7 +1228,6 @@ pub async fn start_gateway(
         (inner.port, ws)
     };
 
-    // Read config
     println!("[Gateway] Reading config from: {}", workspace_path);
     let config = read_config(&workspace_path)?;
     let discord_config = config
@@ -1352,10 +1241,8 @@ pub async fn start_gateway(
         discord_config.guilds.keys().collect::<Vec<_>>()
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
-    // Create or get gateway
     let gateway_clone = {
         let mut gateway_guard = gateway_state
             .discord_gateway
@@ -1428,7 +1315,7 @@ pub async fn test_discord_token(token: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_feishu_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<Option<FeishuConfig>, String> {
+) -> Result<Option<feishu_config::FeishuConfig>, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.feishu)
 }
@@ -1436,7 +1323,7 @@ pub async fn get_feishu_config(
 /// Save Feishu configuration
 #[tauri::command]
 pub async fn save_feishu_config(
-    feishu: FeishuConfig,
+    feishu: feishu_config::FeishuConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -1453,7 +1340,6 @@ pub async fn save_feishu_config(
     channels.feishu = Some(feishu.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .feishu_gateway
@@ -1495,7 +1381,6 @@ pub async fn start_feishu_gateway(
         feishu_config.enabled, feishu_config.app_id
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
@@ -1560,7 +1445,6 @@ pub async fn test_feishu_credentials(app_id: String, app_secret: String) -> Resu
 }
 
 /// Update the shared gateway model preference for an existing OpenCode session.
-/// This lets UI model changes apply to gateway-backed sessions such as Feishu chats.
 #[tauri::command]
 pub async fn sync_gateway_session_model(
     session_id: String,
@@ -1617,7 +1501,6 @@ pub async fn save_email_config(
     channels.email = Some(email.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .email_gateway
@@ -1659,7 +1542,6 @@ pub async fn start_email_gateway(
         email_config.enabled, email_config.provider
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
@@ -1761,7 +1643,7 @@ pub async fn check_gmail_auth(opencode_state: State<'_, OpenCodeState>) -> Resul
 #[tauri::command]
 pub async fn get_kook_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<KookConfig, String> {
+) -> Result<kook_config::KookConfig, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.kook.unwrap_or_default())
 }
@@ -1769,7 +1651,7 @@ pub async fn get_kook_config(
 /// Save KOOK configuration
 #[tauri::command]
 pub async fn save_kook_config(
-    kook: KookConfig,
+    kook: kook_config::KookConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -1786,7 +1668,6 @@ pub async fn save_kook_config(
     channels.kook = Some(kook.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .kook_gateway
@@ -1833,7 +1714,6 @@ pub async fn start_kook_gateway(
         }
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     if !kook_config.enabled {
@@ -1955,7 +1835,7 @@ pub async fn test_kook_token(token: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_wecom_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<WeComConfig, String> {
+) -> Result<wecom_config::WeComConfig, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.wecom.unwrap_or_default())
 }
@@ -1963,7 +1843,7 @@ pub async fn get_wecom_config(
 /// Save WeCom configuration
 #[tauri::command]
 pub async fn save_wecom_config(
-    wecom: WeComConfig,
+    wecom: wecom_config::WeComConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -1980,7 +1860,6 @@ pub async fn save_wecom_config(
     channels.wecom = Some(wecom.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .wecom_gateway
@@ -2031,7 +1910,6 @@ pub async fn start_wecom_gateway(
         wecom_config.bot_id.is_empty()
     );
 
-    // Auto-enable WeCom when user explicitly clicks Start
     if !wecom_config.enabled {
         wecom_config.enabled = true;
         let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -2049,7 +1927,6 @@ pub async fn start_wecom_gateway(
         }
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
@@ -2157,7 +2034,6 @@ pub async fn test_wecom_credentials(bot_id: String, secret: String) -> Result<St
     if let tokio_tungstenite::tungstenite::Message::Text(text) = response {
         let resp: serde_json::Value =
             serde_json::from_str(&text).map_err(|e| format!("Invalid response: {}", e))?;
-        // WeCom API uses "errcode"/"errmsg" fields (not "code"/"msg")
         let code = resp.get("errcode").and_then(|c| c.as_i64()).unwrap_or(-1);
         if code == 0 {
             Ok("Credentials verified successfully".to_string())
@@ -2173,7 +2049,7 @@ pub async fn test_wecom_credentials(bot_id: String, secret: String) -> Result<St
     }
 }
 
-/// Start WeCom QR code authorization — returns scode and auth_url
+/// Start WeCom QR code authorization
 #[tauri::command]
 pub async fn start_wecom_qr_auth() -> Result<wecom_config::WeComQrAuthStart, String> {
     wecom::fetch_wecom_qr_code().await
@@ -2193,7 +2069,7 @@ pub async fn poll_wecom_qr_auth(
 #[tauri::command]
 pub async fn get_wechat_config(
     opencode_state: State<'_, OpenCodeState>,
-) -> Result<WeChatConfig, String> {
+) -> Result<wechat_config::WeChatConfig, String> {
     let channels = get_channel_config(opencode_state).await?;
     Ok(channels.wechat.unwrap_or_default())
 }
@@ -2201,7 +2077,7 @@ pub async fn get_wechat_config(
 /// Save WeChat configuration
 #[tauri::command]
 pub async fn save_wechat_config(
-    wechat: WeChatConfig,
+    wechat: wechat_config::WeChatConfig,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
@@ -2218,7 +2094,6 @@ pub async fn save_wechat_config(
     channels.wechat = Some(wechat.clone());
     write_config(&workspace_path, &config)?;
 
-    // Update gateway config if it exists
     let gateway_clone = {
         let gateway = gateway_state
             .wechat_gateway
@@ -2269,7 +2144,6 @@ pub async fn start_wechat_gateway(
         wechat_cfg.bot_token.is_empty()
     );
 
-    // Auto-enable WeChat when user explicitly clicks Start
     if !wechat_cfg.enabled {
         wechat_cfg.enabled = true;
         let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -2287,7 +2161,6 @@ pub async fn start_wechat_gateway(
         }
     );
 
-    // Ensure shared session mapping is initialized
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
@@ -2374,7 +2247,7 @@ pub async fn poll_wechat_qr_status(
                 .baseurl
                 .clone()
                 .unwrap_or_else(wechat_config::default_ilink_base_url);
-            let wechat_cfg = WeChatConfig {
+            let wechat_cfg = wechat_config::WeChatConfig {
                 enabled: false,
                 bot_token: token.clone(),
                 account_id: bot_id.clone(),
@@ -2382,7 +2255,6 @@ pub async fn poll_wechat_qr_status(
                 sync_buf: None,
                 context_tokens: std::collections::HashMap::new(),
             };
-            // Save to config if workspace is set
             if let Ok(inner) = opencode_state.inner.lock() {
                 if let Some(ref workspace_path) = inner.workspace_path {
                     if let Ok(mut config) = read_config(workspace_path) {
@@ -2404,4 +2276,179 @@ pub async fn test_wechat_connection(bot_token: String) -> Result<String, String>
         return Err("Bot token is required".to_string());
     }
     wechat::test_connection(&bot_token).await
+}
+
+// ─── MQTT Relay Commands ───────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_mqtt_relay_config(
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
+) -> Result<MqttConfig, String> {
+    let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+    let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
+    drop(guard);
+    let config = read_config(&workspace_path)?;
+    Ok(config.channels.and_then(|c| c.mqtt).unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn save_mqtt_relay_config(
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
+    gateway_state: State<'_, GatewayState>,
+    config: MqttConfig,
+) -> Result<(), String> {
+    let workspace_path = {
+        let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+        guard.workspace_path.clone().ok_or("No workspace path")?
+    };
+
+    let mut config = config;
+    let existing_mqtt = read_config(&workspace_path)
+        .ok()
+        .and_then(|c| c.channels)
+        .and_then(|c| c.mqtt);
+
+    // Auto-generate team_id if not set
+    if config.team_id.is_empty() {
+        let existing = existing_mqtt.as_ref().map(|c| c.team_id.clone()).unwrap_or_default();
+        config.team_id = if existing.is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            existing
+        };
+    }
+
+    // Auto-generate device_id if not set
+    if config.device_id.is_empty() {
+        let existing = existing_mqtt.as_ref().map(|c| c.device_id.clone()).unwrap_or_default();
+        config.device_id = if existing.is_empty() {
+            format!("desktop-{}", &uuid::Uuid::new_v4().to_string()[..8])
+        } else {
+            existing
+        };
+    }
+
+    let mut full_config = read_config(&workspace_path).unwrap_or_default();
+    let mut channels = full_config.channels.unwrap_or_default();
+    channels.mqtt = Some(config.clone());
+    full_config.channels = Some(channels);
+    write_config(&workspace_path, &full_config)?;
+
+    let relay_clone = {
+        let guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
+        guard.as_ref().cloned()
+    };
+    if let Some(relay) = relay_clone {
+        relay.set_config(config).await;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_mqtt_relay(
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
+    gateway_state: State<'_, GatewayState>,
+    oss_state: State<'_, crate::commands::oss_sync::OssSyncState>,
+) -> Result<(), String> {
+    let (port, workspace_path) = {
+        let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+        let port = guard.port;
+        let ws = guard.workspace_path.clone().ok_or("No workspace path")?;
+        (port, ws)
+    };
+
+    let mqtt_config = read_config(&workspace_path)?
+        .channels
+        .and_then(|c| c.mqtt)
+        .ok_or("MQTT relay config not found")?;
+
+    // Create relay if not exists (need mutable access, then drop guard)
+    {
+        let mut relay_guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
+        if relay_guard.is_none() {
+            let mut relay = MqttRelay::new(port, workspace_path);
+            relay.set_oss_sync_state(oss_state.manager.clone());
+            *relay_guard = Some(relay);
+        }
+    }
+
+    // Clone relay and use it outside the lock
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref().cloned()
+        .ok_or("Failed to create MQTT relay")?;
+
+    relay.set_config(mqtt_config).await;
+    relay.start().await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_mqtt_relay(
+    gateway_state: State<'_, GatewayState>,
+) -> Result<(), String> {
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref().cloned();
+    if let Some(relay) = relay {
+        relay.stop().await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_mqtt_relay_status(
+    gateway_state: State<'_, GatewayState>,
+) -> Result<MqttRelayStatus, String> {
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref().cloned();
+    if let Some(relay) = relay {
+        Ok(relay.get_status().await)
+    } else {
+        Ok(MqttRelayStatus {
+            connected: false,
+            broker_host: None,
+            paired_device_count: 0,
+            error_message: None,
+        })
+    }
+}
+
+#[tauri::command]
+pub async fn generate_mqtt_pairing_code(
+    gateway_state: State<'_, GatewayState>,
+) -> Result<String, String> {
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref()
+        .ok_or("MQTT relay not started")?
+        .clone();
+    relay.generate_pairing_code().await
+}
+
+#[tauri::command]
+pub async fn unpair_mqtt_device(
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
+    gateway_state: State<'_, GatewayState>,
+    device_id: String,
+) -> Result<(), String> {
+    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+        .as_ref().cloned();
+
+    if let Some(relay) = relay {
+        relay.unpair_device(&device_id).await?;
+
+        // Persist updated config
+        let workspace_path = {
+            let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+            guard.workspace_path.clone().ok_or("No workspace path")?
+        };
+
+        let config = relay.get_config().await;
+        let mut full_config = read_config(&workspace_path).unwrap_or_default();
+        let mut channels = full_config.channels.unwrap_or_default();
+        channels.mqtt = Some(config);
+        full_config.channels = Some(channels);
+        write_config(&workspace_path, &full_config)?;
+    }
+    Ok(())
 }

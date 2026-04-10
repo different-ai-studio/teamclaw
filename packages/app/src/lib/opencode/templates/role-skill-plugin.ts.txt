@@ -112,10 +112,6 @@ function parseAvailableRoleSkills(body) {
     })
   }
 
-  if (!inSection) {
-    throw new Error('Missing "## Available role skills" section')
-  }
-
   return skills
 }
 

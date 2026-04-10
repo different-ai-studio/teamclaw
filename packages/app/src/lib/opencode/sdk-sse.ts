@@ -925,11 +925,17 @@ export function useOpenCodeSSE(
   const sseRef = useRef<OpenCodeSSE | null>(null)
   const handlersRef = useRef(handlers)
   const sessionIdRef = useRef(sessionId)
+  const workspacePathRef = useRef(workspacePath)
 
   // Update handlers ref when handlers change
   useEffect(() => {
     handlersRef.current = handlers
   }, [handlers])
+
+  // Keep workspacePath ref in sync without triggering reconnect
+  useEffect(() => {
+    workspacePathRef.current = workspacePath
+  }, [workspacePath])
 
   // Update session filter without reconnecting SSE.
   // The SSE stream is global (/event), sessionId only controls per-session event filtering.
@@ -974,11 +980,11 @@ export function useOpenCodeSSE(
       onDisconnected: () => handlersRef.current.onDisconnected?.(),
       onChildSessionEvent: (e) => handlersRef.current.onChildSessionEvent?.(e),
       onInactivityWarning: (active) => handlersRef.current.onInactivityWarning?.(active),
-    }, workspacePath || undefined)
+    }, workspacePathRef.current || undefined)
 
     activeSseInstance = sseRef.current
     sseRef.current.connect()
-  }, [baseUrl, workspacePath]) // sessionId changes are handled by setSessionId()
+  }, [baseUrl]) // Only baseUrl — workspacePath is captured via closure, sessionId changes are handled by setSessionId()
 
   const disconnect = useCallback(() => {
     sseRef.current?.disconnect()

@@ -2,10 +2,10 @@
 //! When the p2p feature is off (e.g. Windows build), this is a dummy type.
 
 #[cfg(feature = "p2p")]
-pub use super::team_p2p::IrohState;
+pub use teamclaw_p2p::IrohState;
 
 #[cfg(feature = "p2p")]
-pub use super::team_p2p::SyncEngineState;
+pub use teamclaw_p2p::SyncEngineState;
 
 #[cfg(not(feature = "p2p"))]
 use std::sync::Arc;

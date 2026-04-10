@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::rag::{
+use teamclaw_rag::{
     bm25::BM25Index, config::RagConfig, db::DocumentRecord, embedding, indexer::Indexer,
     search::SearchResponse, watcher::KnowledgeWatcher, Database, IndexResult,
 };
@@ -62,11 +62,11 @@ impl RagState {
         // Create new instance
         tracing::info!("[RAG] Creating instance for workspace: {}", workspace_path);
         let workspace_path_buf = PathBuf::from(workspace_path);
-        let config = RagConfig::load_from_workspace(&workspace_path_buf)
+        let config = RagConfig::load_from_workspace(&workspace_path_buf, super::TEAMCLAW_DIR)
             .await
             .map_err(|e| format!("Failed to load config: {}", e))?;
 
-        let db_path = config.db_path(&workspace_path_buf);
+        let db_path = config.db_path(&workspace_path_buf, super::TEAMCLAW_DIR);
         let db = Database::new(&db_path)
             .await
             .map_err(|e| format!("Failed to create database: {}", e))?;
@@ -77,7 +77,7 @@ impl RagState {
         let embedding_provider = embedding::create_provider(&config)
             .map_err(|e| format!("Failed to create embedding provider: {}", e))?;
 
-        let bm25_index_path = config.bm25_index_path(&workspace_path_buf);
+        let bm25_index_path = config.bm25_index_path(&workspace_path_buf, super::TEAMCLAW_DIR);
         let bm25_index = BM25Index::new(&bm25_index_path).ok();
         if bm25_index.is_none() {
             eprintln!("Warning: Failed to initialize BM25 index");
@@ -134,11 +134,11 @@ pub async fn rag_index(
     if force.unwrap_or(false) && path.is_none() {
         // Force reindex: delete BM25 index directory and recreate instance
         let workspace_path_buf = PathBuf::from(&workspace_path);
-        let config = RagConfig::load_from_workspace(&workspace_path_buf)
+        let config = RagConfig::load_from_workspace(&workspace_path_buf, super::TEAMCLAW_DIR)
             .await
             .map_err(|e| format!("Failed to load config: {}", e))?;
 
-        let bm25_path = config.bm25_index_path(&workspace_path_buf);
+        let bm25_path = config.bm25_index_path(&workspace_path_buf, super::TEAMCLAW_DIR);
         if bm25_path.exists() {
             if let Err(e) = std::fs::remove_dir_all(&bm25_path) {
                 eprintln!("Warning: Failed to remove old BM25 index: {}", e);
@@ -229,9 +229,9 @@ pub async fn rag_search(
 
     let top_k = top_k.unwrap_or(5);
     let mode =
-        crate::rag::hybrid_search::SearchMode::from_str(search_mode.as_deref().unwrap_or("hybrid"));
+        teamclaw_rag::hybrid_search::SearchMode::from_str(search_mode.as_deref().unwrap_or("hybrid"));
 
-    crate::rag::search::search(
+    teamclaw_rag::search::search(
         &instance.db,
         &instance.embedding,
         instance.bm25_index.as_ref(),
@@ -311,7 +311,7 @@ pub async fn rag_save_config(
 ) -> Result<(), String> {
     let workspace_path_buf = PathBuf::from(&workspace_path);
     config
-        .save_to_workspace(&workspace_path_buf)
+        .save_to_workspace(&workspace_path_buf, super::TEAMCLAW_DIR)
         .await
         .map_err(|e| format!("Failed to save config: {}", e))?;
 
@@ -341,8 +341,16 @@ pub async fn rag_start_watcher(
     let knowledge_dirs = instance
         .config
         .knowledge_dirs(&PathBuf::from(&workspace_path));
-    let watcher = KnowledgeWatcher::watch(knowledge_dirs, instance.indexer.clone(), Some(app))
-        .map_err(|e| format!("Failed to start file watcher: {}", e))?;
+    let app_clone = app.clone();
+    let watcher = KnowledgeWatcher::watch(
+        knowledge_dirs,
+        instance.indexer.clone(),
+        Some(Box::new(move || {
+            use tauri::Emitter;
+            let _ = app_clone.emit("knowledge-index-changed", ());
+        })),
+    )
+    .map_err(|e| format!("Failed to start file watcher: {}", e))?;
 
     instance.watcher = Some(Arc::new(watcher));
     Ok(())

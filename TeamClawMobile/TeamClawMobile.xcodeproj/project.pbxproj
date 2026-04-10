@@ -1,0 +1,979 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		02968F8E0A423B44439FAEBE /* TaskViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D5F75CF3A9E1B32799B736 /* TaskViewModelTests.swift */; };
+		08611817B203CE81AE25034B /* TeamMember.swift in Sources */ = {isa = PBXBuildFile; fileRef = D757E0623CEB9A68984B2B5C /* TeamMember.swift */; };
+		BB1111111111111111111111 /* Talent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2222222222222222222222 /* Talent.swift */; };
+		BB3333333333333333333333 /* TalentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4444444444444444444444 /* TalentViewModel.swift */; };
+		DD1111111111111111111111 /* RoleDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2222222222222222222222 /* RoleDetailView.swift */; };
+		0AF570A11B033A3793E2D33C /* SkillHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC0C0BCFF2BE9EC099FB476 /* SkillHomeView.swift */; };
+		0C2B937E1220E533538447C3 /* TaskViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D5085903B62892AC036020 /* TaskViewModel.swift */; };
+		0D8C53F4805FAF764B55A175 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D086C0687DF14187A6AD3A24 /* SettingsView.swift */; };
+		134732A83BBEC99EEE375989 /* MQTTMessageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 732086766760FC0029F08CE4 /* MQTTMessageTests.swift */; };
+		161E2FC7CA32B7CB0625F006 /* TaskEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E304867F346D965A6D82F1 /* TaskEditView.swift */; };
+		16A0D1CCA0B263A727F89BD5 /* TeamClawMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8A1F867A184477619ACF2E /* TeamClawMobileApp.swift */; };
+		1A33F059A8F919BB89679A91 /* DesktopStatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD7FA2EBAD71DEAA331B0ED7 /* DesktopStatusBadge.swift */; };
+		21E5D7D3B63B3B7CBB1D186A /* OSSUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F8D1503D1B51EB397EEE0FB /* OSSUploader.swift */; };
+		230A35A007BFBA18B6AC2D1A /* AutomationTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DDD023179D4C3D6C27643B9 /* AutomationTask.swift */; };
+		258F054107C9F77DFEE25248 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 823BC8AEA646A45ADF76AEC2 /* Session.swift */; };
+		265C9267056F4B22A4EC2218 /* NavigationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F4BF64F9A480F2B56AD7AB /* NavigationUITests.swift */; };
+		2789906A141F3971C4DF48D6 /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC5358997970581A339AEFF3 /* MessageBubbleView.swift */; };
+		CC1111111111111111111111 /* ProtoMQTTCoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2222222222222222222222 /* ProtoMQTTCoder.swift */; };
+		CC3333333333333333333333 /* teamclaw.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4444444444444444444444 /* teamclaw.pb.swift */; };
+		CC5555555555555555555555 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = CC6666666666666666666666 /* SwiftProtobuf */; };
+		317772C041CF69D648EC1919 /* PairingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9603D9BF21A1A9C40696ABA9 /* PairingManager.swift */; };
+		32241D8D5C11A518F003A23C /* ChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC4A3372C9F29BEC02488EB /* ChatInputBar.swift */; };
+		32F667482A7D2D009DF3309A /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C9792E0B940A8C36A0E76F /* TaskListView.swift */; };
+		379AACFCE99E30DFA56DAD04 /* FunctionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA5F011388B4C1DFE3CFB8B /* FunctionPanelView.swift */; };
+		4196DE9734C0B342F20B8B6F /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267D69C246CE598FDE71DCDE /* SessionListView.swift */; };
+		4EFACF959724A07DF6691958 /* ChatDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2289EDD55BEE0E4CE2DD819 /* ChatDetailViewModel.swift */; };
+		531C62D5C7AA8378A188D1A5 /* TeamClawMobileUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF95DB3D8227F4EEC0A5786F /* TeamClawMobileUITests.swift */; };
+		54C7CD0A152D6ECB4B2A6641 /* CocoaMQTT in Frameworks */ = {isa = PBXBuildFile; productRef = 48D6BF74640DFCC159C17AF3 /* CocoaMQTT */; };
+		60BECF2B5D5D6E482F51A22C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 9FE2D672C23A9561D53ABAB0 /* Markdown */; };
+		662BA0A5CCEF0788CC67D0B8 /* MockMQTTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69658CAD73E044A864470496 /* MockMQTTService.swift */; };
+		689CD249A22C0EC9692554D6 /* Skill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCB7D9D27F63BE7540362BC /* Skill.swift */; };
+		79B10E1EB1A83C20234AB6B5 /* MessageAggregatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98D60BDCD24BE7DBC14D1FAD /* MessageAggregatorTests.swift */; };
+		84B1548437DF691CC12D4607 /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32DBAEC6B0FAD53F502E6C1 /* ModelTests.swift */; };
+		858DB153EFDF26079F8F3655 /* SkillViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA90A38CC31873CA85B3BB7 /* SkillViewModel.swift */; };
+		8599A486F276696A465012E3 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A1353DC65EC38EF8E811A3 /* PairingView.swift */; };
+		8CF7A33A3A09AA9B58ABF70E /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = DC38DE73255511B28B9E9765 /* Alamofire */; };
+		9A9996C594FB79340DD2F947 /* LiquidGlassBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B743505B94E70A0A84C6317F /* LiquidGlassBar.swift */; };
+		A43D7D80DECF3FBE3341E550 /* NotificationPrefView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC93E7E379872F91DF34055C /* NotificationPrefView.swift */; };
+		A5E5F3126BD2D7891BD898B8 /* ChatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FAECFFC6E965253D9B1424 /* ChatDetailView.swift */; };
+		A68AB99BC8D32A57EFE2E3AF /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 3904197965C84ABBC8822496 /* Localizable.strings */; };
+		A8AD34BFE334E6F2516908A5 /* ChatDetailViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05AC25E19E8AB8D1E7D40E1 /* ChatDetailViewModelTests.swift */; };
+		EE1111111111111111111111 /* MemberViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2222222222222222222222 /* MemberViewModelTests.swift */; };
+		EE3333333333333333333333 /* SkillTalentViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE4444444444444444444444 /* SkillTalentViewModelTests.swift */; };
+		AF24687EFEC7A836A7404796 /* TeamClawMobileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */; };
+		B0F80C7A2450E30AD052C4A9 /* SessionListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FFB5A67ECFF68D836396CB0 /* SessionListViewModel.swift */; };
+		B2A5D4F0D5CB9A45D5C3818D /* ConnectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A28F1C39CE91082740D1F76 /* ConnectionMonitor.swift */; };
+		B4A10A98AC647E600EBA6585 /* MemberSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB0F6A0EBCFCC7846D3860B /* MemberSessionsView.swift */; };
+		BC326B3B60AC81562958E878 /* MemberListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AB5914BA4C210402C4A6E7C /* MemberListView.swift */; };
+		BF474BB88350A810335A0EC7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D49161288BBB6B6D11F2251A /* ContentView.swift */; };
+		C343D107C6392BE351521B70 /* MemberViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF46DB166CC0F68E775C08FF /* MemberViewModel.swift */; };
+		D5FF9542D765A41BD695AF63 /* MarkdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA7FDF42A97343C386C04F8 /* MarkdownRenderer.swift */; };
+		DD8CCF863A9D27D3A2B1AD63 /* MQTTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 014B950E4DE6034CAF59DAEA /* MQTTService.swift */; };
+		E4A5A43173A9B6264E39598B /* MQTTServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D159295636E0431FC7F4A497 /* MQTTServiceProtocol.swift */; };
+		EFD3FEF6ECB8BB3196FB7E17 /* ConnectionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4BF600C2F057B605FC1015 /* ConnectionMonitorTests.swift */; };
+		F72276690532533498ED380B /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36621DE5BE808E48FCAB3565 /* ChatMessage.swift */; };
+		F92B8FF29F538FE5EF2E82AD /* StreamingTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304DBC8795E823C5963EE650 /* StreamingTextView.swift */; };
+		FB47D1A057337D95C268D8D1 /* MessageAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877250779DF25DFB6EA564C9 /* MessageAggregator.swift */; };
+		FC43E4D56FEA629C3A0072FB /* SessionListViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65299398879A9250C02F60B9 /* SessionListViewModelTests.swift */; };
+		AA1111111111111111111111 /* FeaturedAllyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2222222222222222222222 /* FeaturedAllyView.swift */; };
+		AA3333333333333333333333 /* SkillMarketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4444444444444444444444 /* SkillMarketView.swift */; };
+		AA5555555555555555555555 /* MemberAutomationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6666666666666666666666 /* MemberAutomationView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		30C5673F637D58792FB50DA9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C6571E6141B1ACE3553D2816 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8F891BDD19BFE655DBCDBBA3;
+			remoteInfo = TeamClawMobile;
+		};
+		993F803650DF6C598EF0B422 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C6571E6141B1ACE3553D2816 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8F891BDD19BFE655DBCDBBA3;
+			remoteInfo = TeamClawMobile;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		014B950E4DE6034CAF59DAEA /* MQTTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTTService.swift; sourceTree = "<group>"; };
+		01E304867F346D965A6D82F1 /* TaskEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskEditView.swift; sourceTree = "<group>"; };
+		0FFB5A67ECFF68D836396CB0 /* SessionListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListViewModel.swift; sourceTree = "<group>"; };
+		1A870EF354C2C1B266ED9C17 /* TeamClawMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TeamClawMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		242DF65B785199140510A03B /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		267D69C246CE598FDE71DCDE /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
+		2AC0C0BCFF2BE9EC099FB476 /* SkillHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillHomeView.swift; sourceTree = "<group>"; };
+		2FCB7D9D27F63BE7540362BC /* Skill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skill.swift; sourceTree = "<group>"; };
+		304DBC8795E823C5963EE650 /* StreamingTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingTextView.swift; sourceTree = "<group>"; };
+		36621DE5BE808E48FCAB3565 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
+		3AF9EEA26C502C1D43B7E4D2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		4A28F1C39CE91082740D1F76 /* ConnectionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionMonitor.swift; sourceTree = "<group>"; };
+		4C4BF600C2F057B605FC1015 /* ConnectionMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionMonitorTests.swift; sourceTree = "<group>"; };
+		4F8D1503D1B51EB397EEE0FB /* OSSUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSSUploader.swift; sourceTree = "<group>"; };
+		52FAECFFC6E965253D9B1424 /* ChatDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailView.swift; sourceTree = "<group>"; };
+		550DFD7031ACB3B0C7C8A18D /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		58D5085903B62892AC036020 /* TaskViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskViewModel.swift; sourceTree = "<group>"; };
+		5DDD023179D4C3D6C27643B9 /* AutomationTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationTask.swift; sourceTree = "<group>"; };
+		5E8A1F867A184477619ACF2E /* TeamClawMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileApp.swift; sourceTree = "<group>"; };
+		61A1353DC65EC38EF8E811A3 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
+		65299398879A9250C02F60B9 /* SessionListViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListViewModelTests.swift; sourceTree = "<group>"; };
+		69658CAD73E044A864470496 /* MockMQTTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockMQTTService.swift; sourceTree = "<group>"; };
+		6AB5914BA4C210402C4A6E7C /* MemberListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberListView.swift; sourceTree = "<group>"; };
+		AA2222222222222222222222 /* FeaturedAllyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturedAllyView.swift; sourceTree = "<group>"; };
+		AA4444444444444444444444 /* SkillMarketView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillMarketView.swift; sourceTree = "<group>"; };
+		AA6666666666666666666666 /* MemberAutomationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberAutomationView.swift; sourceTree = "<group>"; };
+		6CB0F6A0EBCFCC7846D3860B /* MemberSessionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberSessionsView.swift; sourceTree = "<group>"; };
+		71C9792E0B940A8C36A0E76F /* TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskListView.swift; sourceTree = "<group>"; };
+		732086766760FC0029F08CE4 /* MQTTMessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTTMessageTests.swift; sourceTree = "<group>"; };
+		823BC8AEA646A45ADF76AEC2 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
+		877250779DF25DFB6EA564C9 /* MessageAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAggregator.swift; sourceTree = "<group>"; };
+		9603D9BF21A1A9C40696ABA9 /* PairingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingManager.swift; sourceTree = "<group>"; };
+		967D21B1FA571C194C8B0FC0 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		98D60BDCD24BE7DBC14D1FAD /* MessageAggregatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAggregatorTests.swift; sourceTree = "<group>"; };
+		9DA7FDF42A97343C386C04F8 /* MarkdownRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRenderer.swift; sourceTree = "<group>"; };
+		9DC4A3372C9F29BEC02488EB /* ChatInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInputBar.swift; sourceTree = "<group>"; };
+		AC93E7E379872F91DF34055C /* NotificationPrefView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPrefView.swift; sourceTree = "<group>"; };
+		AD7FA2EBAD71DEAA331B0ED7 /* DesktopStatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopStatusBadge.swift; sourceTree = "<group>"; };
+		AEA5F011388B4C1DFE3CFB8B /* FunctionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FunctionPanelView.swift; sourceTree = "<group>"; };
+		AF95DB3D8227F4EEC0A5786F /* TeamClawMobileUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileUITests.swift; sourceTree = "<group>"; };
+		B05AC25E19E8AB8D1E7D40E1 /* ChatDetailViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailViewModelTests.swift; sourceTree = "<group>"; };
+		EE2222222222222222222222 /* MemberViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberViewModelTests.swift; sourceTree = "<group>"; };
+		EE4444444444444444444444 /* SkillTalentViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillTalentViewModelTests.swift; sourceTree = "<group>"; };
+		B1D5F75CF3A9E1B32799B736 /* TaskViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskViewModelTests.swift; sourceTree = "<group>"; };
+		B2289EDD55BEE0E4CE2DD819 /* ChatDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailViewModel.swift; sourceTree = "<group>"; };
+		B743505B94E70A0A84C6317F /* LiquidGlassBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassBar.swift; sourceTree = "<group>"; };
+		D086C0687DF14187A6AD3A24 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		D159295636E0431FC7F4A497 /* MQTTServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTTServiceProtocol.swift; sourceTree = "<group>"; };
+		D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamClawMobileTests.swift; sourceTree = "<group>"; };
+		D49161288BBB6B6D11F2251A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		D757E0623CEB9A68984B2B5C /* TeamMember.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamMember.swift; sourceTree = "<group>"; };
+		BB2222222222222222222222 /* Talent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Talent.swift; sourceTree = "<group>"; };
+		BB4444444444444444444444 /* TalentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalentViewModel.swift; sourceTree = "<group>"; };
+		DD2222222222222222222222 /* RoleDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleDetailView.swift; sourceTree = "<group>"; };
+		DDA90A38CC31873CA85B3BB7 /* SkillViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillViewModel.swift; sourceTree = "<group>"; };
+		E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeamClawMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E32DBAEC6B0FAD53F502E6C1 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
+		CC2222222222222222222222 /* ProtoMQTTCoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtoMQTTCoder.swift; sourceTree = "<group>"; };
+		CC4444444444444444444444 /* teamclaw.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = teamclaw.pb.swift; sourceTree = "<group>"; };
+		F0F4BF64F9A480F2B56AD7AB /* NavigationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationUITests.swift; sourceTree = "<group>"; };
+		F720965A2D584D64DEB44A21 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		FC5358997970581A339AEFF3 /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
+		FD07FCE2F4D651AB21A4451D /* TeamClawMobileUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TeamClawMobileUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FF46DB166CC0F68E775C08FF /* MemberViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberViewModel.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0E48AAD6CF9EA23EB17241B6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				54C7CD0A152D6ECB4B2A6641 /* CocoaMQTT in Frameworks */,
+				60BECF2B5D5D6E482F51A22C /* Markdown in Frameworks */,
+				8CF7A33A3A09AA9B58ABF70E /* Alamofire in Frameworks */,
+				CC5555555555555555555555 /* SwiftProtobuf in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		10B650C9130659A8D63AFA9C /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				AD7FA2EBAD71DEAA331B0ED7 /* DesktopStatusBadge.swift */,
+				B743505B94E70A0A84C6317F /* LiquidGlassBar.swift */,
+				9DA7FDF42A97343C386C04F8 /* MarkdownRenderer.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		11920C86811F711D0095DBE2 /* TeamMembers */ = {
+			isa = PBXGroup;
+			children = (
+				AA2222222222222222222222 /* FeaturedAllyView.swift */,
+				AA6666666666666666666666 /* MemberAutomationView.swift */,
+				6AB5914BA4C210402C4A6E7C /* MemberListView.swift */,
+				6CB0F6A0EBCFCC7846D3860B /* MemberSessionsView.swift */,
+				FF46DB166CC0F68E775C08FF /* MemberViewModel.swift */,
+				DD2222222222222222222222 /* RoleDetailView.swift */,
+				AA4444444444444444444444 /* SkillMarketView.swift */,
+				BB4444444444444444444444 /* TalentViewModel.swift */,
+			);
+			path = TeamMembers;
+			sourceTree = "<group>";
+		};
+		12589EB4C7BF527C22603127 /* FunctionPanel */ = {
+			isa = PBXGroup;
+			children = (
+				AEA5F011388B4C1DFE3CFB8B /* FunctionPanelView.swift */,
+			);
+			path = FunctionPanel;
+			sourceTree = "<group>";
+		};
+		183038FE39EE550D75E57E2A /* TeamClawMobileUITests */ = {
+			isa = PBXGroup;
+			children = (
+				F0F4BF64F9A480F2B56AD7AB /* NavigationUITests.swift */,
+				AF95DB3D8227F4EEC0A5786F /* TeamClawMobileUITests.swift */,
+			);
+			path = TeamClawMobileUITests;
+			sourceTree = "<group>";
+		};
+		1888634C788867B422C95A60 /* TeamClawMobile */ = {
+			isa = PBXGroup;
+			children = (
+				3AF9EEA26C502C1D43B7E4D2 /* Info.plist */,
+				53FF491CBE0A78063EC506CD /* App */,
+				94AE71B20FEBE5A7B097D43F /* Core */,
+				8D436916257E63CC73D360BE /* Features */,
+				CC7777777777777777777777 /* Generated */,
+				4BA3F5D0421BDD381FA81B75 /* Models */,
+				4EAEA2F90DE6E140DFF0A398 /* Resources */,
+				10B650C9130659A8D63AFA9C /* Shared */,
+			);
+			path = TeamClawMobile;
+			sourceTree = "<group>";
+		};
+		260BA645D9B088BFD118DCD9 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				E32DBAEC6B0FAD53F502E6C1 /* ModelTests.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		42FD07F32500634D47E6E0EB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */,
+				1A870EF354C2C1B266ED9C17 /* TeamClawMobileTests.xctest */,
+				FD07FCE2F4D651AB21A4451D /* TeamClawMobileUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4BA3F5D0421BDD381FA81B75 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				5DDD023179D4C3D6C27643B9 /* AutomationTask.swift */,
+				36621DE5BE808E48FCAB3565 /* ChatMessage.swift */,
+				823BC8AEA646A45ADF76AEC2 /* Session.swift */,
+				2FCB7D9D27F63BE7540362BC /* Skill.swift */,
+				BB2222222222222222222222 /* Talent.swift */,
+				D757E0623CEB9A68984B2B5C /* TeamMember.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		4EAEA2F90DE6E140DFF0A398 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				967D21B1FA571C194C8B0FC0 /* .gitkeep */,
+				3904197965C84ABBC8822496 /* Localizable.strings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		53FF491CBE0A78063EC506CD /* App */ = {
+			isa = PBXGroup;
+			children = (
+				D49161288BBB6B6D11F2251A /* ContentView.swift */,
+				5E8A1F867A184477619ACF2E /* TeamClawMobileApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		57182359D7799AEAE6493270 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				B05AC25E19E8AB8D1E7D40E1 /* ChatDetailViewModelTests.swift */,
+				EE2222222222222222222222 /* MemberViewModelTests.swift */,
+				65299398879A9250C02F60B9 /* SessionListViewModelTests.swift */,
+				EE4444444444444444444444 /* SkillTalentViewModelTests.swift */,
+				B1D5F75CF3A9E1B32799B736 /* TaskViewModelTests.swift */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		5978FDFA0181A57FB181E968 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				AC93E7E379872F91DF34055C /* NotificationPrefView.swift */,
+				61A1353DC65EC38EF8E811A3 /* PairingView.swift */,
+				D086C0687DF14187A6AD3A24 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		65396B749CCB1F624E5FBAAF /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				242DF65B785199140510A03B /* .gitkeep */,
+				52FAECFFC6E965253D9B1424 /* ChatDetailView.swift */,
+				B2289EDD55BEE0E4CE2DD819 /* ChatDetailViewModel.swift */,
+				9DC4A3372C9F29BEC02488EB /* ChatInputBar.swift */,
+				FC5358997970581A339AEFF3 /* MessageBubbleView.swift */,
+				304DBC8795E823C5963EE650 /* StreamingTextView.swift */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		6668AA9BA6CECF8EE878E7E5 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				4C4BF600C2F057B605FC1015 /* ConnectionMonitorTests.swift */,
+				98D60BDCD24BE7DBC14D1FAD /* MessageAggregatorTests.swift */,
+				732086766760FC0029F08CE4 /* MQTTMessageTests.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		883C9D7080C45BDFEECABD2A /* SessionList */ = {
+			isa = PBXGroup;
+			children = (
+				267D69C246CE598FDE71DCDE /* SessionListView.swift */,
+				0FFB5A67ECFF68D836396CB0 /* SessionListViewModel.swift */,
+			);
+			path = SessionList;
+			sourceTree = "<group>";
+		};
+		8D436916257E63CC73D360BE /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				E364B14AD556E864FB624C55 /* Automation */,
+				65396B749CCB1F624E5FBAAF /* Chat */,
+				12589EB4C7BF527C22603127 /* FunctionPanel */,
+				883C9D7080C45BDFEECABD2A /* SessionList */,
+				5978FDFA0181A57FB181E968 /* Settings */,
+				C7004A6D00870B545EEC8C3E /* Skills */,
+				11920C86811F711D0095DBE2 /* TeamMembers */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		90554FCDF36C0779F0C267ED = {
+			isa = PBXGroup;
+			children = (
+				1888634C788867B422C95A60 /* TeamClawMobile */,
+				D7B97BB9F185CE0B7E835D89 /* TeamClawMobileTests */,
+				183038FE39EE550D75E57E2A /* TeamClawMobileUITests */,
+				42FD07F32500634D47E6E0EB /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		94AE71B20FEBE5A7B097D43F /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				4A28F1C39CE91082740D1F76 /* ConnectionMonitor.swift */,
+				877250779DF25DFB6EA564C9 /* MessageAggregator.swift */,
+				4F8D1503D1B51EB397EEE0FB /* OSSUploader.swift */,
+				9603D9BF21A1A9C40696ABA9 /* PairingManager.swift */,
+				B1BE7C7CCA12582B77BB3501 /* MQTT */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		B1BE7C7CCA12582B77BB3501 /* MQTT */ = {
+			isa = PBXGroup;
+			children = (
+				69658CAD73E044A864470496 /* MockMQTTService.swift */,
+				014B950E4DE6034CAF59DAEA /* MQTTService.swift */,
+				CC2222222222222222222222 /* ProtoMQTTCoder.swift */,
+				D159295636E0431FC7F4A497 /* MQTTServiceProtocol.swift */,
+			);
+			path = MQTT;
+			sourceTree = "<group>";
+		};
+		CC7777777777777777777777 /* Generated */ = {
+			isa = PBXGroup;
+			children = (
+				CC4444444444444444444444 /* teamclaw.pb.swift */,
+			);
+			path = Generated;
+			sourceTree = "<group>";
+		};
+		C7004A6D00870B545EEC8C3E /* Skills */ = {
+			isa = PBXGroup;
+			children = (
+				2AC0C0BCFF2BE9EC099FB476 /* SkillHomeView.swift */,
+				DDA90A38CC31873CA85B3BB7 /* SkillViewModel.swift */,
+			);
+			path = Skills;
+			sourceTree = "<group>";
+		};
+		D7B97BB9F185CE0B7E835D89 /* TeamClawMobileTests */ = {
+			isa = PBXGroup;
+			children = (
+				D4019064F2E0930B3A43D2B6 /* TeamClawMobileTests.swift */,
+				6668AA9BA6CECF8EE878E7E5 /* Core */,
+				57182359D7799AEAE6493270 /* Features */,
+				260BA645D9B088BFD118DCD9 /* Models */,
+			);
+			path = TeamClawMobileTests;
+			sourceTree = "<group>";
+		};
+		E364B14AD556E864FB624C55 /* Automation */ = {
+			isa = PBXGroup;
+			children = (
+				01E304867F346D965A6D82F1 /* TaskEditView.swift */,
+				71C9792E0B940A8C36A0E76F /* TaskListView.swift */,
+				58D5085903B62892AC036020 /* TaskViewModel.swift */,
+			);
+			path = Automation;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4BFD80CE7475206FDAB63532 /* TeamClawMobileTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B6DA5F332223385669839570 /* Build configuration list for PBXNativeTarget "TeamClawMobileTests" */;
+			buildPhases = (
+				5676FBCCCB55801EF2BE7BA7 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B21BBB91F35FC803A8E63C11 /* PBXTargetDependency */,
+			);
+			name = TeamClawMobileTests;
+			packageProductDependencies = (
+			);
+			productName = TeamClawMobileTests;
+			productReference = 1A870EF354C2C1B266ED9C17 /* TeamClawMobileTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		80CFD6190F147258CA2F2250 /* TeamClawMobileUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C18A808351777A188CA1B0C9 /* Build configuration list for PBXNativeTarget "TeamClawMobileUITests" */;
+			buildPhases = (
+				76F04DA9C306B286B24DFE39 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6244A8E0CBEBA17DF7F9D798 /* PBXTargetDependency */,
+			);
+			name = TeamClawMobileUITests;
+			packageProductDependencies = (
+			);
+			productName = TeamClawMobileUITests;
+			productReference = FD07FCE2F4D651AB21A4451D /* TeamClawMobileUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		8F891BDD19BFE655DBCDBBA3 /* TeamClawMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EE41F3E0130BEA9FA855458B /* Build configuration list for PBXNativeTarget "TeamClawMobile" */;
+			buildPhases = (
+				082BB117A8C5A4EAB2DB9574 /* Sources */,
+				33D5A3A4C8C08CAA0BED869A /* Resources */,
+				0E48AAD6CF9EA23EB17241B6 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TeamClawMobile;
+			packageProductDependencies = (
+				48D6BF74640DFCC159C17AF3 /* CocoaMQTT */,
+				9FE2D672C23A9561D53ABAB0 /* Markdown */,
+				DC38DE73255511B28B9E9765 /* Alamofire */,
+				CC6666666666666666666666 /* SwiftProtobuf */,
+			);
+			productName = TeamClawMobile;
+			productReference = E0A3BDFBAB95ECFD8CB440BB /* TeamClawMobile.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C6571E6141B1ACE3553D2816 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					4BFD80CE7475206FDAB63532 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					80CFD6190F147258CA2F2250 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+						TestTargetID = 8F891BDD19BFE655DBCDBBA3;
+					};
+					8F891BDD19BFE655DBCDBBA3 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 1BE3DC0A228DB82A3EDEEC47 /* Build configuration list for PBXProject "TeamClawMobile" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				"zh-Hans",
+			);
+			mainGroup = 90554FCDF36C0779F0C267ED;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				82CD52E1B81D00BA123626CA /* XCRemoteSwiftPackageReference "Alamofire" */,
+				079A1E85AEBDC12DC3251F07 /* XCRemoteSwiftPackageReference "CocoaMQTT" */,
+				7259BF61557A57DB0DF461B4 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				CC8888888888888888888888 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 42FD07F32500634D47E6E0EB /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8F891BDD19BFE655DBCDBBA3 /* TeamClawMobile */,
+				4BFD80CE7475206FDAB63532 /* TeamClawMobileTests */,
+				80CFD6190F147258CA2F2250 /* TeamClawMobileUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		33D5A3A4C8C08CAA0BED869A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A68AB99BC8D32A57EFE2E3AF /* Localizable.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		082BB117A8C5A4EAB2DB9574 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				230A35A007BFBA18B6AC2D1A /* AutomationTask.swift in Sources */,
+				A5E5F3126BD2D7891BD898B8 /* ChatDetailView.swift in Sources */,
+				4EFACF959724A07DF6691958 /* ChatDetailViewModel.swift in Sources */,
+				32241D8D5C11A518F003A23C /* ChatInputBar.swift in Sources */,
+				F72276690532533498ED380B /* ChatMessage.swift in Sources */,
+				B2A5D4F0D5CB9A45D5C3818D /* ConnectionMonitor.swift in Sources */,
+				BF474BB88350A810335A0EC7 /* ContentView.swift in Sources */,
+				1A33F059A8F919BB89679A91 /* DesktopStatusBadge.swift in Sources */,
+				379AACFCE99E30DFA56DAD04 /* FunctionPanelView.swift in Sources */,
+				9A9996C594FB79340DD2F947 /* LiquidGlassBar.swift in Sources */,
+				CC1111111111111111111111 /* ProtoMQTTCoder.swift in Sources */,
+				CC3333333333333333333333 /* teamclaw.pb.swift in Sources */,
+				DD8CCF863A9D27D3A2B1AD63 /* MQTTService.swift in Sources */,
+				E4A5A43173A9B6264E39598B /* MQTTServiceProtocol.swift in Sources */,
+				D5FF9542D765A41BD695AF63 /* MarkdownRenderer.swift in Sources */,
+				AA1111111111111111111111 /* FeaturedAllyView.swift in Sources */,
+				AA5555555555555555555555 /* MemberAutomationView.swift in Sources */,
+				BC326B3B60AC81562958E878 /* MemberListView.swift in Sources */,
+				B4A10A98AC647E600EBA6585 /* MemberSessionsView.swift in Sources */,
+				AA3333333333333333333333 /* SkillMarketView.swift in Sources */,
+				C343D107C6392BE351521B70 /* MemberViewModel.swift in Sources */,
+				FB47D1A057337D95C268D8D1 /* MessageAggregator.swift in Sources */,
+				2789906A141F3971C4DF48D6 /* MessageBubbleView.swift in Sources */,
+				662BA0A5CCEF0788CC67D0B8 /* MockMQTTService.swift in Sources */,
+				A43D7D80DECF3FBE3341E550 /* NotificationPrefView.swift in Sources */,
+				21E5D7D3B63B3B7CBB1D186A /* OSSUploader.swift in Sources */,
+				317772C041CF69D648EC1919 /* PairingManager.swift in Sources */,
+				8599A486F276696A465012E3 /* PairingView.swift in Sources */,
+				258F054107C9F77DFEE25248 /* Session.swift in Sources */,
+				4196DE9734C0B342F20B8B6F /* SessionListView.swift in Sources */,
+				B0F80C7A2450E30AD052C4A9 /* SessionListViewModel.swift in Sources */,
+				0D8C53F4805FAF764B55A175 /* SettingsView.swift in Sources */,
+				689CD249A22C0EC9692554D6 /* Skill.swift in Sources */,
+				0AF570A11B033A3793E2D33C /* SkillHomeView.swift in Sources */,
+				858DB153EFDF26079F8F3655 /* SkillViewModel.swift in Sources */,
+				F92B8FF29F538FE5EF2E82AD /* StreamingTextView.swift in Sources */,
+				161E2FC7CA32B7CB0625F006 /* TaskEditView.swift in Sources */,
+				32F667482A7D2D009DF3309A /* TaskListView.swift in Sources */,
+				0C2B937E1220E533538447C3 /* TaskViewModel.swift in Sources */,
+				16A0D1CCA0B263A727F89BD5 /* TeamClawMobileApp.swift in Sources */,
+				BB1111111111111111111111 /* Talent.swift in Sources */,
+				BB3333333333333333333333 /* TalentViewModel.swift in Sources */,
+				DD1111111111111111111111 /* RoleDetailView.swift in Sources */,
+				08611817B203CE81AE25034B /* TeamMember.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5676FBCCCB55801EF2BE7BA7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A8AD34BFE334E6F2516908A5 /* ChatDetailViewModelTests.swift in Sources */,
+				EE1111111111111111111111 /* MemberViewModelTests.swift in Sources */,
+				EE3333333333333333333333 /* SkillTalentViewModelTests.swift in Sources */,
+				EFD3FEF6ECB8BB3196FB7E17 /* ConnectionMonitorTests.swift in Sources */,
+				134732A83BBEC99EEE375989 /* MQTTMessageTests.swift in Sources */,
+				79B10E1EB1A83C20234AB6B5 /* MessageAggregatorTests.swift in Sources */,
+				84B1548437DF691CC12D4607 /* ModelTests.swift in Sources */,
+				FC43E4D56FEA629C3A0072FB /* SessionListViewModelTests.swift in Sources */,
+				02968F8E0A423B44439FAEBE /* TaskViewModelTests.swift in Sources */,
+				AF24687EFEC7A836A7404796 /* TeamClawMobileTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		76F04DA9C306B286B24DFE39 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				265C9267056F4B22A4EC2218 /* NavigationUITests.swift in Sources */,
+				531C62D5C7AA8378A188D1A5 /* TeamClawMobileUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		6244A8E0CBEBA17DF7F9D798 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8F891BDD19BFE655DBCDBBA3 /* TeamClawMobile */;
+			targetProxy = 993F803650DF6C598EF0B422 /* PBXContainerItemProxy */;
+		};
+		B21BBB91F35FC803A8E63C11 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8F891BDD19BFE655DBCDBBA3 /* TeamClawMobile */;
+			targetProxy = 30C5673F637D58792FB50DA9 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		3904197965C84ABBC8822496 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				550DFD7031ACB3B0C7C8A18D /* en */,
+				F720965A2D584D64DEB44A21 /* zh-Hans */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		38D6AF7AAF7C8BFF604D66FE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.teamclaw.TeamClawMobile;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7F0F293BF563DCF5558FCDFE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TeamClawMobile.app/TeamClawMobile";
+			};
+			name = Release;
+		};
+		B636CD80E9ADECC12A94F823 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = TeamClawMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B952F464A72134607FF41063 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TeamClawMobile;
+			};
+			name = Debug;
+		};
+		C847460D9C2731AD81A77D9B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.teamclaw.TeamClawMobile;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		EB4C9F44C90039DED356A79A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = TeamClawMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EEC7DEE77B476E9D616AECAE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TeamClawMobile;
+			};
+			name = Release;
+		};
+		F41C2209BBDA50A88B1965F8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TeamClawMobile.app/TeamClawMobile";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1BE3DC0A228DB82A3EDEEC47 /* Build configuration list for PBXProject "TeamClawMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				38D6AF7AAF7C8BFF604D66FE /* Debug */,
+				C847460D9C2731AD81A77D9B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B6DA5F332223385669839570 /* Build configuration list for PBXNativeTarget "TeamClawMobileTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F41C2209BBDA50A88B1965F8 /* Debug */,
+				7F0F293BF563DCF5558FCDFE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C18A808351777A188CA1B0C9 /* Build configuration list for PBXNativeTarget "TeamClawMobileUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B952F464A72134607FF41063 /* Debug */,
+				EEC7DEE77B476E9D616AECAE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EE41F3E0130BEA9FA855458B /* Build configuration list for PBXNativeTarget "TeamClawMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EB4C9F44C90039DED356A79A /* Debug */,
+				B636CD80E9ADECC12A94F823 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		079A1E85AEBDC12DC3251F07 /* XCRemoteSwiftPackageReference "CocoaMQTT" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/emqx/CocoaMQTT.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.1.0;
+			};
+		};
+		7259BF61557A57DB0DF461B4 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-markdown.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.4.0;
+			};
+		};
+		82CD52E1B81D00BA123626CA /* XCRemoteSwiftPackageReference "Alamofire" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Alamofire/Alamofire.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.9.0;
+			};
+		};
+		CC8888888888888888888888 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.28.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		48D6BF74640DFCC159C17AF3 /* CocoaMQTT */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 079A1E85AEBDC12DC3251F07 /* XCRemoteSwiftPackageReference "CocoaMQTT" */;
+			productName = CocoaMQTT;
+		};
+		9FE2D672C23A9561D53ABAB0 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7259BF61557A57DB0DF461B4 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+		DC38DE73255511B28B9E9765 /* Alamofire */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 82CD52E1B81D00BA123626CA /* XCRemoteSwiftPackageReference "Alamofire" */;
+			productName = Alamofire;
+		};
+		CC6666666666666666666666 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC8888888888888888888888 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = C6571E6141B1ACE3553D2816 /* Project object */;
+}

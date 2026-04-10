@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import React from 'react';
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
@@ -13,6 +13,13 @@ const mockClearSessionError = vi.fn();
 const mockSetError = vi.fn();
 const mockSetDraftInput = vi.fn();
 const mockSetSelectedModel = vi.fn();
+const workspaceState = {
+  workspacePath: '/test',
+  openCodeBootstrapped: true,
+  openCodeReady: true,
+  setOpenCodeBootstrapped: vi.fn(),
+  setOpenCodeReady: vi.fn(),
+};
 
 const mockSessionState = {
   activeSessionId: 'sess-1',
@@ -67,7 +74,7 @@ vi.mock('@/stores/voice-input', () => ({
 
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: (selector: (s: unknown) => unknown) =>
-    selector({ workspacePath: '/test', openCodeReady: true }),
+    selector(workspaceState),
 }));
 
 vi.mock('@/stores/provider', () => ({
@@ -205,6 +212,9 @@ vi.mock('../ChatInputArea', () => ({
 describe('ChatPanel submission flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    workspaceState.workspacePath = '/test';
+    workspaceState.openCodeBootstrapped = true;
+    workspaceState.openCodeReady = true;
     mockSessionState.activeSessionId = 'sess-1';
     mockSessionState.error = null;
     mockSessionState.isConnected = true;
@@ -222,6 +232,30 @@ describe('ChatPanel submission flow', () => {
   });
 
   describe('message submission', () => {
+    it('loads sessions before full ready and shows startup overlay', async () => {
+      workspaceState.openCodeReady = false;
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await waitFor(() => {
+        expect(mockLoadSessions).toHaveBeenCalledWith('/test');
+      });
+      expect(screen.getByText('Starting agent...')).toBeTruthy();
+    });
+
+    it('does not send messages before full ready', async () => {
+      workspaceState.openCodeReady = false;
+      mockSessionState.draftInput = 'Hello early';
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('mock-submit'));
+      });
+
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
     it('calls sendMessage when submit is triggered with text', async () => {
       mockSessionState.draftInput = 'Hello agent';
 
