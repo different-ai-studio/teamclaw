@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowLeft, ArrowRight, RotateCw, Lock } from "lucide-react"
 import { cn, isTauri } from "@/lib/utils"
 import { normalizeUrl } from "@/lib/webview-utils"
@@ -13,6 +13,9 @@ interface WebViewToolbarProps {
 export function WebViewToolbar({ url: rawUrl, label }: WebViewToolbarProps) {
   const url = normalizeUrl(rawUrl)
   const [currentUrl, setCurrentUrl] = useState(url)
+  const [progress, setProgress] = useState(0)
+  const [showProgress, setShowProgress] = useState(false)
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Poll the current URL periodically to keep address bar in sync
   useEffect(() => {
@@ -44,6 +47,43 @@ export function WebViewToolbar({ url: rawUrl, label }: WebViewToolbarProps) {
     }
   }, [label, url])
 
+  // Listen for webview-progress events from the Rust backend
+  useEffect(() => {
+    if (!isTauri()) return
+    let unlisten: (() => void) | null = null
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<string>("webview-progress", (event) => {
+        try {
+          const payload = JSON.parse(event.payload) as { label: string; progress: number }
+          if (payload.label !== label) return
+          const p = payload.progress
+          setProgress(p)
+          if (p < 100) {
+            setShowProgress(true)
+            if (fadeTimerRef.current !== null) {
+              clearTimeout(fadeTimerRef.current)
+              fadeTimerRef.current = null
+            }
+          } else {
+            fadeTimerRef.current = setTimeout(() => {
+              setShowProgress(false)
+              fadeTimerRef.current = null
+            }, 300)
+          }
+        } catch {
+          // ignore malformed payload
+        }
+      }).then((fn) => { unlisten = fn })
+    })
+    return () => {
+      unlisten?.()
+      if (fadeTimerRef.current !== null) {
+        clearTimeout(fadeTimerRef.current)
+        fadeTimerRef.current = null
+      }
+    }
+  }, [label])
+
   const invokeWebview = useCallback(async (command: string) => {
     if (!isTauri()) return
     const { invoke } = await import("@tauri-apps/api/core")
@@ -59,22 +99,32 @@ export function WebViewToolbar({ url: rawUrl, label }: WebViewToolbarProps) {
   const displayUrl = currentUrl.replace(/^https?:\/\//, "")
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1 border-b bg-muted/30 shrink-0 pointer-events-auto">
-      {/* Navigation buttons */}
-      <NavButton onClick={goBack} title="Back">
-        <ArrowLeft className="h-3.5 w-3.5" />
-      </NavButton>
-      <NavButton onClick={goForward} title="Forward">
-        <ArrowRight className="h-3.5 w-3.5" />
-      </NavButton>
-      <NavButton onClick={reload} title="Reload">
-        <RotateCw className="h-3.5 w-3.5" />
-      </NavButton>
+    <div className="flex flex-col shrink-0 pointer-events-auto">
+      {showProgress && (
+        <div className="h-0.5 w-full bg-transparent">
+          <div
+            className="h-full bg-primary transition-all duration-300 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      )}
+      <div className="flex items-center gap-1 px-2 py-1 border-b bg-muted/30">
+        {/* Navigation buttons */}
+        <NavButton onClick={goBack} title="Back">
+          <ArrowLeft className="h-3.5 w-3.5" />
+        </NavButton>
+        <NavButton onClick={goForward} title="Forward">
+          <ArrowRight className="h-3.5 w-3.5" />
+        </NavButton>
+        <NavButton onClick={reload} title="Reload">
+          <RotateCw className="h-3.5 w-3.5" />
+        </NavButton>
 
-      {/* Address bar (read-only) */}
-      <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-background/80 border text-xs text-muted-foreground min-w-0 ml-1">
-        {isHttps && <Lock className="h-3 w-3 shrink-0 text-green-600" />}
-        <span className="truncate select-text">{displayUrl}</span>
+        {/* Address bar (read-only) */}
+        <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-background/80 border text-xs text-muted-foreground min-w-0 ml-1">
+          {isHttps && <Lock className="h-3 w-3 shrink-0 text-green-600" />}
+          <span className="truncate select-text">{displayUrl}</span>
+        </div>
       </div>
     </div>
   )
