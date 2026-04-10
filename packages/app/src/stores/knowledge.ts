@@ -44,6 +44,14 @@ async function readDirRecursive(rootPath: string): Promise<string[]> {
 // Module-level handle for the wiki link file watcher listener
 let wikiFileMapUnlisten: UnlistenFn | null = null
 
+// Monotonic counter to discard stale wiki file map builds.
+// If a newer build starts before an older one finishes, the older one's
+// result is dropped when mySeq !== wikiBuildSeq.
+let wikiBuildSeq = 0
+
+// Debounce handle for watcher-triggered rebuilds
+let wikiRebuildTimer: ReturnType<typeof setTimeout> | null = null
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -531,7 +539,11 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
     }
     try {
       wikiFileMapUnlisten = await listen('knowledge-index-changed', () => {
-        get().buildWikiFileMap()
+        if (wikiRebuildTimer) clearTimeout(wikiRebuildTimer)
+        wikiRebuildTimer = setTimeout(() => {
+          wikiRebuildTimer = null
+          get().buildWikiFileMap()
+        }, 150)
       })
     } catch (error) {
       console.warn('[wiki-link-index] Failed to register file watcher listener:', error)
@@ -539,6 +551,10 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   },
 
   cleanup: () => {
+    if (wikiRebuildTimer) {
+      clearTimeout(wikiRebuildTimer)
+      wikiRebuildTimer = null
+    }
     if (wikiFileMapUnlisten) {
       wikiFileMapUnlisten()
       wikiFileMapUnlisten = null
@@ -563,17 +579,19 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   // ============================================================================
 
   buildWikiFileMap: async () => {
+    const mySeq = ++wikiBuildSeq
     const workspacePath = useWorkspaceStore.getState().workspacePath
     if (!workspacePath) return
 
     const knowledgePath = `${workspacePath}/knowledge`
     try {
       const relFiles = await readDirRecursive(knowledgePath)
-      // Prefix each with "knowledge/" so paths are relative to workspace root
+      if (mySeq !== wikiBuildSeq) return // Stale: a newer build is running
       const workspaceRelPaths = relFiles.map((f) => `knowledge/${f}`)
       const map = buildFileMap(workspaceRelPaths)
       set({ wikiFileMap: map, wikiFileMapLoaded: true })
     } catch (error) {
+      if (mySeq !== wikiBuildSeq) return
       // knowledge/ directory may not exist yet
       console.warn('[wiki-link-index] Failed to scan knowledge directory:', error)
       set({ wikiFileMap: new Map(), wikiFileMapLoaded: true })
@@ -592,12 +610,24 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
     const workspacePath = useWorkspaceStore.getState().workspacePath
     if (!workspacePath) throw new Error('No workspace')
 
-    const filePath = `${workspacePath}/knowledge/${pageName}.md`
-    const now = new Date().toISOString()
-    const content = `---\ntitle: ${pageName}\ncreated: ${now}\nupdated: ${now}\n---\n\n`
+    const clean = pageName.trim()
+    if (!clean) {
+      throw new Error('Page name cannot be empty')
+    }
+    // Reject path traversal and backslashes (we use forward-slash convention)
+    if (clean.includes('..') || clean.startsWith('/') || clean.includes('\\')) {
+      throw new Error(`Invalid page name: ${pageName}`)
+    }
 
-    // Ensure knowledge/ directory exists
-    await mkdir(`${workspacePath}/knowledge`, { recursive: true })
+    const filePath = `${workspacePath}/knowledge/${clean}.md`
+    // Determine parent directory of the target file to support nested names like "project/roadmap"
+    const lastSlash = filePath.lastIndexOf('/')
+    const parentDir = filePath.slice(0, lastSlash)
+
+    const now = new Date().toISOString()
+    const content = `---\ntitle: ${clean}\ncreated: ${now}\nupdated: ${now}\n---\n\n`
+
+    await mkdir(parentDir, { recursive: true })
     await writeTextFile(filePath, content)
 
     // Rebuild map to include the new file
