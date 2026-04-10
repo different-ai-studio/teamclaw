@@ -90,11 +90,19 @@ export const WikiLinkExtension = Node.create({
       if (alias) dom.setAttribute('data-alias', alias)
       if (heading) dom.setAttribute('data-heading', heading)
 
-      // Check if target resolves in the current wiki file map
-      const resolved = useKnowledgeStore.getState().resolveWikiLink(target)
-      dom.className = resolved ? 'wiki-link' : 'wiki-link wiki-link--unresolved'
+      const setClass = () => {
+        const resolved = useKnowledgeStore.getState().resolveWikiLink(target)
+        dom.className = resolved ? 'wiki-link' : 'wiki-link wiki-link--unresolved'
+      }
+      setClass()
 
-      return { dom }
+      const unsubscribe = useKnowledgeStore.subscribe(
+        (state, prevState) => {
+          if (state.wikiFileMap !== prevState.wikiFileMap) setClass()
+        },
+      )
+
+      return { dom, destroy: () => unsubscribe() }
     }
   },
 
@@ -174,11 +182,11 @@ export const WikiLinkExtension = Node.create({
         key: new PluginKey('wikiLinkClick'),
         props: {
           handleClick: (_view, _pos, event) => {
-            const targetEl = event.target as HTMLElement | null
-            if (!targetEl) return false
+            const rawTarget = event.target
+            if (!(rawTarget instanceof Element)) return false
 
             // The click may land on the span itself or a child text node
-            const linkEl = targetEl.closest('[data-wiki-link]') as HTMLElement | null
+            const linkEl = rawTarget.closest('[data-wiki-link]') as HTMLElement | null
             if (!linkEl) return false
 
             const wikiTarget = linkEl.getAttribute('data-target')
