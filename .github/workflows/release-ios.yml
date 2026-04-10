@@ -101,14 +101,10 @@ jobs:
           xcodebuild archive \
             -project TeamClawMobile.xcodeproj \
             -scheme TeamClawMobile \
+            -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath build/TeamClawMobile.xcarchive \
-            -clonedSourcePackagesDirPath build/SourcePackages \
-            DEVELOPMENT_TEAM=43G5A6G9QV \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE="$PROFILE_UUID" \
-            PRODUCT_BUNDLE_IDENTIFIER=tech.teamclaw.mobile
+            -clonedSourcePackagesDirPath build/SourcePackages
 
       # ── Export IPA ──
       - name: Export IPA
