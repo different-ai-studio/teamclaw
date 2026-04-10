@@ -326,6 +326,25 @@ input,
     color: oklch(0.488 0.243 264.376);
 }
 
+/* Wiki links */
+.tiptap .wiki-link {
+    color: var(--primary);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    cursor: pointer;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+.tiptap .wiki-link:hover {
+    text-decoration-style: solid;
+    background-color: var(--primary-foreground);
+}
+.tiptap .wiki-link--unresolved {
+    color: var(--muted-foreground);
+    text-decoration-style: dashed;
+    opacity: 0.6;
+}
+
 .tiptap hr {
     margin-top: 2em;
     margin-bottom: 2em;
