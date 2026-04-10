@@ -420,6 +420,20 @@ pub async fn p2p_create_team(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
+
+    // Start the node on-demand if it hasn't been started yet (first-time team creation).
+    if guard.is_none() {
+        match IrohNode::new_default().await {
+            Ok(node) => {
+                *guard = Some(node);
+                eprintln!("[P2P] iroh node started on-demand for team creation");
+            }
+            Err(e) => {
+                return Err(format!("Failed to start P2P node: {}", e));
+            }
+        }
+    }
+
     let node = guard.as_mut().ok_or("P2P node not running")?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
