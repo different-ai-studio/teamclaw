@@ -23,8 +23,8 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Use latest available Xcode 16.x
-          XCODE_PATH=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          # Use Xcode 26+ for iOS 26 SDK (required by App Store since April 2026)
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app /Applications/Xcode.app 2>/dev/null | sort -V | tail -1)
           echo "Using: $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           xcodebuild -version
