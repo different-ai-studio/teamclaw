@@ -43,23 +43,31 @@ export function FileBrowser({ className, variant = 'default', rootPath, hideGitS
   const deferredFilterText = React.useDeferredValue(filterText)
   const [gitChangedOnly, setGitChangedOnly] = React.useState(false)
 
-  const [localTree, setLocalTree] = React.useState<import('@/stores/workspace').FileNode[]>([])
   const isCustomRoot = !!rootPath
-  const effectiveTree = isCustomRoot ? localTree : undefined
 
-  const refreshLocalTree = React.useCallback(async () => {
-    if (!rootPath) return
-    const { loadDirectory } = useWorkspaceStore.getState()
-    const nodes = await loadDirectory(rootPath)
-    setLocalTree(nodes)
-  }, [rootPath])
+  // When rootPath is provided, extract its subtree from the global fileTree.
+  // expandDirectory keeps the global tree updated, so sub-directory expansion works naturally.
+  const effectiveTree = React.useMemo(() => {
+    if (!isCustomRoot || !rootPath) return undefined
+    const find = (nodes: typeof fileTree, target: string): typeof fileTree | undefined => {
+      for (const node of nodes) {
+        if (node.path === target) return node.children
+        if (node.children) {
+          const found = find(node.children, target)
+          if (found !== undefined) return found
+        }
+      }
+      return undefined
+    }
+    return find(fileTree, rootPath) ?? []
+  }, [isCustomRoot, rootPath, fileTree])
 
+  // Ensure rootPath is loaded into the global tree on mount
   React.useEffect(() => {
-    if (isCustomRoot) refreshLocalTree()
-  }, [isCustomRoot, refreshLocalTree])
-
-  // Listen for file-change events for custom root
-  useFileChangeListener(() => { if (isCustomRoot) refreshLocalTree() }, 300, !!workspacePath && isCustomRoot)
+    if (isCustomRoot && rootPath) {
+      useWorkspaceStore.getState().expandDirectory(rootPath)
+    }
+  }, [isCustomRoot, rootPath])
 
   // Auto-refresh file tree when panel opens (default variant) or when mounted (panel variant)
   React.useEffect(() => {
