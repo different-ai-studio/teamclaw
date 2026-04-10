@@ -49,7 +49,8 @@ impl Default for WebviewManager {
 /// - WKWebsiteDataStore (defaultDataStore) → persistent cookies, localStorage shared
 #[cfg(target_os = "macos")]
 pub fn init_shared_config(manager: &mut WebviewManager) {
-    use objc2::MainThreadMarker;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send, MainThreadMarker};
     use objc2_web_kit::{WKWebViewConfiguration, WKWebsiteDataStore};
 
     let mtm =
@@ -62,11 +63,25 @@ pub fn init_shared_config(manager: &mut WebviewManager) {
         // share a single global process pool automatically.
         let data_store = WKWebsiteDataStore::defaultDataStore(mtm);
         config.setWebsiteDataStore(&data_store);
+
+        // Disable "Inspect Element" in the native context menu.
+        // The docked Web Inspector breaks our layout because it attempts to
+        // resize the WKWebView to accommodate itself, overflowing outside the
+        // panel bounds we set via webview_set_bounds. Users who need devtools
+        // can use Tauri's own devtools (Cmd+Option+I on the main window).
+        let prefs = config.preferences();
+        let prefs_ptr: *mut AnyObject = objc2::rc::Retained::as_ptr(&prefs) as *mut AnyObject;
+        let ns_false: *mut AnyObject = msg_send![class!(NSNumber), numberWithBool: false];
+        let key_str = std::ffi::CString::new("developerExtrasEnabled").unwrap();
+        let key_ns: *mut AnyObject =
+            msg_send![class!(NSString), stringWithUTF8String: key_str.as_ptr()];
+        let _: () = msg_send![prefs_ptr, setValue: ns_false, forKey: key_ns];
+
         let raw = objc2::rc::Retained::as_ptr(&config) as *const std::ffi::c_void;
         objc2::ffi::objc_retain(raw as *mut _);
         manager.shared_config = Some(SharedConfig(raw));
     }
-    eprintln!("[Webview] Shared WKWebViewConfiguration initialized on main thread (defaultDataStore + shared pool)");
+    eprintln!("[Webview] Shared WKWebViewConfiguration initialized on main thread (defaultDataStore + shared pool, devtools disabled)");
 }
 
 /// Execute JavaScript in the main webview and return the stringified result.
