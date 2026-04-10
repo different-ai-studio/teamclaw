@@ -142,8 +142,7 @@ struct ChatDetailView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 17, weight: .medium))
-                        .frame(width: 36, height: 36)
-                        .liquidGlass(in: Circle())
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -172,9 +171,7 @@ struct ChatDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 15, weight: .medium))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .liquidGlass(in: Capsule())
+                        .foregroundStyle(.secondary)
                 }
             }
         }

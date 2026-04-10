@@ -34,29 +34,28 @@ struct ChatInputBar: View {
                 }
             }
 
-            TextField(
-                isDisabled ? "桌面端离线" : "输入消息...",
-                text: $text,
-                axis: .vertical
-            )
-            .lineLimit(1...5)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .padding(.trailing, showActionButton ? 40 : 0)
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .disabled(isDisabled || isStreaming)
-            .overlay(alignment: .bottomTrailing) {
+            HStack(alignment: .bottom, spacing: 4) {
+                TextField(
+                    isDisabled ? "桌面端离线" : "输入消息...",
+                    text: $text,
+                    axis: .vertical
+                )
+                .lineLimit(1...5)
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 8)
+                .disabled(isDisabled || isStreaming)
+
                 if showActionButton {
                     actionButton
-                        .padding(.trailing, 6)
-                        .padding(.bottom, 5)
+                        .padding(.trailing, 4)
+                        .padding(.bottom, 4)
                 }
             }
+            .background(Color(.systemGray6), in: Capsule())
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
     }
 
     private var showActionButton: Bool {
