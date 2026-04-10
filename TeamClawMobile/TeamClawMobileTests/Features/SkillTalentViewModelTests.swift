@@ -26,7 +26,7 @@ final class SkillViewModelTests: XCTestCase {
     }
 
     func testSkillSyncPopulatesList() {
-        let vm = SkillViewModel(modelContext: context, mqttService: mockMQTT)
+        let vm = { let vm = SkillViewModel(mqttService: mockMQTT); vm.setModelContext(context); return vm }()
 
         var skill = Teamclaw_SkillData()
         skill.id = "s1"
@@ -55,7 +55,7 @@ final class SkillViewModelTests: XCTestCase {
     }
 
     func testPersonalSkillsSeparated() {
-        let vm = SkillViewModel(modelContext: context, mqttService: mockMQTT)
+        let vm = { let vm = SkillViewModel(mqttService: mockMQTT); vm.setModelContext(context); return vm }()
 
         var personal = Teamclaw_SkillData()
         personal.id = "s1"; personal.name = "My Skill"; personal.description_p = ""
@@ -108,7 +108,7 @@ final class TalentViewModelTests: XCTestCase {
     }
 
     func testTalentSyncPopulatesList() {
-        let vm = TalentViewModel(modelContext: context, mqttService: mockMQTT)
+        let vm = { let vm = TalentViewModel(mqttService: mockMQTT); vm.setModelContext(context); return vm }()
 
         var talent = Teamclaw_TalentData()
         talent.id = "java-reviewer"

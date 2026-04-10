@@ -9,8 +9,8 @@ use rumqttc::v5::mqttbytes::QoS;
 use futures_util::StreamExt;
 use prost::Message as ProstMessage;
 
-use super::mqtt_config::{MqttConfig, PairedDevice, PairingSession, MqttRelayStatus};
-use super::mqtt_config::proto;
+use teamclaw_gateway::mqtt_config::{MqttConfig, PairedDevice, PairingSession, MqttRelayStatus};
+use super::mqtt_proto::proto;
 use crate::commands::team_unified::{TeamManifest, MemberRole};
 
 /// MQTT relay bridging the iOS mobile client to the local OpenCode Agent.
@@ -984,11 +984,15 @@ impl MqttRelay {
             return Err("Pairing code has expired".to_string());
         }
 
-        let mqtt_username = format!(
-            "mobile_{}",
-            &mobile_device_id[..8.min(mobile_device_id.len())]
-        );
-        let mqtt_password = uuid::Uuid::new_v4().to_string();
+        // Use the team's shared broker credentials so the mobile device can authenticate
+        let mqtt_username = {
+            let config = self.config.read().await;
+            config.username.clone()
+        };
+        let mqtt_password = {
+            let config = self.config.read().await;
+            config.password.clone()
+        };
 
         let device = PairedDevice {
             device_id: mobile_device_id.to_string(),

@@ -8,15 +8,19 @@ final class TalentViewModel: ObservableObject {
     @Published var talents: [Talent] = []
     @Published private(set) var isDesktopOnline: Bool = false
 
-    private let modelContext: ModelContext
+    private var modelContext: ModelContext?
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
 
     /// IDs received across all pages of the current sync cycle.
     private var receivedIDs: Set<String> = []
 
-    init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
-        self.modelContext = modelContext
+    func setModelContext(_ context: ModelContext) {
+        guard modelContext == nil else { return }
+        modelContext = context
+    }
+
+    init(mqttService: MQTTServiceProtocol) {
         self.mqttService = mqttService
         subscribeToMQTT()
         subscribeToStatus()
@@ -53,6 +57,7 @@ final class TalentViewModel: ObservableObject {
     }
 
     private func handleTalentSync(_ response: Teamclaw_TalentSyncResponse) {
+        guard let modelContext else { return }
         let pg = response.pagination
 
         // Don't wipe cache when server returns empty
@@ -108,6 +113,7 @@ final class TalentViewModel: ObservableObject {
     }
 
     private func loadTalentsFromDB() {
+        guard let modelContext else { return }
         let descriptor = FetchDescriptor<Talent>(sortBy: [SortDescriptor(\.name)])
         talents = (try? modelContext.fetch(descriptor)) ?? []
     }

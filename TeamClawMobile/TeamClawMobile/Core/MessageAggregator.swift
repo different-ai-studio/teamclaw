@@ -46,6 +46,13 @@ final class MessageAggregator {
         }
     }
 
+    func currentContent(for messageID: String) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let state = states[messageID] else { return "" }
+        return assembleInOrder(chunks: state.chunks)
+    }
+
     func reset(messageID: String) {
         lock.lock()
         defer { lock.unlock() }

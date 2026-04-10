@@ -1,9 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub mod proto {
-    include!(concat!(env!("OUT_DIR"), "/teamclaw.rs"));
-}
-
 /// MQTT relay configuration stored in .teamclaw/teamclaw.json
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -28,7 +24,9 @@ pub struct MqttConfig {
     pub paired_devices: Vec<PairedDevice>,
 }
 
-fn default_broker_port() -> u16 { 8883 }
+fn default_broker_port() -> u16 {
+    8883
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

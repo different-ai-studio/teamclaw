@@ -8,6 +8,7 @@ pub mod feishu_config;
 pub mod i18n;
 pub mod kook;
 pub mod kook_config;
+pub mod mqtt_config;
 pub mod pending_question;
 pub mod session;
 pub mod session_queue;

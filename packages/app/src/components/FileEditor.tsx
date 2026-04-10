@@ -889,7 +889,7 @@ export function FileEditor({
         ) : (
           (() => {
             // Route to appropriate editor based on file type
-            const editorType = getEditorType(filename);
+            const editorType = getEditorType(filename, filePath);
 
             if (editorType === "markdown") {
               return (

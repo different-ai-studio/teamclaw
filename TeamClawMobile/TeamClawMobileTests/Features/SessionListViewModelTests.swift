@@ -26,7 +26,9 @@ final class SessionListViewModelTests: XCTestCase {
     }
 
     private func makeVM() -> SessionListViewModel {
-        SessionListViewModel(modelContext: context, mqttService: mockMQTT)
+        let vm = SessionListViewModel(mqttService: mockMQTT)
+        vm.setModelContext(context)
+        return vm
     }
 
     // MARK: - Sorting & Search

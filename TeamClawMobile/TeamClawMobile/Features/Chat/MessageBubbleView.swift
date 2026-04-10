@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MessageBubbleView: View {
     let message: ChatMessage
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         switch message.role {
@@ -55,7 +56,7 @@ struct MessageBubbleView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
             }
-            .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: .trailing)
+            .frame(maxWidth: sizeClass == .regular ? 500 : 280, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)

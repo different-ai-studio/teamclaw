@@ -28,7 +28,7 @@ final class MemberViewModelTests: XCTestCase {
     }
 
     private func makeVM() -> MemberViewModel {
-        MemberViewModel(modelContext: context, mqttService: mockMQTT)
+        { let vm = MemberViewModel(mqttService: mockMQTT); vm.setModelContext(context); return vm }()
     }
 
     // MARK: - Initial State

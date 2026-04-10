@@ -9,13 +9,17 @@ final class SessionListViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var isLoading = false
 
-    private let modelContext: ModelContext
+    private(set) var modelContext: ModelContext?
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
     private var loadingTimer: AnyCancellable?
 
-    init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
-        self.modelContext = modelContext
+    func setModelContext(_ context: ModelContext) {
+        guard modelContext == nil else { return }
+        modelContext = context
+    }
+
+    init(mqttService: MQTTServiceProtocol) {
         self.mqttService = mqttService
 
         mqttService.receivedMessage
@@ -31,6 +35,7 @@ final class SessionListViewModel: ObservableObject {
     }
 
     func loadSessions() {
+        guard let modelContext else { return }
         let descriptor = FetchDescriptor<Session>(
             sortBy: [SortDescriptor(\.lastMessageTime, order: .reverse)]
         )
@@ -66,6 +71,7 @@ final class SessionListViewModel: ObservableObject {
     }
 
     private func handleSessionSync(_ response: Teamclaw_SessionSyncResponse) {
+        guard let modelContext else { return }
         for sessionData in response.sessions {
             let updated = Date(timeIntervalSince1970: TimeInterval(sessionData.updated))
             if let existing = sessions.first(where: { $0.id == sessionData.id }) {
@@ -96,6 +102,7 @@ final class SessionListViewModel: ObservableObject {
     }
 
     private func loadSessionsFromDB() {
+        guard let modelContext else { return }
         let descriptor = FetchDescriptor<Session>(
             sortBy: [SortDescriptor(\.lastMessageTime, order: .reverse)]
         )
@@ -123,22 +130,26 @@ final class SessionListViewModel: ObservableObject {
             lastMessageContent: "",
             lastMessageTime: Date()
         )
-        modelContext.insert(session)
-        try? modelContext.save()
+        modelContext?.insert(session)
+        try? modelContext?.save()
         sessions.insert(session, at: 0)
         applySearch()
         return session
     }
 
     func deleteSession(_ session: Session) {
-        modelContext.delete(session)
-        try? modelContext.save()
+        modelContext?.delete(session)
+        try? modelContext?.save()
         loadSessionsFromDB()
     }
 
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
+
     func relativeTime(for date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+        Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 }

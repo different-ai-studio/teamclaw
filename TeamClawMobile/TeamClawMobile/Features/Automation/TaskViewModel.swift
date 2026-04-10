@@ -8,19 +8,23 @@ final class TaskViewModel: ObservableObject {
     @Published var tasks: [AutomationTask] = []
     @Published private(set) var isDesktopOnline: Bool = false
 
-    private let modelContext: ModelContext
+    private var modelContext: ModelContext?
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
 
     /// IDs received across all pages of the current sync cycle.
     private var receivedIDs: Set<String> = []
 
-    init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
-        self.modelContext = modelContext
+    func setModelContext(_ context: ModelContext) {
+        guard modelContext == nil else { return }
+        modelContext = context
+        loadTasksFromDB()
+    }
+
+    init(mqttService: MQTTServiceProtocol) {
         self.mqttService = mqttService
         subscribeToMQTT()
         subscribeToStatus()
-        loadTasksFromDB()
     }
 
     func loadTasks() {
@@ -48,15 +52,15 @@ final class TaskViewModel: ObservableObject {
             cronExpression: cron,
             taskDescription: description
         )
-        modelContext.insert(task)
-        try? modelContext.save()
+        modelContext?.insert(task)
+        try? modelContext?.save()
         loadTasksFromDB()
         publishTaskUpdate(taskID: task.id, status: .idle)
     }
 
     func deleteTask(_ task: AutomationTask) {
-        modelContext.delete(task)
-        try? modelContext.save()
+        modelContext?.delete(task)
+        try? modelContext?.save()
         loadTasksFromDB()
     }
 
@@ -64,7 +68,7 @@ final class TaskViewModel: ObservableObject {
         task.name = name
         task.cronExpression = cron
         task.taskDescription = description
-        try? modelContext.save()
+        try? modelContext?.save()
         loadTasksFromDB()
     }
 
@@ -85,6 +89,7 @@ final class TaskViewModel: ObservableObject {
     }
 
     private func handleTaskUpdate(_ payload: Teamclaw_TaskUpdate) {
+        guard let modelContext else { return }
         let descriptor = FetchDescriptor<AutomationTask>()
         guard let allTasks = try? modelContext.fetch(descriptor) else { return }
         guard let task = allTasks.first(where: { $0.id == payload.taskID }) else { return }
@@ -100,6 +105,7 @@ final class TaskViewModel: ObservableObject {
     }
 
     private func handleAutomationSync(_ response: Teamclaw_AutomationSyncResponse) {
+        guard let modelContext else { return }
         let pg = response.pagination
 
         // Don't wipe cache when server returns empty
@@ -152,15 +158,18 @@ final class TaskViewModel: ObservableObject {
     }
 
     private func loadTasksFromDB() {
+        guard let modelContext else { return }
         let descriptor = FetchDescriptor<AutomationTask>(sortBy: [SortDescriptor(\.name)])
         tasks = (try? modelContext.fetch(descriptor)) ?? []
     }
 
     private func publishTaskUpdate(taskID: String, status: TaskStatus) {
+        guard let creds = PairingManager.currentCredentials else { return }
         var update = Teamclaw_TaskUpdate()
         update.taskID = taskID
         update.status = status.rawValue
         let msg = ProtoMQTTCoder.makeEnvelope(.taskUpdate(update))
-        mqttService.publish(topic: "task/update", message: msg, qos: 1)
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        mqttService.publish(topic: topic, message: msg, qos: 1)
     }
 }

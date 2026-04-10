@@ -28,7 +28,9 @@ final class ChatDetailViewModelTests: XCTestCase {
     }
 
     private func makeVM(sessionID: String = "test-session") -> ChatDetailViewModel {
-        ChatDetailViewModel(sessionID: sessionID, modelContext: context, mqttService: mockMQTT)
+        let vm = ChatDetailViewModel(sessionID: sessionID, mqttService: mockMQTT)
+        vm.setModelContext(context)
+        return vm
     }
 
     // MARK: - Send

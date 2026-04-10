@@ -18,14 +18,11 @@ struct SessionListView: View {
     @State private var isSearchActive = false
     @FocusState private var searchFocused: Bool
 
-    init(mqttService: MQTTServiceProtocol, connectionMonitor: ConnectionMonitor, pairingManager: PairingManager, modelContext: ModelContext) {
+    init(mqttService: MQTTServiceProtocol, connectionMonitor: ConnectionMonitor, pairingManager: PairingManager) {
         self.mqttService = mqttService
         self.connectionMonitor = connectionMonitor
         self.pairingManager = pairingManager
-        _viewModel = StateObject(wrappedValue: SessionListViewModel(
-            modelContext: modelContext,
-            mqttService: mqttService
-        ))
+        _viewModel = StateObject(wrappedValue: SessionListViewModel(mqttService: mqttService))
     }
 
     var body: some View {
@@ -82,7 +79,7 @@ struct SessionListView: View {
             }
             .navigationDestination(for: String.self) { sessionID in
                 if let session = viewModel.sessions.first(where: { $0.id == sessionID }) {
-                    ChatDetailView(session: session, mqttService: mqttService, modelContext: modelContext)
+                    ChatDetailView(session: session, mqttService: mqttService)
                 } else {
                     Text("Session not found")
                 }
@@ -96,10 +93,7 @@ struct SessionListView: View {
             }
             .sheet(isPresented: $showMemberPanel) {
                 MemberListView(
-                    viewModel: MemberViewModel(
-                        modelContext: modelContext,
-                        mqttService: mqttService
-                    ),
+                    viewModel: MemberViewModel(mqttService: mqttService),
                     mqttService: mqttService
                 )
             }
@@ -111,6 +105,7 @@ struct SessionListView: View {
                 viewModel.applySearch()
             }
             .onAppear {
+                viewModel.setModelContext(modelContext)
                 viewModel.loadSessions()
             }
         }
@@ -324,6 +319,6 @@ struct SessionRowView: View {
     let mockMQTT = MockMQTTService()
     let monitor = ConnectionMonitor(mqttService: mockMQTT)
 
-    return SessionListView(mqttService: mockMQTT, connectionMonitor: monitor, pairingManager: PairingManager(), modelContext: context)
+    return SessionListView(mqttService: mockMQTT, connectionMonitor: monitor, pairingManager: PairingManager())
         .modelContainer(container)
 }

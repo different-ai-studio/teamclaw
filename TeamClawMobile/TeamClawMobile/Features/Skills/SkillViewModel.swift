@@ -9,19 +9,23 @@ final class SkillViewModel: ObservableObject {
     @Published var teamSkills: [Skill] = []
     @Published private(set) var isDesktopOnline: Bool = false
 
-    private let modelContext: ModelContext
+    private var modelContext: ModelContext?
     private let mqttService: MQTTServiceProtocol
     private var cancellables = Set<AnyCancellable>()
 
     /// IDs received across all pages of the current sync cycle.
     private var receivedIDs: Set<String> = []
 
-    init(modelContext: ModelContext, mqttService: MQTTServiceProtocol) {
-        self.modelContext = modelContext
+    func setModelContext(_ context: ModelContext) {
+        guard modelContext == nil else { return }
+        modelContext = context
+        loadSkillsFromDB()
+    }
+
+    init(mqttService: MQTTServiceProtocol) {
         self.mqttService = mqttService
         subscribeToMQTT()
         subscribeToStatus()
-        loadSkillsFromDB()
     }
 
     func loadSkills() {
@@ -55,6 +59,7 @@ final class SkillViewModel: ObservableObject {
     }
 
     private func handleSkillSync(_ response: Teamclaw_SkillSyncResponse) {
+        guard let modelContext else { return }
         let pg = response.pagination
 
         // Don't wipe cache when server returns empty
@@ -106,6 +111,7 @@ final class SkillViewModel: ObservableObject {
     }
 
     private func loadSkillsFromDB() {
+        guard let modelContext else { return }
         let descriptor = FetchDescriptor<Skill>(sortBy: [SortDescriptor(\.name)])
         let allSkills = (try? modelContext.fetch(descriptor)) ?? []
         personalSkills = allSkills.filter(\.isPersonal)

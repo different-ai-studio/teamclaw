@@ -2,11 +2,11 @@
 // `crate::commands::gateway::*` paths throughout the main crate continue to work.
 pub use teamclaw_gateway::*;
 
-pub mod mqtt_config;
+pub mod mqtt_proto;
 pub mod mqtt_relay;
 
-pub use mqtt_config::*;
 pub use mqtt_relay::MqttRelay;
+pub use teamclaw_gateway::mqtt_config::{MqttConfig, MqttRelayStatus, PairedDevice, PairingSession};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;

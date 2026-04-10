@@ -16,7 +16,7 @@ pub struct ChannelsConfig {
     pub kook: Option<KookConfig>,
     pub wechat: Option<WeChatConfig>,
     pub wecom: Option<WeComConfig>,
-    pub mqtt: Option<super::mqtt_config::MqttConfig>,
+    pub mqtt: Option<crate::mqtt_config::MqttConfig>,
 }
 
 /// Discord channel configuration (mirrors OpenClaw structure)

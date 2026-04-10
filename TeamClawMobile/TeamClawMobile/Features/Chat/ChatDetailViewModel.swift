@@ -14,7 +14,7 @@ final class ChatDetailViewModel: ObservableObject {
     @Published var availableModels: [String] = ["default"]
 
     let sessionID: String
-    private let modelContext: ModelContext
+    private var modelContext: ModelContext?
     private let mqttService: MQTTServiceProtocol
     private let aggregator: MessageAggregator
 
@@ -22,14 +22,17 @@ final class ChatDetailViewModel: ObservableObject {
     private var currentStreamingMessageID: String?
     private var aggregatorCancellable: AnyCancellable?
 
+    func setModelContext(_ context: ModelContext) {
+        guard modelContext == nil else { return }
+        modelContext = context
+    }
+
     init(
         sessionID: String,
-        modelContext: ModelContext,
         mqttService: MQTTServiceProtocol,
         aggregator: MessageAggregator = MessageAggregator()
     ) {
         self.sessionID = sessionID
-        self.modelContext = modelContext
         self.mqttService = mqttService
         self.aggregator = aggregator
 
@@ -38,6 +41,7 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     func loadMessages() {
+        guard let modelContext else { return }
         let sid = sessionID
         let descriptor = FetchDescriptor<ChatMessage>(
             predicate: #Predicate { $0.sessionID == sid },
@@ -76,8 +80,8 @@ final class ChatDetailViewModel: ObservableObject {
             content: text,
             timestamp: Date()
         )
-        modelContext.insert(message)
-        try? modelContext.save()
+        modelContext?.insert(message)
+        try? modelContext?.save()
         messages.append(message)
         inputText = ""
 
@@ -103,8 +107,8 @@ final class ChatDetailViewModel: ObservableObject {
             timestamp: Date(),
             imageURL: ossURL
         )
-        modelContext.insert(message)
-        try? modelContext.save()
+        modelContext?.insert(message)
+        try? modelContext?.save()
         messages.append(message)
 
         var req = Teamclaw_ChatRequest()
@@ -160,6 +164,7 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     private func handleMessageSync(_ response: Teamclaw_MessageSyncResponse) {
+        guard let modelContext else { return }
         isLoadingHistory = false
         var newMessages: [ChatMessage] = []
         let existingIDs = Set(messages.map(\.id))
@@ -212,9 +217,12 @@ final class ChatDetailViewModel: ObservableObject {
 
         switch response.event {
         case .done:
-            finishStreaming(messageID: messageID, content: streamingContent)
+            // Read final content directly from aggregator to avoid race with async Combine pipeline
+            let finalContent = aggregator.currentContent(for: messageID)
+            finishStreaming(messageID: messageID, content: finalContent)
         case .error(let err):
-            finishStreaming(messageID: messageID, content: streamingContent + "\n[Error: \(err.message)]")
+            let finalContent = aggregator.currentContent(for: messageID)
+            finishStreaming(messageID: messageID, content: finalContent + "\n[Error: \(err.message)]")
         default:
             break
         }
@@ -230,8 +238,8 @@ final class ChatDetailViewModel: ObservableObject {
             content: content,
             timestamp: Date()
         )
-        modelContext.insert(assistantMessage)
-        try? modelContext.save()
+        modelContext?.insert(assistantMessage)
+        try? modelContext?.save()
         messages.append(assistantMessage)
 
         streamingContent = ""

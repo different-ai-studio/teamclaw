@@ -104,22 +104,24 @@ struct SettingsView: View {
                                     .font(.caption)
                                     .lineLimit(1)
                             }
+                        }
+                    }
 
-                            Section("订阅 Topics") {
-                                let topics = [
-                                    "teamclaw/\(creds.teamID)/\(creds.desktopDeviceID)/status",
-                                    "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/res",
-                                    "teamclaw/\(creds.teamID)/\(creds.deviceID)/task",
-                                    "teamclaw/\(creds.teamID)/\(creds.deviceID)/skill",
-                                    "teamclaw/\(creds.teamID)/\(creds.deviceID)/member",
-                                    "teamclaw/\(creds.teamID)/\(creds.deviceID)/talent",
-                                ]
-                                ForEach(topics, id: \.self) { topic in
-                                    Text(topic)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
+                    if let creds = pairingManager.credentials {
+                        Section("订阅 Topics") {
+                            let topics = [
+                                "teamclaw/\(creds.teamID)/\(creds.desktopDeviceID)/status",
+                                "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/res",
+                                "teamclaw/\(creds.teamID)/\(creds.deviceID)/task",
+                                "teamclaw/\(creds.teamID)/\(creds.deviceID)/skill",
+                                "teamclaw/\(creds.teamID)/\(creds.deviceID)/member",
+                                "teamclaw/\(creds.teamID)/\(creds.deviceID)/talent",
+                            ]
+                            ForEach(topics, id: \.self) { topic in
+                                Text(topic)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
                             }
                         }
                     }
@@ -130,7 +132,7 @@ struct SettingsView: View {
                     HStack {
                         Text("版本")
                         Spacer()
-                        Text("1.0.0")
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                             .foregroundStyle(.secondary)
                     }
                     .contentShape(Rectangle())

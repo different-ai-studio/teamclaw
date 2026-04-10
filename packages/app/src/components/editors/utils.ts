@@ -8,11 +8,22 @@ export type EditorType = 'markdown' | 'code';
 /**
  * Determine which editor type to use for a given filename.
  * HTML files are routed to the code editor (with optional preview via supportsPreview).
+ * Skill files (SKILL.md inside skills directories) use code editor for raw editing.
  */
-export function getEditorType(filename: string): EditorType {
+export function getEditorType(filename: string, filePath?: string): EditorType {
+  // Skill markdown files should use CodeMirror for raw frontmatter editing
+  if (filePath && isSkillFile(filePath)) return 'code';
   const ext = filename.split('.').pop()?.toLowerCase();
   if (ext === 'md' || ext === 'markdown') return 'markdown';
   return 'code';
+}
+
+/**
+ * Check if a file path points to a skill file (SKILL.md inside a skills directory).
+ */
+export function isSkillFile(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  return /\/skills\/[^/]+\/SKILL\.md$/i.test(normalized);
 }
 
 /**
