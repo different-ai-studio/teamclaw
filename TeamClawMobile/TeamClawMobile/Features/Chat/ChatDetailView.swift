@@ -154,15 +154,18 @@ struct ChatDetailView: View {
                     } label: {
                         Label("选择模型", systemImage: "cpu")
                     }
+                    // TODO: invite member flow
                     Button { } label: {
                         Label("邀请成员", systemImage: "person.badge.plus")
                     }
+                    // TODO: archive session
                     Button { } label: {
                         Label("归档 Session", systemImage: "archivebox")
                     }
                     ShareLink(item: session.title) {
                         Label("分享", systemImage: "square.and.arrow.up")
                     }
+                    // TODO: session detail view
                     Button { } label: {
                         Label("Session 详情", systemImage: "info.circle")
                     }
