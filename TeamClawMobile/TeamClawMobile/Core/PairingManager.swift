@@ -41,11 +41,7 @@ final class PairingManager: ObservableObject {
         static let desktopDeviceID   = "teamclaw_desktop_device_id"
     }
 
-    // Shared broker credentials used during pairing handshake
-    static let sharedHost     = "a81fb6d3.ala.cn-hangzhou.emqxsl.cn"
-    static let sharedPort: UInt16 = 8883
-    static let sharedUsername = "teamclaw_ios"
-    static let sharedPassword = "teamclaw_ios"
+    // Shared broker credentials used during pairing handshake (user-provided per session)
 
     // MARK: - Init
 
@@ -109,9 +105,19 @@ final class PairingManager: ObservableObject {
 
     /// Real pairing: connect with shared creds, discover desktop via retained status,
     /// then publish pair request and wait for credentials response.
-    func pair(with code: String) {
+    func pair(
+        with code: String,
+        brokerHost: String,
+        brokerPort: UInt16 = 8883,
+        brokerUsername: String? = nil,
+        brokerPassword: String? = nil
+    ) {
         guard code.count == 6, code.allSatisfy(\.isNumber) else {
             pairingError = "配对码必须是 6 位数字"
+            return
+        }
+        guard !brokerHost.isEmpty else {
+            pairingError = "请输入 MQTT 服务器地址"
             return
         }
 
@@ -125,7 +131,11 @@ final class PairingManager: ObservableObject {
                 let result = try await PairingService.perform(
                     code: code,
                     mobileDeviceID: mobileDeviceID,
-                    mobileDeviceName: UIDevice.current.name
+                    mobileDeviceName: UIDevice.current.name,
+                    brokerHost: brokerHost,
+                    brokerPort: brokerPort,
+                    brokerUsername: brokerUsername,
+                    brokerPassword: brokerPassword
                 )
 
                 await MainActor.run {
@@ -195,6 +205,10 @@ final class PairingService {
     private let code: String
     private let mobileDeviceID: String
     private let mobileDeviceName: String
+    private let brokerHost: String
+    private let brokerPort: UInt16
+    private let brokerUsername: String?
+    private let brokerPassword: String?
 
     private var discoveredTeamID: String?
     private var discoveredDesktopDeviceID: String?
@@ -204,20 +218,40 @@ final class PairingService {
     static func perform(
         code: String,
         mobileDeviceID: String,
-        mobileDeviceName: String
+        mobileDeviceName: String,
+        brokerHost: String,
+        brokerPort: UInt16,
+        brokerUsername: String?,
+        brokerPassword: String?
     ) async throws -> PairingResult {
         let service = PairingService(
             code: code,
             mobileDeviceID: mobileDeviceID,
-            mobileDeviceName: mobileDeviceName
+            mobileDeviceName: mobileDeviceName,
+            brokerHost: brokerHost,
+            brokerPort: brokerPort,
+            brokerUsername: brokerUsername,
+            brokerPassword: brokerPassword
         )
         return try await service.run()
     }
 
-    private init(code: String, mobileDeviceID: String, mobileDeviceName: String) {
+    private init(
+        code: String,
+        mobileDeviceID: String,
+        mobileDeviceName: String,
+        brokerHost: String,
+        brokerPort: UInt16,
+        brokerUsername: String?,
+        brokerPassword: String?
+    ) {
         self.code = code
         self.mobileDeviceID = mobileDeviceID
         self.mobileDeviceName = mobileDeviceName
+        self.brokerHost = brokerHost
+        self.brokerPort = brokerPort
+        self.brokerUsername = brokerUsername
+        self.brokerPassword = brokerPassword
     }
 
     private func run() async throws -> PairingResult {
@@ -230,22 +264,28 @@ final class PairingService {
         self.continuation = continuation
 
         let clientID = "teamclaw-ios-pair-\(UUID().uuidString.prefix(8))"
-        NSLog("[Pairing] Connecting to \(PairingManager.sharedHost):\(PairingManager.sharedPort) as \(clientID)")
+        NSLog("[Pairing] Connecting to \(brokerHost):\(brokerPort) as \(clientID)")
 
         let client = CocoaMQTT5(
             clientID: clientID,
-            host: PairingManager.sharedHost,
-            port: PairingManager.sharedPort
+            host: brokerHost,
+            port: brokerPort
         )
-        client.username = PairingManager.sharedUsername
-        client.password = PairingManager.sharedPassword
-        client.enableSSL = true
+        if let username = brokerUsername {
+            client.username = username
+        }
+        if let password = brokerPassword {
+            client.password = password
+        }
+        client.enableSSL = (brokerPort == 8883)
         client.allowUntrustCACertificate = true
         client.cleanSession = true
         client.keepAlive = 30
-        client.sslSettings = [
-            kCFStreamSSLPeerName as String: PairingManager.sharedHost as NSString
-        ]
+        if client.enableSSL {
+            client.sslSettings = [
+                kCFStreamSSLPeerName as String: brokerHost as NSString
+            ]
+        }
         client.didReceiveTrust = { _, _, completionHandler in
             completionHandler(true)
         }
