@@ -253,65 +253,28 @@ pub async fn webview_create(
 })();"#,
     );
 
-    // Report page load progress via Tauri events
-    let label_json = serde_json::to_string(&label).unwrap_or_else(|_| "\"\"".to_string());
-    webview_builder = webview_builder.initialization_script(&format!(
-        r#"(function(){{
-  var __label = {label_json};
-  function __reportProgress(p) {{
-    try {{
-      window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
-        cmd: "plugin:event|emit",
-        event: "webview-progress",
-        payload: JSON.stringify({{ label: __label, progress: p }})
-      }}));
-    }} catch(e) {{}}
-  }}
-  if (document.readyState === 'loading') {{
-    __reportProgress(30);
-    document.addEventListener('DOMContentLoaded', function() {{ __reportProgress(70); }});
-    window.addEventListener('load', function() {{ __reportProgress(100); }});
-  }} else if (document.readyState === 'interactive') {{
-    __reportProgress(70);
-    window.addEventListener('load', function() {{ __reportProgress(100); }});
-  }} else {{
-    __reportProgress(100);
-  }}
-  var __origPush = history.pushState;
-  var __origReplace = history.replaceState;
-  function __onNav() {{
-    __reportProgress(30);
-    setTimeout(function() {{ __reportProgress(100); }}, 500);
-  }}
-  history.pushState = function() {{ __origPush.apply(this, arguments); __onNav(); }};
-  history.replaceState = function() {{ __origReplace.apply(this, arguments); __onNav(); }};
-  window.addEventListener('popstate', __onNav);
-}})()"#,
-        label_json = label_json,
-    ));
+    // Page load progress via on_page_load callback (no JS injection needed —
+    // child webviews don't have __TAURI_INTERNALS__)
+    {
+        let progress_label = label.clone();
+        webview_builder = webview_builder.on_page_load(move |webview, payload| {
+            use tauri::Emitter;
+            let progress = match payload.event() {
+                tauri::webview::PageLoadEvent::Started => 30,
+                tauri::webview::PageLoadEvent::Finished => 100,
+            };
+            let _ = webview.emit(
+                "webview-progress",
+                serde_json::json!({
+                    "label": progress_label,
+                    "progress": progress
+                }),
+            );
+        });
+    }
 
-    // Right-click context menu: collect context and send to Rust
-    webview_builder = webview_builder.initialization_script(&format!(
-        r#"(function(){{
-  var __label = {label_json};
-  document.addEventListener('contextmenu', function(e) {{
-    var ctx = {{ label: __label, selectedText: '', linkUrl: '', linkText: '', x: e.clientX, y: e.clientY }};
-    var sel = window.getSelection();
-    if (sel && sel.toString().trim()) ctx.selectedText = sel.toString().trim();
-    var a = e.target.closest && e.target.closest('a');
-    if (a && a.href) {{ ctx.linkUrl = a.href; ctx.linkText = a.textContent || ''; }}
-    e.preventDefault();
-    try {{
-      window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
-        cmd: "plugin:event|emit",
-        event: "webview-context-menu",
-        payload: JSON.stringify(ctx)
-      }}));
-    }} catch(ex) {{}}
-  }}, true);
-}})()"#,
-        label_json = label_json,
-    ));
+    // Right-click: rely on the native WKWebView / WebView2 context menu.
+    // No custom init script needed — native menus provide Copy/Paste/Look Up/etc.
 
     // Inject window.teamclaw identity global before any page scripts run.
     // Non-fatal: if device_token generation fails (e.g. DEVICE_JWT_SECRET not configured),
@@ -502,128 +465,82 @@ pub async fn webview_get_url(app: tauri::AppHandle, label: String) -> Result<Str
     Err("Webview not found".to_string())
 }
 
-/// Get the page title of a child webview.
+/// Get the page title of a child webview via native platform API.
+/// Child webviews loading external URLs don't have __TAURI_INTERNALS__,
+/// so we read the title directly from the native WKWebView / WebView2.
 #[tauri::command]
 pub async fn webview_get_title(app: tauri::AppHandle, label: String) -> Result<String, String> {
-    use tauri::Listener;
-
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| "Webview not found".to_string())?;
 
-    let callback_id = format!(
-        "__title_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-
-    let escaped_id = serde_json::to_string(&callback_id).unwrap_or_else(|_| "\"\"".to_string());
-    let wrapped = format!(
-        r#"try {{
-    const __r = document.title || '';
-    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
-        cmd: "plugin:event|emit",
-        event: {id},
-        payload: JSON.stringify({{ result: __r }})
-    }}));
-}} catch (__e) {{
-    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
-        cmd: "plugin:event|emit",
-        event: {id},
-        payload: JSON.stringify({{ result: '' }})
-    }}));
-}}"#,
-        id = escaped_id,
-    );
-
     let (tx, rx) = std::sync::mpsc::channel::<String>();
-    app.once(&callback_id, move |event| {
-        let _ = tx.send(event.payload().to_string());
-    });
 
     webview
-        .eval(&wrapped)
-        .map_err(|e| format!("Failed to eval: {}", e))?;
+        .with_webview(move |wv| {
+            #[cfg(target_os = "macos")]
+            {
+                use objc2::msg_send;
+                use objc2::runtime::AnyObject;
+                unsafe {
+                    let wk_webview: *const AnyObject = wv.inner().cast();
+                    let ns_title: *const AnyObject = msg_send![wk_webview, title];
+                    if !ns_title.is_null() {
+                        let utf8: *const std::ffi::c_char = msg_send![ns_title, UTF8String];
+                        if !utf8.is_null() {
+                            let s = std::ffi::CStr::from_ptr(utf8).to_string_lossy().to_string();
+                            let _ = tx.send(s);
+                            return;
+                        }
+                    }
+                }
+                let _ = tx.send(String::new());
+            }
+            #[cfg(target_os = "windows")]
+            {
+                // WebView2: access ICoreWebView2 DocumentTitle via with_webview
+                // For now, return empty — will be improved when testing on Windows
+                let _ = wv; // suppress unused warning
+                let _ = tx.send(String::new());
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                let _ = wv;
+                let _ = tx.send(String::new());
+            }
+        })
+        .map_err(|e| e.to_string())?;
 
-    match rx.recv_timeout(std::time::Duration::from_secs(3)) {
-        Ok(raw) => {
-            let payload_str: String = serde_json::from_str(&raw).unwrap_or(raw.clone());
-            let parsed: serde_json::Value =
-                serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::String(raw));
-            Ok(parsed
-                .get("result")
-                .and_then(|r| r.as_str())
-                .unwrap_or("")
-                .to_string())
-        }
+    // with_webview dispatches to the main thread, wait for result
+    match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+        Ok(title) => Ok(title),
         Err(_) => Ok(String::new()),
     }
 }
 
-/// Get the favicon URL of a child webview.
+/// Get the favicon URL for a child webview.
+/// Derives from the webview's current URL origin — no JS eval needed
+/// since child webviews don't have __TAURI_INTERNALS__.
 #[tauri::command]
 pub async fn webview_get_favicon(app: tauri::AppHandle, label: String) -> Result<String, String> {
-    use tauri::Listener;
-
-    let webview = app
-        .get_webview(&label)
-        .ok_or_else(|| "Webview not found".to_string())?;
-
-    let callback_id = format!(
-        "__favicon_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-
-    let escaped_id = serde_json::to_string(&callback_id).unwrap_or_else(|_| "\"\"".to_string());
-    let wrapped = format!(
-        r#"try {{
-    const __el = document.querySelector('link[rel="icon"], link[rel="shortcut icon"], link[rel*="icon"]');
-    const __r = __el ? __el.href : (location.origin + '/favicon.ico');
-    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
-        cmd: "plugin:event|emit",
-        event: {id},
-        payload: JSON.stringify({{ result: __r }})
-    }}));
-}} catch (__e) {{
-    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
-        cmd: "plugin:event|emit",
-        event: {id},
-        payload: JSON.stringify({{ result: '' }})
-    }}));
-}}"#,
-        id = escaped_id,
-    );
-
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
-    app.once(&callback_id, move |event| {
-        let _ = tx.send(event.payload().to_string());
-    });
-
-    webview
-        .eval(&wrapped)
-        .map_err(|e| format!("Failed to eval: {}", e))?;
-
-    match rx.recv_timeout(std::time::Duration::from_secs(3)) {
-        Ok(raw) => {
-            let payload_str: String = serde_json::from_str(&raw).unwrap_or(raw.clone());
-            let parsed: serde_json::Value =
-                serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::String(raw));
-            Ok(parsed
-                .get("result")
-                .and_then(|r| r.as_str())
-                .unwrap_or("")
-                .to_string())
+    if let Some(webview) = app.get_webview(&label) {
+        let url = webview.url().map_err(|e| format!("{}", e))?;
+        if let Some(host) = url.host_str() {
+            let scheme = url.scheme();
+            let port = url
+                .port()
+                .map(|p| format!(":{}", p))
+                .unwrap_or_default();
+            return Ok(format!("{}://{}{}/favicon.ico", scheme, host, port));
         }
-        Err(_) => Ok(String::new()),
     }
+    Ok(String::new())
 }
 
-/// Find text in a child webview page. Returns whether a match was found.
+/// Find text in a child webview page.
+/// Fire-and-forget: window.find() highlights matches visually.
+/// Returns true always (we can't get the result back from external webviews
+/// since __TAURI_INTERNALS__ is not available).
 #[tauri::command]
 pub async fn webview_find_in_page(
     app: tauri::AppHandle,
@@ -631,65 +548,19 @@ pub async fn webview_find_in_page(
     query: String,
     forward: bool,
 ) -> Result<bool, String> {
-    use tauri::Listener;
-
-    let webview = app
-        .get_webview(&label)
-        .ok_or_else(|| "Webview not found".to_string())?;
-
-    let callback_id = format!(
-        "__find_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-
-    let escaped_id = serde_json::to_string(&callback_id).unwrap_or_else(|_| "\"\"".to_string());
-    let escaped_query = serde_json::to_string(&query).unwrap_or_else(|_| "\"\"".to_string());
-    let backward = if forward { "false" } else { "true" };
-    let wrapped = format!(
-        r#"try {{
-    const __r = window.find({query}, false, {backward}, true, false, false, false);
-    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
-        cmd: "plugin:event|emit",
-        event: {id},
-        payload: JSON.stringify({{ result: String(__r) }})
-    }}));
-}} catch (__e) {{
-    window.__TAURI_INTERNALS__.postMessage(JSON.stringify({{
-        cmd: "plugin:event|emit",
-        event: {id},
-        payload: JSON.stringify({{ result: 'false' }})
-    }}));
-}}"#,
-        query = escaped_query,
-        backward = backward,
-        id = escaped_id,
-    );
-
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
-    app.once(&callback_id, move |event| {
-        let _ = tx.send(event.payload().to_string());
-    });
-
-    webview
-        .eval(&wrapped)
-        .map_err(|e| format!("Failed to eval: {}", e))?;
-
-    match rx.recv_timeout(std::time::Duration::from_secs(3)) {
-        Ok(raw) => {
-            let payload_str: String = serde_json::from_str(&raw).unwrap_or(raw.clone());
-            let parsed: serde_json::Value =
-                serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::String(raw));
-            let result_str = parsed
-                .get("result")
-                .and_then(|r| r.as_str())
-                .unwrap_or("false");
-            Ok(result_str == "true")
-        }
-        Err(_) => Ok(false),
+    if let Some(webview) = app.get_webview(&label) {
+        let escaped_query = serde_json::to_string(&query).unwrap_or_else(|_| "\"\"".to_string());
+        let backward = if forward { "false" } else { "true" };
+        let js = format!(
+            "window.find({}, false, {}, true, false, false, false)",
+            escaped_query, backward
+        );
+        webview
+            .eval(&js)
+            .map_err(|e| format!("Failed to eval: {}", e))?;
     }
+    // Can't get result back from external webview, assume found
+    Ok(true)
 }
 
 /// Clear find-in-page highlights in a child webview.
@@ -714,77 +585,5 @@ pub async fn webview_set_zoom(
     Ok(())
 }
 
-/// Show a native context menu for the webview.
-#[tauri::command]
-pub async fn webview_show_context_menu(
-    app: tauri::AppHandle,
-    label: String,
-    selected_text: String,
-    link_url: String,
-    _x: f64,
-    _y: f64,
-) -> Result<(), String> {
-    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
-
-    let window = app
-        .get_window("main")
-        .ok_or("Main window not found")?;
-
-    let mut builder = MenuBuilder::new(&app);
-
-    if !selected_text.is_empty() {
-        let copy_item = MenuItemBuilder::with_id("ctx_copy", "Copy")
-            .build(&app)
-            .map_err(|e| e.to_string())?;
-        builder = builder.item(&copy_item);
-    }
-
-    let select_all_item = MenuItemBuilder::with_id("ctx_select_all", "Select All")
-        .build(&app)
-        .map_err(|e| e.to_string())?;
-    builder = builder.item(&select_all_item);
-
-    if !link_url.is_empty() {
-        let sep = PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?;
-        builder = builder.item(&sep);
-        let copy_link_item = MenuItemBuilder::with_id("ctx_copy_link", "Copy Link Address")
-            .build(&app)
-            .map_err(|e| e.to_string())?;
-        builder = builder.item(&copy_link_item);
-    }
-
-    let menu = builder.build().map_err(|e| e.to_string())?;
-
-    let label_clone = label.clone();
-    let link_url_clone = link_url.clone();
-    let app_clone = app.clone();
-
-    window.on_menu_event(move |_window, event| {
-        let id = event.id.as_ref();
-        let wv = app_clone.get_webview(&label_clone);
-        match id {
-            "ctx_copy" => {
-                if let Some(ref wv) = wv {
-                    let _ = wv.eval("document.execCommand('copy')");
-                }
-            }
-            "ctx_select_all" => {
-                if let Some(ref wv) = wv {
-                    let _ = wv.eval("document.execCommand('selectAll')");
-                }
-            }
-            "ctx_copy_link" => {
-                if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                    let _ = clipboard.set_text(&link_url_clone);
-                }
-            }
-            _ => {}
-        }
-    });
-
-    window
-        .popup_menu(&menu)
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
+// Context menu: using native WKWebView / WebView2 built-in context menu.
+// No custom Rust handler needed — the native menu provides Copy/Paste/Look Up/etc.

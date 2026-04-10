@@ -190,34 +190,6 @@ function useWebviewShortcuts() {
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
   }, [])
-
-  // Context menu listener
-  useEffect(() => {
-    if (!isTauri()) return
-    let unlisten: (() => void) | null = null
-    import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<string>("webview-context-menu", async (event) => {
-        try {
-          const ctx = JSON.parse(event.payload)
-          const { invoke } = await import("@tauri-apps/api/core")
-          await invoke("webview_show_context_menu", {
-            label: ctx.label,
-            selectedText: ctx.selectedText || "",
-            linkUrl: ctx.linkUrl || "",
-            x: ctx.x,
-            y: ctx.y,
-          })
-        } catch {
-          // ignore
-        }
-      }).then((fn) => {
-        unlisten = fn
-      })
-    })
-    return () => {
-      unlisten?.()
-    }
-  }, [])
 }
 
 // Main content component - shows chat with tab overlay

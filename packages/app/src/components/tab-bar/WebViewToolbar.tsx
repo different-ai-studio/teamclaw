@@ -66,9 +66,9 @@ export function WebViewToolbar({ url: rawUrl, label, zoomLevel }: WebViewToolbar
     if (!isTauri()) return
     let unlisten: (() => void) | null = null
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<string>("webview-progress", (event) => {
+      listen<{ label: string; progress: number }>("webview-progress", (event) => {
         try {
-          const payload = JSON.parse(event.payload) as { label: string; progress: number }
+          const payload = event.payload
           if (payload.label !== label) return
           const p = payload.progress
           setProgress(p)
