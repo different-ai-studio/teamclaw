@@ -110,6 +110,27 @@ fn team_repo_dir() -> &'static str {
     super::TEAM_REPO_DIR
 }
 
+async fn ensure_p2p_node_started<'a, T, F, Fut>(
+    slot: &'a mut Option<T>,
+    context: &'static str,
+    starter: F,
+) -> Result<&'a mut T, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    if slot.is_none() {
+        let node = starter()
+            .await
+            .map_err(|e| format!("Failed to start P2P node for {}: {}", context, e))?;
+        *slot = Some(node);
+        eprintln!("[P2P] iroh node started on-demand for {}", context);
+    }
+
+    slot.as_mut()
+        .ok_or_else(|| format!("P2P node not running for {}", context))
+}
+
 // ─── Tauri Commands ─────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -420,21 +441,8 @@ pub async fn p2p_create_team(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
-
-    // Start the node on-demand if it hasn't been started yet (first-time team creation).
-    if guard.is_none() {
-        match IrohNode::new_default().await {
-            Ok(node) => {
-                *guard = Some(node);
-                eprintln!("[P2P] iroh node started on-demand for team creation");
-            }
-            Err(e) => {
-                return Err(format!("Failed to start P2P node: {}", e));
-            }
-        }
-    }
-
-    let node = guard.as_mut().ok_or("P2P node not running")?;
+    let node =
+        ensure_p2p_node_started(&mut *guard, "team creation", IrohNode::new_default).await?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
 
@@ -474,7 +482,9 @@ pub async fn p2p_publish_drive(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
-    let node = guard.as_mut().ok_or("P2P node not running")?;
+    let node =
+        ensure_p2p_node_started(&mut *guard, "publishing the team drive", IrohNode::new_default)
+            .await?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
 
@@ -525,7 +535,9 @@ pub async fn p2p_join_drive(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
-    let node = guard.as_mut().ok_or("P2P node not running")?;
+    let node =
+        ensure_p2p_node_started(&mut *guard, "joining a team drive", IrohNode::new_default)
+            .await?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
     let result = join_team_drive(
@@ -565,7 +577,9 @@ pub async fn p2p_reconnect(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
-    let node = guard.as_mut().ok_or("P2P node not running")?;
+    let node =
+        ensure_p2p_node_started(&mut *guard, "reconnecting to a team", IrohNode::new_default)
+            .await?;
     reconnect_team_for_workspace(
         node,
         &workspace_path,
@@ -593,7 +607,9 @@ pub async fn p2p_rotate_ticket(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
-    let node = guard.as_mut().ok_or("P2P node not running")?;
+    let node =
+        ensure_p2p_node_started(&mut *guard, "rotating the team ticket", IrohNode::new_default)
+            .await?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
     rotate_namespace(
@@ -853,4 +869,72 @@ pub async fn p2p_skills_leaderboard(
     let guard = iroh_state.lock().await;
     let node = guard.as_ref().ok_or("P2P node not running")?;
     query_skills_leaderboard(node).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_p2p_node_started;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    #[tokio::test]
+    async fn ensure_p2p_node_started_initializes_missing_node() {
+        let mut slot = None;
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        {
+            let calls = calls.clone();
+            let value = ensure_p2p_node_started(&mut slot, "joining a team drive", move || async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, String>(41usize)
+            })
+            .await
+            .expect("helper should initialize the slot");
+
+            assert_eq!(*value, 41);
+        }
+
+        assert_eq!(slot, Some(41));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn ensure_p2p_node_started_reuses_existing_node() {
+        let mut slot = Some(7usize);
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        {
+            let calls = calls.clone();
+            let value = ensure_p2p_node_started(&mut slot, "reconnecting to a team", move || async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, String>(99usize)
+            })
+            .await
+            .expect("helper should return the existing slot");
+
+            assert_eq!(*value, 7);
+        }
+
+        assert_eq!(slot, Some(7));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn ensure_p2p_node_started_wraps_start_errors_with_context() {
+        let mut slot = None::<usize>;
+
+        let err = ensure_p2p_node_started(&mut slot, "publishing the team drive", || async {
+            Err::<usize, _>("boom".to_string())
+        })
+        .await
+        .expect_err("helper should surface startup failures");
+
+        assert_eq!(
+            err,
+            "Failed to start P2P node for publishing the team drive: boom"
+        );
+        assert_eq!(slot, None);
+    }
 }
