@@ -525,7 +525,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     [sessions, pinnedSessionIds],
   )
   
-  const advancedMode = useUIStore(s => s.advancedMode)
   const openSettings = useUIStore(s => s.openSettings)
   const closeSettings = useUIStore(s => s.closeSettings)
   const embeddedSettingsSection = useUIStore(s => s.embeddedSettingsSection)
