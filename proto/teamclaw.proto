@@ -61,6 +61,8 @@ message ChatResponse {
     string delta = 10;
     StreamDone done = 11;
     StreamError error = 12;
+    ToolEvent tool_event = 13;
+    bool has_thinking = 14;
   }
 }
 
@@ -68,6 +70,21 @@ message StreamDone {}
 
 message StreamError {
   string message = 1;
+}
+
+message ToolEvent {
+  string tool_call_id = 1;
+  string tool_name = 2;          // "Write", "Edit", "Bash", "Read", etc.
+  string status = 3;             // "running" | "completed" | "failed"
+  string arguments_json = 4;     // JSON string, truncated to 500 chars
+  string result_summary = 5;     // Result text, truncated to 1000 chars
+  int32 duration_ms = 6;
+}
+
+message MessagePartData {
+  string type = 1;               // "text" | "tool"
+  optional string text = 2;     // Content when type="text"
+  optional ToolEvent tool = 3;  // Tool info when type="tool"
 }
 
 message ChatCancel {
@@ -214,6 +231,8 @@ message ChatMessageData {
   string content = 3;
   double timestamp = 4;
   optional string image_url = 5;
+  repeated MessagePartData parts = 7;
+  bool has_thinking = 8;
 }
 
 // ─── Task Update (server push) ───

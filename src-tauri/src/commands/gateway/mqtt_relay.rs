@@ -413,6 +413,7 @@ impl MqttRelay {
         let mut last_flush = tokio::time::Instant::now();
         let flush_interval = Duration::from_millis(200);
         let mut pending_delta = String::new();
+        let mut sent_thinking = false;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(900);
 
         loop {
@@ -471,17 +472,102 @@ impl MqttRelay {
 
                                 match event_type {
                                     "message.part.delta" => {
-                                        // {"type":"message.part.delta","properties":{"sessionID":"...","messageID":"...","partID":"...","field":"text","delta":"hello"}}
-                                        if let Some(text) = props.and_then(|p| p.get("delta").and_then(|d| d.as_str())) {
-                                            pending_delta.push_str(text);
-                                            if last_flush.elapsed() >= flush_interval && !pending_delta.is_empty() {
-                                                let msg = build_chat_delta(session_id, seq, &pending_delta);
-                                                self.publish_chat_response_proto(device_id, &msg).await?;
-                                                full_content.push_str(&pending_delta);
-                                                pending_delta.clear();
-                                                seq += 1;
-                                                last_flush = tokio::time::Instant::now();
+                                        let field = props
+                                            .and_then(|p| p.get("field").and_then(|f| f.as_str()))
+                                            .unwrap_or("text");
+                                        if field == "text" {
+                                            if let Some(text) = props.and_then(|p| p.get("delta").and_then(|d| d.as_str())) {
+                                                pending_delta.push_str(text);
+                                                if last_flush.elapsed() >= flush_interval && !pending_delta.is_empty() {
+                                                    let msg = build_chat_delta(session_id, seq, &pending_delta);
+                                                    self.publish_chat_response_proto(device_id, &msg).await?;
+                                                    full_content.push_str(&pending_delta);
+                                                    pending_delta.clear();
+                                                    seq += 1;
+                                                    last_flush = tokio::time::Instant::now();
+                                                }
                                             }
+                                        }
+                                        // field == "reasoning" → ignore (don't send thinking content)
+                                    }
+                                    "message.part.updated" => {
+                                        let part_type = props
+                                            .and_then(|p| p.get("type").and_then(|t| t.as_str()))
+                                            .unwrap_or("");
+
+                                        match part_type {
+                                            "tool" | "tool-call" => {
+                                                // Flush any pending text delta first
+                                                if !pending_delta.is_empty() {
+                                                    let msg = build_chat_delta(session_id, seq, &pending_delta);
+                                                    self.publish_chat_response_proto(device_id, &msg).await?;
+                                                    full_content.push_str(&pending_delta);
+                                                    pending_delta.clear();
+                                                    seq += 1;
+                                                    last_flush = tokio::time::Instant::now();
+                                                }
+
+                                                let tool_name = props
+                                                    .and_then(|p| p.get("tool").and_then(|t| t.as_str()))
+                                                    .unwrap_or("unknown");
+                                                let tool_call_id = props
+                                                    .and_then(|p| p.get("callID").and_then(|t| t.as_str()))
+                                                    .or_else(|| props.and_then(|p| p.get("id").and_then(|t| t.as_str())))
+                                                    .unwrap_or("");
+                                                let state = props.and_then(|p| p.get("state"));
+                                                let status_raw = state
+                                                    .and_then(|s| s.get("status"))
+                                                    .and_then(|s| s.as_str())
+                                                    .unwrap_or("");
+                                                let has_ended = props
+                                                    .and_then(|p| p.get("time"))
+                                                    .and_then(|t| t.get("end"))
+                                                    .is_some();
+
+                                                let status = match status_raw {
+                                                    "completed" | "done" | "success" => "completed",
+                                                    "error" | "failed" => "failed",
+                                                    _ if has_ended => "completed",
+                                                    _ => "running",
+                                                };
+
+                                                let arguments_json = state
+                                                    .and_then(|s| s.get("input"))
+                                                    .map(|input| serde_json::to_string(input).unwrap_or_default())
+                                                    .unwrap_or_default();
+                                                let result_summary = state
+                                                    .and_then(|s| s.get("output").or_else(|| s.get("raw")).or_else(|| s.get("result")))
+                                                    .map(|r| {
+                                                        if let Some(s) = r.as_str() { s.to_string() }
+                                                        else { serde_json::to_string(r).unwrap_or_default() }
+                                                    })
+                                                    .unwrap_or_default();
+                                                let duration_ms = props
+                                                    .and_then(|p| p.get("time"))
+                                                    .and_then(|t| {
+                                                        let start = t.get("start")?.as_f64()?;
+                                                        let end = t.get("end")?.as_f64()?;
+                                                        Some(((end - start) * 1000.0) as i32)
+                                                    })
+                                                    .unwrap_or(0);
+
+                                                let msg = build_chat_tool_event(
+                                                    session_id, seq,
+                                                    tool_call_id, tool_name, status,
+                                                    &arguments_json, &result_summary, duration_ms,
+                                                );
+                                                self.publish_chat_response_proto(device_id, &msg).await?;
+                                                seq += 1;
+                                            }
+                                            "thinking" | "reasoning" => {
+                                                if !sent_thinking {
+                                                    sent_thinking = true;
+                                                    let msg = build_chat_has_thinking(session_id, seq);
+                                                    self.publish_chat_response_proto(device_id, &msg).await?;
+                                                    seq += 1;
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
                                     "message.completed" => {
@@ -910,41 +996,101 @@ impl MqttRelay {
                 let role = info.get("role")?.as_str()?;
                 if role != "user" && role != "assistant" { return None; }
 
-                let parts = msg.get("parts")?.as_array()?;
+                let parts_array = msg.get("parts")?.as_array()?;
+                let mut message_parts: Vec<proto::MessagePartData> = Vec::new();
                 let mut content_parts: Vec<String> = Vec::new();
-                for part in parts {
+                let mut has_thinking = false;
+
+                for part in parts_array {
                     match part.get("type").and_then(|t| t.as_str()) {
                         Some("text") => {
                             if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                                 content_parts.push(text.to_string());
+                                message_parts.push(proto::MessagePartData {
+                                    r#type: "text".to_string(),
+                                    text: Some(text.to_string()),
+                                    tool: None,
+                                });
                             }
                         }
-                        Some("tool") => {
+                        Some("tool") | Some("tool-call") => {
                             let tool_name = part.get("tool").and_then(|t| t.as_str()).unwrap_or("tool");
-                            let input_summary = part.get("state")
+                            let tool_call_id = part.get("callID")
+                                .or_else(|| part.get("id"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let state = part.get("state");
+                            let status_raw = state
+                                .and_then(|s| s.get("status"))
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("completed");
+                            let has_ended = part.get("time")
+                                .and_then(|t| t.get("end"))
+                                .is_some();
+                            let status = match status_raw {
+                                "completed" | "done" | "success" => "completed",
+                                "error" | "failed" => "failed",
+                                _ if has_ended => "completed",
+                                _ => "running",
+                            };
+                            let arguments_json = state
+                                .and_then(|s| s.get("input"))
+                                .map(|input| serde_json::to_string(input).unwrap_or_default())
+                                .unwrap_or_default();
+                            let result_summary = state
+                                .and_then(|s| s.get("output").or_else(|| s.get("raw")).or_else(|| s.get("result")))
+                                .map(|r| {
+                                    if let Some(s) = r.as_str() { s.to_string() }
+                                    else { serde_json::to_string(r).unwrap_or_default() }
+                                })
+                                .unwrap_or_default();
+                            let duration_ms = part.get("time")
+                                .and_then(|t| {
+                                    let start = t.get("start")?.as_f64()?;
+                                    let end = t.get("end")?.as_f64()?;
+                                    Some(((end - start) * 1000.0) as i32)
+                                })
+                                .unwrap_or(0);
+
+                            // Backward-compat content summary
+                            let input_summary = state
                                 .and_then(|s| s.get("input"))
                                 .map(|input| {
-                                    // For websearch/webfetch, show the query/url
-                                    if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
-                                        q.to_string()
-                                    } else if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
-                                        u.to_string()
-                                    } else {
+                                    if let Some(q) = input.get("query").and_then(|v| v.as_str()) { q.to_string() }
+                                    else if let Some(u) = input.get("url").and_then(|v| v.as_str()) { u.to_string() }
+                                    else if let Some(p) = input.get("path").and_then(|v| v.as_str()) { p.to_string() }
+                                    else if let Some(c) = input.get("command").and_then(|v| v.as_str()) { c.to_string() }
+                                    else {
                                         serde_json::to_string(input).unwrap_or_default()
                                             .chars().take(80).collect()
                                     }
                                 })
                                 .unwrap_or_default();
                             content_parts.push(format!("🔧 {} {}", tool_name, input_summary));
+
+                            message_parts.push(proto::MessagePartData {
+                                r#type: "tool".to_string(),
+                                text: None,
+                                tool: Some(proto::ToolEvent {
+                                    tool_call_id,
+                                    tool_name: tool_name.to_string(),
+                                    status: status.to_string(),
+                                    arguments_json: truncate_string(&arguments_json, 500),
+                                    result_summary: truncate_string(&result_summary, 1000),
+                                    duration_ms,
+                                }),
+                            });
+                        }
+                        Some("thinking") | Some("reasoning") => {
+                            has_thinking = true;
                         }
                         _ => {}
                     }
                 }
                 let content = content_parts.join("\n");
-                // Skip messages with no displayable content
-                if content.trim().is_empty() { return None; }
+                if content.trim().is_empty() && message_parts.is_empty() { return None; }
 
-                // Timestamp: info.time.created (milliseconds) or fallback to 0
                 let timestamp_ms = info.get("time")
                     .and_then(|t| t.get("created"))
                     .and_then(|t| t.as_f64())
@@ -957,6 +1103,8 @@ impl MqttRelay {
                     content,
                     timestamp,
                     image_url: None,
+                    parts: message_parts,
+                    has_thinking,
                 })
             })
             .collect();
@@ -1243,6 +1391,51 @@ fn build_chat_error(session_id: &str, seq: i32, message: &str) -> proto::MqttMes
             event: Some(proto::chat_response::Event::Error(proto::StreamError {
                 message: message.to_string(),
             })),
+        },
+    ))
+}
+
+fn truncate_string(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{}...(truncated)", truncated)
+    }
+}
+
+fn build_chat_tool_event(
+    session_id: &str,
+    seq: i32,
+    tool_call_id: &str,
+    tool_name: &str,
+    status: &str,
+    arguments_json: &str,
+    result_summary: &str,
+    duration_ms: i32,
+) -> proto::MqttMessage {
+    build_envelope(proto::mqtt_message::Payload::ChatResponse(
+        proto::ChatResponse {
+            session_id: session_id.to_string(),
+            seq,
+            event: Some(proto::chat_response::Event::ToolEvent(proto::ToolEvent {
+                tool_call_id: tool_call_id.to_string(),
+                tool_name: tool_name.to_string(),
+                status: status.to_string(),
+                arguments_json: truncate_string(arguments_json, 500),
+                result_summary: truncate_string(result_summary, 1000),
+                duration_ms,
+            })),
+        },
+    ))
+}
+
+fn build_chat_has_thinking(session_id: &str, seq: i32) -> proto::MqttMessage {
+    build_envelope(proto::mqtt_message::Payload::ChatResponse(
+        proto::ChatResponse {
+            session_id: session_id.to_string(),
+            seq,
+            event: Some(proto::chat_response::Event::HasThinking(true)),
         },
     ))
 }
