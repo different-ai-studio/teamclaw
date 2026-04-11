@@ -792,6 +792,7 @@ pub struct SessionInfo {
     pub id: String,
     pub title: String,
     pub updated: i64,
+    pub archived: bool,
 }
 
 /// Maximum number of sessions to show in the list
@@ -830,7 +831,8 @@ pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, Strin
                 if title.is_empty() || title == "(untitled)" {
                     // Still include them but with a placeholder
                 }
-                Some(SessionInfo { id, title, updated })
+                let archived = s["time"]["archived"].as_i64().is_some();
+                Some(SessionInfo { id, title, updated, archived })
             })
             .collect(),
         None => return Err("Unexpected session list format".to_string()),

@@ -85,6 +85,7 @@ message StatusReport {
 
 message SessionSyncRequest {
   PageRequest pagination = 1;
+  int64 after_updated = 2;    // 只返回 updated > after_updated 的 session，0 = 全量
 }
 
 message SessionSyncResponse {
@@ -96,6 +97,7 @@ message SessionData {
   string id = 1;
   string title = 2;
   int64 updated = 3;
+  bool is_archived = 4;       // 该 session 是否已归档
 }
 
 message SessionArchiveRequest {

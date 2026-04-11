@@ -270,9 +270,9 @@ impl MqttRelay {
             Some(proto::mqtt_message::Payload::ChatCancel(ref cancel)) => {
                 self.handle_chat_cancel(&cancel.session_id).await;
             }
-            Some(proto::mqtt_message::Payload::SessionSyncRequest(ref _req)) => {
+            Some(proto::mqtt_message::Payload::SessionSyncRequest(ref req)) => {
                 if let Some(did) = device_id {
-                    self.handle_session_list_request(&did).await?;
+                    self.handle_session_list_request(&did, req).await?;
                 }
             }
             Some(proto::mqtt_message::Payload::MemberSyncRequest(ref req)) => {
@@ -546,26 +546,46 @@ impl MqttRelay {
 
     // ─── Session List ──────────────────────────────────────────
 
-    async fn handle_session_list_request(&self, device_id: &str) -> Result<(), String> {
+    async fn handle_session_list_request(
+        &self,
+        device_id: &str,
+        req: &proto::SessionSyncRequest,
+    ) -> Result<(), String> {
         let port = self.opencode_port;
         match super::opencode_list_sessions(port).await {
-            Ok(sessions) => {
-                eprintln!("[MQTT Relay] Sending {} session(s) to device {}", sessions.len(), &device_id[..device_id.len().min(8)]);
+            Ok(mut sessions) => {
+                let after = req.after_updated;
+                if after > 0 {
+                    // Incremental mode: return sessions updated after the given timestamp (including archived ones)
+                    let after_ms = after * 1000;
+                    sessions.retain(|s| s.updated > after_ms);
+                } else {
+                    // Full mode: filter out archived, truncate
+                    sessions.retain(|s| !s.archived);
+                    sessions.truncate(super::MAX_SESSIONS_LIST);
+                }
+                eprintln!(
+                    "[MQTT Relay] Sending {} session(s) to device {} (after_updated={})",
+                    sessions.len(),
+                    &device_id[..device_id.len().min(8)],
+                    after
+                );
                 let session_data: Vec<proto::SessionData> = sessions
                     .iter()
                     .map(|s| proto::SessionData {
                         id: s.id.clone(),
                         title: s.title.clone(),
-                        updated: s.updated / 1000, // Convert ms to seconds
+                        updated: s.updated / 1000,
+                        is_archived: s.archived,
                     })
                     .collect();
                 let msg = build_envelope(proto::mqtt_message::Payload::SessionSyncResponse(
                     proto::SessionSyncResponse {
-                        sessions: session_data,
+                        sessions: session_data.clone(),
                         pagination: Some(proto::PageInfo {
                             page: 1,
                             page_size: 50,
-                            total: sessions.len() as i32,
+                            total: session_data.len() as i32,
                         }),
                     },
                 ));
