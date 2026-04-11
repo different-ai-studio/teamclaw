@@ -155,14 +155,66 @@ final class SessionListViewModel: ObservableObject {
 
     func applySearch() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nonArchived = sessions.filter { !$0.isArchived }
         if query.isEmpty {
-            filteredSessions = sessions
+            filteredSessions = nonArchived
         } else {
-            filteredSessions = sessions.filter { session in
+            filteredSessions = nonArchived.filter { session in
                 session.title.localizedCaseInsensitiveContains(query) ||
                 session.lastMessageContent.localizedCaseInsensitiveContains(query)
             }
         }
+    }
+
+    // MARK: - Actions
+
+    func togglePin(_ session: Session) {
+        session.isPinned.toggle()
+        try? modelContext?.save()
+        applySearch()
+    }
+
+    func archiveSession(_ session: Session) {
+        session.isArchived = true
+        try? modelContext?.save()
+        applySearch()
+        sendArchiveRequest(sessionIDs: [session.id])
+    }
+
+    func renameSession(_ session: Session, to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        session.title = trimmed
+        try? modelContext?.save()
+        applySearch()
+    }
+
+    func archiveSessions(ids: Set<String>) {
+        for session in sessions where ids.contains(session.id) {
+            session.isArchived = true
+        }
+        try? modelContext?.save()
+        applySearch()
+        sendArchiveRequest(sessionIDs: Array(ids))
+    }
+
+    private func sendArchiveRequest(sessionIDs: [String]) {
+        guard let creds = PairingManager.currentCredentials else { return }
+        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        var req = Teamclaw_SessionArchiveRequest()
+        req.sessionIds = sessionIDs
+        let msg = ProtoMQTTCoder.makeEnvelope(.sessionArchiveRequest(req))
+        mqttService.publish(topic: topic, message: msg, qos: 1)
+    }
+
+    func togglePinSessions(ids: Set<String>) {
+        let targets = sessions.filter { ids.contains($0.id) }
+        let allPinned = targets.allSatisfy(\.isPinned)
+        for session in targets {
+            session.isPinned = !allPinned
+        }
+        try? modelContext?.save()
+        applySearch()
     }
 
     func createSession() -> Session {
@@ -195,6 +247,17 @@ final class SessionListViewModel: ObservableObject {
     }
 
     var groupedFilteredSessions: [SessionGroup] {
+        // Pinned sessions in their own section
+        let pinned = filteredSessions.filter(\.isPinned)
+        let unpinned = filteredSessions.filter { !$0.isPinned }
+
+        var groups: [SessionGroup] = []
+
+        if !pinned.isEmpty {
+            groups.append(SessionGroup(id: "pinned", title: "置顶", sessions: pinned))
+        }
+
+        // Group unpinned by time
         let cal = Calendar.current
         let now = Date()
         let startOfToday = cal.startOfDay(for: now)
@@ -205,7 +268,7 @@ final class SessionListViewModel: ObservableObject {
         var order: [String] = []
         var grouped: [String: [Session]] = [:]
 
-        for session in filteredSessions {
+        for session in unpinned {
             let d = session.lastMessageTime
             let key: String
             if d >= startOfToday {
@@ -227,7 +290,11 @@ final class SessionListViewModel: ObservableObject {
             grouped[key, default: []].append(session)
         }
 
-        return order.map { SessionGroup(id: $0, title: $0, sessions: grouped[$0]!) }
+        for key in order {
+            groups.append(SessionGroup(id: key, title: key, sessions: grouped[key]!))
+        }
+
+        return groups
     }
 
     private static func chineseMonth(_ month: Int) -> String {

@@ -17,6 +17,8 @@ final class Session {
     var summaryAdditions: Int
     var summaryDeletions: Int
     var summaryFiles: Int
+    var isPinned: Bool
+    var isArchived: Bool
 
     init(
         id: String,
@@ -30,7 +32,9 @@ final class Session {
         status: String? = nil,
         summaryAdditions: Int = 0,
         summaryDeletions: Int = 0,
-        summaryFiles: Int = 0
+        summaryFiles: Int = 0,
+        isPinned: Bool = false,
+        isArchived: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -44,5 +48,7 @@ final class Session {
         self.summaryAdditions = summaryAdditions
         self.summaryDeletions = summaryDeletions
         self.summaryFiles = summaryFiles
+        self.isPinned = isPinned
+        self.isArchived = isArchived
     }
 }

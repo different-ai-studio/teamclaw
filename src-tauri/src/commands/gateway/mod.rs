@@ -843,6 +843,39 @@ pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, Strin
     Ok(sessions)
 }
 
+/// Archive a session in OpenCode by setting `time.archived` timestamp.
+pub async fn opencode_archive_session(port: u16, session_id: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let url = format!("http://127.0.0.1:{}/session", port);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let body = serde_json::json!({
+        "sessionID": session_id,
+        "time": { "archived": now_ms }
+    });
+
+    let resp = client
+        .patch(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to archive session: {}", e))?;
+
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        Err(format!("Archive session failed ({}): {}", status, text))
+    }
+}
+
 /// Fetch the latest assistant message text from a session
 async fn fetch_latest_assistant_message(
     port: u16,

@@ -48,7 +48,7 @@ struct ChatDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: ChatDetailViewModel
 
-    @State private var showModelPicker = false
+    @State private var showMenuSheet = false
     @State private var scrollProxy: ScrollViewProxy?
 
     init(session: Session, mqttService: MQTTServiceProtocol) {
@@ -119,17 +119,34 @@ struct ChatDetailView: View {
                     scrollToBottom(proxy: proxy)
                 }
             }
-
-            // Input bar
+        }
+        .safeAreaInset(edge: .bottom) {
             ChatInputBar(
                 text: $viewModel.inputText,
                 isDisabled: !viewModel.isDesktopOnline,
                 isStreaming: viewModel.isStreaming,
+                session: session,
                 onSend: { viewModel.sendMessage() },
                 onCancel: { viewModel.cancelStreaming() },
-                onImageSelected: { image in
-                    _ = image
-                }
+                onImageSelected: { image in _ = image },
+                onTogglePin: {
+                    session.isPinned.toggle()
+                    try? modelContext.save()
+                },
+                onArchive: {
+                    session.isArchived = true
+                    try? modelContext.save()
+                    // Send archive to desktop via MQTT
+                    if let creds = PairingManager.currentCredentials {
+                        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+                        var req = Teamclaw_SessionArchiveRequest()
+                        req.sessionIds = [session.id]
+                        let msg = ProtoMQTTCoder.makeEnvelope(.sessionArchiveRequest(req))
+                        mqttService.publish(topic: topic, message: msg, qos: 1)
+                    }
+                    dismiss()
+                },
+                onShowMenu: { showMenuSheet = true }
             )
         }
         .navigationTitle(session.title)
@@ -145,39 +162,10 @@ struct ChatDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button {
-                        showModelPicker = true
-                    } label: {
-                        Label("选择模型", systemImage: "cpu")
-                    }
-                    // TODO: invite member flow
-                    Button { } label: {
-                        Label("邀请成员", systemImage: "person.badge.plus")
-                    }
-                    // TODO: archive session
-                    Button { } label: {
-                        Label("归档 Session", systemImage: "archivebox")
-                    }
-                    ShareLink(item: session.title) {
-                        Label("分享", systemImage: "square.and.arrow.up")
-                    }
-                    // TODO: session detail view
-                    Button { } label: {
-                        Label("Session 详情", systemImage: "info.circle")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
-        .sheet(isPresented: $showModelPicker) {
-            ModelPickerView(
-                models: viewModel.availableModels,
+        .sheet(isPresented: $showMenuSheet) {
+            ChatMenuSheet(
+                availableModels: viewModel.availableModels,
                 selectedModel: $viewModel.selectedModel
             )
         }
@@ -193,6 +181,55 @@ struct ChatDetailView: View {
         withAnimation(.easeOut(duration: 0.2)) {
             proxy.scrollTo("bottom", anchor: .bottom)
         }
+    }
+}
+
+// MARK: - ChatMenuSheet
+
+struct ChatMenuSheet: View {
+    let availableModels: [String]
+    @Binding var selectedModel: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("模型") {
+                    ForEach(availableModels, id: \.self) { model in
+                        Button {
+                            selectedModel = model
+                        } label: {
+                            HStack {
+                                Text(model)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if model == selectedModel {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("权限") {
+                    HStack {
+                        Label("自动审批", systemImage: "checkmark.shield")
+                        Spacer()
+                        Text("开启")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("会话设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 
