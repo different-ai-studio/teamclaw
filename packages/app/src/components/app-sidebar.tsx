@@ -569,18 +569,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }
 
-  const handleOpenFilePanel = () => {
-    clearSelection()
-    closeSettings()
-    closeEmbeddedSettingsSection()
-    useTabsStore.getState().hideAll()
-    if (isPanelOpen && activeWorkspacePanelTab === 'files') {
-      closePanel()
-    } else {
-      openPanel('files')
-    }
-  }
-
   const handleOpenKnowledgePanel = () => {
     clearSelection()
     closeSettings()
@@ -596,11 +584,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const shortcutsStripActive =
     isPanelOpen &&
     activeWorkspacePanelTab === "shortcuts" &&
-    !embeddedSettingsSection
-
-  const fileStripActive =
-    isPanelOpen &&
-    activeWorkspacePanelTab === 'files' &&
     !embeddedSettingsSection
 
   const knowledgeStripActive =
@@ -956,27 +939,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 </span>
               </Button>
 
-              {advancedMode && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    'h-7 justify-start gap-1.5 px-2 font-normal',
-                    fileStripActive && 'bg-primary/10 text-primary font-medium',
-                  )}
-                  onClick={handleOpenFilePanel}
-                >
-                  <FolderOpen
-                    className={cn(
-                      'h-3.5 w-3.5 shrink-0',
-                      fileStripActive ? 'text-blue-500' : 'text-muted-foreground',
-                    )}
-                  />
-                  <span className="truncate text-xs">
-                    {t('navigation.files', 'Files')}
-                  </span>
-                </Button>
-              )}
               <Button
                 variant="ghost"
                 size="sm"

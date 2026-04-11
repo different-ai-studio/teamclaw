@@ -508,7 +508,7 @@ function AppContent() {
   const hasHiddenTabs = useTabsStore(selectHasHiddenTabs);
   /** Shortcuts always dock left; Files dock left only in default variant (workspace uses the right panel for Files). */
   const leftDockActive =
-    isPanelOpen && (activeTab === "shortcuts" || activeTab === "knowledge" || (!isWorkspaceUIVariant() && activeTab === "files"));
+    isPanelOpen && (activeTab === "shortcuts" || activeTab === "knowledge");
   const showRightWorkspacePanel = isPanelOpen && !leftDockActive;
   const isCollapsed = state === "collapsed";
   /** Native traffic lights sit over the left column; spare inset header when left dock owns that strip. */
@@ -1129,14 +1129,6 @@ function AppContent() {
                   count={sessionDiff.length}
                   isActive={isPanelOpen && activeTab === "diff"}
                   onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
-                />
-              )}
-              {isWorkspaceUIVariant() && (
-                <HeaderPanelTab
-                  icon={FolderTree}
-                  label={t("navigation.files", "Files")}
-                  isActive={isPanelOpen && activeTab === "files"}
-                  onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
                 />
               )}
               <HeaderPanelTab

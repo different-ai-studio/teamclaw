@@ -23,6 +23,7 @@ import {
 
 import { cn } from '@/lib/utils';
 import { TEAM_REPO_DIR } from '@/lib/build-config';
+import { ObsidianIcon } from '@/components/knowledge/ObsidianIcon';
 import { useTeamModeStore } from '@/stores/team-mode';
 import { useTabsStore } from '@/stores/tabs';
 import { getFileIcon } from '@/lib/file-icons';
@@ -278,6 +279,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   const fileIconInfo = !isDirectory ? getFileIcon(node.name) : null;
   const FileIcon = fileIconInfo?.icon || File;
   const fileIconColor = fileIconInfo?.color || "text-muted-foreground";
+  const isKnowledgeDir = isDirectory && node.name === 'knowledge';
 
   if (isRenaming) {
     return (
@@ -350,6 +352,10 @@ export const FileTreeItem = React.memo(function FileTreeItem({
                 : fileIconColor,
           )}
         />
+      )}
+
+      {isKnowledgeDir && (
+        <ObsidianIcon className="h-3.5 w-3.5 shrink-0" style={{ color: '#7C3AED' }} />
       )}
 
       {isSelected && !isDirectory && (
