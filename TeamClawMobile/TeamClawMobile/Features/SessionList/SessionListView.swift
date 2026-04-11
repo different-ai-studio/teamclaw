@@ -139,20 +139,27 @@ struct SessionListView: View {
                 )
             }
             .sheet(isPresented: $showMemberPanel) {
-                MemberListView(
-                    viewModel: MemberViewModel(mqttService: mqttService),
-                    mqttService: mqttService
-                )
+                UnifiedMemberSheet(mode: .browse, mqttService: mqttService)
             }
             .sheet(isPresented: $showNewSession) {
-                NewSessionSheet { newSession in
+                NewSessionSheet(mqttService: mqttService) { newSession in
                     viewModel.sessions.insert(newSession, at: 0)
                     viewModel.applySearch()
                     navigationPath.append(newSession.id)
                 }
             }
             .sheet(item: $addMemberSession) { session in
-                MemberPickerSheet(session: session, mqttService: mqttService)
+                UnifiedMemberSheet(
+                    mode: .select(
+                        preSelected: Set(session.collaboratorIDs),
+                        onConfirm: { ids in
+                            session.collaboratorIDs = Array(ids)
+                            session.isCollaborative = !ids.isEmpty
+                            try? modelContext.save()
+                        }
+                    ),
+                    mqttService: mqttService
+                )
             }
             .alert("重命名会话", isPresented: Binding(
                 get: { renamingSession != nil },
@@ -488,59 +495,6 @@ struct SessionRowView: View {
             }
         }
         .padding(.vertical, 10)
-    }
-}
-
-// MARK: - MemberPickerSheet
-
-struct MemberPickerSheet: View {
-    let session: Session
-    let mqttService: MQTTServiceProtocol
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    @State private var allMembers: [TeamMember] = []
-    @State private var searchText = ""
-
-    private var filtered: [TeamMember] {
-        if searchText.isEmpty { return allMembers }
-        return allMembers.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List(filtered, id: \.id) { member in
-                let isAdded = session.collaboratorIDs.contains(member.id)
-                Button {
-                    if !isAdded {
-                        session.collaboratorIDs.append(member.id)
-                        session.isCollaborative = true
-                        try? modelContext.save()
-                    }
-                } label: {
-                    HStack {
-                        Text(member.name)
-                        Spacer()
-                        if isAdded {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.blue)
-                        }
-                    }
-                }
-                .disabled(isAdded)
-            }
-            .searchable(text: $searchText, prompt: "搜索成员")
-            .navigationTitle("添加成员")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
-            .onAppear {
-                let descriptor = FetchDescriptor<TeamMember>(sortBy: [SortDescriptor(\.name)])
-                allMembers = (try? modelContext.fetch(descriptor)) ?? []
-            }
-        }
     }
 }
 

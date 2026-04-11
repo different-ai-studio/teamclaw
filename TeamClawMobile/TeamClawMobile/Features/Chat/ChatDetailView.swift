@@ -152,18 +152,7 @@ struct ChatDetailView: View {
         }
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(.primary)
-                }
-            }
-
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showEditSheet = true
@@ -175,7 +164,17 @@ struct ChatDetailView: View {
             }
         }
         .sheet(isPresented: $showEditSheet) {
-            MemberPickerSheet(session: session, mqttService: mqttService)
+            UnifiedMemberSheet(
+                mode: .select(
+                    preSelected: Set(session.collaboratorIDs),
+                    onConfirm: { ids in
+                        session.collaboratorIDs = Array(ids)
+                        session.isCollaborative = !ids.isEmpty
+                        try? modelContext.save()
+                    }
+                ),
+                mqttService: mqttService
+            )
         }
         .sheet(isPresented: $showMenuSheet) {
             ChatMenuSheet(
@@ -236,43 +235,6 @@ struct ChatMenuSheet: View {
                 }
             }
             .navigationTitle("会话设置")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-}
-
-// MARK: - ChatEditSheet
-
-struct ChatEditSheet: View {
-    let session: Session
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Button {
-                    // TODO: add member to current session
-                    dismiss()
-                } label: {
-                    Label("添加到当前会话", systemImage: "person.badge.plus")
-                        .foregroundStyle(.primary)
-                }
-
-                Button {
-                    // TODO: show full member list
-                    dismiss()
-                } label: {
-                    Label("查看团队成员", systemImage: "person.2")
-                        .foregroundStyle(.primary)
-                }
-            }
-            .navigationTitle("编辑成员")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
