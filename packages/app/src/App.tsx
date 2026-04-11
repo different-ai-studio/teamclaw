@@ -1010,11 +1010,9 @@ function AppContent() {
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
                   <span className="min-w-0 truncate text-sm font-medium">
-                    {activeTab === "files"
-                      ? t("navigation.files", "Files")
-                      : activeTab === "knowledge"
-                        ? t("navigation.knowledge", "Knowledge")
-                        : t("navigation.shortcuts", "Shortcuts")}
+                    {activeTab === "knowledge"
+                      ? t("navigation.knowledge", "Knowledge")
+                      : t("navigation.shortcuts", "Shortcuts")}
                   </span>
                   <div className="min-w-0 flex-1" data-tauri-drag-region />
                 </div>
