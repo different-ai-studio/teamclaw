@@ -57,25 +57,33 @@ struct UnifiedMemberSheet: View {
             .navigationTitle(isSelectMode ? "选择成员" : "团队成员")
             .navigationBarTitleDisplayMode(isSelectMode ? .inline : .large)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    if !isSelectMode {
-                        Button("完成") { dismiss() }
-                    }
-                }
                 ToolbarItem(placement: .cancellationAction) {
                     if isSelectMode {
                         Button("取消") { dismiss() }
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSelectMode {
+                        Button {
+                            if case .select(_, let onConfirm) = mode {
+                                onConfirm(selectedIDs)
+                            }
+                            dismiss()
+                        } label: {
+                            Text(selectedIDs.isEmpty ? "确定" : "确定 (\(selectedIDs.count))")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                        }
+                        .liquidGlass(in: Capsule())
+                    } else {
+                        Button("完成") { dismiss() }
                     }
                 }
             }
             .searchable(text: $searchText, prompt: "搜索")
             .refreshable {
                 viewModel.requestMembers()
-            }
-            .safeAreaInset(edge: .bottom) {
-                if isSelectMode {
-                    confirmBar
-                }
             }
             .onAppear {
                 viewModel.setModelContext(modelContext)
@@ -117,28 +125,6 @@ struct UnifiedMemberSheet: View {
         }
     }
 
-    // MARK: - Confirm Bar
-
-    private var confirmBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            Button {
-                if case .select(_, let onConfirm) = mode {
-                    onConfirm(selectedIDs)
-                }
-                dismiss()
-            } label: {
-                Text(selectedIDs.isEmpty ? "确定" : "确定 (\(selectedIDs.count))")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-        .background(.bar)
-    }
 }
 
 // MARK: - MemberRow
