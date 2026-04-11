@@ -53,16 +53,16 @@ struct ChatInputBar: View {
             HStack(spacing: 0) {
                 Button(action: onTogglePin) {
                     Image(systemName: session.isPinned ? "pin.slash.fill" : "pin.fill")
-                        .font(.system(size: 17))
+                        .font(.system(size: 20))
                         .foregroundStyle(.primary)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 48, height: 48)
                 }
 
                 Button { showArchiveConfirmation = true } label: {
                     Image(systemName: "archivebox.fill")
-                        .font(.system(size: 17))
+                        .font(.system(size: 20))
                         .foregroundStyle(.primary)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 48, height: 48)
                 }
             }
             .liquidGlass(in: Capsule())
@@ -74,9 +74,9 @@ struct ChatInputBar: View {
                 // TODO: voice input
             } label: {
                 Image(systemName: "mic.fill")
-                    .font(.system(size: 20))
+                    .font(.system(size: 22))
                     .foregroundStyle(.primary)
-                    .frame(width: 52, height: 52)
+                    .frame(width: 56, height: 56)
             }
             .liquidGlass(in: Circle())
 
@@ -86,9 +86,9 @@ struct ChatInputBar: View {
             HStack(spacing: 0) {
                 Button(action: onShowMenu) {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 17))
+                        .font(.system(size: 20))
                         .foregroundStyle(.primary)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 48, height: 48)
                 }
 
                 Button {
@@ -96,9 +96,9 @@ struct ChatInputBar: View {
                     isInputFocused = true
                 } label: {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 17))
+                        .font(.system(size: 20))
                         .foregroundStyle(.primary)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 48, height: 48)
                 }
             }
             .liquidGlass(in: Capsule())
@@ -117,8 +117,8 @@ struct ChatInputBar: View {
                     matching: .images
                 ) {
                     Image(systemName: "plus")
-                        .font(.system(size: 17, weight: .medium))
-                        .frame(width: 34, height: 34)
+                        .font(.system(size: 20, weight: .medium))
+                        .frame(width: 40, height: 40)
                         .liquidGlass(in: Circle())
                 }
                 .disabled(isDisabled)
@@ -129,17 +129,18 @@ struct ChatInputBar: View {
                         text: $text,
                         axis: .vertical
                     )
+                    .font(.body)
                     .lineLimit(1...5)
-                    .padding(.leading, 12)
+                    .padding(.leading, 14)
                     .padding(.trailing, 4)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 10)
                     .disabled(isDisabled || isStreaming)
                     .focused($isInputFocused)
 
                     if showActionButton {
                         actionButton
-                            .padding(.trailing, 4)
-                            .padding(.bottom, 4)
+                            .padding(.trailing, 6)
+                            .padding(.bottom, 6)
                     }
                 }
                 .background(Color(.systemGray6), in: Capsule())
@@ -152,8 +153,8 @@ struct ChatInputBar: View {
                         isInputFocused = false
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .medium))
-                            .frame(width: 34, height: 34)
+                            .font(.system(size: 17, weight: .medium))
+                            .frame(width: 40, height: 40)
                             .liquidGlass(in: Circle())
                     }
                 }
@@ -174,9 +175,9 @@ struct ChatInputBar: View {
         if isStreaming {
             Button(action: onCancel) {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 32, height: 32)
                     .background(.red, in: Circle())
             }
         } else {
@@ -186,9 +187,9 @@ struct ChatInputBar: View {
                 isInputFocused = false
             } label: {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 32, height: 32)
                     .background(canSend ? Color.blue : Color.secondary, in: Circle())
             }
             .disabled(!canSend)
