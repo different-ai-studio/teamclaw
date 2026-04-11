@@ -78,6 +78,7 @@ struct SessionListView: View {
                     } label: {
                         Image(systemName: "square.grid.2x2")
                             .font(.title3)
+                            .foregroundStyle(.primary)
                     }
                 }
 
@@ -93,24 +94,26 @@ struct SessionListView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 12) {
-                        Button {
-                            withAnimation(.spring(duration: 0.25)) {
-                                isEditing.toggle()
-                                if !isEditing { selectedIDs.removeAll() }
-                            }
-                        } label: {
-                            Text(isEditing ? "完成" : "选择")
-                                .font(.subheadline)
+                    Button {
+                        withAnimation(.spring(duration: 0.25)) {
+                            isEditing.toggle()
+                            if !isEditing { selectedIDs.removeAll() }
                         }
+                    } label: {
+                        Text(isEditing ? "完成" : "选择")
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                    }
+                }
 
-                        if !isEditing {
-                            Button {
-                                showMemberPanel = true
-                            } label: {
-                                Image(systemName: "person.2.fill")
-                                    .font(.subheadline)
-                            }
+                if !isEditing {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            showMemberPanel = true
+                        } label: {
+                            Image(systemName: "person.2.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
                         }
                     }
                 }
@@ -212,8 +215,8 @@ struct SessionListView: View {
                         isSearchFocused = false
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.title3)
-                            .padding(10)
+                            .font(.title2)
+                            .frame(width: 44, height: 44)
                     }
                     .liquidGlass(in: Circle())
                     .transition(.scale.combined(with: .opacity))
@@ -222,8 +225,8 @@ struct SessionListView: View {
                         showNewSession = true
                     } label: {
                         Image(systemName: "square.and.pencil")
-                            .font(.title3)
-                            .padding(10)
+                            .font(.title2)
+                            .frame(width: 44, height: 44)
                     }
                     .liquidGlass(in: Circle())
                     .transition(.scale.combined(with: .opacity))
@@ -238,55 +241,63 @@ struct SessionListView: View {
     // MARK: - Edit Toolbar
 
     private var editToolbar: some View {
-        HStack(spacing: 0) {
-            Button {
-                viewModel.archiveSessions(ids: selectedIDs)
-                selectedIDs.removeAll()
-                isEditing = false
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "archivebox")
-                        .font(.title3)
-                    Text("归档")
-                        .font(.caption2)
+        LiquidGlassContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                Button {
+                    viewModel.archiveSessions(ids: selectedIDs)
+                    selectedIDs.removeAll()
+                    isEditing = false
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: "archivebox")
+                            .font(.title3)
+                        Text("归档")
+                            .font(.caption2)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                 }
-                .frame(maxWidth: .infinity)
-            }
-            .disabled(selectedIDs.isEmpty)
+                .disabled(selectedIDs.isEmpty)
+                .liquidGlass(in: RoundedRectangle(cornerRadius: 16))
 
-            Button {
-                viewModel.togglePinSessions(ids: selectedIDs)
-                selectedIDs.removeAll()
-                isEditing = false
-            } label: {
-                let allPinned = selectedIDs.allSatisfy { id in
-                    viewModel.sessions.first(where: { $0.id == id })?.isPinned == true
+                Button {
+                    viewModel.togglePinSessions(ids: selectedIDs)
+                    selectedIDs.removeAll()
+                    isEditing = false
+                } label: {
+                    let allPinned = selectedIDs.allSatisfy { id in
+                        viewModel.sessions.first(where: { $0.id == id })?.isPinned == true
+                    }
+                    VStack(spacing: 4) {
+                        Image(systemName: allPinned ? "pin.slash" : "pin")
+                            .font(.title3)
+                        Text(allPinned ? "取消置顶" : "置顶")
+                            .font(.caption2)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                 }
-                VStack(spacing: 4) {
-                    Image(systemName: allPinned ? "pin.slash" : "pin")
-                        .font(.title3)
-                    Text(allPinned ? "取消置顶" : "置顶")
-                        .font(.caption2)
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .disabled(selectedIDs.isEmpty)
+                .disabled(selectedIDs.isEmpty)
+                .liquidGlass(in: RoundedRectangle(cornerRadius: 16))
 
-            Button {
-                addMemberSession = viewModel.sessions.first(where: { selectedIDs.contains($0.id) })
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "person.badge.plus")
-                        .font(.title3)
-                    Text("添加成员")
-                        .font(.caption2)
+                Button {
+                    addMemberSession = viewModel.sessions.first(where: { selectedIDs.contains($0.id) })
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: "person.badge.plus")
+                            .font(.title3)
+                        Text("添加成员")
+                            .font(.caption2)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                 }
-                .frame(maxWidth: .infinity)
+                .disabled(selectedIDs.isEmpty)
+                .liquidGlass(in: RoundedRectangle(cornerRadius: 16))
             }
-            .disabled(selectedIDs.isEmpty)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
     }
 }
 

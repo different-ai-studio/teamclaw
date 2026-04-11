@@ -16,6 +16,7 @@ struct ChatInputBar: View {
     let onShowMenu: () -> Void
 
     @State private var isTextInputMode = false
+    @State private var showArchiveConfirmation = false
     @FocusState private var isInputFocused: Bool
     @State private var photoPickerItem: PhotosPickerItem?
 
@@ -28,6 +29,10 @@ struct ChatInputBar: View {
             }
         }
         .animation(.spring(duration: 0.25), value: isTextInputMode)
+        .confirmationDialog("确定要归档这个会话吗？", isPresented: $showArchiveConfirmation, titleVisibility: .visible) {
+            Button("归档", role: .destructive, action: onArchive)
+            Button("取消", role: .cancel) {}
+        }
         .onChange(of: photoPickerItem) { _, newItem in
             guard let newItem else { return }
             Task {
@@ -48,14 +53,16 @@ struct ChatInputBar: View {
             HStack(spacing: 0) {
                 Button(action: onTogglePin) {
                     Image(systemName: session.isPinned ? "pin.slash.fill" : "pin.fill")
-                        .font(.system(size: 15))
-                        .frame(width: 40, height: 40)
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary)
+                        .frame(width: 44, height: 44)
                 }
 
-                Button(action: onArchive) {
+                Button { showArchiveConfirmation = true } label: {
                     Image(systemName: "archivebox.fill")
-                        .font(.system(size: 15))
-                        .frame(width: 40, height: 40)
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary)
+                        .frame(width: 44, height: 44)
                 }
             }
             .liquidGlass(in: Capsule())
@@ -67,8 +74,9 @@ struct ChatInputBar: View {
                 // TODO: voice input
             } label: {
                 Image(systemName: "mic.fill")
-                    .font(.system(size: 17))
-                    .frame(width: 48, height: 48)
+                    .font(.system(size: 20))
+                    .foregroundStyle(.primary)
+                    .frame(width: 52, height: 52)
             }
             .liquidGlass(in: Circle())
 
@@ -78,8 +86,9 @@ struct ChatInputBar: View {
             HStack(spacing: 0) {
                 Button(action: onShowMenu) {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 15))
-                        .frame(width: 40, height: 40)
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary)
+                        .frame(width: 44, height: 44)
                 }
 
                 Button {
@@ -87,8 +96,9 @@ struct ChatInputBar: View {
                     isInputFocused = true
                 } label: {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 15))
-                        .frame(width: 40, height: 40)
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary)
+                        .frame(width: 44, height: 44)
                 }
             }
             .liquidGlass(in: Capsule())
