@@ -18,6 +18,17 @@ struct SessionListView: View {
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
 
+    // Edit mode
+    @State private var isEditing = false
+    @State private var selectedIDs: Set<String> = []
+
+    // Rename
+    @State private var renamingSession: Session?
+    @State private var renameText = ""
+
+    // Add member
+    @State private var addMemberSession: Session?
+
     init(mqttService: MQTTServiceProtocol, connectionMonitor: ConnectionMonitor, pairingManager: PairingManager) {
         self.mqttService = mqttService
         self.connectionMonitor = connectionMonitor
@@ -50,7 +61,12 @@ struct SessionListView: View {
 
                 SessionListContent(
                     viewModel: viewModel,
-                    navigationPath: $navigationPath
+                    navigationPath: $navigationPath,
+                    isEditing: $isEditing,
+                    selectedIDs: $selectedIDs,
+                    renamingSession: $renamingSession,
+                    renameText: $renameText,
+                    addMemberSession: $addMemberSession
                 )
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -76,11 +92,25 @@ struct SessionListView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showMemberPanel = true
-                    } label: {
-                        Image(systemName: "person.2.fill")
-                            .font(.subheadline)
+                    HStack(spacing: 12) {
+                        Button {
+                            withAnimation(.spring(duration: 0.25)) {
+                                isEditing.toggle()
+                                if !isEditing { selectedIDs.removeAll() }
+                            }
+                        } label: {
+                            Text(isEditing ? "完成" : "选择")
+                                .font(.subheadline)
+                        }
+
+                        if !isEditing {
+                            Button {
+                                showMemberPanel = true
+                            } label: {
+                                Image(systemName: "person.2.fill")
+                                    .font(.subheadline)
+                            }
+                        }
                     }
                 }
             }
@@ -111,59 +141,27 @@ struct SessionListView: View {
                     navigationPath.append(newSession.id)
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                LiquidGlassContainer(spacing: 8) {
-                    HStack(spacing: 8) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(.secondary)
-                                .font(.subheadline)
-                            TextField("搜索", text: $searchText)
-                                .font(.body)
-                                .focused($isSearchFocused)
-                                .onChange(of: searchText) {
-                                    viewModel.searchText = searchText
-                                    viewModel.applySearch()
-                                }
-                            if !searchText.isEmpty {
-                                Button {
-                                    searchText = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .liquidGlass(in: Capsule(), interactive: false)
-
-                        if isSearchFocused {
-                            Button {
-                                searchText = ""
-                                isSearchFocused = false
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.title3)
-                                    .padding(10)
-                            }
-                            .liquidGlass(in: Circle())
-                            .transition(.scale.combined(with: .opacity))
-                        } else {
-                            Button {
-                                showNewSession = true
-                            } label: {
-                                Image(systemName: "square.and.pencil")
-                                    .font(.title3)
-                                    .padding(10)
-                            }
-                            .liquidGlass(in: Circle())
-                            .transition(.scale.combined(with: .opacity))
-                        }
+            .sheet(item: $addMemberSession) { session in
+                MemberPickerSheet(session: session, mqttService: mqttService)
+            }
+            .alert("重命名会话", isPresented: Binding(
+                get: { renamingSession != nil },
+                set: { if !$0 { renamingSession = nil } }
+            )) {
+                TextField("会话标题", text: $renameText)
+                Button("取消", role: .cancel) { renamingSession = nil }
+                Button("确定") {
+                    if let session = renamingSession {
+                        viewModel.renameSession(session, to: renameText)
                     }
-                    .animation(.spring(duration: 0.25), value: isSearchFocused)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
+                    renamingSession = nil
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if isEditing {
+                    editToolbar
+                } else {
+                    searchBar
                 }
             }
             .onAppear {
@@ -172,6 +170,118 @@ struct SessionListView: View {
             }
         }
     }
+
+    // MARK: - Search Bar
+
+    private var searchBar: some View {
+        LiquidGlassContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                    TextField("搜索", text: $searchText)
+                        .font(.body)
+                        .focused($isSearchFocused)
+                        .onChange(of: searchText) {
+                            viewModel.searchText = searchText
+                            viewModel.applySearch()
+                        }
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .liquidGlass(in: Capsule(), interactive: false)
+
+                if isSearchFocused {
+                    Button {
+                        searchText = ""
+                        isSearchFocused = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.title3)
+                            .padding(10)
+                    }
+                    .liquidGlass(in: Circle())
+                    .transition(.scale.combined(with: .opacity))
+                } else {
+                    Button {
+                        showNewSession = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                            .font(.title3)
+                            .padding(10)
+                    }
+                    .liquidGlass(in: Circle())
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .animation(.spring(duration: 0.25), value: isSearchFocused)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
+    }
+
+    // MARK: - Edit Toolbar
+
+    private var editToolbar: some View {
+        HStack(spacing: 0) {
+            Button {
+                viewModel.archiveSessions(ids: selectedIDs)
+                selectedIDs.removeAll()
+                isEditing = false
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "archivebox")
+                        .font(.title3)
+                    Text("归档")
+                        .font(.caption2)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .disabled(selectedIDs.isEmpty)
+
+            Button {
+                viewModel.togglePinSessions(ids: selectedIDs)
+                selectedIDs.removeAll()
+                isEditing = false
+            } label: {
+                let allPinned = selectedIDs.allSatisfy { id in
+                    viewModel.sessions.first(where: { $0.id == id })?.isPinned == true
+                }
+                VStack(spacing: 4) {
+                    Image(systemName: allPinned ? "pin.slash" : "pin")
+                        .font(.title3)
+                    Text(allPinned ? "取消置顶" : "置顶")
+                        .font(.caption2)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .disabled(selectedIDs.isEmpty)
+
+            Button {
+                addMemberSession = viewModel.sessions.first(where: { selectedIDs.contains($0.id) })
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "person.badge.plus")
+                        .font(.title3)
+                    Text("添加成员")
+                        .font(.caption2)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .disabled(selectedIDs.isEmpty)
+        }
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
 }
 
 // MARK: - SessionListContent
@@ -179,6 +289,11 @@ struct SessionListView: View {
 private struct SessionListContent: View {
     @ObservedObject var viewModel: SessionListViewModel
     @Binding var navigationPath: [String]
+    @Binding var isEditing: Bool
+    @Binding var selectedIDs: Set<String>
+    @Binding var renamingSession: Session?
+    @Binding var renameText: String
+    @Binding var addMemberSession: Session?
 
     var body: some View {
         Group {
@@ -195,20 +310,7 @@ private struct SessionListContent: View {
                     ForEach(viewModel.groupedFilteredSessions) { group in
                         Section(header: Text(group.title).font(.headline).foregroundStyle(.primary)) {
                             ForEach(group.sessions, id: \.id) { session in
-                                SessionRowView(
-                                    session: session,
-                                    relativeTime: viewModel.relativeTime(for: session.lastMessageTime)
-                                )
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    navigationPath.append(session.id)
-                                }
-                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                            }
-                            .onDelete { offsets in
-                                for index in offsets {
-                                    viewModel.deleteSession(group.sessions[index])
-                                }
+                                sessionRow(session)
                             }
                         }
                     }
@@ -220,6 +322,96 @@ private struct SessionListContent: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func sessionRow(_ session: Session) -> some View {
+        HStack(spacing: 10) {
+            if isEditing {
+                Image(systemName: selectedIDs.contains(session.id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selectedIDs.contains(session.id) ? .blue : .secondary)
+                    .font(.title3)
+                    .onTapGesture {
+                        if selectedIDs.contains(session.id) {
+                            selectedIDs.remove(session.id)
+                        } else {
+                            selectedIDs.insert(session.id)
+                        }
+                    }
+            }
+
+            SessionRowView(
+                session: session,
+                relativeTime: viewModel.relativeTime(for: session.lastMessageTime)
+            )
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isEditing {
+                if selectedIDs.contains(session.id) {
+                    selectedIDs.remove(session.id)
+                } else {
+                    selectedIDs.insert(session.id)
+                }
+            } else {
+                navigationPath.append(session.id)
+            }
+        }
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                viewModel.togglePin(session)
+            } label: {
+                Label(session.isPinned ? "取消置顶" : "置顶",
+                      systemImage: session.isPinned ? "pin.slash" : "pin")
+            }
+            .tint(.yellow)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button {
+                viewModel.archiveSession(session)
+            } label: {
+                Label("归档", systemImage: "archivebox")
+            }
+            .tint(.purple)
+        }
+        .contextMenu {
+            Button {
+                renameText = session.title
+                renamingSession = session
+            } label: {
+                Label("修改标题", systemImage: "pencil")
+            }
+
+            Button {
+                addMemberSession = session
+            } label: {
+                Label("添加成员", systemImage: "person.badge.plus")
+            }
+
+            Divider()
+
+            Button {
+                viewModel.togglePin(session)
+            } label: {
+                Label(session.isPinned ? "取消置顶" : "置顶",
+                      systemImage: session.isPinned ? "pin.slash" : "pin")
+            }
+
+            Button {
+                viewModel.archiveSession(session)
+            } label: {
+                Label("归档", systemImage: "archivebox")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                viewModel.deleteSession(session)
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+        }
+    }
 }
 
 // MARK: - SessionRowView
@@ -228,100 +420,101 @@ struct SessionRowView: View {
     let session: Session
     let relativeTime: String
 
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            // Left: 3-line text block
-            VStack(alignment: .leading, spacing: 2) {
-                // Line 1: title
-                Text(session.title.isEmpty ? "新会话" : session.title)
-                    .font(.body)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                    .foregroundStyle(.primary)
+    private var isActive: Bool {
+        guard let status = session.status else { return false }
+        let s = status.lowercased()
+        return s == "running" || s == "active"
+    }
 
-                // Line 2: last message placeholder
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            // Blue dot for active status
+            Circle()
+                .fill(isActive ? Color.blue : Color.clear)
+                .frame(width: 10, height: 10)
+
+            VStack(alignment: .leading, spacing: 3) {
+                // Line 1: title + pin icon + time
+                HStack {
+                    if session.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                    Text(session.title.isEmpty ? "新会话" : session.title)
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .foregroundStyle(.primary)
+
+                    Spacer(minLength: 0)
+
+                    Text(relativeTime)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+
+                // Line 2: last message preview
                 Text(session.lastMessageContent.isEmpty ? "—" : session.lastMessageContent)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-
-                // Line 3: summary + status + relative time
-                HStack(spacing: 6) {
-                    if session.summaryFiles > 0 {
-                        Text("+\(session.summaryAdditions) -\(session.summaryDeletions) · \(session.summaryFiles) 文件")
-                            .foregroundStyle(.secondary)
-                    }
-                    if let status = session.status, !status.isEmpty {
-                        SessionStatusBadge(status: status)
-                    }
-                    Spacer(minLength: 0)
-                    Text(relativeTime)
-                        .foregroundStyle(.tertiary)
-                }
-                .font(.caption)
             }
-
-            Spacer(minLength: 0)
-
-            // Right: rounded-square avatar (Apple Notes style)
-            SessionAvatar(name: session.agentName, isCollaborative: session.isCollaborative)
         }
         .padding(.vertical, 10)
     }
 }
 
-// MARK: - SessionAvatar
+// MARK: - MemberPickerSheet
 
-private struct SessionAvatar: View {
-    let name: String
-    let isCollaborative: Bool
+private struct MemberPickerSheet: View {
+    let session: Session
+    let mqttService: MQTTServiceProtocol
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @State private var allMembers: [TeamMember] = []
+    @State private var searchText = ""
 
-    private var avatarColor: Color {
-        let colors: [Color] = [.blue, .purple, .orange, .green, .pink, .teal, .indigo]
-        let index = abs(name.hashValue) % colors.count
-        return colors[index]
+    private var filtered: [TeamMember] {
+        if searchText.isEmpty { return allMembers }
+        return allMembers.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(avatarColor.opacity(0.18))
-                .frame(width: 48, height: 48)
-            if isCollaborative {
-                Image(systemName: "person.2.fill")
-                    .font(.title3)
-                    .foregroundStyle(avatarColor)
-            } else {
-                Text(String((name.isEmpty ? "A" : name).prefix(1)))
-                    .font(.title3.bold())
-                    .foregroundStyle(avatarColor)
+        NavigationStack {
+            List(filtered, id: \.id) { member in
+                let isAdded = session.collaboratorIDs.contains(member.id)
+                Button {
+                    if !isAdded {
+                        session.collaboratorIDs.append(member.id)
+                        session.isCollaborative = true
+                        try? modelContext.save()
+                    }
+                } label: {
+                    HStack {
+                        Text(member.name)
+                        Spacer()
+                        if isAdded {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+                .disabled(isAdded)
+            }
+            .searchable(text: $searchText, prompt: "搜索成员")
+            .navigationTitle("添加成员")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .onAppear {
+                let descriptor = FetchDescriptor<TeamMember>(sortBy: [SortDescriptor(\.name)])
+                allMembers = (try? modelContext.fetch(descriptor)) ?? []
             }
         }
-    }
-}
-
-// MARK: - SessionStatusBadge
-
-private struct SessionStatusBadge: View {
-    let status: String
-
-    private var color: Color {
-        switch status.lowercased() {
-        case "running", "active": return .blue
-        case "completed", "done": return .green
-        case "error", "failed": return .red
-        default: return .secondary
-        }
-    }
-
-    var body: some View {
-        Text(status)
-            .font(.caption2)
-            .fontWeight(.medium)
-            .foregroundStyle(color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(color.opacity(0.12), in: Capsule())
     }
 }
 
@@ -329,7 +522,7 @@ private struct SessionStatusBadge: View {
 
 #Preview {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Session.self, configurations: config)
+    let container = try! ModelContainer(for: Session.self, TeamMember.self, configurations: config)
     let context = container.mainContext
 
     let now = Date()
@@ -340,7 +533,8 @@ private struct SessionStatusBadge: View {
                      lastMessageContent: "", lastMessageTime: now.addingTimeInterval(-86400 * 2),
                      isCollaborative: true, status: "completed", summaryFiles: 5)
     let s3 = Session(id: "3", title: "成本上限", agentName: "财务",
-                     lastMessageContent: "", lastMessageTime: now.addingTimeInterval(-86400 * 20))
+                     lastMessageContent: "", lastMessageTime: now.addingTimeInterval(-86400 * 20),
+                     isPinned: true)
     let s4 = Session(id: "4", title: "Q1 复盘", agentName: "策略",
                      lastMessageContent: "", lastMessageTime: now.addingTimeInterval(-86400 * 60))
     [s1, s2, s3, s4].forEach { context.insert($0) }

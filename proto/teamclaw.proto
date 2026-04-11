@@ -37,6 +37,8 @@ message MqttMessage {
     TaskUpdate task_update = 80;
     MessageSyncRequest message_sync_request = 82;
     MessageSyncResponse message_sync_response = 83;
+    SessionArchiveRequest session_archive_request = 84;
+    SessionArchiveResponse session_archive_response = 85;
     PairingDiscovery pairing_discovery = 90;
     PairingRequest pairing_request = 91;
     PairingResponse pairing_response = 92;
@@ -94,6 +96,15 @@ message SessionData {
   string id = 1;
   string title = 2;
   int64 updated = 3;
+}
+
+message SessionArchiveRequest {
+  repeated string session_ids = 1;
+}
+
+message SessionArchiveResponse {
+  bool success = 1;
+  string error = 2;
 }
 
 // ─── Members ───

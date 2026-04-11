@@ -300,6 +300,11 @@ impl MqttRelay {
                     self.handle_message_sync_request(&did, req).await?;
                 }
             }
+            Some(proto::mqtt_message::Payload::SessionArchiveRequest(ref req)) => {
+                if let Some(did) = device_id {
+                    self.handle_session_archive_request(&did, req).await?;
+                }
+            }
             _ => {
                 eprintln!("[MQTT Relay] Unknown or empty payload");
             }
@@ -571,6 +576,35 @@ impl MqttRelay {
             }
         }
         Ok(())
+    }
+
+    // ─── Session Archive ──────────────────────────────────────
+
+    async fn handle_session_archive_request(
+        &self,
+        device_id: &str,
+        req: &proto::SessionArchiveRequest,
+    ) -> Result<(), String> {
+        let port = self.opencode_port;
+        let mut errors: Vec<String> = vec![];
+
+        for session_id in &req.session_ids {
+            if let Err(e) = super::opencode_archive_session(port, session_id).await {
+                eprintln!("[MQTT Relay] Failed to archive session {}: {}", session_id, e);
+                errors.push(format!("{}: {}", session_id, e));
+            }
+        }
+
+        let (success, error) = if errors.is_empty() {
+            (true, String::new())
+        } else {
+            (false, errors.join("; "))
+        };
+
+        let msg = build_envelope(proto::mqtt_message::Payload::SessionArchiveResponse(
+            proto::SessionArchiveResponse { success, error },
+        ));
+        self.publish_proto_to_device(device_id, "chat/res", &msg).await
     }
 
     // ─── Member Sync ───────────────────────────────────────────
