@@ -175,7 +175,7 @@ struct ChatDetailView: View {
             }
         }
         .sheet(isPresented: $showEditSheet) {
-            ChatEditSheet(session: session)
+            MemberPickerSheet(session: session, mqttService: mqttService)
         }
         .sheet(isPresented: $showMenuSheet) {
             ChatMenuSheet(

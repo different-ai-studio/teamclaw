@@ -126,29 +126,30 @@ struct NewSessionSheet: View {
         HStack(alignment: .bottom, spacing: 8) {
             Button {} label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 34, height: 34)
+                    .font(.system(size: 20, weight: .medium))
+                    .frame(width: 40, height: 40)
                     .liquidGlass(in: Circle())
             }
 
             HStack(alignment: .bottom, spacing: 4) {
                 TextField("消息", text: $messageText, axis: .vertical)
+                    .font(.body)
                     .lineLimit(1...5)
                     .focused($isInputFocused)
-                    .padding(.leading, 12)
+                    .padding(.leading, 14)
                     .padding(.trailing, 4)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 10)
 
                 if canSend {
                     Button(action: sendAndCreate) {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
-                            .frame(width: 28, height: 28)
+                            .frame(width: 32, height: 32)
                             .background(Color.green, in: Circle())
                     }
-                    .padding(.trailing, 4)
-                    .padding(.bottom, 4)
+                    .padding(.trailing, 6)
+                    .padding(.bottom, 6)
                 }
             }
             .background(Color(.systemGray6), in: Capsule())

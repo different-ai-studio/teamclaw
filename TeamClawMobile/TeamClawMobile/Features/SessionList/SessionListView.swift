@@ -93,6 +93,18 @@ struct SessionListView: View {
                     }
                 }
 
+                if !isEditing {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            showMemberPanel = true
+                        } label: {
+                            Image(systemName: "person.2.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         withAnimation(.spring(duration: 0.25)) {
@@ -103,18 +115,6 @@ struct SessionListView: View {
                         Text(isEditing ? "完成" : "选择")
                             .font(.subheadline)
                             .foregroundStyle(.primary)
-                    }
-                }
-
-                if !isEditing {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            showMemberPanel = true
-                        } label: {
-                            Image(systemName: "person.2.fill")
-                                .font(.subheadline)
-                                .foregroundStyle(.primary)
-                        }
                     }
                 }
             }
@@ -188,7 +188,7 @@ struct SessionListView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
-                        .font(.subheadline)
+                        .font(.body)
                     TextField("搜索", text: $searchText)
                         .font(.body)
                         .focused($isSearchFocused)
@@ -202,11 +202,12 @@ struct SessionListView: View {
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(.secondary)
+                                .font(.body)
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
                 .liquidGlass(in: Capsule(), interactive: false)
 
                 if isSearchFocused {
@@ -216,7 +217,8 @@ struct SessionListView: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.title2)
-                            .frame(width: 44, height: 44)
+                            .foregroundStyle(.primary)
+                            .frame(width: 48, height: 48)
                     }
                     .liquidGlass(in: Circle())
                     .transition(.scale.combined(with: .opacity))
@@ -226,7 +228,8 @@ struct SessionListView: View {
                     } label: {
                         Image(systemName: "square.and.pencil")
                             .font(.title2)
-                            .frame(width: 44, height: 44)
+                            .foregroundStyle(.primary)
+                            .frame(width: 48, height: 48)
                     }
                     .liquidGlass(in: Circle())
                     .transition(.scale.combined(with: .opacity))
@@ -484,7 +487,7 @@ struct SessionRowView: View {
 
 // MARK: - MemberPickerSheet
 
-private struct MemberPickerSheet: View {
+struct MemberPickerSheet: View {
     let session: Session
     let mqttService: MQTTServiceProtocol
     @Environment(\.dismiss) private var dismiss
