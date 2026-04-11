@@ -13,6 +13,48 @@ use teamclaw_gateway::mqtt_config::{MqttConfig, PairedDevice, PairingSession, Mq
 use super::mqtt_proto::proto;
 use crate::commands::team_unified::{TeamManifest, MemberRole};
 
+// ─── TLS ──────────────────────────────────────────────────────────────────────
+
+#[derive(Debug)]
+struct NoVerifier;
+
+impl rustls::client::danger::ServerCertVerifier for NoVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
 /// MQTT relay bridging the iOS mobile client to the local OpenCode Agent.
 pub struct MqttRelay {
     config: Arc<RwLock<MqttConfig>>,
@@ -111,7 +153,15 @@ impl MqttRelay {
         mqttoptions.set_clean_start(false);
 
         let _ = rustls::crypto::ring::default_provider().install_default();
-        mqttoptions.set_transport(rumqttc::Transport::tls_with_default_config());
+        if config.tls_insecure {
+            let tls_config = rustls::ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(NoVerifier))
+                .with_no_client_auth();
+            mqttoptions.set_transport(rumqttc::Transport::tls_with_config(tls_config.into()));
+        } else {
+            mqttoptions.set_transport(rumqttc::Transport::tls_with_default_config());
+        }
 
         let (client, mut eventloop) = AsyncClient::new(mqttoptions, 100);
 

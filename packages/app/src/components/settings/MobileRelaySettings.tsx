@@ -30,6 +30,7 @@ interface MqttRelayConfig {
   deviceId: string
   deviceName: string
   pairedDevices: PairedDevice[]
+  tlsInsecure: boolean
 }
 
 interface PairedDevice {
@@ -54,6 +55,7 @@ const defaultConfig: MqttRelayConfig = {
   deviceId: '',
   deviceName: '',
   pairedDevices: [],
+  tlsInsecure: false,
 }
 
 // ---- Connection Status Badge ----
@@ -104,6 +106,9 @@ export function MobileRelaySettings() {
   // Unpair state
   const [unpairingId, setUnpairingId] = React.useState<string | null>(null)
 
+  // Track whether user has unsaved edits — prevents polling from overwriting in-progress input
+  const isDirty = React.useRef(false)
+
   // Load config on mount
   React.useEffect(() => {
     loadConfig()
@@ -115,7 +120,9 @@ export function MobileRelaySettings() {
   React.useEffect(() => {
     const interval = setInterval(async () => {
       await loadStatus()
-      await loadConfig()
+      if (!isDirty.current) {
+        await loadConfig()
+      }
     }, 5000)
     return () => clearInterval(interval)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,6 +156,7 @@ export function MobileRelaySettings() {
     setSaveSuccess(false)
     try {
       await invoke('save_mqtt_relay_config', { config })
+      isDirty.current = false
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 3000)
     } catch (e) {
@@ -211,6 +219,7 @@ export function MobileRelaySettings() {
   }
 
   const updateConfig = (updates: Partial<MqttRelayConfig>) => {
+    isDirty.current = true
     setConfig(prev => ({ ...prev, ...updates }))
   }
 
@@ -351,6 +360,19 @@ export function MobileRelaySettings() {
               />
             </div>
           </div>
+
+          {/* TLS insecure */}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={config.tlsInsecure}
+              onChange={e => updateConfig({ tlsInsecure: e.target.checked })}
+              className="h-4 w-4 rounded border-input"
+            />
+            <span className="text-sm">
+              {t('settings.mobileRelay.tlsInsecure', 'Skip TLS certificate verification (self-signed cert)')}
+            </span>
+          </label>
 
           {/* Save error */}
           {saveError && (

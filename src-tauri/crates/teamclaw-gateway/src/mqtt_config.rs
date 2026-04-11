@@ -22,6 +22,9 @@ pub struct MqttConfig {
     pub device_name: String,
     #[serde(default)]
     pub paired_devices: Vec<PairedDevice>,
+    /// Skip TLS certificate verification (for self-signed certs)
+    #[serde(default)]
+    pub tls_insecure: bool,
 }
 
 fn default_broker_port() -> u16 {
