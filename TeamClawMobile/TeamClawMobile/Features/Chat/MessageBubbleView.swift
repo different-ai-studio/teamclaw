@@ -66,11 +66,47 @@ struct MessageBubbleView: View {
 
     private var assistantBubble: some View {
         HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 0) {
-                MarkdownRenderer(content: message.content)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                let messageParts = message.parts
+                if messageParts.isEmpty {
+                    MarkdownRenderer(content: message.content)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(Array(messageParts.enumerated()), id: \.offset) { _, part in
+                        switch part.type {
+                        case "text":
+                            if let text = part.text, !text.isEmpty {
+                                MarkdownRenderer(content: text)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                            }
+                        case "tool":
+                            if let tool = part.tool {
+                                ToolCallView(tool: tool)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
+                            }
+                        default:
+                            EmptyView()
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                if message.hasThinking {
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain")
+                            .font(.system(size: 9))
+                        Text("有思考过程")
+                            .font(.system(size: 9))
+                    }
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.bottom, 6)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(red: 0.94, green: 0.945, blue: 0.961))

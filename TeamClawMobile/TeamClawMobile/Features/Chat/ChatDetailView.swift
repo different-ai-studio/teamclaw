@@ -92,7 +92,7 @@ struct ChatDetailView: View {
                         }
 
                         if viewModel.isStreaming {
-                            StreamingTextView(content: viewModel.streamingContent)
+                            StreamingTextView(content: viewModel.streamingContent, streamingToolCalls: viewModel.streamingToolCalls)
                                 .id("streaming")
                         }
 

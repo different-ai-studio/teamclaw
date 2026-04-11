@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StreamingTextView: View {
     let content: String
+    var streamingToolCalls: [ToolCallInfo] = []
 
     @State private var cursorVisible = true
 
@@ -17,6 +18,12 @@ struct StreamingTextView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+
+                ForEach(streamingToolCalls) { tool in
+                    ToolCallView(tool: tool)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(red: 0.94, green: 0.945, blue: 0.961))

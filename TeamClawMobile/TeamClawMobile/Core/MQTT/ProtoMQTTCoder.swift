@@ -25,7 +25,18 @@ enum ProtoMQTTCoder {
         case .sessionSyncRequest(let r):  type = "SessionSyncReq(page=\(r.pagination.page),after=\(r.afterUpdated))"
         case .sessionSyncResponse(let r): type = "SessionSyncRes(sessions=\(r.sessions.count), page=\(r.pagination.page)/total=\(r.pagination.total))"
         case .chatRequest(let r):         type = "ChatReq(session=\(r.sessionID.prefix(8)))"
-        case .chatResponse(let r):        type = "ChatRes(session=\(r.sessionID.prefix(8)), seq=\(r.seq))"
+        case .chatResponse(let r):
+            let eventDesc: String
+            switch r.event {
+            case .delta: eventDesc = "delta"
+            case .done: eventDesc = "done"
+            case .error: eventDesc = "error"
+            case .toolEvent(let t): eventDesc = "tool(\(t.toolName),\(t.status))"
+            case .hasThinking: eventDesc = "thinking"
+            case .none: eventDesc = "none"
+            @unknown default: eventDesc = "unknown"
+            }
+            type = "ChatRes(session=\(r.sessionID.prefix(8)),seq=\(r.seq),\(eventDesc))"
         case .chatCancel(let r):          type = "ChatCancel(session=\(r.sessionID.prefix(8)))"
         case .memberSyncRequest(let r):   type = "MemberSyncReq(page=\(r.pagination.page))"
         case .memberSyncResponse(let r):  type = "MemberSyncRes(members=\(r.members.count))"

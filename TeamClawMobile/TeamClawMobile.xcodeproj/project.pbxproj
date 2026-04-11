@@ -68,6 +68,7 @@
 		EFD3FEF6ECB8BB3196FB7E17 /* ConnectionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4BF600C2F057B605FC1015 /* ConnectionMonitorTests.swift */; };
 		F72276690532533498ED380B /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36621DE5BE808E48FCAB3565 /* ChatMessage.swift */; };
 		F92B8FF29F538FE5EF2E82AD /* StreamingTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304DBC8795E823C5963EE650 /* StreamingTextView.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* ToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E5F4A3B2C1D0E9F8071625 /* ToolCallView.swift */; };
 		FB47D1A057337D95C268D8D1 /* MessageAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877250779DF25DFB6EA564C9 /* MessageAggregator.swift */; };
 		FC43E4D56FEA629C3A0072FB /* SessionListViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65299398879A9250C02F60B9 /* SessionListViewModelTests.swift */; };
 		FC84563FEF5BE97D9D28FB07 /* RoleDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23A2D13653D33ACFF78BD96C /* RoleDetailView.swift */; };
@@ -102,6 +103,7 @@
 		2AC0C0BCFF2BE9EC099FB476 /* SkillHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillHomeView.swift; sourceTree = "<group>"; };
 		2FCB7D9D27F63BE7540362BC /* Skill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skill.swift; sourceTree = "<group>"; };
 		304DBC8795E823C5963EE650 /* StreamingTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingTextView.swift; sourceTree = "<group>"; };
+		D6E5F4A3B2C1D0E9F8071625 /* ToolCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallView.swift; sourceTree = "<group>"; };
 		36621DE5BE808E48FCAB3565 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
 		3753BE0DCBBDDF6981D3B684 /* MemberAutomationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberAutomationView.swift; sourceTree = "<group>"; };
 		3AF9EEA26C502C1D43B7E4D2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -314,6 +316,7 @@
 				9DC4A3372C9F29BEC02488EB /* ChatInputBar.swift */,
 				FC5358997970581A339AEFF3 /* MessageBubbleView.swift */,
 				304DBC8795E823C5963EE650 /* StreamingTextView.swift */,
+				D6E5F4A3B2C1D0E9F8071625 /* ToolCallView.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -591,6 +594,7 @@
 				54432692497E580B6783943C /* SkillMarketView.swift in Sources */,
 				858DB153EFDF26079F8F3655 /* SkillViewModel.swift in Sources */,
 				F92B8FF29F538FE5EF2E82AD /* StreamingTextView.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* ToolCallView.swift in Sources */,
 				2BA0BFB80E068EBFF2E3B86D /* Talent.swift in Sources */,
 				D7601B4CBD1B8F3C837F4B0B /* TalentViewModel.swift in Sources */,
 				161E2FC7CA32B7CB0625F006 /* TaskEditView.swift in Sources */,

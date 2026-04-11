@@ -12,6 +12,8 @@ final class ChatDetailViewModel: ObservableObject {
     @Published var isDesktopOnline = true
     @Published var selectedModel: String = "default"
     @Published var availableModels: [String] = ["default"]
+    @Published var streamingToolCalls: [ToolCallInfo] = []
+    private var hasStreamingThinking = false
 
     let sessionID: String
     private var modelContext: ModelContext?
@@ -171,16 +173,38 @@ final class ChatDetailViewModel: ObservableObject {
 
         for data in response.messages {
             guard !existingIDs.contains(data.id) else { continue }
-            // Skip empty messages (e.g. tool_use only)
-            guard !data.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+
+            let messageParts: [MessagePart] = data.parts.map { partData in
+                if partData.type == "tool" && partData.hasTool {
+                    let t = partData.tool
+                    return MessagePart(type: "tool", text: nil, tool: ToolCallInfo(
+                        toolCallId: t.toolCallID,
+                        toolName: t.toolName,
+                        status: t.status,
+                        argumentsJson: t.argumentsJson,
+                        resultSummary: t.resultSummary,
+                        durationMs: Int(t.durationMs)
+                    ))
+                } else {
+                    return MessagePart(type: "text", text: partData.hasText ? partData.text : nil, tool: nil)
+                }
+            }
+            let partsData = (try? JSONEncoder().encode(messageParts)) ?? Data()
+            let partsJSON = String(data: partsData, encoding: .utf8) ?? "[]"
+
+            let displayContent = data.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !displayContent.isEmpty || !messageParts.isEmpty else { continue }
+
             let role: MessageRole = data.role == "assistant" ? .assistant : .user
             let message = ChatMessage(
                 id: data.id,
                 sessionID: sessionID,
                 role: role,
-                content: data.content,
+                content: displayContent,
                 timestamp: Date(timeIntervalSince1970: data.timestamp),
-                imageURL: data.hasImageURL ? data.imageURL : nil
+                imageURL: data.hasImageURL ? data.imageURL : nil,
+                partsJSON: partsJSON,
+                hasThinking: data.hasThinking
             )
             modelContext.insert(message)
             newMessages.append(message)
@@ -223,6 +247,25 @@ final class ChatDetailViewModel: ObservableObject {
         case .error(let err):
             let finalContent = aggregator.currentContent(for: messageID)
             finishStreaming(messageID: messageID, content: finalContent + "\n[Error: \(err.message)]")
+
+        case .toolEvent(let toolEvent):
+            let info = ToolCallInfo(
+                toolCallId: toolEvent.toolCallID,
+                toolName: toolEvent.toolName,
+                status: toolEvent.status,
+                argumentsJson: toolEvent.argumentsJson,
+                resultSummary: toolEvent.resultSummary,
+                durationMs: Int(toolEvent.durationMs)
+            )
+            if let idx = streamingToolCalls.firstIndex(where: { $0.toolCallId == info.toolCallId }) {
+                streamingToolCalls[idx] = info
+            } else {
+                streamingToolCalls.append(info)
+            }
+
+        case .hasThinking(let flag):
+            if flag { hasStreamingThinking = true }
+
         default:
             break
         }
@@ -231,23 +274,36 @@ final class ChatDetailViewModel: ObservableObject {
     private func finishStreaming(messageID: String, content: String) {
         isStreaming = false
 
+        var messageParts: [MessagePart] = []
+        if !content.isEmpty {
+            messageParts.append(MessagePart(type: "text", text: content, tool: nil))
+        }
+        for tool in streamingToolCalls {
+            messageParts.append(MessagePart(type: "tool", text: nil, tool: tool))
+        }
+        let partsData = (try? JSONEncoder().encode(messageParts)) ?? Data()
+        let partsJSON = String(data: partsData, encoding: .utf8) ?? "[]"
+
         let assistantMessage = ChatMessage(
             id: UUID().uuidString,
             sessionID: sessionID,
             role: .assistant,
             content: content,
-            timestamp: Date()
+            timestamp: Date(),
+            partsJSON: partsJSON,
+            hasThinking: hasStreamingThinking
         )
         modelContext?.insert(assistantMessage)
         try? modelContext?.save()
         messages.append(assistantMessage)
 
         streamingContent = ""
+        streamingToolCalls = []
+        hasStreamingThinking = false
         aggregator.reset(messageID: messageID)
         currentStreamingMessageID = nil
         aggregatorCancellable = nil
 
-        // Refresh session list — OpenCode may have updated the title after first reply
         requestSessionRefresh()
     }
 
