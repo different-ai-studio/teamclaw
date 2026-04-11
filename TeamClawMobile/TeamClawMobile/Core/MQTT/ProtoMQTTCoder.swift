@@ -22,7 +22,7 @@ enum ProtoMQTTCoder {
     static func summary(_ msg: Teamclaw_MqttMessage) -> String {
         let type: String
         switch msg.payload {
-        case .sessionSyncRequest(let r):  type = "SessionSyncReq(page=\(r.pagination.page))"
+        case .sessionSyncRequest(let r):  type = "SessionSyncReq(page=\(r.pagination.page),after=\(r.afterUpdated))"
         case .sessionSyncResponse(let r): type = "SessionSyncRes(sessions=\(r.sessions.count), page=\(r.pagination.page)/total=\(r.pagination.total))"
         case .chatRequest(let r):         type = "ChatReq(session=\(r.sessionID.prefix(8)))"
         case .chatResponse(let r):        type = "ChatRes(session=\(r.sessionID.prefix(8)), seq=\(r.seq))"

@@ -9,6 +9,7 @@ struct SessionListView: View {
     @ObservedObject var pairingManager: PairingManager
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel: SessionListViewModel
 
     @State private var showFunctionPanel = false
@@ -167,6 +168,11 @@ struct SessionListView: View {
             .onAppear {
                 viewModel.setModelContext(modelContext)
                 viewModel.loadSessions()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    viewModel.refreshIfStale()
+                }
             }
         }
     }

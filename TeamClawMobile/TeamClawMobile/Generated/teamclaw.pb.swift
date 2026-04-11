@@ -421,6 +421,8 @@ struct Teamclaw_SessionSyncRequest: Sendable {
   /// Clears the value of `pagination`. Subsequent reads from it will return its default value.
   mutating func clearPagination() {self._pagination = nil}
 
+  var afterUpdated: Int64 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -461,6 +463,8 @@ struct Teamclaw_SessionData: Sendable {
   var title: String = String()
 
   var updated: Int64 = 0
+
+  var isArchived: Bool = false
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1704,7 +1708,10 @@ extension Teamclaw_StatusReport: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Teamclaw_SessionSyncRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SessionSyncRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pagination\0")
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "pagination"),
+    2: .standard(proto: "after_updated"),
+  ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1713,6 +1720,7 @@ extension Teamclaw_SessionSyncRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._pagination) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.afterUpdated) }()
       default: break
       }
     }
@@ -1726,11 +1734,15 @@ extension Teamclaw_SessionSyncRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
     try { if let v = self._pagination {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
     } }()
+    if self.afterUpdated != 0 {
+      try visitor.visitSingularInt64Field(value: self.afterUpdated, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Teamclaw_SessionSyncRequest, rhs: Teamclaw_SessionSyncRequest) -> Bool {
     if lhs._pagination != rhs._pagination {return false}
+    if lhs.afterUpdated != rhs.afterUpdated {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1777,7 +1789,12 @@ extension Teamclaw_SessionSyncResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
 
 extension Teamclaw_SessionData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SessionData"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}title\0\u{1}updated\0")
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "id"),
+    2: .same(proto: "title"),
+    3: .same(proto: "updated"),
+    4: .standard(proto: "is_archived"),
+  ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1788,6 +1805,7 @@ extension Teamclaw_SessionData: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
       case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.title) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.updated) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.isArchived) }()
       default: break
       }
     }
@@ -1803,6 +1821,9 @@ extension Teamclaw_SessionData: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
     if self.updated != 0 {
       try visitor.visitSingularInt64Field(value: self.updated, fieldNumber: 3)
     }
+    if self.isArchived != false {
+      try visitor.visitSingularBoolField(value: self.isArchived, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1810,6 +1831,7 @@ extension Teamclaw_SessionData: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
     if lhs.id != rhs.id {return false}
     if lhs.title != rhs.title {return false}
     if lhs.updated != rhs.updated {return false}
+    if lhs.isArchived != rhs.isArchived {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

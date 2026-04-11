@@ -16,6 +16,15 @@ final class SessionListViewModel: ObservableObject {
     // Buffer for MQTT responses that arrived before modelContext was set
     private var pendingSessionResponse: Teamclaw_SessionSyncResponse?
 
+    /// 上次成功同步的时间戳（秒），持久化到 UserDefaults
+    private var lastSyncTimestamp: Int64 {
+        get { UserDefaults.standard.value(forKey: "sessionLastSyncTimestamp") as? Int64 ?? 0 }
+        set { UserDefaults.standard.set(newValue, forKey: "sessionLastSyncTimestamp") }
+    }
+
+    /// 自动刷新阈值：60 分钟
+    private let staleThreshold: TimeInterval = 60 * 60
+
     func setModelContext(_ context: ModelContext) {
         guard modelContext == nil else { return }
         modelContext = context
@@ -48,7 +57,7 @@ final class SessionListViewModel: ObservableObject {
             .sink { [weak self] _ in
                 // Only re-fetch if the view is active (modelContext set) and we have no sessions yet
                 guard let self, self.modelContext != nil, self.sessions.isEmpty else { return }
-                self.requestSessions()
+                self.requestSessions(page: 1, incremental: false)
             }
             .store(in: &cancellables)
     }
@@ -71,10 +80,15 @@ final class SessionListViewModel: ObservableObject {
             filteredSessions = []
         }
 
-        requestSessions(page: 1)
+        // 如果本地已有 session 且有上次同步记录，用增量模式
+        if !sessions.isEmpty && lastSyncTimestamp > 0 {
+            requestSessions(page: 1, incremental: true)
+        } else {
+            requestSessions(page: 1, incremental: false)
+        }
     }
 
-    func requestSessions(page: Int = 1) {
+    func requestSessions(page: Int = 1, incremental: Bool = false) {
         guard let creds = PairingManager.currentCredentials else { return }
         if page == 1 { isLoading = true; startLoadingTimeout() }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
@@ -83,6 +97,10 @@ final class SessionListViewModel: ObservableObject {
         pg.page = Int32(page)
         pg.pageSize = 50
         req.pagination = pg
+        if incremental && lastSyncTimestamp > 0 {
+            // 减 5 分钟容差，防止 iOS/桌面时钟偏差导致漏掉 session
+            req.afterUpdated = max(0, lastSyncTimestamp - 300)
+        }
         let msg = ProtoMQTTCoder.makeEnvelope(.sessionSyncRequest(req))
         mqttService.publish(topic: topic, message: msg, qos: 1)
     }
@@ -96,7 +114,6 @@ final class SessionListViewModel: ObservableObject {
 
     private func handleSessionSync(_ response: Teamclaw_SessionSyncResponse) {
         guard let modelContext else {
-            // modelContext not yet set (onAppear hasn't fired); buffer and retry
             NSLog("[SessionList] handleSessionSync: modelContext nil — buffering %d sessions", response.sessions.count)
             pendingSessionResponse = response
             return
@@ -104,6 +121,15 @@ final class SessionListViewModel: ObservableObject {
         NSLog("[SessionList] handleSessionSync: processing %d sessions, in-memory sessions=%d", response.sessions.count, sessions.count)
         for sessionData in response.sessions {
             let updated = Date(timeIntervalSince1970: TimeInterval(sessionData.updated))
+
+            if sessionData.isArchived {
+                // 桌面端归档了这个 session → 本地也标记归档
+                if let existing = sessions.first(where: { $0.id == sessionData.id }) {
+                    existing.isArchived = true
+                }
+                continue
+            }
+
             if let existing = sessions.first(where: { $0.id == sessionData.id }) {
                 existing.title = sessionData.title
                 existing.lastMessageTime = updated
@@ -131,6 +157,7 @@ final class SessionListViewModel: ObservableObject {
         } else {
             isLoading = false
             loadingTimer?.cancel()
+            lastSyncTimestamp = Int64(Date().timeIntervalSince1970)
             loadSessionsFromDB()
         }
     }
@@ -163,6 +190,16 @@ final class SessionListViewModel: ObservableObject {
                 session.title.localizedCaseInsensitiveContains(query) ||
                 session.lastMessageContent.localizedCaseInsensitiveContains(query)
             }
+        }
+    }
+
+    /// 距上次同步超过阈值则自动增量刷新
+    func refreshIfStale() {
+        let now = Int64(Date().timeIntervalSince1970)
+        let elapsed = now - lastSyncTimestamp
+        if elapsed >= Int64(staleThreshold) {
+            NSLog("[SessionList] refreshIfStale: %d seconds since last sync, triggering incremental refresh", elapsed)
+            requestSessions(page: 1, incremental: true)
         }
     }
 
