@@ -580,19 +580,53 @@ impl MqttRelay {
         device_id: &str,
         _req: &proto::MemberSyncRequest,
     ) -> Result<(), String> {
-        let manifest = self.fetch_team_manifest().await?;
+        let manifest = self.fetch_team_manifest()?;
 
-        let members: Vec<proto::MemberData> = match manifest {
-            Some(m) => m.members.into_iter().map(|tm| proto::MemberData {
-                id: tm.node_id,
-                name: if tm.name.is_empty() { tm.hostname.clone() } else { tm.name },
-                avatar_url: String::new(),
-                department: if tm.label.is_empty() { None } else { Some(tm.label) },
-                is_ai_ally: tm.role == MemberRole::Seed,
-                note: format!("{}/{} ({:?})", tm.platform, tm.arch, tm.role),
-            }).collect(),
+        // Human members from manifest (filter out Seed nodes)
+        let mut members: Vec<proto::MemberData> = match manifest {
+            Some(m) => m.members.into_iter()
+                .filter(|tm| tm.role != MemberRole::Seed)
+                .map(|tm| proto::MemberData {
+                    id: tm.node_id,
+                    name: if tm.name.is_empty() { tm.hostname.clone() } else { tm.name },
+                    avatar_url: String::new(),
+                    department: if tm.label.is_empty() { None } else { Some(tm.label) },
+                    is_ai_ally: false,
+                    note: format!("{}/{} ({:?})", tm.platform, tm.arch, tm.role),
+                }).collect(),
             None => vec![],
         };
+
+        // AI allies from .opencode/roles/
+        let roles_dir = std::path::Path::new(&self.workspace_path)
+            .join(".opencode")
+            .join("roles");
+        if roles_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&roles_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_dir() { continue; }
+                    let slug = entry.file_name().to_string_lossy().to_string();
+                    if slug == "skill" || slug == "config.json" { continue; }
+
+                    let role_md = path.join("ROLE.md");
+                    if !role_md.exists() { continue; }
+
+                    if let Ok(content) = std::fs::read_to_string(&role_md) {
+                        let parsed = parse_role_md(&content);
+                        let name = if parsed.name.is_empty() { slug.clone() } else { parsed.name };
+                        members.push(proto::MemberData {
+                            id: slug,
+                            name,
+                            avatar_url: String::new(),
+                            department: Some("Role".to_string()),
+                            is_ai_ally: true,
+                            note: parsed.description,
+                        });
+                    }
+                }
+            }
+        }
 
         let total = members.len() as i32;
         let msg = build_envelope(proto::mqtt_message::Payload::MemberSyncResponse(
@@ -604,54 +638,21 @@ impl MqttRelay {
         self.publish_proto_to_device(device_id, "member", &msg).await
     }
 
-    /// Fetch TeamManifest: try P2P local file first, then OSS S3.
-    async fn fetch_team_manifest(&self) -> Result<Option<TeamManifest>, String> {
-        // Try P2P local file first (fast, no network)
-        let manifest_path = format!("{}/teamclaw-team/_team/members.json", self.workspace_path);
-        match std::fs::read_to_string(&manifest_path) {
-            Ok(content) => match serde_json::from_str::<TeamManifest>(&content) {
-                Ok(manifest) => {
-                    return Ok(Some(manifest));
-                }
-                Err(e) => {
-                    eprintln!("[MQTT Relay] P2P members.json parse error: {}", e);
-                }
-            },
-            Err(_) => {
-                // P2P file not available — fall through to S3
+    /// Fetch TeamManifest from local files only (P2P or OSS cache). No S3 calls.
+    fn fetch_team_manifest(&self) -> Result<Option<TeamManifest>, String> {
+        // Try P2P local file
+        let p2p_path = format!("{}/teamclaw-team/_team/members.json", self.workspace_path);
+        if let Ok(content) = std::fs::read_to_string(&p2p_path) {
+            if let Ok(manifest) = serde_json::from_str::<TeamManifest>(&content) {
+                return Ok(Some(manifest));
             }
         }
 
-        // Fallback to OSS S3 (if configured)
-        match self.oss_sync_state {
-            None => {
-                eprintln!("[MQTT Relay] No OSS sync state configured, cannot fetch members");
-            }
-            Some(ref oss_state) => {
-                let mut guard = oss_state.lock().await;
-                match *guard {
-                    None => {
-                        eprintln!("[MQTT Relay] OSS manager not initialized, cannot fetch members");
-                    }
-                    Some(ref mut manager) => {
-                        manager.refresh_token_if_needed().await?;
-                        let key = format!("teams/{}/_meta/members.json", manager.team_id());
-                        match manager.s3_get(&key).await {
-                            Ok(data) => {
-                                let manifest: TeamManifest = serde_json::from_slice(&data)
-                                    .map_err(|e| format!("Failed to parse OSS members.json: {}", e))?;
-                                return Ok(Some(manifest));
-                            }
-                            Err(e) if e.contains("NoSuchKey") || e.contains("not found") => {
-                                return Ok(None);
-                            }
-                            Err(e) => {
-                                eprintln!("[MQTT Relay] OSS members fetch failed: {}", e);
-                                return Err(format!("OSS members fetch failed: {}", e));
-                            }
-                        }
-                    }
-                }
+        // Try OSS local cache (written by slow loop)
+        let oss_cache_path = format!("{}/.teamclaw/_team/members.json", self.workspace_path);
+        if let Ok(content) = std::fs::read_to_string(&oss_cache_path) {
+            if let Ok(manifest) = serde_json::from_str::<TeamManifest>(&content) {
+                return Ok(Some(manifest));
             }
         }
 

@@ -40,7 +40,7 @@ struct MemberListView: View {
                 } else {
                     List(displayedMembers, id: \.id) { member in
                         NavigationLink {
-                            MemberSessionsView(member: member, viewModel: viewModel)
+                            MemberDetailView(member: member, viewModel: viewModel)
                         } label: {
                             MemberRow(member: member)
                         }

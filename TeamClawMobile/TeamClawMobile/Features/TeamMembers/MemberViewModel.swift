@@ -112,7 +112,13 @@ final class MemberViewModel: ObservableObject {
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
-                self?.isDesktopOnline = status.online
+                guard let self else { return }
+                let wasOffline = !self.isDesktopOnline
+                self.isDesktopOnline = status.online
+                // Auto-refresh members when desktop comes online
+                if wasOffline && status.online {
+                    self.requestMembers(page: 1)
+                }
             }
             .store(in: &cancellables)
     }

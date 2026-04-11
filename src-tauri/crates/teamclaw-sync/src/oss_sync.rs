@@ -2842,6 +2842,13 @@ impl OssSyncManager {
                         }
                     }
 
+                    // 1b. Cache members manifest locally for MQTT relay
+                    if !had_network_error {
+                        if let Err(e) = manager.download_and_cache_members_manifest().await {
+                            warn!("OSS slow loop: failed to cache members manifest: {}", e);
+                        }
+                    }
+
                     // 2. List pending applications for owners/editors
                     if manager.role() == MemberRole::Owner || manager.role() == MemberRole::Editor {
                         match manager.list_applications().await {
@@ -3117,6 +3124,27 @@ impl OssSyncManager {
             Err(e) if e.contains("NoSuchKey") || e.contains("not found") => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// Download members manifest from S3 and cache it locally for MQTT relay.
+    pub async fn download_and_cache_members_manifest(&self) -> Result<Option<TeamManifest>, String> {
+        let manifest = self.download_members_manifest().await?;
+        if let Some(ref m) = manifest {
+            let team_dir = std::path::Path::new(&self.workspace_path)
+                .join(&self.teamclaw_dir_name)
+                .join("_team");
+            if let Err(e) = std::fs::create_dir_all(&team_dir) {
+                warn!("Failed to create _team dir: {}", e);
+            } else {
+                let json = serde_json::to_string_pretty(m)
+                    .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
+                let path = team_dir.join("members.json");
+                if let Err(e) = std::fs::write(&path, json) {
+                    warn!("Failed to cache members.json locally: {}", e);
+                }
+            }
+        }
+        Ok(manifest)
     }
 
     /// Add a member to the manifest and upload
