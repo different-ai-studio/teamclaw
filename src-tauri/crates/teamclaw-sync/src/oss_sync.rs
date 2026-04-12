@@ -1427,7 +1427,7 @@ impl OssSyncManager {
                             // hash differs the user re-added or modified the
                             // file locally — preserve it so the absorb phase
                             // below can rescue it into the CRDT.
-                            let should_delete = match entry.get("hash") {
+                            let hash_matches = match entry.get("hash") {
                                 Some(loro::LoroValue::String(doc_hash)) => {
                                     match std::fs::read(&file_path) {
                                         Ok(disk_content) => {
@@ -1439,12 +1439,54 @@ impl OssSyncManager {
                                 }
                                 _ => true,
                             };
+
+                            // Even when the hash matches, the user may have
+                            // re-added the exact same file after deleting it.
+                            // Compare the file's mtime against the CRDT
+                            // deletion timestamp — if the file on disk is
+                            // newer, preserve it and let the absorb phase
+                            // re-set deleted=false.
+                            let file_is_newer = if hash_matches {
+                                match (
+                                    std::fs::metadata(&file_path)
+                                        .ok()
+                                        .and_then(|m| m.modified().ok()),
+                                    entry.get("updatedAt"),
+                                ) {
+                                    (
+                                        Some(mtime),
+                                        Some(loro::LoroValue::String(updated_at)),
+                                    ) => {
+                                        if let Ok(crdt_time) =
+                                            chrono::DateTime::parse_from_rfc3339(updated_at)
+                                        {
+                                            let mtime_unix = mtime
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .unwrap_or_default()
+                                                .as_secs() as i64;
+                                            mtime_unix > crdt_time.timestamp()
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    _ => false,
+                                }
+                            } else {
+                                false
+                            };
+
+                            let should_delete = hash_matches && !file_is_newer;
                             if should_delete {
                                 let rel = format!("{}/{}", doc_type.dir_name(), path);
                                 if let Some(emitter) = self.event_emitter.as_ref() {
                                     emitter.trash_file(&self.team_dir, &rel);
                                 }
                                 let _ = std::fs::remove_file(&file_path);
+                            } else if file_is_newer {
+                                info!(
+                                    "File re-added after deletion, preserving: {}",
+                                    path
+                                );
                             }
                         }
                     } else {
