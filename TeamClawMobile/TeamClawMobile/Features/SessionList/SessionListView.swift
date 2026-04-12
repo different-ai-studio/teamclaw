@@ -101,11 +101,7 @@ struct SessionListView: View {
                         }
                     } label: {
                         Text(isEditing ? "完成" : "选择")
-                            .font(.subheadline)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
                     }
-                    .liquidGlass(in: Capsule())
                 }
 
                 if !isEditing {
@@ -114,11 +110,7 @@ struct SessionListView: View {
                             showMemberPanel = true
                         } label: {
                             Image(systemName: "person.2.fill")
-                                .font(.subheadline)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
                         }
-                        .liquidGlass(in: Capsule())
                     }
                 }
             }
