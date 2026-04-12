@@ -72,10 +72,7 @@ struct UnifiedMemberSheet: View {
                         } label: {
                             Text(selectedIDs.isEmpty ? "确定" : "确定 (\(selectedIDs.count))")
                                 .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
                         }
-                        .liquidGlass(in: Capsule())
                     } else {
                         Button("完成") { dismiss() }
                     }

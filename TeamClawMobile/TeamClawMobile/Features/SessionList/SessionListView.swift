@@ -94,34 +94,32 @@ struct SessionListView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 8) {
+                    Button {
+                        withAnimation(.spring(duration: 0.25)) {
+                            isEditing.toggle()
+                            if !isEditing { selectedIDs.removeAll() }
+                        }
+                    } label: {
+                        Text(isEditing ? "完成" : "选择")
+                            .font(.subheadline)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                    }
+                    .liquidGlass(in: Capsule())
+                }
+
+                if !isEditing {
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
-                            withAnimation(.spring(duration: 0.25)) {
-                                isEditing.toggle()
-                                if !isEditing { selectedIDs.removeAll() }
-                            }
+                            showMemberPanel = true
                         } label: {
-                            Text(isEditing ? "完成" : "选择")
+                            Image(systemName: "person.2.fill")
                                 .font(.subheadline)
-                                .padding(.horizontal, 12)
+                                .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
                         }
                         .liquidGlass(in: Capsule())
-
-                        if !isEditing {
-                            Button {
-                                showMemberPanel = true
-                            } label: {
-                                Image(systemName: "person.2.fill")
-                                    .font(.subheadline)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                            }
-                            .liquidGlass(in: Capsule())
-                            .transition(.scale.combined(with: .opacity))
-                        }
                     }
-                    .animation(.spring(duration: 0.25), value: isEditing)
                 }
             }
             .navigationDestination(for: String.self) { sessionID in

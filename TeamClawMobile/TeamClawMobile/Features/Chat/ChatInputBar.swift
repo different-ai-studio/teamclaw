@@ -57,6 +57,7 @@ struct ChatInputBar: View {
                         .foregroundStyle(session.isPinned ? .orange : .secondary)
                         .frame(width: 52, height: 52)
                 }
+                .buttonStyle(.plain)
 
                 Button { showArchiveConfirmation = true } label: {
                     Image(systemName: "archivebox.fill")
@@ -64,6 +65,7 @@ struct ChatInputBar: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 52, height: 52)
                 }
+                .buttonStyle(.plain)
             }
             .liquidGlass(in: Capsule())
 
@@ -78,6 +80,7 @@ struct ChatInputBar: View {
                     .foregroundStyle(.primary)
                     .frame(width: 60, height: 60)
             }
+            .buttonStyle(.plain)
             .liquidGlass(in: Circle())
 
             Spacer()
@@ -90,6 +93,7 @@ struct ChatInputBar: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 52, height: 52)
                 }
+                .buttonStyle(.plain)
 
                 Button {
                     isTextInputMode = true
@@ -100,6 +104,7 @@ struct ChatInputBar: View {
                         .foregroundStyle(.primary)
                         .frame(width: 52, height: 52)
                 }
+                .buttonStyle(.plain)
             }
             .liquidGlass(in: Capsule())
         }
