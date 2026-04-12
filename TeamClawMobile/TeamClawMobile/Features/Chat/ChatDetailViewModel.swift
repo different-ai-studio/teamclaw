@@ -55,8 +55,8 @@ final class ChatDetailViewModel: ObservableObject {
             messages = []
         }
 
-        // If no local messages and desktop is online, request history
-        if messages.isEmpty && isDesktopOnline {
+        // Always sync with desktop to pick up any messages we don't have locally
+        if isDesktopOnline {
             requestMessageHistory()
         }
     }

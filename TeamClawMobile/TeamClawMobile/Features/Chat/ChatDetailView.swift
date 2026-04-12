@@ -81,7 +81,7 @@ struct ChatDetailView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        if viewModel.isLoadingHistory {
+                        if viewModel.isLoadingHistory && viewModel.messages.isEmpty {
                             ProgressView("加载历史消息...")
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 40)
