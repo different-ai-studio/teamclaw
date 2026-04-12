@@ -10,7 +10,6 @@ import {
   Play,
   Square,
   Hash,
-  QrCode,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { invoke } from '@tauri-apps/api/core'
