@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::Manager;
 
-/// Chrome-like user agent so websites serve normal desktop content.
-const CHROME_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+/// Safari user agent matching the actual WKWebView engine.
+/// Chrome UA causes blank pages — servers may return Chrome-specific responses
+/// (e.g. Brotli encoding, different JS bundles) that WKWebView can't handle.
+const WEBVIEW_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15";
 
 /// Send-safe wrapper around a retained ObjC WKWebViewConfiguration pointer.
 #[cfg(target_os = "macos")]
@@ -222,7 +224,7 @@ pub async fn webview_create(
     #[allow(unused_mut)]
     let mut webview_builder =
         tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed_url))
-            .user_agent(CHROME_UA);
+            .user_agent(WEBVIEW_UA);
 
     // On macOS, use the shared WKWebViewConfiguration so all webviews share
     // the same WKProcessPool → cookies/session shared instantly across tabs.
