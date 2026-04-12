@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils'
 import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -103,6 +104,7 @@ const PERMISSION_META: Record<SkillPermission, { icon: typeof ShieldCheck; color
 }
 
 type SkillsTab = 'installed' | 'marketplace'
+type SkillDialogMode = 'create' | 'edit' | 'view' | 'import'
 
 export const SkillsSection = React.memo(function SkillsSection({
   embeddedConsole = false,
@@ -117,12 +119,12 @@ export const SkillsSection = React.memo(function SkillsSection({
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const [activeTab, setActiveTab] = React.useState<SkillsTab>('installed')
-  const [marketplaceContentReady, setMarketplaceContentReady] = React.useState(false)
   const [skills, setSkills] = React.useState<Skill[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingSkill, setEditingSkill] = React.useState<Skill | null>(null)
+  const [skillDialogMode, setSkillDialogMode] = React.useState<SkillDialogMode>('create')
   const [skillName, setSkillName] = React.useState('')
   const [skillContent, setSkillContent] = React.useState('')
   const [isSaving, setIsSaving] = React.useState(false)
@@ -141,6 +143,8 @@ export const SkillsSection = React.memo(function SkillsSection({
   const [exitingSkillKeys, setExitingSkillKeys] = React.useState<Set<string>>(new Set())
   const [marketplaceRefreshSignal, setMarketplaceRefreshSignal] = React.useState(0)
   const [marketplaceSource, setMarketplaceSource] = React.useState<'clawhub' | 'skillssh'>('clawhub')
+  const installedTabRef = React.useRef<HTMLButtonElement>(null)
+  const marketplaceTabRef = React.useRef<HTMLButtonElement>(null)
 
   const defaultPermission: SkillPermission = skillPermissions['*'] ?? 'allow'
   const effectiveSearchQuery = embeddedConsole ? (sharedSearchQuery ?? '') : searchQuery
@@ -149,23 +153,25 @@ export const SkillsSection = React.memo(function SkillsSection({
     setActiveTab(nextTab)
   }, [])
 
-  const switchMarketplaceSource = React.useCallback((nextSource: 'clawhub' | 'skillssh') => {
-    setMarketplaceContentReady(false)
-    setMarketplaceSource(nextSource)
-  }, [])
-
   React.useEffect(() => {
-    if (activeTab !== 'marketplace') {
-      setMarketplaceContentReady(false)
+    const activeTabButton = activeTab === 'installed' ? installedTabRef.current : marketplaceTabRef.current
+    activeTabButton?.focus()
+  }, [activeTab])
+
+  const handleTabKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
       return
     }
 
-    setMarketplaceContentReady(false)
-    const frame = window.requestAnimationFrame(() => {
-      setMarketplaceContentReady(true)
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [activeTab, marketplaceSource])
+    event.preventDefault()
+    switchTab(activeTab === 'installed' ? 'marketplace' : 'installed')
+  }, [activeTab, switchTab])
+
+  const switchMarketplaceSource = React.useCallback((nextSource: 'clawhub' | 'skillssh') => {
+    setMarketplaceSource(nextSource)
+  }, [])
+  const isInstalledTabActive = activeTab === 'installed'
+  const isMarketplaceTabActive = activeTab === 'marketplace'
 
   // Parse YAML frontmatter from skill content
   const parseFrontmatter = (content: string): { metadata: Record<string, string> | null, markdownContent: string } => {
@@ -232,40 +238,22 @@ export const SkillsSection = React.memo(function SkillsSection({
       if (!(await exists(skillsDir))) {
         await mkdir(skillsDir, { recursive: true })
       }
-      if (embeddedConsole) {
-        const { loadRolesSkillsWorkspaceState } = await import('@/lib/roles/loader')
-        const [workspaceState] = await Promise.all([
-          loadRolesSkillsWorkspaceState(workspacePath),
-          loadPermissions(),
-        ])
-        setSkills(workspaceState.skills.map((skill) => ({
-          filename: skill.filename,
-          name: skill.name,
-          invocationName: skill.filename,
-          content: skill.content,
-          source: skill.source,
-          dirPath: skill.dirPath,
-          linkedRoles: skill.linkedRoles,
-          isRoleSkill: skill.isRoleSkill,
-        })))
-      } else {
-        const { loadAllSkills } = await import('@/lib/git/skill-loader')
-        const [{ skills: loadedSkills }] = await Promise.all([
-          loadAllSkills(workspacePath),
-          loadPermissions(),
-        ])
+      const { loadRolesSkillsWorkspaceState } = await import('@/lib/roles/loader')
+      const [workspaceState] = await Promise.all([
+        loadRolesSkillsWorkspaceState(workspacePath),
+        loadPermissions(),
+      ])
 
-        setSkills(loadedSkills.map(s => ({
-          filename: s.filename,
-          name: s.name,
-          invocationName: s.invocationName,
-          content: s.content,
-          source: s.source,
-          dirPath: s.dirPath,
-          linkedRoles: roleUsageBySkill[s.filename] ?? [],
-          isRoleSkill: false,
-        })))
-      }
+      setSkills(workspaceState.skills.map((skill) => ({
+        filename: skill.filename,
+        name: skill.name,
+        invocationName: skill.invocationName ?? skill.filename,
+        content: skill.content,
+        source: skill.source,
+        dirPath: skill.dirPath,
+        linkedRoles: skill.linkedRoles ?? roleUsageBySkill[skill.filename] ?? [],
+        isRoleSkill: skill.isRoleSkill,
+      })))
     } catch (err) {
       console.error('Failed to load skills:', err)
       setError(err instanceof Error ? err.message : 'Failed to load skills')
@@ -367,6 +355,7 @@ export const SkillsSection = React.memo(function SkillsSection({
       onDataChange?.()
       await restartOpenCodeInstance()
       setDialogOpen(false)
+      setSkillDialogMode('create')
       setImportZipPath(null)
       setImportZipLabel(null)
       setInstallLocation('workspace')
@@ -433,6 +422,7 @@ ${skillContent.trim()}`
       
       setDialogOpen(false)
       setEditingSkill(null)
+      setSkillDialogMode('create')
       setSkillName('')
       setSkillContent('')
       setInstallLocation('workspace')
@@ -502,6 +492,7 @@ ${skillContent.trim()}`
     // Set view mode for non-editable skills (not local or clawhub)
     const isEditable = skill.source === 'local' || skill.source === 'clawhub' || skill.isRoleSkill
     setIsViewMode(!isEditable)
+    setSkillDialogMode(isEditable ? 'edit' : 'view')
     setDialogOpen(true)
   }
 
@@ -511,10 +502,65 @@ ${skillContent.trim()}`
     setSkillContent('')
     setInstallLocation('workspace')
     setIsViewMode(false)
+    setSkillDialogMode('create')
     setImportZipPath(null)
     setImportZipLabel(null)
     setDialogOpen(true)
   }
+
+  const closeSkillDialog = React.useCallback(() => {
+    setDialogOpen(false)
+    setSkillDialogMode('create')
+    setImportZipPath(null)
+    setImportZipLabel(null)
+  }, [])
+
+  const switchDialogMode = React.useCallback((mode: SkillDialogMode) => {
+    setSkillDialogMode(mode)
+    if (mode === 'create') {
+      setImportZipPath(null)
+      setImportZipLabel(null)
+      if (!editingSkill) {
+        setSkillName('')
+        setSkillContent('')
+        setInstallLocation('workspace')
+      }
+    }
+    if (mode === 'import') {
+      setEditingSkill(null)
+      setSkillName('')
+      setSkillContent('')
+    }
+  }, [editingSkill])
+
+  const renderInstallLocationField = () => (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">{t('settings.skills.installLocation', 'Install Location')}</label>
+      <Select value={installLocation} onValueChange={(v) => setInstallLocation(v as 'workspace' | 'global')}>
+        <SelectTrigger className="h-9">
+          <SelectValue>
+            {installLocation === 'workspace'
+              ? t('settings.skills.locationWorkspace', 'Workspace')
+              : t('settings.skills.locationGlobal', 'Global')}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent className="w-[400px]">
+          <SelectItem value="workspace" className="cursor-pointer">
+            <div className="flex flex-col gap-0.5 py-1">
+              <span className="font-medium">{t('settings.skills.locationWorkspace', 'Workspace')}</span>
+              <span className="text-xs text-muted-foreground whitespace-normal">.opencode/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
+            </div>
+          </SelectItem>
+          <SelectItem value="global" className="cursor-pointer">
+            <div className="flex flex-col gap-0.5 py-1">
+              <span className="font-medium">{t('settings.skills.locationGlobal', 'Global')}</span>
+              <span className="text-xs text-muted-foreground whitespace-normal">~/.config/opencode/skills/ - {t('settings.skills.allProjects', 'All projects')}</span>
+            </div>
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  )
 
   const handleDefaultPermissionChange = async (value: SkillPermission) => {
     if (!workspacePath) return
@@ -594,16 +640,12 @@ ${skillContent.trim()}`
         />
       ) : null}
 
-      {(embeddedConsole || activeTab === 'installed') && (
+      {!embeddedConsole && isInstalledTabActive && (
         <div className="flex flex-wrap items-center gap-2">
           <div className={cn("relative flex-1", embeddedConsole ? "max-w-none" : "max-w-xs")}>
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder={
-                embeddedConsole && activeTab === 'marketplace'
-                  ? t('settings.skills.marketplaceSearchPlaceholder', 'Search marketplace skills...')
-                  : t('settings.skills.searchPlaceholder', 'Search skills...')
-              }
+              placeholder={t('settings.skills.searchPlaceholder', 'Search skills...')}
               value={effectiveSearchQuery}
               onChange={(e) => handleEmbeddedSearchChange(e.target.value)}
               className="pl-9 h-9"
@@ -638,69 +680,116 @@ ${skillContent.trim()}`
 
       {/* Installed / Marketplace switch */}
       {embeddedConsole ? (
-        <div className="grid gap-3 rounded-xl border bg-muted/20 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-          <div className="space-y-1">
-            <div className="text-sm font-medium">{t('settings.skills.consoleTitle', 'Skill library')}</div>
-            <div className="text-xs text-muted-foreground">
-              {activeTab === 'installed'
-                ? t('settings.skills.consoleInstalledHint', 'Review installed skills, role usage, and workspace assets.')
-                : t('settings.skills.consoleMarketplaceHint', 'Browse and install reusable skills from connected marketplaces.')}
-            </div>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+          <div
+            role="tablist"
+            aria-label={t('settings.skills.viewLabel', 'View')}
+            className="inline-grid grid-cols-2 rounded-lg border border-border/60 bg-background p-0.5"
+          >
+              <button
+                type="button"
+                role="tab"
+                id="installed-tab"
+                ref={installedTabRef}
+                aria-selected={activeTab === 'installed'}
+                aria-controls="installed-panel"
+                tabIndex={activeTab === 'installed' ? 0 : -1}
+                onClick={() => switchTab('installed')}
+                onKeyDown={handleTabKeyDown}
+                className={cn(
+                  "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors",
+                  activeTab === 'installed'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {t('settings.skills.installed', 'Installed')}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="marketplace-tab"
+                ref={marketplaceTabRef}
+                aria-selected={activeTab === 'marketplace'}
+                aria-controls="marketplace-panel"
+                tabIndex={activeTab === 'marketplace' ? 0 : -1}
+                onClick={() => switchTab('marketplace')}
+                onKeyDown={handleTabKeyDown}
+                className={cn(
+                  "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors",
+                  activeTab === 'marketplace'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Store className="h-3.5 w-3.5" />
+                {t('settings.skills.marketplace', 'Marketplace')}
+              </button>
           </div>
-          <div className={cn(
-            "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:justify-end",
-            activeTab === 'marketplace' ? "sm:max-w-full" : "sm:w-auto",
-          )}>
-            <div className="space-y-1 sm:w-auto">
-              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                {t('settings.skills.viewLabel', 'View')}
-              </div>
-              <Select value={activeTab} onValueChange={(value) => switchTab(value as SkillsTab)}>
-                <SelectTrigger className="h-11 w-full min-w-0 rounded-xl border-border/70 bg-background px-4 text-sm shadow-none sm:w-auto">
+
+          {isMarketplaceTabActive ? (
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              <span>{t('settings.skills.sourceLabel', 'Source')}</span>
+              <Select value={marketplaceSource} onValueChange={(value) => switchMarketplaceSource(value as 'clawhub' | 'skillssh')}>
+                <SelectTrigger className="h-8 min-w-[11rem] rounded-md border-border/70 bg-background px-2.5 text-sm shadow-none">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="installed">
+                  <SelectItem value="clawhub">
                     <span className="inline-flex items-center gap-2">
-                      <Sparkles className="h-4 w-4" />
-                      {t('settings.skills.installed', 'Installed')}
+                      <Package className="h-4 w-4" />
+                      ClawHub
                     </span>
                   </SelectItem>
-                  <SelectItem value="marketplace">
+                  <SelectItem value="skillssh">
                     <span className="inline-flex items-center gap-2">
-                      <Store className="h-4 w-4" />
-                      {t('settings.skills.marketplace', 'Marketplace')}
+                      <Award className="h-4 w-4" />
+                      skills.sh
                     </span>
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {activeTab === 'marketplace' ? (
-              <div className="space-y-1 sm:w-auto">
-                <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  {t('settings.skills.sourceLabel', 'Source')}
-                </div>
-                <Select value={marketplaceSource} onValueChange={(value) => switchMarketplaceSource(value as 'clawhub' | 'skillssh')}>
-                  <SelectTrigger className="h-11 w-full min-w-0 rounded-xl border-border/70 bg-background px-4 text-sm shadow-none sm:w-auto">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="clawhub">
-                      <span className="inline-flex items-center gap-2">
-                        <Package className="h-4 w-4" />
-                        ClawHub
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="skillssh">
-                      <span className="inline-flex items-center gap-2">
-                        <Award className="h-4 w-4" />
-                        skills.sh
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
+          ) : null}
+
+          <div className="relative min-w-0 flex-1 lg:max-w-xl">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={
+                embeddedConsole && activeTab === 'marketplace'
+                  ? t('settings.skills.marketplaceSearchPlaceholder', 'Search marketplace skills...')
+                  : t('settings.skills.searchPlaceholder', 'Search skills...')
+              }
+              value={effectiveSearchQuery}
+              onChange={(e) => handleEmbeddedSearchChange(e.target.value)}
+              className="h-8 pl-9"
+            />
+          </div>
+
+          <div className="ml-0 flex items-center gap-2 lg:ml-auto">
+            {isMarketplaceTabActive ? (
+              <Button
+                onClick={() => setMarketplaceRefreshSignal((prev) => prev + 1)}
+                variant="outline"
+                size="sm"
+                className="h-8 gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                {t('settings.llm.refresh', 'Refresh')}
+              </Button>
+            ) : (
+              <>
+                <Button onClick={loadSkills} variant="outline" size="sm" className="h-8 gap-2" disabled={isLoading}>
+                  <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                  {t('settings.llm.refresh', 'Refresh')}
+                </Button>
+                <Button onClick={openCreateDialog} size="sm" className="h-8 gap-2">
+                  <Plus className="h-4 w-4" />
+                  {t('settings.skills.addSkill', 'Add Skill')}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       ) : (
@@ -736,8 +825,8 @@ ${skillContent.trim()}`
       )}
 
       {/* Marketplace tab */}
-      {activeTab === 'marketplace' && (
-        marketplaceContentReady ? (
+      {isMarketplaceTabActive ? (
+        <div id="marketplace-panel" role="tabpanel" aria-labelledby="marketplace-tab">
           <SkillsMarketplace
             compact={embeddedConsole}
             linkedInstalledSlugs={linkedInstalledSkillSlugs}
@@ -754,18 +843,16 @@ ${skillContent.trim()}`
               setHasSkillRuntimeChanges(true)
             }}
           />
-        ) : (
-          <SettingCard className="border-dashed">
-            <div className="flex min-h-[180px] items-center justify-center gap-3 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span>{t('settings.skills.marketplaceLoading', 'Loading marketplace...')}</span>
-            </div>
-          </SettingCard>
-        )
-      )}
+        </div>
+      ) : null}
 
       {/* Installed tab content */}
-      {activeTab === 'installed' && <>
+      {isInstalledTabActive && (
+        <div
+          id="installed-panel"
+          role="tabpanel"
+          aria-labelledby="installed-tab"
+        >
       
       {!embeddedConsole && hasChanges && (
         <SettingCard className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border-amber-200 dark:border-amber-800">
@@ -892,11 +979,23 @@ ${skillContent.trim()}`
       {/* Skills list */}
       <div className="space-y-3">
         {isLoading ? (
-          <SettingCard>
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          </SettingCard>
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <SettingCard key={index} className="border-border/60 bg-card/70">
+                <div className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-2">
+                      <Skeleton className="h-5 w-40" />
+                      <Skeleton className="h-3.5 w-24" />
+                    </div>
+                    <Skeleton className="h-8 w-20 rounded-lg" />
+                  </div>
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-4/5" />
+                </div>
+              </SettingCard>
+            ))}
+          </div>
         ) : skills.length === 0 ? (
           <SettingCard>
             <div className="text-center py-6 text-muted-foreground">
@@ -973,18 +1072,19 @@ ${skillContent.trim()}`
                 >
                   <SettingCard
                     className={cn(
-                      isBuiltin && 'border-blue-200/60 dark:border-blue-800/40 bg-blue-50/30 dark:bg-blue-950/10',
-                      focusSkillName === skill.filename && 'border-primary/50 bg-primary/5',
-                      embeddedConsole && 'h-full min-h-[220px] transition-[background-color,border-color] duration-200 ease-out hover:bg-muted/40',
+                      "border-border/60 bg-card/80",
+                      isBuiltin && 'border-blue-200/50 dark:border-blue-800/30 bg-blue-50/20 dark:bg-blue-950/8',
+                      focusSkillName === skill.filename && 'border-primary/40 bg-primary/4',
+                      embeddedConsole && 'h-full min-h-[180px] transition-[background-color,border-color] duration-200 ease-out hover:bg-muted/30',
                     )}
                   >
-                  <div className={cn("flex items-start justify-between gap-4", embeddedConsole && "h-full flex-col")}>
+                  <div className={cn("flex items-start justify-between gap-3", embeddedConsole && "h-full flex-col")}>
                     <div className="flex-1 min-w-0 w-full">
-                      <div className={cn("flex items-start justify-between gap-3", embeddedConsole && "min-h-[44px] gap-2")}>
+                      <div className={cn("flex items-start justify-between gap-2", embeddedConsole && "min-h-[36px] gap-2")}>
                         <div className={cn("min-w-0 w-full", embeddedConsole && "pr-20")}>
-                          <div className={cn("flex min-w-0 flex-wrap items-center gap-2", embeddedConsole && "min-h-[44px] content-start")}>
+                          <div className={cn("flex min-w-0 flex-wrap items-center gap-2", embeddedConsole && "min-h-[36px] content-start")}>
                         <FileText className="h-4 w-4 text-yellow-500 shrink-0" />
-                        <span className={cn("min-w-0 break-all font-medium", embeddedConsole && "text-[1.05rem] leading-8")}>{skill.name}</span>
+                        <span className={cn("min-w-0 break-all font-medium", embeddedConsole && "text-[0.98rem] leading-6")}>{skill.name}</span>
                         {isBuiltin && (
                           <span className="inline-flex max-w-full items-center gap-1 rounded border border-blue-200/60 bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-700/50 dark:bg-blue-900/50 dark:text-blue-300">
                             <Shield className="h-2.5 w-2.5" />
@@ -1003,13 +1103,13 @@ ${skillContent.trim()}`
                         )}
                           </div>
                         </div>
-                        <div className={cn("flex items-center gap-2 shrink-0", embeddedConsole && "absolute right-4 top-3 z-10 h-[44px] items-end pb-1")}>
+                        <div className={cn("flex items-center gap-2 shrink-0", embeddedConsole && "absolute right-4 top-2.5 z-10 h-[36px] items-end pb-0.5")}>
                           {!embeddedConsole ? (
                             <Select
                               value={hasExplicitOverride ? resolved.permission : '__inherited__'}
                               onValueChange={(v) => handleSkillPermissionChange(skill.filename, v)}
                             >
-                              <SelectTrigger className={cn("h-8 w-[150px] text-xs gap-1", permColor)}>
+                              <SelectTrigger className={cn("h-8 w-[140px] text-xs gap-1", permColor)}>
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1071,7 +1171,7 @@ ${skillContent.trim()}`
                           )}
                         </div>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1 truncate" title={skill.filename}>
+                      <p className="mt-1 truncate text-[11px] text-muted-foreground/90" title={skill.filename}>
                         {skill.filename}
                       </p>
                       {!embeddedConsole && skill.invocationName !== skill.name && (
@@ -1079,10 +1179,10 @@ ${skillContent.trim()}`
                           {skill.invocationName}
                         </p>
                       )}
-                      <p className={cn("text-sm text-muted-foreground mt-2 line-clamp-2", embeddedConsole && "line-clamp-3 leading-7")}>
+                      <p className={cn("mt-2 text-sm text-muted-foreground line-clamp-2", embeddedConsole && "line-clamp-2 leading-6")}>
                         {skill.content.split('\n').slice(1).join(' ').slice(0, 150)}...
                       </p>
-                      <div className={cn("mt-3 flex flex-wrap items-center gap-1.5", embeddedConsole && "mt-4 border-t border-border/70 pt-3")}>
+                      <div className={cn("mt-3 flex flex-wrap items-center gap-1.5", embeddedConsole && "mt-3 border-t border-border/60 pt-2.5")}>
                         {linkedRoles.length > 0 ? (
                           <>
                             <span className="text-[11px] text-muted-foreground">
@@ -1093,6 +1193,7 @@ ${skillContent.trim()}`
                                 key={roleSlug}
                                 type="button"
                                 onClick={() => onOpenRole?.(roleSlug)}
+                                aria-label={t('settings.skills.openLinkedRole', 'Open linked role {{name}}', { name: roleSlug })}
                                 className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
                               >
                                 <span className="max-w-[180px] truncate">{roleSlug}</span>
@@ -1118,7 +1219,7 @@ ${skillContent.trim()}`
             }
 
             const renderSkillGrid = (items: Skill[]) => (
-              <div className={cn(embeddedConsole ? "grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4" : "space-y-3")}>
+              <div className={cn(embeddedConsole ? "grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] gap-3" : "space-y-3")}>
                 {items.map(renderSkillCard)}
               </div>
             )
@@ -1127,14 +1228,14 @@ ${skillContent.trim()}`
               <>
                 {/* Builtin skills group */}
                 {builtinSkills.length > 0 && (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     <div className="flex items-center gap-2">
                       <Shield className="h-3.5 w-3.5 text-blue-500" />
-                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">
+                      <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">
                         {t('settings.skills.inherentSkills', 'Inherent Skills')}
                       </span>
                       <div className="flex-1 h-px bg-blue-200/60 dark:bg-blue-800/40" />
-                      <span className="text-xs text-muted-foreground">{t('settings.skills.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
+                      <span className="text-[11px] text-muted-foreground">{t('settings.skills.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
                     </div>
                     {renderSkillGrid(builtinSkills)}
                   </div>
@@ -1142,15 +1243,15 @@ ${skillContent.trim()}`
 
                 {/* Team skills group */}
                 {teamSkills.length > 0 && (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {builtinSkills.length > 0 && (
                       <div className="flex items-center gap-2">
                         <Users className="h-3.5 w-3.5 text-purple-500" />
-                        <span className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wide">
+                        <span className="text-[11px] font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wide">
                           {t('settings.skills.teamSkills', 'Team Skills')}
                         </span>
                         <div className="flex-1 h-px bg-border" />
-                        <span className="text-xs text-muted-foreground">{t('settings.skills.fromTeamConfig', 'From opencode.json → skills.paths')}</span>
+                        <span className="text-[11px] text-muted-foreground">{t('settings.skills.fromTeamConfig', 'From opencode.json → skills.paths')}</span>
                       </div>
                     )}
                     {renderSkillGrid(teamSkills)}
@@ -1159,15 +1260,15 @@ ${skillContent.trim()}`
 
                 {/* Workspace skills group */}
                 {workspaceSkills.length > 0 && (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {(builtinSkills.length > 0 || teamSkills.length > 0) && (
                       <div className="flex items-center gap-2">
                         <Sparkles className="h-3.5 w-3.5 text-violet-500" />
-                        <span className="text-xs font-medium text-violet-600 dark:text-violet-400 uppercase tracking-wide">
+                        <span className="text-[11px] font-medium text-violet-600 dark:text-violet-400 uppercase tracking-wide">
                           {t('settings.skills.workspaceSkills', 'Workspace Skills')}
                         </span>
                         <div className="flex-1 h-px bg-border" />
-                        <span className="text-xs text-muted-foreground">{t('settings.skills.projectLevel', 'Project Level')}</span>
+                        <span className="text-[11px] text-muted-foreground">{t('settings.skills.projectLevel', 'Project Level')}</span>
                       </div>
                     )}
                     {renderSkillGrid(workspaceSkills)}
@@ -1176,14 +1277,14 @@ ${skillContent.trim()}`
 
                 {/* Global skills group */}
                 {globalSkills.length > 0 && (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-3.5 w-3.5 text-cyan-500" />
-                      <span className="text-xs font-medium text-cyan-600 dark:text-cyan-400 uppercase tracking-wide">
+                      <span className="text-[11px] font-medium text-cyan-600 dark:text-cyan-400 uppercase tracking-wide">
                         {t('settings.skills.globalSkills', 'Global Skills')}
                       </span>
                       <div className="flex-1 h-px bg-border" />
-                      <span className="text-xs text-muted-foreground">{t('settings.skills.userLevel', 'User Level')}</span>
+                      <span className="text-[11px] text-muted-foreground">{t('settings.skills.userLevel', 'User Level')}</span>
                     </div>
                     {renderSkillGrid(globalSkills)}
                   </div>
@@ -1192,19 +1293,19 @@ ${skillContent.trim()}`
             )
           })()
         )}
-      </div>
-
-      </>}
+        </div>
+        </div>
+      )}
 
       {/* Create/Edit Dialog */}
       <Dialog
         open={dialogOpen}
         onOpenChange={(open) => {
-          setDialogOpen(open)
           if (!open) {
-            setImportZipPath(null)
-            setImportZipLabel(null)
+            closeSkillDialog()
+            return
           }
+          setDialogOpen(true)
         }}
       >
         <DialogContent className="flex h-[min(90vh,980px)] w-[min(900px,85vw)] max-w-[min(900px,85vw)] sm:max-w-[min(900px,85vw)] flex-col overflow-hidden p-0">
@@ -1212,91 +1313,69 @@ ${skillContent.trim()}`
             <DialogTitle>
               {isViewMode
                 ? t('settings.skills.viewSkill', 'View Skill')
-                : editingSkill
-                  ? t('settings.skills.edit', 'Edit Skill')
-                  : t('settings.skills.importFromZip', 'Import Skill from ZIP')}
+                : skillDialogMode === 'create'
+                  ? t('settings.skills.createNew', 'Create New Skill')
+                  : skillDialogMode === 'edit'
+                    ? t('settings.skills.edit', 'Edit Skill')
+                    : t('settings.skills.importFromZip', 'Import Skill from ZIP')}
             </DialogTitle>
             <DialogDescription>
               {isViewMode
                 ? t('settings.skills.viewDescription', 'Read-only view of skill content')
-                : editingSkill
-                  ? t('settings.skills.dialogDescription', 'Skills are SKILL.md files with YAML frontmatter. Saved to .opencode/skills/<name>/SKILL.md (OpenCode format).')
-                  : t('settings.skills.importZipDescription', 'Upload a .zip that contains exactly one SKILL.md. The entire skill folder is copied to your skills directory. Archives without SKILL.md are rejected.')}
+                : skillDialogMode === 'import'
+                  ? t('settings.skills.importZipDescription', 'Upload a .zip that contains exactly one SKILL.md. The entire skill folder is copied to your skills directory. Archives without SKILL.md are rejected.')
+                  : t('settings.skills.dialogDescription', 'Skills are SKILL.md files with YAML frontmatter. Saved to .opencode/skills/<name>/SKILL.md (OpenCode format).')}
             </DialogDescription>
           </DialogHeader>
           
           <div className="flex-1 space-y-4 overflow-y-auto px-7 py-5">
-            {!isViewMode && (
+            {!isViewMode && skillDialogMode !== 'import' && (
               <>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">{t('settings.skills.installLocation', 'Install Location')}</label>
-                  <Select value={installLocation} onValueChange={(v) => setInstallLocation(v as 'workspace' | 'global')}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue>
-                        {installLocation === 'workspace' 
-                          ? t('settings.skills.locationWorkspace', 'Workspace')
-                          : t('settings.skills.locationGlobal', 'Global')}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent className="w-[400px]">
-                      <SelectItem value="workspace" className="cursor-pointer">
-                        <div className="flex flex-col gap-0.5 py-1">
-                          <span className="font-medium">{t('settings.skills.locationWorkspace', 'Workspace')}</span>
-                          <span className="text-xs text-muted-foreground whitespace-normal">.opencode/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="global" className="cursor-pointer">
-                        <div className="flex flex-col gap-0.5 py-1">
-                          <span className="font-medium">{t('settings.skills.locationGlobal', 'Global')}</span>
-                          <span className="text-xs text-muted-foreground whitespace-normal">~/.config/opencode/skills/ - {t('settings.skills.allProjects', 'All projects')}</span>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {renderInstallLocationField()}
 
-                {!editingSkill ? (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">{t('settings.skills.skillArchive', 'Skill archive (.zip)')}</label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button type="button" variant="outline" size="sm" className="gap-2 shrink-0" onClick={pickImportZip}>
-                        <Upload className="h-4 w-4" />
-                        {t('settings.skills.chooseZip', 'Choose ZIP…')}
-                      </Button>
-                      <span className="text-sm text-muted-foreground truncate min-w-0 flex-1">
-                        {importZipLabel ?? t('settings.skills.noZipSelected', 'No file selected')}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {t('settings.skills.importZipHint', 'Folder name comes from the parent of SKILL.md, or from the zip file name if SKILL.md is at the archive root.')}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">{t('settings.skills.name', 'Skill Name')}</label>
-                      <Input
-                        placeholder={t('settings.skills.namePlaceholder', 'e.g., Git Workflow Guide')}
-                        value={skillName}
-                        onChange={(e) => setSkillName(e.target.value)}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">{t('settings.skills.name', 'Skill Name')}</label>
+                  <Input
+                    placeholder={t('settings.skills.namePlaceholder', 'e.g., Git Workflow Guide')}
+                    value={skillName}
+                    onChange={(e) => setSkillName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2 flex-1 min-h-[300px]">
+                  <label className="text-sm font-medium">{t('settings.skills.content', 'Content (Markdown)')}</label>
+                  <div className="h-[400px] rounded-md border border-input overflow-hidden">
+                    <Suspense fallback={<div className="h-full flex items-center justify-center text-muted-foreground text-sm">Loading editor...</div>}>
+                      <CodeEditor
+                        content={skillContent}
+                        filename="SKILL.md"
+                        filePath=""
+                        onChange={(value) => setSkillContent(value)}
+                        isDark={document.documentElement.classList.contains('dark')}
                       />
-                    </div>
-                    <div className="space-y-2 flex-1 min-h-[300px]">
-                      <label className="text-sm font-medium">{t('settings.skills.content', 'Content (Markdown)')}</label>
-                      <div className="h-[400px] rounded-md border border-input overflow-hidden">
-                        <Suspense fallback={<div className="h-full flex items-center justify-center text-muted-foreground text-sm">Loading editor...</div>}>
-                          <CodeEditor
-                            content={skillContent}
-                            filename="SKILL.md"
-                            filePath=""
-                            onChange={(value) => setSkillContent(value)}
-                            isDark={document.documentElement.classList.contains('dark')}
-                          />
-                        </Suspense>
-                      </div>
-                    </div>
-                  </>
-                )}
+                    </Suspense>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {skillDialogMode === 'import' && !isViewMode && (
+              <>
+                {renderInstallLocationField()}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">{t('settings.skills.skillArchive', 'Skill archive (.zip)')}</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" className="gap-2 shrink-0" onClick={pickImportZip}>
+                      <Upload className="h-4 w-4" />
+                      {t('settings.skills.chooseZip', 'Choose ZIP…')}
+                    </Button>
+                    <span className="text-sm text-muted-foreground truncate min-w-0 flex-1">
+                      {importZipLabel ?? t('settings.skills.noZipSelected', 'No file selected')}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.skills.importZipHint', 'Folder name comes from the parent of SKILL.md, or from the zip file name if SKILL.md is at the archive root.')}
+                  </p>
+                </div>
               </>
             )}
 
@@ -1346,35 +1425,45 @@ ${skillContent.trim()}`
           </div>
           
           <DialogFooter className="shrink-0 border-t px-7 py-4">
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button variant="outline" onClick={closeSkillDialog}>
               {isViewMode ? t('common.close', 'Close') : t('common.cancel', 'Cancel')}
             </Button>
             {!isViewMode && (
               <Button
-                onClick={editingSkill ? saveSkill : importSkillFromZip}
+                onClick={skillDialogMode === 'import' ? importSkillFromZip : saveSkill}
                 disabled={
                   isSaving ||
-                  (editingSkill ? !skillName.trim() : !importZipPath)
+                  (skillDialogMode === 'import' ? !importZipPath : !skillName.trim())
                 }
               >
                 {isSaving ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {editingSkill
-                      ? t('settings.mcp.saving', 'Saving...')
-                      : t('settings.skills.importing', 'Importing...')}
+                    {skillDialogMode === 'import'
+                      ? t('settings.skills.importing', 'Importing...')
+                      : t('settings.mcp.saving', 'Saving...')}
                   </>
-                ) : editingSkill ? (
-                  <>
-                    <Save className="mr-2 h-4 w-4" />
-                    {t('settings.skills.saveSkill', 'Save Skill')}
-                  </>
-                ) : (
+                ) : skillDialogMode === 'import' ? (
                   <>
                     <Upload className="mr-2 h-4 w-4" />
                     {t('settings.skills.importButton', 'Import')}
                   </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    {t('settings.skills.saveSkill', 'Save Skill')}
+                  </>
                 )}
+              </Button>
+            )}
+            {!isViewMode && skillDialogMode === 'import' ? (
+              <Button variant="ghost" onClick={() => switchDialogMode('create')}>
+                {t('settings.skills.createNew', 'Create New Skill')}
+              </Button>
+            ) : null}
+            {!isViewMode && skillDialogMode !== 'import' && (
+              <Button variant="ghost" onClick={() => switchDialogMode('import')}>
+                {t('settings.skills.importFromZip', 'Import Skill from ZIP')}
               </Button>
             )}
           </DialogFooter>

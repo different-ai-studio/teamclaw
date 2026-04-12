@@ -15,7 +15,7 @@ This workflow is for two related assets:
    - `.opencode/roles/<role-slug>/ROLE.md`
 
 2. Optional role-specific skills:
-   - `.opencode/roles/skill/<skill-slug>/SKILL.md`
+   - `.opencode/roles/skills/<skill-slug>/SKILL.md`
 
 The role is the routing layer. It is disclosed first and helps the model decide *when* a capability cluster should be used.
 
@@ -31,7 +31,7 @@ Always reason from this structure:
     config.json
     <role-slug>/
       ROLE.md
-    skill/
+    skills/
       <skill-slug>/
         SKILL.md
 ```
@@ -80,8 +80,8 @@ Before finalizing the role, determine:
 2. If yes, are there already existing skills that can be used?
 3. For each existing relevant skill:
    - keep it as a normal skill
-   - copy it into `.opencode/roles/skill/<skill-slug>/SKILL.md`
-   - migrate it into `.opencode/roles/skill/<skill-slug>/SKILL.md`
+   - copy it into `.opencode/roles/skills/<skill-slug>/SKILL.md`
+   - migrate it into `.opencode/roles/skills/<skill-slug>/SKILL.md`
 4. If no existing skill is sufficient, should a new role-specific skill be created?
 
 Do not silently choose a migration strategy when the user likely cares. Confirm it.
@@ -162,7 +162,7 @@ When the user wants you to create a role:
 5. If a new role-specific skill is needed, propose its `SKILL.md`
 6. Propose the final `ROLE.md`
 7. If the user wants file creation, save it under `.opencode/roles/<role-slug>/ROLE.md`
-8. If role skills are part of the plan, create or update them under `.opencode/roles/skill/<skill-slug>/SKILL.md`
+8. If role skills are part of the plan, create or update them under `.opencode/roles/skills/<skill-slug>/SKILL.md`
 
 If the user only wants help designing the role, provide the finished `ROLE.md` content without assuming file writes.
 

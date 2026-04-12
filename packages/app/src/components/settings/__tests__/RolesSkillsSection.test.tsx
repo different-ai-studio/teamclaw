@@ -2,21 +2,23 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import React from "react"
 
+const t = (_key: string, fallback: string, opts?: Record<string, unknown>) => {
+  if (opts?.count != null && typeof fallback === "string") {
+    return fallback.replace("{{count}}", String(opts.count))
+  }
+  if (opts?.linked != null && opts?.unlinked != null && typeof fallback === "string") {
+    return fallback
+      .replace("{{roles}}", String(opts.roles))
+      .replace("{{skills}}", String(opts.skills))
+      .replace("{{linked}}", String(opts.linked))
+      .replace("{{unlinked}}", String(opts.unlinked))
+  }
+  return fallback
+}
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (_key: string, fallback: string, opts?: Record<string, unknown>) => {
-      if (opts?.count != null && typeof fallback === "string") {
-        return fallback.replace("{{count}}", String(opts.count))
-      }
-      if (opts?.linked != null && opts?.unlinked != null && typeof fallback === "string") {
-        return fallback
-          .replace("{{roles}}", String(opts.roles))
-          .replace("{{skills}}", String(opts.skills))
-          .replace("{{linked}}", String(opts.linked))
-          .replace("{{unlinked}}", String(opts.unlinked))
-      }
-      return fallback
-    },
+    t,
   }),
 }))
 
@@ -25,7 +27,13 @@ vi.mock("@/stores/workspace", () => ({
     selector({ workspacePath: "/workspace" }),
 }))
 
-const loadRolesSkillsWorkspaceState = vi.fn()
+const { loadRolesSkillsWorkspaceState } = vi.hoisted(() => ({
+  loadRolesSkillsWorkspaceState: vi.fn(),
+}))
+
+const { skillsPaneDelayMs } = vi.hoisted(() => ({
+  skillsPaneDelayMs: { current: 0 },
+}))
 
 vi.mock("@/lib/roles/loader", () => ({
   loadRolesSkillsWorkspaceState: (...args: unknown[]) => loadRolesSkillsWorkspaceState(...args),
@@ -46,14 +54,20 @@ vi.mock("@/components/settings/RolesSection", () => ({
 }))
 
 vi.mock("@/components/settings/SkillsSection", () => ({
-  SkillsSection: ({ onOpenRole, focusSkillName, roleUsageBySkill }: any) => (
-    <div>
-      <div>Skills pane</div>
-      {focusSkillName ? <div>Focused skill: {focusSkillName}</div> : null}
-      <div>Usage keys: {Object.keys(roleUsageBySkill ?? {}).join(",")}</div>
-      <button onClick={() => onOpenRole?.("java-sort-reviewer")}>Open role</button>
-    </div>
-  ),
+  SkillsSection: ({ onOpenRole, focusSkillName, roleUsageBySkill }: any) => {
+    if (skillsPaneDelayMs.current > 0) {
+      return null
+    }
+
+    return (
+      <div>
+        <div>Skills pane</div>
+        {focusSkillName ? <div>Focused skill: {focusSkillName}</div> : null}
+        <div>Usage keys: {Object.keys(roleUsageBySkill ?? {}).join(",")}</div>
+        <button onClick={() => onOpenRole?.("java-sort-reviewer")}>Open role</button>
+      </div>
+    )
+  },
 }))
 
 import { RolesSkillsSection } from "@/components/settings/RolesSkillsSection"
@@ -61,6 +75,7 @@ import { RolesSkillsSection } from "@/components/settings/RolesSkillsSection"
 describe("RolesSkillsSection", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    skillsPaneDelayMs.current = 0
     loadRolesSkillsWorkspaceState.mockResolvedValue({
       roles: [],
       skills: [],
@@ -79,14 +94,93 @@ describe("RolesSkillsSection", () => {
     })
   })
 
+  it("keeps the shell visible while workspace summary loads", async () => {
+    let resolveLoad: ((value: any) => void) | null = null
+    loadRolesSkillsWorkspaceState.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveLoad = resolve
+        }),
+    )
+
+    render(<RolesSkillsSection />)
+
+    expect(screen.getByRole("tab", { name: "Roles" })).toBeDefined()
+    expect(screen.getByRole("tab", { name: "Skills" })).toBeDefined()
+    expect(screen.queryByText("0 roles")).toBeNull()
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
+
+    resolveLoad?.({
+      roles: [],
+      skills: [],
+      roleUsageBySkill: {},
+      skillNamesByRole: {},
+      metrics: {
+        rolesCount: 0,
+        skillsCount: 0,
+        linkedSkillsCount: 0,
+        unlinkedSkillsCount: 0,
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText("Roles pane")).toBeDefined()
+    })
+  })
+
   it("renders summary and defaults to roles tab", async () => {
     render(<RolesSkillsSection />)
 
     expect(screen.getByText("Roles & Skills")).toBeDefined()
+    expect(
+      screen.getByText("Manage routing roles and reusable skills together in one workspace console."),
+    ).toBeDefined()
+    expect(screen.getByRole("tab", { name: "Roles" })).toBeDefined()
+    expect(screen.getByRole("tab", { name: "Skills" })).toBeDefined()
     await waitFor(() => {
       expect(screen.getByText("Roles pane")).toBeDefined()
     })
     expect(screen.getByText("2 roles · 5 skills · 3 linked · 2 unlinked")).toBeDefined()
+  })
+
+  it("supports arrow-key navigation between the top-level tabs", async () => {
+    render(<RolesSkillsSection />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Roles pane")).toBeDefined()
+    })
+
+    const rolesTab = screen.getByRole("tab", { name: "Roles" })
+    rolesTab.focus()
+    fireEvent.keyDown(rolesTab, { key: "ArrowRight" })
+
+    await waitFor(() => {
+      expect(screen.getByText("Skills pane")).toBeDefined()
+    })
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Skills" }))
+
+    const skillsTab = screen.getByRole("tab", { name: "Skills" })
+    fireEvent.keyDown(skillsTab, { key: "ArrowLeft" })
+
+    await waitFor(() => {
+      expect(screen.getByText("Roles pane")).toBeDefined()
+    })
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Roles" }))
+  })
+
+  it("shows a page-level loading state before the skills pane finishes switching in", async () => {
+    skillsPaneDelayMs.current = 250
+
+    render(<RolesSkillsSection />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Roles pane")).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByRole("tab", { name: "Skills" }))
+
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
+    expect(screen.queryByText("Skills pane")).toBeNull()
   })
 
   it("switches to skills tab when a linked skill is opened from roles", async () => {

@@ -26,6 +26,7 @@ import { useWorkspaceStore } from "@/stores/workspace"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { SettingCard } from "./shared"
 import { ClawHubMarketplace } from "./ClawHubMarketplace"
 import {
@@ -109,11 +110,10 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const [activeSource, setActiveSource] = React.useState<"clawhub" | "skillssh">("clawhub")
-  const [sourceContentReady, setSourceContentReady] = React.useState(true)
   const [skillsShCategory, setSkillsShCategory] = React.useState<SkillsShCategory>("trending")
   const [searchQuery, setSearchQuery] = React.useState("")
   const [leaderboard, setLeaderboard] = React.useState<SkillsShLeaderboard | null>(null)
-  const [isLoading, setIsLoading] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [installingSlugs, setInstallingSlugs] = React.useState<Set<string>>(new Set())
   const [installedSlugs, setInstalledSlugs] = React.useState<Set<string>>(new Set())
@@ -130,7 +130,6 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   const effectiveActiveSource = controlledActiveSource ?? activeSource
 
   const switchSource = React.useCallback((nextSource: "clawhub" | "skillssh") => {
-    setSourceContentReady(false)
     if (onActiveSourceChange) {
       onActiveSourceChange(nextSource)
     } else {
@@ -269,13 +268,6 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       void fetchLeaderboard()
     }
   }, [effectiveActiveSource, doSearchSkillSh, effectiveSearchQuery, externalRefreshSignal, fetchLeaderboard])
-
-  React.useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setSourceContentReady(true)
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [effectiveActiveSource])
 
   const filteredSkillsSh = React.useMemo(() => {
     return leaderboard?.skills ?? []
@@ -495,14 +487,7 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
         </div>
       ) : null}
 
-      {!sourceContentReady ? (
-        <SettingCard className={compact ? "" : "mt-4"}>
-          <div className="flex min-h-[180px] items-center justify-center gap-3 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span>{t('settings.skills.marketplaceLoading', 'Loading marketplace...')}</span>
-          </div>
-        </SettingCard>
-      ) : effectiveActiveSource === 'clawhub' ? (
+      {effectiveActiveSource === 'clawhub' ? (
         <div className={compact ? "" : "mt-4"}>
           <ClawHubMarketplace
             onInstalled={onInstalled}
@@ -804,12 +789,24 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
 
           {/* Marketplace */}
           <div className="space-y-3">
-            {isLoading ? (
-              <SettingCard>
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              </SettingCard>
+            {isLoading && !leaderboard ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <SettingCard key={index} className="border-border/60 bg-card/80">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                      <div className="space-y-3">
+                        <Skeleton className="h-5 w-44" />
+                        <Skeleton className="h-3.5 w-32" />
+                        <div className="flex items-center gap-3">
+                          <Skeleton className="h-4 w-16" />
+                          <Skeleton className="h-4 w-12" />
+                        </div>
+                      </div>
+                      <Skeleton className="h-9 w-24 rounded-lg" />
+                    </div>
+                  </SettingCard>
+                ))}
+              </div>
             ) : filteredSkillsSh.length === 0 ? (
               <SettingCard>
                 <div className="text-center py-6 text-muted-foreground">

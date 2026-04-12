@@ -23,6 +23,7 @@ import { useWorkspaceStore } from "@/stores/workspace"
 import { openExternalUrl } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { SettingCard } from "./shared"
 import type {
   ClawHubSearchResults,
@@ -74,7 +75,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const [searchQuery, setSearchQuery] = React.useState("")
-  const [isLoading, setIsLoading] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
   // Explore mode (browse) vs search mode
@@ -361,6 +362,10 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
     return d.toLocaleDateString()
   }
 
+  const hasVisibleResults = isSearchMode ? searchResults.length > 0 : exploreItems.length > 0
+  const showInitialSkeleton = isLoading && !hasVisibleResults
+  const showLoadingHint = isLoading && hasVisibleResults
+
   const renderSkillCard = (slug: string, name: string, summary?: string | null, version?: string | null, stats?: unknown, updatedAt?: number) => {
     const isInstalled = installedSlugs.has(slug)
     const isInstalling = installingSlugs.has(slug)
@@ -485,9 +490,12 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
             disabled={isLoading}
             onClick={() => {
               hasLoadedExploreRef.current = false
-              setSearchQuery("")
-              setIsSearchMode(false)
-              loadExplore()
+              if (effectiveSearchQuery.trim()) {
+                void doSearch(effectiveSearchQuery)
+              } else {
+                setIsSearchMode(false)
+                void loadExplore()
+              }
               loadInstalled()
             }}
             title={t("clawhub.refresh", "Refresh")}
@@ -523,17 +531,33 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
         </SettingCard>
       )}
 
-      {/* Loading */}
-      {isLoading && (
-        <SettingCard>
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        </SettingCard>
+      {showLoadingHint && (
+        <div className="flex items-center justify-end gap-2 px-1 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {t("common.loading", "Loading...")}
+        </div>
       )}
 
       {/* Results */}
-      {!isLoading && (
+      {showInitialSkeleton ? (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <SettingCard key={index} className="border-border/60 bg-card/80">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                <div className="space-y-3">
+                  <Skeleton className="h-5 w-44" />
+                  <Skeleton className="h-3.5 w-32" />
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-12" />
+                  </div>
+                </div>
+                <Skeleton className="h-9 w-24 rounded-lg" />
+              </div>
+            </SettingCard>
+          ))}
+        </div>
+      ) : (
         <div className="space-y-3">
           {isSearchMode ? (
             searchResults.length === 0 ? (

@@ -12,8 +12,9 @@ import type {
 import { loadAllSkills } from "@/lib/git/skill-loader"
 
 const ROLE_ROOT = ".opencode/roles"
-const ROLE_SKILL_DIR = ".opencode/roles/skill"
+const ROLE_SKILL_DIR = ".opencode/roles/skills"
 const ROLE_CONFIG_PATH = ".opencode/roles/config.json"
+const ROLE_SKILL_DIR_NAME = "skills"
 
 const SECTION_NAMES = {
   role: "Role",
@@ -168,12 +169,12 @@ export function serializeRoleMarkdown(input: Pick<RoleEditorState, "slug" | "nam
 
 export async function ensureRolesRoot(workspacePath: string): Promise<void> {
   const rolesRoot = `${workspacePath}/${ROLE_ROOT}`
-  const rolesSkillRoot = `${workspacePath}/${ROLE_SKILL_DIR}`
   if (!(await exists(rolesRoot))) {
     await mkdir(rolesRoot, { recursive: true })
   }
-  if (!(await exists(rolesSkillRoot))) {
-    await mkdir(rolesSkillRoot, { recursive: true })
+  const fullPath = `${workspacePath}/${ROLE_SKILL_DIR}`
+  if (!(await exists(fullPath))) {
+    await mkdir(fullPath, { recursive: true })
   }
   const configPath = `${workspacePath}/${ROLE_CONFIG_PATH}`
   if (!(await exists(configPath))) {
@@ -219,16 +220,18 @@ async function getRoleRoots(workspacePath: string): Promise<RoleRoot[]> {
 async function loadRoleManagedSkills(workspacePath: string): Promise<ManagedSkillRecord[]> {
   const roots = await getRoleRoots(workspacePath)
   const roleSkills: ManagedSkillRecord[] = []
+  const seenSkillNames = new Set<string>()
 
   for (const root of roots) {
-    const roleSkillRoot = `${root.rootPath}/skill`
+    const roleSkillRoot = `${root.rootPath}/${ROLE_SKILL_DIR_NAME}`
     if (!(await exists(roleSkillRoot))) continue
     const entries = await readDir(roleSkillRoot)
     for (const entry of entries) {
-      if (!entry.isDirectory || !entry.name) continue
+      if (!entry.isDirectory || !entry.name || seenSkillNames.has(entry.name)) continue
       const skillPath = `${roleSkillRoot}/${entry.name}/SKILL.md`
       if (!(await exists(skillPath))) continue
       const content = await readTextFile(skillPath)
+      seenSkillNames.add(entry.name)
       roleSkills.push({
         filename: entry.name,
         name: entry.name,
@@ -255,7 +258,7 @@ export async function loadAllRoles(workspacePath: string | null): Promise<RoleRe
     if (!(await exists(root.rootPath))) continue
     const entries = await readDir(root.rootPath)
     for (const entry of entries) {
-      if (!entry.isDirectory || !entry.name || entry.name === "skill") continue
+      if (!entry.isDirectory || !entry.name || entry.name === ROLE_SKILL_DIR_NAME) continue
       const rolePath = `${root.rootPath}/${entry.name}/ROLE.md`
       if (!(await exists(rolePath))) continue
       if (seen.has(entry.name)) continue
@@ -309,6 +312,7 @@ export async function loadRolesSkillsWorkspaceState(workspacePath: string | null
     managedSkillsByKey.set(key, {
       filename: skill.filename,
       name: skill.name,
+      invocationName: skill.invocationName,
       content: skill.content,
       description: extractSkillDescription(skill.content, skill.name),
       source: skill.source,
@@ -425,6 +429,18 @@ async function copyItem(sourcePath: string, targetDir: string): Promise<void> {
   }
 }
 
+async function findExistingRoleSkill(workspacePath: string, skillSlug: string): Promise<{ roleSkillPath: string; roleSkillRoot: string } | null> {
+  const roots = await getRoleRoots(workspacePath)
+  for (const root of roots) {
+    const roleSkillRoot = `${root.rootPath}/${ROLE_SKILL_DIR_NAME}`
+    const roleSkillPath = `${roleSkillRoot}/${skillSlug}/SKILL.md`
+    if (await exists(roleSkillPath)) {
+      return { roleSkillPath, roleSkillRoot }
+    }
+  }
+  return null
+}
+
 function upsertRoleSkillLink(links: RoleSkillLink[], next: RoleSkillLink): RoleSkillLink[] {
   const existing = links.find((link) => link.name === next.name)
   if (!existing) return [...links, next]
@@ -448,7 +464,8 @@ export async function attachSkillToRole(input: AttachSkillToRoleInput): Promise<
 
   const roleSkillDir = `${workspacePath}/${ROLE_SKILL_DIR}/${skillSlug}`
   const roleSkillPath = `${roleSkillDir}/SKILL.md`
-  if (await exists(roleSkillDir)) {
+  const existingRoleSkill = await findExistingRoleSkill(workspacePath, skillSlug)
+  if (existingRoleSkill) {
     const existingRole = parseRoleMarkdown(await readTextFile(rolePath), roleSlug, rolePath)
     if (existingRole.roleSkills.some((skill) => skill.name === skillSlug)) {
       return existingRole

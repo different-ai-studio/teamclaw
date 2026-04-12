@@ -43,6 +43,7 @@ export interface AttachableSkill {
 export interface ManagedSkillRecord {
   filename: string
   name: string
+  invocationName?: string
   content: string
   description: string
   source?: SkillSource

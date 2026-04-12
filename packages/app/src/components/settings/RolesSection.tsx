@@ -19,6 +19,7 @@ import { useUIStore } from "@/stores/ui"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Dialog,
   DialogContent,
@@ -394,11 +395,26 @@ export const RolesSection = React.memo(function RolesSection({
 
       <div className={cn(embeddedConsole ? "grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4" : "space-y-2")}>
         {isLoading ? (
-          <SettingCard className={cn("p-0", embeddedConsole && "col-span-full")}>
-            <div className="flex items-center justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          </SettingCard>
+          <div className={cn("space-y-3", embeddedConsole && "col-span-full")}>
+            {Array.from({ length: 3 }).map((_, index) => (
+              <SettingCard key={index} className="border-border/60 bg-card/70">
+                <div className={cn("space-y-3 p-4", embeddedConsole && "min-h-[236px]")}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-2">
+                      <Skeleton className="h-5 w-44" />
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-5 w-28 rounded-full" />
+                        <Skeleton className="h-5 w-20 rounded-full" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-8 w-8 rounded-lg" />
+                  </div>
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-4/5" />
+                </div>
+              </SettingCard>
+            ))}
+          </div>
         ) : roles.length === 0 ? (
           <SettingCard className={cn("border-dashed bg-muted/10 py-1", embeddedConsole && "col-span-full")}>
             <div className="py-8 text-center text-muted-foreground">
@@ -494,6 +510,7 @@ export const RolesSection = React.memo(function RolesSection({
                                 key={skill.name}
                                 type="button"
                                 onClick={() => onOpenSkill?.(skill.name)}
+                                aria-label={t("settings.roles.openLinkedSkill", "Open linked skill {{name}}", { name: skill.name })}
                                 className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
                                 title={skill.description}
                               >
@@ -651,7 +668,7 @@ export const RolesSection = React.memo(function RolesSection({
                     <div>
                       <p className="text-sm font-medium">{t("settings.roles.availableRoleSkills", "Available role skills")}</p>
                       <p className="text-xs text-muted-foreground">
-                        {t("settings.roles.availableRoleSkillsHint", "Attach local workspace skills and choose whether to copy or migrate them into .opencode/roles/skill")}
+                        {t("settings.roles.availableRoleSkillsHint", "Attach local workspace skills and choose whether to copy or migrate them into .opencode/roles/skills")}
                       </p>
                     </div>
                     <span className="text-xs text-muted-foreground">
@@ -771,7 +788,7 @@ export const RolesSection = React.memo(function RolesSection({
                 "settings.roles.deleteConfirm",
                 {
                   name: roleToDelete?.slug ?? "",
-                  defaultValue: `Delete "${roleToDelete?.slug ?? ""}"? Role skills under .opencode/roles/skill are preserved.`,
+                  defaultValue: `Delete "${roleToDelete?.slug ?? ""}"? Role skills under .opencode/roles/skills are preserved.`,
                 },
               )}
             </DialogDescription>
