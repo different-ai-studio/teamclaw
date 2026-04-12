@@ -154,22 +154,18 @@ struct ChatDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    Button {
-                        viewModel.requestMessageHistory()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.primary)
-                    }
+                Button {
+                    viewModel.requestMessageHistory()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
 
-                    Button {
-                        showEditSheet = true
-                    } label: {
-                        Image(systemName: "person.badge.plus")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.primary)
-                    }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showEditSheet = true
+                } label: {
+                    Image(systemName: "person.badge.plus")
                 }
             }
         }

@@ -48,13 +48,11 @@ struct NewSessionSheet: View {
                 }
             }
             .navigationTitle("New Session")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button { dismiss() } label: {
                         Image(systemName: "xmark")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -115,7 +113,6 @@ struct NewSessionSheet: View {
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.title3)
-                    .foregroundStyle(.blue)
             }
         }
         .padding(.horizontal, 16)
