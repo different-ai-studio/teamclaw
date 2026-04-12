@@ -75,6 +75,19 @@ Single source of truth principle — **never mix content sources**:
 - **S3/OSS mode**: Alibaba OSS with WebDAV
 - Shared: `skills/`, `.mcp/`, `knowledge/`
 
+## Versioning & Release
+
+**Desktop and iOS have independent version numbers:**
+- **Desktop** (`package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`): all three must match
+- **iOS** (`TeamClawMobile/TeamClawMobile/Info.plist` `CFBundleShortVersionString`): independent version
+
+**Release process:**
+1. Bump desktop version in all 3 files
+2. Commit, push to main
+3. `git tag v<desktop-version> && git push origin v<desktop-version>`
+4. Tag push triggers both `release.yml` (macOS desktop) and `release-ios.yml` (TestFlight)
+5. iOS always uses its own version from Info.plist, ignoring the tag
+
 ## FC (Function Compute) Deployment
 
 FC function `teamclaw-sync` is deployed to Alibaba Cloud cn-shenzhen region.

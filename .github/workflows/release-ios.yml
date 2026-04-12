@@ -65,12 +65,8 @@ jobs:
       - name: Set version and build number
         working-directory: TeamClawMobile
         run: |
-          # Version from iOS Info.plist (iOS has its own version)
+          # iOS has its own version independent of desktop — always read from Info.plist
           VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" TeamClawMobile/Info.plist)
-          # Override with git tag if present
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          fi
 
           # Build number: input override or timestamp-based
           if [ -n "${{ github.event.inputs.build_number }}" ]; then
