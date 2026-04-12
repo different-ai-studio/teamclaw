@@ -131,7 +131,7 @@ impl Reranker for JinaReranker {
 }
 
 // ---------------------------------------------------------------------------
-// Compass Reranker  (https://compass.llm.shopee.io/compass-api/v1/rerank)
+// Compass Reranker
 // Response `results` is a positional array of scores matching the input order.
 // ---------------------------------------------------------------------------
 
@@ -389,7 +389,7 @@ pub fn create_reranker(
         "jina" => Ok(Box::new(JinaReranker::new(api_key, model))),
         "compass" => {
             let url = base_url
-                .unwrap_or_else(|| "https://compass.llm.shopee.io/compass-api/v1".to_string());
+                .unwrap_or_default();
             Ok(Box::new(CompassReranker::new(api_key, url)))
         }
         "langsearch" => Ok(Box::new(LangSearchReranker::new(api_key, model, base_url))),
@@ -419,11 +419,11 @@ mod tests {
     fn test_compass_reranker_creation() {
         let reranker = CompassReranker::new(
             Some("test-key".to_string()),
-            "https://compass.llm.shopee.io/compass-api/v1".to_string(),
+            "https://example.com/api/v1".to_string(),
         );
         assert_eq!(
             reranker.base_url,
-            "https://compass.llm.shopee.io/compass-api/v1"
+            "https://example.com/api/v1"
         );
     }
 
@@ -459,7 +459,7 @@ mod tests {
     async fn test_compass_reranker_empty_documents() {
         let reranker = CompassReranker::new(
             Some("test-key".to_string()),
-            "https://compass.llm.shopee.io/compass-api/v1".to_string(),
+            "https://example.com/api/v1".to_string(),
         );
         let results = reranker.rerank("test query", Vec::new()).await.unwrap();
         assert!(results.is_empty());
@@ -478,7 +478,7 @@ mod tests {
             "compass",
             Some("key".to_string()),
             String::new(),
-            Some("https://compass.llm.shopee.io/compass-api/v1".to_string()),
+            Some("https://example.com/api/v1".to_string()),
         );
         assert!(reranker.is_ok());
     }

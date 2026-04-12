@@ -398,7 +398,7 @@ export const KnowledgeConfigPanel = React.memo(function KnowledgeConfigPanel() {
                       id="rerank-base-url"
                       value={localConfig.rerankBaseUrl}
                       onChange={(e) => updateConfig({ rerankBaseUrl: e.target.value })}
-                      placeholder={localConfig.rerankProvider === 'compass' ? 'https://compass.llm.shopee.io/compass-api/v1' : 'https://api.langsearch.com/v1'}
+                      placeholder={localConfig.rerankProvider === 'compass' ? '' : 'https://api.langsearch.com/v1'}
                     />
                   </FormField>
                 )}

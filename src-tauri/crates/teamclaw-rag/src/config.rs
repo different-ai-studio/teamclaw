@@ -44,7 +44,7 @@ fn default_knowledge_dirs() -> Vec<String> {
 }
 
 fn default_rerank_base_url() -> String {
-    "https://compass.llm.shopee.io/compass-api/v1".to_string()
+    String::new()
 }
 
 impl Default for RagConfig {
@@ -54,7 +54,7 @@ impl Default for RagConfig {
             embedding_model: "compass-embedding-v4".to_string(),
             embedding_dimensions: 2560,
             embedding_api_key: None,
-            embedding_base_url: "https://compass.llm.shopee.io/compass-api/v1".to_string(),
+            embedding_base_url: String::new(),
             chunk_size: 800,
             chunk_overlap: 100,
             auto_index: true,

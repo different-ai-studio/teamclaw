@@ -11,7 +11,7 @@
  * 
  * Default:
  *   Port: 13142
- *   Target: https://compass.llm.shopee.io/compass-api/v1
+ *   Target: (user-provided URL)
  */
 
 import http from 'node:http';
@@ -20,7 +20,7 @@ import { URL } from 'node:url';
 
 const args = process.argv.slice(2);
 const PORT = parseInt(args.find((_, i, a) => a[i - 1] === '--port') || '13142');
-const TARGET = args.find((_, i, a) => a[i - 1] === '--target') || 'https://compass.llm.shopee.io/compass-api/v1';
+const TARGET = args.find((_, i, a) => a[i - 1] === '--target') || '';
 
 const targetUrl = new URL(TARGET);
 
