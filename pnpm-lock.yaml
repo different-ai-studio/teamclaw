@@ -69,8 +69,8 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0(zod@3.25.76)
       '@json-render/react':
-        specifier: ^0.2.0
-        version: 0.2.0(react@19.2.4)(zod@3.25.76)
+        specifier: ^0.16.0
+        version: 0.16.0(react@19.2.4)(zod@3.25.76)
       '@opencode-ai/sdk':
         specifier: ^1.4.0
         version: 1.4.0
@@ -1024,8 +1024,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@json-render/core@0.2.0':
-    resolution: {integrity: sha512-LBKv4M5skz7JRpTn53g6qF/zj5u/xUhuCp6WtJn/ZTIxGEAogH8sn3Ql/Nk/O0sgbQHtriRmoJuI23/5fGCXPw==}
+  '@json-render/core@0.16.0':
+    resolution: {integrity: sha512-qQp8BB/3pWYapTGXBDSBMXRCdrC05VJPLL3drXMPX/QbUB3nuvtyXUGmAZFUz8eLUy7JImODvb3GNIq38dGzhQ==}
     peerDependencies:
       zod: ^4.0.0
 
@@ -1034,10 +1034,10 @@ packages:
     peerDependencies:
       zod: ^4.0.0
 
-  '@json-render/react@0.2.0':
-    resolution: {integrity: sha512-4tdoMfc3t0Je+DMNsyJguz7aJkqfLhEY8/mvBchL9kweRfJHAZocT7doyqRCGAnCBtIXCKQ8YAbm0sb0Qr9OFw==}
+  '@json-render/react@0.16.0':
+    resolution: {integrity: sha512-PJQjLftGYZ5LNlA1IFww+yNOAJZRW2feEcH/L10u/8M/b/zImr9wfqQVMDyC87myoEzhyucpkQ6joISeZdKxsw==}
     peerDependencies:
-      react: ^19.0.0
+      react: ^19.2.3
 
   '@lezer/common@1.5.1':
     resolution: {integrity: sha512-6YRVG9vBkaY7p1IVxL4s44n5nUnaNnGM2/AckNgYOnxTG2kWh1vR8BMxPseWPjRNpb5VtXnMpeYAEAADoRV1Iw==}
@@ -5988,7 +5988,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@json-render/core@0.2.0(zod@3.25.76)':
+  '@json-render/core@0.16.0(zod@3.25.76)':
     dependencies:
       zod: 3.25.76
 
@@ -5996,9 +5996,9 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@json-render/react@0.2.0(react@19.2.4)(zod@3.25.76)':
+  '@json-render/react@0.16.0(react@19.2.4)(zod@3.25.76)':
     dependencies:
-      '@json-render/core': 0.2.0(zod@3.25.76)
+      '@json-render/core': 0.16.0(zod@3.25.76)
       react: 19.2.4
     transitivePeerDependencies:
       - zod
