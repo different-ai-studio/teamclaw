@@ -111,7 +111,7 @@ tauri-plugin-mcp = { path = "tauri-plugin-mcp-local" }
 # Crypto (used by shared_secrets_crypto, device_token)
 aes-gcm = "0.10"
 hmac = "0.12"
-hkdf = "0.12"
+hkdf = "0.13"
 hex = "0.4"
 getrandom = "0.2"
 url = "2"
