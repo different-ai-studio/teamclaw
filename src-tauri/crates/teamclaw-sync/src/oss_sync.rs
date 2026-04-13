@@ -917,9 +917,40 @@ impl OssSyncManager {
     }
 
     /// Build a gitignore matcher that layers rules from the team root
-    /// `.gitignore` (parent of `dir`) and the doc-type subdir `.gitignore`.
+    /// `.gitignore` (parent of `dir`) and the doc-type subdir `.gitignore`,
+    /// plus hardcoded excludes for common build-artifact directories that
+    /// should never be synced regardless of project-level `.gitignore` state.
     fn build_gitignore(dir: &Path) -> ignore::gitignore::Gitignore {
         let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
+
+        // Hardcoded global excludes — build artifacts / dependency caches that
+        // must never be synced, no matter how deep in the tree they appear.
+        const GLOBAL_EXCLUDES: &[&str] = &[
+            "node_modules/",
+            ".git/",
+            "target/",          // Rust / Cargo build output
+            "dist/",
+            "build/",
+            "out/",
+            ".cache/",
+            ".turbo/",
+            ".next/",
+            ".nuxt/",
+            ".output/",
+            "__pycache__/",
+            ".venv/",
+            "venv/",
+            ".tox/",
+            "vendor/",          // Go / PHP vendored deps
+            ".gradle/",
+            ".m2/",             // Maven local repo
+            "*.log",
+            "*.tmp",
+        ];
+        for pattern in GLOBAL_EXCLUDES {
+            let _ = builder.add_line(None, pattern);
+        }
+
         // Team root .gitignore (one level up, e.g. teamclaw-team/.gitignore)
         if let Some(parent) = dir.parent() {
             let root_gi = parent.join(".gitignore");
