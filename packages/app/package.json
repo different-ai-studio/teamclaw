@@ -74,7 +74,7 @@
     "diff": "^8.0.3",
     "i18next": "^25.8.5",
     "js-yaml": "^4.1.1",
-    "lucide-react": "^0.469.0",
+    "lucide-react": "^1.7.0",
     "nanoid": "^5.0.9",
     "pdfjs-dist": "5.5.207",
     "qrcode.react": "^4.2.0",
