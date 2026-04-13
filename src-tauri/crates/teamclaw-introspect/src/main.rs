@@ -46,7 +46,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "send_channel_message",
-            "description": "Send a message via a configured channel gateway.",
+            "description": "Send a text or image message via a configured channel gateway.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -57,14 +57,18 @@ fn tool_definitions() -> Value {
                     },
                     "message": {
                         "type": "string",
-                        "description": "The message text to send."
+                        "description": "The message text to send. Can be empty if sending an image only."
                     },
                     "target": {
                         "type": "string",
-                        "description": "Optional target (user, channel, group) within the channel."
+                        "description": "Target recipient within the channel. Format varies by channel: wecom: 'single:<userid>' or 'group:<chatid>' (default: single); discord: 'dm:<user_id>' or 'channel:<channel_id>'; feishu: open_id (ou_xxx), user_id (on_xxx), or chat_id (oc_xxx); kook: 'dm:<user_id>' or 'channel:<channel_id>'; wechat: user identifier. If omitted for wecom, sends to the last active conversation."
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Absolute path to a media file to send. The file will be uploaded and sent natively. Type is auto-detected from extension: image (jpg/png/gif/webp), voice (mp3/amr/wav), video (mp4/mov), or file (any other)."
                     }
                 },
-                "required": ["channel", "message"]
+                "required": ["channel"]
             }
         },
         {

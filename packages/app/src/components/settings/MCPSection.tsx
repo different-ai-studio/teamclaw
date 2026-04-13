@@ -170,13 +170,7 @@ function MCPServerRow({
   const effectiveStatus = runtimeStatus || (enabled ? undefined : 'disabled' as MCPServerStatus)
 
   return (
-    <SettingCard
-      className={cn(
-        'transition-all',
-        isInherent ? 'border-blue-200/60 dark:border-blue-800/40 bg-blue-50/30 dark:bg-blue-950/10' : '',
-        !isInherent && enabled && runtimeStatus === 'connected' ? 'border-primary/20' : ''
-      )}
-    >
+    <div className="p-3 rounded-lg border transition-all">
       <div className="flex items-center gap-3">
         {/* Avatar */}
         <ServerAvatar name={name} />
@@ -257,7 +251,7 @@ function MCPServerRow({
           ))}
         </div>
       )}
-    </SettingCard>
+    </div>
   )
 }
 
@@ -377,74 +371,70 @@ export const MCPSection = React.memo(function MCPSection() {
 
       {/* Inherent MCP Servers */}
       {inherentEntries.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Shield className="h-3.5 w-3.5 text-blue-500" />
-            <span className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-              {t('settings.mcp.inherentMCP')}
-            </span>
-            <div className="flex-1 h-px bg-blue-200/60 dark:bg-blue-800/40" />
-            <span className="text-xs text-muted-foreground">{t('settings.mcp.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
+        <SettingCard>
+          <h4 className="font-medium mb-4 flex items-center gap-2">
+            <Shield className="h-4 w-4 text-blue-500" />
+            {t('settings.mcp.inherentMCP')}
+            <span className="text-xs font-normal text-muted-foreground ml-auto">{t('settings.mcp.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
+          </h4>
+          <div className="space-y-3">
+            {inherentEntries.map(([name, config]) => {
+              const runtime = runtimeStatus[name]
+              const tools = serverTools[name] || []
+              return (
+                <MCPServerRow
+                  key={name}
+                  name={name}
+                  config={config}
+                  runtimeStatus={runtime?.status}
+                  runtimeError={runtime?.error}
+                  tools={tools}
+                  nodeInstalled={nodeInstalled}
+                  isInherent
+                  onToggle={(enabled) => handleToggleServer(name, enabled)}
+                  onEdit={() => {
+                    setEditingServer({ name, config })
+                    setDialogOpen(true)
+                  }}
+                  onDelete={() => setDeleteConfirm(name)}
+                />
+              )
+            })}
           </div>
-          {inherentEntries.map(([name, config]) => {
-            const runtime = runtimeStatus[name]
-            const tools = serverTools[name] || []
-            return (
-              <MCPServerRow
-                key={name}
-                name={name}
-                config={config}
-                runtimeStatus={runtime?.status}
-                runtimeError={runtime?.error}
-                tools={tools}
-                nodeInstalled={nodeInstalled}
-                isInherent
-                onToggle={(enabled) => handleToggleServer(name, enabled)}
-                onEdit={() => {
-                  setEditingServer({ name, config })
-                  setDialogOpen(true)
-                }}
-                onDelete={() => setDeleteConfirm(name)}
-              />
-            )
-          })}
-        </div>
+        </SettingCard>
       )}
 
       {/* Custom MCP Servers */}
       {customEntries.length > 0 && (
-        <div className="space-y-3">
-          {inherentEntries.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                {t('settings.mcp.customMCP')}
-              </span>
-              <div className="flex-1 h-px bg-border" />
-            </div>
-          )}
-          {customEntries.map(([name, config]) => {
-            const runtime = runtimeStatus[name]
-            const tools = serverTools[name] || []
-            return (
-              <MCPServerRow
-                key={name}
-                name={name}
-                config={config}
-                runtimeStatus={runtime?.status}
-                runtimeError={runtime?.error}
-                tools={tools}
-                nodeInstalled={nodeInstalled}
-                onToggle={(enabled) => handleToggleServer(name, enabled)}
-                onEdit={() => {
-                  setEditingServer({ name, config })
-                  setDialogOpen(true)
-                }}
-                onDelete={() => setDeleteConfirm(name)}
-              />
-            )
-          })}
-        </div>
+        <SettingCard>
+          <h4 className="font-medium mb-4 flex items-center gap-2">
+            <Plug className="h-4 w-4 text-muted-foreground" />
+            {t('settings.mcp.customMCP')}
+          </h4>
+          <div className="space-y-3">
+            {customEntries.map(([name, config]) => {
+              const runtime = runtimeStatus[name]
+              const tools = serverTools[name] || []
+              return (
+                <MCPServerRow
+                  key={name}
+                  name={name}
+                  config={config}
+                  runtimeStatus={runtime?.status}
+                  runtimeError={runtime?.error}
+                  tools={tools}
+                  nodeInstalled={nodeInstalled}
+                  onToggle={(enabled) => handleToggleServer(name, enabled)}
+                  onEdit={() => {
+                    setEditingServer({ name, config })
+                    setDialogOpen(true)
+                  }}
+                  onDelete={() => setDeleteConfirm(name)}
+                />
+              )
+            })}
+          </div>
+        </SettingCard>
       )}
 
       {/* Add Server Button */}

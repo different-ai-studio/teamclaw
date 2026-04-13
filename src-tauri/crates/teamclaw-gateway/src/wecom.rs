@@ -302,6 +302,11 @@ const HEARTBEAT_TIMEOUT_SECS: u64 = 6;
 use crate::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
 use crate::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 
+/// Pending WebSocket response channels, keyed by req_id.
+/// Used for request–response patterns (e.g. media upload) over the multiplexed WS.
+type PendingResponses =
+    Arc<tokio::sync::Mutex<std::collections::HashMap<String, oneshot::Sender<serde_json::Value>>>>;
+
 #[derive(Clone)]
 pub struct WeComGateway {
     config: Arc<RwLock<WeComConfig>>,
@@ -318,6 +323,7 @@ pub struct WeComGateway {
     pending_questions: Arc<super::PendingQuestionStore>,
     shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
     card_metadata: Arc<RwLock<std::collections::HashMap<String, CardMetadata>>>,
+    pending_responses: PendingResponses,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -399,6 +405,7 @@ impl WeComGateway {
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             shared_ws_sink: Arc::new(RwLock::new(None)),
             card_metadata: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            pending_responses: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -722,7 +729,24 @@ impl WeComGateway {
                 }
             }
             "" => {
-                // WeCom acknowledgment response — only log errors
+                // WeCom acknowledgment/response — route to pending waiters or log errors
+                let raw: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
+                let req_id = raw
+                    .get("headers")
+                    .and_then(|h| h.get("req_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                // If someone is waiting for this req_id, deliver the response
+                if !req_id.is_empty() {
+                    let mut pending = self.pending_responses.lock().await;
+                    if let Some(tx) = pending.remove(req_id) {
+                        let _ = tx.send(raw.clone());
+                        return;
+                    }
+                }
+
+                // Otherwise log errors as before
                 if let Some(body) = &msg.body {
                     let errcode = body.get("errcode").and_then(|c| c.as_i64()).unwrap_or(0);
                     if errcode != 0 {
@@ -730,8 +754,6 @@ impl WeComGateway {
                         eprintln!("[WeCom] Response error: code={}, msg={}", errcode, errmsg);
                     }
                 }
-                // Also check top-level errcode (WeCom puts it outside body)
-                let raw: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
                 let errcode = raw.get("errcode").and_then(|c| c.as_i64()).unwrap_or(0);
                 if errcode != 0 {
                     let errmsg = raw.get("errmsg").and_then(|m| m.as_str()).unwrap_or("");
@@ -1869,7 +1891,7 @@ impl WeComGateway {
                                     } else {
                                         "(No response)".to_string()
                                     };
-                                    return self
+                                    let _ = self
                                         .send_stream_chunk(
                                             req_id,
                                             &stream_id,
@@ -1878,6 +1900,24 @@ impl WeComGateway {
                                             ws_sink,
                                         )
                                         .await;
+
+                                    // After text stream, check for image parts and send them
+                                    let msg_id_str = info
+                                        .get("id")
+                                        .and_then(|id| id.as_str())
+                                        .unwrap_or("");
+                                    let gateway = self.clone();
+                                    let req_id_owned = req_id.to_string();
+                                    let ws_sink_clone = ws_sink.clone();
+                                    let sid = session_id.to_string();
+                                    let mid = msg_id_str.to_string();
+                                    tokio::spawn(async move {
+                                        gateway.send_image_parts_if_any(
+                                            port, &sid, &mid, &req_id_owned, &ws_sink_clone,
+                                        ).await;
+                                    });
+
+                                    return Ok(());
                                 }
                             }
                         }
@@ -2282,6 +2322,316 @@ impl WeComGateway {
         self.send_stream_chunk(req_id, &stream_id, text, true, ws_sink)
             .await
     }
+
+    /// Send a WS command and wait for the response (matched by req_id).
+    async fn ws_request(
+        &self,
+        msg: serde_json::Value,
+        req_id: &str,
+        ws_sink: &WsSink,
+    ) -> Result<serde_json::Value, String> {
+        use futures_util::SinkExt;
+
+        let (tx, rx) = oneshot::channel();
+        self.pending_responses
+            .lock()
+            .await
+            .insert(req_id.to_string(), tx);
+
+        ws_sink
+            .lock()
+            .await
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                msg.to_string().into(),
+            ))
+            .await
+            .map_err(|e| {
+                // Clean up on send failure
+                let pending = self.pending_responses.clone();
+                let rid = req_id.to_string();
+                tokio::spawn(async move {
+                    pending.lock().await.remove(&rid);
+                });
+                format!("Failed to send WS request: {}", e)
+            })?;
+
+        tokio::time::timeout(std::time::Duration::from_secs(30), rx)
+            .await
+            .map_err(|_| "WS request timed out".to_string())?
+            .map_err(|_| "WS response channel closed".to_string())
+    }
+
+    /// Upload media data to WeCom via the 3-step WebSocket upload protocol.
+    /// `media_type` is one of: "image", "voice", "video", "file".
+    /// Returns the media_id on success.
+    async fn upload_media(
+        &self,
+        data: &[u8],
+        filename: &str,
+        media_type: &str,
+        ws_sink: &WsSink,
+    ) -> Result<String, String> {
+        let md5_hash = format!("{:x}", md5::compute(data));
+        let total_size = data.len();
+        const CHUNK_SIZE: usize = 512 * 1024; // Max 512KB per chunk
+        let total_chunks = (total_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+
+        // Step 1: Init
+        let init_req_id = uuid::Uuid::new_v4().to_string();
+        let init_msg = serde_json::json!({
+            "cmd": "aibot_upload_media_init",
+            "headers": { "req_id": &init_req_id },
+            "body": {
+                "type": media_type,
+                "filename": filename,
+                "total_size": total_size,
+                "total_chunks": total_chunks,
+                "md5": &md5_hash,
+            }
+        });
+        let init_resp = self.ws_request(init_msg, &init_req_id, ws_sink).await?;
+        let upload_id = init_resp
+            .get("body")
+            .and_then(|b| b.get("upload_id"))
+            .and_then(|u| u.as_str())
+            .ok_or_else(|| {
+                format!(
+                    "No upload_id in init response: {}",
+                    serde_json::to_string(&init_resp).unwrap_or_default()
+                )
+            })?
+            .to_string();
+
+        println!(
+            "[WeCom] Media upload init: type={}, upload_id={}, chunks={}",
+            media_type, upload_id, total_chunks
+        );
+
+        // Step 2: Upload chunks
+        for i in 0..total_chunks {
+            let start = i * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(total_size);
+            let chunk_data =
+                base64::engine::general_purpose::STANDARD.encode(&data[start..end]);
+
+            let chunk_req_id = uuid::Uuid::new_v4().to_string();
+            let chunk_msg = serde_json::json!({
+                "cmd": "aibot_upload_media_chunk",
+                "headers": { "req_id": &chunk_req_id },
+                "body": {
+                    "upload_id": &upload_id,
+                    "chunk_index": i,
+                    "base64_data": &chunk_data,
+                }
+            });
+            let chunk_resp = self.ws_request(chunk_msg, &chunk_req_id, ws_sink).await?;
+            let errcode = chunk_resp
+                .get("body")
+                .and_then(|b| b.get("errcode"))
+                .and_then(|c| c.as_i64())
+                .unwrap_or(0);
+            if errcode != 0 {
+                return Err(format!("Upload chunk {} failed: {:?}", i, chunk_resp));
+            }
+        }
+
+        // Step 3: Finish
+        let finish_req_id = uuid::Uuid::new_v4().to_string();
+        let finish_msg = serde_json::json!({
+            "cmd": "aibot_upload_media_finish",
+            "headers": { "req_id": &finish_req_id },
+            "body": {
+                "upload_id": &upload_id,
+            }
+        });
+        let finish_resp = self.ws_request(finish_msg, &finish_req_id, ws_sink).await?;
+        let media_id = finish_resp
+            .get("body")
+            .and_then(|b| b.get("media_id"))
+            .and_then(|m| m.as_str())
+            .ok_or_else(|| {
+                format!(
+                    "No media_id in finish response: {}",
+                    serde_json::to_string(&finish_resp).unwrap_or_default()
+                )
+            })?
+            .to_string();
+
+        println!(
+            "[WeCom] Media upload complete: type={}, media_id={}",
+            media_type,
+            &media_id[..media_id.len().min(20)]
+        );
+        Ok(media_id)
+    }
+
+    /// Send a media message as a reply (image/voice/video/file).
+    async fn send_media_reply(
+        &self,
+        req_id: &str,
+        media_id: &str,
+        media_type: &str,
+        ws_sink: &WsSink,
+    ) -> Result<(), String> {
+        use futures_util::SinkExt;
+
+        let reply = serde_json::json!({
+            "cmd": "aibot_respond_msg",
+            "headers": { "req_id": req_id },
+            "body": {
+                "msgtype": media_type,
+                media_type: { "media_id": media_id },
+            }
+        });
+
+        ws_sink
+            .lock()
+            .await
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                reply.to_string().into(),
+            ))
+            .await
+            .map_err(|e| format!("Failed to send {} reply: {}", media_type, e))
+    }
+
+    /// Upload file bytes and send as a reply. Convenience wrapper.
+    async fn upload_and_send_media_reply(
+        &self,
+        req_id: &str,
+        data: &[u8],
+        filename: &str,
+        media_type: &str,
+        ws_sink: &WsSink,
+    ) -> Result<(), String> {
+        let media_id = self.upload_media(data, filename, media_type, ws_sink).await?;
+        self.send_media_reply(req_id, &media_id, media_type, ws_sink).await
+    }
+
+    /// Send a media message proactively to a chat (image/voice/video/file).
+    pub async fn send_media_to_chat(
+        &self,
+        chatid: &str,
+        chat_type: u32,
+        media_id: &str,
+        media_type: &str,
+    ) -> Result<(), String> {
+        use futures_util::SinkExt;
+
+        let ws_sink = self.shared_ws_sink.read().await.clone().ok_or_else(|| {
+            "WeCom gateway is not connected.".to_string()
+        })?;
+
+        let msg = serde_json::json!({
+            "cmd": "aibot_send_msg",
+            "headers": { "req_id": uuid::Uuid::new_v4().to_string() },
+            "body": {
+                "chatid": chatid,
+                "chat_type": chat_type,
+                "msgtype": media_type,
+                media_type: { "media_id": media_id },
+            }
+        });
+
+        let text = msg.to_string();
+        let mut guard = ws_sink.lock().await;
+        guard
+            .send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
+            .await
+            .map_err(|e| format!("Failed to send {}: {}", media_type, e))
+    }
+
+    /// After a message completes, fetch its parts and send any images to WeCom.
+    async fn send_image_parts_if_any(
+        &self,
+        port: u16,
+        session_id: &str,
+        message_id: &str,
+        req_id: &str,
+        ws_sink: &WsSink,
+    ) {
+        // Fetch full message from OpenCode API
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
+        let messages: Vec<serde_json::Value> = match client.get(&url).send().await {
+            Ok(resp) => match resp.json().await {
+                Ok(m) => m,
+                Err(_) => return,
+            },
+            Err(_) => return,
+        };
+
+        // Find the target message
+        let msg = match messages.iter().find(|m| {
+            m.get("info")
+                .and_then(|i| i.get("id"))
+                .and_then(|id| id.as_str())
+                == Some(message_id)
+        }) {
+            Some(m) => m,
+            None => return,
+        };
+
+        let parts = match msg.get("parts").and_then(|p| p.as_array()) {
+            Some(p) => p,
+            None => return,
+        };
+
+        for part in parts {
+            let part_type = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if part_type != "file" {
+                continue;
+            }
+
+            // Extract data URL from the file part
+            let content = match part.get("content").and_then(|c| c.as_str()) {
+                Some(c) if c.starts_with("data:image/") => c,
+                _ => continue,
+            };
+
+            // Parse data URL: data:image/png;base64,<data>
+            let base64_part = match content.split(",").nth(1) {
+                Some(b) => b,
+                None => continue,
+            };
+
+            let image_bytes =
+                match base64::engine::general_purpose::STANDARD.decode(base64_part) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("[WeCom] Failed to decode image base64: {}", e);
+                        continue;
+                    }
+                };
+
+            // Determine filename from mime type
+            let filename = if content.starts_with("data:image/png") {
+                "image.png"
+            } else if content.starts_with("data:image/gif") {
+                "image.gif"
+            } else if content.starts_with("data:image/webp") {
+                "image.webp"
+            } else {
+                "image.jpg"
+            };
+
+            match self
+                .upload_and_send_media_reply(req_id, &image_bytes, filename, "image", ws_sink)
+                .await
+            {
+                Ok(()) => println!(
+                    "[WeCom] Image part sent successfully ({} bytes)",
+                    image_bytes.len()
+                ),
+                Err(e) => eprintln!("[WeCom] Failed to send image part: {}", e),
+            }
+        }
+    }
 }
 
 /// Send a proactive message to a WeCom conversation.
@@ -2301,4 +2651,38 @@ pub async fn send_proactive_message(
         })?;
 
     gateway.send_chat_message(chatid, chat_type, text).await
+}
+
+/// Upload media and send it to a WeCom conversation.
+/// `media_type` is one of: "image", "voice", "video", "file".
+/// Called by the introspect API for MCP media sending.
+pub async fn upload_and_send_media(
+    chatid: &str,
+    chat_type: u32,
+    data: &[u8],
+    filename: &str,
+    media_type: &str,
+) -> Result<(), String> {
+    let gateway = get_active_gateway_holder()
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| {
+            "WeCom gateway is not running. Start the WeCom gateway before sending media."
+                .to_string()
+        })?;
+
+    let ws_sink = gateway
+        .shared_ws_sink
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| "WeCom gateway is not connected.".to_string())?;
+
+    let media_id = gateway
+        .upload_media(data, filename, media_type, &ws_sink)
+        .await?;
+    gateway
+        .send_media_to_chat(chatid, chat_type, &media_id, media_type)
+        .await
 }

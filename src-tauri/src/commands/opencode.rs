@@ -887,13 +887,35 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
         }
 
         if !mcp_obj.contains_key("teamclaw-introspect") {
+            // Resolve absolute path to the sidecar binary.
+            // In dev: <repo>/src-tauri/binaries/teamclaw-introspect-<triple>
+            // In prod: next to the main executable in the app bundle
+            let triple = get_target_triple();
+            let introspect_bin = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
+                .map(|dir| {
+                    // Dev mode: exe is in .cargo-target/debug/, binaries are in src-tauri/binaries/
+                    let dev_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("binaries")
+                        .join(format!("teamclaw-introspect-{}", triple));
+                    if dev_path.exists() {
+                        return dev_path.to_string_lossy().to_string();
+                    }
+                    // Production: sidecar is next to the main exe
+                    dir.join(format!("teamclaw-introspect-{}", triple))
+                        .to_string_lossy()
+                        .to_string()
+                })
+                .unwrap_or_else(|| format!("teamclaw-introspect-{}", triple));
+
             mcp_obj.insert(
                 "teamclaw-introspect".to_string(),
                 serde_json::json!({
                     "type": "local",
                     "enabled": true,
                     "command": [
-                        "./binaries/teamclaw-introspect",
+                        introspect_bin,
                         "--workspace", workspace_path,
                         "--api-port", format!("{}", super::introspect_api::INTROSPECT_API_PORT)
                     ]
@@ -1206,6 +1228,22 @@ fn resolve_sidecar_binary_paths(workspace_path: &str) -> Result<(), String> {
                     if let Some(arr) = command.as_array_mut() {
                         for item in arr.iter_mut() {
                             if let Some(cmd_str) = item.as_str() {
+                                // Fix legacy relative paths like ./binaries/teamclaw-introspect
+                                if cmd_str.starts_with("./binaries/teamclaw-introspect") {
+                                    let abs_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                                        .join("binaries")
+                                        .join(format!("teamclaw-introspect-{}", target_triple));
+                                    if abs_path.exists() {
+                                        let new_cmd = abs_path.to_string_lossy().to_string();
+                                        println!(
+                                            "[OpenCode] Resolved MCP '{}' binary: {} -> {}",
+                                            name, cmd_str, new_cmd
+                                        );
+                                        *item = serde_json::Value::String(new_cmd);
+                                        modified = true;
+                                    }
+                                    continue;
+                                }
                                 // Only touch paths that reference our bundled binaries
                                 if !cmd_str.contains("src-tauri/binaries/") {
                                     continue;

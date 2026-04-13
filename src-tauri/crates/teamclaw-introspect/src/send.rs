@@ -9,14 +9,33 @@ pub async fn handle(workspace: &str, api_port: u16, arguments: &Value) -> Result
     let message = arguments
         .get("message")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "Missing required parameter: message".to_string())?;
+        .unwrap_or("");
 
     let target = arguments.get("target").and_then(|v| v.as_str());
+    let file_path = arguments.get("file_path").and_then(|v| v.as_str());
+
+    // Read media file if provided
+    let image_data = if let Some(path) = file_path {
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("image.jpg")
+            .to_string();
+        Some((bytes, filename))
+    } else {
+        None
+    };
+
+    if message.is_empty() && image_data.is_none() {
+        return Err("At least one of 'message' or 'file_path' is required.".to_string());
+    }
 
     if channel == "all" {
         send_broadcast(workspace, api_port, message, target).await
     } else {
-        send_single(workspace, api_port, channel, message, target).await
+        send_single(workspace, api_port, channel, message, target, image_data.as_ref()).await
     }
 }
 
@@ -45,7 +64,7 @@ async fn send_broadcast(
             continue;
         }
 
-        match send_single(workspace, api_port, name, message, target).await {
+        match send_single(workspace, api_port, name, message, target, None).await {
             Ok(_) => {
                 results.insert(name.to_string(), json!({"status": "ok"}));
                 sent_count += 1;
@@ -79,6 +98,7 @@ async fn send_single(
     channel: &str,
     message: &str,
     target: Option<&str>,
+    image_data: Option<&(Vec<u8>, String)>,
 ) -> Result<Value, String> {
     let config = crate::config::read_teamclaw_config(workspace)?;
     let channels_val = config.get("channels").cloned().unwrap_or(json!({}));
@@ -93,7 +113,7 @@ async fn send_single(
         "feishu" => send_feishu(&channels_val, message, target).await,
         "kook" => send_kook(&channels_val, message, target).await,
         "wechat" => send_wechat(&channels_val, message, target).await,
-        "wecom" => send_wecom(api_port, message, target).await,
+        "wecom" => send_wecom(api_port, message, target, image_data).await,
         "email" => Err("Email sending from MCP is not yet supported.".to_string()),
         other => Err(format!("Unknown channel: {other}")),
     }
@@ -471,14 +491,24 @@ async fn send_wecom(
     api_port: u16,
     message: &str,
     target: Option<&str>,
+    image_data: Option<&(Vec<u8>, String)>,
 ) -> Result<Value, String> {
+    use base64::Engine as _;
+
     let tgt = target.unwrap_or("");
     let url = format!("http://127.0.0.1:{api_port}/send-wecom");
 
-    let body = json!({
+    let mut body = json!({
         "target": tgt,
         "message": message
     });
+
+    // Attach media file as base64 if provided
+    if let Some((bytes, filename)) = image_data {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+        body["media_base64"] = json!(b64);
+        body["media_filename"] = json!(filename);
+    }
 
     let client = reqwest::Client::new();
     let resp = client
@@ -496,7 +526,8 @@ async fn send_wecom(
 
     Ok(json!({
         "channel": "wecom",
-        "target": tgt
+        "target": tgt,
+        "media_sent": image_data.is_some()
     }))
 }
 

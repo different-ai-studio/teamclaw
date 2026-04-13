@@ -119,6 +119,29 @@ fn main() {
         );
     }
 
+    // Check that the teamclaw-introspect sidecar binary exists.
+    // Unlike opencode (downloaded), this is built from crates/teamclaw-introspect.
+    // rust-cli.js auto-builds it before invoking cargo.
+    let introspect_bin = format!("binaries/teamclaw-introspect-{}", target_triple);
+    let introspect_bin_exe = format!("{}.exe", introspect_bin);
+    let introspect_exists = std::path::Path::new(&introspect_bin).exists()
+        || (target_triple.contains("windows")
+            && std::path::Path::new(&introspect_bin_exe).exists());
+    if !introspect_exists && !in_ci {
+        panic!(
+            "\n\n\
+            ╔══════════════════════════════════════════════════════════════╗\n\
+            ║  teamclaw-introspect sidecar binary not found!             ║\n\
+            ║                                                            ║\n\
+            ║  Build it with:                                            ║\n\
+            ║    cargo build -p teamclaw-introspect                      ║\n\
+            ║    cp target/debug/teamclaw-introspect {:<20}║\n\
+            ╚══════════════════════════════════════════════════════════════╝\n\n",
+            introspect_bin
+        );
+    }
+    println!("cargo:rerun-if-changed={}", introspect_bin);
+
     // ── Compile protobuf ──
     let proto_path = root_dir.join("proto/teamclaw.proto");
     println!("cargo:rerun-if-changed={}", proto_path.display());

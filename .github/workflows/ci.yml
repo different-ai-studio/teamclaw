@@ -60,10 +60,11 @@ jobs:
           workspaces: |
             ./src-tauri -> target
 
-      - name: Create stub sidecar binary (tauri-build requires it to exist)
+      - name: Create stub sidecar binaries (tauri-build requires them to exist)
         run: |
           mkdir -p src-tauri/binaries
           touch src-tauri/binaries/opencode-x86_64-unknown-linux-gnu
+          touch src-tauri/binaries/teamclaw-introspect-x86_64-unknown-linux-gnu
 
       - name: Check Rust formatting
         run: cargo fmt --check --manifest-path src-tauri/Cargo.toml

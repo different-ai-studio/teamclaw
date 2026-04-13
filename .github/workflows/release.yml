@@ -121,7 +121,18 @@ jobs:
           ) > /tmp/opencode.log 2>&1 &
           PID_OPENCODE=$!
 
-          # 3) Import Apple certificate (background, fast but independent)
+          # 3) Build teamclaw-introspect sidecar (background)
+          (
+            set -e
+            echo "Building teamclaw-introspect for ${{ matrix.target }}..."
+            cargo build --release --manifest-path src-tauri/crates/teamclaw-introspect/Cargo.toml --target ${{ matrix.target }}
+            cp target/${{ matrix.target }}/release/teamclaw-introspect src-tauri/binaries/teamclaw-introspect-${{ matrix.target }}
+            chmod +x src-tauri/binaries/teamclaw-introspect-${{ matrix.target }}
+            echo "teamclaw-introspect ready"
+          ) > /tmp/introspect.log 2>&1 &
+          PID_INTROSPECT=$!
+
+          # 4) Import Apple certificate (background, fast but independent)
           (
             if [ -z "$APPLE_CERTIFICATE" ]; then
               echo "No certificate, using ad-hoc signing."
@@ -147,9 +158,10 @@ jobs:
 
           # Wait for all; dump logs on failure
           FAILED=0
-          wait $PID_FRONTEND || { echo "::error::Frontend build failed:"; cat /tmp/frontend.log; FAILED=1; }
-          wait $PID_OPENCODE || { echo "::error::opencode download failed:"; cat /tmp/opencode.log; FAILED=1; }
-          wait $PID_CERT     || { echo "::error::Certificate import failed:"; cat /tmp/cert.log; FAILED=1; }
+          wait $PID_FRONTEND   || { echo "::error::Frontend build failed:"; cat /tmp/frontend.log; FAILED=1; }
+          wait $PID_OPENCODE   || { echo "::error::opencode download failed:"; cat /tmp/opencode.log; FAILED=1; }
+          wait $PID_INTROSPECT || { echo "::error::introspect build failed:"; cat /tmp/introspect.log; FAILED=1; }
+          wait $PID_CERT       || { echo "::error::Certificate import failed:"; cat /tmp/cert.log; FAILED=1; }
 
           if [ "$FAILED" -ne 0 ]; then exit 1; fi
 
@@ -289,6 +301,13 @@ jobs:
           mv "$RUNNER_TEMP/opencode-extract/opencode.exe" src-tauri/binaries/opencode-x86_64-pc-windows-msvc.exe
           echo "opencode ${OPENCODE_VERSION} ready"
           ls -lh src-tauri/binaries/
+
+      - name: Build teamclaw-introspect sidecar
+        shell: bash
+        run: |
+          cargo build --release --manifest-path src-tauri/crates/teamclaw-introspect/Cargo.toml
+          cp target/release/teamclaw-introspect.exe src-tauri/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
+          echo "teamclaw-introspect ready"
 
       # Skip beforeBuildCommand since frontend is already built above
       - name: Skip frontend rebuild in tauri build
