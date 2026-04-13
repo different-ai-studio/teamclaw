@@ -292,6 +292,23 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
 
       if (childSessionStreaming[event.sessionId]) {
         if (event.status.type === 'idle') {
+          const state = get();
+          const hasPendingPermission = state.pendingPermissions.some(
+            (entry) => entry.childSessionId === event.sessionId,
+          );
+          const hasPendingQuestion = state.pendingQuestions.some(
+            (entry) => entry.sessionId === event.sessionId,
+          );
+
+          if (hasPendingPermission || hasPendingQuestion) {
+            console.log("[Session] Child session idle but waiting for user interaction, preserving:", {
+              sessionId: event.sessionId,
+              hasPendingPermission,
+              hasPendingQuestion,
+            });
+            return;
+          }
+
           console.log("[Session] Child session idle, finalizing:", event.sessionId);
           cleanupChildSession(event.sessionId);
           set((state) => ({

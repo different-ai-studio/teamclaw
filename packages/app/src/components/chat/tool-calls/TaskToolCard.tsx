@@ -17,6 +17,7 @@ import {
   statusConfig,
   useToolCallTimeout,
 } from "./tool-call-utils";
+import { PermissionApprovalBar } from "./PermissionApprovalBar";
 
 // Skill Tool Card - Shows skill execution inline
 export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
@@ -116,6 +117,7 @@ export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
             )}
           </div>
         </CollapsibleContent>
+        <PermissionApprovalBar toolCall={toolCall} />
       </div>
     </Collapsible>
   );
@@ -212,6 +214,7 @@ export function RoleSkillToolCard({ toolCall }: { toolCall: ToolCall }) {
             )}
           </div>
         </CollapsibleContent>
+        <PermissionApprovalBar toolCall={toolCall} />
       </div>
     </Collapsible>
   );

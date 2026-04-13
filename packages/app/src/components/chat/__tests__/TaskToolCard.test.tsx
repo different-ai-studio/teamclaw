@@ -7,6 +7,7 @@ vi.mock("@/stores/session", () => ({
     (selector: (state: unknown) => unknown) =>
       selector({
         forceCompleteToolCall: vi.fn(),
+        replyPermission: vi.fn(() => Promise.resolve()),
       }),
     {
       getState: () => ({
@@ -59,7 +60,7 @@ vi.mock("@/lib/utils", async () => {
   };
 });
 
-import { TaskToolCard } from "@/components/chat/tool-calls/TaskToolCard";
+import { SkillToolCard, TaskToolCard } from "@/components/chat/tool-calls/TaskToolCard";
 
 describe("TaskToolCard", () => {
   it("keeps only the view-session entry in the parent session", () => {
@@ -95,5 +96,30 @@ describe("TaskToolCard", () => {
     expect(screen.queryByText("查看子任务详情")).toBeNull();
     expect(screen.queryByText("final child output should not be shown inline")).toBeNull();
     expect(screen.queryByText("streaming details should stay in the child session view")).toBeNull();
+  });
+
+  it("renders permission approval actions for pending skill tool calls", () => {
+    const toolCall: ToolCall = {
+      id: "skill-1",
+      name: "skill",
+      status: "waiting",
+      arguments: {
+        name: "dispatching-parallel-agents",
+      },
+      startTime: new Date("2026-04-10T10:00:00Z"),
+      permission: {
+        id: "perm-skill-1",
+        permission: "skill",
+        patterns: ["dispatching-parallel-agents"],
+        decision: "pending",
+      },
+    };
+
+    render(<SkillToolCard toolCall={toolCall} />);
+
+    expect(screen.getByText("Skill dispatching-parallel-agents")).toBeTruthy();
+    expect(screen.getByText("Deny")).toBeTruthy();
+    expect(screen.getByText("Always allow 'dispatching-parallel-agents'")).toBeTruthy();
+    expect(screen.getByText("Allow")).toBeTruthy();
   });
 });
