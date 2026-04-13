@@ -192,7 +192,7 @@ interface KnowledgeState {
   buildWikiFileMap: () => Promise<void>
   resolveWikiLink: (target: string) => string | null
   getAllPageNames: () => PageNameEntry[]
-  createNoteFromLink: (pageName: string) => Promise<string>
+  createNoteFromLink: (pageName: string, knowledgeDir?: string) => Promise<string>
 }
 
 export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
@@ -606,7 +606,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
     return getAllPageNamesFn(get().wikiFileMap)
   },
 
-  createNoteFromLink: async (pageName: string) => {
+  createNoteFromLink: async (pageName: string, knowledgeDir?: string) => {
     const workspacePath = useWorkspaceStore.getState().workspacePath
     if (!workspacePath) throw new Error('No workspace')
 
@@ -619,7 +619,8 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
       throw new Error(`Invalid page name: ${pageName}`)
     }
 
-    const filePath = `${workspacePath}/knowledge/${clean}.md`
+    const targetDir = knowledgeDir ?? `${workspacePath}/knowledge`
+    const filePath = `${targetDir}/${clean}.md`
     // Determine parent directory of the target file to support nested names like "project/roadmap"
     const lastSlash = filePath.lastIndexOf('/')
     const parentDir = filePath.slice(0, lastSlash)
