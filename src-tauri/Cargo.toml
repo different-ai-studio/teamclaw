@@ -52,7 +52,7 @@ futures-util = "0.3"
 tempfile = "3"
 cron = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.9"
+chrono-tz = "0.10"
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 regex = "1"
