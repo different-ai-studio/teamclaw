@@ -229,8 +229,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
       })
       set({ indexStatus: status })
     } catch (error) {
-      console.error('Failed to load index status:', error)
-      toast.error(i18n.t('knowledge.toast.loadIndexStatusFailed'))
+      console.warn('[Knowledge] Failed to load index status:', error)
     }
   },
 
@@ -410,8 +409,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
         set({ config })
       }, { loadingKey: 'isLoadingConfig', rethrow: true })
     } catch (error) {
-      console.error('Failed to load config:', error)
-      toast.error(i18n.t('knowledge.toast.loadConfigFailed'))
+      console.warn('[Knowledge] Failed to load config:', error)
     }
   },
 

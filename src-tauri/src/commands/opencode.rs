@@ -906,35 +906,45 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
             let introspect_bin = std::env::current_exe()
                 .ok()
                 .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
-                .map(|dir| {
+                .and_then(|dir| {
                     // Dev mode: exe is in .cargo-target/debug/, binaries are in src-tauri/binaries/
                     let dev_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                         .join("binaries")
                         .join(format!("teamclaw-introspect-{}", triple));
                     if dev_path.exists() {
-                        return dev_path.to_string_lossy().to_string();
+                        return Some(dev_path.to_string_lossy().to_string());
                     }
                     // Production: sidecar is next to the main exe
-                    dir.join(format!("teamclaw-introspect-{}", triple))
-                        .to_string_lossy()
-                        .to_string()
-                })
-                .unwrap_or_else(|| format!("teamclaw-introspect-{}", triple));
+                    // Tauri may strip the triple suffix when bundling
+                    let prod_path_with_triple = dir.join(format!("teamclaw-introspect-{}", triple));
+                    if prod_path_with_triple.exists() {
+                        return Some(prod_path_with_triple.to_string_lossy().to_string());
+                    }
+                    let prod_path = dir.join("teamclaw-introspect");
+                    if prod_path.exists() {
+                        return Some(prod_path.to_string_lossy().to_string());
+                    }
+                    None
+                });
 
-            mcp_obj.insert(
-                "teamclaw-introspect".to_string(),
-                serde_json::json!({
-                    "type": "local",
-                    "enabled": true,
-                    "command": [
-                        introspect_bin,
-                        "--workspace", workspace_path,
-                        "--api-port", format!("{}", super::introspect_api::INTROSPECT_API_PORT)
-                    ]
-                }),
-            );
-            changed = true;
-            println!("[Config] Added inherent 'teamclaw-introspect' MCP config");
+            if let Some(introspect_bin) = introspect_bin {
+                mcp_obj.insert(
+                    "teamclaw-introspect".to_string(),
+                    serde_json::json!({
+                        "type": "local",
+                        "enabled": true,
+                        "command": [
+                            introspect_bin,
+                            "--workspace", workspace_path,
+                            "--api-port", format!("{}", super::introspect_api::INTROSPECT_API_PORT)
+                        ]
+                    }),
+                );
+                changed = true;
+                println!("[Config] Added inherent 'teamclaw-introspect' MCP config");
+            } else {
+                println!("[Config] teamclaw-introspect binary not found, skipping MCP registration");
+            }
         }
 
         if !mcp_obj.contains_key("autoui") {
