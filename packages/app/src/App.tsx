@@ -1223,18 +1223,13 @@ function App() {
   const { showConsentDialog, setShowConsentDialog } = useTelemetryConsent(showSetupGuide);
   const devUnlocked = useTeamModeStore(s => s.devUnlocked)
 
-  if (spotlightMode) {
-    return (
-      <>
-        <SSEProvider />
-        <Suspense fallback={<div className="h-screen w-screen rounded-2xl overflow-hidden" />}>
-          <div className="h-screen w-screen rounded-2xl overflow-hidden">
-            <SpotlightWindow />
-          </div>
-        </Suspense>
-      </>
-    )
-  }
+  const spotlightContent = (
+    <Suspense fallback={<div className="h-screen w-screen rounded-2xl overflow-hidden" />}>
+      <div className="h-screen w-screen rounded-2xl overflow-hidden">
+        <SpotlightWindow />
+      </div>
+    </Suspense>
+  )
 
   const mainContent = (
     <>
@@ -1277,7 +1272,12 @@ function App() {
   return isTauri() ? (
     <div className="h-screen w-screen rounded-2xl overflow-hidden bg-background">
       <SSEProvider />
-      {mainContent}
+      <div style={{ display: spotlightMode ? 'contents' : 'none' }}>
+        {spotlightContent}
+      </div>
+      <div style={{ display: spotlightMode ? 'none' : 'contents' }}>
+        {mainContent}
+      </div>
       {devUnlocked && (
         <div className="fixed bottom-2 right-2 z-50 text-[10px] font-mono font-bold text-orange-500 bg-orange-500/10 border border-orange-500/30 px-1.5 py-0.5 rounded pointer-events-none">
           DEV
@@ -1287,7 +1287,12 @@ function App() {
   ) : (
     <>
       <SSEProvider />
-      {mainContent}
+      <div style={{ display: spotlightMode ? 'contents' : 'none' }}>
+        {spotlightContent}
+      </div>
+      <div style={{ display: spotlightMode ? 'none' : 'contents' }}>
+        {mainContent}
+      </div>
     </>
   )
 }

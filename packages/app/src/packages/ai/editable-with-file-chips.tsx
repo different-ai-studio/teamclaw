@@ -138,7 +138,8 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
         editableRef.current.innerHTML = html || ""
         
         // Restore cursor to end and focus when content was updated externally
-        {
+        // Guard: skip focus if element is hidden (e.g. inside display:none parent)
+        if (editableRef.current.offsetParent !== null) {
           editableRef.current.focus()
           const range = document.createRange()
           const sel = window.getSelection()
