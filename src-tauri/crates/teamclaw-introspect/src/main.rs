@@ -53,7 +53,7 @@ fn tool_definitions() -> Value {
                     "channel": {
                         "type": "string",
                         "description": "The channel to send through, or 'all' to broadcast to all configured channels.",
-                        "enum": ["all", "wecom", "feishu", "discord", "telegram", "slack", "email", "kook", "wechat"]
+                        "enum": ["all", "wecom", "discord", "email", "feishu", "kook", "wechat"]
                     },
                     "message": {
                         "type": "string",
