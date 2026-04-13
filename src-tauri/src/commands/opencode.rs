@@ -886,6 +886,23 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
             println!("[Config] Added inherent 'chrome-control' MCP config");
         }
 
+        if !mcp_obj.contains_key("teamclaw-introspect") {
+            mcp_obj.insert(
+                "teamclaw-introspect".to_string(),
+                serde_json::json!({
+                    "type": "local",
+                    "enabled": true,
+                    "command": [
+                        "./binaries/teamclaw-introspect",
+                        "--workspace", workspace_path,
+                        "--api-port", format!("{}", super::introspect_api::INTROSPECT_API_PORT)
+                    ]
+                }),
+            );
+            changed = true;
+            println!("[Config] Added inherent 'teamclaw-introspect' MCP config");
+        }
+
         if !mcp_obj.contains_key("autoui") {
             mcp_obj.insert(
                 "autoui".to_string(),

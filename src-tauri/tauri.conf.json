@@ -71,7 +71,8 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/opencode"
+      "binaries/opencode",
+      "binaries/teamclaw-introspect"
     ]
   }
 }
