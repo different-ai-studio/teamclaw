@@ -1,0 +1,348 @@
+mod capabilities;
+mod config;
+mod cron;
+mod send;
+mod shortcuts;
+
+use clap::Parser;
+use serde_json::{json, Value};
+use std::io::{BufRead, BufReader, Write};
+
+// ---------------------------------------------------------------------------
+// CLI args
+// ---------------------------------------------------------------------------
+
+#[derive(Parser, Debug)]
+#[command(name = "teamclaw-introspect", about = "TeamClaw MCP introspection server")]
+struct Args {
+    /// Path to the TeamClaw workspace directory
+    #[arg(long, default_value = ".")]
+    workspace: String,
+
+    /// Port of the local TeamClaw API server
+    #[arg(long, default_value_t = 1420)]
+    api_port: u16,
+}
+
+// ---------------------------------------------------------------------------
+// Tool definitions
+// ---------------------------------------------------------------------------
+
+fn tool_definitions() -> Value {
+    json!([
+        {
+            "name": "get_my_capabilities",
+            "description": "Query the AI agent's configured capabilities including channels, role, shortcuts, team members, environment variables, team info, and cron jobs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Optional category filter",
+                        "enum": ["channels", "role", "shortcuts", "team_members", "env_vars", "team_info", "cron_jobs"]
+                    }
+                }
+            }
+        },
+        {
+            "name": "send_channel_message",
+            "description": "Send a message via a configured channel gateway.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "type": "string",
+                        "description": "The channel to send through, or 'all' to broadcast to all configured channels.",
+                        "enum": ["all", "wecom", "feishu", "discord", "telegram", "slack", "email", "kook", "wechat"]
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "The message text to send."
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Optional target (user, channel, group) within the channel."
+                    }
+                },
+                "required": ["channel", "message"]
+            }
+        },
+        {
+            "name": "manage_cron_job",
+            "description": "Create, pause, resume, delete, or inspect cron jobs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "The action to perform.",
+                        "enum": ["create", "pause", "resume", "delete", "run", "get_runs"]
+                    },
+                    "job_id": {
+                        "type": "string",
+                        "description": "The cron job ID (required for pause/resume/delete/run/get_runs)."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Job name (required for create)."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Human-readable description of what the job does."
+                    },
+                    "schedule": {
+                        "type": "string",
+                        "description": "Cron expression, e.g. '0 9 * * 1-5' (required for create)."
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Message or prompt to execute on each run (required for create)."
+                    },
+                    "delivery": {
+                        "type": "string",
+                        "description": "Optional delivery channel for cron results."
+                    }
+                },
+                "required": ["action"]
+            }
+        },
+        {
+            "name": "manage_shortcuts",
+            "description": "Create, update, or delete agent shortcuts.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "The action to perform.",
+                        "enum": ["create", "update", "delete"]
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "Shortcut ID (required for update/delete)."
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "Display label for the shortcut."
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": "Shortcut type (e.g. 'prompt', 'skill', 'url')."
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "The shortcut target value."
+                    },
+                    "icon": {
+                        "type": "string",
+                        "description": "Optional icon name or URL."
+                    },
+                    "parent_id": {
+                        "type": "string",
+                        "description": "Optional parent shortcut ID for nested shortcuts."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    ])
+}
+
+// ---------------------------------------------------------------------------
+// MCP response helpers
+// ---------------------------------------------------------------------------
+
+fn mcp_result(id: &Value, result: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": result
+    })
+}
+
+fn mcp_error(id: &Value, code: i64, message: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message
+        }
+    })
+}
+
+fn tool_ok(text: &str) -> Value {
+    json!({
+        "content": [{"type": "text", "text": text}]
+    })
+}
+
+fn tool_err(text: &str) -> Value {
+    json!({
+        "content": [{"type": "text", "text": text}],
+        "isError": true
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Main dispatch
+// ---------------------------------------------------------------------------
+
+async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<Value> {
+    let method = req.get("method")?.as_str()?;
+    let id = req.get("id").cloned().unwrap_or(Value::Null);
+
+    match method {
+        // Notifications — no response needed
+        "notifications/initialized" | "notifications/cancelled" => None,
+
+        "initialize" => {
+            let params = req.get("params");
+            let client_info = params.and_then(|p| p.get("clientInfo"));
+            eprintln!(
+                "[introspect] initialize from {:?}",
+                client_info
+                    .and_then(|c| c.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown")
+            );
+
+            Some(mcp_result(
+                &id,
+                json!({
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": "teamclaw-introspect",
+                        "version": "0.1.0"
+                    }
+                }),
+            ))
+        }
+
+        "tools/list" => Some(mcp_result(
+            &id,
+            json!({ "tools": tool_definitions() }),
+        )),
+
+        "tools/call" => {
+            let params = match req.get("params") {
+                Some(p) => p,
+                None => return Some(mcp_error(&id, -32602, "Missing params")),
+            };
+            let tool_name = match params.get("name").and_then(|n| n.as_str()) {
+                Some(n) => n,
+                None => return Some(mcp_error(&id, -32602, "Missing tool name")),
+            };
+            let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+
+            let tool_result = match tool_name {
+                "get_my_capabilities" => {
+                    match capabilities::handle(workspace, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                "send_channel_message" => {
+                    match send::handle(workspace, api_port, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                "manage_cron_job" => {
+                    match cron::handle(workspace, api_port, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                "manage_shortcuts" => {
+                    match shortcuts::handle(workspace, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                unknown => tool_err(&format!("Unknown tool: {unknown}")),
+            };
+
+            Some(mcp_result(&id, tool_result))
+        }
+
+        unknown => {
+            eprintln!("[introspect] Unknown method: {unknown}");
+            Some(mcp_error(&id, -32601, &format!("Method not found: {unknown}")))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+#[tokio::main]
+async fn main() {
+    let args = Args::parse();
+    let workspace = args.workspace.clone();
+    let api_port = args.api_port;
+
+    eprintln!(
+        "[introspect] Starting MCP server (workspace={}, api_port={})",
+        workspace, api_port
+    );
+
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let reader = BufReader::new(stdin.lock());
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("[introspect] stdin read error: {e}");
+                break;
+            }
+        };
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let req: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[introspect] JSON parse error: {e}");
+                let err_resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": null,
+                    "error": {"code": -32700, "message": format!("Parse error: {e}")}
+                });
+                let mut out = stdout.lock();
+                let _ = writeln!(out, "{}", err_resp);
+                let _ = out.flush();
+                continue;
+            }
+        };
+
+        if let Some(response) = handle_request(&req, &workspace, api_port).await {
+            let mut out = stdout.lock();
+            let _ = writeln!(out, "{}", response);
+            let _ = out.flush();
+        }
+    }
+
+    eprintln!("[introspect] stdin closed, exiting");
+}
