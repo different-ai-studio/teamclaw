@@ -46,7 +46,7 @@
 - **解析（parseHTML）：** 从 Markdown 源文本中识别 `[[...]]` 模式，转换为自定义 inline node
 - **渲染（renderHTML）：** 渲染为 `<span class="wiki-link" data-target="pageName">` 带样式的可点击元素
 - **点击处理：** 点击链接时，查询文件映射表，在编辑器中打开目标文件
-- **Markdown 序列化：** 保存时原样输出 `[[pageName]]` 文本，保持与 Obsidian 的兼容性
+- **Markdown 序列化：** 通过 `@tiptap/markdown` 的 extension config 扩展点实现（`markdownTokenizer` + `parseMarkdown` + `renderMarkdown`）。底层解析器为 `marked`（非 markdown-it），编写自定义 inline tokenizer 识别 `[[...]]` token。不走 string pre/post processing，保持与 Obsidian 的兼容性
 
 **节点 Schema：**
 
@@ -153,7 +153,37 @@ createNoteFromLink(pageName: string): Promise<string>;
 3. 在编辑器中打开新文件
 4. 更新文件映射表
 
-### 7. RAG 搜索集成
+### 7. Knowledge Sidebar（left dock tab）
+
+在 left dock 新增一个 "Knowledge" tab，复用现有 `FileBrowser` / `FileTree` 组件，作用域限定为 `knowledge/` 目录。
+
+**入口：** left dock panel tab 栏新增一个 Knowledge 图标（`BookOpen` 或 `Library`），与现有 Shortcuts / Files tab 并列。
+
+**改造 FileBrowser：** 添加可选的 `rootPath` prop，默认为 workspace root。Knowledge tab 传入 `${workspacePath}/knowledge`。
+
+**顶部工具栏（4 个图标按钮）：**
+
+| 图标 | 功能 | 说明 |
+|------|------|------|
+| `FilePlus` | 新建笔记 | 在当前选中目录（或 knowledge/ 根）下创建 `.md` 文件，写入默认 frontmatter |
+| `FolderPlus` | 新建文件夹 | 在当前选中目录下创建子目录 |
+| `ArrowUpDown` | 排序切换 | 切换排序方式：按名称（默认）/ 按修改时间 |
+| `ChevronsDownUp` | 全部折叠 | 调用 `collapseAll()` 收起所有展开的目录 |
+
+**复用的能力（零改动）：**
+- 虚拟滚动（大目录性能）
+- 展开/折叠目录
+- 单击打开文件
+- 右键上下文菜单（重命名、删除、复制等）
+- 文件图标
+
+**不显示的信息（knowledge 场景不需要）：**
+- Git 状态标记
+- 团队同步状态
+
+**文件位置：** `packages/app/src/components/knowledge/KnowledgeBrowser.tsx`（新建，薄 wrapper）
+
+### 8. RAG 搜索集成
 
 不改动 Rust 侧搜索逻辑。在前端展示搜索结果时：
 
@@ -164,11 +194,61 @@ createNoteFromLink(pageName: string): Promise<string>;
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `packages/app/src/components/editors/extensions/WikiLinkExtension.ts` | 新建 | Tiptap wiki link 扩展 |
+| `packages/app/src/components/editors/extensions/WikiLinkExtension.ts` | 新建 | Tiptap wiki link 扩展（含 markdown-it plugin） |
 | `packages/app/src/components/editors/extensions/WikiLinkSuggestion.tsx` | 新建 | 自动补全弹窗组件 |
+| `packages/app/src/components/knowledge/KnowledgeBrowser.tsx` | 新建 | Knowledge sidebar wrapper（工具栏 + FileBrowser） |
 | `packages/app/src/stores/knowledge.ts` | 修改 | 添加 WikiLinkIndex 和解析方法 |
 | `packages/app/src/components/editors/TiptapMarkdownEditor.tsx` | 修改 | 注册 WikiLink extension |
 | `packages/app/src/components/knowledge/KnowledgeSearchPreview.tsx` | 修改 | 搜索结果中渲染 wiki links |
+| `packages/app/src/components/workspace/FileBrowser.tsx` | 修改 | 添加 `rootPath` prop 支持 |
+| `packages/app/src/App.tsx` | 修改 | left dock 新增 Knowledge tab |
+
+## 设计决策
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| Markdown 序列化 | 扩展 `@tiptap/markdown`（marked custom tokenizer） | 一等公民方案，复制粘贴等边缘场景自动 work，不额外增加 string pre/post processing 管道 |
+| Node 类型 | `atom: true` inline node | 不可编辑但实现简单；修改需删除重建，v1 可接受 |
+| 同名文件 | 选路径最短的 | Obsidian 会提示选择，v1 简化处理 |
+| 新建笔记位置 | `knowledge/` 根目录 | v1 简化，未来可加目录选择器 |
+| 搜索结果渲染 | 正则提取 `[[]]` 并排除代码块 | 避免误渲染代码示例中的 wiki link 语法 |
+| Knowledge sidebar | 复用 FileBrowser + left dock tab | 零新组件树，只加薄 wrapper 和 `rootPath` prop；隐藏 git/sync 状态 |
+
+## Obsidian 兼容性
+
+### 完全兼容
+
+| 操作 | 说明 |
+|------|------|
+| 文件读写 | 双方都是普通 `.md` 文件操作，完全等价 |
+| `[[page]]` / `[[page\|alias]]` / `[[page#heading]]` | 双方语法一致，按文件名匹配 |
+| 文件夹结构 | 原生文件系统目录，双方共享 |
+| 标准 Markdown 图片 `![](path)` | 双方都能渲染 |
+
+### 有差异（不影响数据安全）
+
+| 差异 | TeamClaw v1 | Obsidian |
+|------|-------------|----------|
+| 重命名时自动更新链接 | 不支持（旧链接变为未解析状态） | 自动更新所有引用 |
+| `![[embed]]` 嵌入引用 | 显示为纯文本 | 内联渲染 |
+| `[[page^block-id]]` 块引用 | 不支持 | 支持 |
+| Frontmatter | 创建笔记时写入 `title`/`created`/`updated` | 默认不写，但能识别 |
+
+### 图片存储兼容
+
+TeamClaw 将图片保存到与 Markdown 文件同级的 `_assets/` 目录，使用标准 `![](\_assets/xxx.png)` 语法。
+
+Obsidian 默认将附件存到 vault 根目录，需要配置才能与 TeamClaw 完全等价。
+
+**推荐 Obsidian 配置（双向使用时）：**
+
+> Settings → Files & Links：
+> - **Use [[Wikilinks]]** → 保持开启（关闭后 Obsidian 会用 `[text](path.md)` 代替 `[[]]`，我们不会识别为 wiki link）
+> - **Default location for new attachments** → "Subfolder under current folder"
+> - **Subfolder name** → `_assets`
+> - **New link format** → "Relative path to file"
+
+配置后双方插入的图片存储路径和 Markdown 引用语法完全一致。未配置时，Obsidian 仍能**显示** TeamClaw 插入的图片（标准 Markdown 语法），只是 Obsidian 新插入的图片位置会不同。
 
 ## 测试策略
 
