@@ -317,13 +317,12 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       className={cn(
         "flex items-center gap-1 py-1 px-2 text-left text-sm hover:bg-primary/10 data-[state=open]:bg-primary/10 rounded transition-colors whitespace-nowrap w-full select-none",
         isSelected &&
-          "bg-primary/20 text-primary font-medium ring-1 ring-primary/30",
+          "bg-primary/20 text-primary font-medium ring-1 ring-inset ring-primary/30",
         isFocused && !isSelected &&
-          "ring-1 ring-primary/50 bg-primary/5",
+          "ring-1 ring-inset ring-primary/40 bg-primary/5",
         isDragOver && isDirectory &&
-          "bg-primary/20 ring-2 ring-primary/40",
+          "bg-primary/20 ring-2 ring-inset ring-primary/40",
         hasGitChanges && !isSelected && !isFocused && "git-status-changed",
-        isTeamClawTeam && !isSelected && !isFocused && "border-l border-blue-500/40",
         isCutTarget && "opacity-50",
       )}
       style={{ paddingLeft: `${level * 12 + 8}px` }}
@@ -354,7 +353,11 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         />
       )}
 
-      {isKnowledgeDir && (
+      {isTeamClawTeam && (
+        <img src="/logo-64.png" alt="" className="h-3.5 w-3.5 shrink-0" />
+      )}
+
+      {isKnowledgeDir && !isTeamClawTeam && (
         <ObsidianIcon className="h-3.5 w-3.5 shrink-0" style={{ color: '#7C3AED' }} />
       )}
 

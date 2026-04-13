@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
-import { UserMinus, Shield, Pencil, Eye, UserPlus, Clock, UserCheck } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { UserMinus, Shield, Pencil, Eye, UserPlus, Clock, UserCheck, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { useTeamMembersStore } from '../../stores/team-members'
 import { AddMemberInput } from './AddMemberInput'
@@ -124,6 +125,19 @@ export function TeamMemberList() {
   ])
 
   const isManager = canManageMembers()
+  const [approvingId, setApprovingId] = useState<string | null>(null)
+
+  const handleApprove = async (app: typeof applications[number]) => {
+    setApprovingId(app.nodeId)
+    try {
+      await approveApplication(app)
+      toast.success(`已通过 ${app.name} 的申请`)
+    } catch (e) {
+      toast.error(`审批失败: ${e}`)
+    } finally {
+      setApprovingId(null)
+    }
+  }
 
   const handleAdd = async (nodeId: string, name: string, role: string, label: string) => {
     await addMember({
@@ -174,9 +188,14 @@ export function TeamMemberList() {
                 size="sm"
                 variant="outline"
                 className="shrink-0 text-green-600 border-green-500/30 hover:bg-green-500/10"
-                onClick={() => approveApplication(app)}
+                disabled={approvingId === app.nodeId}
+                onClick={() => handleApprove(app)}
               >
-                <UserCheck className="mr-1 h-3.5 w-3.5" />
+                {approvingId === app.nodeId ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <UserCheck className="mr-1 h-3.5 w-3.5" />
+                )}
                 通过
               </Button>
             </div>

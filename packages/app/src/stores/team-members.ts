@@ -151,13 +151,16 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
   },
 
   approveApplication: async (app) => {
+    set({ error: null })
     try {
+      console.log('[TeamMembers] Approving application:', app.nodeId, app.name)
       await invoke('oss_approve_application', {
         nodeId: app.nodeId,
         name: app.name,
         email: app.email,
         role: 'editor',
       })
+      console.log('[TeamMembers] Approval succeeded for:', app.nodeId)
       // Remove from local list
       set((state) => ({
         applications: state.applications.filter((a) => a.nodeId !== app.nodeId),
@@ -165,7 +168,9 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
       // Reload members to reflect the new member
       get().loadMembers()
     } catch (e) {
+      console.error('[TeamMembers] Approval failed:', e)
       set({ error: String(e) })
+      throw e
     }
   },
 }))

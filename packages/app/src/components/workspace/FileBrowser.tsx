@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 
 import { cn } from '@/lib/utils'
 import { useFileChangeListener } from '@/hooks/useFileChangeListener'
-import { useWorkspaceStore } from '@/stores/workspace'
+import { useWorkspaceStore, type FileNode } from '@/stores/workspace'
 import { ScrollBar } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import {
@@ -17,6 +17,18 @@ import {
 import { FileTree } from './FileTree'
 
 
+/** Find subtree children for a given path in a file tree */
+function findSubtree(nodes: FileNode[], target: string): FileNode[] | undefined {
+  for (const node of nodes) {
+    if (node.path === target) return node.children
+    if (node.children) {
+      const found = findSubtree(node.children, target)
+      if (found !== undefined) return found
+    }
+  }
+  return undefined
+}
+
 interface FileBrowserProps {
   className?: string
   // 'default' - shows header with workspace name (for right panel)
@@ -24,6 +36,10 @@ interface FileBrowserProps {
   variant?: 'default' | 'panel'
   /** Override root directory. Defaults to workspace root. */
   rootPath?: string
+  /** Multiple root directories rendered as top-level folders in a single tree. Takes precedence over rootPath. */
+  rootPaths?: string[]
+  /** Display labels for rootPaths entries (same order). Falls back to directory basename. */
+  rootLabels?: string[]
   /** Hide git status indicators and git-specific toolbar buttons */
   hideGitStatus?: boolean
   /** Extra action icons shown in the panel toolbar's collapsed state (e.g. New Note, New Folder) */
@@ -34,7 +50,7 @@ interface FileBrowserProps {
   onRootCreateCancel?: () => void
 }
 
-export function FileBrowser({ className, variant = 'default', rootPath, hideGitStatus = false, actionIcons, rootCreating, onRootCreateConfirm, onRootCreateCancel }: FileBrowserProps) {
+export function FileBrowser({ className, variant = 'default', rootPath, rootPaths, rootLabels, hideGitStatus = false, actionIcons, rootCreating, onRootCreateConfirm, onRootCreateCancel }: FileBrowserProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const isPanelOpen = useWorkspaceStore(s => s.isPanelOpen)
@@ -48,31 +64,49 @@ export function FileBrowser({ className, variant = 'default', rootPath, hideGitS
   const [gitChangedOnly, setGitChangedOnly] = React.useState(false)
   const [searchExpanded, setSearchExpanded] = React.useState(false)
 
-  const isCustomRoot = !!rootPath
+  const isCustomRoot = !!rootPath || !!rootPaths
 
+  // When rootPaths is provided, create virtual root folder nodes for each path.
   // When rootPath is provided, extract its subtree from the global fileTree.
   // expandDirectory keeps the global tree updated, so sub-directory expansion works naturally.
   const effectiveTree = React.useMemo(() => {
-    if (!isCustomRoot || !rootPath) return undefined
-    const find = (nodes: typeof fileTree, target: string): typeof fileTree | undefined => {
-      for (const node of nodes) {
-        if (node.path === target) return node.children
-        if (node.children) {
-          const found = find(node.children, target)
-          if (found !== undefined) return found
+    if (rootPaths && rootPaths.length > 0) {
+      return rootPaths.map((p, i) => {
+        const name = rootLabels?.[i] || p.split('/').pop() || p
+        const existing = findSubtree(fileTree, p)
+        return {
+          name,
+          path: p,
+          type: 'directory' as const,
+          children: existing ?? [],
         }
-      }
-      return undefined
+      })
     }
-    return find(fileTree, rootPath) ?? []
-  }, [isCustomRoot, rootPath, fileTree])
+    if (!rootPath) return undefined
+    return findSubtree(fileTree, rootPath) ?? []
+  }, [rootPaths, rootLabels, rootPath, fileTree])
 
-  // Ensure rootPath is loaded into the global tree on mount
+  // Ensure rootPath(s) and their ancestors are loaded into the global tree on mount
   React.useEffect(() => {
-    if (isCustomRoot && rootPath) {
-      useWorkspaceStore.getState().expandDirectory(rootPath)
+    const expandWithAncestors = async (targetPath: string) => {
+      const wp = useWorkspaceStore.getState().workspacePath
+      if (!wp || !targetPath.startsWith(wp)) return
+      const relative = targetPath.slice(wp.length + 1)
+      const segments = relative.split('/')
+      let current = wp
+      for (const seg of segments) {
+        current = `${current}/${seg}`
+        await useWorkspaceStore.getState().expandDirectory(current)
+      }
     }
-  }, [isCustomRoot, rootPath])
+    if (rootPaths && rootPaths.length > 0) {
+      for (const p of rootPaths) {
+        expandWithAncestors(p)
+      }
+    } else if (rootPath) {
+      expandWithAncestors(rootPath)
+    }
+  }, [rootPaths, rootPath])
 
   // Auto-refresh file tree when panel opens (default variant) or when mounted (panel variant)
   React.useEffect(() => {

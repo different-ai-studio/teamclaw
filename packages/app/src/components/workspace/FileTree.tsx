@@ -383,6 +383,16 @@ export function FileTree({
     useWorkspaceStore.setState({ expandedPaths: nextExpanded });
   }, []);
 
+  const handleExpandDirectory = useCallback((path: string) => {
+    setFocusedPath(path);
+    expandDirectory(path);
+  }, [setFocusedPath, expandDirectory]);
+
+  const handleCollapseDirectory = useCallback((path: string) => {
+    setFocusedPath(path);
+    collapseDirectory(path);
+  }, [setFocusedPath, collapseDirectory]);
+
   // Context menu action handlers
   const handleNewFile = useCallback(
     async (dirPath: string) => {
@@ -1223,8 +1233,8 @@ export function FileTree({
     onSelectFile: selectFile,
     onSelectFileRange: selectFileRange,
     onToggleFileSelection: toggleFileSelection,
-    onExpandDirectory: expandDirectory,
-    onCollapseDirectory: collapseDirectory,
+    onExpandDirectory: handleExpandDirectory,
+    onCollapseDirectory: handleCollapseDirectory,
     onNewFile: handleNewFile,
     onNewFolder: handleNewFolder,
     onRename: handleRename,
