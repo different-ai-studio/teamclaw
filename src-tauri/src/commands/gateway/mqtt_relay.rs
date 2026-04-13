@@ -1,17 +1,17 @@
 // src-tauri/src/commands/gateway/mqtt_relay.rs
 
+use futures_util::StreamExt;
+use prost::Message as ProstMessage;
+use rumqttc::v5::mqttbytes::QoS;
+use rumqttc::v5::{AsyncClient, Event, Incoming, MqttOptions};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex as TokioMutex, RwLock};
 use tokio::task::JoinHandle;
-use rumqttc::v5::{AsyncClient, MqttOptions, Event, Incoming};
-use rumqttc::v5::mqttbytes::QoS;
-use futures_util::StreamExt;
-use prost::Message as ProstMessage;
 
-use teamclaw_gateway::mqtt_config::{MqttConfig, PairedDevice, PairingSession, MqttRelayStatus};
 use super::mqtt_proto::proto;
-use crate::commands::team_unified::{TeamManifest, MemberRole};
+use crate::commands::team_unified::{MemberRole, TeamManifest};
+use teamclaw_gateway::mqtt_config::{MqttConfig, MqttRelayStatus, PairedDevice, PairingSession};
 
 // ─── TLS ──────────────────────────────────────────────────────────────────────
 
@@ -65,9 +65,11 @@ pub struct MqttRelay {
     is_connected: Arc<std::sync::atomic::AtomicBool>,
     pairing_session: Arc<TokioMutex<Option<PairingSession>>>,
     error_message: Arc<RwLock<Option<String>>>,
-    oss_sync_state: Option<Arc<tokio::sync::Mutex<Option<crate::commands::oss_sync::OssSyncManager>>>>,
+    oss_sync_state:
+        Option<Arc<tokio::sync::Mutex<Option<crate::commands::oss_sync::OssSyncManager>>>>,
     /// Cancel tokens for active SSE streams, keyed by session_id.
-    cancel_tokens: Arc<TokioMutex<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>>,
+    cancel_tokens:
+        Arc<TokioMutex<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>>,
 }
 
 impl Clone for MqttRelay {
@@ -104,7 +106,10 @@ impl MqttRelay {
     }
 
     /// Set the OssSyncState reference so the relay can read members from S3.
-    pub fn set_oss_sync_state(&mut self, state: Arc<tokio::sync::Mutex<Option<crate::commands::oss_sync::OssSyncManager>>>) {
+    pub fn set_oss_sync_state(
+        &mut self,
+        state: Arc<tokio::sync::Mutex<Option<crate::commands::oss_sync::OssSyncManager>>>,
+    ) {
         self.oss_sync_state = Some(state);
     }
 
@@ -143,11 +148,7 @@ impl MqttRelay {
             "teamclaw-desktop-{}",
             &config.device_id[..8.min(config.device_id.len())]
         );
-        let mut mqttoptions = MqttOptions::new(
-            &client_id,
-            &config.broker_host,
-            config.broker_port,
-        );
+        let mut mqttoptions = MqttOptions::new(&client_id, &config.broker_host, config.broker_port);
         mqttoptions.set_credentials(&config.username, &config.password);
         mqttoptions.set_keep_alive(Duration::from_secs(60));
         mqttoptions.set_clean_start(false);
@@ -252,12 +253,7 @@ impl MqttRelay {
             },
         ));
         client
-            .publish(
-                &status_topic,
-                QoS::AtLeastOnce,
-                true,
-                msg.encode_to_vec(),
-            )
+            .publish(&status_topic, QoS::AtLeastOnce, true, msg.encode_to_vec())
             .await
             .map_err(|e| format!("Status publish failed: {}", e))
     }
@@ -288,7 +284,8 @@ impl MqttRelay {
         device_id: &str,
         msg: &proto::MqttMessage,
     ) -> Result<(), String> {
-        self.publish_proto_to_device(device_id, "chat/res", msg).await
+        self.publish_proto_to_device(device_id, "chat/res", msg)
+            .await
     }
 
     // ─── Incoming message handling ─────────────────────────────
@@ -303,9 +300,15 @@ impl MqttRelay {
 
         match msg.payload {
             Some(proto::mqtt_message::Payload::PairingRequest(ref req)) => {
-                match self.handle_pairing_request(&req.device_id, &req.device_name).await {
+                match self
+                    .handle_pairing_request(&req.device_id, &req.device_name)
+                    .await
+                {
                     Ok(device) => {
-                        eprintln!("[MQTT Relay] Paired with device: {} ({})", device.device_name, device.device_id);
+                        eprintln!(
+                            "[MQTT Relay] Paired with device: {} ({})",
+                            device.device_name, device.device_id
+                        );
                         // Persist updated config (with new paired device) to disk
                         self.persist_config().await;
                     }
@@ -369,10 +372,7 @@ impl MqttRelay {
         request: &proto::ChatRequest,
     ) -> Result<(), String> {
         let parts: Vec<&str> = source_topic.split('/').collect();
-        let device_id = parts
-            .get(2)
-            .ok_or("Invalid topic format")?
-            .to_string();
+        let device_id = parts.get(2).ok_or("Invalid topic format")?.to_string();
 
         let port = self.opencode_port;
         let session_id = request.session_id.clone();
@@ -417,7 +417,10 @@ impl MqttRelay {
 
         // Create cancel token for this stream
         let cancel_token = tokio_util::sync::CancellationToken::new();
-        self.cancel_tokens.lock().await.insert(session_id.clone(), cancel_token.clone());
+        self.cancel_tokens
+            .lock()
+            .await
+            .insert(session_id.clone(), cancel_token.clone());
 
         let relay = self.clone();
         let sid = session_id.clone();
@@ -435,7 +438,10 @@ impl MqttRelay {
     }
 
     async fn handle_chat_cancel(&self, session_id: &str) {
-        eprintln!("[MQTT Relay] Chat cancel requested for session: {}", session_id);
+        eprintln!(
+            "[MQTT Relay] Chat cancel requested for session: {}",
+            session_id
+        );
 
         // Cancel the local SSE stream
         if let Some(token) = self.cancel_tokens.lock().await.remove(session_id) {
@@ -725,7 +731,8 @@ impl MqttRelay {
                         }),
                     },
                 ));
-                self.publish_proto_to_device(device_id, "chat/res", &msg).await?;
+                self.publish_proto_to_device(device_id, "chat/res", &msg)
+                    .await?;
             }
             Err(e) => {
                 eprintln!("[MQTT Relay] Failed to fetch sessions: {}", e);
@@ -746,7 +753,10 @@ impl MqttRelay {
 
         for session_id in &req.session_ids {
             if let Err(e) = super::opencode_archive_session(port, session_id).await {
-                eprintln!("[MQTT Relay] Failed to archive session {}: {}", session_id, e);
+                eprintln!(
+                    "[MQTT Relay] Failed to archive session {}: {}",
+                    session_id, e
+                );
                 errors.push(format!("{}: {}", session_id, e));
             }
         }
@@ -760,7 +770,8 @@ impl MqttRelay {
         let msg = build_envelope(proto::mqtt_message::Payload::SessionArchiveResponse(
             proto::SessionArchiveResponse { success, error },
         ));
-        self.publish_proto_to_device(device_id, "chat/res", &msg).await
+        self.publish_proto_to_device(device_id, "chat/res", &msg)
+            .await
     }
 
     // ─── Member Sync ───────────────────────────────────────────
@@ -774,16 +785,27 @@ impl MqttRelay {
 
         // Human members from manifest (filter out Seed nodes)
         let mut members: Vec<proto::MemberData> = match manifest {
-            Some(m) => m.members.into_iter()
+            Some(m) => m
+                .members
+                .into_iter()
                 .filter(|tm| tm.role != MemberRole::Seed)
                 .map(|tm| proto::MemberData {
                     id: tm.node_id,
-                    name: if tm.name.is_empty() { tm.hostname.clone() } else { tm.name },
+                    name: if tm.name.is_empty() {
+                        tm.hostname.clone()
+                    } else {
+                        tm.name
+                    },
                     avatar_url: String::new(),
-                    department: if tm.label.is_empty() { None } else { Some(tm.label) },
+                    department: if tm.label.is_empty() {
+                        None
+                    } else {
+                        Some(tm.label)
+                    },
                     is_ai_ally: false,
                     note: format!("{}/{} ({:?})", tm.platform, tm.arch, tm.role),
-                }).collect(),
+                })
+                .collect(),
             None => vec![],
         };
 
@@ -795,16 +817,26 @@ impl MqttRelay {
             if let Ok(entries) = std::fs::read_dir(&roles_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if !path.is_dir() { continue; }
+                    if !path.is_dir() {
+                        continue;
+                    }
                     let slug = entry.file_name().to_string_lossy().to_string();
-                    if slug == "skill" || slug == "config.json" { continue; }
+                    if slug == "skill" || slug == "config.json" {
+                        continue;
+                    }
 
                     let role_md = path.join("ROLE.md");
-                    if !role_md.exists() { continue; }
+                    if !role_md.exists() {
+                        continue;
+                    }
 
                     if let Ok(content) = std::fs::read_to_string(&role_md) {
                         let parsed = parse_role_md(&content);
-                        let name = if parsed.name.is_empty() { slug.clone() } else { parsed.name };
+                        let name = if parsed.name.is_empty() {
+                            slug.clone()
+                        } else {
+                            parsed.name
+                        };
                         members.push(proto::MemberData {
                             id: slug,
                             name,
@@ -822,10 +854,15 @@ impl MqttRelay {
         let msg = build_envelope(proto::mqtt_message::Payload::MemberSyncResponse(
             proto::MemberSyncResponse {
                 members,
-                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total }),
+                pagination: Some(proto::PageInfo {
+                    page: 1,
+                    page_size: 50,
+                    total,
+                }),
             },
         ));
-        self.publish_proto_to_device(device_id, "member", &msg).await
+        self.publish_proto_to_device(device_id, "member", &msg)
+            .await
     }
 
     /// Fetch TeamManifest from local files only (P2P or OSS cache). No S3 calls.
@@ -861,36 +898,43 @@ impl MqttRelay {
             .join(".clawhub")
             .join("lock.json");
 
-        let skills: Vec<proto::SkillData> = if let Ok(content) = std::fs::read_to_string(&lockfile_path) {
-            if let Ok(lock) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(skills_map) = lock.get("skills").and_then(|s| s.as_object()) {
-                    skills_map.iter().map(|(slug, entry)| {
-                        let version = entry.get("version")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        proto::SkillData {
-                            id: slug.clone(),
-                            name: slug.clone(),
-                            description: format!("v{}", version),
-                            is_personal: false,
-                            is_enabled: true,
-                        }
-                    }).collect()
+        let skills: Vec<proto::SkillData> =
+            if let Ok(content) = std::fs::read_to_string(&lockfile_path) {
+                if let Ok(lock) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(skills_map) = lock.get("skills").and_then(|s| s.as_object()) {
+                        skills_map
+                            .iter()
+                            .map(|(slug, entry)| {
+                                let version =
+                                    entry.get("version").and_then(|v| v.as_str()).unwrap_or("");
+                                proto::SkillData {
+                                    id: slug.clone(),
+                                    name: slug.clone(),
+                                    description: format!("v{}", version),
+                                    is_personal: false,
+                                    is_enabled: true,
+                                }
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    }
                 } else {
                     vec![]
                 }
             } else {
                 vec![]
-            }
-        } else {
-            vec![]
-        };
+            };
 
         let total = skills.len() as i32;
         let msg = build_envelope(proto::mqtt_message::Payload::SkillSyncResponse(
             proto::SkillSyncResponse {
                 skills,
-                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total }),
+                pagination: Some(proto::PageInfo {
+                    page: 1,
+                    page_size: 50,
+                    total,
+                }),
             },
         ));
         self.publish_proto_to_device(device_id, "skill", &msg).await
@@ -913,19 +957,29 @@ impl MqttRelay {
             if let Ok(entries) = std::fs::read_dir(&roles_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if !path.is_dir() { continue; }
+                    if !path.is_dir() {
+                        continue;
+                    }
                     let slug = entry.file_name().to_string_lossy().to_string();
-                    if slug == "skill" || slug == "config.json" { continue; }
+                    if slug == "skill" || slug == "config.json" {
+                        continue;
+                    }
 
                     let role_md = path.join("ROLE.md");
-                    if !role_md.exists() { continue; }
+                    if !role_md.exists() {
+                        continue;
+                    }
 
                     if let Ok(content) = std::fs::read_to_string(&role_md) {
                         let parsed = parse_role_md(&content);
                         let skill_count = parsed.role_skills.len() as i32;
                         talents.push(proto::TalentData {
                             id: slug.clone(),
-                            name: if parsed.name.is_empty() { slug } else { parsed.name },
+                            name: if parsed.name.is_empty() {
+                                slug
+                            } else {
+                                parsed.name
+                            },
                             description: parsed.description,
                             category: "Role".to_string(),
                             icon: Some("cpu".to_string()),
@@ -944,10 +998,15 @@ impl MqttRelay {
         let msg = build_envelope(proto::mqtt_message::Payload::TalentSyncResponse(
             proto::TalentSyncResponse {
                 talents,
-                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total }),
+                pagination: Some(proto::PageInfo {
+                    page: 1,
+                    page_size: 50,
+                    total,
+                }),
             },
         ));
-        self.publish_proto_to_device(device_id, "talent", &msg).await
+        self.publish_proto_to_device(device_id, "talent", &msg)
+            .await
     }
 
     // ─── Automation Sync ──────────────────────────────────────────
@@ -962,50 +1021,63 @@ impl MqttRelay {
             .join(".teamclaw")
             .join("cron-jobs.json");
 
-        let tasks: Vec<proto::AutomationTaskData> = if let Ok(content) = std::fs::read_to_string(&cron_path) {
-            if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(jobs) = data.get("jobs").and_then(|j| j.as_array()) {
-                    jobs.iter().filter_map(|job| {
-                        let id = job.get("id")?.as_str()?;
-                        let name = job.get("name")?.as_str()?;
-                        let enabled = job.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false);
-                        let cron_expr = job.get("schedule")
-                            .and_then(|s| s.get("expr"))
-                            .and_then(|e| e.as_str())
-                            .unwrap_or("");
-                        let description = job.get("description")
-                            .and_then(|d| d.as_str())
-                            .unwrap_or("");
-                        let last_run = job.get("lastRunAt")
-                            .and_then(|t| t.as_str())
-                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                            .map(|dt| dt.timestamp() as f64);
-                        let status = if enabled { "idle" } else { "disabled" };
+        let tasks: Vec<proto::AutomationTaskData> =
+            if let Ok(content) = std::fs::read_to_string(&cron_path) {
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(jobs) = data.get("jobs").and_then(|j| j.as_array()) {
+                        jobs.iter()
+                            .filter_map(|job| {
+                                let id = job.get("id")?.as_str()?;
+                                let name = job.get("name")?.as_str()?;
+                                let enabled = job
+                                    .get("enabled")
+                                    .and_then(|e| e.as_bool())
+                                    .unwrap_or(false);
+                                let cron_expr = job
+                                    .get("schedule")
+                                    .and_then(|s| s.get("expr"))
+                                    .and_then(|e| e.as_str())
+                                    .unwrap_or("");
+                                let description = job
+                                    .get("description")
+                                    .and_then(|d| d.as_str())
+                                    .unwrap_or("");
+                                let last_run = job
+                                    .get("lastRunAt")
+                                    .and_then(|t| t.as_str())
+                                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                                    .map(|dt| dt.timestamp() as f64);
+                                let status = if enabled { "idle" } else { "disabled" };
 
-                        Some(proto::AutomationTaskData {
-                            id: id.to_string(),
-                            name: name.to_string(),
-                            status: Some(status.to_string()),
-                            cron_expression: cron_expr.to_string(),
-                            description: description.to_string(),
-                            last_run_time: last_run,
-                        })
-                    }).collect()
+                                Some(proto::AutomationTaskData {
+                                    id: id.to_string(),
+                                    name: name.to_string(),
+                                    status: Some(status.to_string()),
+                                    cron_expression: cron_expr.to_string(),
+                                    description: description.to_string(),
+                                    last_run_time: last_run,
+                                })
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    }
                 } else {
                     vec![]
                 }
             } else {
                 vec![]
-            }
-        } else {
-            vec![]
-        };
+            };
 
         let total = tasks.len() as i32;
         let msg = build_envelope(proto::mqtt_message::Payload::AutomationSyncResponse(
             proto::AutomationSyncResponse {
                 tasks,
-                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total }),
+                pagination: Some(proto::PageInfo {
+                    page: 1,
+                    page_size: 50,
+                    total,
+                }),
             },
         ));
         self.publish_proto_to_device(device_id, "task", &msg).await
@@ -1044,7 +1116,9 @@ impl MqttRelay {
                 let info = msg.get("info")?;
                 let id = info.get("id")?.as_str()?;
                 let role = info.get("role")?.as_str()?;
-                if role != "user" && role != "assistant" { return None; }
+                if role != "user" && role != "assistant" {
+                    return None;
+                }
 
                 let parts_array = msg.get("parts")?.as_array()?;
                 let mut message_parts: Vec<proto::MessagePartData> = Vec::new();
@@ -1064,8 +1138,10 @@ impl MqttRelay {
                             }
                         }
                         Some("tool") | Some("tool-call") => {
-                            let tool_name = part.get("tool").and_then(|t| t.as_str()).unwrap_or("tool");
-                            let tool_call_id = part.get("callID")
+                            let tool_name =
+                                part.get("tool").and_then(|t| t.as_str()).unwrap_or("tool");
+                            let tool_call_id = part
+                                .get("callID")
                                 .or_else(|| part.get("id"))
                                 .and_then(|t| t.as_str())
                                 .unwrap_or("")
@@ -1075,9 +1151,7 @@ impl MqttRelay {
                                 .and_then(|s| s.get("status"))
                                 .and_then(|s| s.as_str())
                                 .unwrap_or("completed");
-                            let has_ended = part.get("time")
-                                .and_then(|t| t.get("end"))
-                                .is_some();
+                            let has_ended = part.get("time").and_then(|t| t.get("end")).is_some();
                             let status = match status_raw {
                                 "completed" | "done" | "success" => "completed",
                                 "error" | "failed" => "failed",
@@ -1089,13 +1163,21 @@ impl MqttRelay {
                                 .map(|input| serde_json::to_string(input).unwrap_or_default())
                                 .unwrap_or_default();
                             let result_summary = state
-                                .and_then(|s| s.get("output").or_else(|| s.get("raw")).or_else(|| s.get("result")))
+                                .and_then(|s| {
+                                    s.get("output")
+                                        .or_else(|| s.get("raw"))
+                                        .or_else(|| s.get("result"))
+                                })
                                 .map(|r| {
-                                    if let Some(s) = r.as_str() { s.to_string() }
-                                    else { serde_json::to_string(r).unwrap_or_default() }
+                                    if let Some(s) = r.as_str() {
+                                        s.to_string()
+                                    } else {
+                                        serde_json::to_string(r).unwrap_or_default()
+                                    }
                                 })
                                 .unwrap_or_default();
-                            let duration_ms = part.get("time")
+                            let duration_ms = part
+                                .get("time")
                                 .and_then(|t| {
                                     let start = t.get("start")?.as_f64()?;
                                     let end = t.get("end")?.as_f64()?;
@@ -1107,13 +1189,26 @@ impl MqttRelay {
                             let input_summary = state
                                 .and_then(|s| s.get("input"))
                                 .map(|input| {
-                                    if let Some(q) = input.get("query").and_then(|v| v.as_str()) { q.to_string() }
-                                    else if let Some(u) = input.get("url").and_then(|v| v.as_str()) { u.to_string() }
-                                    else if let Some(p) = input.get("path").and_then(|v| v.as_str()) { p.to_string() }
-                                    else if let Some(c) = input.get("command").and_then(|v| v.as_str()) { c.to_string() }
-                                    else {
-                                        serde_json::to_string(input).unwrap_or_default()
-                                            .chars().take(80).collect()
+                                    if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
+                                        q.to_string()
+                                    } else if let Some(u) =
+                                        input.get("url").and_then(|v| v.as_str())
+                                    {
+                                        u.to_string()
+                                    } else if let Some(p) =
+                                        input.get("path").and_then(|v| v.as_str())
+                                    {
+                                        p.to_string()
+                                    } else if let Some(c) =
+                                        input.get("command").and_then(|v| v.as_str())
+                                    {
+                                        c.to_string()
+                                    } else {
+                                        serde_json::to_string(input)
+                                            .unwrap_or_default()
+                                            .chars()
+                                            .take(80)
+                                            .collect()
                                     }
                                 })
                                 .unwrap_or_default();
@@ -1139,9 +1234,12 @@ impl MqttRelay {
                     }
                 }
                 let content = content_parts.join("\n");
-                if content.trim().is_empty() && message_parts.is_empty() { return None; }
+                if content.trim().is_empty() && message_parts.is_empty() {
+                    return None;
+                }
 
-                let timestamp_ms = info.get("time")
+                let timestamp_ms = info
+                    .get("time")
                     .and_then(|t| t.get("created"))
                     .and_then(|t| t.as_f64())
                     .unwrap_or(0.0);
@@ -1165,7 +1263,8 @@ impl MqttRelay {
                 messages,
             },
         ));
-        self.publish_proto_to_device(device_id, "chat/res", &msg).await
+        self.publish_proto_to_device(device_id, "chat/res", &msg)
+            .await
     }
 
     // ─── Device Pairing ────────────────────────────────────────
@@ -1206,12 +1305,7 @@ impl MqttRelay {
                 },
             ));
             client
-                .publish(
-                    &discover_topic,
-                    QoS::AtLeastOnce,
-                    true,
-                    msg.encode_to_vec(),
-                )
+                .publish(&discover_topic, QoS::AtLeastOnce, true, msg.encode_to_vec())
                 .await
                 .map_err(|e| format!("Discovery publish failed: {}", e))?;
 
@@ -1265,10 +1359,7 @@ impl MqttRelay {
 
         if let Some(client) = self.client.lock().await.as_ref() {
             let config = self.config.read().await;
-            let topic = format!(
-                "teamclaw/{}/{}/chat/req",
-                config.team_id, mobile_device_id
-            );
+            let topic = format!("teamclaw/{}/{}/chat/req", config.team_id, mobile_device_id);
             client
                 .subscribe(&topic, QoS::AtLeastOnce)
                 .await
@@ -1296,12 +1387,7 @@ impl MqttRelay {
             ));
             let pairing_topic = format!("teamclaw/pairing/{}", session.code);
             client
-                .publish(
-                    &pairing_topic,
-                    QoS::AtLeastOnce,
-                    false,
-                    msg.encode_to_vec(),
-                )
+                .publish(&pairing_topic, QoS::AtLeastOnce, false, msg.encode_to_vec())
                 .await
                 .map_err(|e| format!("Pairing response publish failed: {}", e))?;
         }
@@ -1348,7 +1434,11 @@ impl MqttRelay {
         let msg = build_envelope(proto::mqtt_message::Payload::AutomationSyncResponse(
             proto::AutomationSyncResponse {
                 tasks,
-                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total: 0 }),
+                pagination: Some(proto::PageInfo {
+                    page: 1,
+                    page_size: 50,
+                    total: 0,
+                }),
             },
         ));
         self.publish_proto_to_device(device_id, "task", &msg).await
@@ -1362,7 +1452,11 @@ impl MqttRelay {
         let msg = build_envelope(proto::mqtt_message::Payload::SkillSyncResponse(
             proto::SkillSyncResponse {
                 skills,
-                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total: 0 }),
+                pagination: Some(proto::PageInfo {
+                    page: 1,
+                    page_size: 50,
+                    total: 0,
+                }),
             },
         ));
         self.publish_proto_to_device(device_id, "skill", &msg).await
@@ -1376,10 +1470,15 @@ impl MqttRelay {
         let msg = build_envelope(proto::mqtt_message::Payload::MemberSyncResponse(
             proto::MemberSyncResponse {
                 members,
-                pagination: Some(proto::PageInfo { page: 1, page_size: 50, total: 0 }),
+                pagination: Some(proto::PageInfo {
+                    page: 1,
+                    page_size: 50,
+                    total: 0,
+                }),
             },
         ));
-        self.publish_proto_to_device(device_id, "member", &msg).await
+        self.publish_proto_to_device(device_id, "member", &msg)
+            .await
     }
 
     pub async fn sync_all_to_device(
@@ -1566,5 +1665,12 @@ fn parse_role_md(content: &str) -> ParsedRole {
         })
         .collect();
 
-    ParsedRole { name, description, role, when_to_use, working_style, role_skills }
+    ParsedRole {
+        name,
+        description,
+        role,
+        when_to_use,
+        working_style,
+        role_skills,
+    }
 }

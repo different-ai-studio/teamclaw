@@ -17,12 +17,22 @@ use super::TEAMCLAW_DIR;
 // ---------------------------------------------------------------------------
 
 pub use teamclaw_sync::team_webdav::{
-    ExportPayload, SyncManifest, SyncResult, WebDavAuth,
-    WebDavConfig, WebDavManagedState, WebDavSyncStatus,
     // Pure functions
-    build_client, decrypt_config, delete_credential,
-    encrypt_config, get_credential,
-    propfind, store_credential, validate_webdav_url,
+    build_client,
+    decrypt_config,
+    delete_credential,
+    encrypt_config,
+    get_credential,
+    propfind,
+    store_credential,
+    validate_webdav_url,
+    ExportPayload,
+    SyncManifest,
+    SyncResult,
+    WebDavAuth,
+    WebDavConfig,
+    WebDavManagedState,
+    WebDavSyncStatus,
 };
 
 // ---------------------------------------------------------------------------
@@ -333,10 +343,10 @@ pub async fn get_team_mode(
 mod tests {
     use super::*;
     use std::fs;
-    use tempfile::TempDir;
     use teamclaw_sync::team_webdav::{
-        DavEntry, FileEntry, compute_sync_diff, keyring_account_id, parse_propfind_response,
+        compute_sync_diff, keyring_account_id, parse_propfind_response, DavEntry, FileEntry,
     };
+    use tempfile::TempDir;
 
     #[test]
     fn test_read_write_webdav_config() {

@@ -2,18 +2,45 @@
 
 // Re-export types so existing consumers (lib.rs, oss_commands, telemetry, team_unified) still compile.
 pub use teamclaw_p2p::{
-    // Types
-    DeviceInfo, EngineSnapshot, EngineStatus, IrohNode, IrohState, P2pConfig, P2pSyncStatus,
-    PeerConnection, PeerInfo, SkillsContribution, StreamHealth, SyncEngine, SyncEngineState,
     // Functions
-    add_member_to_team, check_join_authorization, clear_p2p_and_team_dir, create_team,
-    disconnected_engine_snapshot, get_device_metadata, get_node_id, join_team_drive,
-    publish_team_drive, query_skills_leaderboard, read_members_manifest, read_p2p_config,
-    reconnect_team_for_workspace, remove_member_from_team, rotate_namespace, update_member_role,
-    write_members_manifest, write_p2p_config, get_files_sync_status,
-    leave_team_for_workspace, disconnect_source_for_workspace, dissolve_team_for_workspace,
+    add_member_to_team,
+    check_join_authorization,
+    clear_p2p_and_team_dir,
+    create_team,
+    disconnect_source_for_workspace,
+    disconnected_engine_snapshot,
+    dissolve_team_for_workspace,
+    get_device_metadata,
+    get_files_sync_status,
+    get_node_id,
+    join_team_drive,
+    leave_team_for_workspace,
+    publish_team_drive,
+    query_skills_leaderboard,
+    read_members_manifest,
+    read_p2p_config,
+    reconnect_team_for_workspace,
+    remove_member_from_team,
+    rotate_namespace,
+    update_member_role,
+    write_members_manifest,
+    write_p2p_config,
+    // Types
+    DeviceInfo,
+    EngineSnapshot,
+    EngineStatus,
+    IrohNode,
+    IrohState,
+    P2pConfig,
     // Event handler trait
     P2pEventHandler,
+    P2pSyncStatus,
+    PeerConnection,
+    PeerInfo,
+    SkillsContribution,
+    StreamHealth,
+    SyncEngine,
+    SyncEngineState,
 };
 
 use std::sync::Arc;
@@ -40,7 +67,9 @@ impl teamclaw_p2p::P2pEventHandler for TauriEventHandler {
     }
 
     fn reload_shared_secrets(&self) {
-        let shared_state = self.app.state::<crate::commands::shared_secrets::SharedSecretsState>();
+        let shared_state = self
+            .app
+            .state::<crate::commands::shared_secrets::SharedSecretsState>();
         if let Err(e) = crate::commands::shared_secrets::load_all_secrets(&shared_state) {
             eprintln!("[P2P] Failed to reload shared secrets: {}", e);
         }
@@ -254,17 +283,21 @@ pub async fn team_add_member(
     };
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
-    add_member_to_team(&workspace_path, &team_dir, &caller_id, member, teamclaw_dir(), config_file_name())?;
+    add_member_to_team(
+        &workspace_path,
+        &team_dir,
+        &caller_id,
+        member,
+        teamclaw_dir(),
+        config_file_name(),
+    )?;
 
     // Also write updated manifest into the doc so it syncs
     let guard = iroh_state.lock().await;
     if let Some(node) = guard.as_ref() {
         if let Some(doc) = &node.active_doc {
-            let manifest_path = format!(
-                "{}/{}/_team/members.json",
-                workspace_path,
-                team_repo_dir()
-            );
+            let manifest_path =
+                format!("{}/{}/_team/members.json", workspace_path, team_repo_dir());
             match std::fs::read(&manifest_path) {
                 Ok(content) => {
                     if let Err(e) = doc
@@ -307,17 +340,21 @@ pub async fn team_remove_member(
     drop(guard);
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
-    remove_member_from_team(&workspace_path, &team_dir, &caller_id, &node_id, teamclaw_dir(), config_file_name())?;
+    remove_member_from_team(
+        &workspace_path,
+        &team_dir,
+        &caller_id,
+        &node_id,
+        teamclaw_dir(),
+        config_file_name(),
+    )?;
 
     // Sync manifest to doc
     let guard = iroh_state.lock().await;
     if let Some(node) = guard.as_ref() {
         if let Some(doc) = &node.active_doc {
-            let manifest_path = format!(
-                "{}/{}/_team/members.json",
-                workspace_path,
-                team_repo_dir()
-            );
+            let manifest_path =
+                format!("{}/{}/_team/members.json", workspace_path, team_repo_dir());
             match std::fs::read(&manifest_path) {
                 Ok(content) => {
                     if let Err(e) = doc
@@ -378,11 +415,8 @@ pub async fn team_update_member_role(
     let guard = iroh_state.lock().await;
     if let Some(node) = guard.as_ref() {
         if let Some(doc) = &node.active_doc {
-            let manifest_path = format!(
-                "{}/{}/_team/members.json",
-                workspace_path,
-                team_repo_dir()
-            );
+            let manifest_path =
+                format!("{}/{}/_team/members.json", workspace_path, team_repo_dir());
             if let Ok(content) = std::fs::read(&manifest_path) {
                 let _ = doc
                     .set_bytes(node.author, "_team/members.json", content)
@@ -441,8 +475,7 @@ pub async fn p2p_create_team(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
-    let node =
-        ensure_p2p_node_started(&mut *guard, "team creation", IrohNode::new_default).await?;
+    let node = ensure_p2p_node_started(&mut *guard, "team creation", IrohNode::new_default).await?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
 
@@ -482,9 +515,12 @@ pub async fn p2p_publish_drive(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
-    let node =
-        ensure_p2p_node_started(&mut *guard, "publishing the team drive", IrohNode::new_default)
-            .await?;
+    let node = ensure_p2p_node_started(
+        &mut *guard,
+        "publishing the team drive",
+        IrohNode::new_default,
+    )
+    .await?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
 
@@ -506,7 +542,14 @@ pub async fn p2p_publish_drive(
         .await;
     }
 
-    publish_team_drive(node, &team_dir, &workspace_path, teamclaw_dir(), config_file_name()).await?;
+    publish_team_drive(
+        node,
+        &team_dir,
+        &workspace_path,
+        teamclaw_dir(),
+        config_file_name(),
+    )
+    .await?;
 
     let config = read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?;
     config
@@ -536,8 +579,7 @@ pub async fn p2p_join_drive(
 
     let mut guard = iroh_state.lock().await;
     let node =
-        ensure_p2p_node_started(&mut *guard, "joining a team drive", IrohNode::new_default)
-            .await?;
+        ensure_p2p_node_started(&mut *guard, "joining a team drive", IrohNode::new_default).await?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
     let result = join_team_drive(
@@ -607,9 +649,12 @@ pub async fn p2p_rotate_ticket(
         .ok_or("No workspace path set")?;
 
     let mut guard = iroh_state.lock().await;
-    let node =
-        ensure_p2p_node_started(&mut *guard, "rotating the team ticket", IrohNode::new_default)
-            .await?;
+    let node = ensure_p2p_node_started(
+        &mut *guard,
+        "rotating the team ticket",
+        IrohNode::new_default,
+    )
+    .await?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
     rotate_namespace(
@@ -650,7 +695,12 @@ pub async fn save_p2p_config(
         .workspace_path
         .clone()
         .ok_or("No workspace path set")?;
-    write_p2p_config(&workspace_path, Some(&config), teamclaw_dir(), config_file_name())
+    write_p2p_config(
+        &workspace_path,
+        Some(&config),
+        teamclaw_dir(),
+        config_file_name(),
+    )
 }
 
 #[tauri::command]
@@ -675,7 +725,8 @@ pub async fn p2p_node_status(
         return Ok(disconnected_engine_snapshot(snapshot));
     };
 
-    let config = read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?.unwrap_or_default();
+    let config =
+        read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?.unwrap_or_default();
     let active_namespace = {
         let guard = iroh_state.lock().await;
         guard
@@ -683,11 +734,11 @@ pub async fn p2p_node_status(
             .and_then(|node| node.active_doc.as_ref().map(|doc| doc.id().to_string()))
     };
 
-    let workspace_matches_active_doc = match (config.namespace_id.as_deref(), active_namespace.as_deref())
-    {
-        (Some(config_ns), Some(active_ns)) => config_ns == active_ns,
-        _ => false,
-    };
+    let workspace_matches_active_doc =
+        match (config.namespace_id.as_deref(), active_namespace.as_deref()) {
+            (Some(config_ns), Some(active_ns)) => config_ns == active_ns,
+            _ => false,
+        };
 
     if workspace_matches_active_doc {
         Ok(snapshot)
@@ -711,7 +762,8 @@ pub async fn p2p_sync_status(
         .clone()
         .ok_or("No workspace path set")?;
 
-    let config = read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?.unwrap_or_default();
+    let config =
+        read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?.unwrap_or_default();
     let guard = iroh_state.lock().await;
     let connected = guard.as_ref().map_or(false, |n| {
         match (&n.active_doc, config.namespace_id.as_deref()) {
@@ -741,7 +793,8 @@ pub async fn p2p_sync_status(
                             if member.node_id == my_node_id {
                                 continue;
                             }
-                            if let Ok(id) = member.node_id.parse::<teamclaw_p2p::iroh::EndpointId>() {
+                            if let Ok(id) = member.node_id.parse::<teamclaw_p2p::iroh::EndpointId>()
+                            {
                                 let mut addrs = std::collections::BTreeSet::new();
                                 if let Some(info) = ep.remote_info(id).await {
                                     for addr_info in info.addrs() {
@@ -756,13 +809,16 @@ pub async fn p2p_sync_status(
                                             if let Ok(sock) =
                                                 addr_str.parse::<std::net::SocketAddr>()
                                             {
-                                                addrs.insert(teamclaw_p2p::iroh::TransportAddr::Ip(sock));
+                                                addrs.insert(
+                                                    teamclaw_p2p::iroh::TransportAddr::Ip(sock),
+                                                );
                                             }
                                         }
                                     }
                                 }
                                 if !addrs.is_empty() {
-                                    other_peers.push(teamclaw_p2p::iroh::EndpointAddr { id, addrs });
+                                    other_peers
+                                        .push(teamclaw_p2p::iroh::EndpointAddr { id, addrs });
                                 }
                             }
                         }
@@ -829,8 +885,7 @@ pub async fn p2p_get_files_sync_status(
         .as_ref()
         .ok_or_else(|| "P2P node not running".to_string())?;
 
-    get_files_sync_status(node, &team_dir)
-        .await
+    get_files_sync_status(node, &team_dir).await
 }
 
 #[tauri::command]
@@ -847,7 +902,8 @@ pub async fn p2p_save_seed_config(
         .clone()
         .ok_or("No workspace path set")?;
 
-    let mut config = read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?.unwrap_or_default();
+    let mut config =
+        read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?.unwrap_or_default();
     if let Some(url) = seed_url {
         config.seed_url = if url.is_empty() { None } else { Some(url) };
     }
@@ -858,7 +914,12 @@ pub async fn p2p_save_seed_config(
             Some(secret)
         };
     }
-    write_p2p_config(&workspace_path, Some(&config), teamclaw_dir(), config_file_name())?;
+    write_p2p_config(
+        &workspace_path,
+        Some(&config),
+        teamclaw_dir(),
+        config_file_name(),
+    )?;
     Ok(())
 }
 
@@ -886,12 +947,13 @@ mod tests {
 
         {
             let calls = calls.clone();
-            let value = ensure_p2p_node_started(&mut slot, "joining a team drive", move || async move {
-                calls.fetch_add(1, Ordering::SeqCst);
-                Ok::<_, String>(41usize)
-            })
-            .await
-            .expect("helper should initialize the slot");
+            let value =
+                ensure_p2p_node_started(&mut slot, "joining a team drive", move || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, String>(41usize)
+                })
+                .await
+                .expect("helper should initialize the slot");
 
             assert_eq!(*value, 41);
         }
@@ -907,12 +969,13 @@ mod tests {
 
         {
             let calls = calls.clone();
-            let value = ensure_p2p_node_started(&mut slot, "reconnecting to a team", move || async move {
-                calls.fetch_add(1, Ordering::SeqCst);
-                Ok::<_, String>(99usize)
-            })
-            .await
-            .expect("helper should return the existing slot");
+            let value =
+                ensure_p2p_node_started(&mut slot, "reconnecting to a team", move || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, String>(99usize)
+                })
+                .await
+                .expect("helper should return the existing slot");
 
             assert_eq!(*value, 7);
         }

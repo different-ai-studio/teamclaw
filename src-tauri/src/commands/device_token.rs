@@ -48,9 +48,12 @@ pub fn generate_device_token() -> Result<String, String> {
     generate(&device_id, "")
 }
 
-
 /// Same as [`generate`] but accepts an explicit secret — useful for tests.
-pub fn generate_with_secret(device_id: &str, team_id: &str, secret: &str) -> Result<String, String> {
+pub fn generate_with_secret(
+    device_id: &str,
+    team_id: &str,
+    secret: &str,
+) -> Result<String, String> {
     if secret.is_empty() {
         return Err(
             "DEVICE_JWT_SECRET is not configured. Set device.jwtSecret in build.config.local.json"
@@ -101,8 +104,9 @@ mod tests {
         assert_eq!(parts.len(), 3, "JWT must have exactly 3 parts");
 
         // Decode payload
-        let payload_json =
-            URL_SAFE_NO_PAD.decode(parts[1]).expect("base64url decode failed");
+        let payload_json = URL_SAFE_NO_PAD
+            .decode(parts[1])
+            .expect("base64url decode failed");
         let payload: serde_json::Value =
             serde_json::from_slice(&payload_json).expect("JSON parse failed");
 

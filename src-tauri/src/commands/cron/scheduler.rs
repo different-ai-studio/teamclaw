@@ -291,9 +291,7 @@ impl CronScheduler {
                 None => {
                     // Compute next_run_at if missing
                     if let Some(next) = self.compute_next_run(&job, None) {
-                        self.storage
-                            .update_next_run_at(&job.id, Some(next))
-                            .await;
+                        self.storage.update_next_run_at(&job.id, Some(next)).await;
                         false
                     } else {
                         false
@@ -1226,7 +1224,11 @@ mod tests {
         let result = scheduler.compute_next_run(&job, None);
         // Allow up to 1 second of rounding drift from to_rfc3339/parse
         let diff = (result.unwrap() - future).num_seconds().abs();
-        assert!(diff <= 1, "Expected timestamp close to future, got diff={}", diff);
+        assert!(
+            diff <= 1,
+            "Expected timestamp close to future, got diff={}",
+            diff
+        );
     }
 
     #[test]
@@ -1336,7 +1338,11 @@ mod tests {
         let anchor = Utc.with_ymd_and_hms(2024, 6, 1, 12, 1, 0).unwrap();
         let result = scheduler.compute_next_run(&job, Some(anchor)).unwrap();
         let diff_secs = (result - anchor).num_seconds();
-        assert!(diff_secs > 0 && diff_secs <= 300, "Expected ≤5 min gap, got {}s", diff_secs);
+        assert!(
+            diff_secs > 0 && diff_secs <= 300,
+            "Expected ≤5 min gap, got {}s",
+            diff_secs
+        );
     }
 
     #[test]
@@ -1416,7 +1422,10 @@ mod tests {
         });
         // Should not panic; falls back to system local — just assert it returns Some
         let result = scheduler.compute_next_run(&job, None);
-        assert!(result.is_some(), "Expected a fallback next-run time for unknown timezone");
+        assert!(
+            result.is_some(),
+            "Expected a fallback next-run time for unknown timezone"
+        );
     }
 
     // ── delivery_to_session_key ───────────────────────────────────────────────

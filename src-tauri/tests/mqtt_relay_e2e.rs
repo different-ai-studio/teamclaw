@@ -87,10 +87,7 @@ struct StatusPayload {
 
 // ─── Helper: create MQTT client ─────────────────────────────────
 
-fn create_client(
-    config: &TestConfig,
-    client_id: &str,
-) -> (AsyncClient, rumqttc::v5::EventLoop) {
+fn create_client(config: &TestConfig, client_id: &str) -> (AsyncClient, rumqttc::v5::EventLoop) {
     let mut opts = MqttOptions::new(client_id, &config.host, config.port);
     if !config.username.is_empty() {
         opts.set_credentials(&config.username, &config.password);
@@ -231,9 +228,7 @@ async fn test_desktop_online_status_retained() {
         loop {
             match mobile_loop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
-                    if let Ok(env) =
-                        serde_json::from_slice::<MqttMessageEnvelope>(&p.payload)
-                    {
+                    if let Ok(env) = serde_json::from_slice::<MqttMessageEnvelope>(&p.payload) {
                         let _ = tx.send(env).await;
                     }
                 }
@@ -293,9 +288,7 @@ async fn test_mobile_sends_chat_request() {
         loop {
             match desktop_loop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
-                    if let Ok(env) =
-                        serde_json::from_slice::<MqttMessageEnvelope>(&p.payload)
-                    {
+                    if let Ok(env) = serde_json::from_slice::<MqttMessageEnvelope>(&p.payload) {
                         let _ = tx.send(env).await;
                     }
                 }
@@ -382,9 +375,7 @@ async fn test_desktop_streams_chat_response() {
         loop {
             match mobile_loop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
-                    if let Ok(env) =
-                        serde_json::from_slice::<MqttMessageEnvelope>(&p.payload)
-                    {
+                    if let Ok(env) = serde_json::from_slice::<MqttMessageEnvelope>(&p.payload) {
                         let _ = tx.send(env).await;
                     }
                 }
@@ -522,9 +513,7 @@ async fn test_desktop_offline_status() {
         loop {
             match mobile_loop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
-                    if let Ok(env) =
-                        serde_json::from_slice::<MqttMessageEnvelope>(&p.payload)
-                    {
+                    if let Ok(env) = serde_json::from_slice::<MqttMessageEnvelope>(&p.payload) {
                         let _ = tx.send(env).await;
                     }
                 }
@@ -647,9 +636,7 @@ async fn test_data_sync_to_mobile() {
         loop {
             match mobile_loop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
-                    if let Ok(env) =
-                        serde_json::from_slice::<MqttMessageEnvelope>(&p.payload)
-                    {
+                    if let Ok(env) = serde_json::from_slice::<MqttMessageEnvelope>(&p.payload) {
                         let _ = tx.send(env).await;
                     }
                 }
@@ -662,9 +649,18 @@ async fn test_data_sync_to_mobile() {
         }
     });
 
-    mobile_client.subscribe(&task_topic, QoS::AtLeastOnce).await.unwrap();
-    mobile_client.subscribe(&skill_topic, QoS::AtLeastOnce).await.unwrap();
-    mobile_client.subscribe(&member_topic, QoS::AtLeastOnce).await.unwrap();
+    mobile_client
+        .subscribe(&task_topic, QoS::AtLeastOnce)
+        .await
+        .unwrap();
+    mobile_client
+        .subscribe(&skill_topic, QoS::AtLeastOnce)
+        .await
+        .unwrap();
+    mobile_client
+        .subscribe(&member_topic, QoS::AtLeastOnce)
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
@@ -693,7 +689,12 @@ async fn test_data_sync_to_mobile() {
         }),
     };
     desktop_client
-        .publish(&task_topic, QoS::AtLeastOnce, false, serde_json::to_vec(&task_env).unwrap())
+        .publish(
+            &task_topic,
+            QoS::AtLeastOnce,
+            false,
+            serde_json::to_vec(&task_env).unwrap(),
+        )
         .await
         .unwrap();
 
@@ -710,7 +711,12 @@ async fn test_data_sync_to_mobile() {
         }),
     };
     desktop_client
-        .publish(&skill_topic, QoS::AtLeastOnce, false, serde_json::to_vec(&skill_env).unwrap())
+        .publish(
+            &skill_topic,
+            QoS::AtLeastOnce,
+            false,
+            serde_json::to_vec(&skill_env).unwrap(),
+        )
         .await
         .unwrap();
 
@@ -727,7 +733,12 @@ async fn test_data_sync_to_mobile() {
         }),
     };
     desktop_client
-        .publish(&member_topic, QoS::AtLeastOnce, false, serde_json::to_vec(&member_env).unwrap())
+        .publish(
+            &member_topic,
+            QoS::AtLeastOnce,
+            false,
+            serde_json::to_vec(&member_env).unwrap(),
+        )
         .await
         .unwrap();
 
@@ -748,19 +759,33 @@ async fn test_data_sync_to_mobile() {
     assert!(types.contains(&"member_sync"));
 
     // Verify task data
-    let task_msg = received.iter().find(|m| m.msg_type == "task_update").unwrap();
+    let task_msg = received
+        .iter()
+        .find(|m| m.msg_type == "task_update")
+        .unwrap();
     let tasks = task_msg.payload.get("tasks").unwrap().as_array().unwrap();
     assert_eq!(tasks.len(), 2);
 
     // Verify skill data
-    let skill_msg = received.iter().find(|m| m.msg_type == "skill_sync").unwrap();
+    let skill_msg = received
+        .iter()
+        .find(|m| m.msg_type == "skill_sync")
+        .unwrap();
     let skills = skill_msg.payload.get("skills").unwrap().as_array().unwrap();
     assert_eq!(skills.len(), 2);
     assert_eq!(skills[0]["name"], "数据分析");
 
     // Verify member data
-    let member_msg = received.iter().find(|m| m.msg_type == "member_sync").unwrap();
-    let members = member_msg.payload.get("members").unwrap().as_array().unwrap();
+    let member_msg = received
+        .iter()
+        .find(|m| m.msg_type == "member_sync")
+        .unwrap();
+    let members = member_msg
+        .payload
+        .get("members")
+        .unwrap()
+        .as_array()
+        .unwrap();
     assert_eq!(members.len(), 2);
     assert_eq!(members[0]["name"], "张三");
 
@@ -805,7 +830,10 @@ async fn test_qos1_message_delivery() {
         });
 
         tokio::time::sleep(Duration::from_millis(1000)).await;
-        client.subscribe(&test_topic, QoS::AtLeastOnce).await.unwrap();
+        client
+            .subscribe(&test_topic, QoS::AtLeastOnce)
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(1000)).await;
         client.disconnect().await.ok();
         handle.abort();
@@ -826,7 +854,12 @@ async fn test_qos1_message_delivery() {
 
         tokio::time::sleep(Duration::from_millis(1000)).await;
         client
-            .publish(&test_topic, QoS::AtLeastOnce, false, "offline-message".as_bytes().to_vec())
+            .publish(
+                &test_topic,
+                QoS::AtLeastOnce,
+                false,
+                "offline-message".as_bytes().to_vec(),
+            )
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -904,14 +937,19 @@ async fn test_multi_device_isolation() {
         loop {
             match loop_a.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
-                    let _ = tx_a.send(String::from_utf8_lossy(&p.payload).to_string()).await;
+                    let _ = tx_a
+                        .send(String::from_utf8_lossy(&p.payload).to_string())
+                        .await;
                 }
                 Err(_) => break,
                 _ => {}
             }
         }
     });
-    client_a.subscribe(&topic_a, QoS::AtLeastOnce).await.unwrap();
+    client_a
+        .subscribe(&topic_a, QoS::AtLeastOnce)
+        .await
+        .unwrap();
 
     // ── Device B: subscribe to own topic ──
     let (client_b, mut loop_b) = create_client(&config, &format!("e2e-mb-{}", ns));
@@ -920,14 +958,19 @@ async fn test_multi_device_isolation() {
         loop {
             match loop_b.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
-                    let _ = tx_b.send(String::from_utf8_lossy(&p.payload).to_string()).await;
+                    let _ = tx_b
+                        .send(String::from_utf8_lossy(&p.payload).to_string())
+                        .await;
                 }
                 Err(_) => break,
                 _ => {}
             }
         }
     });
-    client_b.subscribe(&topic_b, QoS::AtLeastOnce).await.unwrap();
+    client_b
+        .subscribe(&topic_b, QoS::AtLeastOnce)
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
@@ -944,7 +987,12 @@ async fn test_multi_device_isolation() {
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
     desktop
-        .publish(&topic_a, QoS::AtLeastOnce, false, "for-device-a-only".as_bytes().to_vec())
+        .publish(
+            &topic_a,
+            QoS::AtLeastOnce,
+            false,
+            "for-device-a-only".as_bytes().to_vec(),
+        )
         .await
         .unwrap();
 
@@ -957,7 +1005,10 @@ async fn test_multi_device_isolation() {
 
     // Device B should NOT receive (wait briefly to confirm)
     let msg_b = timeout(Duration::from_secs(2), rx_b.recv()).await;
-    assert!(msg_b.is_err(), "Device B should not receive device A's message");
+    assert!(
+        msg_b.is_err(),
+        "Device B should not receive device A's message"
+    );
 
     desktop.disconnect().await.ok();
     client_a.disconnect().await.ok();

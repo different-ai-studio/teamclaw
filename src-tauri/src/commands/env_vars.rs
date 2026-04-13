@@ -46,17 +46,21 @@ fn write_env_blob_to_disk(map: &serde_json::Map<String, serde_json::Value>) {
 /// On first call after migration: detects old per-key entries and consolidates them.
 /// May write to keychain on first call if legacy migration is needed.
 /// Falls back to a disk file when keychain is inaccessible (e.g. after app update).
-pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+pub(crate) fn read_env_blob(
+    workspace_path: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
         .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
 
     match entry.get_password() {
         Ok(json_str) => {
-            let val: serde_json::Value = serde_json::from_str(&json_str)
-                .unwrap_or_else(|e| {
-                    eprintln!("[EnvVars] Failed to parse keychain blob as JSON (corrupt?): {}", e);
-                    serde_json::Value::Object(serde_json::Map::new())
-                });
+            let val: serde_json::Value = serde_json::from_str(&json_str).unwrap_or_else(|e| {
+                eprintln!(
+                    "[EnvVars] Failed to parse keychain blob as JSON (corrupt?): {}",
+                    e
+                );
+                serde_json::Value::Object(serde_json::Map::new())
+            });
             match val {
                 serde_json::Value::Object(map) => Ok(map),
                 _ => Ok(serde_json::Map::new()),
@@ -66,14 +70,20 @@ pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<Stri
             // First launch (or blob deleted): attempt migration from legacy per-key format.
             let migrated = migrate_legacy_keyring(workspace_path);
             if !migrated.is_empty() {
-                println!("[EnvVars] Migrated {} legacy keychain entries to blob", migrated.len());
+                println!(
+                    "[EnvVars] Migrated {} legacy keychain entries to blob",
+                    migrated.len()
+                );
                 write_env_blob(&migrated)?;
                 return Ok(migrated);
             }
             // Try disk fallback (handles post-update keychain loss)
             if let Some(disk_blob) = read_env_blob_from_disk() {
                 if !disk_blob.is_empty() {
-                    println!("[EnvVars] Restored {} entries from disk fallback", disk_blob.len());
+                    println!(
+                        "[EnvVars] Restored {} entries from disk fallback",
+                        disk_blob.len()
+                    );
                     // Re-populate keychain so subsequent reads are fast
                     let _ = write_env_blob_to_keychain(&disk_blob);
                     return Ok(disk_blob);
@@ -83,10 +93,16 @@ pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<Stri
         }
         Err(e) => {
             // Keychain error (e.g. access denied after app update) — try disk fallback
-            eprintln!("[EnvVars] Keychain read failed: {}. Trying disk fallback...", e);
+            eprintln!(
+                "[EnvVars] Keychain read failed: {}. Trying disk fallback...",
+                e
+            );
             if let Some(disk_blob) = read_env_blob_from_disk() {
                 if !disk_blob.is_empty() {
-                    println!("[EnvVars] Restored {} entries from disk fallback", disk_blob.len());
+                    println!(
+                        "[EnvVars] Restored {} entries from disk fallback",
+                        disk_blob.len()
+                    );
                     return Ok(disk_blob);
                 }
             }
@@ -96,24 +112,32 @@ pub(crate) fn read_env_blob(workspace_path: &str) -> Result<serde_json::Map<Stri
 }
 
 /// Write the env blob to keychain only (no disk fallback).
-fn write_env_blob_to_keychain(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
-    let json_str = serde_json::to_string(map)
-        .map_err(|e| format!("Failed to serialize env blob: {}", e))?;
+fn write_env_blob_to_keychain(
+    map: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let json_str =
+        serde_json::to_string(map).map_err(|e| format!("Failed to serialize env blob: {}", e))?;
     let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
         .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
-    entry.set_password(&json_str)
+    entry
+        .set_password(&json_str)
         .map_err(|e| format!("Failed to write keychain blob: {}", e))
 }
 
 /// Write the entire env var blob to keychain and disk fallback.
-pub(crate) fn write_env_blob(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+pub(crate) fn write_env_blob(
+    map: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
     // Always write disk fallback (survives app updates)
     write_env_blob_to_disk(map);
     // Write to keychain (may fail after update, but that's OK — disk has it)
     match write_env_blob_to_keychain(map) {
         Ok(()) => Ok(()),
         Err(e) => {
-            eprintln!("[EnvVars] Keychain write failed (disk fallback saved): {}", e);
+            eprintln!(
+                "[EnvVars] Keychain write failed (disk fallback saved): {}",
+                e
+            );
             Ok(())
         }
     }
@@ -131,7 +155,10 @@ pub(crate) fn snapshot_env_blob_to_disk() {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
             if let serde_json::Value::Object(map) = val {
                 write_env_blob_to_disk(&map);
-                println!("[EnvVars] Snapshot {} keychain entries to disk before update", map.len());
+                println!(
+                    "[EnvVars] Snapshot {} keychain entries to disk before update",
+                    map.len()
+                );
             }
         }
     }
@@ -170,7 +197,10 @@ fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde
                     let _ = e.delete_credential();
                 }
                 Err(e) => {
-                    eprintln!("[EnvVars] Migration: failed to read legacy keychain entry '{}': {}", key, e);
+                    eprintln!(
+                        "[EnvVars] Migration: failed to read legacy keychain entry '{}': {}",
+                        key, e
+                    );
                 }
             }
         }
@@ -192,20 +222,18 @@ pub(crate) struct SystemEnvVarDef {
 
 /// Registry of all system env vars.
 /// To add a new one: append an entry here — nothing else changes.
-pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[
-    SystemEnvVarDef {
-        key: "tc_api_key",
-        description: "Team LLM API Key",
-        default_fn: |ctx| {
-            if ctx.device_id.is_empty() {
-                return None;
-            }
-            let id = &ctx.device_id;
-            // 40 chars: matches the LiteLLM virtual key suffix length limit
-            Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
-        },
+pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[SystemEnvVarDef {
+    key: "tc_api_key",
+    description: "Team LLM API Key",
+    default_fn: |ctx| {
+        if ctx.device_id.is_empty() {
+            return None;
+        }
+        let id = &ctx.device_id;
+        // 40 chars: matches the LiteLLM virtual key suffix length limit
+        Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
     },
-];
+}];
 
 /// A single environment variable entry (key + description, no value).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -214,7 +242,7 @@ pub struct EnvVarEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,  // "system" | None
+    pub category: Option<String>, // "system" | None
 }
 
 // ─── Internal helpers ───────────────────────────────────────────────────
@@ -306,7 +334,9 @@ pub async fn env_var_set(
         let mut blob = read_env_blob(&wp)?;
         blob.insert(key_clone, serde_json::Value::String(value_clone));
         write_env_blob(&blob)
-    }).await.map_err(|e| e.to_string())??;
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     // Update index in teamclaw.json (metadata only, no value)
     let mut json = read_teamclaw_json(&workspace_path)?;
@@ -315,7 +345,11 @@ pub async fn env_var_set(
     if let Some(existing) = entries.iter_mut().find(|e| e.key == key) {
         existing.description = description;
     } else {
-        entries.push(EnvVarEntry { key, description, category: None });
+        entries.push(EnvVarEntry {
+            key,
+            description,
+            category: None,
+        });
     }
 
     set_env_vars_in_json(&mut json, &entries);
@@ -324,15 +358,14 @@ pub async fn env_var_set(
 
 /// Retrieve an environment variable value from the keychain blob.
 #[tauri::command]
-pub async fn env_var_get(
-    state: State<'_, OpenCodeState>,
-    key: String,
-) -> Result<String, String> {
+pub async fn env_var_get(state: State<'_, OpenCodeState>, key: String) -> Result<String, String> {
     let workspace_path = get_workspace_path(&state)?;
     let blob = tokio::task::spawn_blocking({
         let wp = workspace_path.clone();
         move || read_env_blob(&wp)
-    }).await.map_err(|e| e.to_string())??;
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     blob.get(&key)
         .and_then(|v| v.as_str())
@@ -366,7 +399,9 @@ pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Res
         let mut blob = read_env_blob(&wp)?;
         blob.remove(&key_clone);
         write_env_blob(&blob)
-    }).await.map_err(|e| e.to_string())??;
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     // Remove from teamclaw.json index (reuse the already-read json)
     entries.retain(|e| e.key != key);
@@ -424,8 +459,9 @@ pub async fn env_var_resolve(
     for (full_match, key) in matches {
         // 1. Check shared secrets (team KMS) — try original key, then lowercase
         if let Some(value) =
-            super::shared_secrets::get_secret_value(&shared_secrets, &key)
-                .or_else(|| super::shared_secrets::get_secret_value(&shared_secrets, &key.to_lowercase()))
+            super::shared_secrets::get_secret_value(&shared_secrets, &key).or_else(|| {
+                super::shared_secrets::get_secret_value(&shared_secrets, &key.to_lowercase())
+            })
         {
             result = result.replace(&full_match, &value);
             continue;
@@ -462,11 +498,10 @@ pub async fn env_var_resolve(
 /// If a key is missing from the blob, its default value is generated and written.
 /// If a key already has a value (user customized), it is left unchanged.
 /// This must be called on a blocking thread (keychain I/O).
-pub(crate) fn ensure_system_env_vars(
-    workspace_path: &str,
-    device_id: &str,
-) -> Result<(), String> {
-    let ctx = SystemEnvVarContext { device_id: device_id.to_string() };
+pub(crate) fn ensure_system_env_vars(workspace_path: &str, device_id: &str) -> Result<(), String> {
+    let ctx = SystemEnvVarContext {
+        device_id: device_id.to_string(),
+    };
     let mut blob = read_env_blob(workspace_path)?;
     let mut json = read_teamclaw_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
@@ -484,7 +519,10 @@ pub(crate) fn ensure_system_env_vars(
                 if !existing_value.is_empty() {
                     println!("[EnvVars] Updating system var {} (value changed)", def.key);
                 } else {
-                    println!("[EnvVars] Generated default value for system var: {}", def.key);
+                    println!(
+                        "[EnvVars] Generated default value for system var: {}",
+                        def.key
+                    );
                 }
                 blob.insert(def.key.to_string(), serde_json::Value::String(new_value));
                 blob_changed = true;
@@ -492,7 +530,10 @@ pub(crate) fn ensure_system_env_vars(
         }
 
         // Only register in index if the blob has a value (either pre-existing or just generated)
-        let blob_has_value_now = blob.get(def.key).and_then(|v| v.as_str()).map_or(false, |v| !v.is_empty());
+        let blob_has_value_now = blob
+            .get(def.key)
+            .and_then(|v| v.as_str())
+            .map_or(false, |v| !v.is_empty());
         if !blob_has_value_now {
             // Skip index entry — no value available (e.g., device_id not ready)
             continue;

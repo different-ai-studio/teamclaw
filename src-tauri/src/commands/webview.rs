@@ -299,8 +299,7 @@ pub async fn webview_create(
     if let (Some(ref dno), Some(ref dname)) = (&device_no, &device_name) {
         match super::device_token::generate(dno, "") {
             Ok(device_token) => {
-                let escaped_no =
-                    serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
+                let escaped_no = serde_json::to_string(dno).unwrap_or_else(|_| "\"\"".to_string());
                 let escaped_name =
                     serde_json::to_string(dname).unwrap_or_else(|_| "\"\"".to_string());
                 let escaped_token =
@@ -544,10 +543,7 @@ pub async fn webview_get_favicon(app: tauri::AppHandle, label: String) -> Result
         let url = webview.url().map_err(|e| format!("{}", e))?;
         if let Some(host) = url.host_str() {
             let scheme = url.scheme();
-            let port = url
-                .port()
-                .map(|p| format!(":{}", p))
-                .unwrap_or_default();
+            let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
             return Ok(format!("{}://{}{}/favicon.ico", scheme, host, port));
         }
     }

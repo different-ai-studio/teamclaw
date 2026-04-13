@@ -1678,8 +1678,7 @@ pub async fn npx_skills_remove(
 ) -> Result<String, String> {
     use std::fs;
 
-    let mut args_owned: Vec<String> =
-        vec!["skills".into(), "remove".into(), skill_name.clone()];
+    let mut args_owned: Vec<String> = vec!["skills".into(), "remove".into(), skill_name.clone()];
 
     args_owned.extend(["--agent".into(), "opencode".into()]);
 
@@ -1698,7 +1697,12 @@ pub async fn npx_skills_remove(
 
     if let Some(ref ws) = workspace_path {
         let ws = std::path::Path::new(ws);
-        for sub in &[".agents/skills", ".opencode/skills", ".claude/skills", "skills"] {
+        for sub in &[
+            ".agents/skills",
+            ".opencode/skills",
+            ".claude/skills",
+            "skills",
+        ] {
             dirs_to_remove.push(ws.join(sub).join(&skill_name));
         }
     }
@@ -1706,7 +1710,11 @@ pub async fn npx_skills_remove(
     if is_global {
         if let Ok(home) = std::env::var("HOME") {
             let home = std::path::Path::new(&home);
-            for sub in &[".config/opencode/skills", ".agents/skills", ".claude/skills"] {
+            for sub in &[
+                ".config/opencode/skills",
+                ".agents/skills",
+                ".claude/skills",
+            ] {
                 dirs_to_remove.push(home.join(sub).join(&skill_name));
             }
         }
@@ -1727,17 +1735,13 @@ pub async fn npx_skills_remove(
 
 /// Update all installed skills via `npx skills update`.
 #[tauri::command]
-pub async fn npx_skills_update(
-    workspace_path: Option<String>,
-) -> Result<String, String> {
+pub async fn npx_skills_update(workspace_path: Option<String>) -> Result<String, String> {
     run_npx_skills(&["skills", "update"], workspace_path.as_deref())
 }
 
 /// Check for available skill updates via `npx skills check`.
 #[tauri::command]
-pub async fn npx_skills_check(
-    workspace_path: Option<String>,
-) -> Result<String, String> {
+pub async fn npx_skills_check(workspace_path: Option<String>) -> Result<String, String> {
     run_npx_skills(&["skills", "check"], workspace_path.as_deref())
 }
 

@@ -6,7 +6,9 @@ pub mod mqtt_proto;
 pub mod mqtt_relay;
 
 pub use mqtt_relay::MqttRelay;
-pub use teamclaw_gateway::mqtt_config::{MqttConfig, MqttRelayStatus, PairedDevice, PairingSession};
+pub use teamclaw_gateway::mqtt_config::{
+    MqttConfig, MqttRelayStatus, PairedDevice, PairingSession,
+};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -832,7 +834,12 @@ pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, Strin
                     // Still include them but with a placeholder
                 }
                 let archived = s["time"]["archived"].as_i64().is_some();
-                Some(SessionInfo { id, title, updated, archived })
+                Some(SessionInfo {
+                    id,
+                    title,
+                    updated,
+                    archived,
+                })
             })
             .collect(),
         None => return Err("Unexpected session list format".to_string()),
@@ -2345,7 +2352,10 @@ pub async fn save_mqtt_relay_config(
 
     // Auto-generate team_id if not set
     if config.team_id.is_empty() {
-        let existing = existing_mqtt.as_ref().map(|c| c.team_id.clone()).unwrap_or_default();
+        let existing = existing_mqtt
+            .as_ref()
+            .map(|c| c.team_id.clone())
+            .unwrap_or_default();
         config.team_id = if existing.is_empty() {
             uuid::Uuid::new_v4().to_string()
         } else {
@@ -2355,7 +2365,10 @@ pub async fn save_mqtt_relay_config(
 
     // Auto-generate device_id if not set
     if config.device_id.is_empty() {
-        let existing = existing_mqtt.as_ref().map(|c| c.device_id.clone()).unwrap_or_default();
+        let existing = existing_mqtt
+            .as_ref()
+            .map(|c| c.device_id.clone())
+            .unwrap_or_default();
         config.device_id = if existing.is_empty() {
             format!("desktop-{}", &uuid::Uuid::new_v4().to_string()[..8])
         } else {
@@ -2409,8 +2422,12 @@ pub async fn start_mqtt_relay(
     }
 
     // Clone relay and use it outside the lock
-    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
-        .as_ref().cloned()
+    let relay = gateway_state
+        .mqtt_relay
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .cloned()
         .ok_or("Failed to create MQTT relay")?;
 
     relay.set_config(mqtt_config).await;
@@ -2420,11 +2437,13 @@ pub async fn start_mqtt_relay(
 }
 
 #[tauri::command]
-pub async fn stop_mqtt_relay(
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
-        .as_ref().cloned();
+pub async fn stop_mqtt_relay(gateway_state: State<'_, GatewayState>) -> Result<(), String> {
+    let relay = gateway_state
+        .mqtt_relay
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .cloned();
     if let Some(relay) = relay {
         relay.stop().await?;
     }
@@ -2435,8 +2454,12 @@ pub async fn stop_mqtt_relay(
 pub async fn get_mqtt_relay_status(
     gateway_state: State<'_, GatewayState>,
 ) -> Result<MqttRelayStatus, String> {
-    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
-        .as_ref().cloned();
+    let relay = gateway_state
+        .mqtt_relay
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .cloned();
     if let Some(relay) = relay {
         Ok(relay.get_status().await)
     } else {
@@ -2453,7 +2476,10 @@ pub async fn get_mqtt_relay_status(
 pub async fn generate_mqtt_pairing_code(
     gateway_state: State<'_, GatewayState>,
 ) -> Result<String, String> {
-    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
+    let relay = gateway_state
+        .mqtt_relay
+        .lock()
+        .map_err(|e| e.to_string())?
         .as_ref()
         .ok_or("MQTT relay not started")?
         .clone();
@@ -2466,8 +2492,12 @@ pub async fn unpair_mqtt_device(
     gateway_state: State<'_, GatewayState>,
     device_id: String,
 ) -> Result<(), String> {
-    let relay = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?
-        .as_ref().cloned();
+    let relay = gateway_state
+        .mqtt_relay
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .cloned();
 
     if let Some(relay) = relay {
         relay.unpair_device(&device_id).await?;

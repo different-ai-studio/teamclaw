@@ -45,10 +45,7 @@ pub fn read_workspace_text_file(workspace_path: String, path: String) -> Result<
 }
 
 #[tauri::command]
-pub fn read_workspace_binary_file(
-    workspace_path: String,
-    path: String,
-) -> Result<Vec<u8>, String> {
+pub fn read_workspace_binary_file(workspace_path: String, path: String) -> Result<Vec<u8>, String> {
     let target = resolve_workspace_view_path(&workspace_path, &path)?;
     std::fs::read(&target)
         .map_err(|e| format!("Failed to read binary file '{}': {}", target.display(), e))

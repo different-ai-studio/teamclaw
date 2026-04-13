@@ -288,14 +288,14 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Shortcuts')).toBeDefined()
     expect(screen.getByText('Automation')).toBeDefined()
     expect(screen.getByText('Roles & Skills')).toBeDefined()
-    expect(screen.getByText('Files')).toBeDefined()
+    expect(screen.getByText('Knowledge')).toBeDefined()
   })
 
-  it('workspace mode does not render bottom Files entry', () => {
+  it('workspace mode does not render bottom Knowledge entry', () => {
     uiVariantMocks.workspaceShell = true
     render(<AppSidebar />)
-    // workspace mode has its own quick links but NOT "Files"
-    expect(screen.queryByText('Files')).toBeNull()
+    // workspace mode has its own quick links but NOT "Knowledge"
+    expect(screen.queryByText('Knowledge')).toBeNull()
   })
 
   it('clicking Shortcuts in Quick Access calls openPanel with "shortcuts"', () => {
@@ -305,11 +305,11 @@ describe('AppSidebar', () => {
     expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('shortcuts')
   })
 
-  it('clicking Files in Quick Access calls openPanel with "files"', () => {
+  it('clicking Knowledge in Quick Access calls openPanel with "knowledge"', () => {
     uiVariantMocks.workspaceShell = false
     render(<AppSidebar />)
-    screen.getByText('Files').closest('button')!.click()
-    expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('files')
+    screen.getByText('Knowledge').closest('button')!.click()
+    expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('knowledge')
   })
 
   it('clicking active Automation in Quick Access closes it', () => {
@@ -320,14 +320,14 @@ describe('AppSidebar', () => {
     expect(uiStoreMocks.closeEmbeddedSettingsSection).toHaveBeenCalled()
   })
 
-  it('clicking active Files in Quick Access closes the panel', () => {
+  it('clicking active Knowledge in Quick Access closes the panel', () => {
     uiVariantMocks.workspaceShell = false
     const closePanelFn = vi.fn()
     workspaceStoreMocks.isPanelOpen = true
-    workspaceStoreMocks.activeTab = 'files'
+    workspaceStoreMocks.activeTab = 'knowledge'
     workspaceStoreMocks.closePanel = closePanelFn
     render(<AppSidebar />)
-    screen.getByText('Files').closest('button')!.click()
+    screen.getByText('Knowledge').closest('button')!.click()
     expect(closePanelFn).toHaveBeenCalled()
   })
 

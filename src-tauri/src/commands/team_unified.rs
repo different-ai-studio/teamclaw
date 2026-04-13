@@ -110,20 +110,32 @@ async fn p2p_update_member_role_and_sync(
         })
         .flatten()
         .or_else(|| {
-            super::team_p2p::read_p2p_config(workspace_path, super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME)
-                .ok()
-                .flatten()
-                .and_then(|config| {
-                    config
-                        .allowed_members
-                        .into_iter()
-                        .find(|member| member.node_id == node_id)
-                        .map(|member| member.role)
-                })
+            super::team_p2p::read_p2p_config(
+                workspace_path,
+                super::TEAMCLAW_DIR,
+                super::CONFIG_FILE_NAME,
+            )
+            .ok()
+            .flatten()
+            .and_then(|config| {
+                config
+                    .allowed_members
+                    .into_iter()
+                    .find(|member| member.node_id == node_id)
+                    .map(|member| member.role)
+            })
         })
         .ok_or_else(|| "Member not found".to_string())?;
 
-    super::team_p2p::update_member_role(workspace_path, &team_dir, &caller_node_id, node_id, role, super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME)?;
+    super::team_p2p::update_member_role(
+        workspace_path,
+        &team_dir,
+        &caller_node_id,
+        node_id,
+        role,
+        super::TEAMCLAW_DIR,
+        super::CONFIG_FILE_NAME,
+    )?;
 
     let manifest_path = format!("{}/{}", team_dir, "_team/members.json");
     let content = match std::fs::read(&manifest_path) {
@@ -200,7 +212,12 @@ pub async fn unified_team_get_members(
             if let Ok(Some(manifest)) = super::team_p2p::read_members_manifest(&team_dir) {
                 Ok(manifest.members)
             } else {
-                let config = super::team_p2p::read_p2p_config(&workspace_path, super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME)?.unwrap_or_default();
+                let config = super::team_p2p::read_p2p_config(
+                    &workspace_path,
+                    super::TEAMCLAW_DIR,
+                    super::CONFIG_FILE_NAME,
+                )?
+                .unwrap_or_default();
                 Ok(config.allowed_members)
             }
         }
@@ -348,13 +365,17 @@ pub async fn unified_team_remove_member(
                         .to_string(),
                 );
             }
-            let member_snapshot = super::team_p2p::read_p2p_config(&workspace_path, super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME)?
-                .ok_or_else(|| "No P2P config found".to_string())?
-                .allowed_members
-                .iter()
-                .find(|m| m.node_id == node_id)
-                .cloned()
-                .ok_or_else(|| "Member not found".to_string())?;
+            let member_snapshot = super::team_p2p::read_p2p_config(
+                &workspace_path,
+                super::TEAMCLAW_DIR,
+                super::CONFIG_FILE_NAME,
+            )?
+            .ok_or_else(|| "No P2P config found".to_string())?
+            .allowed_members
+            .iter()
+            .find(|m| m.node_id == node_id)
+            .cloned()
+            .ok_or_else(|| "Member not found".to_string())?;
 
             super::team_p2p::remove_member_from_team(
                 &workspace_path,
@@ -489,8 +510,12 @@ pub async fn unified_team_get_my_role(
         #[cfg(feature = "p2p")]
         Some("p2p") => {
             let _ = iroh_state;
-            let config =
-                super::team_p2p::read_p2p_config(&workspace_path, super::TEAMCLAW_DIR, super::CONFIG_FILE_NAME)?.ok_or("No P2P config found")?;
+            let config = super::team_p2p::read_p2p_config(
+                &workspace_path,
+                super::TEAMCLAW_DIR,
+                super::CONFIG_FILE_NAME,
+            )?
+            .ok_or("No P2P config found")?;
             config
                 .role
                 .ok_or_else(|| "Role not set in P2P config".to_string())

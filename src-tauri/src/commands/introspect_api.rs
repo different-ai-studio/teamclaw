@@ -13,8 +13,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
-    let listener =
-        TcpListener::bind(format!("127.0.0.1:{}", INTROSPECT_API_PORT)).await?;
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", INTROSPECT_API_PORT)).await?;
     println!(
         "[IntrospectAPI] Listening on 127.0.0.1:{}",
         INTROSPECT_API_PORT
@@ -79,12 +78,8 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
             let body_bytes = &body_buf[..];
 
             let resp = match (method, path) {
-                ("POST", "/send-wecom") => {
-                    handle_send_wecom(body_bytes).await
-                }
-                ("POST", "/cron-run") => {
-                    handle_cron_run(&app_clone, body_bytes).await
-                }
+                ("POST", "/send-wecom") => handle_send_wecom(body_bytes).await,
+                ("POST", "/cron-run") => handle_cron_run(&app_clone, body_bytes).await,
                 _ => Err(format!("Not found: {} {}", method, path)),
             };
 
@@ -105,14 +100,8 @@ async fn handle_send_wecom(body: &[u8]) -> Result<String, String> {
     let v: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
 
-    let target = v
-        .get("target")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let message = v
-        .get("message")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let target = v.get("target").and_then(|v| v.as_str()).unwrap_or("");
+    let message = v.get("message").and_then(|v| v.as_str()).unwrap_or("");
 
     // Parse target format: "single:{userid}" or "group:{chatid}" or bare chatid
     let (chatid, chat_type) = if let Some(userid) = target.strip_prefix("single:") {
@@ -202,8 +191,7 @@ fn detect_media_type(filename: &str) -> &'static str {
 
 /// Find the position of `\r\n\r\n` in `data`, returning the index of the first `\r`.
 fn find_double_crlf(data: &[u8]) -> Option<usize> {
-    data.windows(4)
-        .position(|w| w == b"\r\n\r\n")
+    data.windows(4).position(|w| w == b"\r\n\r\n")
 }
 
 async fn write_response(

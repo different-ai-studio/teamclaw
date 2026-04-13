@@ -208,10 +208,7 @@ pub fn load_all_secrets(state: &SharedSecretsState) -> Result<(), String> {
                 new_map.insert(secret.key_id.clone(), secret);
             }
             Err(e) => {
-                log::warn!(
-                    "shared_secrets: failed to decrypt {}: {e}",
-                    path.display()
-                );
+                log::warn!("shared_secrets: failed to decrypt {}: {e}", path.display());
             }
         }
     }

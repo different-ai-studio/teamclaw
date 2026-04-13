@@ -16,9 +16,7 @@ use tracing::info;
 // Re-export everything from teamclaw_sync::oss_sync
 // ---------------------------------------------------------------------------
 
-pub use teamclaw_sync::oss_sync::{
-    OssSyncManager, OssSyncState, SyncEventEmitter,
-};
+pub use teamclaw_sync::oss_sync::{OssSyncManager, OssSyncState, SyncEventEmitter};
 
 // ---------------------------------------------------------------------------
 // Tauri SyncEventEmitter implementation
@@ -37,7 +35,10 @@ impl SyncEventEmitter for TauriSyncEventEmitter {
 
     fn reload_shared_secrets(&self) {
         use tauri::{Emitter, Manager};
-        if let Some(shared_state) = self.app_handle.try_state::<crate::commands::shared_secrets::SharedSecretsState>() {
+        if let Some(shared_state) =
+            self.app_handle
+                .try_state::<crate::commands::shared_secrets::SharedSecretsState>()
+        {
             if let Err(e) = crate::commands::shared_secrets::load_all_secrets(&shared_state) {
                 log::warn!("[OssSync] Failed to reload shared secrets: {}", e);
             }
@@ -149,7 +150,10 @@ pub fn load_team_secret(workspace_path: &str, team_id: &str) -> Result<String, S
             blob.insert(key, serde_json::Value::String(secret.clone()));
             let _ = super::env_vars::write_env_blob(&blob);
             let _ = legacy_entry.delete_credential();
-            info!("Migrated team secret for {} from legacy keyring to env blob", team_id);
+            info!(
+                "Migrated team secret for {} from legacy keyring to env blob",
+                team_id
+            );
             Ok(secret)
         }
         Err(_) => Err(format!("Team secret not found for team {team_id}")),
@@ -204,9 +208,7 @@ mod tests {
         impl MiniS3 {
             pub async fn start() -> Self {
                 let store: S3Store = Arc::new(Mutex::new(HashMap::new()));
-                let app = Router::new()
-                    .fallback(s3_handler)
-                    .with_state(store.clone());
+                let app = Router::new().fallback(s3_handler).with_state(store.clone());
 
                 let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
                 let addr = listener.local_addr().unwrap();
@@ -214,12 +216,18 @@ mod tests {
                 let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
                 tokio::spawn(async move {
                     axum::serve(listener, app)
-                        .with_graceful_shutdown(async { let _ = shutdown_rx.await; })
+                        .with_graceful_shutdown(async {
+                            let _ = shutdown_rx.await;
+                        })
                         .await
                         .unwrap();
                 });
 
-                Self { store, addr, shutdown_tx }
+                Self {
+                    store,
+                    addr,
+                    shutdown_tx,
+                }
             }
 
             pub fn endpoint(&self) -> String {
@@ -291,8 +299,11 @@ mod tests {
                         if let Some(ref delim) = delimiter {
                             let suffix = &k[prefix.len()..];
                             if let Some(pos) = suffix.find(delim.as_str()) {
-                                common_prefixes
-                                    .insert(format!("{}{}", prefix, &suffix[..pos + delim.len()]));
+                                common_prefixes.insert(format!(
+                                    "{}{}",
+                                    prefix,
+                                    &suffix[..pos + delim.len()]
+                                ));
                                 continue;
                             }
                         }
@@ -302,7 +313,7 @@ mod tests {
 
                     let mut xml = String::from(
                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
-                         <ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">"
+                         <ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">",
                     );
                     xml.push_str(&format!("<Prefix>{}</Prefix>", prefix));
                     xml.push_str("<IsTruncated>false</IsTruncated>");
@@ -543,10 +554,18 @@ mod tests {
         let mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
         // Seed some keys
-        mgr.s3_put("teams/t/skills/updates/nodeA/100.bin", b"a").await.unwrap();
-        mgr.s3_put("teams/t/skills/updates/nodeA/200.bin", b"b").await.unwrap();
-        mgr.s3_put("teams/t/skills/updates/nodeB/150.bin", b"c").await.unwrap();
-        mgr.s3_put("teams/t/mcp/updates/nodeA/100.bin", b"d").await.unwrap();
+        mgr.s3_put("teams/t/skills/updates/nodeA/100.bin", b"a")
+            .await
+            .unwrap();
+        mgr.s3_put("teams/t/skills/updates/nodeA/200.bin", b"b")
+            .await
+            .unwrap();
+        mgr.s3_put("teams/t/skills/updates/nodeB/150.bin", b"c")
+            .await
+            .unwrap();
+        mgr.s3_put("teams/t/mcp/updates/nodeA/100.bin", b"d")
+            .await
+            .unwrap();
 
         // List with prefix
         let keys = mgr.s3_list("teams/t/skills/updates/").await.unwrap();
@@ -575,7 +594,9 @@ mod tests {
         assert!(prefixes[1].ends_with("nodeB/"));
 
         // Delete and verify
-        mgr.s3_delete("teams/t/skills/updates/nodeA/100.bin").await.unwrap();
+        mgr.s3_delete("teams/t/skills/updates/nodeA/100.bin")
+            .await
+            .unwrap();
         let keys = mgr.s3_list("teams/t/skills/updates/nodeA/").await.unwrap();
         assert_eq!(keys.len(), 1);
 
@@ -607,7 +628,11 @@ mod tests {
 
         let small_data = b"small update".to_vec();
         let ok = mgr
-            .upload_with_fallback(DocType::Skills, &small_data, "teams/t/skills/updates/n/1.bin")
+            .upload_with_fallback(
+                DocType::Skills,
+                &small_data,
+                "teams/t/skills/updates/n/1.bin",
+            )
             .await
             .unwrap();
         assert!(ok);
@@ -631,21 +656,27 @@ mod tests {
         assert!(large_data.len() > 10 * 1024 * 1024);
 
         let ok = mgr
-            .upload_with_fallback(DocType::Skills, &large_data, "teams/t/skills/updates/n/1.bin")
+            .upload_with_fallback(
+                DocType::Skills,
+                &large_data,
+                "teams/t/skills/updates/n/1.bin",
+            )
             .await
             .unwrap();
         assert!(ok);
 
         // Should be stored as .zst (original .bin key should NOT exist)
         let raw = s3.get_stored("teams/t/skills/updates/n/1.bin").await;
-        assert!(raw.is_none(), "raw .bin should not be stored for large data");
+        assert!(
+            raw.is_none(),
+            "raw .bin should not be stored for large data"
+        );
 
         let compressed = s3.get_stored("teams/t/skills/updates/n/1.zst").await;
         assert!(compressed.is_some(), ".zst key should exist");
 
         // Verify decompression roundtrip
-        let decompressed =
-            zstd::decode_all(std::io::Cursor::new(&compressed.unwrap())).unwrap();
+        let decompressed = zstd::decode_all(std::io::Cursor::new(&compressed.unwrap())).unwrap();
         assert_eq!(decompressed, large_data);
 
         // Health should be Warning after compression fallback
@@ -661,13 +692,19 @@ mod tests {
     #[test]
     fn scan_skips_binary_files() {
         let ws = create_temp_workspace();
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
 
         // Write a valid UTF-8 file
         std::fs::write(skills_dir.join("good.md"), "# Hello").unwrap();
         // Write a binary file (invalid UTF-8)
-        std::fs::write(skills_dir.join("image.png"), &[0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFE])
-            .unwrap();
+        std::fs::write(
+            skills_dir.join("image.png"),
+            &[0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFE],
+        )
+        .unwrap();
 
         let (files, skipped) = OssSyncManager::scan_local_files(&skills_dir).unwrap();
         assert!(files.contains_key("good.md"));
@@ -680,7 +717,10 @@ mod tests {
     #[test]
     fn scan_skips_oversized_files() {
         let ws = create_temp_workspace();
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
 
         // Write a file exceeding MAX_SYNC_FILE_SIZE (10 MB)
         let big_content = "x".repeat(11 * 1024 * 1024);
@@ -717,7 +757,10 @@ mod tests {
     #[test]
     fn scan_incremental_only_new_files() {
         let ws = create_temp_workspace();
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
 
         std::fs::write(skills_dir.join("old.md"), "old content").unwrap();
 
@@ -728,8 +771,7 @@ mod tests {
 
         std::fs::write(skills_dir.join("new.md"), "new content").unwrap();
 
-        let (files, _) =
-            OssSyncManager::scan_local_files_incremental(&skills_dir, since).unwrap();
+        let (files, _) = OssSyncManager::scan_local_files_incremental(&skills_dir, since).unwrap();
         assert!(files.contains_key("new.md"));
         // old.md may or may not appear depending on filesystem mtime resolution;
         // the key assertion is that new.md IS included
@@ -761,7 +803,10 @@ mod tests {
         let absorbed = mgr.write_doc_to_disk(DocType::Skills).unwrap();
 
         // Verify file was created
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         let content = std::fs::read_to_string(skills_dir.join("hello.md")).unwrap();
         assert_eq!(content, "# Hello World");
 
@@ -777,7 +822,10 @@ mod tests {
         let ws = create_temp_workspace();
         let mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
 
         // Create a file on disk and in the doc, marked as deleted
         std::fs::write(skills_dir.join("removed.md"), "to be removed").unwrap();
@@ -809,7 +857,10 @@ mod tests {
         let ws = create_temp_workspace();
         let mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         // A file on disk not in the LoroDoc should be absorbed
         std::fs::write(skills_dir.join("local-only.md"), "I was added via Finder").unwrap();
 
@@ -840,14 +891,19 @@ mod tests {
         let ws = create_temp_workspace();
         let mut mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         std::fs::write(skills_dir.join("new-skill.md"), "# New Skill\nContent here").unwrap();
 
         let uploaded = mgr.upload_local_changes(DocType::Skills).await.unwrap();
         assert!(uploaded, "should detect new file and upload");
 
         // Verify an update was uploaded to S3
-        let keys = s3.list_keys("teams/test-team/skills/updates/test-node/").await;
+        let keys = s3
+            .list_keys("teams/test-team/skills/updates/test-node/")
+            .await;
         assert_eq!(keys.len(), 1, "should have one update file");
 
         // The uploaded data should be a valid Loro export
@@ -868,7 +924,10 @@ mod tests {
         let ws = create_temp_workspace();
         let mut mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
 
         // First: create a file and upload it
         std::fs::write(skills_dir.join("will-delete.md"), "temporary").unwrap();
@@ -923,9 +982,7 @@ mod tests {
         entry.insert("updatedBy", "remote-node").unwrap();
         entry.insert("updatedAt", "2026-01-01T00:00:00Z").unwrap();
 
-        let updates = remote_doc
-            .export(loro::ExportMode::all_updates())
-            .unwrap();
+        let updates = remote_doc.export(loro::ExportMode::all_updates()).unwrap();
         s3.put_stored(
             "teams/test-team/skills/updates/remote-node/1000.bin",
             updates,
@@ -951,7 +1008,10 @@ mod tests {
         }
 
         // Verify file was written to disk
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         let content = std::fs::read_to_string(skills_dir.join("remote-file.md")).unwrap();
         assert_eq!(content, "remote content");
 
@@ -976,9 +1036,7 @@ mod tests {
         entry.insert("updatedBy", "remote-node").unwrap();
         entry.insert("updatedAt", "2026-01-01T00:00:00Z").unwrap();
 
-        let updates = remote_doc
-            .export(loro::ExportMode::all_updates())
-            .unwrap();
+        let updates = remote_doc.export(loro::ExportMode::all_updates()).unwrap();
         let compressed = zstd::encode_all(std::io::Cursor::new(&updates), 3).unwrap();
 
         // Upload as .zst
@@ -991,7 +1049,10 @@ mod tests {
         mgr.pull_remote_changes(DocType::Skills).await.unwrap();
 
         // Verify the file was imported despite being compressed
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         let content = std::fs::read_to_string(skills_dir.join("compressed.md")).unwrap();
         assert_eq!(content, "compressed content");
 
@@ -1129,7 +1190,10 @@ mod tests {
         mgr.initial_sync().await.unwrap();
 
         // Verify both files exist on disk
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         assert_eq!(
             std::fs::read_to_string(skills_dir.join("from-snapshot.md")).unwrap(),
             "snapshot content"
@@ -1175,7 +1239,10 @@ mod tests {
 
         mgr.initial_sync().await.unwrap();
 
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         assert_eq!(
             std::fs::read_to_string(skills_dir.join("legacy.md")).unwrap(),
             "legacy snapshot"
@@ -1195,7 +1262,10 @@ mod tests {
         let mut mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
         mgr.set_role(MemberRole::Owner);
 
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
 
         // Create files and upload to build up update history
         std::fs::write(skills_dir.join("file1.md"), "content1").unwrap();
@@ -1204,9 +1274,7 @@ mod tests {
         mgr.upload_local_changes(DocType::Skills).await.unwrap();
 
         // Record update keys before compaction
-        let pre_update_keys = s3
-            .list_keys("teams/test-team/skills/updates/")
-            .await;
+        let pre_update_keys = s3.list_keys("teams/test-team/skills/updates/").await;
         assert!(pre_update_keys.len() >= 2, "should have at least 2 updates");
 
         // Populate live_keyset (normally done by initial_sync)
@@ -1219,7 +1287,10 @@ mod tests {
 
         // A snapshot should have been uploaded
         let snap_keys = s3.list_keys("teams/test-team/skills/snapshots/").await;
-        assert!(!snap_keys.is_empty(), "snapshot should exist after compaction");
+        assert!(
+            !snap_keys.is_empty(),
+            "snapshot should exist after compaction"
+        );
 
         // generation.json should exist
         let gen = s3
@@ -1231,9 +1302,7 @@ mod tests {
         assert!(gen_json.get("snapshotKey").is_some());
 
         // Old update files should have been deleted
-        let post_update_keys = s3
-            .list_keys("teams/test-team/skills/updates/")
-            .await;
+        let post_update_keys = s3.list_keys("teams/test-team/skills/updates/").await;
         assert!(
             post_update_keys.len() < pre_update_keys.len(),
             "old updates should be deleted after compaction"
@@ -1279,7 +1348,10 @@ mod tests {
             },
         );
 
-        let skills_a = ws_a.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_a = ws_a
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         std::fs::write(skills_a.join("shared.md"), "hello from node A").unwrap();
         mgr_a.upload_local_changes(DocType::Skills).await.unwrap();
 
@@ -1314,7 +1386,10 @@ mod tests {
 
         mgr_b.pull_remote_changes(DocType::Skills).await.unwrap();
 
-        let skills_b = ws_b.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_b = ws_b
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         let content = std::fs::read_to_string(skills_b.join("shared.md")).unwrap();
         assert_eq!(content, "hello from node A");
 
@@ -1342,12 +1417,18 @@ mod tests {
         let cursor = SyncCursor {
             last_known_keys: {
                 let mut m = HashMap::new();
-                m.insert("skills".to_string(), "teams/t/skills/updates/n/100.bin".to_string());
+                m.insert(
+                    "skills".to_string(),
+                    "teams/t/skills/updates/n/100.bin".to_string(),
+                );
                 m
             },
             last_known_keys_per_node: {
                 let mut m = HashMap::new();
-                m.insert("skills:teams/t/skills/updates/nodeA/".to_string(), "teams/t/skills/updates/nodeA/100.bin".to_string());
+                m.insert(
+                    "skills:teams/t/skills/updates/nodeA/".to_string(),
+                    "teams/t/skills/updates/nodeA/100.bin".to_string(),
+                );
                 m
             },
             known_signal_keys: vec!["teams/t/signal/n/1.flag".to_string()],
@@ -1360,7 +1441,10 @@ mod tests {
             },
             known_files: {
                 let mut m = HashMap::new();
-                m.insert("skills".to_string(), vec!["a.md".to_string(), "b.md".to_string()]);
+                m.insert(
+                    "skills".to_string(),
+                    vec!["a.md".to_string(), "b.md".to_string()],
+                );
                 m
             },
             generation: {
@@ -1374,7 +1458,10 @@ mod tests {
         let loaded = read_sync_cursor(ws_path);
 
         assert_eq!(loaded.last_known_keys, cursor.last_known_keys);
-        assert_eq!(loaded.last_known_keys_per_node, cursor.last_known_keys_per_node);
+        assert_eq!(
+            loaded.last_known_keys_per_node,
+            cursor.last_known_keys_per_node
+        );
         assert_eq!(loaded.known_signal_keys, cursor.known_signal_keys);
         assert_eq!(loaded.last_scan_time, cursor.last_scan_time);
         assert_eq!(loaded.known_files, cursor.known_files);
@@ -1392,7 +1479,10 @@ mod tests {
         // Verify no .tmp file remains
         let loro_dir = ws.path().join(crate::commands::TEAMCLAW_DIR).join("loro");
         let tmp_path = loro_dir.join("sync_cursor.json.tmp");
-        assert!(!tmp_path.exists(), ".tmp file should not remain after write");
+        assert!(
+            !tmp_path.exists(),
+            ".tmp file should not remain after write"
+        );
 
         // Verify the actual file exists and is valid JSON
         let path = loro_dir.join("sync_cursor.json");
@@ -1412,7 +1502,10 @@ mod tests {
         let mut mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
         // Upload a file to populate version vectors and cursors
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         std::fs::write(skills_dir.join("track.md"), "track this").unwrap();
         mgr.upload_local_changes(DocType::Skills).await.unwrap();
 
@@ -1438,7 +1531,8 @@ mod tests {
         let mut mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
         // Set a local generation
-        mgr.generation.insert(DocType::Skills, "old-gen".to_string());
+        mgr.generation
+            .insert(DocType::Skills, "old-gen".to_string());
 
         // Upload a snapshot and generation.json with a DIFFERENT generation
         let snap_doc = loro::LoroDoc::new();
@@ -1480,7 +1574,10 @@ mod tests {
         // Write to disk manually to verify the doc state.
         mgr.write_doc_to_disk(DocType::Skills).unwrap();
 
-        let skills_dir = ws.path().join(crate::commands::TEAM_REPO_DIR).join("skills");
+        let skills_dir = ws
+            .path()
+            .join(crate::commands::TEAM_REPO_DIR)
+            .join("skills");
         assert_eq!(
             std::fs::read_to_string(skills_dir.join("rebootstrapped.md")).unwrap(),
             "new generation content"

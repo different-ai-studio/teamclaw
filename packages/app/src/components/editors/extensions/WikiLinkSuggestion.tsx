@@ -82,7 +82,7 @@ export function createWikiLinkSuggestion(): Omit<SuggestionOptions, 'editor'> {
     char: '[[',
     allowSpaces: true,
 
-    items: ({ query }) => {
+    items: ({ query }: { query: string }) => {
       const allPages = useKnowledgeStore.getState().getAllPageNames()
       if (!query) return allPages.slice(0, 20)
 
@@ -97,7 +97,7 @@ export function createWikiLinkSuggestion(): Omit<SuggestionOptions, 'editor'> {
       let popup: Instance[] | null = null
 
       return {
-        onStart: (props) => {
+        onStart: (props: any) => {
           component = new ReactRenderer(WikiLinkSuggestionList, {
             props: {
               items: props.items as PageNameEntry[],
@@ -121,7 +121,7 @@ export function createWikiLinkSuggestion(): Omit<SuggestionOptions, 'editor'> {
           })
         },
 
-        onUpdate: (props) => {
+        onUpdate: (props: any) => {
           component?.updateProps({
             items: props.items as PageNameEntry[],
             command: (item: PageNameEntry) => {
@@ -136,7 +136,7 @@ export function createWikiLinkSuggestion(): Omit<SuggestionOptions, 'editor'> {
           }
         },
 
-        onKeyDown: (props) => {
+        onKeyDown: (props: any) => {
           if (props.event.key === 'Escape') {
             popup?.[0]?.hide()
             return true
@@ -151,7 +151,7 @@ export function createWikiLinkSuggestion(): Omit<SuggestionOptions, 'editor'> {
       }
     },
 
-    command: ({ editor, range, props }) => {
+    command: ({ editor, range, props }: { editor: any; range: any; props: any }) => {
       editor
         .chain()
         .focus()

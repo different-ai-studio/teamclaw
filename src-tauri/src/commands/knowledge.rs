@@ -228,8 +228,9 @@ pub async fn rag_search(
     let instance = instance.lock().await;
 
     let top_k = top_k.unwrap_or(5);
-    let mode =
-        teamclaw_rag::hybrid_search::SearchMode::from_str(search_mode.as_deref().unwrap_or("hybrid"));
+    let mode = teamclaw_rag::hybrid_search::SearchMode::from_str(
+        search_mode.as_deref().unwrap_or("hybrid"),
+    );
 
     teamclaw_rag::search::search(
         &instance.db,

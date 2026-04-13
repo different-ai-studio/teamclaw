@@ -438,10 +438,7 @@ pub fn clawhub_explore(
     let client = build_client()?;
 
     let bounded_limit = limit.unwrap_or(25).min(200).max(1);
-    let mut url = format!(
-        "{}/api/v1/search?q=&limit={}",
-        registry, bounded_limit
-    );
+    let mut url = format!("{}/api/v1/search?q=&limit={}", registry, bounded_limit);
     if let Some(ref s) = sort {
         url.push_str(&format!("&sort={}", urlencoding::encode(s)));
     }

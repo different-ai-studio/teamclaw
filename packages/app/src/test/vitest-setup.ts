@@ -56,6 +56,23 @@ if (typeof globalThis.CSS === 'undefined') {
   Object.assign(globalThis.CSS, { escape: cssEscapeIdent })
 }
 
+// --- localStorage polyfill (some jsdom worker contexts lack it or have broken impl) ---
+if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localStorage?.clear !== 'function') {
+  const store: Record<string, string> = {}
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => store[key] ?? null,
+      setItem: (key: string, value: string) => { store[key] = String(value) },
+      removeItem: (key: string) => { delete store[key] },
+      clear: () => { for (const k of Object.keys(store)) delete store[k] },
+      get length() { return Object.keys(store).length },
+      key: (i: number) => Object.keys(store)[i] ?? null,
+    },
+    configurable: true,
+    writable: true,
+  })
+}
+
 // --- Element.scrollIntoView (jsdom stub) -------------------------------------
 if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
   Element.prototype.scrollIntoView = function (_options?: ScrollIntoViewOptions) {
