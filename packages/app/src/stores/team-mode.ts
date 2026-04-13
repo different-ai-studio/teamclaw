@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import {
   addCustomProviderToConfig,
+  getCustomProviderConfig,
   removeCustomProviderFromConfig,
 } from '@/lib/opencode/config'
 import { useProviderStore } from './provider'
@@ -112,13 +113,11 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     const { teamModelConfig, _appliedConfigKey } = get()
     if (!teamModelConfig) return
 
-    // Build a fingerprint of the current config to avoid redundant restarts/toasts
     const configKey = `${teamModelConfig.baseUrl}|${teamModelConfig.model}`
     if (!force && configKey === _appliedConfigKey) return
     set({ _appliedConfigKey: configKey })
 
     try {
-      // Save current model before overriding
       const providerStore = useProviderStore.getState()
       const currentModel = providerStore.currentModelKey
       if (currentModel && !currentModel.startsWith('team/')) {
@@ -127,18 +126,15 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         } catch { /* ignore */ }
       }
 
-      // Write custom provider to opencode.json
       const modelConfig: any = {
         modelId: teamModelConfig.model,
         modelName: teamModelConfig.modelName,
-        // Standard token limits for GPT-5.x models
         limit: {
           context: 256000,
           output: 16000
         }
       }
 
-      // Add vision support if configured in build config
       if (buildConfig.team.llm.supportsVision) {
         modelConfig.modalities = {
           input: ['text', 'image'],
@@ -146,31 +142,41 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         }
       }
 
-      await addCustomProviderToConfig(workspacePath, {
-        name: 'Team',
-        baseURL: teamModelConfig.baseUrl,
-        apiKey: '${tc_api_key}',
-        models: [modelConfig],
-      })
+      // Check if the provider config already exists in opencode.json with matching values.
+      // If so, skip the disruptive restart — the sidecar already loaded the correct config.
+      const existingConfig = await getCustomProviderConfig(workspacePath, TEAM_PROVIDER_ID)
+      const configAlreadyMatches = existingConfig
+        && existingConfig.baseURL === teamModelConfig.baseUrl
+        && existingConfig.models.length > 0
+        && existingConfig.models[0].modelId === teamModelConfig.model
 
-      // Restart OpenCode to pick up new provider config
-      if (isTauri()) {
-        const { invoke } = await import('@tauri-apps/api/core')
-        const { initOpenCodeClient } = await import('@/lib/opencode/sdk-client')
-
-        await invoke('stop_opencode')
-        await new Promise((r) => setTimeout(r, 500))
-        const status = await invoke<{ url: string }>('start_opencode', {
-          config: { workspace_path: workspacePath },
+      if (!configAlreadyMatches) {
+        await addCustomProviderToConfig(workspacePath, {
+          name: 'Team',
+          baseURL: teamModelConfig.baseUrl,
+          apiKey: '${tc_api_key}',
+          models: [modelConfig],
         })
-        initOpenCodeClient({ baseUrl: status.url, workspacePath })
 
-        // Notify workspace store so SSE reconnects to the new sidecar
-        const { useWorkspaceStore } = await import('./workspace')
-        useWorkspaceStore.getState().setOpenCodeReady(true, status.url)
+        // Restart OpenCode to pick up new provider config
+        if (isTauri()) {
+          const { invoke } = await import('@tauri-apps/api/core')
+          const { initOpenCodeClient } = await import('@/lib/opencode/sdk-client')
 
-        // Wait for OpenCode to initialize
-        await new Promise((r) => setTimeout(r, 500))
+          await invoke('stop_opencode')
+          await new Promise((r) => setTimeout(r, 500))
+          const status = await invoke<{ url: string }>('start_opencode', {
+            config: { workspace_path: workspacePath },
+          })
+          initOpenCodeClient({ baseUrl: status.url, workspacePath })
+
+          const { useWorkspaceStore } = await import('./workspace')
+          useWorkspaceStore.getState().setOpenCodeReady(true, status.url)
+
+          await new Promise((r) => setTimeout(r, 500))
+        }
+      } else {
+        console.log('[TeamMode] Provider config already in opencode.json, skipping restart')
       }
 
       await providerStore.selectModel(TEAM_PROVIDER_ID, teamModelConfig.model, teamModelConfig.modelName)
