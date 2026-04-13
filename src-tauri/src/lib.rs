@@ -379,6 +379,8 @@ pub fn run() {
             commands::gateway::get_mqtt_relay_status,
             commands::gateway::generate_mqtt_pairing_code,
             commands::gateway::unpair_mqtt_device,
+            commands::gateway::load_shortcuts,
+            commands::gateway::save_shortcuts,
             commands::cron::cron_init,
             commands::cron::cron_list_jobs,
             commands::cron::cron_add_job,

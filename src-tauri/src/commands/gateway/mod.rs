@@ -2487,3 +2487,44 @@ pub async fn unpair_mqtt_device(
     }
     Ok(())
 }
+
+/// Load personal shortcuts from the workspace config file (teamclaw.json).
+#[tauri::command]
+pub fn load_shortcuts(
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let workspace_path = {
+        let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+        inner
+            .workspace_path
+            .clone()
+            .ok_or("No workspace path set.")?
+    };
+    let config = read_config(&workspace_path)?;
+    let shortcuts = config
+        .other
+        .get("shortcuts")
+        .cloned()
+        .unwrap_or(serde_json::json!([]));
+    Ok(shortcuts.as_array().cloned().unwrap_or_default())
+}
+
+/// Save personal shortcuts to the workspace config file (teamclaw.json).
+#[tauri::command]
+pub fn save_shortcuts(
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    nodes: Vec<serde_json::Value>,
+) -> Result<(), String> {
+    let workspace_path = {
+        let inner = opencode_state.inner.lock().map_err(|e| e.to_string())?;
+        inner
+            .workspace_path
+            .clone()
+            .ok_or("No workspace path set.")?
+    };
+    let mut config = read_config(&workspace_path)?;
+    config
+        .other
+        .insert("shortcuts".to_string(), serde_json::json!(nodes));
+    write_config(&workspace_path, &config)
+}

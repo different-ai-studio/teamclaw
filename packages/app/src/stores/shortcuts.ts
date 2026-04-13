@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { invoke } from '@tauri-apps/api/core'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
 import { appShortName } from '@/lib/build-config'
 
@@ -37,8 +38,25 @@ function loadPersistedNodes(): ShortcutNode[] {
   return stored.nodes || []
 }
 
+async function loadPersistedNodesAsync(): Promise<ShortcutNode[]> {
+  try {
+    const nodes = await invoke<ShortcutNode[]>('load_shortcuts')
+    if (nodes && nodes.length > 0) {
+      return nodes
+    }
+  } catch {
+    // File not available or no workspace set — fall back to localStorage
+  }
+  return loadPersistedNodes()
+}
+
 function persistNodes(nodes: ShortcutNode[]): void {
+  // Write to localStorage for backwards compatibility
   saveToStorage(STORAGE_KEY, { nodes, version: 1 })
+  // Also persist to file so the MCP server can read/write shortcuts
+  invoke('save_shortcuts', { nodes }).catch(() => {
+    // Ignore errors — file write is best-effort (no workspace may be set yet)
+  })
 }
 
 function generateId(): string {
@@ -55,7 +73,19 @@ function buildTree(nodes: ShortcutNode[], parentId: string | null): ShortcutNode
     }))
 }
 
-export const useShortcutsStore = create<ShortcutsState>((set, get) => ({
+export const useShortcutsStore = create<ShortcutsState>((set, get) => {
+  // Kick off async load from file; update store when result arrives
+  loadPersistedNodesAsync().then((nodes) => {
+    // Only update if the store still has the initial localStorage snapshot
+    // (i.e. no mutations have happened yet that would override the file data)
+    const current = get().nodes
+    const initial = loadPersistedNodes()
+    if (JSON.stringify(current) === JSON.stringify(initial)) {
+      set({ nodes })
+    }
+  }).catch(() => {/* ignore */})
+
+  return {
   nodes: loadPersistedNodes(),
   teamNodes: [],
   teamLoaded: false,
@@ -151,4 +181,5 @@ export const useShortcutsStore = create<ShortcutsState>((set, get) => ({
   setTeamNodes: (nodes) => {
     set({ teamNodes: nodes, teamLoaded: true })
   },
-}))
+  }
+})
