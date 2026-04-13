@@ -125,7 +125,7 @@ jobs:
           (
             set -e
             echo "Building teamclaw-introspect for ${{ matrix.target }}..."
-            cargo build --release --manifest-path src-tauri/crates/teamclaw-introspect/Cargo.toml --target ${{ matrix.target }}
+            cargo build --release --locked --manifest-path src-tauri/crates/teamclaw-introspect/Cargo.toml --target ${{ matrix.target }}
             cp src-tauri/target/${{ matrix.target }}/release/teamclaw-introspect src-tauri/binaries/teamclaw-introspect-${{ matrix.target }}
             chmod +x src-tauri/binaries/teamclaw-introspect-${{ matrix.target }}
             echo "teamclaw-introspect ready"
@@ -305,7 +305,7 @@ jobs:
       - name: Build teamclaw-introspect sidecar
         shell: bash
         run: |
-          cargo build --release --manifest-path src-tauri/crates/teamclaw-introspect/Cargo.toml
+          cargo build --release --locked --manifest-path src-tauri/crates/teamclaw-introspect/Cargo.toml
           cp src-tauri/target/release/teamclaw-introspect.exe src-tauri/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
           echo "teamclaw-introspect ready"
 

@@ -4,6 +4,7 @@ import SwiftData
 struct ContentView: View {
     @ObservedObject var pairingManager: PairingManager
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var connectionMonitor = ConnectionMonitor(mqttService: MQTTService())
     @State private var hasRequestedInitialData = false
@@ -29,6 +30,15 @@ struct ContentView: View {
             if !hasRequestedInitialData {
                 hasRequestedInitialData = true
                 requestInitialData(creds: creds)
+            } else {
+                // Reconnected after disconnect — do incremental sync
+                requestInitialData(creds: creds)
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, pairingManager.isPaired else { return }
+            if !connectionMonitor.isMQTTConnected {
+                connectIfPaired()
             }
         }
         .onChange(of: pairingManager.isPaired) { _, paired in

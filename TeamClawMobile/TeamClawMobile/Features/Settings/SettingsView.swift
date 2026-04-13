@@ -55,9 +55,11 @@ struct SettingsView: View {
                             Text("Broker 连接")
                             Spacer()
                             Circle()
-                                .fill(connectionMonitor.isMQTTConnected ? .green : .red)
+                                .fill(connectionMonitor.isMQTTConnected ? .green :
+                                      connectionMonitor.connectionState == .reconnecting ? .yellow : .red)
                                 .frame(width: 8, height: 8)
-                            Text(connectionMonitor.isMQTTConnected ? "已连接" : "未连接")
+                            Text(connectionMonitor.isMQTTConnected ? "已连接" :
+                                 connectionMonitor.connectionState == .reconnecting ? "重连中…" : "未连接")
                                 .foregroundStyle(.secondary)
                         }
 

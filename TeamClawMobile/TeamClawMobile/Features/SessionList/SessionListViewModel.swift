@@ -55,9 +55,8 @@ final class SessionListViewModel: ObservableObject {
             .filter { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                // Only re-fetch if the view is active (modelContext set) and we have no sessions yet
-                guard let self, self.modelContext != nil, self.sessions.isEmpty else { return }
-                self.requestSessions(page: 1, incremental: false)
+                guard let self, self.modelContext != nil else { return }
+                self.requestSessions(page: 1, incremental: !self.sessions.isEmpty)
             }
             .store(in: &cancellables)
     }

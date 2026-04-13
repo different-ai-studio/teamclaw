@@ -48,17 +48,24 @@ struct SessionListView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
-                if !connectionMonitor.isDesktopOnline {
-                    HStack(spacing: 6) {
-                        Image(systemName: "wifi.slash")
-                            .font(.caption)
-                        Text("桌面端离线")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(Color.orange)
+                if connectionMonitor.connectionState == .reconnecting {
+                    ConnectionBanner(
+                        icon: "arrow.triangle.2.circlepath",
+                        text: "重新连接中…",
+                        color: .yellow
+                    )
+                } else if !connectionMonitor.isMQTTConnected {
+                    ConnectionBanner(
+                        icon: "bolt.slash.fill",
+                        text: "未连接",
+                        color: .red
+                    )
+                } else if !connectionMonitor.isDesktopOnline {
+                    ConnectionBanner(
+                        icon: "desktopcomputer",
+                        text: "桌面端离线",
+                        color: .orange
+                    )
                 }
 
                 SessionListContent(
@@ -88,9 +95,15 @@ struct SessionListView: View {
                         Text(workspaceTitle)
                             .font(.headline)
                             .lineLimit(1)
-                        Text("\(viewModel.filteredSessions.count) 个会话")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(connectionMonitor.isMQTTConnected && connectionMonitor.isDesktopOnline ? .green :
+                                      connectionMonitor.connectionState == .reconnecting ? .yellow : .red)
+                                .frame(width: 6, height: 6)
+                            Text("\(viewModel.filteredSessions.count) 个会话")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -488,6 +501,27 @@ struct SessionRowView: View {
             }
         }
         .padding(.vertical, 10)
+    }
+}
+
+// MARK: - ConnectionBanner
+
+private struct ConnectionBanner: View {
+    let icon: String
+    let text: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption)
+            Text(text)
+                .font(.caption)
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(color)
     }
 }
 
