@@ -886,7 +886,19 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
             println!("[Config] Added inherent 'chrome-control' MCP config");
         }
 
-        if !mcp_obj.contains_key("teamclaw-introspect") {
+        // Re-generate if missing OR if the saved binary path no longer exists
+        let needs_introspect = if let Some(existing) = mcp_obj.get("teamclaw-introspect") {
+            existing
+                .get("command")
+                .and_then(|c| c.as_array())
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+                .map(|p| !std::path::Path::new(p).exists())
+                .unwrap_or(true)
+        } else {
+            true
+        };
+        if needs_introspect {
             // Resolve absolute path to the sidecar binary.
             // In dev: <repo>/src-tauri/binaries/teamclaw-introspect-<triple>
             // In prod: next to the main executable in the app bundle
