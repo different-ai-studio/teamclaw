@@ -1,6 +1,7 @@
 pub mod clawhub;
 pub mod device_token;
 pub mod cron;
+pub mod introspect_api;
 pub mod deps;
 pub mod env_vars;
 pub mod filewatcher;

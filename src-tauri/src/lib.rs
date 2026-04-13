@@ -587,6 +587,16 @@ pub fn run() {
                 }
             });
 
+            // Start introspect MCP internal API server
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = commands::introspect_api::start_introspect_api(app_handle).await {
+                        eprintln!("[IntrospectAPI] Failed to start: {}", e);
+                    }
+                });
+            }
+
             // Initialize iroh P2P node only when P2P team is configured.
             // Check the last workspace's config; if p2p.enabled != true, skip.
             #[cfg(feature = "p2p")]
