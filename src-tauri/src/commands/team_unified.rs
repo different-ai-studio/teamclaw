@@ -189,11 +189,30 @@ fn git_manifest_path(workspace_path: &str) -> std::path::PathBuf {
         .join("members.json")
 }
 
+/// Read manifest, auto-creating with self as owner if missing.
 fn read_git_manifest(workspace_path: &str) -> Result<TeamManifest, String> {
     let path = git_manifest_path(workspace_path);
-    let content = std::fs::read_to_string(&path)
-        .map_err(|_| "No members manifest found (create a team first)".to_string())?;
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse members.json: {}", e))
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        return serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse members.json: {}", e));
+    }
+    // Auto-create with self as owner
+    let node_id = super::oss_commands::get_device_id()?;
+    let manifest = TeamManifest {
+        owner_node_id: node_id.clone(),
+        members: vec![TeamMember {
+            node_id,
+            name: String::new(),
+            role: MemberRole::Owner,
+            label: String::new(),
+            platform: std::env::consts::OS.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+            hostname: gethostname::gethostname().to_string_lossy().to_string(),
+            added_at: chrono::Utc::now().to_rfc3339(),
+        }],
+    };
+    write_git_manifest(workspace_path, &manifest)?;
+    Ok(manifest)
 }
 
 fn write_git_manifest(workspace_path: &str, manifest: &TeamManifest) -> Result<(), String> {
@@ -361,10 +380,8 @@ pub async fn unified_team_add_member(
             Ok(())
         }
         Some("git") => {
-            let my_node_id = super::oss_commands::get_device_id()?;
+            // Git mode: anyone with repo access can manage members
             let mut manifest = read_git_manifest(&workspace_path)?;
-            require_manager_role(&manifest, &my_node_id).await?;
-            // Check if member already exists
             if manifest.members.iter().any(|m| m.node_id == member.node_id) {
                 return Err("Member already exists".to_string());
             }
@@ -491,9 +508,7 @@ pub async fn unified_team_remove_member(
             Ok(())
         }
         Some("git") => {
-            let my_node_id = super::oss_commands::get_device_id()?;
             let mut manifest = read_git_manifest(&workspace_path)?;
-            require_manager_role(&manifest, &my_node_id).await?;
             manifest.members.retain(|m| m.node_id != node_id);
             write_git_manifest(&workspace_path, &manifest)?;
             Ok(())
@@ -540,9 +555,7 @@ pub async fn unified_team_update_member_role(
                 .await
         }
         Some("git") => {
-            let my_node_id = super::oss_commands::get_device_id()?;
             let mut manifest = read_git_manifest(&workspace_path)?;
-            require_manager_role(&manifest, &my_node_id).await?;
             if let Some(member) = manifest.members.iter_mut().find(|m| m.node_id == node_id) {
                 member.role = role;
             } else {
@@ -597,8 +610,9 @@ pub async fn unified_team_get_my_role(
         Some("git") => {
             let my_node_id = super::oss_commands::get_device_id()?;
             let manifest = read_git_manifest(&workspace_path)?;
-            find_member_role(&manifest, &my_node_id)
-                .ok_or_else(|| "This device is not in the team manifest".to_string())
+            // In Git mode, if device not in manifest, treat as owner
+            // (anyone with repo access is implicitly authorized)
+            Ok(find_member_role(&manifest, &my_node_id).unwrap_or(MemberRole::Owner))
         }
         Some(mode) => Err(format!(
             "Member management not supported for mode: {}",
