@@ -70,6 +70,9 @@ pub struct MqttRelay {
     /// Cancel tokens for active SSE streams, keyed by session_id.
     cancel_tokens:
         Arc<TokioMutex<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>>,
+    /// Active collaborative session IDs this relay is hosting as Agent.
+    /// Maps collab_session_id → opencode_session_id
+    collab_sessions: Arc<TokioMutex<std::collections::HashMap<String, String>>>,
 }
 
 impl Clone for MqttRelay {
@@ -85,6 +88,7 @@ impl Clone for MqttRelay {
             error_message: self.error_message.clone(),
             oss_sync_state: self.oss_sync_state.clone(),
             cancel_tokens: self.cancel_tokens.clone(),
+            collab_sessions: self.collab_sessions.clone(),
         }
     }
 }
@@ -102,6 +106,7 @@ impl MqttRelay {
             error_message: Arc::new(RwLock::new(None)),
             oss_sync_state: None,
             cancel_tokens: Arc::new(TokioMutex::new(std::collections::HashMap::new())),
+            collab_sessions: Arc::new(TokioMutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -318,7 +323,15 @@ impl MqttRelay {
                 }
             }
             Some(proto::mqtt_message::Payload::ChatRequest(ref req)) => {
-                self.handle_chat_request(topic, req).await?;
+                let parts: Vec<&str> = topic.split('/').collect();
+                if parts.len() >= 4 && parts[2] == "session" {
+                    self.handle_collab_chat_request(parts[3], req).await?;
+                } else {
+                    self.handle_chat_request(topic, req).await?;
+                }
+            }
+            Some(proto::mqtt_message::Payload::CollabControl(ref ctrl)) => {
+                self.handle_collab_control(topic, ctrl).await?;
             }
             Some(proto::mqtt_message::Payload::ChatCancel(ref cancel)) => {
                 self.handle_chat_cancel(&cancel.session_id).await;
@@ -1481,6 +1494,301 @@ impl MqttRelay {
         ));
         self.publish_proto_to_device(device_id, "member", &msg)
             .await
+    }
+
+    // ─── Collab Session Control ────────────────────────────────
+
+    async fn handle_collab_control(
+        &self,
+        _topic: &str,
+        ctrl: &proto::CollabControl,
+    ) -> Result<(), String> {
+        use proto::CollabControlType;
+        let ctrl_type = ctrl.r#type();
+        let collab_session_id = match &ctrl.session_id {
+            Some(id) => id.clone(),
+            None => {
+                eprintln!("[MQTT Relay] CollabControl missing session_id");
+                return Ok(());
+            }
+        };
+
+        match ctrl_type {
+            CollabControlType::CollabCreate => {
+                eprintln!(
+                    "[MQTT Relay] CollabCreate for session {}",
+                    collab_session_id
+                );
+                let opencode_session_id =
+                    teamclaw_gateway::create_opencode_session(self.opencode_port).await?;
+                eprintln!(
+                    "[MQTT Relay] Created OpenCode session {} for collab session {}",
+                    opencode_session_id, collab_session_id
+                );
+                self.collab_sessions
+                    .lock()
+                    .await
+                    .insert(collab_session_id.clone(), opencode_session_id);
+
+                let config = self.config.read().await;
+                let topic =
+                    format!("teamclaw/{}/session/{}", config.team_id, collab_session_id);
+                if let Some(client) = self.client.lock().await.as_ref() {
+                    client
+                        .subscribe(&topic, QoS::AtLeastOnce)
+                        .await
+                        .map_err(|e| format!("Subscribe to session topic failed: {}", e))?;
+                    eprintln!("[MQTT Relay] Subscribed to session topic: {}", topic);
+                }
+            }
+            CollabControlType::CollabEnd => {
+                eprintln!(
+                    "[MQTT Relay] CollabEnd for session {}",
+                    collab_session_id
+                );
+                let config = self.config.read().await;
+                let topic =
+                    format!("teamclaw/{}/session/{}", config.team_id, collab_session_id);
+                if let Some(client) = self.client.lock().await.as_ref() {
+                    let _ = client.unsubscribe(&topic).await;
+                    eprintln!("[MQTT Relay] Unsubscribed from session topic: {}", topic);
+                }
+                self.collab_sessions
+                    .lock()
+                    .await
+                    .remove(&collab_session_id);
+            }
+            CollabControlType::CollabLeave => {
+                eprintln!(
+                    "[MQTT Relay] CollabLeave from {} for session {} (no desktop action needed)",
+                    ctrl.sender_name, collab_session_id
+                );
+            }
+        }
+        Ok(())
+    }
+
+    // ─── Collab Chat Request ───────────────────────────────────
+
+    async fn handle_collab_chat_request(
+        &self,
+        session_id: &str,
+        request: &proto::ChatRequest,
+    ) -> Result<(), String> {
+        // Ignore our own agent broadcasts
+        if request.sender_type.as_deref() == Some("agent") {
+            return Ok(());
+        }
+
+        let opencode_session_id = match self.collab_sessions.lock().await.get(session_id).cloned() {
+            Some(id) => id,
+            None => {
+                eprintln!(
+                    "[MQTT Relay] No OpenCode session found for collab session {}",
+                    session_id
+                );
+                return Ok(());
+            }
+        };
+
+        let content = request.content.clone();
+        let sender_name = request.sender_name.clone().unwrap_or_else(|| "Unknown".to_string());
+        let has_at_agent = content.to_lowercase().contains("@agent");
+        let port = self.opencode_port;
+        let collab_session_id = session_id.to_string();
+
+        if has_at_agent {
+            let formatted_content = format!("[{}] {}", sender_name, content);
+
+            let sse_url = format!("http://127.0.0.1:{}/event", port);
+            let prompt_url = format!(
+                "http://127.0.0.1:{}/session/{}/prompt_async",
+                port, opencode_session_id
+            );
+
+            let http_client = reqwest::Client::new();
+            let sse_response = http_client
+                .get(&sse_url)
+                .header("Accept", "text/event-stream")
+                .timeout(Duration::from_secs(900))
+                .send()
+                .await
+                .map_err(|e| format!("SSE connect failed: {}", e))?;
+
+            let body = serde_json::json!({
+                "parts": [{ "type": "text", "text": formatted_content }]
+            });
+            http_client
+                .post(&prompt_url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Prompt send failed: {}", e))?;
+
+            let relay = self.clone();
+            let oc_sid = opencode_session_id.clone();
+            tokio::spawn(async move {
+                match relay
+                    .collect_full_response_from_sse(sse_response, &oc_sid)
+                    .await
+                {
+                    Ok(full_text) => {
+                        if let Err(e) = relay
+                            .broadcast_agent_reply(&collab_session_id, &full_text)
+                            .await
+                        {
+                            eprintln!("[MQTT Relay] Failed to broadcast agent reply: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[MQTT Relay] Failed to collect agent response: {}", e);
+                    }
+                }
+            });
+        } else {
+            // No @agent mention — inject as context without triggering a reply
+            teamclaw_gateway::inject_context_no_reply(
+                port,
+                &opencode_session_id,
+                &content,
+                &sender_name,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Collect full SSE response text until message.completed or message.updated(done).
+    async fn collect_full_response_from_sse(
+        &self,
+        sse_response: reqwest::Response,
+        session_id: &str,
+    ) -> Result<String, String> {
+        let mut stream = sse_response.bytes_stream();
+        let mut buffer = String::new();
+        let mut full_text = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(900);
+
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep_until(deadline) => {
+                    break;
+                }
+                chunk = stream.next() => {
+                    match chunk {
+                        Some(Ok(bytes)) => {
+                            buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+                            while let Some(pos) = buffer.find("\n\n") {
+                                let event_block = buffer[..pos].to_string();
+                                buffer = buffer[pos + 2..].to_string();
+
+                                let mut data = String::new();
+                                for line in event_block.lines() {
+                                    if let Some(d) = line.strip_prefix("data: ") {
+                                        data = d.to_string();
+                                    }
+                                }
+
+                                if data.is_empty() { continue; }
+
+                                let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) else { continue };
+                                let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                let props = v.get("properties");
+
+                                // Filter to our session
+                                let event_sid = props
+                                    .and_then(|p| p.get("sessionID").and_then(|s| s.as_str()))
+                                    .or_else(|| props.and_then(|p| p.get("info").and_then(|i| i.get("sessionID").and_then(|s| s.as_str()))));
+                                if let Some(sid) = event_sid {
+                                    if sid != session_id { continue; }
+                                }
+
+                                match event_type {
+                                    "message.part.delta" => {
+                                        let field = props
+                                            .and_then(|p| p.get("field").and_then(|f| f.as_str()))
+                                            .unwrap_or("text");
+                                        if field == "text" {
+                                            if let Some(delta) = props.and_then(|p| p.get("delta").and_then(|d| d.as_str())) {
+                                                full_text.push_str(delta);
+                                            }
+                                        }
+                                    }
+                                    "message.completed" => {
+                                        return Ok(full_text);
+                                    }
+                                    "message.updated" => {
+                                        let is_completed = props
+                                            .and_then(|p| p.get("info"))
+                                            .and_then(|i| i.get("time"))
+                                            .and_then(|t| t.get("completed"))
+                                            .is_some();
+                                        let is_assistant = props
+                                            .and_then(|p| p.get("info"))
+                                            .and_then(|i| i.get("role").and_then(|r| r.as_str()))
+                                            == Some("assistant");
+                                        if is_completed && is_assistant && !full_text.is_empty() {
+                                            return Ok(full_text);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Some(Err(e)) => {
+                            return Err(format!("SSE stream error: {}", e));
+                        }
+                        None => {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(full_text)
+    }
+
+    /// Broadcast agent reply as a ChatRequest(sender_type=agent) to the session topic.
+    async fn broadcast_agent_reply(
+        &self,
+        collab_session_id: &str,
+        content: &str,
+    ) -> Result<(), String> {
+        let config = self.config.read().await;
+        let topic = format!(
+            "teamclaw/{}/session/{}",
+            config.team_id, collab_session_id
+        );
+
+        let msg = build_envelope(proto::mqtt_message::Payload::ChatRequest(
+            proto::ChatRequest {
+                session_id: collab_session_id.to_string(),
+                content: content.to_string(),
+                image_url: None,
+                model: None,
+                sender_id: Some(config.device_id.clone()),
+                sender_name: Some(config.device_name.clone()),
+                sender_type: Some("agent".to_string()),
+            },
+        ));
+
+        let bytes = msg.encode_to_vec();
+        if let Some(client) = self.client.lock().await.as_ref() {
+            client
+                .publish(&topic, QoS::AtLeastOnce, false, bytes)
+                .await
+                .map_err(|e| format!("Broadcast agent reply failed: {}", e))?;
+            eprintln!(
+                "[MQTT Relay] Broadcasted agent reply to session topic: {}",
+                topic
+            );
+        } else {
+            return Err("MQTT client not connected".to_string());
+        }
+        Ok(())
     }
 
     pub async fn sync_all_to_device(
