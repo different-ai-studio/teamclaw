@@ -765,18 +765,18 @@ pub async fn team_sync_repo(
         }
     }
 
-    let (ok, _, stderr) = run_git(&["fetch", "origin"], &team_dir)?;
-    if !ok {
-        return Err(format!("git fetch failed: {}", stderr.trim()));
-    }
-
-    // Check for local modifications before resetting
+    // Auto-commit local changes if any
     let (_, status_out, _) = run_git(&["status", "--porcelain"], &team_dir)?;
-    if !status_out.trim().is_empty() {
-        return Ok(TeamGitResult {
-            success: false,
-            message: "Sync skipped: you have local changes. Please commit or discard them before syncing.".to_string(),
-        });
+    let had_local_changes = !status_out.trim().is_empty();
+    if had_local_changes {
+        let _ = run_git(&["add", "-A"], &team_dir);
+        let (ok, _, _) = run_git(
+            &["commit", "-m", "chore: auto-sync local changes"],
+            &team_dir,
+        )?;
+        if !ok {
+            // Nothing to commit (e.g. only untracked gitignored files) — continue
+        }
     }
 
     // Determine the branch to sync: prefer current HEAD, then remote default, then "main"
@@ -803,19 +803,23 @@ pub async fn team_sync_repo(
         }
     };
 
-    // Verify that origin/<branch> actually exists before resetting
-    let remote_ref = format!("origin/{}", branch);
-    let (ref_exists, _, _) = run_git(&["rev-parse", "--verify", &remote_ref], &team_dir)?;
-    if !ref_exists {
+    // Pull with rebase to integrate remote changes
+    let (ok, _, stderr) = run_git(&["pull", "--rebase", "origin", &branch], &team_dir)?;
+    if !ok {
+        // Rebase conflict — abort and report
+        let _ = run_git(&["rebase", "--abort"], &team_dir);
         return Err(format!(
-            "Remote branch '{}' not found. The remote repository may be empty or use a different default branch.",
-            remote_ref
+            "Sync conflict during rebase on '{}'. Rebase aborted. Error: {}",
+            branch,
+            stderr.trim()
         ));
     }
 
-    let (ok, _, stderr) = run_git(&["reset", "--hard", &remote_ref], &team_dir)?;
+    // Push local commits (auto-committed + rebased) to remote
+    let (ok, _, stderr) = run_git(&["push", "origin", &branch], &team_dir)?;
     if !ok {
-        return Err(format!("git reset failed: {}", stderr.trim()));
+        // Push failed — not fatal, local is up-to-date
+        println!("[Team Sync] push failed (non-fatal): {}", stderr.trim());
     }
 
     let mcp_msg = match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
@@ -833,9 +837,14 @@ pub async fn team_sync_repo(
         }
     };
 
+    let sync_detail = if had_local_changes {
+        format!("Auto-committed local changes and synced with origin/{}{}", branch, mcp_msg)
+    } else {
+        format!("Synced with origin/{}{}", branch, mcp_msg)
+    };
     Ok(TeamGitResult {
         success: true,
-        message: format!("Synced to latest origin/{}{}", branch, mcp_msg),
+        message: sync_detail,
     })
 }
 
