@@ -927,6 +927,8 @@ impl OssSyncManager {
         // Hardcoded global excludes — build artifacts / dependency caches that
         // must never be synced, no matter how deep in the tree they appear.
         const GLOBAL_EXCLUDES: &[&str] = &[
+            ".trash/",
+            ".DS_Store",
             "node_modules/",
             ".git/",
             "target/",          // Rust / Cargo build output

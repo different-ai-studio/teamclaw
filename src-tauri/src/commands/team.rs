@@ -403,31 +403,52 @@ pub fn write_team_mode(workspace_path: &str, mode: Option<&str>) -> Result<(), S
 
 /// The whitelist .gitignore content
 const GITIGNORE_CONTENT: &str = r#"# ============================================
-# TeamClaw Workspace — Whitelist mode
+# TeamClaw Team Drive — Whitelist mode
 # Ignore everything by default, only allow shared layer
 # ============================================
 
 # 1. Ignore all files by default
 *
 
-# 2. Allow shared layer: skills
+# 2. Allow shared layers
 !skills/
 !skills/**
-
-# 3. Allow shared layer: MCP config
 !.mcp/
 !.mcp/**
-
-# 4. Allow shared layer: knowledge base
 !knowledge/
 !knowledge/**
+!_feedback/
+!_feedback/**
+!_meta/
+!_meta/**
 
-# 5. Allow workspace config
+# 3. Allow workspace config
 !.gitignore
+!README.md
 
-# 6. Allow Git collaboration config (team mode)
-!.github/
-!.github/**
+# 4. Explicitly ignore (never sync)
+.trash/
+.DS_Store
+node_modules/
+.git/
+target/
+dist/
+build/
+out/
+.cache/
+.turbo/
+.next/
+.nuxt/
+.output/
+__pycache__/
+.venv/
+venv/
+.tox/
+vendor/
+.gradle/
+.m2/
+*.log
+*.tmp
 "#;
 
 // ─── Team MCP Sync ──────────────────────────────────────────────────────────

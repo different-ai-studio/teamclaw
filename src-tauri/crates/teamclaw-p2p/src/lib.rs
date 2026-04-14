@@ -550,15 +550,46 @@ pub fn collect_files(base: &Path, dir: &Path) -> Vec<(String, Vec<u8>)> {
         return files;
     }
 
-    // Build gitignore matcher from .gitignore files in the team directory tree
+    // Build gitignore matcher with hardcoded global excludes (same as OSS/Git)
+    // plus any .gitignore files in the team directory tree
     let gitignore = {
         let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
+
+        // Global excludes — build artifacts / caches / local-only dirs
+        const GLOBAL_EXCLUDES: &[&str] = &[
+            ".trash/",
+            ".DS_Store",
+            "node_modules/",
+            ".git/",
+            "target/",
+            "dist/",
+            "build/",
+            "out/",
+            ".cache/",
+            ".turbo/",
+            ".next/",
+            ".nuxt/",
+            ".output/",
+            "__pycache__/",
+            ".venv/",
+            "venv/",
+            ".tox/",
+            "vendor/",
+            ".gradle/",
+            ".m2/",
+            "*.log",
+            "*.tmp",
+        ];
+        for pattern in GLOBAL_EXCLUDES {
+            let _ = builder.add_line(None, pattern);
+        }
+
         let root_gi = dir.join(".gitignore");
         if root_gi.exists() {
             let _ = builder.add(root_gi);
         }
         // Also check subdirectories for .gitignore files
-        for subdir in &["skills", "knowledge"] {
+        for subdir in &["skills", "knowledge", ".mcp"] {
             let sub_gi = dir.join(subdir).join(".gitignore");
             if sub_gi.exists() {
                 let _ = builder.add(&sub_gi);
