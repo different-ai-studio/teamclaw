@@ -26,6 +26,8 @@ final class PairingManager: ObservableObject {
     @Published var pairedDeviceName: String?
     @Published var pairingError: String?
     @Published var isPairing = false
+    @Published var isLightweightUser = false
+    @Published var username: String = ""
 
     // MARK: - UserDefaults Keys
 
@@ -39,6 +41,10 @@ final class PairingManager: ObservableObject {
         static let teamID            = "teamclaw_team_id"
         static let deviceID          = "teamclaw_device_id"
         static let desktopDeviceID   = "teamclaw_desktop_device_id"
+        // Lightweight user keys
+        static let isLightweightUser = "teamclaw_is_lightweight_user"
+        static let username          = "teamclaw_username"
+        static let userNodeID        = "teamclaw_user_node_id"
     }
 
     // Shared broker credentials used during pairing handshake (user-provided per session)
@@ -48,23 +54,31 @@ final class PairingManager: ObservableObject {
     init() {
         isPaired = UserDefaults.standard.bool(forKey: Keys.isPaired)
         pairedDeviceName = UserDefaults.standard.string(forKey: Keys.pairedDeviceName)
+        isLightweightUser = UserDefaults.standard.bool(forKey: Keys.isLightweightUser)
+        username = UserDefaults.standard.string(forKey: Keys.username) ?? ""
     }
 
     // MARK: - Computed Properties
 
+    var isAuthenticated: Bool {
+        isPaired || isLightweightUser
+    }
+
     /// Static accessor — avoids creating a PairingManager instance just to read credentials.
     static var currentCredentials: PairingCredentials? {
         let ud = UserDefaults.standard
-        guard ud.bool(forKey: Keys.isPaired),
+        let paired = ud.bool(forKey: Keys.isPaired)
+        let lightweight = ud.bool(forKey: Keys.isLightweightUser)
+        guard paired || lightweight,
               let host        = ud.string(forKey: Keys.mqttHost),
               let username    = ud.string(forKey: Keys.mqttUsername),
               let password    = ud.string(forKey: Keys.mqttPassword),
               let teamID      = ud.string(forKey: Keys.teamID),
-              let deviceID    = ud.string(forKey: Keys.deviceID),
-              let desktopID   = ud.string(forKey: Keys.desktopDeviceID),
-              let deviceName  = ud.string(forKey: Keys.pairedDeviceName)
+              let deviceID    = ud.string(forKey: Keys.deviceID)
         else { return nil }
         let port = UInt16(ud.integer(forKey: Keys.mqttPort))
+        let desktopID   = ud.string(forKey: Keys.desktopDeviceID) ?? ""
+        let deviceName  = ud.string(forKey: Keys.pairedDeviceName) ?? ""
         return PairingCredentials(
             mqttHost: host,
             mqttPort: port == 0 ? 8883 : port,
@@ -78,17 +92,17 @@ final class PairingManager: ObservableObject {
     }
 
     var credentials: PairingCredentials? {
-        guard isPaired,
+        guard isAuthenticated,
               let host        = UserDefaults.standard.string(forKey: Keys.mqttHost),
               let username    = UserDefaults.standard.string(forKey: Keys.mqttUsername),
               let password    = UserDefaults.standard.string(forKey: Keys.mqttPassword),
               let teamID      = UserDefaults.standard.string(forKey: Keys.teamID),
-              let deviceID    = UserDefaults.standard.string(forKey: Keys.deviceID),
-              let desktopID   = UserDefaults.standard.string(forKey: Keys.desktopDeviceID),
-              let deviceName  = UserDefaults.standard.string(forKey: Keys.pairedDeviceName)
+              let deviceID    = UserDefaults.standard.string(forKey: Keys.deviceID)
         else { return nil }
 
         let port = UInt16(UserDefaults.standard.integer(forKey: Keys.mqttPort))
+        let desktopID   = UserDefaults.standard.string(forKey: Keys.desktopDeviceID) ?? ""
+        let deviceName  = UserDefaults.standard.string(forKey: Keys.pairedDeviceName) ?? ""
         return PairingCredentials(
             mqttHost: host,
             mqttPort: port == 0 ? 8883 : port,
@@ -173,6 +187,47 @@ final class PairingManager: ObservableObject {
         isPaired = false
         pairedDeviceName = nil
         pairingError = nil
+    }
+
+    // MARK: - Lightweight User
+
+    func loginAsLightweightUser(
+        teamID: String,
+        mqttHost: String,
+        mqttPort: UInt16,
+        mqttUsername: String,
+        mqttPassword: String,
+        username: String
+    ) {
+        let nodeID = UUID().uuidString.lowercased()
+        let ud = UserDefaults.standard
+        ud.set(true,           forKey: Keys.isLightweightUser)
+        ud.set(username,       forKey: Keys.username)
+        ud.set(nodeID,         forKey: Keys.userNodeID)
+        ud.set(nodeID,         forKey: Keys.deviceID)
+        ud.set(teamID,         forKey: Keys.teamID)
+        ud.set(mqttHost,       forKey: Keys.mqttHost)
+        ud.set(Int(mqttPort),  forKey: Keys.mqttPort)
+        ud.set(mqttUsername,   forKey: Keys.mqttUsername)
+        ud.set(mqttPassword,   forKey: Keys.mqttPassword)
+
+        isLightweightUser = true
+        self.username = username
+    }
+
+    func updateUsername(_ newName: String) {
+        UserDefaults.standard.set(newName, forKey: Keys.username)
+        username = newName
+    }
+
+    func logoutLightweightUser() {
+        let ud = UserDefaults.standard
+        [Keys.isLightweightUser, Keys.username, Keys.userNodeID,
+         Keys.deviceID, Keys.teamID, Keys.mqttHost, Keys.mqttPort,
+         Keys.mqttUsername, Keys.mqttPassword].forEach { ud.removeObject(forKey: $0) }
+
+        isLightweightUser = false
+        username = ""
     }
 }
 
