@@ -13,6 +13,30 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                // MARK: Profile Section
+                Section("个人资料") {
+                    NavigationLink {
+                        UsernameSettingView(pairingManager: pairingManager)
+                    } label: {
+                        HStack {
+                            Text("昵称")
+                            Spacer()
+                            Text(pairingManager.username.isEmpty ? "未设置" : pairingManager.username)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                // MARK: Team Section
+                Section("团队") {
+                    NavigationLink {
+                        InviteView(pairingManager: pairingManager)
+                    } label: {
+                        Label("邀请成员", systemImage: "person.badge.plus")
+                    }
+                    .disabled(!pairingManager.isAuthenticated)
+                }
+
                 // MARK: Desktop Connection Section
                 Section("桌面端连接") {
                     HStack {
