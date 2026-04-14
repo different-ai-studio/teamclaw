@@ -3,6 +3,7 @@ import SwiftData
 
 struct ContentView: View {
     @ObservedObject var pairingManager: PairingManager
+    @Binding var pendingJoinURL: URL?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
@@ -11,7 +12,11 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if pairingManager.isPaired {
+            if let joinURL = pendingJoinURL {
+                JoinTeamView(url: joinURL, pairingManager: pairingManager) {
+                    pendingJoinURL = nil
+                }
+            } else if pairingManager.isAuthenticated {
                 SessionListView(
                     mqttService: connectionMonitor.mqttService,
                     connectionMonitor: connectionMonitor,
@@ -22,11 +27,12 @@ struct ContentView: View {
             }
         }
         .task {
-            connectIfPaired()
+            connectIfAuthenticated()
         }
         .onChange(of: connectionMonitor.isMQTTConnected) { _, connected in
             guard connected, let creds = pairingManager.credentials else { return }
             subscribeTopics(creds: creds)
+            resubscribeCollabSessions(creds: creds)
             if !hasRequestedInitialData {
                 hasRequestedInitialData = true
                 requestInitialData(creds: creds)
@@ -35,25 +41,39 @@ struct ContentView: View {
                 requestInitialData(creds: creds)
             }
         }
+        .onReceive(connectionMonitor.mqttService.receivedMessage.receive(on: DispatchQueue.main)) { mqttMessage in
+            guard case .collabControl(let ctrl) = mqttMessage.payload,
+                  ctrl.type == .collabCreate else { return }
+            handleCollabCreate(ctrl)
+        }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, pairingManager.isPaired else { return }
+            guard phase == .active, pairingManager.isAuthenticated else { return }
             if !connectionMonitor.isMQTTConnected {
-                connectIfPaired()
+                connectIfAuthenticated()
             }
         }
         .onChange(of: pairingManager.isPaired) { _, paired in
             if paired {
                 hasRequestedInitialData = false
-                connectIfPaired()
-            } else {
+                connectIfAuthenticated()
+            } else if !pairingManager.isLightweightUser {
+                clearAllData()
+                (connectionMonitor.mqttService as? MQTTService)?.disconnect()
+            }
+        }
+        .onChange(of: pairingManager.isLightweightUser) { _, lightweight in
+            if lightweight {
+                hasRequestedInitialData = false
+                connectIfAuthenticated()
+            } else if !pairingManager.isPaired {
                 clearAllData()
                 (connectionMonitor.mqttService as? MQTTService)?.disconnect()
             }
         }
     }
 
-    private func connectIfPaired() {
-        guard pairingManager.isPaired,
+    private func connectIfAuthenticated() {
+        guard pairingManager.isAuthenticated,
               let creds = pairingManager.credentials,
               let mqtt = connectionMonitor.mqttService as? MQTTService else { return }
         mqtt.connect(
@@ -66,12 +86,17 @@ struct ContentView: View {
 
     private func subscribeTopics(creds: PairingCredentials) {
         let mqtt = connectionMonitor.mqttService
-        mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.desktopDeviceID)/status", qos: 1)
-        mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/res", qos: 1)
-        mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/task",     qos: 1)
-        mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/skill",    qos: 1)
-        mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/member",   qos: 1)
-        mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/talent",   qos: 1)
+        // Inbox topic — all authenticated users (paired and lightweight)
+        mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/user/\(creds.deviceID)/inbox", qos: 1)
+        if pairingManager.isPaired {
+            // Paired users also subscribe to device-specific topics
+            mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.desktopDeviceID)/status", qos: 1)
+            mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/res", qos: 1)
+            mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/task",     qos: 1)
+            mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/skill",    qos: 1)
+            mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/member",   qos: 1)
+            mqtt.subscribe(topic: "teamclaw/\(creds.teamID)/\(creds.deviceID)/talent",   qos: 1)
+        }
     }
 
     private func requestInitialData(creds: PairingCredentials) {
@@ -95,6 +120,58 @@ struct ContentView: View {
         pg3.page = 1; pg3.pageSize = 50
         autoReq.pagination = pg3
         mqtt.publish(topic: topic, message: ProtoMQTTCoder.makeEnvelope(.automationSyncRequest(autoReq)), qos: 1)
+    }
+
+    private func handleCollabCreate(_ ctrl: Teamclaw_CollabControl) {
+        guard !ctrl.sessionID.isEmpty else { return }
+
+        // Check if session already exists locally
+        let sid = ctrl.sessionID
+        let descriptor = FetchDescriptor<Session>(
+            predicate: #Predicate { $0.id == sid }
+        )
+        if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty {
+            // Already have it; just make sure we're subscribed
+            if let creds = pairingManager.credentials {
+                let sessionTopic = "teamclaw/\(creds.teamID)/session/\(sid)"
+                connectionMonitor.mqttService.subscribe(topic: sessionTopic, qos: 1)
+            }
+            return
+        }
+
+        // Build collaborator IDs from proto members
+        let collaboratorIDs = ctrl.members.map(\.nodeID)
+
+        let session = Session(
+            id: ctrl.sessionID,
+            title: ctrl.senderName.isEmpty ? "协作会话" : "\(ctrl.senderName) 的协作",
+            agentName: "AI 搭档",
+            lastMessageContent: "",
+            lastMessageTime: Date(),
+            isCollaborative: true,
+            collaboratorIDs: collaboratorIDs,
+            ownerNodeId: ctrl.senderID,
+            agentHostDevice: ctrl.hasAgentHostDevice ? ctrl.agentHostDevice : nil
+        )
+        modelContext.insert(session)
+        try? modelContext.save()
+
+        // Subscribe to the session topic
+        if let creds = pairingManager.credentials {
+            let sessionTopic = "teamclaw/\(creds.teamID)/session/\(ctrl.sessionID)"
+            connectionMonitor.mqttService.subscribe(topic: sessionTopic, qos: 1)
+        }
+    }
+
+    private func resubscribeCollabSessions(creds: PairingCredentials) {
+        let descriptor = FetchDescriptor<Session>(
+            predicate: #Predicate { $0.isCollaborative && !$0.isArchived }
+        )
+        guard let sessions = try? modelContext.fetch(descriptor) else { return }
+        for session in sessions {
+            let sessionTopic = "teamclaw/\(creds.teamID)/session/\(session.id)"
+            connectionMonitor.mqttService.subscribe(topic: sessionTopic, qos: 1)
+        }
     }
 
     private func clearAllData() {

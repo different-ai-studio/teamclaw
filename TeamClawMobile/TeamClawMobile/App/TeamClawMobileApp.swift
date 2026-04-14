@@ -4,6 +4,7 @@ import SwiftData
 @main
 struct TeamClawMobileApp: App {
     @StateObject private var pairingManager = PairingManager()
+    @State private var pendingJoinURL: URL?
 
     private static let appContainer: ModelContainer = {
         let schema = Schema([
@@ -32,7 +33,12 @@ struct TeamClawMobileApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(pairingManager: pairingManager)
+            ContentView(pairingManager: pairingManager, pendingJoinURL: $pendingJoinURL)
+                .onOpenURL { url in
+                    if url.scheme == "teamclaw" && url.host == "join" {
+                        pendingJoinURL = url
+                    }
+                }
         }
         .modelContainer(Self.appContainer)
     }

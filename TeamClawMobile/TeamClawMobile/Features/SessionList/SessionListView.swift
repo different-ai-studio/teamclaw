@@ -7,6 +7,7 @@ struct SessionListView: View {
     let mqttService: MQTTServiceProtocol
     @ObservedObject var connectionMonitor: ConnectionMonitor
     @ObservedObject var pairingManager: PairingManager
+    var isLightweightUser: Bool = false
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -15,6 +16,7 @@ struct SessionListView: View {
     @State private var showFunctionPanel = false
     @State private var showMemberPanel = false
     @State private var showNewSession = false
+    @State private var showNewCollab = false
     @State private var navigationPath: [String] = []
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
@@ -130,7 +132,11 @@ struct SessionListView: View {
             }
             .navigationDestination(for: String.self) { sessionID in
                 if let session = viewModel.sessions.first(where: { $0.id == sessionID }) {
-                    ChatDetailView(session: session, mqttService: mqttService)
+                    if session.isCollaborative && session.ownerNodeId != nil {
+                        CollabChatView(session: session, mqttService: mqttService)
+                    } else {
+                        ChatDetailView(session: session, mqttService: mqttService)
+                    }
                 } else {
                     Text("Session not found")
                 }
@@ -152,6 +158,13 @@ struct SessionListView: View {
                     navigationPath.append(newSession.id)
                 }
                 .navigationTransition(.zoom(sourceID: "newSession", in: sheetTransition))
+            }
+            .sheet(isPresented: $showNewCollab) {
+                CreateCollabSheet(mqttService: mqttService) { newSession in
+                    viewModel.sessions.insert(newSession, at: 0)
+                    viewModel.applySearch()
+                    navigationPath.append(newSession.id)
+                }
             }
             .sheet(item: $addMemberSession) { session in
                 UnifiedMemberSheet(
@@ -241,17 +254,36 @@ struct SessionListView: View {
                     .liquidGlass(in: Circle())
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    Button {
-                        showNewSession = true
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                            .font(.title2)
-                            .foregroundStyle(.primary)
-                            .frame(width: 48, height: 48)
+                    HStack(spacing: 8) {
+                        // "新建协作" button — only for fully paired users
+                        if pairingManager.isPaired && !isLightweightUser {
+                            Button {
+                                showNewCollab = true
+                            } label: {
+                                Image(systemName: "person.2.badge.plus")
+                                    .font(.title2)
+                                    .foregroundStyle(.primary)
+                                    .frame(width: 48, height: 48)
+                            }
+                            .liquidGlass(in: Circle())
+                            .transition(.scale.combined(with: .opacity))
+                        }
+
+                        // Personal "new session" button — hidden for lightweight users
+                        if !isLightweightUser {
+                            Button {
+                                showNewSession = true
+                            } label: {
+                                Image(systemName: "square.and.pencil")
+                                    .font(.title2)
+                                    .foregroundStyle(.primary)
+                                    .frame(width: 48, height: 48)
+                            }
+                            .liquidGlass(in: Circle())
+                            .matchedTransitionSource(id: "newSession", in: sheetTransition)
+                            .transition(.scale.combined(with: .opacity))
+                        }
                     }
-                    .liquidGlass(in: Circle())
-                    .matchedTransitionSource(id: "newSession", in: sheetTransition)
-                    .transition(.scale.combined(with: .opacity))
                 }
             }
             .animation(.spring(duration: 0.25), value: isSearchFocused)
@@ -479,6 +511,11 @@ struct SessionRowView: View {
                         Image(systemName: "pin.fill")
                             .font(.caption2)
                             .foregroundStyle(.orange)
+                    }
+                    if session.isCollaborative && session.ownerNodeId != nil {
+                        Image(systemName: "person.2.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
                     }
                     Text(session.title.isEmpty ? "新会话" : session.title)
                         .font(.body)

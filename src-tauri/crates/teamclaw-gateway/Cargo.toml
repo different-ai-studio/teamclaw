@@ -45,3 +45,7 @@ libsql = "0.9"
 indexmap = { version = "2", features = ["serde"] }
 urlencoding = "2"
 getrandom = "0.2"
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

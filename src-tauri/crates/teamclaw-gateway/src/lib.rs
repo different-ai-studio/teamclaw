@@ -252,6 +252,49 @@ pub async fn send_message_async_with_approval(
     .await
 }
 
+/// Inject a message into OpenCode session history without triggering AI response.
+/// Used for collaborative messages that don't @Agent — records context silently.
+pub async fn inject_context_no_reply(
+    port: u16,
+    session_id: &str,
+    content: &str,
+    sender_name: &str,
+) -> Result<(), String> {
+    let prefixed = format!("[{}] {}", sender_name, content);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let url = format!(
+        "http://127.0.0.1:{}/session/{}/prompt_async",
+        port, session_id
+    );
+    let body = serde_json::json!({
+        "parts": [{ "type": "text", "text": prefixed }],
+        "noReply": true,
+    });
+
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("inject_context_no_reply failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "inject_context_no_reply HTTP {} - {}",
+            status, body_text
+        ));
+    }
+
+    Ok(())
+}
+
 /// Unified SSE handler using a pre-established SSE connection.
 async fn poll_for_message_with_approval_from_stream(
     sse_response: reqwest::Response,
@@ -1056,4 +1099,59 @@ pub fn write_config(
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
     std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {}", e))
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_inject_context_no_reply_formats_message() {
+        let mock_server = wiremock::MockServer::start().await;
+        let port = mock_server.address().port();
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path_regex("/session/.*/prompt_async"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&mock_server)
+            .await;
+
+        let result = inject_context_no_reply(port, "test-session", "hello world", "张三").await;
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+
+        let requests = mock_server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(body["noReply"], true);
+        let text = body["parts"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("[张三]"), "Expected [张三] prefix, got: {}", text);
+        assert!(text.contains("hello world"));
+    }
+
+    #[tokio::test]
+    async fn test_inject_context_no_reply_error_response() {
+        let mock_server = wiremock::MockServer::start().await;
+        let port = mock_server.address().port();
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(500).set_body_string("Internal Error"))
+            .mount(&mock_server)
+            .await;
+
+        let result = inject_context_no_reply(port, "test-session", "msg", "user").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("500"), "Error should contain status code: {}", err);
+    }
+
+    #[tokio::test]
+    async fn test_inject_context_no_reply_connection_refused() {
+        // Use a port that nothing is listening on
+        let result = inject_context_no_reply(19999, "test-session", "msg", "user").await;
+        assert!(result.is_err());
+    }
 }
