@@ -6,7 +6,6 @@ import {
   Loader2,
   Circle,
   Pencil,
-  Check,
   Terminal,
   FilePlus,
   FolderPlus,
@@ -162,6 +161,8 @@ export interface FileTreeItemProps {
   isDragOver: boolean;
   /** Whether this is the root teamclaw-team directory (for visual styling) */
   isTeamClawTeam?: boolean;
+  /** Whether the team directory is currently syncing (Git mode) */
+  teamSyncing?: boolean;
   /** OSS sync status for team files */
   syncStatus?: 'synced' | 'modified' | 'new' | null;
   compactName?: string;
@@ -212,6 +213,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   isRenaming,
   isDragOver,
   isTeamClawTeam,
+  teamSyncing,
   syncStatus,
   onSelectFile,
   onSelectFileRange,
@@ -354,15 +356,13 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       )}
 
       {isTeamClawTeam && (
-        <img src="/logo-64.png" alt="" className="h-3.5 w-3.5 shrink-0" />
+        teamSyncing
+          ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+          : <img src="/logo-64.png" alt="" className="h-3.5 w-3.5 shrink-0" />
       )}
 
       {isKnowledgeDir && !isTeamClawTeam && (
         <ObsidianIcon className="h-3.5 w-3.5 shrink-0" style={{ color: '#7C3AED' }} />
-      )}
-
-      {isSelected && !isDirectory && (
-        <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
       )}
 
       <span

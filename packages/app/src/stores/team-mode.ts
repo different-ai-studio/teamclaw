@@ -27,6 +27,8 @@ interface TeamModeState {
   p2pConnected: boolean
   p2pConfigured: boolean
   p2pFileSyncStatusMap: Record<string, 'synced' | 'modified' | 'new'>
+  /** True while a Git team sync is in progress (for file tree loading indicator) */
+  teamGitSyncing: boolean
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
   applyTeamModelToOpenCode: (workspacePath: string, force?: boolean) => Promise<void>
@@ -62,6 +64,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   myRole: null,
   p2pConnected: false,
   p2pConfigured: false,
+  teamGitSyncing: false,
   p2pFileSyncStatusMap: {},
 
   loadTeamConfig: async (_workspacePath: string) => {

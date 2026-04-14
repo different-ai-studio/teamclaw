@@ -353,6 +353,7 @@ export function FileTree({
   const ossFileSyncStatusMap = useTeamOssStore(s => s.fileSyncStatusMap);
   const p2pFileSyncStatusMap = useTeamModeStore(s => s.p2pFileSyncStatusMap);
   const p2pConnected = useTeamModeStore(s => s.p2pConnected);
+  const teamGitSyncing = useTeamModeStore(s => s.teamGitSyncing);
   const fileSyncStatusMap = p2pConnected ? p2pFileSyncStatusMap : ossFileSyncStatusMap;
   const syncDirtyDirectories = useMemo(() => {
     const dirtyDirs = new Map<string, 'synced' | 'modified' | 'new'>();
@@ -1219,6 +1220,7 @@ export function FileTree({
     isRenaming: renamingPath === node.path,
     isDragOver: dragOverPath === node.path,
     isTeamClawTeam: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0,
+    teamSyncing: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0 ? teamGitSyncing : undefined,
     syncStatus: (() => {
       if (!node.path.includes(`/${TEAM_REPO_DIR}/`)) return null;
       if (node.type === 'directory') {

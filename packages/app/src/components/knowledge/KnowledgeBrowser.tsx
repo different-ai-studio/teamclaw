@@ -27,6 +27,7 @@ export function KnowledgeBrowser() {
   const handleGitSync = React.useCallback(async () => {
     if (!isTauri() || syncing) return
     setSyncing(true)
+    useTeamModeStore.setState({ teamGitSyncing: true })
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       const result = await invoke<{ success: boolean; message: string }>('team_sync_repo')
@@ -40,6 +41,7 @@ export function KnowledgeBrowser() {
       toast.error(String(err))
     } finally {
       setSyncing(false)
+      useTeamModeStore.setState({ teamGitSyncing: false })
     }
   }, [syncing, refreshFileTree])
 
