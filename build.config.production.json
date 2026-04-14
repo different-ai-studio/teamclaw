@@ -7,7 +7,7 @@
       "models": []
     },
     "lockLlmConfig": false,
-    "seedUrl": "http://localhost:9090"
+    "seedUrl": ""
   },
   "app": {
     "name": "TeamClaw",
@@ -16,7 +16,7 @@
   },
   "features": {
     "advancedMode": true,
-    "teamMode": false,
+    "teamMode": true,
     "updater": true,
     "channels": {
       "discord": true,
@@ -28,14 +28,11 @@
     }
   },
   "s3": {
-    "teamEndpoint": "https://localhost",
+    "teamEndpoint": "",
     "forcePathStyle": false
   },
   "defaults": {
     "locale": "zh-CN",
     "theme": "system"
-  },
-  "device": {
-    "jwtSecret": ""
   }
 }

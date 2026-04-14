@@ -459,6 +459,7 @@ pub async fn p2p_create_team(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    llm_models: Option<String>,
     team_name: Option<String>,
     owner_name: Option<String>,
     owner_email: Option<String>,
@@ -481,7 +482,7 @@ pub async fn p2p_create_team(
 
     // Write LLM config (only if user chose to host LLM)
     let llm_config =
-        crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+        crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     crate::commands::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
 
     create_team(
@@ -565,6 +566,7 @@ pub async fn p2p_join_drive(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    llm_models: Option<String>,
     iroh_state: tauri::State<'_, IrohState>,
     engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
@@ -597,7 +599,7 @@ pub async fn p2p_join_drive(
 
     // Write LLM config (only if user chose to host LLM)
     let llm_config =
-        crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+        crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     crate::commands::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
 
     Ok(result)

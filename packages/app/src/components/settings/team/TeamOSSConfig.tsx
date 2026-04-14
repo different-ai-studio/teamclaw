@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
 import { ApplicationDialog } from './ApplicationDialog'
+import { HostLlmConfig } from './HostLlmConfig'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { VersionHistorySection } from './VersionHistorySection'
 import { invoke } from '@tauri-apps/api/core'
@@ -99,6 +100,8 @@ export function TeamOSSConfig() {
   const [createFcEndpoint, setCreateFcEndpoint] = useState(defaultFcEndpoint)
   const [createHostLlm, setCreateHostLlm] = useState(!!defaultLlmUrl)
   const [createLlmUrl, setCreateLlmUrl] = useState(defaultLlmUrl)
+  const defaultLlmModels = (buildConfig.team.llm.models ?? []).map((m) => ({ id: m.id, name: m.name }))
+  const [createLlmModels, setCreateLlmModels] = useState(defaultLlmModels)
 
   // Join team form
   const [joinTeamId, setJoinTeamId] = useState('')
@@ -109,6 +112,8 @@ export function TeamOSSConfig() {
   const [cfgFcEndpoint, setCfgFcEndpoint] = useState('')
   const [cfgHostLlm, setCfgHostLlm] = useState(false)
   const [cfgLlmUrl, setCfgLlmUrl] = useState('')
+  const [cfgLlmModels, setCfgLlmModels] = useState<Array<{ id: string; name: string }>>([])
+
   const [cfgSaving, setCfgSaving] = useState(false)
   const [cfgLoaded, setCfgLoaded] = useState(false)
 
@@ -142,11 +147,16 @@ export function TeamOSSConfig() {
             if (config) setCfgFcEndpoint(config.teamEndpoint || '')
           })
           .catch(() => {})
-        invoke<{ active: boolean; llm?: { baseUrl: string } }>('get_team_status')
+        invoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status')
           .then((status) => {
             if (status.llm?.baseUrl) {
               setCfgHostLlm(true)
               setCfgLlmUrl(status.llm.baseUrl)
+              if (status.llm.models?.length) {
+                setCfgLlmModels(status.llm.models)
+              } else if (status.llm.model) {
+                setCfgLlmModels([{ id: status.llm.model, name: status.llm.modelName || status.llm.model }])
+              }
             }
           })
           .catch(() => {})
@@ -172,6 +182,9 @@ export function TeamOSSConfig() {
         ownerEmail,
         fcEndpoint: createFcEndpoint,
         llmBaseUrl: createHostLlm ? createLlmUrl : undefined,
+        llmModel: createHostLlm ? (createLlmModels[0]?.id || undefined) : undefined,
+        llmModelName: createHostLlm ? (createLlmModels[0]?.name || undefined) : undefined,
+        llmModels: createHostLlm && createLlmModels.length > 0 ? JSON.stringify(createLlmModels) : undefined,
       })
       setTeamName('')
       setOwnerName('')
@@ -179,6 +192,7 @@ export function TeamOSSConfig() {
       setCreateFcEndpoint('')
       setCreateHostLlm(false)
       setCreateLlmUrl('')
+      setCreateLlmModels([])
       // Load team config and apply LLM provider
       const store = useTeamModeStore.getState()
       await store.loadTeamConfig(workspacePath)
@@ -191,7 +205,7 @@ export function TeamOSSConfig() {
     } finally {
       setCreating(false)
     }
-  }, [workspacePath, teamName, ownerName, ownerEmail, createFcEndpoint, createHostLlm, createLlmUrl, createTeam])
+  }, [workspacePath, teamName, ownerName, ownerEmail, createFcEndpoint, createHostLlm, createLlmUrl, createLlmModels, createTeam])
 
   const handleJoinTeam = useCallback(async () => {
     if (!workspacePath) return
@@ -277,13 +291,16 @@ export function TeamOSSConfig() {
         workspacePath,
         teamEndpoint: cfgFcEndpoint || undefined,
         llmBaseUrl: cfgHostLlm ? cfgLlmUrl : undefined,
+        llmModel: cfgHostLlm ? (cfgLlmModels[0]?.id || undefined) : undefined,
+        llmModelName: cfgHostLlm ? (cfgLlmModels[0]?.name || undefined) : undefined,
+        llmModels: cfgHostLlm && cfgLlmModels.length > 0 ? JSON.stringify(cfgLlmModels) : undefined,
       })
     } catch {
       // error is set in the store
     } finally {
       setCfgSaving(false)
     }
-  }, [workspacePath, cfgFcEndpoint, cfgHostLlm, cfgLlmUrl, updateServiceConfig])
+  }, [workspacePath, cfgFcEndpoint, cfgHostLlm, cfgLlmUrl, cfgLlmModels, updateServiceConfig])
 
   const handleSyncNow = useCallback(async () => {
     if (!workspacePath) return
@@ -326,7 +343,7 @@ export function TeamOSSConfig() {
   const teamModeType = useTeamModeStore((s) => s.teamModeType)
   const configuredAsOss = configured || teamModeType === 'oss'
 
-  const isOwner = myRole === 'owner' || myRole === 'manager'
+  const isOwner = myRole === 'owner'
 
   return (
     <div className="space-y-4">
@@ -432,33 +449,14 @@ export function TeamOSSConfig() {
                   />
                 </div>
               </div>
-              <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={createHostLlm}
-                    onChange={(e) => setCreateHostLlm(e.target.checked)}
-                    className="rounded border-border"
-                  />
-                  <span className="text-xs font-medium text-muted-foreground">托管 LLM（团队共享 AI 模型）</span>
-                </label>
-                {createHostLlm && (
-                  <div className="space-y-2 pt-1">
-                    <div>
-                      <label className="mb-1 block text-xs text-muted-foreground">LLM API 地址</label>
-                      <Input
-                        value={createLlmUrl}
-                        onChange={(e) => setCreateLlmUrl(e.target.value)}
-                        placeholder="https://your-llm-proxy.com/v1"
-                        className="bg-background/50 font-mono text-xs"
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground/60">
-                      访问 LLM 时将从环境变量 <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code> 获取密钥，默认值为设备 ID
-                    </p>
-                  </div>
-                )}
-              </div>
+              <HostLlmConfig
+                enabled={createHostLlm}
+                onEnabledChange={setCreateHostLlm}
+                baseUrl={createLlmUrl}
+                onBaseUrlChange={setCreateLlmUrl}
+                models={createLlmModels}
+                onModelsChange={setCreateLlmModels}
+              />
               <Button
                 onClick={handleCreateTeam}
                 disabled={creating || !teamName || !ownerName || !ownerEmail || !createFcEndpoint}
@@ -601,7 +599,7 @@ export function TeamOSSConfig() {
                 <div className="flex items-center gap-1.5">
                   <Shield className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="font-medium">
-                    {myRole === 'owner' ? '管理员' : myRole === 'manager' ? '经理' : myRole === 'editor' ? '编辑' : myRole === 'viewer' ? '只读' : '成员'}
+                    {myRole === 'owner' ? '所有者' : myRole === 'manager' ? '管理员' : myRole === 'editor' ? '编辑' : myRole === 'viewer' ? '只读' : '成员'}
                   </span>
                 </div>
               </div>
@@ -629,33 +627,14 @@ export function TeamOSSConfig() {
                     OSS 凭证和团队注册服务的地址
                   </p>
                 </div>
-                <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={cfgHostLlm}
-                      onChange={(e) => setCfgHostLlm(e.target.checked)}
-                      className="rounded border-border"
-                    />
-                    <span className="text-xs font-medium text-muted-foreground">托管 LLM（团队共享 AI 模型）</span>
-                  </label>
-                  {cfgHostLlm && (
-                    <div className="space-y-2 pt-1">
-                      <div>
-                        <label className="mb-1 block text-xs text-muted-foreground">LLM API 地址</label>
-                        <Input
-                          value={cfgLlmUrl}
-                          onChange={(e) => setCfgLlmUrl(e.target.value)}
-                          placeholder="https://your-llm-proxy.com/v1"
-                          className="bg-background/50 font-mono text-xs"
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground/60">
-                        访问 LLM 时将从环境变量 <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code> 获取密钥，默认值为设备 ID
-                      </p>
-                    </div>
-                  )}
-                </div>
+                <HostLlmConfig
+                  enabled={cfgHostLlm}
+                  onEnabledChange={setCfgHostLlm}
+                  baseUrl={cfgLlmUrl}
+                  onBaseUrlChange={setCfgLlmUrl}
+                  models={cfgLlmModels}
+                  onModelsChange={setCfgLlmModels}
+                />
                 <Button
                   onClick={handleSaveServiceConfig}
                   disabled={cfgSaving || !cfgFcEndpoint}

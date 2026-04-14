@@ -25,6 +25,14 @@ pub struct TeamConfig {
     pub git_branch: Option<String>,
 }
 
+/// A single model entry in the team LLM configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModelEntry {
+    pub id: String,
+    pub name: String,
+}
+
 /// LLM configuration stored in teamclaw.json under "llm" key.
 /// Replaces the old teamclaw-team/teamclaw.yaml file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +41,9 @@ pub struct LlmConfig {
     pub base_url: String,
     pub model: String,
     pub model_name: String,
+    /// Multiple selectable models. When present, users can switch between these.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<LlmModelEntry>,
 }
 
 /// Unified team status returned by check_team_status().
@@ -294,16 +305,25 @@ pub fn build_llm_config(
     base_url: Option<String>,
     model: Option<String>,
     model_name: Option<String>,
+    models_json: Option<String>,
 ) -> Option<LlmConfig> {
     let url = base_url.filter(|s| !s.is_empty())?;
+    let models: Vec<LlmModelEntry> = models_json
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    // Use first model from array as default if model/model_name not explicitly set
+    let default_model = models.first();
     Some(LlmConfig {
         base_url: url,
         model: model
             .filter(|s| !s.is_empty())
+            .or_else(|| default_model.map(|m| m.id.clone()))
             .unwrap_or_else(|| "default".to_string()),
         model_name: model_name
             .filter(|s| !s.is_empty())
+            .or_else(|| default_model.map(|m| m.name.clone()))
             .unwrap_or_else(|| "default".to_string()),
+        models,
     })
 }
 
@@ -661,10 +681,11 @@ pub fn update_team_llm_config(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    llm_models: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path = get_workspace_path(&opencode_state)?;
-    let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name);
+    let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     write_llm_config(&workspace_path, llm_config.as_ref())?;
     Ok(())
 }
@@ -715,6 +736,7 @@ pub async fn team_init_repo(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    llm_models: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<TeamGitResult, String> {
     let workspace_path = get_workspace_path(&opencode_state)?;
@@ -755,7 +777,7 @@ pub async fn team_init_repo(
     }
 
     // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
-    let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name);
+    let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     write_llm_config(&workspace_path, llm_config.as_ref())?;
     println!(
         "[Team Init] Wrote LLM config to {}/{}",

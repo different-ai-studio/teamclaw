@@ -1,8 +1,8 @@
 # TeamClaw
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/diffrent-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/diffrent-ai-studio/teamclaw/actions)
-[![Contributors](https://img.shields.io/github/contributors/diffrent-ai-studio/teamclaw.svg)](https://github.com/diffrent-ai-studio/teamclaw/graphs/contributors)
+[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
 
 Local AI agents built on OpenCode — your AI Ally for every role
 
@@ -58,7 +58,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## Install
 
-Download the installer for your platform from [GitHub Releases](https://github.com/diffrent-ai-studio/teamclaw/releases) (`.dmg` for macOS, `.exe` for Windows).
+Download the installer for your platform from [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) (`.dmg` for macOS, `.exe` for Windows).
 
 - **Windows**: See [Windows Install Guide](docs/windows-install-guide.md).
 
@@ -162,6 +162,73 @@ TeamClaw supports multiple team collaboration modes:
    - Initialize a local Git repository
    - Pull remote repository contents
    - Generate a whitelist `.gitignore` (only syncs shared directories)
+
+### Configuring the Team FC Endpoint
+
+TeamClaw uses a serverless backend (FC — Function Compute) to handle team registration, authentication, and AI budget management. The FC endpoint is configured at **build time** via `build.config.*.json`.
+
+**Configuration files:**
+
+| File | Purpose |
+|------|---------|
+| `build.config.example.json` | Template — copy this to get started |
+| `build.config.local.json` | Local development (git-ignored) |
+| `build.config.production.json` | Production builds |
+
+**Steps to configure:**
+
+1. Copy the example config:
+
+   ```bash
+   cp build.config.example.json build.config.local.json
+   ```
+
+2. Set the `s3.teamEndpoint` to your FC endpoint URL:
+
+   ```json
+   {
+     "s3": {
+       "teamEndpoint": "https://your-fc-endpoint.example.com",
+       "forcePathStyle": false
+     }
+   }
+   ```
+
+3. If your team provides a shared LLM proxy, also configure `team.llm`:
+
+   ```json
+   {
+     "team": {
+       "llm": {
+         "baseUrl": "https://your-llm-proxy.example.com/v1",
+         "model": "default",
+         "modelName": "default"
+       },
+       "lockLlmConfig": true
+     }
+   }
+   ```
+
+4. Enable team mode in `features`:
+
+   ```json
+   {
+     "features": {
+       "teamMode": true
+     }
+   }
+   ```
+
+5. Rebuild the app (`pnpm tauri:dev` or `pnpm tauri:build`) for changes to take effect.
+
+**Self-hosting the FC backend:**
+
+The FC source is in the `fc/` directory. It requires:
+- Node.js 20 runtime
+- Alibaba Cloud OSS (or S3-compatible storage) for team data
+- (Optional) LiteLLM proxy for shared AI budget management
+
+Environment variables needed: `ACCESS_KEY_ID`, `ACCESS_KEY_SECRET`, `ROLE_ARN`, `BUCKET`, `REGION`, `ENDPOINT`. See `fc/s.yaml` for the full list.
 
 ### Shared Content
 

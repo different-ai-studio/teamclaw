@@ -175,12 +175,13 @@ pub async fn oss_create_team(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    llm_models: Option<String>,
 ) -> Result<OssTeamInfo, String> {
     let node_id = get_p2p_node_id_sync()?;
     let team_secret = generate_team_secret()?;
 
     // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
-    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
     info!(
         "oss_create_team: wrote LLM config to {}/{}",
@@ -401,6 +402,7 @@ pub async fn oss_join_team(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    llm_models: Option<String>,
 ) -> Result<OssJoinResult, String> {
     let node_id = get_p2p_node_id_sync()?;
 
@@ -494,7 +496,7 @@ pub async fn oss_join_team(
     super::team::scaffold_team_dir(&team_dir)?;
 
     // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
-    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
 
     // Cache team meta locally for fast restore
@@ -1080,6 +1082,7 @@ pub async fn oss_update_service_config(
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
+    llm_models: Option<String>,
 ) -> Result<(), String> {
     // Update FC endpoint in oss.json if provided
     if let Some(ref new_endpoint) = team_endpoint {
@@ -1091,7 +1094,7 @@ pub async fn oss_update_service_config(
     }
 
     // Update LLM config in teamclaw.json
-    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
     info!("oss_update_service_config: updated LLM config");
 
