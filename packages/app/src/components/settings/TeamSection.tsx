@@ -109,11 +109,17 @@ function useActiveSyncMethod(): TeamTab | null {
 
 export function TeamSection() {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = React.useState<TeamTab>('p2p')
   const activeSyncMethod = useActiveSyncMethod()
+  const [activeTab, setActiveTab] = React.useState<TeamTab>(activeSyncMethod ?? 'p2p')
+  const initializedRef = React.useRef(false)
 
+  // Only auto-switch tab on initial load (when activeSyncMethod first resolves),
+  // never override a user's manual tab selection afterwards.
   React.useEffect(() => {
-    setActiveTab(activeSyncMethod ?? 'p2p')
+    if (!initializedRef.current && activeSyncMethod) {
+      setActiveTab(activeSyncMethod)
+      initializedRef.current = true
+    }
   }, [activeSyncMethod])
 
   const disabledTabs = React.useMemo(() => {
