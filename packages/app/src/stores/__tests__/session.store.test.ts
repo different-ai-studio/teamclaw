@@ -144,4 +144,27 @@ describe('session store', () => {
     const state = useSessionStore.getState()
     expect(Array.isArray(state.messageQueue)).toBe(true)
   })
+
+  // Regression: TEAMCLAW-REACT-1R — session messages selector must return stable reference
+  // when unrelated store fields change, to prevent infinite re-render loops
+  it('messages selector returns stable reference on unrelated store updates', () => {
+    const msgs = [{ id: 'msg-1', role: 'assistant', content: 'hello', parts: [], createdAt: new Date() }]
+    useSessionStore.setState({
+      sessions: [{ id: 's1', title: 'Test', messages: msgs, createdAt: new Date(), updatedAt: new Date() }],
+      activeSessionId: 's1',
+    })
+
+    const messagesSelector = (s: { sessions: Array<{ id: string; messages: unknown[] }>; activeSessionId: string | null }) =>
+      s.activeSessionId ? s.sessions.find((ss) => ss.id === s.activeSessionId)?.messages : undefined
+
+    const ref1 = messagesSelector(useSessionStore.getState())
+
+    // Simulate unrelated store update (e.g. toggling isLoading)
+    useSessionStore.setState({ isLoading: true })
+
+    const ref2 = messagesSelector(useSessionStore.getState())
+
+    // Messages array reference should be identical since sessions array was not replaced
+    expect(ref1).toBe(ref2)
+  })
 })
