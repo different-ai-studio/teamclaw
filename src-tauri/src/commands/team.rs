@@ -776,6 +776,19 @@ pub async fn team_init_repo(
         ));
     }
 
+    // Ensure standard team directory structure exists (same as OSS/P2P)
+    // scaffold_team_dir skips non-empty dirs, so we create them explicitly after clone
+    let team_path = Path::new(&team_dir);
+    for d in &["skills", ".mcp", "knowledge", "_feedback", "_meta"] {
+        let _ = std::fs::create_dir_all(team_path.join(d));
+    }
+    let readme_path = team_path.join("README.md");
+    if !readme_path.exists() {
+        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n- `_meta/` - Shared team metadata and app-managed files\n";
+        let _ = std::fs::write(&readme_path, readme);
+    }
+    println!("[Team Init] Ensured standard team directory structure");
+
     // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
     let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     write_llm_config(&workspace_path, llm_config.as_ref())?;
