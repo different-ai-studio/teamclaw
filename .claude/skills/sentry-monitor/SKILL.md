@@ -32,17 +32,28 @@ Filter results: keep only issues where `level` is `fatal` OR `priority` is `high
 
 If no issues match, skip to step 4 with "全部正常" message.
 
-### 2. Analyze Root Causes
+### 2. Analyze Root Causes (Local)
 
-For each filtered issue (max 10 total to avoid timeout), run:
+For each filtered issue (max 10 total), perform local root cause analysis:
+
+1. Fetch issue details with stack trace:
 
 ```bash
-sentry issue explain <shortId> --json
+sentry issue view <shortId> --json
 ```
 
-Extract the root cause summary from the response. If the explain call fails or returns no analysis, mark the issue as "分析中".
+2. From the stack trace / error message, identify the relevant source files and functions in the codebase.
 
-Run explain calls in parallel where possible (use Agent tool with parallel subagents).
+3. Read those source files to understand the code context around the crash/error site.
+
+4. Produce a one-sentence root cause summary based on the stack trace + source code analysis.
+
+Run analyses in parallel where possible (use Agent tool with parallel subagents). Each subagent should:
+- Run `sentry issue view <shortId> --json`
+- Read the relevant source files from the codebase
+- Return a one-sentence root cause summary
+
+If analysis cannot determine a root cause, use the error title as-is.
 
 ### 3. Format Report
 
@@ -66,7 +77,11 @@ If a project has zero matching issues, omit that section entirely.
 
 ### 4. Push to WeCom
 
-Use the `wecomcli-get-msg` skill to send the formatted report as a text message.
+Send the formatted report to the **TeamClaw** group chat:
+
+```bash
+wecom-cli msg send_message '{"chat_type": 2, "chatid": "wrOOClYgAA5gMJijxEUfWC6M0RAjwlWQ", "msgtype": "text", "text": {"content": "<report text>"}}'
+```
 
 If no fatal/high issues exist across both projects, send:
 

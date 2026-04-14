@@ -28,29 +28,25 @@ Determine which project based on the issue ID prefix:
 
 ### Phase 1: Gather Context
 
-Run these three commands in parallel:
+1. Fetch issue details with stack trace:
 
 ```bash
 sentry issue view <ISSUE-ID> --json
 ```
 
-```bash
-sentry issue explain <ISSUE-ID> --json
-```
+2. From the stack trace and error message, identify the relevant source files and functions in the codebase.
 
-```bash
-sentry issue plan <ISSUE-ID> --json
-```
+3. Read those source files to understand the code context around the crash/error site.
 
-Then read the source files mentioned in the explain/plan output to understand the surrounding code context.
+4. Perform local root cause analysis based on the stack trace + source code. Produce a clear root cause summary.
 
-**If explain returns empty or low-confidence results:** Stop and ask the user for additional context about the issue before proceeding. Do NOT guess.
+**If the stack trace is insufficient to identify the root cause:** Stop and ask the user for additional context about the issue before proceeding. Do NOT guess.
 
 ### Phase 2: Confirm with User
 
 Present a fix plan to the user in the terminal. The plan MUST include:
 
-1. **Root cause** — one-paragraph summary from explain
+1. **Root cause** — one-paragraph summary from local analysis
 2. **Files to modify** — exact file paths and what changes in each
 3. **Proposed fix** — description of the code changes
 4. **Regression test plan** — what test will be added and what it verifies
@@ -124,7 +120,7 @@ Fixes [<ISSUE-ID>](<sentry-issue-permalink>)
 
 ## Root Cause
 
-<root cause summary from explain>
+<root cause summary from local analysis>
 
 ## Fix
 
