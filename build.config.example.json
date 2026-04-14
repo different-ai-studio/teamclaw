@@ -3,7 +3,8 @@
     "llm": {
       "baseUrl": "",
       "model": "",
-      "modelName": ""
+      "modelName": "",
+      "models": []
     },
     "lockLlmConfig": false,
     "seedUrl": "http://localhost:9090"

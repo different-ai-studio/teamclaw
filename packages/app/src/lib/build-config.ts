@@ -10,12 +10,19 @@ export interface ChannelsFeatureConfig {
   wechat: boolean
 }
 
+export interface TeamModelOption {
+  id: string
+  name: string
+}
+
 export interface BuildConfig {
   team: {
     llm: {
       baseUrl: string
       model: string
       modelName: string
+      /** Multiple selectable models. When set, users can switch between these in team mode. */
+      models?: TeamModelOption[]
       supportsVision?: boolean
     }
     lockLlmConfig: boolean

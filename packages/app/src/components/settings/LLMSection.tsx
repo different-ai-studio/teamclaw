@@ -403,7 +403,11 @@ export const LLMSection = React.memo(function LLMSection() {
     }
   }
 
+  const teamModelOptions = useTeamModeStore((s) => s.teamModelOptions)
+  const switchTeamModel = useTeamModeStore((s) => s.switchTeamModel)
+
   if (teamMode && teamModelConfig && !devUnlocked) {
+    const hasMultipleModels = teamModelOptions.length > 1
     return (
       <div className="space-y-6">
         <SectionHeader
@@ -417,13 +421,35 @@ export const LLMSection = React.memo(function LLMSection() {
             <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400">
               <Shield className="h-4.5 w-4.5" />
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-sm font-medium">{t('settings.llm.managedByTeam', 'Managed by team')}</p>
-              <p className="text-xs text-muted-foreground">
-                {t('settings.llm.managedByTeamDesc', 'Model configuration is managed by team admin, no personal configuration needed.')}
-              </p>
+              {hasMultipleModels ? (
+                <div className="flex items-center gap-1.5 mt-2">
+                  {teamModelOptions.map((option) => {
+                    const isActive = teamModelConfig?.model === option.id
+                    return (
+                      <button
+                        key={option.id}
+                        onClick={() => workspacePath && switchTeamModel(option.id, workspacePath)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                          isActive
+                            ? 'bg-violet-600 text-white'
+                            : 'bg-muted text-muted-foreground hover:bg-muted/80',
+                        )}
+                      >
+                        {option.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.llm.managedByTeamDesc', 'Model configuration is managed by team admin, no personal configuration needed.')}
+                </p>
+              )}
               {teamModelConfig && (
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground mt-1.5">
                   {teamModelConfig.modelName} · {teamModelConfig.baseUrl}
                 </p>
               )}

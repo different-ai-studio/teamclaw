@@ -6,7 +6,7 @@ import {
 } from '@/lib/opencode/config'
 import { useProviderStore } from './provider'
 import { isTauri } from '@/lib/utils'
-import { appShortName, buildConfig } from '@/lib/build-config'
+import { appShortName, buildConfig, type TeamModelOption } from '@/lib/build-config'
 
 
 const TEAM_PROVIDER_ID = 'team'
@@ -21,6 +21,7 @@ interface TeamModeState {
   teamMode: boolean
   teamModeType: string | null // "p2p" | "oss" | "webdav" | "git" — from teamclaw.json
   teamModelConfig: TeamModelConfig | null
+  teamModelOptions: TeamModelOption[] // available model choices from build config
   _appliedConfigKey: string | null // fingerprint of last applied config to avoid redundant apply
   devUnlocked: boolean // hidden dev mode: unlocks model selector & hidden dirs in team mode
   myRole: 'owner' | 'editor' | 'viewer' | null
@@ -32,6 +33,7 @@ interface TeamModeState {
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
   applyTeamModelToOpenCode: (workspacePath: string, force?: boolean) => Promise<void>
+  switchTeamModel: (modelId: string, workspacePath: string) => Promise<void>
   clearTeamMode: (workspacePath?: string) => Promise<void>
   setDevUnlocked: (unlocked: boolean) => void
   loadP2pFileSyncStatus: () => Promise<void>
@@ -59,6 +61,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   teamMode: false,
   teamModeType: null,
   teamModelConfig: null,
+  teamModelOptions: buildConfig.team.llm.models ?? [],
   _appliedConfigKey: null,
   devUnlocked: false,
   myRole: null,
@@ -85,10 +88,24 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     if (isTeamMode) {
       set({ teamMode: true, teamModeType: status?.mode ?? (ossConfigured ? 'oss' : null) })
       if (status?.llm) {
+        // Restore previously selected team model if available
+        const teamModels = buildConfig.team.llm.models
+        let selectedModel = status.llm.model
+        let selectedModelName = status.llm.modelName || status.llm.model
+        if (teamModels && teamModels.length > 0) {
+          try {
+            const savedModelId = localStorage.getItem(`${appShortName}-team-model`)
+            const match = savedModelId ? teamModels.find((m) => m.id === savedModelId) : null
+            if (match) {
+              selectedModel = match.id
+              selectedModelName = match.name
+            }
+          } catch { /* ignore */ }
+        }
         const config: TeamModelConfig = {
           baseUrl: status.llm.baseUrl,
-          model: status.llm.model,
-          modelName: status.llm.modelName || status.llm.model,
+          model: selectedModel,
+          modelName: selectedModelName,
         }
         set({ teamModelConfig: config })
       } else {
@@ -129,36 +146,44 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         } catch { /* ignore */ }
       }
 
-      const modelConfig: any = {
-        modelId: teamModelConfig.model,
-        modelName: teamModelConfig.modelName,
-        limit: {
-          context: 256000,
-          output: 16000
-        }
-      }
-
-      if (buildConfig.team.llm.supportsVision) {
-        modelConfig.modalities = {
-          input: ['text', 'image'],
-          output: ['text']
-        }
-      }
+      // Build model configs — use models array from build config if available, otherwise single model
+      const teamModels = buildConfig.team.llm.models
+      const modelConfigs: any[] = teamModels && teamModels.length > 0
+        ? teamModels.map((m) => {
+            const mc: any = {
+              modelId: m.id,
+              modelName: m.name,
+              limit: { context: 256000, output: 16000 },
+            }
+            if (buildConfig.team.llm.supportsVision) {
+              mc.modalities = { input: ['text', 'image'], output: ['text'] }
+            }
+            return mc
+          })
+        : [{
+            modelId: teamModelConfig.model,
+            modelName: teamModelConfig.modelName,
+            limit: { context: 256000, output: 16000 },
+            ...(buildConfig.team.llm.supportsVision
+              ? { modalities: { input: ['text', 'image'], output: ['text'] } }
+              : {}),
+          }]
 
       // Check if the provider config already exists in opencode.json with matching values.
       // If so, skip the disruptive restart — the sidecar already loaded the correct config.
       const existingConfig = await getCustomProviderConfig(workspacePath, TEAM_PROVIDER_ID)
+      const expectedModelIds = modelConfigs.map((m) => m.modelId).sort()
+      const existingModelIds = existingConfig?.models.map((m) => m.modelId).sort() ?? []
       const configAlreadyMatches = existingConfig
         && existingConfig.baseURL === teamModelConfig.baseUrl
-        && existingConfig.models.length > 0
-        && existingConfig.models[0].modelId === teamModelConfig.model
+        && JSON.stringify(expectedModelIds) === JSON.stringify(existingModelIds)
 
       if (!configAlreadyMatches) {
         await addCustomProviderToConfig(workspacePath, {
           name: 'Team',
           baseURL: teamModelConfig.baseUrl,
           apiKey: '${tc_api_key}',
-          models: [modelConfig],
+          models: modelConfigs,
         })
 
         // Restart OpenCode to pick up new provider config
@@ -189,6 +214,31 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     } catch (err) {
       console.error('[TeamMode] Failed to apply team model to OpenCode:', err)
     }
+  },
+
+  switchTeamModel: async (modelId: string, _workspacePath: string) => {
+    const { teamModelConfig, teamModelOptions } = get()
+    if (!teamModelConfig) return
+    const option = teamModelOptions.find((m) => m.id === modelId)
+    if (!option) return
+
+    const newConfig: TeamModelConfig = {
+      baseUrl: teamModelConfig.baseUrl,
+      model: modelId,
+      modelName: option.name,
+    }
+    set({ teamModelConfig: newConfig })
+
+    // Select the model in OpenCode (all models are already registered in the provider)
+    const providerStore = useProviderStore.getState()
+    await providerStore.selectModel(TEAM_PROVIDER_ID, modelId, option.name)
+
+    // Persist selection
+    try {
+      localStorage.setItem(`${appShortName}-team-model`, modelId)
+    } catch { /* ignore */ }
+
+    console.log('[TeamMode] Switched team model to:', modelId)
   },
 
   setDevUnlocked: (unlocked: boolean) => {
