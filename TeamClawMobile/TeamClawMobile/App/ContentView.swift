@@ -32,6 +32,7 @@ struct ContentView: View {
         .onChange(of: connectionMonitor.isMQTTConnected) { _, connected in
             guard connected, let creds = pairingManager.credentials else { return }
             subscribeTopics(creds: creds)
+            resubscribeCollabSessions(creds: creds)
             if !hasRequestedInitialData {
                 hasRequestedInitialData = true
                 requestInitialData(creds: creds)
@@ -39,6 +40,11 @@ struct ContentView: View {
                 // Reconnected after disconnect — do incremental sync
                 requestInitialData(creds: creds)
             }
+        }
+        .onReceive(connectionMonitor.mqttService.receivedMessage.receive(on: DispatchQueue.main)) { mqttMessage in
+            guard case .collabControl(let ctrl) = mqttMessage.payload,
+                  ctrl.type == .collabCreate else { return }
+            handleCollabCreate(ctrl)
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, pairingManager.isAuthenticated else { return }
@@ -114,6 +120,58 @@ struct ContentView: View {
         pg3.page = 1; pg3.pageSize = 50
         autoReq.pagination = pg3
         mqtt.publish(topic: topic, message: ProtoMQTTCoder.makeEnvelope(.automationSyncRequest(autoReq)), qos: 1)
+    }
+
+    private func handleCollabCreate(_ ctrl: Teamclaw_CollabControl) {
+        guard !ctrl.sessionID.isEmpty else { return }
+
+        // Check if session already exists locally
+        let sid = ctrl.sessionID
+        let descriptor = FetchDescriptor<Session>(
+            predicate: #Predicate { $0.id == sid }
+        )
+        if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty {
+            // Already have it; just make sure we're subscribed
+            if let creds = pairingManager.credentials {
+                let sessionTopic = "teamclaw/\(creds.teamID)/session/\(sid)"
+                connectionMonitor.mqttService.subscribe(topic: sessionTopic, qos: 1)
+            }
+            return
+        }
+
+        // Build collaborator IDs from proto members
+        let collaboratorIDs = ctrl.members.map(\.nodeID)
+
+        let session = Session(
+            id: ctrl.sessionID,
+            title: ctrl.senderName.isEmpty ? "协作会话" : "\(ctrl.senderName) 的协作",
+            agentName: "AI 搭档",
+            lastMessageContent: "",
+            lastMessageTime: Date(),
+            isCollaborative: true,
+            collaboratorIDs: collaboratorIDs,
+            ownerNodeId: ctrl.senderID,
+            agentHostDevice: ctrl.hasAgentHostDevice ? ctrl.agentHostDevice : nil
+        )
+        modelContext.insert(session)
+        try? modelContext.save()
+
+        // Subscribe to the session topic
+        if let creds = pairingManager.credentials {
+            let sessionTopic = "teamclaw/\(creds.teamID)/session/\(ctrl.sessionID)"
+            connectionMonitor.mqttService.subscribe(topic: sessionTopic, qos: 1)
+        }
+    }
+
+    private func resubscribeCollabSessions(creds: PairingCredentials) {
+        let descriptor = FetchDescriptor<Session>(
+            predicate: #Predicate { $0.isCollaborative && !$0.isArchived }
+        )
+        guard let sessions = try? modelContext.fetch(descriptor) else { return }
+        for session in sessions {
+            let sessionTopic = "teamclaw/\(creds.teamID)/session/\(session.id)"
+            connectionMonitor.mqttService.subscribe(topic: sessionTopic, qos: 1)
+        }
     }
 
     private func clearAllData() {
