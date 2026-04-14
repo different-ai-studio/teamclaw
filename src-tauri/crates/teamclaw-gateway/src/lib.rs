@@ -1100,3 +1100,58 @@ pub fn write_config(
 
     std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {}", e))
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_inject_context_no_reply_formats_message() {
+        let mock_server = wiremock::MockServer::start().await;
+        let port = mock_server.address().port();
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path_regex("/session/.*/prompt_async"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&mock_server)
+            .await;
+
+        let result = inject_context_no_reply(port, "test-session", "hello world", "张三").await;
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+
+        let requests = mock_server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(body["noReply"], true);
+        let text = body["parts"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("[张三]"), "Expected [张三] prefix, got: {}", text);
+        assert!(text.contains("hello world"));
+    }
+
+    #[tokio::test]
+    async fn test_inject_context_no_reply_error_response() {
+        let mock_server = wiremock::MockServer::start().await;
+        let port = mock_server.address().port();
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(500).set_body_string("Internal Error"))
+            .mount(&mock_server)
+            .await;
+
+        let result = inject_context_no_reply(port, "test-session", "msg", "user").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("500"), "Error should contain status code: {}", err);
+    }
+
+    #[tokio::test]
+    async fn test_inject_context_no_reply_connection_refused() {
+        // Use a port that nothing is listening on
+        let result = inject_context_no_reply(19999, "test-session", "msg", "user").await;
+        assert!(result.is_err());
+    }
+}

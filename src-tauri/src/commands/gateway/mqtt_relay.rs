@@ -2236,3 +2236,108 @@ fn parse_role_md(content: &str) -> ParsedRole {
         role_skills,
     }
 }
+
+// ============================================================================
+// Collab helper functions (extracted for testability)
+// ============================================================================
+
+/// Check if message content mentions @Agent (case-insensitive)
+pub(crate) fn contains_agent_mention(content: &str) -> bool {
+    content.to_lowercase().contains("@agent")
+}
+
+/// Parse sender name from "[Name] content" format.
+/// Returns (sender_name, clean_content). If no prefix, sender_name is None.
+pub(crate) fn parse_sender_prefix(content: &str) -> (Option<String>, String) {
+    if content.starts_with('[') {
+        if let Some(end) = content.find(']') {
+            let name = content[1..end].to_string();
+            let clean = content[end + 1..].trim_start().to_string();
+            if name.is_empty() {
+                return (None, clean);
+            }
+            return (Some(name), clean);
+        }
+    }
+    (None, content.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── @Agent detection ───────────────────────────────────────────────
+
+    #[test]
+    fn test_agent_mention_basic() {
+        assert!(contains_agent_mention("@Agent help me"));
+        assert!(contains_agent_mention("hey @agent do this"));
+        assert!(contains_agent_mention("@AGENT"));
+        assert!(contains_agent_mention("test @Agent test"));
+    }
+
+    #[test]
+    fn test_agent_mention_negative() {
+        assert!(!contains_agent_mention("hello world"));
+        assert!(!contains_agent_mention("no mention here"));
+        assert!(!contains_agent_mention("agent without at sign"));
+    }
+
+    #[test]
+    fn test_agent_mention_in_email_like_string() {
+        // "agent@test.com" does NOT contain "@agent" — the @ precedes "test" not "agent"
+        assert!(!contains_agent_mention("agent@test.com"));
+    }
+
+    // ─── Sender prefix parsing ──────────────────────────────────────────
+
+    #[test]
+    fn test_parse_sender_prefix_chinese_name() {
+        let (name, content) = parse_sender_prefix("[张三] hello world");
+        assert_eq!(name, Some("张三".to_string()));
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn test_parse_sender_prefix_english_name() {
+        let (name, content) = parse_sender_prefix("[Alice] @Agent help");
+        assert_eq!(name, Some("Alice".to_string()));
+        assert_eq!(content, "@Agent help");
+    }
+
+    #[test]
+    fn test_parse_sender_prefix_no_prefix() {
+        let (name, content) = parse_sender_prefix("no prefix here");
+        assert_eq!(name, None);
+        assert_eq!(content, "no prefix here");
+    }
+
+    #[test]
+    fn test_parse_sender_prefix_empty_brackets() {
+        let (name, content) = parse_sender_prefix("[] empty name");
+        assert_eq!(name, None);
+        assert_eq!(content, "empty name");
+    }
+
+    #[test]
+    fn test_parse_sender_prefix_no_space_after_bracket() {
+        let (name, content) = parse_sender_prefix("[Bob]no space");
+        assert_eq!(name, Some("Bob".to_string()));
+        assert_eq!(content, "no space");
+    }
+
+    #[test]
+    fn test_parse_sender_prefix_unclosed_bracket() {
+        let (name, content) = parse_sender_prefix("[unclosed bracket");
+        assert_eq!(name, None);
+        assert_eq!(content, "[unclosed bracket");
+    }
+
+    #[test]
+    fn test_parse_sender_prefix_with_slash_platform() {
+        // Gateway messages use [Name/Platform] format
+        let (name, content) = parse_sender_prefix("[小红/WeCom] 开会了");
+        assert_eq!(name, Some("小红/WeCom".to_string()));
+        assert_eq!(content, "开会了");
+    }
+}
