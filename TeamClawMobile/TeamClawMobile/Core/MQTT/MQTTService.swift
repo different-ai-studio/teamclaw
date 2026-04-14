@@ -43,6 +43,10 @@ final class MQTTService: NSObject, MQTTServiceProtocol {
         mqtt?.subscribe(topic, qos: q)
     }
 
+    func unsubscribe(topic: String) {
+        mqtt?.unsubscribe(topic)
+    }
+
     func publish(topic: String, message: Teamclaw_MqttMessage, qos: Int) {
         guard let data = ProtoMQTTCoder.encode(message) else {
             NSLog("[MQTT ⬆️] ENCODE FAILED topic=%@", topic)

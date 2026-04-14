@@ -29,6 +29,8 @@ final class MockMQTTService: MQTTServiceProtocol {
         subscribeCalls.append((topic, qos))
     }
 
+    func unsubscribe(topic: String) {}
+
     func publish(topic: String, message: Teamclaw_MqttMessage, qos: Int) {
         publishCalls.append((topic, message, qos))
     }
