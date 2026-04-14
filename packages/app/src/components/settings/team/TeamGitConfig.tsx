@@ -48,6 +48,7 @@ interface TeamConfig {
   enabled: boolean
   lastSyncAt: string | null
   gitToken?: string | null
+  gitBranch?: string | null
 }
 
 interface GitCheckResult {
@@ -97,6 +98,7 @@ export function TeamGitConfig() {
   const [state, setState] = React.useState<ConnectionState>('loading')
   const [teamConfig, setTeamConfig] = React.useState<TeamConfig | null>(null)
   const [gitUrl, setGitUrl] = React.useState('')
+  const [gitBranch, setGitBranch] = React.useState('')
   const [gitToken, setGitToken] = React.useState('')
   const [showToken, setShowToken] = React.useState(false)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
@@ -200,6 +202,7 @@ export function TeamGitConfig() {
       await tauriInvoke<TeamGitResult>('team_init_repo', {
         gitUrl: gitUrl.trim(),
         gitToken: isHttpsUrl && gitToken.trim() ? gitToken.trim() : null,
+        gitBranch: gitBranch.trim() || null,
         llmBaseUrl: hostLlm ? (llmUrl || null) : null,
         llmModel: null,
         llmModelName: null,
@@ -215,6 +218,7 @@ export function TeamGitConfig() {
         enabled: true,
         lastSyncAt: now,
         ...(isHttpsUrl && gitToken.trim() ? { gitToken: gitToken.trim() } : {}),
+        ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
       await tauriInvoke('save_team_config', { team: newConfig })
 
@@ -426,6 +430,25 @@ export function TeamGitConfig() {
               </div>
               <p className="text-xs text-muted-foreground">
                 {t('settings.team.urlHint', 'Supports HTTPS and SSH URLs. SSH uses your system keys automatically.')}
+              </p>
+            </div>
+
+            {/* Branch Input */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <GitBranch className="h-4 w-4 text-muted-foreground" />
+                {t('settings.team.gitBranch', 'Branch')}
+                <span className="text-xs text-muted-foreground font-normal">({t('settings.team.optional', 'optional')})</span>
+              </label>
+              <Input
+                value={gitBranch}
+                onChange={(e) => setGitBranch(e.target.value)}
+                placeholder={t('settings.team.gitBranchPlaceholder', 'main')}
+                className="h-9 text-sm"
+                disabled={state === 'connecting'}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settings.team.branchHint', 'Leave empty to use the repository default branch (main/master).')}
               </p>
             </div>
 

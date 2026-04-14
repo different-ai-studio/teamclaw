@@ -20,6 +20,9 @@ pub struct TeamConfig {
     /// Personal Access Token for HTTPS authentication (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_token: Option<String>,
+    /// Git branch to sync (e.g. "main", "master", "dev"). If None, auto-detect.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
 }
 
 /// LLM configuration stored in teamclaw.json under "llm" key.
@@ -708,6 +711,7 @@ pub async fn team_check_workspace_has_git(
 pub async fn team_init_repo(
     git_url: String,
     git_token: Option<String>,
+    git_branch: Option<String>,
     llm_base_url: Option<String>,
     llm_model: Option<String>,
     llm_model_name: Option<String>,
@@ -731,8 +735,17 @@ pub async fn team_init_repo(
         _ => git_url.clone(),
     };
 
-    // Clone into workspace/teamclaw-team (cwd = workspace, so clone creates teamclaw-team/)
-    let (ok, _, stderr) = run_git(&["clone", &remote_url, TEAM_REPO_DIR], &workspace_path)?;
+    // Clone into workspace/teamclaw-team, optionally specifying a branch
+    let clone_args: Vec<&str> = if let Some(ref branch) = git_branch {
+        if !branch.is_empty() {
+            vec!["clone", "-b", branch.as_str(), &remote_url, TEAM_REPO_DIR]
+        } else {
+            vec!["clone", &remote_url, TEAM_REPO_DIR]
+        }
+    } else {
+        vec!["clone", &remote_url, TEAM_REPO_DIR]
+    };
+    let (ok, _, stderr) = run_git(&clone_args, &workspace_path)?;
     if !ok {
         let _ = std::fs::remove_dir_all(&team_dir);
         return Err(format!(
@@ -804,7 +817,9 @@ pub async fn team_sync_repo(
         ));
     }
 
-    if let Ok(Some(config)) = read_team_config_from_file(&workspace_path) {
+    // Read saved config for token and branch
+    let saved_config = read_team_config_from_file(&workspace_path).ok().flatten();
+    if let Some(ref config) = saved_config {
         if let Some(ref token) = config.git_token {
             if !token.is_empty() && is_https_url(&config.git_url) {
                 let auth_url = embed_token_in_url(&config.git_url, token);
@@ -824,27 +839,34 @@ pub async fn team_sync_repo(
         );
     }
 
-    // Determine the branch to sync
-    let branch = {
-        let (ok, stdout, _) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)?;
-        if ok && !stdout.trim().is_empty() && stdout.trim() != "HEAD" {
-            stdout.trim().to_string()
-        } else {
-            let (ok2, stdout2, _) = run_git(
-                &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
-                &team_dir,
-            )?;
-            if ok2 && !stdout2.trim().is_empty() {
-                stdout2
-                    .trim()
-                    .strip_prefix("origin/")
-                    .unwrap_or(stdout2.trim())
-                    .to_string()
+    // Determine the branch to sync: saved config → current HEAD → remote default → "main"
+    let branch = saved_config
+        .as_ref()
+        .and_then(|c| c.git_branch.as_deref())
+        .filter(|b| !b.is_empty())
+        .map(|b| b.to_string())
+        .unwrap_or_else(|| {
+            let (ok, stdout, _) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)
+                .unwrap_or((false, String::new(), String::new()));
+            if ok && !stdout.trim().is_empty() && stdout.trim() != "HEAD" {
+                stdout.trim().to_string()
             } else {
-                "main".to_string()
+                let (ok2, stdout2, _) = run_git(
+                    &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+                    &team_dir,
+                )
+                .unwrap_or((false, String::new(), String::new()));
+                if ok2 && !stdout2.trim().is_empty() {
+                    stdout2
+                        .trim()
+                        .strip_prefix("origin/")
+                        .unwrap_or(stdout2.trim())
+                        .to_string()
+                } else {
+                    "main".to_string()
+                }
             }
-        }
-    };
+        });
 
     let remote_ref = format!("origin/{}", branch);
     let (ok, _, stderr) = run_git(&["fetch", "origin"], &team_dir)?;
