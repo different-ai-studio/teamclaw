@@ -179,9 +179,9 @@ pub async fn oss_create_team(
     let node_id = get_p2p_node_id_sync()?;
     let team_secret = generate_team_secret()?;
 
-    // Write LLM config to .teamclaw/teamclaw.json
+    // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
     let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
-    super::team::write_llm_config(&workspace_path, Some(&llm_config))?;
+    super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
     info!(
         "oss_create_team: wrote LLM config to {}/{}",
         super::TEAMCLAW_DIR,
@@ -493,9 +493,9 @@ pub async fn oss_join_team(
     }
     super::team::scaffold_team_dir(&team_dir)?;
 
-    // Write LLM config to .teamclaw/teamclaw.json
+    // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
     let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
-    super::team::write_llm_config(&workspace_path, Some(&llm_config))?;
+    super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
 
     // Cache team meta locally for fast restore
     if !team_data.is_empty() {
@@ -1069,6 +1069,33 @@ pub async fn oss_reset_team_secret(
 #[tauri::command]
 pub async fn oss_get_team_config(workspace_path: String) -> Result<Option<OssTeamConfig>, String> {
     Ok(read_oss_config(&workspace_path))
+}
+
+/// Update the FC endpoint and/or LLM config for an existing OSS team.
+/// Called from the "服务配置" section when the team is already connected.
+#[tauri::command]
+pub async fn oss_update_service_config(
+    workspace_path: String,
+    team_endpoint: Option<String>,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
+) -> Result<(), String> {
+    // Update FC endpoint in oss.json if provided
+    if let Some(ref new_endpoint) = team_endpoint {
+        if let Some(mut config) = read_oss_config(&workspace_path) {
+            config.team_endpoint = new_endpoint.clone();
+            write_oss_config(&workspace_path, &config)?;
+            info!("oss_update_service_config: updated team_endpoint to {}", new_endpoint);
+        }
+    }
+
+    // Update LLM config in teamclaw.json
+    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
+    super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
+    info!("oss_update_service_config: updated LLM config");
+
+    Ok(())
 }
 
 #[tauri::command]

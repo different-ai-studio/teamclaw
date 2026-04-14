@@ -403,7 +403,7 @@ export const LLMSection = React.memo(function LLMSection() {
     }
   }
 
-  if (teamMode && !devUnlocked) {
+  if (teamMode && teamModelConfig && !devUnlocked) {
     return (
       <div className="space-y-6">
         <SectionHeader

@@ -479,10 +479,10 @@ pub async fn p2p_create_team(
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
 
-    // Write LLM config
+    // Write LLM config (only if user chose to host LLM)
     let llm_config =
         crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
-    crate::commands::team::write_llm_config(&workspace_path, Some(&llm_config))?;
+    crate::commands::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
 
     create_team(
         node,
@@ -595,10 +595,10 @@ pub async fn p2p_join_drive(
     )
     .await?;
 
-    // Write LLM config
+    // Write LLM config (only if user chose to host LLM)
     let llm_config =
         crate::commands::team::build_llm_config(llm_base_url, llm_model, llm_model_name);
-    crate::commands::team::write_llm_config(&workspace_path, Some(&llm_config))?;
+    crate::commands::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
 
     Ok(result)
 }

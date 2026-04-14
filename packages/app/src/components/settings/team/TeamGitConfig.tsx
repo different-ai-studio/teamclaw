@@ -19,6 +19,8 @@ import {
   KeyRound,
   ChevronRight,
   BookOpen,
+  Settings,
+  Save,
 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
 import { ToggleSwitch } from '@/components/settings/shared'
@@ -102,6 +104,13 @@ export function TeamGitConfig() {
   const [disconnectDialogOpen, setDisconnectDialogOpen] = React.useState(false)
   const [repoGuideOpen, setRepoGuideOpen] = React.useState(false)
 
+  // LLM hosting (create form + connected editing share same state)
+  const defaultLlmUrl = buildConfig.team.llm.baseUrl || ''
+  const [hostLlm, setHostLlm] = React.useState(!!defaultLlmUrl)
+  const [llmUrl, setLlmUrl] = React.useState(defaultLlmUrl)
+  const [llmSaving, setLlmSaving] = React.useState(false)
+  const [llmLoaded, setLlmLoaded] = React.useState(false)
+
   // Detect if current URL is HTTPS (needs token auth)
   const isHttpsUrl = gitUrl.trim().startsWith('https://') || gitUrl.trim().startsWith('http://')
 
@@ -147,6 +156,37 @@ export function TeamGitConfig() {
     initialize()
   }, [initialize])
 
+  // Load current LLM config when connected
+  React.useEffect(() => {
+    if ((state === 'connected' || state === 'syncing') && !llmLoaded && isTauri()) {
+      tauriInvoke<{ active: boolean; llm?: { baseUrl: string } }>('get_team_status')
+        .then((status) => {
+          if (status.llm?.baseUrl) {
+            setHostLlm(true)
+            setLlmUrl(status.llm.baseUrl)
+          }
+        })
+        .catch(() => {})
+      setLlmLoaded(true)
+    }
+  }, [state, llmLoaded])
+
+  const handleSaveLlmConfig = async () => {
+    setLlmSaving(true)
+    setErrorMessage(null)
+    try {
+      await tauriInvoke('update_team_llm_config', {
+        llmBaseUrl: hostLlm ? (llmUrl || null) : null,
+        llmModel: null,
+        llmModelName: null,
+      })
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLlmSaving(false)
+    }
+  }
+
   // ─── Connect flow ───────────────────────────────────────────────────
 
   const handleConnect = async () => {
@@ -160,9 +200,9 @@ export function TeamGitConfig() {
       await tauriInvoke<TeamGitResult>('team_init_repo', {
         gitUrl: gitUrl.trim(),
         gitToken: isHttpsUrl && gitToken.trim() ? gitToken.trim() : null,
-        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
-        llmModel: buildConfig.team.llm.model || null,
-        llmModelName: buildConfig.team.llm.modelName || null,
+        llmBaseUrl: hostLlm ? (llmUrl || null) : null,
+        llmModel: null,
+        llmModelName: null,
       })
 
       setConnectStep(t('settings.team.generatingGitignore', 'Generating .gitignore...'))
@@ -443,6 +483,36 @@ export function TeamGitConfig() {
               </div>
             )}
 
+            {/* LLM hosting */}
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hostLlm}
+                  onChange={(e) => setHostLlm(e.target.checked)}
+                  className="rounded border-border"
+                  disabled={state === 'connecting'}
+                />
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t('settings.team.hostLlm', 'Host LLM (team shared AI model)')}
+                </span>
+              </label>
+              {hostLlm && (
+                <div className="space-y-2 pt-1">
+                  <Input
+                    value={llmUrl}
+                    onChange={(e) => setLlmUrl(e.target.value)}
+                    placeholder="https://your-llm-proxy.com/v1"
+                    className="h-9 text-sm font-mono"
+                    disabled={state === 'connecting'}
+                  />
+                  <p className="text-xs text-muted-foreground/60">
+                    {t('settings.team.llmApiKeyHint', 'API key is read from env var')} <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code>{t('settings.team.llmApiKeyDefault', ', defaults to device ID')}
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Connection progress */}
             {state === 'connecting' && connectStep && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -540,6 +610,56 @@ export function TeamGitConfig() {
                   </Button>
                 </div>
               </div>
+            </div>
+          </SettingCard>
+
+          {/* LLM Service Config */}
+          <SettingCard>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-slate-100 dark:bg-slate-900/30">
+                  <Settings className="h-5 w-5 text-slate-700 dark:text-slate-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">{t('settings.team.serviceConfig', 'Service Config')}</p>
+                  <p className="text-xs text-muted-foreground">{t('settings.team.serviceConfigDesc', 'LLM hosting settings for this team')}</p>
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={hostLlm}
+                    onChange={(e) => setHostLlm(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t('settings.team.hostLlm', 'Host LLM (team shared AI model)')}
+                  </span>
+                </label>
+                {hostLlm && (
+                  <div className="space-y-2 pt-1">
+                    <Input
+                      value={llmUrl}
+                      onChange={(e) => setLlmUrl(e.target.value)}
+                      placeholder="https://your-llm-proxy.com/v1"
+                      className="h-9 text-sm font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground/60">
+                      {t('settings.team.llmApiKeyHint', 'API key is read from env var')} <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code>{t('settings.team.llmApiKeyDefault', ', defaults to device ID')}
+                    </p>
+                  </div>
+                )}
+              </div>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={handleSaveLlmConfig}
+                disabled={llmSaving}
+              >
+                {llmSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                {llmSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
+              </Button>
             </div>
           </SettingCard>
 

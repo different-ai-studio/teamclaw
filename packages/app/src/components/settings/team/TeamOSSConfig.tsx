@@ -9,6 +9,7 @@ import { ApplicationDialog } from './ApplicationDialog'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { VersionHistorySection } from './VersionHistorySection'
 import { invoke } from '@tauri-apps/api/core'
+import { buildConfig } from '@/lib/build-config'
 import type { DeviceInfo } from '@/lib/git/types'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useProviderStore } from '@/stores/provider'
@@ -26,6 +27,8 @@ import {
   Users,
   Camera,
   Trash2,
+  Settings,
+  Save,
 } from 'lucide-react'
 
 function SettingCard({
@@ -81,6 +84,7 @@ export function TeamOSSConfig() {
     loadPendingApplication,
     cancelApplication,
     reconnect,
+    updateServiceConfig,
   } = useTeamOssStore()
 
   const teamMembersStore = useTeamMembersStore()
@@ -90,10 +94,23 @@ export function TeamOSSConfig() {
   const [teamName, setTeamName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [ownerEmail, setOwnerEmail] = useState('')
+  const defaultFcEndpoint = buildConfig.s3?.teamEndpoint || ''
+  const defaultLlmUrl = buildConfig.team.llm.baseUrl || ''
+  const [createFcEndpoint, setCreateFcEndpoint] = useState(defaultFcEndpoint)
+  const [createHostLlm, setCreateHostLlm] = useState(!!defaultLlmUrl)
+  const [createLlmUrl, setCreateLlmUrl] = useState(defaultLlmUrl)
 
   // Join team form
   const [joinTeamId, setJoinTeamId] = useState('')
   const [joinTeamSecret, setJoinTeamSecret] = useState('')
+  const [joinFcEndpoint, setJoinFcEndpoint] = useState(defaultFcEndpoint)
+
+  // Service config form (for connected state editing)
+  const [cfgFcEndpoint, setCfgFcEndpoint] = useState('')
+  const [cfgHostLlm, setCfgHostLlm] = useState(false)
+  const [cfgLlmUrl, setCfgLlmUrl] = useState('')
+  const [cfgSaving, setCfgSaving] = useState(false)
+  const [cfgLoaded, setCfgLoaded] = useState(false)
 
   // UI state
   const [creating, setCreating] = useState(false)
@@ -118,8 +135,25 @@ export function TeamOSSConfig() {
   useEffect(() => {
     if (workspacePath && connected) {
       loadSyncStatus(workspacePath)
+      // Load current service config for editing
+      if (!cfgLoaded) {
+        invoke<{ enabled: boolean; teamId: string; teamEndpoint: string } | null>('oss_get_team_config', { workspacePath })
+          .then((config) => {
+            if (config) setCfgFcEndpoint(config.teamEndpoint || '')
+          })
+          .catch(() => {})
+        invoke<{ active: boolean; llm?: { baseUrl: string } }>('get_team_status')
+          .then((status) => {
+            if (status.llm?.baseUrl) {
+              setCfgHostLlm(true)
+              setCfgLlmUrl(status.llm.baseUrl)
+            }
+          })
+          .catch(() => {})
+        setCfgLoaded(true)
+      }
     }
-  }, [workspacePath, connected, loadSyncStatus])
+  }, [workspacePath, connected, loadSyncStatus, cfgLoaded])
 
   useEffect(() => {
     if (workspacePath && !connected) {
@@ -131,10 +165,20 @@ export function TeamOSSConfig() {
     if (!workspacePath) return
     setCreating(true)
     try {
-      await createTeam({ workspacePath, teamName, ownerName, ownerEmail })
+      await createTeam({
+        workspacePath,
+        teamName,
+        ownerName,
+        ownerEmail,
+        fcEndpoint: createFcEndpoint,
+        llmBaseUrl: createHostLlm ? createLlmUrl : undefined,
+      })
       setTeamName('')
       setOwnerName('')
       setOwnerEmail('')
+      setCreateFcEndpoint('')
+      setCreateHostLlm(false)
+      setCreateLlmUrl('')
       // Load team config and apply LLM provider
       const store = useTeamModeStore.getState()
       await store.loadTeamConfig(workspacePath)
@@ -147,13 +191,18 @@ export function TeamOSSConfig() {
     } finally {
       setCreating(false)
     }
-  }, [workspacePath, teamName, ownerName, ownerEmail, createTeam])
+  }, [workspacePath, teamName, ownerName, ownerEmail, createFcEndpoint, createHostLlm, createLlmUrl, createTeam])
 
   const handleJoinTeam = useCallback(async () => {
     if (!workspacePath) return
     setJoining(true)
     try {
-      const result = await joinTeam({ workspacePath, teamId: joinTeamId, teamSecret: joinTeamSecret })
+      const result = await joinTeam({
+        workspacePath,
+        teamId: joinTeamId,
+        teamSecret: joinTeamSecret,
+        fcEndpoint: joinFcEndpoint,
+      })
       if (result?.status === 'not_member') {
         // Show application dialog
         setApplicationTeamName(result.teamName || 'Unknown Team')
@@ -178,7 +227,7 @@ export function TeamOSSConfig() {
     } finally {
       setJoining(false)
     }
-  }, [workspacePath, joinTeamId, joinTeamSecret, joinTeam, teamMembersStore])
+  }, [workspacePath, joinTeamId, joinTeamSecret, joinFcEndpoint, joinTeam, teamMembersStore])
 
   const handleSubmitApplication = useCallback(async (name: string, email: string, note: string) => {
     if (!workspacePath) return
@@ -186,12 +235,13 @@ export function TeamOSSConfig() {
       workspacePath,
       teamId: joinTeamId,
       teamSecret: joinTeamSecret,
+      fcEndpoint: joinFcEndpoint,
       name,
       email,
       note,
     })
     setShowApplicationDialog(false)
-  }, [workspacePath, joinTeamId, joinTeamSecret, applyToTeam])
+  }, [workspacePath, joinTeamId, joinTeamSecret, joinFcEndpoint, applyToTeam])
 
   const handleCancelApplication = useCallback(async () => {
     if (!workspacePath) return
@@ -218,6 +268,22 @@ export function TeamOSSConfig() {
       setShowLeaveConfirm(false)
     }
   }, [workspacePath, leaveTeam])
+
+  const handleSaveServiceConfig = useCallback(async () => {
+    if (!workspacePath) return
+    setCfgSaving(true)
+    try {
+      await updateServiceConfig({
+        workspacePath,
+        teamEndpoint: cfgFcEndpoint || undefined,
+        llmBaseUrl: cfgHostLlm ? cfgLlmUrl : undefined,
+      })
+    } catch {
+      // error is set in the store
+    } finally {
+      setCfgSaving(false)
+    }
+  }, [workspacePath, cfgFcEndpoint, cfgHostLlm, cfgLlmUrl, updateServiceConfig])
 
   const handleSyncNow = useCallback(async () => {
     if (!workspacePath) return
@@ -326,6 +392,18 @@ export function TeamOSSConfig() {
           <SettingCard title="创建团队" icon={Users}>
             <div className="space-y-3">
               <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">服务端地址 (FC Endpoint)</label>
+                <Input
+                  value={createFcEndpoint}
+                  onChange={(e) => setCreateFcEndpoint(e.target.value)}
+                  placeholder="https://your-fc-endpoint.com"
+                  className="bg-background/50 font-mono text-xs"
+                />
+                <p className="mt-1 text-xs text-muted-foreground/60">
+                  自部署的 Function Compute 服务地址，OSS 凭证将从此服务获取
+                </p>
+              </div>
+              <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">团队名称</label>
                 <Input
                   value={teamName}
@@ -354,9 +432,36 @@ export function TeamOSSConfig() {
                   />
                 </div>
               </div>
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={createHostLlm}
+                    onChange={(e) => setCreateHostLlm(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  <span className="text-xs font-medium text-muted-foreground">托管 LLM（团队共享 AI 模型）</span>
+                </label>
+                {createHostLlm && (
+                  <div className="space-y-2 pt-1">
+                    <div>
+                      <label className="mb-1 block text-xs text-muted-foreground">LLM API 地址</label>
+                      <Input
+                        value={createLlmUrl}
+                        onChange={(e) => setCreateLlmUrl(e.target.value)}
+                        placeholder="https://your-llm-proxy.com/v1"
+                        className="bg-background/50 font-mono text-xs"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground/60">
+                      访问 LLM 时将从环境变量 <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code> 获取密钥，默认值为设备 ID
+                    </p>
+                  </div>
+                )}
+              </div>
               <Button
                 onClick={handleCreateTeam}
-                disabled={creating || !teamName || !ownerName || !ownerEmail}
+                disabled={creating || !teamName || !ownerName || !ownerEmail || !createFcEndpoint}
                 className="w-full"
               >
                 <Cloud className="mr-2 h-4 w-4" />
@@ -373,6 +478,15 @@ export function TeamOSSConfig() {
 
           <SettingCard title="加入团队" icon={UserPlus}>
             <div className="space-y-3">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">服务端地址 (FC Endpoint)</label>
+                <Input
+                  value={joinFcEndpoint}
+                  onChange={(e) => setJoinFcEndpoint(e.target.value)}
+                  placeholder="https://your-fc-endpoint.com"
+                  className="bg-background/50 font-mono text-xs"
+                />
+              </div>
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">团队 ID</label>
                 <Input
@@ -415,7 +529,7 @@ export function TeamOSSConfig() {
               )}
               <Button
                 onClick={handleJoinTeam}
-                disabled={joining || !joinTeamId || !joinTeamSecret}
+                disabled={joining || !joinTeamId || !joinTeamSecret || !joinFcEndpoint}
                 variant="outline"
                 className="w-full"
               >
@@ -499,6 +613,61 @@ export function TeamOSSConfig() {
               )}
             </div>
           </SettingCard>
+
+          {isOwner && (
+            <SettingCard title="服务配置" icon={Settings}>
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">服务端地址 (FC Endpoint)</label>
+                  <Input
+                    value={cfgFcEndpoint}
+                    onChange={(e) => setCfgFcEndpoint(e.target.value)}
+                    placeholder="https://your-fc-endpoint.com"
+                    className="bg-background/50 font-mono text-xs"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground/60">
+                    OSS 凭证和团队注册服务的地址
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={cfgHostLlm}
+                      onChange={(e) => setCfgHostLlm(e.target.checked)}
+                      className="rounded border-border"
+                    />
+                    <span className="text-xs font-medium text-muted-foreground">托管 LLM（团队共享 AI 模型）</span>
+                  </label>
+                  {cfgHostLlm && (
+                    <div className="space-y-2 pt-1">
+                      <div>
+                        <label className="mb-1 block text-xs text-muted-foreground">LLM API 地址</label>
+                        <Input
+                          value={cfgLlmUrl}
+                          onChange={(e) => setCfgLlmUrl(e.target.value)}
+                          placeholder="https://your-llm-proxy.com/v1"
+                          className="bg-background/50 font-mono text-xs"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground/60">
+                        访问 LLM 时将从环境变量 <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code> 获取密钥，默认值为设备 ID
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  onClick={handleSaveServiceConfig}
+                  disabled={cfgSaving || !cfgFcEndpoint}
+                  size="sm"
+                  className="gap-1.5"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  {cfgSaving ? '保存中...' : '保存配置'}
+                </Button>
+              </div>
+            </SettingCard>
+          )}
 
           <SettingCard title="团队成员">
             <TeamMemberList />
@@ -665,6 +834,25 @@ export function TeamOSSConfig() {
           onSubmit={handleSubmitApplication}
           onCancel={() => setShowApplicationDialog(false)}
         />
+      )}
+
+      {/* Shared Content Info — only when connected */}
+      {connected && (
+        <SettingCard title="共享内容" icon={Cloud}>
+          <div className="space-y-1.5">
+            {[
+              { path: 'skills/', desc: '共享 AI 技能' },
+              { path: '.mcp/', desc: '共享 MCP 服务配置' },
+              { path: 'knowledge/', desc: '共享知识库' },
+              { path: '_feedback/', desc: '成员反馈摘要' },
+            ].map((item) => (
+              <div key={item.path} className="flex items-center gap-2 text-sm">
+                <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">{item.path}</span>
+                <span className="text-muted-foreground text-xs">{item.desc}</span>
+              </div>
+            ))}
+          </div>
+        </SettingCard>
       )}
 
       {/* Error display */}

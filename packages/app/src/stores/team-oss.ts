@@ -97,11 +97,19 @@ interface TeamOssState {
     teamName: string
     ownerName: string
     ownerEmail: string
+    fcEndpoint: string
+    llmBaseUrl?: string
+    llmModel?: string
+    llmModelName?: string
   }) => Promise<OssTeamInfo>
   joinTeam: (params: {
     workspacePath: string
     teamId: string
     teamSecret: string
+    fcEndpoint: string
+    llmBaseUrl?: string
+    llmModel?: string
+    llmModelName?: string
   }) => Promise<OssJoinResult>
   leaveTeam: (workspacePath: string) => Promise<void>
   syncNow: (workspacePath: string) => Promise<void>
@@ -114,9 +122,17 @@ interface TeamOssState {
     workspacePath: string
     teamId: string
     teamSecret: string
+    fcEndpoint: string
     name: string
     email: string
     note: string
+  }) => Promise<void>
+  updateServiceConfig: (params: {
+    workspacePath: string
+    teamEndpoint?: string
+    llmBaseUrl?: string
+    llmModel?: string
+    llmModelName?: string
   }) => Promise<void>
   reconnect: (workspacePath: string) => Promise<void>
   resetSync: (workspacePath: string) => Promise<void>
@@ -243,12 +259,15 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   createTeam: async (params) => {
     try {
       const info = await invoke<OssTeamInfo>('oss_create_team', {
-        ...params,
-        teamEndpoint: buildConfig.s3?.teamEndpoint ?? '',
+        workspacePath: params.workspacePath,
+        teamName: params.teamName,
+        ownerName: params.ownerName,
+        ownerEmail: params.ownerEmail,
+        teamEndpoint: params.fcEndpoint,
         forcePathStyle: buildConfig.s3?.forcePathStyle ?? false,
-        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
-        llmModel: buildConfig.team.llm.model || null,
-        llmModelName: buildConfig.team.llm.modelName || null,
+        llmBaseUrl: params.llmBaseUrl || null,
+        llmModel: params.llmModel || null,
+        llmModelName: params.llmModelName || null,
       })
       set({ configured: true, connected: true, teamInfo: info, error: null })
       // Refresh file tree so the new teamclaw-team directory appears
@@ -264,12 +283,14 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   joinTeam: async (params) => {
     try {
       const result = await invoke<OssJoinResult>('oss_join_team', {
-        ...params,
-        teamEndpoint: buildConfig.s3?.teamEndpoint ?? '',
+        workspacePath: params.workspacePath,
+        teamId: params.teamId,
+        teamSecret: params.teamSecret,
+        teamEndpoint: params.fcEndpoint,
         forcePathStyle: buildConfig.s3?.forcePathStyle ?? false,
-        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
-        llmModel: buildConfig.team.llm.model || null,
-        llmModelName: buildConfig.team.llm.modelName || null,
+        llmBaseUrl: params.llmBaseUrl || null,
+        llmModel: params.llmModel || null,
+        llmModelName: params.llmModelName || null,
       })
 
       if (result.status === 'not_member') {
@@ -358,16 +379,37 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     return await invoke<string>('oss_reset_team_secret', { workspacePath })
   },
 
+  updateServiceConfig: async (params) => {
+    try {
+      await invoke('oss_update_service_config', {
+        workspacePath: params.workspacePath,
+        teamEndpoint: params.teamEndpoint || null,
+        llmBaseUrl: params.llmBaseUrl || null,
+        llmModel: params.llmModel || null,
+        llmModelName: params.llmModelName || null,
+      })
+      set({ error: null })
+    } catch (e) {
+      set({ error: String(e) })
+      throw e
+    }
+  },
+
   applyToTeam: async (params) => {
     try {
       await invoke('oss_apply_team', {
-        ...params,
-        teamEndpoint: buildConfig.s3?.teamEndpoint ?? '',
+        workspacePath: params.workspacePath,
+        teamId: params.teamId,
+        teamSecret: params.teamSecret,
+        name: params.name,
+        email: params.email,
+        note: params.note,
+        teamEndpoint: params.fcEndpoint,
         forcePathStyle: buildConfig.s3?.forcePathStyle ?? false,
       })
       const pending: PendingApplication = {
         teamId: params.teamId,
-        teamEndpoint: buildConfig.s3?.teamEndpoint ?? '',
+        teamEndpoint: params.fcEndpoint,
         appliedAt: new Date().toISOString(),
       }
       set({ pendingApplication: pending, error: null })

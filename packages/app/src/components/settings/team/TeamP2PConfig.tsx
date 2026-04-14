@@ -16,6 +16,8 @@ import {
   Clock,
   Copy,
   Share2,
+  Settings,
+  Save,
 } from 'lucide-react'
 import { VersionHistorySection } from './VersionHistorySection'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
@@ -79,11 +81,18 @@ export function TeamP2PConfig() {
   const [joinTicketInput, setJoinTicketInput] = React.useState('')
   const [joinLoading, setJoinLoading] = React.useState(false)
   const [createLoading, setCreateLoading] = React.useState(false)
-  const [showCreateForm, setShowCreateForm] = React.useState(false)
   const [createTeamName, setCreateTeamName] = React.useState('')
   const [createInviteCode, setCreateInviteCode] = React.useState('')
   const [createOwnerName, setCreateOwnerName] = React.useState('')
   const [createOwnerEmail, setCreateOwnerEmail] = React.useState('')
+  const defaultLlmUrl = buildConfig.team.llm.baseUrl || ''
+  const [createHostLlm, setCreateHostLlm] = React.useState(!!defaultLlmUrl)
+  const [createLlmUrl, setCreateLlmUrl] = React.useState(defaultLlmUrl)
+  // Service config form (for connected state editing)
+  const [cfgHostLlm, setCfgHostLlm] = React.useState(false)
+  const [cfgLlmUrl, setCfgLlmUrl] = React.useState('')
+  const [cfgSaving, setCfgSaving] = React.useState(false)
+  const [cfgLoaded, setCfgLoaded] = React.useState(false)
   const [dissolveLoading, setDissolveLoading] = React.useState(false)
   const [confirmDissolve, setConfirmDissolve] = React.useState(false)
 
@@ -177,7 +186,20 @@ export function TeamP2PConfig() {
       await engineInit()
       // Always fetch latest peer snapshot (init() is a no-op when already initialized)
       await useP2pEngineStore.getState().fetch()
-      if (!cancelled) setReconnecting(false)
+      if (!cancelled) {
+        setReconnecting(false)
+        // Load current LLM config for editing
+        if (!cfgLoaded) {
+          try {
+            const status = await tauriInvoke<{ active: boolean; llm?: { baseUrl: string } }>('get_team_status')
+            if (status.llm?.baseUrl) {
+              setCfgHostLlm(true)
+              setCfgLlmUrl(status.llm.baseUrl)
+            }
+          } catch { /* ignore */ }
+          setCfgLoaded(true)
+        }
+      }
     })()
     return () => { cancelled = true }
   }, [engineInit, loadSyncStatus, workspacePath])
@@ -235,9 +257,9 @@ export function TeamP2PConfig() {
       await tauriInvoke('p2p_join_drive', {
         ticket: ticket.trim(),
         label: '',
-        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
-        llmModel: buildConfig.team.llm.model || null,
-        llmModelName: buildConfig.team.llm.modelName || null,
+        llmBaseUrl: null,
+        llmModel: null,
+        llmModelName: null,
       })
       setJoinTicketInput('')
       setSeedUrl('')
@@ -315,9 +337,9 @@ export function TeamP2PConfig() {
         teamName: createTeamName.trim() || null,
         ownerName: createOwnerName.trim() || null,
         ownerEmail: createOwnerEmail.trim() || null,
-        llmBaseUrl: buildConfig.team.llm.baseUrl || null,
-        llmModel: buildConfig.team.llm.model || null,
-        llmModelName: buildConfig.team.llm.modelName || null,
+        llmBaseUrl: createHostLlm ? (createLlmUrl || null) : null,
+        llmModel: null,
+        llmModelName: null,
       })
       await loadSyncStatus()
       useWorkspaceStore.getState().refreshFileTree()
@@ -368,6 +390,22 @@ export function TeamP2PConfig() {
       setP2pError(err instanceof Error ? err.message : String(err))
     } finally {
       setCreateLoading(false)
+    }
+  }
+
+  const handleSaveLlmConfig = async () => {
+    setCfgSaving(true)
+    setP2pError(null)
+    try {
+      await tauriInvoke('update_team_llm_config', {
+        llmBaseUrl: cfgHostLlm ? (cfgLlmUrl || null) : null,
+        llmModel: null,
+        llmModelName: null,
+      })
+    } catch (err) {
+      setP2pError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCfgSaving(false)
     }
   }
 
@@ -584,6 +622,58 @@ export function TeamP2PConfig() {
               )}
             </div>
           </SettingCard>
+
+          {/* LLM Service Config — owner only */}
+          {isOwner && (
+            <SettingCard>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-slate-100 dark:bg-slate-900/30">
+                    <Settings className="h-5 w-5 text-slate-700 dark:text-slate-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{t('settings.team.serviceConfig', 'Service Config')}</p>
+                    <p className="text-xs text-muted-foreground">{t('settings.team.serviceConfigDesc', 'LLM hosting settings for this team')}</p>
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={cfgHostLlm}
+                      onChange={(e) => setCfgHostLlm(e.target.checked)}
+                      className="rounded border-border"
+                    />
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {t('settings.team.hostLlm', 'Host LLM (team shared AI model)')}
+                    </span>
+                  </label>
+                  {cfgHostLlm && (
+                    <div className="space-y-2 pt-1">
+                      <Input
+                        value={cfgLlmUrl}
+                        onChange={(e) => setCfgLlmUrl(e.target.value)}
+                        placeholder="https://your-llm-proxy.com/v1"
+                        className="h-9 text-sm font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground/60">
+                        {t('settings.team.llmApiKeyHint', 'API key is read from env var')} <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code>{t('settings.team.llmApiKeyDefault', ', defaults to device ID')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={handleSaveLlmConfig}
+                  disabled={cfgSaving}
+                >
+                  {cfgSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  {cfgSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
+                </Button>
+              </div>
+            </SettingCard>
+          )}
 
           {/* Share Info Card (all members can generate tickets) */}
           {(syncStatus?.namespaceId || docTicket) && (
@@ -929,95 +1019,97 @@ export function TeamP2PConfig() {
           {/* Create Team */}
           <SettingCard>
             <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-violet-100 dark:bg-violet-900/30">
-                  <Share2 className="h-5 w-5 text-violet-700 dark:text-violet-400" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{t('settings.team.createTeam', 'Create Team')}</p>
-                  <p className="text-xs text-muted-foreground">{t('settings.team.createTeamDesc', 'Start a new team and get an invite code to share')}</p>
-                </div>
+              <div className="flex items-center gap-3 mb-1">
+                <Share2 className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-sm font-semibold text-foreground/90">{t('settings.team.createTeam', 'Create Team')}</h4>
               </div>
-
-              {!showCreateForm ? (
-                <Button onClick={() => setShowCreateForm(true)} className="gap-2">
-                  <Share2 className="h-4 w-4" />
-                  {t('settings.team.createTeamDrive', 'Create Team')}
-                </Button>
-              ) : (
-                <div className="space-y-3">
-                  <Input
-                    value={createTeamName}
-                    onChange={(e) => setCreateTeamName(e.target.value)}
-                    placeholder={t('settings.team.teamNamePlaceholder', 'Team name *')}
-                    className="h-9 text-sm"
-                    disabled={createLoading}
-                    autoFocus
-                  />
-                  <Input
-                    value={createInviteCode}
-                    onChange={(e) => setCreateInviteCode(e.target.value)}
-                    placeholder={t('settings.team.inviteCodePlaceholder', 'Invite code * (members use this to join)')}
-                    className="h-9 text-sm"
-                    disabled={createLoading}
-                  />
+              <div className="space-y-3">
+                <Input
+                  value={createTeamName}
+                  onChange={(e) => setCreateTeamName(e.target.value)}
+                  placeholder={t('settings.team.teamNamePlaceholder', 'Team name *')}
+                  className="h-9 text-sm bg-background/50"
+                  disabled={createLoading}
+                />
+                <Input
+                  value={createInviteCode}
+                  onChange={(e) => setCreateInviteCode(e.target.value)}
+                  placeholder={t('settings.team.inviteCodePlaceholder', 'Invite code * (members use this to join)')}
+                  className="h-9 text-sm bg-background/50"
+                  disabled={createLoading}
+                />
+                <div className="grid grid-cols-2 gap-3">
                   <Input
                     value={createOwnerName}
                     onChange={(e) => setCreateOwnerName(e.target.value)}
                     placeholder={t('settings.team.ownerNamePlaceholder', 'Contact name (optional)')}
-                    className="h-9 text-sm"
+                    className="h-9 text-sm bg-background/50"
                     disabled={createLoading}
                   />
                   <Input
                     value={createOwnerEmail}
                     onChange={(e) => setCreateOwnerEmail(e.target.value)}
                     placeholder={t('settings.team.ownerEmailPlaceholder', 'Contact email (optional)')}
-                    className="h-9 text-sm"
+                    className="h-9 text-sm bg-background/50"
                     disabled={createLoading}
                   />
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleCreateTeam}
-                      disabled={createLoading || !createTeamName.trim() || !createInviteCode.trim()}
-                      className="gap-2"
-                    >
-                      {createLoading ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          {t('settings.team.creating', 'Creating...')}
-                        </>
-                      ) : (
-                        <>
-                          <Share2 className="h-4 w-4" />
-                          {t('settings.team.createTeamDrive', 'Create Team')}
-                        </>
-                      )}
-                    </Button>
-                    <Button variant="outline" onClick={() => setShowCreateForm(false)} disabled={createLoading}>
-                      {t('common.cancel', 'Cancel')}
-                    </Button>
-                  </div>
                 </div>
-              )}
+                <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={createHostLlm}
+                      onChange={(e) => setCreateHostLlm(e.target.checked)}
+                      className="rounded border-border"
+                      disabled={createLoading}
+                    />
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {t('settings.team.hostLlm', 'Host LLM (team shared AI model)')}
+                    </span>
+                  </label>
+                  {createHostLlm && (
+                    <div className="space-y-2 pt-1">
+                      <Input
+                        value={createLlmUrl}
+                        onChange={(e) => setCreateLlmUrl(e.target.value)}
+                        placeholder="https://your-llm-proxy.com/v1"
+                        className="h-9 text-sm font-mono bg-background/50"
+                        disabled={createLoading}
+                      />
+                      <p className="text-xs text-muted-foreground/60">
+                        {t('settings.team.llmApiKeyHint', 'API key is read from env var')} <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code>{t('settings.team.llmApiKeyDefault', ', defaults to device ID')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  onClick={handleCreateTeam}
+                  disabled={createLoading || !createTeamName.trim() || !createInviteCode.trim()}
+                  className="w-full gap-2"
+                >
+                  {createLoading ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />{t('settings.team.creating', 'Creating...')}</>
+                  ) : (
+                    <><Share2 className="h-4 w-4" />{t('settings.team.createTeamDrive', 'Create Team')}</>
+                  )}
+                </Button>
+              </div>
             </div>
           </SettingCard>
+
+          <div className="relative flex items-center py-1">
+            <div className="flex-1 border-t border-border/40" />
+            <span className="px-3 text-xs text-muted-foreground">{t('common.or', '或')}</span>
+            <div className="flex-1 border-t border-border/40" />
+          </div>
 
           {/* Join Team */}
           <SettingCard>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
-                    <Link className="h-5 w-5 text-blue-700 dark:text-blue-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{t('settings.team.p2pJoinTitle', 'Join Team')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {joinMode === 'seed'
-                        ? t('settings.team.p2pJoinSeedDesc', 'Internet — join with Team ID + invite code')
-                        : t('settings.team.p2pJoinDesc', 'Local network — join directly with a ticket')}
-                    </p>
-                  </div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <Link className="h-4 w-4 text-muted-foreground" />
+                  <h4 className="text-sm font-semibold text-foreground/90">{t('settings.team.p2pJoinTitle', 'Join Team')}</h4>
                 </div>
                 {/* Mode toggle */}
                 <button

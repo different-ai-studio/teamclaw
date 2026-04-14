@@ -155,6 +155,7 @@ export function ChatInputArea({
 
   // Team mode
   const teamMode = useTeamModeStore(s => s.teamMode);
+  const teamModelConfig = useTeamModeStore(s => s.teamModelConfig);
   const devUnlocked = useTeamModeStore(s => s.devUnlocked);
   const advancedMode = useUIStore((s) => s.advancedMode);
   const canShowPlanToggle = advancedMode && devUnlocked;
@@ -429,7 +430,7 @@ export function ChatInputArea({
                 </Button>
               )}
 
-              {(!teamMode || devUnlocked) && (
+              {(!teamMode || !teamModelConfig || devUnlocked) && (
                 <ModelSelector
                   open={modelSelectorOpen}
                   onOpenChange={setModelSelectorOpen}

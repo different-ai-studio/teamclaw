@@ -194,10 +194,21 @@ pub async fn unified_team_get_members(
 
     match status.mode.as_deref() {
         Some("oss") => {
+            // Read from local cache first (synced every ~5 min), fall back to S3
+            let cache_path = std::path::Path::new(&workspace_path)
+                .join(super::TEAMCLAW_DIR)
+                .join("_team")
+                .join("members.json");
+            if let Ok(content) = std::fs::read_to_string(&cache_path) {
+                if let Ok(manifest) = serde_json::from_str::<TeamManifest>(&content) {
+                    return Ok(manifest.members);
+                }
+            }
+            // Cache miss — download from S3
             let guard = oss_state.manager.lock().await;
             let manager = guard.as_ref().ok_or("OSS sync not initialized")?;
             let manifest = manager
-                .download_members_manifest()
+                .download_and_cache_members_manifest()
                 .await?
                 .ok_or("No members manifest found")?;
             Ok(manifest.members)

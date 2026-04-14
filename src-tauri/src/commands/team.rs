@@ -248,23 +248,23 @@ fn get_team_repo_path(workspace_path: &str) -> String {
     p.to_string_lossy().to_string()
 }
 
-/// Build an LlmConfig from optional parameters, falling back to defaults.
+/// Build an LlmConfig from optional parameters.
+/// Returns None when no base_url is provided (user chose not to host LLM).
 pub fn build_llm_config(
     base_url: Option<String>,
     model: Option<String>,
     model_name: Option<String>,
-) -> LlmConfig {
-    LlmConfig {
-        base_url: base_url
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+) -> Option<LlmConfig> {
+    let url = base_url.filter(|s| !s.is_empty())?;
+    Some(LlmConfig {
+        base_url: url,
         model: model
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "default".to_string()),
         model_name: model_name
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "default".to_string()),
-    }
+    })
 }
 
 /// Write LLM config to teamclaw.json under "llm" key, preserving other fields.
@@ -593,6 +593,21 @@ pub fn get_team_status(opencode_state: State<'_, OpenCodeState>) -> Result<TeamS
     Ok(check_team_status(&workspace_path))
 }
 
+/// Update LLM config for an existing team (any mode: P2P, OSS, Git, WebDAV).
+/// Called from the "服务配置" section in team settings.
+#[tauri::command]
+pub fn update_team_llm_config(
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
+    opencode_state: State<'_, OpenCodeState>,
+) -> Result<(), String> {
+    let workspace_path = get_workspace_path(&opencode_state)?;
+    let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name);
+    write_llm_config(&workspace_path, llm_config.as_ref())?;
+    Ok(())
+}
+
 // ─── Tauri Commands: Git Operations ─────────────────────────────────────────
 
 /// 1.1 - Check if git is installed on the system
@@ -668,9 +683,9 @@ pub async fn team_init_repo(
         ));
     }
 
-    // Write LLM config to .teamclaw/teamclaw.json
+    // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
     let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name);
-    write_llm_config(&workspace_path, Some(&llm_config))?;
+    write_llm_config(&workspace_path, llm_config.as_ref())?;
     println!(
         "[Team Init] Wrote LLM config to {}/{}",
         super::TEAMCLAW_DIR,
