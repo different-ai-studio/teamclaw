@@ -249,7 +249,7 @@ export function ChatInputArea({
           : "absolute bottom-0 left-0 right-0 px-4 pb-6 pt-8 bg-gradient-to-t from-background from-70% to-transparent",
       )}
     >
-      <div className={cn("w-full", compact ? "" : "mx-auto max-w-3xl")}>
+      <div className={cn("relative w-full", compact ? "" : "mx-auto max-w-3xl")}>
         {/* Permission & Error UI (rendered above input so it's visible) */}
         {headerContent}
 
@@ -285,7 +285,7 @@ export function ChatInputArea({
             setCommandSearchQuery("");
           }}
           multiple
-          className="bg-card shadow-lg"
+          className="relative z-10 bg-card shadow-lg"
         >
           {/* Image previews */}
           {imageFiles.length > 0 && (

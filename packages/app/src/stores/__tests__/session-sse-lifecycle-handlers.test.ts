@@ -108,6 +108,7 @@ describe('session-sse-lifecycle-handlers', () => {
       pendingPermissions: [],
       sendMessage: vi.fn(),
       setActiveSession: vi.fn(),
+      loadChildSessionMessages: vi.fn(),
     }
     set = vi.fn((fn: any) => {
       if (typeof fn === 'function') {
@@ -260,6 +261,45 @@ describe('session-sse-lifecycle-handlers', () => {
         }),
       }),
     }))
+  })
+
+  it('does not clean up child session when child permission is still pending', async () => {
+    state.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-child-1',
+          sessionID: 'child-1',
+          permission: 'bash',
+          patterns: ['ps'],
+        },
+        childSessionId: 'child-1',
+      },
+    ]
+    useStreamingStore.setState({
+      childSessionStreaming: {
+        'child-1': {
+          sessionId: 'child-1',
+          text: '',
+          reasoning: '',
+          isStreaming: true,
+        },
+      },
+    })
+
+    const { cleanupChildSession } = await import('@/stores/streaming')
+
+    handlers.handleSessionStatus({
+      sessionId: 'child-1',
+      status: { type: 'idle' },
+    } as any)
+
+    expect(cleanupChildSession).not.toHaveBeenCalled()
+    expect(state.loadChildSessionMessages).not.toHaveBeenCalled()
+    expect(state.pendingPermissions).toEqual([
+      expect.objectContaining({
+        childSessionId: 'child-1',
+      }),
+    ])
   })
 
   it('clearSessionError resets sessionError to null', () => {

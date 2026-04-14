@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CornerDownLeft, FolderOpen } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import { ToolCall, useSessionStore } from "@/stores/session";
 import { truncatePermissionSnippet } from "@/lib/utils";
 
@@ -12,7 +12,9 @@ export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
   const perm = toolCall.permission;
   if (!perm) return null;
 
-  const isPending = perm.decision === "pending" && toolCall.status === "calling";
+  const isPending =
+    perm.decision === "pending" &&
+    (toolCall.status === "calling" || toolCall.status === "waiting");
   const isDenied = perm.decision === "denied";
   const isResolved = perm.decision !== "pending";
 
@@ -72,10 +74,9 @@ export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
                 type="button"
                 onClick={() => handleReply("allow")}
                 disabled={submitting}
-                className="shrink-0 text-xs bg-primary hover:bg-primary/90 text-primary-foreground px-2.5 py-1 rounded font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                className="shrink-0 text-xs bg-primary hover:bg-primary/90 text-primary-foreground px-2.5 py-1 rounded font-medium transition-colors disabled:opacity-50"
               >
                 Allow
-                <CornerDownLeft size={12} />
               </button>
             </div>
           </div>
