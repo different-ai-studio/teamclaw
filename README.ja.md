@@ -40,7 +40,7 @@ OpenCode を基盤としたローカル AI エージェント。あなたの AI 
 
 ## インストール
 
-[GitHub Releases](https://github.com/diffrent-ai-studio/teamclaw/releases) からプラットフォームに対応したインストールパッケージをダウンロード（macOS は `.dmg`）。
+[GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) からプラットフォームに対応したインストールパッケージをダウンロード（macOS は `.dmg`）。
 
 ### macOS で「壊れている」と表示される場合
 

@@ -180,12 +180,12 @@ export const AboutSection = React.memo(function AboutSection() {
             {
               icon: Github,
               label: "GitHub",
-              href: "https://github.com/diffrent-ai-studio/teamclaw",
+              href: "https://github.com/different-ai-studio/teamclaw",
             },
             {
               icon: ExternalLink,
               label: t("settings.about.reportIssue", "Report Issue"),
-              href: "https://github.com/diffrent-ai-studio/teamclaw/issues",
+              href: "https://github.com/different-ai-studio/teamclaw/issues",
             },
             {
               icon: Shield,

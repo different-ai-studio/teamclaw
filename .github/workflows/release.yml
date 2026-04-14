@@ -198,7 +198,7 @@ jobs:
 
             ### macOS (one-line install)
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/diffrent-ai-studio/teamclaw/main/scripts/install-mac.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw/main/scripts/install-mac.sh | bash
             ```
 
             ### macOS (manual)
@@ -336,7 +336,7 @@ jobs:
 
             ### macOS (one-line install)
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/diffrent-ai-studio/teamclaw/main/scripts/install-mac.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw/main/scripts/install-mac.sh | bash
             ```
 
             ### macOS (manual)

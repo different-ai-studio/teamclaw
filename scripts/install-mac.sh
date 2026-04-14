@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO="diffrent-ai-studio/teamclaw"
+REPO="different-ai-studio/teamclaw"
 APP_NAME="TeamClaw"
 MOUNT_POINT="/Volumes/${APP_NAME}"
 

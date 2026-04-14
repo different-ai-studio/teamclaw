@@ -40,7 +40,7 @@
 
 ## 安裝
 
-從 [GitHub Releases](https://github.com/diffrent-ai-studio/teamclaw/releases) 下載對應平台的安裝包（macOS 為 `.dmg`）。
+從 [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) 下載對應平台的安裝包（macOS 為 `.dmg`）。
 
 ### macOS 提示「已損毀」時
 

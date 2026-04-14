@@ -44,7 +44,7 @@
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/diffrent-ai-studio/teamclaw/releases) 下载对应平台的安装包（macOS 为 `.dmg`，Windows 为 `.exe`）。
+从 [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) 下载对应平台的安装包（macOS 为 `.dmg`，Windows 为 `.exe`）。
 
 - **Windows 用户**：详见 [Windows 安装指南](docs/windows-install-guide.md)。
 

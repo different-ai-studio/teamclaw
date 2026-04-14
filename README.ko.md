@@ -40,7 +40,7 @@ OpenCode 기반의 로컬 AI 에이전트, 당신의 AI 파트너
 
 ## 설치
 
-[GitHub Releases](https://github.com/diffrent-ai-studio/teamclaw/releases)에서 플랫폼별 설치 패키지를 다운로드하세요 (macOS는 `.dmg`).
+[GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases)에서 플랫폼별 설치 패키지를 다운로드하세요 (macOS는 `.dmg`).
 
 ### macOS에서 "손상됨" 메시지가 표시될 때
 

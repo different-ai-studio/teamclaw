@@ -43,7 +43,7 @@ We welcome contributions at all levels! Here are different ways you can help:
 ```bash
 # Just fork and edit on GitHub - no setup needed!
 # Or clone locally for larger changes:
-git clone https://github.com/diffrent-ai-studio/teamclaw.git
+git clone https://github.com/different-ai-studio/teamclaw.git
 cd teamclaw
 ```
 
@@ -55,7 +55,7 @@ cd teamclaw
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/diffrent-ai-studio/teamclaw.git
+git clone https://github.com/different-ai-studio/teamclaw.git
 cd teamclaw
 pnpm install
 
@@ -158,7 +158,7 @@ Before submitting your PR, please ensure:
 
 ## Questions?
 
-- Join our [GitHub Discussions](https://github.com/diffrent-ai-studio/teamclaw/discussions)
+- Join our [GitHub Discussions](https://github.com/different-ai-studio/teamclaw/discussions)
 - Open an issue for questions
 
 ## License
