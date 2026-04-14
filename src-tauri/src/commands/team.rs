@@ -833,10 +833,28 @@ pub async fn team_sync_repo(
     let had_local_changes = !status_out.trim().is_empty();
     if had_local_changes {
         let _ = run_git(&["add", "-A"], &team_dir);
-        let _ = run_git(
-            &["commit", "-m", "chore: auto-sync local changes"],
-            &team_dir,
-        );
+        // Build commit message with changed file names
+        let changed_files: Vec<&str> = status_out
+            .lines()
+            .filter_map(|line| {
+                let file = line.get(3..)?.split(" -> ").last()?.trim();
+                if file.is_empty() || file.starts_with(".trash") {
+                    None
+                } else {
+                    Some(file)
+                }
+            })
+            .collect();
+        let msg = if changed_files.len() <= 5 {
+            format!("chore: sync ({})", changed_files.join(", "))
+        } else {
+            format!(
+                "chore: sync ({}, ... +{} more)",
+                changed_files[..3].join(", "),
+                changed_files.len() - 3
+            )
+        };
+        let _ = run_git(&["commit", "-m", &msg], &team_dir);
     }
 
     // Determine the branch to sync: saved config → current HEAD → remote default → "main"
