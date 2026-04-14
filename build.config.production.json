@@ -1,0 +1,38 @@
+{
+  "team": {
+    "llm": {
+      "baseUrl": "",
+      "model": "",
+      "modelName": "",
+      "models": []
+    },
+    "lockLlmConfig": false,
+    "seedUrl": ""
+  },
+  "app": {
+    "name": "TeamClaw",
+    "shortName": "teamclaw",
+    "uiVariant": "default"
+  },
+  "features": {
+    "advancedMode": true,
+    "teamMode": true,
+    "updater": true,
+    "channels": {
+      "discord": true,
+      "feishu": true,
+      "email": true,
+      "kook": true,
+      "wecom": true,
+      "wechat": true
+    }
+  },
+  "s3": {
+    "teamEndpoint": "",
+    "forcePathStyle": false
+  },
+  "defaults": {
+    "locale": "zh-CN",
+    "theme": "system"
+  }
+}

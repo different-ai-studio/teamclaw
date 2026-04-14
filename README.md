@@ -1,8 +1,8 @@
 # TeamClaw
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/diffrent-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/diffrent-ai-studio/teamclaw/actions)
-[![Contributors](https://img.shields.io/github/contributors/diffrent-ai-studio/teamclaw.svg)](https://github.com/diffrent-ai-studio/teamclaw/graphs/contributors)
+[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
 
 Local AI agents built on OpenCode — your AI Ally for every role
 
@@ -58,7 +58,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## Install
 
-Download the installer for your platform from [GitHub Releases](https://github.com/diffrent-ai-studio/teamclaw/releases) (`.dmg` for macOS, `.exe` for Windows).
+Download the installer for your platform from [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) (`.dmg` for macOS, `.exe` for Windows).
 
 - **Windows**: See [Windows Install Guide](docs/windows-install-guide.md).
 

@@ -20,6 +20,7 @@ import {
   Save,
 } from 'lucide-react'
 import { VersionHistorySection } from './VersionHistorySection'
+import { HostLlmConfig } from './HostLlmConfig'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { toast } from 'sonner'
 import { buildConfig, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
@@ -88,9 +89,12 @@ export function TeamP2PConfig() {
   const defaultLlmUrl = buildConfig.team.llm.baseUrl || ''
   const [createHostLlm, setCreateHostLlm] = React.useState(!!defaultLlmUrl)
   const [createLlmUrl, setCreateLlmUrl] = React.useState(defaultLlmUrl)
+  const defaultLlmModels = (buildConfig.team.llm.models ?? []).map((m) => ({ id: m.id, name: m.name }))
+  const [createLlmModels, setCreateLlmModels] = React.useState(defaultLlmModels)
   // Service config form (for connected state editing)
   const [cfgHostLlm, setCfgHostLlm] = React.useState(false)
   const [cfgLlmUrl, setCfgLlmUrl] = React.useState('')
+  const [cfgLlmModels, setCfgLlmModels] = React.useState<Array<{ id: string; name: string }>>([])
   const [cfgSaving, setCfgSaving] = React.useState(false)
   const [cfgLoaded, setCfgLoaded] = React.useState(false)
   const [dissolveLoading, setDissolveLoading] = React.useState(false)
@@ -191,10 +195,15 @@ export function TeamP2PConfig() {
         // Load current LLM config for editing
         if (!cfgLoaded) {
           try {
-            const status = await tauriInvoke<{ active: boolean; llm?: { baseUrl: string } }>('get_team_status')
+            const status = await tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status')
             if (status.llm?.baseUrl) {
               setCfgHostLlm(true)
               setCfgLlmUrl(status.llm.baseUrl)
+              if (status.llm.models?.length) {
+                setCfgLlmModels(status.llm.models)
+              } else if (status.llm.model) {
+                setCfgLlmModels([{ id: status.llm.model, name: status.llm.modelName || status.llm.model }])
+              }
             }
           } catch { /* ignore */ }
           setCfgLoaded(true)
@@ -338,8 +347,9 @@ export function TeamP2PConfig() {
         ownerName: createOwnerName.trim() || null,
         ownerEmail: createOwnerEmail.trim() || null,
         llmBaseUrl: createHostLlm ? (createLlmUrl || null) : null,
-        llmModel: null,
-        llmModelName: null,
+        llmModel: createHostLlm ? (createLlmModels[0]?.id || null) : null,
+        llmModelName: createHostLlm ? (createLlmModels[0]?.name || null) : null,
+        llmModels: createHostLlm && createLlmModels.length > 0 ? JSON.stringify(createLlmModels) : null,
       })
       await loadSyncStatus()
       useWorkspaceStore.getState().refreshFileTree()
@@ -399,8 +409,9 @@ export function TeamP2PConfig() {
     try {
       await tauriInvoke('update_team_llm_config', {
         llmBaseUrl: cfgHostLlm ? (cfgLlmUrl || null) : null,
-        llmModel: null,
-        llmModelName: null,
+        llmModel: cfgHostLlm ? (cfgLlmModels[0]?.id || null) : null,
+        llmModelName: cfgHostLlm ? (cfgLlmModels[0]?.name || null) : null,
+        llmModels: cfgHostLlm && cfgLlmModels.length > 0 ? JSON.stringify(cfgLlmModels) : null,
       })
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : String(err))
@@ -636,32 +647,14 @@ export function TeamP2PConfig() {
                     <p className="text-xs text-muted-foreground">{t('settings.team.serviceConfigDesc', 'LLM hosting settings for this team')}</p>
                   </div>
                 </div>
-                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={cfgHostLlm}
-                      onChange={(e) => setCfgHostLlm(e.target.checked)}
-                      className="rounded border-border"
-                    />
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {t('settings.team.hostLlm', 'Host LLM (team shared AI model)')}
-                    </span>
-                  </label>
-                  {cfgHostLlm && (
-                    <div className="space-y-2 pt-1">
-                      <Input
-                        value={cfgLlmUrl}
-                        onChange={(e) => setCfgLlmUrl(e.target.value)}
-                        placeholder="https://your-llm-proxy.com/v1"
-                        className="h-9 text-sm font-mono"
-                      />
-                      <p className="text-xs text-muted-foreground/60">
-                        {t('settings.team.llmApiKeyHint', 'API key is read from env var')} <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code>{t('settings.team.llmApiKeyDefault', ', defaults to device ID')}
-                      </p>
-                    </div>
-                  )}
-                </div>
+                <HostLlmConfig
+                  enabled={cfgHostLlm}
+                  onEnabledChange={setCfgHostLlm}
+                  baseUrl={cfgLlmUrl}
+                  onBaseUrlChange={setCfgLlmUrl}
+                  models={cfgLlmModels}
+                  onModelsChange={setCfgLlmModels}
+                />
                 <Button
                   size="sm"
                   className="gap-1.5"
@@ -960,8 +953,8 @@ export function TeamP2PConfig() {
         </>
       )}
 
-      {/* ─── Reconnecting State (initial load) ─────────────────────────── */}
-      {!isConnected && reconnecting && (
+      {/* ─── Reconnecting State (initial load, only when P2P was configured) ── */}
+      {!isConnected && reconnecting && configuredAsP2p && (
         <SettingCard>
           <div className="flex items-center gap-3 py-4 justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1014,7 +1007,7 @@ export function TeamP2PConfig() {
       )}
 
       {/* ─── Not Connected State ─────────────────────────────────────── */}
-      {!isConnected && !reconnecting && !configuredAsP2p && (
+      {!isConnected && !configuredAsP2p && (
         <>
           {/* Create Team */}
           <SettingCard>
@@ -1054,34 +1047,15 @@ export function TeamP2PConfig() {
                     disabled={createLoading}
                   />
                 </div>
-                <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={createHostLlm}
-                      onChange={(e) => setCreateHostLlm(e.target.checked)}
-                      className="rounded border-border"
-                      disabled={createLoading}
-                    />
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {t('settings.team.hostLlm', 'Host LLM (team shared AI model)')}
-                    </span>
-                  </label>
-                  {createHostLlm && (
-                    <div className="space-y-2 pt-1">
-                      <Input
-                        value={createLlmUrl}
-                        onChange={(e) => setCreateLlmUrl(e.target.value)}
-                        placeholder="https://your-llm-proxy.com/v1"
-                        className="h-9 text-sm font-mono bg-background/50"
-                        disabled={createLoading}
-                      />
-                      <p className="text-xs text-muted-foreground/60">
-                        {t('settings.team.llmApiKeyHint', 'API key is read from env var')} <code className="rounded bg-muted px-1 py-0.5 font-mono">tc_api_key</code>{t('settings.team.llmApiKeyDefault', ', defaults to device ID')}
-                      </p>
-                    </div>
-                  )}
-                </div>
+                <HostLlmConfig
+                  enabled={createHostLlm}
+                  onEnabledChange={setCreateHostLlm}
+                  baseUrl={createLlmUrl}
+                  onBaseUrlChange={setCreateLlmUrl}
+                  models={createLlmModels}
+                  onModelsChange={setCreateLlmModels}
+                  disabled={createLoading}
+                />
                 <Button
                   onClick={handleCreateTeam}
                   disabled={createLoading || !createTeamName.trim() || !createInviteCode.trim()}

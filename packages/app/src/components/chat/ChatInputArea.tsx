@@ -156,6 +156,8 @@ export function ChatInputArea({
   // Team mode
   const teamMode = useTeamModeStore(s => s.teamMode);
   const teamModelConfig = useTeamModeStore(s => s.teamModelConfig);
+  const teamModelOptions = useTeamModeStore(s => s.teamModelOptions);
+  const switchTeamModel = useTeamModeStore(s => s.switchTeamModel);
   const devUnlocked = useTeamModeStore(s => s.devUnlocked);
   const advancedMode = useUIStore((s) => s.advancedMode);
   const canShowPlanToggle = advancedMode && devUnlocked;
@@ -430,7 +432,43 @@ export function ChatInputArea({
                 </Button>
               )}
 
-              {(!teamMode || !teamModelConfig || devUnlocked) && (
+              {teamMode && teamModelConfig && !devUnlocked && teamModelOptions.length > 1 ? (
+                <ModelSelector
+                  open={modelSelectorOpen}
+                  onOpenChange={setModelSelectorOpen}
+                >
+                  <ModelSelectorTrigger asChild>
+                    <PromptInputButton>
+                      <ModelSelectorLogo provider="team" />
+                      {teamModelConfig.modelName}
+                    </PromptInputButton>
+                  </ModelSelectorTrigger>
+                  <ModelSelectorContent align="start">
+                    <ModelSelectorList>
+                      <ModelSelectorGroup heading="Team">
+                        {teamModelOptions.map((option) => (
+                          <ModelSelectorItem
+                            key={option.id}
+                            onSelect={() => {
+                              setModelSelectorOpen(false);
+                              const wsPath = useWorkspaceStore.getState().workspacePath;
+                              if (wsPath) switchTeamModel(option.id, wsPath);
+                            }}
+                          >
+                            <ModelSelectorLogo provider="team" />
+                            <ModelSelectorName>{option.name}</ModelSelectorName>
+                          </ModelSelectorItem>
+                        ))}
+                      </ModelSelectorGroup>
+                    </ModelSelectorList>
+                  </ModelSelectorContent>
+                </ModelSelector>
+              ) : teamMode && teamModelConfig && !devUnlocked ? (
+                <PromptInputButton>
+                  <ModelSelectorLogo provider="team" />
+                  {teamModelConfig.modelName}
+                </PromptInputButton>
+              ) : (
                 <ModelSelector
                   open={modelSelectorOpen}
                   onOpenChange={setModelSelectorOpen}

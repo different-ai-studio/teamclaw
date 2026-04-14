@@ -39,10 +39,14 @@ interface TeamModeState {
   loadP2pFileSyncStatus: () => Promise<void>
 }
 
+interface TeamStatusLlm extends TeamModelConfig {
+  models?: Array<{ id: string; name: string }>
+}
+
 interface TeamStatusResponse {
   active: boolean
   mode: string | null
-  llm: TeamModelConfig | null
+  llm: TeamStatusLlm | null
 }
 
 async function fetchTeamStatus(): Promise<TeamStatusResponse | null> {
@@ -88,11 +92,14 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     if (isTeamMode) {
       set({ teamMode: true, teamModeType: status?.mode ?? (ossConfigured ? 'oss' : null) })
       if (status?.llm) {
+        // Use models from team config (stored in teamclaw.json), fallback to build config
+        const teamModels = status.llm.models && status.llm.models.length > 0
+          ? status.llm.models
+          : (buildConfig.team.llm.models ?? [])
         // Restore previously selected team model if available
-        const teamModels = buildConfig.team.llm.models
         let selectedModel = status.llm.model
         let selectedModelName = status.llm.modelName || status.llm.model
-        if (teamModels && teamModels.length > 0) {
+        if (teamModels.length > 0) {
           try {
             const savedModelId = localStorage.getItem(`${appShortName}-team-model`)
             const match = savedModelId ? teamModels.find((m) => m.id === savedModelId) : null
@@ -107,7 +114,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
           model: selectedModel,
           modelName: selectedModelName,
         }
-        set({ teamModelConfig: config })
+        set({ teamModelConfig: config, teamModelOptions: teamModels })
       } else {
         set({ teamModelConfig: null })
       }
@@ -146,8 +153,8 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         } catch { /* ignore */ }
       }
 
-      // Build model configs — use models array from build config if available, otherwise single model
-      const teamModels = buildConfig.team.llm.models
+      // Build model configs — use models from team config (state), fallback to build config
+      const teamModels = get().teamModelOptions.length > 0 ? get().teamModelOptions : buildConfig.team.llm.models
       const modelConfigs: any[] = teamModels && teamModels.length > 0
         ? teamModels.map((m) => {
             const mc: any = {

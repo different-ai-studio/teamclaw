@@ -101,6 +101,7 @@ interface TeamOssState {
     llmBaseUrl?: string
     llmModel?: string
     llmModelName?: string
+    llmModels?: string
   }) => Promise<OssTeamInfo>
   joinTeam: (params: {
     workspacePath: string
@@ -110,6 +111,7 @@ interface TeamOssState {
     llmBaseUrl?: string
     llmModel?: string
     llmModelName?: string
+    llmModels?: string
   }) => Promise<OssJoinResult>
   leaveTeam: (workspacePath: string) => Promise<void>
   syncNow: (workspacePath: string) => Promise<void>
@@ -133,6 +135,7 @@ interface TeamOssState {
     llmBaseUrl?: string
     llmModel?: string
     llmModelName?: string
+    llmModels?: string
   }) => Promise<void>
   reconnect: (workspacePath: string) => Promise<void>
   resetSync: (workspacePath: string) => Promise<void>
@@ -268,6 +271,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         llmBaseUrl: params.llmBaseUrl || null,
         llmModel: params.llmModel || null,
         llmModelName: params.llmModelName || null,
+        llmModels: params.llmModels || null,
       })
       set({ configured: true, connected: true, teamInfo: info, error: null })
       // Refresh file tree so the new teamclaw-team directory appears
@@ -291,6 +295,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         llmBaseUrl: params.llmBaseUrl || null,
         llmModel: params.llmModel || null,
         llmModelName: params.llmModelName || null,
+        llmModels: params.llmModels || null,
       })
 
       if (result.status === 'not_member') {
@@ -387,6 +392,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         llmBaseUrl: params.llmBaseUrl || null,
         llmModel: params.llmModel || null,
         llmModelName: params.llmModelName || null,
+        llmModels: params.llmModels || null,
       })
       set({ error: null })
     } catch (e) {
