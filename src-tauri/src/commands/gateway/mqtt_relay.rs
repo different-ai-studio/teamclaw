@@ -1253,6 +1253,8 @@ impl MqttRelay {
                     image_url: None,
                     parts: message_parts,
                     has_thinking,
+                    sender_id: None,
+                    sender_name: None,
                 })
             })
             .collect();
