@@ -19,6 +19,10 @@ final class Session {
     var summaryFiles: Int
     var isPinned: Bool
     var isArchived: Bool
+    // Collab session: node ID of the member who created the session
+    var ownerNodeId: String?
+    // Collab session: desktop device ID that hosts the agent
+    var agentHostDevice: String?
 
     init(
         id: String,
@@ -34,7 +38,9 @@ final class Session {
         summaryDeletions: Int = 0,
         summaryFiles: Int = 0,
         isPinned: Bool = false,
-        isArchived: Bool = false
+        isArchived: Bool = false,
+        ownerNodeId: String? = nil,
+        agentHostDevice: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -50,5 +56,7 @@ final class Session {
         self.summaryFiles = summaryFiles
         self.isPinned = isPinned
         self.isArchived = isArchived
+        self.ownerNodeId = ownerNodeId
+        self.agentHostDevice = agentHostDevice
     }
 }
