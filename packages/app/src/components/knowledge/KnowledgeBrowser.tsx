@@ -84,6 +84,17 @@ export function KnowledgeBrowser() {
 
   const iconButtonClass = 'flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground'
 
+  const gitSyncIcon = teamModeType === 'git' ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button onClick={handleGitSync} disabled={syncing} className={iconButtonClass}>
+          <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{t('knowledge.gitSync', 'Sync Team')}</TooltipContent>
+    </Tooltip>
+  ) : null
+
   const actionIcons = !showFullTree ? (
     <>
       <Tooltip>
@@ -102,18 +113,9 @@ export function KnowledgeBrowser() {
         </TooltipTrigger>
         <TooltipContent side="bottom">{t('knowledge.newFolder', 'New Folder')}</TooltipContent>
       </Tooltip>
-      {teamModeType === 'git' && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={handleGitSync} disabled={syncing} className={iconButtonClass}>
-              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{t('knowledge.gitSync', 'Sync Team')}</TooltipContent>
-        </Tooltip>
-      )}
+      {gitSyncIcon}
     </>
-  ) : undefined
+  ) : gitSyncIcon ? (<>{gitSyncIcon}</>) : undefined
 
   return (
     <div className="flex flex-col min-h-0 flex-1">
