@@ -765,33 +765,49 @@ pub async fn team_sync_repo(
         }
     }
 
-    // Auto-commit local changes if any
+    // Detect local modifications
     let (_, status_out, _) = run_git(&["status", "--porcelain"], &team_dir)?;
     let had_local_changes = !status_out.trim().is_empty();
+
     if had_local_changes {
-        let _ = run_git(&["add", "-A"], &team_dir);
-        let (ok, _, _) = run_git(
-            &["commit", "-m", "chore: auto-sync local changes"],
-            &team_dir,
-        )?;
-        if !ok {
-            // Nothing to commit (e.g. only untracked gitignored files) — continue
+        // Backup locally modified files to .trash/<timestamp>/ before overwriting
+        let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let trash_dir = Path::new(&team_dir).join(".trash").join(&ts);
+        let _ = std::fs::create_dir_all(&trash_dir);
+
+        for line in status_out.lines() {
+            // porcelain format: "XY filename" or "XY filename -> newname"
+            let file = line.get(3..).unwrap_or("").split(" -> ").last().unwrap_or("").trim();
+            if file.is_empty() || file.starts_with(".trash") {
+                continue;
+            }
+            let src = Path::new(&team_dir).join(file);
+            if src.is_file() {
+                let dest = trash_dir.join(file);
+                if let Some(parent) = dest.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::copy(&src, &dest);
+            }
         }
+        println!("[Team Sync] backed up local changes to .trash/{}", ts);
+
+        // Discard all local changes — remote wins
+        let _ = run_git(&["checkout", "."], &team_dir);
+        let _ = run_git(&["clean", "-fd", "--exclude=.trash"], &team_dir);
     }
 
-    // Determine the branch to sync: prefer current HEAD, then remote default, then "main"
+    // Determine the branch to sync
     let branch = {
         let (ok, stdout, _) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)?;
         if ok && !stdout.trim().is_empty() && stdout.trim() != "HEAD" {
             stdout.trim().to_string()
         } else {
-            // Fallback: detect remote default branch via origin/HEAD
             let (ok2, stdout2, _) = run_git(
                 &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
                 &team_dir,
             )?;
             if ok2 && !stdout2.trim().is_empty() {
-                // stdout2 is like "origin/main", strip the "origin/" prefix
                 stdout2
                     .trim()
                     .strip_prefix("origin/")
@@ -803,23 +819,22 @@ pub async fn team_sync_repo(
         }
     };
 
-    // Pull with rebase to integrate remote changes
-    let (ok, _, stderr) = run_git(&["pull", "--rebase", "origin", &branch], &team_dir)?;
+    // Fetch + reset to remote (always remote wins)
+    let remote_ref = format!("origin/{}", branch);
+    let (ok, _, stderr) = run_git(&["fetch", "origin"], &team_dir)?;
     if !ok {
-        // Rebase conflict — abort and report
-        let _ = run_git(&["rebase", "--abort"], &team_dir);
+        return Err(format!("git fetch failed: {}", stderr.trim()));
+    }
+    let (ref_exists, _, _) = run_git(&["rev-parse", "--verify", &remote_ref], &team_dir)?;
+    if !ref_exists {
         return Err(format!(
-            "Sync conflict during rebase on '{}'. Rebase aborted. Error: {}",
-            branch,
-            stderr.trim()
+            "Remote branch '{}' not found. The remote repository may be empty or use a different default branch.",
+            remote_ref
         ));
     }
-
-    // Push local commits (auto-committed + rebased) to remote
-    let (ok, _, stderr) = run_git(&["push", "origin", &branch], &team_dir)?;
+    let (ok, _, stderr) = run_git(&["reset", "--hard", &remote_ref], &team_dir)?;
     if !ok {
-        // Push failed — not fatal, local is up-to-date
-        println!("[Team Sync] push failed (non-fatal): {}", stderr.trim());
+        return Err(format!("git reset failed: {}", stderr.trim()));
     }
 
     let mcp_msg = match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
@@ -838,7 +853,7 @@ pub async fn team_sync_repo(
     };
 
     let sync_detail = if had_local_changes {
-        format!("Auto-committed local changes and synced with origin/{}{}", branch, mcp_msg)
+        format!("Synced with origin/{} (local changes backed up to .trash/){}", branch, mcp_msg)
     } else {
         format!("Synced with origin/{}{}", branch, mcp_msg)
     };
