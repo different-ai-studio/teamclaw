@@ -329,18 +329,6 @@ export function TeamGitConfig() {
 
   return (
     <>
-      {/* Deprecation Banner */}
-      <SettingCard className="bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30 border-amber-200 dark:border-amber-800">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-amber-700 dark:text-amber-300">
-              {t('settings.team.gitDeprecated', 'Git sync is deprecated. Use the P2P tab for decentralized team sync with device identity.')}
-            </p>
-          </div>
-        </div>
-      </SettingCard>
-
       {/* Error Banner */}
       {errorMessage && (
         <SettingCard className="bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/30 border-red-200 dark:border-red-800">
