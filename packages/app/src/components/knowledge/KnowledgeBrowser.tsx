@@ -1,6 +1,6 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
-import { FilePlus, FolderPlus } from 'lucide-react'
+import { FilePlus, FolderPlus, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { FileBrowser } from '@/components/workspace/FileBrowser'
@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useUIStore } from '@/stores/ui'
+import { isTauri } from '@/lib/utils'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
 
 export function KnowledgeBrowser() {
@@ -19,7 +20,28 @@ export function KnowledgeBrowser() {
   const selectFile = useWorkspaceStore(s => s.selectFile)
   const createNoteFromLink = useKnowledgeStore(s => s.createNoteFromLink)
 
+  const teamModeType = useTeamModeStore(s => s.teamModeType)
   const [rootCreating, setRootCreating] = React.useState<'file' | 'folder' | null>(null)
+  const [syncing, setSyncing] = React.useState(false)
+
+  const handleGitSync = React.useCallback(async () => {
+    if (!isTauri() || syncing) return
+    setSyncing(true)
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const result = await invoke<{ success: boolean; message: string }>('team_sync_repo')
+      if (result.success) {
+        toast.success(result.message)
+        await refreshFileTree()
+      } else {
+        toast.error(result.message)
+      }
+    } catch (err) {
+      toast.error(String(err))
+    } finally {
+      setSyncing(false)
+    }
+  }, [syncing, refreshFileTree])
 
   if (!workspacePath) return null
 
@@ -80,6 +102,16 @@ export function KnowledgeBrowser() {
         </TooltipTrigger>
         <TooltipContent side="bottom">{t('knowledge.newFolder', 'New Folder')}</TooltipContent>
       </Tooltip>
+      {teamModeType === 'git' && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button onClick={handleGitSync} disabled={syncing} className={iconButtonClass}>
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('knowledge.gitSync', 'Sync Team')}</TooltipContent>
+        </Tooltip>
+      )}
     </>
   ) : undefined
 
