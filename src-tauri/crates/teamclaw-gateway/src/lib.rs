@@ -252,6 +252,49 @@ pub async fn send_message_async_with_approval(
     .await
 }
 
+/// Inject a message into OpenCode session history without triggering AI response.
+/// Used for collaborative messages that don't @Agent — records context silently.
+pub async fn inject_context_no_reply(
+    port: u16,
+    session_id: &str,
+    content: &str,
+    sender_name: &str,
+) -> Result<(), String> {
+    let prefixed = format!("[{}] {}", sender_name, content);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let url = format!(
+        "http://127.0.0.1:{}/session/{}/prompt_async",
+        port, session_id
+    );
+    let body = serde_json::json!({
+        "parts": [{ "type": "text", "text": prefixed }],
+        "noReply": true,
+    });
+
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("inject_context_no_reply failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "inject_context_no_reply HTTP {} - {}",
+            status, body_text
+        ));
+    }
+
+    Ok(())
+}
+
 /// Unified SSE handler using a pre-established SSE connection.
 async fn poll_for_message_with_approval_from_stream(
     sse_response: reqwest::Response,
