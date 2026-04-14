@@ -29,7 +29,10 @@ final class MockMQTTService: MQTTServiceProtocol {
         subscribeCalls.append((topic, qos))
     }
 
-    func unsubscribe(topic: String) {}
+    private(set) var unsubscribeCalls: [String] = []
+    func unsubscribe(topic: String) {
+        unsubscribeCalls.append(topic)
+    }
 
     func publish(topic: String, message: Teamclaw_MqttMessage, qos: Int) {
         publishCalls.append((topic, message, qos))
