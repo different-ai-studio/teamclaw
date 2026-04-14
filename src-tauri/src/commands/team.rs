@@ -765,36 +765,15 @@ pub async fn team_sync_repo(
         }
     }
 
-    // Detect local modifications
+    // Auto-commit local changes if any
     let (_, status_out, _) = run_git(&["status", "--porcelain"], &team_dir)?;
     let had_local_changes = !status_out.trim().is_empty();
-
     if had_local_changes {
-        // Backup locally modified files to .trash/<timestamp>/ before overwriting
-        let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-        let trash_dir = Path::new(&team_dir).join(".trash").join(&ts);
-        let _ = std::fs::create_dir_all(&trash_dir);
-
-        for line in status_out.lines() {
-            // porcelain format: "XY filename" or "XY filename -> newname"
-            let file = line.get(3..).unwrap_or("").split(" -> ").last().unwrap_or("").trim();
-            if file.is_empty() || file.starts_with(".trash") {
-                continue;
-            }
-            let src = Path::new(&team_dir).join(file);
-            if src.is_file() {
-                let dest = trash_dir.join(file);
-                if let Some(parent) = dest.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let _ = std::fs::copy(&src, &dest);
-            }
-        }
-        println!("[Team Sync] backed up local changes to .trash/{}", ts);
-
-        // Discard all local changes — remote wins
-        let _ = run_git(&["checkout", "."], &team_dir);
-        let _ = run_git(&["clean", "-fd", "--exclude=.trash"], &team_dir);
+        let _ = run_git(&["add", "-A"], &team_dir);
+        let _ = run_git(
+            &["commit", "-m", "chore: auto-sync local changes"],
+            &team_dir,
+        );
     }
 
     // Determine the branch to sync
@@ -819,7 +798,6 @@ pub async fn team_sync_repo(
         }
     };
 
-    // Fetch + reset to remote (always remote wins)
     let remote_ref = format!("origin/{}", branch);
     let (ok, _, stderr) = run_git(&["fetch", "origin"], &team_dir)?;
     if !ok {
@@ -832,9 +810,51 @@ pub async fn team_sync_repo(
             remote_ref
         ));
     }
-    let (ok, _, stderr) = run_git(&["reset", "--hard", &remote_ref], &team_dir)?;
-    if !ok {
-        return Err(format!("git reset failed: {}", stderr.trim()));
+
+    // Try pull --rebase to merge local commits with remote
+    let (rebase_ok, _, _) = run_git(&["pull", "--rebase", "origin", &branch], &team_dir)?;
+    let mut conflict_resolved = false;
+
+    if !rebase_ok {
+        // Conflict — abort rebase, backup local changed files, then reset to remote
+        let _ = run_git(&["rebase", "--abort"], &team_dir);
+
+        // Identify files that differ from remote to backup only conflicting content
+        let (_, diff_out, _) = run_git(&["diff", "--name-only", &remote_ref], &team_dir)?;
+        if !diff_out.trim().is_empty() {
+            let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+            let trash_dir = Path::new(&team_dir).join(".trash").join(&ts);
+            let _ = std::fs::create_dir_all(&trash_dir);
+
+            for file in diff_out.lines() {
+                let file = file.trim();
+                if file.is_empty() || file.starts_with(".trash") {
+                    continue;
+                }
+                let src = Path::new(&team_dir).join(file);
+                if src.is_file() {
+                    let dest = trash_dir.join(file);
+                    if let Some(parent) = dest.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::copy(&src, &dest);
+                }
+            }
+            println!("[Team Sync] conflict detected, backed up local files to .trash/{}", ts);
+        }
+
+        // Force reset to remote
+        let (ok, _, stderr) = run_git(&["reset", "--hard", &remote_ref], &team_dir)?;
+        if !ok {
+            return Err(format!("git reset failed: {}", stderr.trim()));
+        }
+        conflict_resolved = true;
+    } else if had_local_changes {
+        // Rebase succeeded — push local commits to remote
+        let (ok, _, stderr) = run_git(&["push", "origin", &branch], &team_dir)?;
+        if !ok {
+            println!("[Team Sync] push failed (non-fatal): {}", stderr.trim());
+        }
     }
 
     let mcp_msg = match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
@@ -852,8 +872,10 @@ pub async fn team_sync_repo(
         }
     };
 
-    let sync_detail = if had_local_changes {
-        format!("Synced with origin/{} (local changes backed up to .trash/){}", branch, mcp_msg)
+    let sync_detail = if conflict_resolved {
+        format!("Synced with origin/{} (conflict resolved, local backup in .trash/){}", branch, mcp_msg)
+    } else if had_local_changes {
+        format!("Synced with origin/{} (local changes pushed){}", branch, mcp_msg)
     } else {
         format!("Synced with origin/{}{}", branch, mcp_msg)
     };
