@@ -362,7 +362,10 @@ impl MqttRelay {
                 }
             }
             Some(proto::mqtt_message::Payload::MessageSyncRequest(ref req)) => {
-                if let Some(did) = device_id {
+                let parts: Vec<&str> = topic.split('/').collect();
+                if parts.len() >= 4 && parts[2] == "session" {
+                    self.handle_collab_message_sync(parts[3], req).await?;
+                } else if let Some(did) = device_id {
                     self.handle_message_sync_request(&did, req).await?;
                 }
             }
@@ -1280,6 +1283,255 @@ impl MqttRelay {
         ));
         self.publish_proto_to_device(device_id, "chat/res", &msg)
             .await
+    }
+
+    /// Handle message history sync for a collab session.
+    /// Looks up the OpenCode session_id from `collab_sessions`, fetches messages,
+    /// enriches each message with sender_id/sender_name from `[Name] content` prefix,
+    /// and publishes the response to the session topic.
+    async fn handle_collab_message_sync(
+        &self,
+        collab_session_id: &str,
+        _req: &proto::MessageSyncRequest,
+    ) -> Result<(), String> {
+        // Look up OpenCode session_id for this collab session
+        let opencode_session_id = {
+            let sessions = self.collab_sessions.lock().await;
+            sessions
+                .get(collab_session_id)
+                .cloned()
+                .ok_or_else(|| format!("Collab session not found: {}", collab_session_id))?
+        };
+
+        let port = self.opencode_port;
+        let url = format!(
+            "http://127.0.0.1:{}/session/{}/message",
+            port, opencode_session_id
+        );
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch collab messages: {}", e))?;
+
+        let raw_messages: Vec<serde_json::Value> = resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse collab messages: {}", e))?;
+
+        let messages: Vec<proto::ChatMessageData> = raw_messages
+            .iter()
+            .filter_map(|msg| {
+                let info = msg.get("info")?;
+                let id = info.get("id")?.as_str()?;
+                let role = info.get("role")?.as_str()?;
+                if role != "user" && role != "assistant" {
+                    return None;
+                }
+
+                let parts_array = msg.get("parts")?.as_array()?;
+                let mut message_parts: Vec<proto::MessagePartData> = Vec::new();
+                let mut content_parts: Vec<String> = Vec::new();
+                let mut has_thinking = false;
+
+                for part in parts_array {
+                    match part.get("type").and_then(|t| t.as_str()) {
+                        Some("text") => {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                content_parts.push(text.to_string());
+                                message_parts.push(proto::MessagePartData {
+                                    r#type: "text".to_string(),
+                                    text: Some(text.to_string()),
+                                    tool: None,
+                                });
+                            }
+                        }
+                        Some("tool") | Some("tool-call") => {
+                            let tool_name =
+                                part.get("tool").and_then(|t| t.as_str()).unwrap_or("tool");
+                            let tool_call_id = part
+                                .get("callID")
+                                .or_else(|| part.get("id"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let state = part.get("state");
+                            let status_raw = state
+                                .and_then(|s| s.get("status"))
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("completed");
+                            let has_ended =
+                                part.get("time").and_then(|t| t.get("end")).is_some();
+                            let status = match status_raw {
+                                "completed" | "done" | "success" => "completed",
+                                "error" | "failed" => "failed",
+                                _ if has_ended => "completed",
+                                _ => "running",
+                            };
+                            let arguments_json = state
+                                .and_then(|s| s.get("input"))
+                                .map(|input| serde_json::to_string(input).unwrap_or_default())
+                                .unwrap_or_default();
+                            let result_summary = state
+                                .and_then(|s| {
+                                    s.get("output")
+                                        .or_else(|| s.get("raw"))
+                                        .or_else(|| s.get("result"))
+                                })
+                                .map(|r| {
+                                    if let Some(s) = r.as_str() {
+                                        s.to_string()
+                                    } else {
+                                        serde_json::to_string(r).unwrap_or_default()
+                                    }
+                                })
+                                .unwrap_or_default();
+                            let duration_ms = part
+                                .get("time")
+                                .and_then(|t| {
+                                    let start = t.get("start")?.as_f64()?;
+                                    let end = t.get("end")?.as_f64()?;
+                                    Some(((end - start) * 1000.0) as i32)
+                                })
+                                .unwrap_or(0);
+                            let input_summary = state
+                                .and_then(|s| s.get("input"))
+                                .map(|input| {
+                                    if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
+                                        q.to_string()
+                                    } else if let Some(u) =
+                                        input.get("url").and_then(|v| v.as_str())
+                                    {
+                                        u.to_string()
+                                    } else if let Some(p) =
+                                        input.get("path").and_then(|v| v.as_str())
+                                    {
+                                        p.to_string()
+                                    } else if let Some(c) =
+                                        input.get("command").and_then(|v| v.as_str())
+                                    {
+                                        c.to_string()
+                                    } else {
+                                        serde_json::to_string(input)
+                                            .unwrap_or_default()
+                                            .chars()
+                                            .take(80)
+                                            .collect()
+                                    }
+                                })
+                                .unwrap_or_default();
+                            content_parts.push(format!("🔧 {} {}", tool_name, input_summary));
+                            message_parts.push(proto::MessagePartData {
+                                r#type: "tool".to_string(),
+                                text: None,
+                                tool: Some(proto::ToolEvent {
+                                    tool_call_id,
+                                    tool_name: tool_name.to_string(),
+                                    status: status.to_string(),
+                                    arguments_json: truncate_string(&arguments_json, 500),
+                                    result_summary: truncate_string(&result_summary, 1000),
+                                    duration_ms,
+                                }),
+                            });
+                        }
+                        Some("thinking") | Some("reasoning") => {
+                            has_thinking = true;
+                        }
+                        _ => {}
+                    }
+                }
+
+                let raw_content = content_parts.join("\n");
+                if raw_content.trim().is_empty() && message_parts.is_empty() {
+                    return None;
+                }
+
+                let timestamp_ms = info
+                    .get("time")
+                    .and_then(|t| t.get("created"))
+                    .and_then(|t| t.as_f64())
+                    .unwrap_or(0.0);
+                let timestamp = timestamp_ms / 1000.0;
+
+                // Determine sender info based on role and optional [Name] prefix
+                let (sender_id, sender_name, content) = if role == "assistant" {
+                    ("agent".to_string(), "Agent".to_string(), raw_content)
+                } else {
+                    // Parse [Name] prefix from user messages written by collab participants
+                    let (name, stripped) = if raw_content.starts_with('[') {
+                        if let Some(bracket_end) = raw_content.find(']') {
+                            let name = raw_content[1..bracket_end].to_string();
+                            let rest = raw_content[bracket_end + 1..].trim_start().to_string();
+                            (name, rest)
+                        } else {
+                            (String::new(), raw_content)
+                        }
+                    } else {
+                        (String::new(), raw_content)
+                    };
+                    let (sid, sname) = if name.is_empty() {
+                        (String::new(), String::new())
+                    } else {
+                        (name.to_lowercase().replace(' ', "_"), name)
+                    };
+                    (sid, sname, stripped)
+                };
+
+                Some(proto::ChatMessageData {
+                    id: id.to_string(),
+                    role: role.to_string(),
+                    content,
+                    timestamp,
+                    image_url: None,
+                    parts: message_parts,
+                    has_thinking,
+                    sender_id: if sender_id.is_empty() {
+                        None
+                    } else {
+                        Some(sender_id)
+                    },
+                    sender_name: if sender_name.is_empty() {
+                        None
+                    } else {
+                        Some(sender_name)
+                    },
+                })
+            })
+            .collect();
+
+        let msg = build_envelope(proto::mqtt_message::Payload::MessageSyncResponse(
+            proto::MessageSyncResponse {
+                session_id: collab_session_id.to_string(),
+                messages,
+            },
+        ));
+
+        // Publish response to the session topic (not a device topic)
+        let config = self.config.read().await;
+        let topic = format!(
+            "teamclaw/{}/session/{}",
+            config.team_id, collab_session_id
+        );
+        let bytes = msg.encode_to_vec();
+        if let Some(client) = self.client.lock().await.as_ref() {
+            client
+                .publish(&topic, QoS::AtLeastOnce, false, bytes)
+                .await
+                .map_err(|e| format!("Collab message sync publish failed: {}", e))?;
+            eprintln!(
+                "[MQTT Relay] Published collab message sync response to {}",
+                topic
+            );
+        } else {
+            return Err("MQTT client not connected".to_string());
+        }
+        Ok(())
     }
 
     // ─── Device Pairing ────────────────────────────────────────
