@@ -202,15 +202,10 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
                 <TooltipContent side="bottom">{t('fileExplorer.filterPlaceholder', 'Filter files...')}</TooltipContent>
               </Tooltip>
 
-              {/* Separator + caller-provided action icons (e.g. New Note, New Folder) */}
-              {actionIcons && (
-                <>
-                  <div className="w-px h-4 bg-border mx-0.5 shrink-0" />
-                  {actionIcons}
-                </>
-              )}
-
               <div className="flex-1" />
+
+              {/* Caller-provided action icons (e.g. New Note, New Folder, Sync) */}
+              {actionIcons}
 
               {/* Git filter — only for git-tracked directories */}
               {!hideGitStatus && (

@@ -179,7 +179,22 @@
     "pasted": "已粘贴",
     "pasteFailed": "粘贴失败",
     "externalDropped": "已复制 {{count}} 个文件",
-    "externalDropFailed": "复制文件失败"
+    "externalDropFailed": "复制文件失败",
+    "addToAgent": "添加到 Agent",
+    "openWithDefault": "用默认应用打开",
+    "duplicate": "创建副本",
+    "openInTerminal": "在终端中打开",
+    "noGitChanges": "无 Git 变更",
+    "collapseAll": "全部折叠",
+    "showAll": "显示所有文件",
+    "showGitChanged": "仅显示 Git 变更文件",
+    "undone": "已撤销：{{desc}}",
+    "undoFailed": "无法撤销此操作",
+    "confirmDeleteTitle": "删除 \"{{name}}\"？",
+    "confirmBatchDeleteTitle": "删除 {{count}} 项？",
+    "confirmDeleteFileDesc": "此操作将永久删除该文件。",
+    "confirmDeleteDirDesc": "此操作将永久删除该文件夹及其所有内容。",
+    "confirmBatchDeleteDesc": "此操作将永久删除所有选中项。文件夹删除后无法撤销。"
   },
   "git": {
     "modified": "已修改",

@@ -921,6 +921,34 @@ impl WeComGateway {
             format!("wecom:{}", msg.chatid)
         };
 
+        // Auto-record ownerId on first DM if not yet set
+        if msg.chattype == "single" && !userid.is_empty() {
+            let config = self.config.read().await;
+            if config.owner_id.is_none() {
+                drop(config);
+                let mut config = self.config.write().await;
+                // Double-check after acquiring write lock
+                if config.owner_id.is_none() {
+                    config.owner_id = Some(userid.to_string());
+                    println!("[WeCom] Auto-recorded ownerId: {}", userid);
+                    // Persist to config file
+                    if let Ok(mut file_config) = super::read_config(&self.workspace_path) {
+                        let channels = file_config
+                            .channels
+                            .get_or_insert_with(super::config::ChannelsConfig::default);
+                        if let Some(ref mut wecom) = channels.wecom {
+                            wecom.owner_id = Some(userid.to_string());
+                        } else {
+                            let mut wc = WeComConfig::default();
+                            wc.owner_id = Some(userid.to_string());
+                            channels.wecom = Some(wc);
+                        }
+                        let _ = super::write_config(&self.workspace_path, &file_config);
+                    }
+                }
+            }
+        }
+
         // Check for /answer command — routes reply to the most recent pending question
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&text_content)
         {

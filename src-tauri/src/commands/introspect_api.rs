@@ -78,7 +78,7 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
             let body_bytes = &body_buf[..];
 
             let resp = match (method, path) {
-                ("POST", "/send-wecom") => handle_send_wecom(body_bytes).await,
+                ("POST", "/send-wecom") => handle_send_wecom(&app_clone, body_bytes).await,
                 ("POST", "/cron-run") => handle_cron_run(&app_clone, body_bytes).await,
                 _ => Err(format!("Not found: {} {}", method, path)),
             };
@@ -94,7 +94,7 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
-async fn handle_send_wecom(body: &[u8]) -> Result<String, String> {
+async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, String> {
     use base64::Engine as _;
 
     let v: serde_json::Value =
@@ -102,6 +102,15 @@ async fn handle_send_wecom(body: &[u8]) -> Result<String, String> {
 
     let target = v.get("target").and_then(|v| v.as_str()).unwrap_or("");
     let message = v.get("message").and_then(|v| v.as_str()).unwrap_or("");
+
+    // If target is empty, fallback to ownerId from config
+    let resolved_target: String;
+    let target = if target.is_empty() {
+        resolved_target = resolve_wecom_owner_id(app)?;
+        &resolved_target
+    } else {
+        target
+    };
 
     // Parse target format: "single:{userid}" or "group:{chatid}" or bare chatid
     let (chatid, chat_type) = if let Some(userid) = target.strip_prefix("single:") {
@@ -173,6 +182,36 @@ async fn handle_cron_run(app: &AppHandle, body: &[u8]) -> Result<String, String>
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Read the WeCom ownerId from the config file.
+/// Returns the ownerId or an error if not configured.
+fn resolve_wecom_owner_id(app: &AppHandle) -> Result<String, String> {
+    let oc_state = app.state::<super::opencode::OpenCodeState>();
+    let workspace_path = oc_state
+        .inner
+        .lock()
+        .map_err(|e| e.to_string())?
+        .workspace_path
+        .clone()
+        .ok_or("No workspace path set")?;
+
+    let config = teamclaw_gateway::read_config(&workspace_path)?;
+    let owner_id = config
+        .channels
+        .as_ref()
+        .and_then(|ch| ch.wecom.as_ref())
+        .and_then(|w| w.owner_id.as_ref())
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .ok_or(
+            "No WeCom target specified and ownerId is not set. \
+             Send a DM to the bot first so ownerId is auto-recorded, \
+             or pass an explicit target."
+                .to_string(),
+        )?;
+
+    Ok(owner_id)
+}
 
 /// Detect WeCom media type from filename extension.
 fn detect_media_type(filename: &str) -> &'static str {

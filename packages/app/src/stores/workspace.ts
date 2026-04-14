@@ -755,6 +755,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       selectedFile: path,
       selectedFiles: [path], // Single selection clears multi-select
       lastSelectedFile: path,
+      focusedPath: null, // Clear keyboard focus when selecting a file
       isLoadingFile: true,
       fileContent: null,
       targetLine: line ?? null,

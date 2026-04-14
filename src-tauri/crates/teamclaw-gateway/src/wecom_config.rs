@@ -11,6 +11,10 @@ pub struct WeComConfig {
     pub secret: String,
     #[serde(default)]
     pub encoding_aes_key: Option<String>,
+    /// The userid of the person who bound this bot.
+    /// Auto-recorded from the first DM received by the gateway.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
 }
 
 impl Default for WeComConfig {
@@ -20,6 +24,7 @@ impl Default for WeComConfig {
             bot_id: String::new(),
             secret: String::new(),
             encoding_aes_key: None,
+            owner_id: None,
         }
     }
 }

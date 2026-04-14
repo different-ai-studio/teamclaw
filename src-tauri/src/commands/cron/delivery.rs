@@ -292,7 +292,28 @@ impl DeliveryManager {
     /// Send via WeCom — delegates to the running WeComGateway's send_chat_message.
     /// The gateway must be connected (WebSocket active).
     /// Target format: "single:{userid}" or "group:{chatid}" or raw "{userid}"
+    /// If target is empty, falls back to ownerId from config.
     async fn send_wecom(&self, target: &str, message: &str) -> Result<(), String> {
+        // Fallback to ownerId when target is empty
+        let target = if target.is_empty() {
+            let config = self.read_teamclaw_config()?;
+            config
+                .get("channels")
+                .and_then(|ch| ch.get("wecom"))
+                .and_then(|w| w.get("ownerId"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .ok_or(
+                    "No WeCom target specified and ownerId is not set. \
+                     Send a DM to the bot first so ownerId is auto-recorded."
+                        .to_string(),
+                )?
+        } else {
+            target.to_string()
+        };
+        let target = target.as_str();
+
         let (chatid, chat_type) = if target.starts_with("single:") {
             (target.strip_prefix("single:").unwrap_or(target), 1u32)
         } else if target.starts_with("group:") {
