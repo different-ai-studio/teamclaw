@@ -24,6 +24,9 @@ import {
 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
 import { ToggleSwitch } from '@/components/settings/shared'
+import { TeamMemberList } from '@/components/settings/TeamMemberList'
+import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
+import { useTeamMembersStore } from '@/stores/team-members'
 import { buildConfig, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -95,6 +98,8 @@ function SettingCard({ children, className }: { children: React.ReactNode; class
 
 export function TeamGitConfig() {
   const { t } = useTranslation()
+  const teamMembersStore = useTeamMembersStore()
+  const [deviceInfo, setDeviceInfo] = React.useState<{ nodeId: string } | null>(null)
   const [state, setState] = React.useState<ConnectionState>('loading')
   const [teamConfig, setTeamConfig] = React.useState<TeamConfig | null>(null)
   const [gitUrl, setGitUrl] = React.useState('')
@@ -172,6 +177,15 @@ export function TeamGitConfig() {
       setLlmLoaded(true)
     }
   }, [state, llmLoaded])
+
+  // Load members and device info when connected
+  React.useEffect(() => {
+    if ((state === 'connected' || state === 'syncing') && isTauri()) {
+      teamMembersStore.loadMembers()
+      teamMembersStore.loadMyRole()
+      tauriInvoke<{ nodeId: string }>('get_device_info').then(setDeviceInfo).catch(() => {})
+    }
+  }, [state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveLlmConfig = async () => {
     setLlmSaving(true)
@@ -671,6 +685,27 @@ export function TeamGitConfig() {
                 {llmSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 {llmSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
               </Button>
+            </div>
+          </SettingCard>
+
+          {/* Team Members */}
+          <SettingCard>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-green-100 dark:bg-green-900/30">
+                  <Users className="h-5 w-5 text-green-700 dark:text-green-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">{t('settings.team.members', 'Team Members')}</p>
+                </div>
+              </div>
+              <TeamMemberList />
+              {deviceInfo && (
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground mb-1.5">{t('settings.team.myDeviceId', 'My Device ID')}</p>
+                  <DeviceIdDisplay nodeId={deviceInfo.nodeId} />
+                </div>
+              )}
             </div>
           </SettingCard>
 

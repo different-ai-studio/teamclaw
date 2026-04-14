@@ -763,6 +763,34 @@ pub async fn team_init_repo(
         super::CONFIG_FILE_NAME
     );
 
+    // Ensure _meta/members.json exists (create with self as owner if missing)
+    let meta_path = Path::new(&team_dir).join("_meta").join("members.json");
+    if !meta_path.exists() {
+        use crate::commands::team_unified::{TeamManifest, TeamMember, MemberRole};
+        let node_id = crate::commands::oss_commands::get_device_id()?;
+        let manifest = TeamManifest {
+            owner_node_id: node_id.clone(),
+            members: vec![TeamMember {
+                node_id,
+                name: String::new(),
+                role: MemberRole::Owner,
+                label: String::new(),
+                platform: std::env::consts::OS.to_string(),
+                arch: std::env::consts::ARCH.to_string(),
+                hostname: gethostname::gethostname().to_string_lossy().to_string(),
+                added_at: chrono::Utc::now().to_rfc3339(),
+            }],
+        };
+        if let Some(parent) = meta_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let json = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| format!("Failed to serialize members.json: {}", e))?;
+        std::fs::write(&meta_path, json)
+            .map_err(|e| format!("Failed to write members.json: {}", e))?;
+        println!("[Team Init] Created _meta/members.json with self as owner");
+    }
+
     // Sync .mcp/ from team dir into workspace opencode.json
     match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
         Ok(count) if count > 0 => {
