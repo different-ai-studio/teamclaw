@@ -243,6 +243,43 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Ensure the .gitignore in team_dir has all rules from GITIGNORE_CONTENT.
+/// Appends missing rules if the file exists, or creates it if missing.
+fn ensure_gitignore_rules(team_dir: &str) {
+    let gitignore_path = Path::new(team_dir).join(".gitignore");
+    if !gitignore_path.exists() {
+        let _ = std::fs::write(&gitignore_path, GITIGNORE_CONTENT);
+        return;
+    }
+    let existing = match std::fs::read_to_string(&gitignore_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let mut missing = Vec::new();
+    for line in GITIGNORE_CONTENT.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        if !existing.lines().any(|l| l.trim() == t) {
+            missing.push(t.to_string());
+        }
+    }
+    if missing.is_empty() {
+        return;
+    }
+    let mut content = existing;
+    if !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push_str("\n# Auto-added by TeamClaw\n");
+    for line in &missing {
+        content.push_str(line);
+        content.push('\n');
+    }
+    let _ = std::fs::write(&gitignore_path, content);
+}
+
 fn get_team_repo_path(workspace_path: &str) -> String {
     let p = Path::new(workspace_path).join(TEAM_REPO_DIR);
     p.to_string_lossy().to_string()
@@ -736,28 +773,18 @@ pub async fn team_init_repo(
     })
 }
 
-/// 1.4 - Generate whitelist .gitignore in team repo dir (skip if remote already has one)
+/// 1.4 - Ensure .gitignore in team repo dir has all required rules.
+/// Creates the file if missing, or appends missing rules if it already exists.
 #[tauri::command]
 pub async fn team_generate_gitignore(
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<TeamGitResult, String> {
     let workspace_path = get_workspace_path(&opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
-    let gitignore_path = Path::new(&team_dir).join(".gitignore");
-
-    if gitignore_path.exists() {
-        return Ok(TeamGitResult {
-            success: true,
-            message: ".gitignore already exists (from remote), skipping generation".to_string(),
-        });
-    }
-
-    std::fs::write(&gitignore_path, GITIGNORE_CONTENT)
-        .map_err(|e| format!("Failed to write .gitignore: {}", e))?;
-
+    ensure_gitignore_rules(&team_dir);
     Ok(TeamGitResult {
         success: true,
-        message: "Generated whitelist .gitignore".to_string(),
+        message: ".gitignore ensured".to_string(),
     })
 }
 
@@ -877,6 +904,9 @@ pub async fn team_sync_repo(
             println!("[Team Sync] push failed (non-fatal): {}", stderr.trim());
         }
     }
+
+    // Ensure .gitignore has all required rules (auto-upgrade for existing repos)
+    ensure_gitignore_rules(&team_dir);
 
     let mcp_msg = match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
         Ok(count) if count > 0 => {
