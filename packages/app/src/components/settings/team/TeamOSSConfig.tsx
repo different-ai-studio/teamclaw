@@ -599,7 +599,7 @@ export function TeamOSSConfig() {
                 <div className="flex items-center gap-1.5">
                   <Shield className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="font-medium">
-                    {myRole === 'owner' ? '管理员' : myRole === 'manager' ? '经理' : myRole === 'editor' ? '编辑' : myRole === 'viewer' ? '只读' : '成员'}
+                    {myRole === 'owner' ? '所有者' : myRole === 'manager' ? '管理员' : myRole === 'editor' ? '编辑' : myRole === 'viewer' ? '只读' : '成员'}
                   </span>
                 </div>
               </div>
