@@ -224,15 +224,15 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const messageListRef = React.useRef<MessageListHandle>(null);
 
   // ── Derived values ────────────────────────────────────────────────────
-  const activeSession = useSessionStore(s =>
-    s.activeSessionId ? s.sessions.find((ss) => ss.id === s.activeSessionId) : undefined
+  const activeMessages = useSessionStore(s =>
+    s.activeSessionId ? s.sessions.find((ss) => ss.id === s.activeSessionId)?.messages : undefined
   );
   /** Shown messages lag store during fade so old session can fade out before swap */
   const [displaySessionId, setDisplaySessionId] = React.useState<string | null>(activeSessionId);
   const [sessionFadeOpacity, setSessionFadeOpacity] = React.useState(1);
 
-  const displaySession = useSessionStore((s) =>
-    displaySessionId ? s.sessions.find((ss) => ss.id === displaySessionId) : undefined,
+  const displayMessages = useSessionStore((s) =>
+    displaySessionId ? s.sessions.find((ss) => ss.id === displaySessionId)?.messages : undefined,
   );
 
   const SESSION_FADE_MS = 150;
@@ -423,8 +423,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // Poll for pending permissions as fallback
   const pollPermissions = useSessionStore((s) => s.pollPermissions);
   const hasRunningTools = React.useMemo(() =>
-    (activeSession?.messages ?? []).some((m) => m.toolCalls?.some((tc) => tc.status === "calling" || tc.status === "waiting")),
-    [activeSession?.messages],
+    (activeMessages ?? []).some((m) => m.toolCalls?.some((tc) => tc.status === "calling" || tc.status === "waiting")),
+    [activeMessages],
   );
   React.useEffect(() => {
     if (!activeSessionId) return;
@@ -828,7 +828,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         ) : (
           <MessageList
             ref={messageListRef}
-            messages={displaySession?.messages ?? []}
+            messages={displayMessages ?? []}
             activeSessionId={displaySessionId}
             isStreaming={isStreaming}
             streamingMessageId={streamingMessageId}
