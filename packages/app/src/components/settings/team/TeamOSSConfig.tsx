@@ -78,6 +78,7 @@ export function TeamOSSConfig() {
     leaveTeam,
     syncNow,
     resetSync,
+    restoreDeleted,
     loadSyncStatus,
     createSnapshot,
     cleanupUpdates,
@@ -312,6 +313,16 @@ export function TeamOSSConfig() {
     if (!workspacePath) return
     await resetSync(workspacePath)
   }, [workspacePath, resetSync])
+
+  const handleRestoreDeleted = useCallback(async () => {
+    if (!workspacePath) return
+    try {
+      const count = await restoreDeleted(workspacePath)
+      alert(`恢复完成: ${count} 个文件已恢复`)
+    } catch (e) {
+      alert(`恢复失败: ${e}`)
+    }
+  }, [workspacePath, restoreDeleted])
 
   const handleSnapshot = useCallback(async (docType: string) => {
     if (!workspacePath) return
@@ -677,6 +688,16 @@ export function TeamOSSConfig() {
                   >
                     <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
                     重置同步
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRestoreDeleted}
+                    disabled={syncing}
+                    className="h-8 text-blue-600 hover:text-blue-700"
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    恢复已删除
                   </Button>
                 </div>
               </div>

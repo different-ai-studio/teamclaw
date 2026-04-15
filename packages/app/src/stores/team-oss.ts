@@ -140,6 +140,7 @@ interface TeamOssState {
   }) => Promise<void>
   reconnect: (workspacePath: string) => Promise<void>
   resetSync: (workspacePath: string) => Promise<void>
+  restoreDeleted: (workspacePath: string) => Promise<number>
   loadPendingApplication: (workspacePath: string) => Promise<void>
   cancelApplication: (workspacePath: string) => Promise<void>
   cleanup: () => void
@@ -361,6 +362,32 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       set({ syncStatus: status, syncing: false })
     } catch (e) {
       set({ syncing: false, error: String(e) })
+    }
+  },
+
+  restoreDeleted: async (workspacePath) => {
+    set({ syncing: true })
+    try {
+      let total = 0
+      for (const dt of ['skills', 'mcp', 'knowledge', 'meta', 'secrets']) {
+        const count = await invoke<number>('oss_restore_deleted', { docType: dt })
+        total += count
+      }
+      // Only trigger sync if something was actually restored
+      if (total > 0) {
+        try {
+          const status = await invoke<SyncStatus>('oss_sync_now', { workspacePath })
+          set({ syncStatus: status, syncing: false })
+        } catch {
+          set({ syncing: false })
+        }
+      } else {
+        set({ syncing: false })
+      }
+      return total
+    } catch (e) {
+      set({ syncing: false, error: String(e) })
+      throw e
     }
   },
 

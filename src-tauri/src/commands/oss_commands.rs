@@ -1234,3 +1234,50 @@ pub async fn oss_mark_file_deleted(
 
     manager.mark_file_deleted(dt, &path).await
 }
+
+/// List S3 keys for a doc type — returns snapshots and updates keys for debugging.
+#[tauri::command]
+pub async fn oss_list_remote_keys(
+    state: State<'_, OssSyncState>,
+    doc_type: String,
+) -> Result<serde_json::Value, String> {
+    let dt = parse_doc_type(&doc_type)?;
+    let guard = state.manager.lock().await;
+    let manager = guard
+        .as_ref()
+        .ok_or_else(|| "OSS sync not active".to_string())?;
+
+    manager.list_remote_keys(dt).await
+}
+
+/// Dump the CRDT state for a doc type — returns all file entries with their
+/// deleted status, content length, and version count for debugging.
+#[tauri::command]
+pub async fn oss_dump_crdt(
+    state: State<'_, OssSyncState>,
+    doc_type: String,
+) -> Result<serde_json::Value, String> {
+    let dt = parse_doc_type(&doc_type)?;
+    let guard = state.manager.lock().await;
+    let manager = guard
+        .as_ref()
+        .ok_or_else(|| "OSS sync not active".to_string())?;
+
+    manager.dump_crdt_state(dt)
+}
+
+/// Restore all deleted entries in a doc type from their archived versions.
+/// This is a recovery command for when deletions were propagated incorrectly.
+#[tauri::command]
+pub async fn oss_restore_deleted(
+    state: State<'_, OssSyncState>,
+    doc_type: String,
+) -> Result<u32, String> {
+    let dt = parse_doc_type(&doc_type)?;
+    let mut guard = state.manager.lock().await;
+    let manager = guard
+        .as_mut()
+        .ok_or_else(|| "OSS sync not active".to_string())?;
+
+    manager.restore_deleted_entries(dt).await
+}
