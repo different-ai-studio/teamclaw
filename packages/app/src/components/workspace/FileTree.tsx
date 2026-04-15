@@ -553,13 +553,13 @@ export function FileTree({
           });
         }
       }
-      const success = await deleteItem(deleteConfirm.path, deleteConfirm.isDirectory);
+      const success = await deleteItem(deleteConfirm.path, deleteConfirm.isDirectory, workspacePath ?? undefined);
       if (success) {
         await refreshFileTree();
       }
     }
     setDeleteConfirm(null);
-  }, [deleteConfirm, refreshFileTree, pushUndo]);
+  }, [deleteConfirm, refreshFileTree, pushUndo, workspacePath]);
 
   const handleCopyPath = useCallback((path: string) => {
     copyToClipboard(path);

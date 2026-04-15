@@ -458,6 +458,14 @@ ${skillContent.trim()}`
         await remove(`${baseDir}/${targetSkill.filename}`, { recursive: true })
       }
 
+      // Mark deletion in CRDT immediately so sync doesn't recreate the file
+      if (targetSkill.source === 'shared') {
+        invoke('oss_mark_file_deleted', {
+          docType: 'skills',
+          path: targetSkill.filename,
+        }).catch(() => {}) // best-effort; sync loop will catch it otherwise
+      }
+
       setDeleteConfirmOpen(false)
       setSkillToDelete(null)
       setExitingSkillKeys((prev) => {

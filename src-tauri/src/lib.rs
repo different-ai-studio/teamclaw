@@ -491,6 +491,7 @@ pub fn run() {
             commands::oss_commands::oss_get_pending_application,
             commands::oss_commands::oss_cancel_application,
             commands::oss_commands::oss_approve_application,
+            commands::oss_commands::oss_mark_file_deleted,
             commands::version_commands::team_list_file_versions,
             commands::version_commands::team_list_all_versioned_files,
             commands::version_commands::team_restore_file_version,

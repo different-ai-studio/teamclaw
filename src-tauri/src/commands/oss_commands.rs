@@ -76,6 +76,7 @@ fn parse_doc_type(s: &str) -> Result<DocType, String> {
         "mcp" => Ok(DocType::Mcp),
         "knowledge" => Ok(DocType::Knowledge),
         "meta" => Ok(DocType::Meta),
+        "secrets" => Ok(DocType::Secrets),
         _ => Err(format!("Unknown doc type: {s}")),
     }
 }
@@ -1217,4 +1218,19 @@ pub async fn oss_approve_application(
 
     info!("Approved application for nodeId: {node_id}");
     Ok(())
+}
+
+#[tauri::command]
+pub async fn oss_mark_file_deleted(
+    state: State<'_, OssSyncState>,
+    doc_type: String,
+    path: String,
+) -> Result<bool, String> {
+    let dt = parse_doc_type(&doc_type)?;
+    let mut guard = state.manager.lock().await;
+    let manager = guard
+        .as_mut()
+        .ok_or_else(|| "OSS sync not active".to_string())?;
+
+    manager.mark_file_deleted(dt, &path).await
 }

@@ -47,6 +47,11 @@ export const useSharedSecretsStore = create<SharedSecretsState>((set) => ({
   deleteSecret: async (keyId: string, nodeId: string, role: string) => {
     await withAsync(set, async () => {
       await invoke('shared_secret_delete', { keyId, nodeId, role })
+      // Mark deletion in CRDT so sync doesn't recreate the file
+      invoke('oss_mark_file_deleted', {
+        docType: 'secrets',
+        path: `${keyId}.enc.json`,
+      }).catch(() => {}) // best-effort
       const secrets = await invoke<SecretMeta[]>('shared_secret_list')
       set({ secrets })
     }, { rethrow: true })
