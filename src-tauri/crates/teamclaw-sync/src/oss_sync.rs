@@ -1845,6 +1845,99 @@ impl OssSyncManager {
         Ok(false)
     }
 
+    /// Immediately mark a file as `deleted=true` in the CRDT, export, and
+    /// upload the update.  Called by Tauri commands that delete team files so
+    /// the deletion is persisted in the CRDT before the next sync loop — this
+    /// prevents the race where `write_doc_to_disk` recreates the file from a
+    /// stale `deleted=false` entry.
+    pub async fn mark_file_deleted(
+        &mut self,
+        doc_type: DocType,
+        path: &str,
+    ) -> Result<bool, String> {
+        let now = Utc::now().to_rfc3339();
+        let node_id = self.node_id.clone();
+
+        {
+            let doc = self.get_doc_mut(doc_type);
+            let files_map = doc.get_map("files");
+
+            // Only mark if the entry exists and is not already deleted
+            let already_deleted = match files_map.get(path) {
+                Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => {
+                    let deep = m.get_deep_value();
+                    if let loro::LoroValue::Map(entry) = deep {
+                        matches!(entry.get("deleted"), Some(loro::LoroValue::Bool(true)))
+                    } else {
+                        false
+                    }
+                }
+                _ => return Ok(false), // entry doesn't exist — nothing to mark
+            };
+            if already_deleted {
+                return Ok(false);
+            }
+
+            Self::archive_current_version(&files_map, path)?;
+
+            let entry_map = files_map
+                .get_or_create_container(path, loro::LoroMap::new())
+                .map_err(|e| format!("mark_file_deleted: get map for {path}: {e}"))?;
+            entry_map
+                .insert("deleted", true)
+                .map_err(|e| format!("mark_file_deleted: set deleted for {path}: {e}"))?;
+            entry_map
+                .insert("updatedBy", node_id.as_str())
+                .map_err(|e| format!("mark_file_deleted: set updatedBy for {path}: {e}"))?;
+            entry_map
+                .insert("updatedAt", now.as_str())
+                .map_err(|e| format!("mark_file_deleted: set updatedAt for {path}: {e}"))?;
+        }
+
+        // Export and upload
+        let updates = {
+            let doc = self.get_doc(doc_type);
+            match self.last_exported_version.get(&doc_type) {
+                Some(vv_bytes) => match loro::VersionVector::decode(vv_bytes) {
+                    Ok(vv) => doc
+                        .export(loro::ExportMode::updates(&vv))
+                        .unwrap_or_else(|_| {
+                            doc.export(loro::ExportMode::all_updates())
+                                .unwrap_or_default()
+                        }),
+                    Err(_) => doc
+                        .export(loro::ExportMode::all_updates())
+                        .map_err(|e| format!("mark_file_deleted: export for {:?}: {e}", doc_type))?,
+                },
+                None => doc
+                    .export(loro::ExportMode::all_updates())
+                    .map_err(|e| format!("mark_file_deleted: export for {:?}: {e}", doc_type))?,
+            }
+        };
+
+        let timestamp_ms = Utc::now().timestamp_millis();
+        let key = format!(
+            "teams/{}/{}/updates/{}/{}.bin",
+            self.team_id,
+            doc_type.path(),
+            self.node_id,
+            timestamp_ms
+        );
+
+        let uploaded = self.upload_with_fallback(doc_type, &updates, &key).await?;
+        if uploaded {
+            info!("mark_file_deleted: uploaded deletion for {:?}/{}", doc_type, path);
+            let current_vv = self.get_doc(doc_type).oplog_vv().encode();
+            self.last_exported_version.insert(doc_type, current_vv);
+            // Signal other nodes
+            if let Err(e) = self.write_signal_flag().await {
+                warn!("mark_file_deleted: failed to write signal flag: {e}");
+            }
+        }
+
+        Ok(uploaded)
+    }
+
     pub async fn upload_local_changes(&mut self, doc_type: DocType) -> Result<bool, String> {
         self.skipped_files.clear();
         let dir = self.team_dir.join(doc_type.dir_name());
@@ -3444,8 +3537,21 @@ pub fn read_oss_config_with(workspace_path: &str, teamclaw_dir: &str, config_fil
 
     let content = std::fs::read_to_string(&config_path).ok()?;
     let json: Value = serde_json::from_str(&content).ok()?;
-    let oss_value = json.get("oss")?;
-    serde_json::from_value(oss_value.clone()).ok()
+    let mut oss_value = json.get("oss")?.clone();
+    // Remove legacy `fcEndpoint` if `teamEndpoint` also exists to avoid
+    // serde "duplicate field" error (alias + real field both present).
+    if let Some(obj) = oss_value.as_object_mut() {
+        if obj.contains_key("teamEndpoint") {
+            obj.remove("fcEndpoint");
+        }
+    }
+    match serde_json::from_value::<OssTeamConfig>(oss_value) {
+        Ok(config) => Some(config),
+        Err(e) => {
+            eprintln!("[OSS] Failed to deserialize OssTeamConfig: {e}");
+            None
+        }
+    }
 }
 
 pub fn write_oss_config_with(workspace_path: &str, config: &OssTeamConfig, teamclaw_dir: &str, config_file_name: &str) -> Result<(), String> {

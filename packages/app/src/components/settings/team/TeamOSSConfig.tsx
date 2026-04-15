@@ -64,6 +64,7 @@ export function TeamOSSConfig() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const {
+    _initDone: ossInitDone,
     configured,
     connected,
     restoring,
@@ -340,15 +341,12 @@ export function TeamOSSConfig() {
     navigator.clipboard.writeText(text)
   }, [])
 
-  const teamModeType = useTeamModeStore((s) => s.teamModeType)
-  const configuredAsOss = configured || teamModeType === 'oss'
-
   const isOwner = myRole === 'owner'
 
   return (
     <div className="space-y-4">
-      {/* State 0: Restoring connection or configured via teamclaw.json but not connected yet */}
-      {!connected && (restoring || (configuredAsOss && !configured)) && (
+      {/* State 0: Restoring connection or OSS store still initializing */}
+      {!connected && (restoring || !ossInitDone) && (
         <SettingCard title="连接中" icon={Cloud}>
           <div className="flex flex-col gap-3 py-4 items-center">
             <div className="flex items-center gap-3 justify-center">
@@ -379,7 +377,7 @@ export function TeamOSSConfig() {
       )}
 
       {/* State 1a: Configured but disconnected — reconnect prompt */}
-      {!connected && !restoring && configured && (
+      {!connected && !restoring && ossInitDone && configured && (
         <SettingCard title="团队未连接" icon={Cloud}>
           <div className="flex flex-col items-center gap-3 py-4">
             <p className="text-sm text-muted-foreground">
@@ -404,7 +402,7 @@ export function TeamOSSConfig() {
       )}
 
       {/* State 1b: Not configured — Create/Join forms */}
-      {!connected && !restoring && !configuredAsOss && (
+      {!connected && !restoring && ossInitDone && !configured && (
         <>
           <SettingCard title="创建团队" icon={Users}>
             <div className="space-y-3">
