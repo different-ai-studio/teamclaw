@@ -77,6 +77,7 @@ interface FileSyncStatus {
 
 interface TeamOssState {
   // State
+  _initDone: boolean  // true after initialize() completes (success or failure)
   configured: boolean // local config exists (oss.enabled), true even when offline
   connected: boolean
   restoring: boolean // true while oss_restore_sync is in progress on startup
@@ -147,6 +148,7 @@ interface TeamOssState {
 
 export const useTeamOssStore = create<TeamOssState>((set, get) => ({
   // initial state
+  _initDone: false,
   configured: false,
   connected: false,
   restoring: false,
@@ -200,6 +202,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
       })
 
       const config = await invoke<OssTeamConfig | null>('oss_get_team_config', { workspacePath })
+      console.log('[OSS] oss_get_team_config result:', workspacePath, config)
       if (config?.enabled) {
         set({ configured: true, restoring: true })
         try {
@@ -229,8 +232,11 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
         }
       }
     } catch (e) {
-      console.error('OSS sync init failed:', e)
+      console.error('[OSS] sync init failed:', e)
       set({ error: String(e) })
+    } finally {
+      console.log('[OSS] init done, configured:', get().configured, 'connected:', get().connected)
+      set({ _initDone: true })
     }
   },
 
@@ -450,6 +456,7 @@ export const useTeamOssStore = create<TeamOssState>((set, get) => ({
     }
     set({
       _unlisten: null,
+      _initDone: false,
       configured: false,
       connected: false,
       restoring: false,

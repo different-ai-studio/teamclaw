@@ -471,9 +471,12 @@ export function useP2pAutoReconnect() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
   const teamMode = useTeamModeStore((s) => s.teamMode);
+  const teamModeType = useTeamModeStore((s) => s.teamModeType);
 
   useEffect(() => {
+    // Only auto-reconnect for P2P teams, not S3/OSS/Git
     if (!workspacePath || !openCodeReady || !teamMode || !isTauri()) return;
+    if (teamModeType && teamModeType !== 'p2p') return;
 
     let cancelled = false;
     const MAX_RETRIES = 5;
@@ -519,7 +522,7 @@ export function useP2pAutoReconnect() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [workspacePath, openCodeReady, teamMode]);
+  }, [workspacePath, openCodeReady, teamMode, teamModeType]);
 }
 
 export function useCronInit() {
