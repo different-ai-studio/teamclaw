@@ -2982,7 +2982,7 @@ impl OssSyncManager {
                         }
                     }
 
-                    // 1b. Cache members manifest locally for MQTT relay
+                    // 1b. Cache members manifest locally
                     if !had_network_error {
                         if let Err(e) = manager.download_and_cache_members_manifest().await {
                             warn!("OSS slow loop: failed to cache members manifest: {}", e);
@@ -3266,7 +3266,7 @@ impl OssSyncManager {
         }
     }
 
-    /// Download members manifest from S3 and cache it locally for MQTT relay.
+    /// Download members manifest from S3 and cache it locally.
     pub async fn download_and_cache_members_manifest(&self) -> Result<Option<TeamManifest>, String> {
         let manifest = self.download_members_manifest().await?;
         if let Some(ref m) = manifest {

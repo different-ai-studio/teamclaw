@@ -10,17 +10,13 @@ import { EmailChannel } from './channels/Email'
 import { KookChannel } from './channels/Kook'
 import { WeComChannel } from './channels/Wecom'
 import { WeChatChannel } from './channels/Wechat'
-import { MobileRelaySettings } from './MobileRelaySettings'
 import { buildConfig, resolveChannelsConfig } from '@/lib/build-config'
-import { useTeamModeStore } from '@/stores/team-mode'
-
 const channelsConfig = resolveChannelsConfig(buildConfig.features.channels)
 
 // Main Channels Section Component
 export function ChannelsSection() {
   const { t } = useTranslation()
   const { discord, isLoading, error, loadConfig, clearError } = useChannelsStore()
-  const devUnlocked = useTeamModeStore(s => s.devUnlocked)
 
   // Load config on mount to sync UI state
   React.useEffect(() => {
@@ -69,9 +65,6 @@ export function ChannelsSection() {
       {channelsConfig.kook && <KookChannel />}
       {channelsConfig.wecom && <WeComChannel />}
       {channelsConfig.wechat && <WeChatChannel />}
-
-      {/* Mobile Relay — dev mode only */}
-      {devUnlocked && <MobileRelaySettings />}
     </div>
   )
 }

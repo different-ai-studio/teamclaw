@@ -2,13 +2,6 @@
 // `crate::commands::gateway::*` paths throughout the main crate continue to work.
 pub use teamclaw_gateway::*;
 
-pub mod mqtt_proto;
-pub mod mqtt_relay;
-
-pub use mqtt_relay::MqttRelay;
-pub use teamclaw_gateway::mqtt_config::{
-    MqttConfig, MqttRelayStatus, PairedDevice, PairingSession,
-};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -28,7 +21,6 @@ pub struct GatewayState {
     pub kook_gateway: Mutex<Option<KookGateway>>,
     pub wecom_gateway: Mutex<Option<WeComGateway>>,
     pub wechat_gateway: Mutex<Option<WeChatGateway>>,
-    pub mqtt_relay: Mutex<Option<MqttRelay>>,
     /// Shared session mapping across all gateways
     pub shared_session_mapping: SessionMapping,
     /// Whether the shared session mapping has been initialized with a persistence path
@@ -44,7 +36,6 @@ impl Default for GatewayState {
             kook_gateway: Mutex::new(None),
             wecom_gateway: Mutex::new(None),
             wechat_gateway: Mutex::new(None),
-            mqtt_relay: Mutex::new(None),
             shared_session_mapping: SessionMapping::new(),
             session_initialized: Mutex::new(false),
         }
@@ -2318,204 +2309,6 @@ pub async fn test_wechat_connection(bot_token: String) -> Result<String, String>
         return Err("Bot token is required".to_string());
     }
     wechat::test_connection(&bot_token).await
-}
-
-// ─── MQTT Relay Commands ───────────────────────────────────────────
-
-#[tauri::command]
-pub async fn get_mqtt_relay_config(
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-) -> Result<MqttConfig, String> {
-    let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-    let workspace_path = guard.workspace_path.clone().ok_or("No workspace path")?;
-    drop(guard);
-    let config = read_config(&workspace_path)?;
-    Ok(config.channels.and_then(|c| c.mqtt).unwrap_or_default())
-}
-
-#[tauri::command]
-pub async fn save_mqtt_relay_config(
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-    config: MqttConfig,
-) -> Result<(), String> {
-    let workspace_path = {
-        let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        guard.workspace_path.clone().ok_or("No workspace path")?
-    };
-
-    let mut config = config;
-    let existing_mqtt = read_config(&workspace_path)
-        .ok()
-        .and_then(|c| c.channels)
-        .and_then(|c| c.mqtt);
-
-    // Auto-generate team_id if not set
-    if config.team_id.is_empty() {
-        let existing = existing_mqtt
-            .as_ref()
-            .map(|c| c.team_id.clone())
-            .unwrap_or_default();
-        config.team_id = if existing.is_empty() {
-            uuid::Uuid::new_v4().to_string()
-        } else {
-            existing
-        };
-    }
-
-    // Auto-generate device_id if not set
-    if config.device_id.is_empty() {
-        let existing = existing_mqtt
-            .as_ref()
-            .map(|c| c.device_id.clone())
-            .unwrap_or_default();
-        config.device_id = if existing.is_empty() {
-            format!("desktop-{}", &uuid::Uuid::new_v4().to_string()[..8])
-        } else {
-            existing
-        };
-    }
-
-    let mut full_config = read_config(&workspace_path).unwrap_or_default();
-    let mut channels = full_config.channels.unwrap_or_default();
-    channels.mqtt = Some(config.clone());
-    full_config.channels = Some(channels);
-    write_config(&workspace_path, &full_config)?;
-
-    let relay_clone = {
-        let guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
-        guard.as_ref().cloned()
-    };
-    if let Some(relay) = relay_clone {
-        relay.set_config(config).await;
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn start_mqtt_relay(
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-    oss_state: State<'_, crate::commands::oss_sync::OssSyncState>,
-) -> Result<(), String> {
-    let (port, workspace_path) = {
-        let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-        let port = guard.port;
-        let ws = guard.workspace_path.clone().ok_or("No workspace path")?;
-        (port, ws)
-    };
-
-    let mqtt_config = read_config(&workspace_path)?
-        .channels
-        .and_then(|c| c.mqtt)
-        .ok_or("MQTT relay config not found")?;
-
-    // Create relay if not exists (need mutable access, then drop guard)
-    {
-        let mut relay_guard = gateway_state.mqtt_relay.lock().map_err(|e| e.to_string())?;
-        if relay_guard.is_none() {
-            let mut relay = MqttRelay::new(port, workspace_path);
-            relay.set_oss_sync_state(oss_state.manager.clone());
-            *relay_guard = Some(relay);
-        }
-    }
-
-    // Clone relay and use it outside the lock
-    let relay = gateway_state
-        .mqtt_relay
-        .lock()
-        .map_err(|e| e.to_string())?
-        .as_ref()
-        .cloned()
-        .ok_or("Failed to create MQTT relay")?;
-
-    relay.set_config(mqtt_config).await;
-    relay.start().await?;
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn stop_mqtt_relay(gateway_state: State<'_, GatewayState>) -> Result<(), String> {
-    let relay = gateway_state
-        .mqtt_relay
-        .lock()
-        .map_err(|e| e.to_string())?
-        .as_ref()
-        .cloned();
-    if let Some(relay) = relay {
-        relay.stop().await?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_mqtt_relay_status(
-    gateway_state: State<'_, GatewayState>,
-) -> Result<MqttRelayStatus, String> {
-    let relay = gateway_state
-        .mqtt_relay
-        .lock()
-        .map_err(|e| e.to_string())?
-        .as_ref()
-        .cloned();
-    if let Some(relay) = relay {
-        Ok(relay.get_status().await)
-    } else {
-        Ok(MqttRelayStatus {
-            connected: false,
-            broker_host: None,
-            paired_device_count: 0,
-            error_message: None,
-        })
-    }
-}
-
-#[tauri::command]
-pub async fn generate_mqtt_pairing_code(
-    gateway_state: State<'_, GatewayState>,
-) -> Result<String, String> {
-    let relay = gateway_state
-        .mqtt_relay
-        .lock()
-        .map_err(|e| e.to_string())?
-        .as_ref()
-        .ok_or("MQTT relay not started")?
-        .clone();
-    relay.generate_pairing_code().await
-}
-
-#[tauri::command]
-pub async fn unpair_mqtt_device(
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-    device_id: String,
-) -> Result<(), String> {
-    let relay = gateway_state
-        .mqtt_relay
-        .lock()
-        .map_err(|e| e.to_string())?
-        .as_ref()
-        .cloned();
-
-    if let Some(relay) = relay {
-        relay.unpair_device(&device_id).await?;
-
-        // Persist updated config
-        let workspace_path = {
-            let guard = opencode_state.inner.lock().map_err(|e| e.to_string())?;
-            guard.workspace_path.clone().ok_or("No workspace path")?
-        };
-
-        let config = relay.get_config().await;
-        let mut full_config = read_config(&workspace_path).unwrap_or_default();
-        let mut channels = full_config.channels.unwrap_or_default();
-        channels.mqtt = Some(config);
-        full_config.channels = Some(channels);
-        write_config(&workspace_path, &full_config)?;
-    }
-    Ok(())
 }
 
 /// Load personal shortcuts from the workspace config file (teamclaw.json).
