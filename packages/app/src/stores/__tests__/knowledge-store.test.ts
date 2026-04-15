@@ -90,12 +90,15 @@ describe('Knowledge Store', () => {
       expect(useKnowledgeStore.getState().indexStatus).toEqual(status)
     })
 
-    it('shows toast on error', async () => {
+    it('warns on error without toast', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       mockInvoke.mockRejectedValueOnce(new Error('fail'))
 
       await useKnowledgeStore.getState().loadIndexStatus()
 
-      expect(mockToast.error).toHaveBeenCalledWith('knowledge.toast.loadIndexStatusFailed')
+      expect(warnSpy).toHaveBeenCalled()
+      expect(mockToast.error).not.toHaveBeenCalled()
+      warnSpy.mockRestore()
     })
   })
 

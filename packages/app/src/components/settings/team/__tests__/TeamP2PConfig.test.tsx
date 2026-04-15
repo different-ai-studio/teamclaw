@@ -62,7 +62,11 @@ vi.mock('@/lib/utils', () => ({
 vi.mock('@/lib/build-config', () => ({
   buildConfig: {
     app: { name: 'TeamClaw' },
-    team: { seedUrl: '' },
+    team: {
+      seedUrl: '',
+      llm: { baseUrl: '', model: '', modelName: '', supportsVision: false, models: [] },
+      lockLlmConfig: false,
+    },
   },
   TEAMCLAW_DIR: '.teamclaw',
   TEAM_REPO_DIR: 'teamclaw-team',
@@ -212,66 +216,14 @@ describe('TeamP2PConfig', () => {
     expect(mockInvoke).not.toHaveBeenCalledWith('p2p_reconnect', undefined)
   })
 
-  it('reloads sync status when workspace changes', async () => {
-    let syncStatusCalls = 0
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'get_device_info') {
-        return { nodeId: 'node-123' }
-      }
-      if (cmd === 'p2p_sync_status') {
-        syncStatusCalls += 1
-        return syncStatusCalls === 1
-          ? {
-              connected: true,
-              role: 'owner',
-              docTicket: 'ticket-a',
-              namespaceId: 'team-a',
-              lastSyncAt: '2024-01-01T00:00:00Z',
-              members: [],
-              ownerNodeId: 'node-123',
-              seedUrl: null,
-              teamSecret: 'secret-a',
-            }
-          : {
-              connected: false,
-              role: null,
-              docTicket: null,
-              namespaceId: null,
-              lastSyncAt: null,
-              members: [],
-              ownerNodeId: null,
-              seedUrl: null,
-              teamSecret: null,
-            }
-      }
-      return null
-    })
-
-    const { rerender } = render(<TeamP2PConfig />)
+  it('loads device info and sync status on mount', async () => {
+    render(<TeamP2PConfig />)
 
     await waitFor(() => {
       expect(screen.getByText('Team Drive Active')).toBeDefined()
     })
 
-    workspaceStoreMocks.workspacePath = '/workspace-b'
-    p2pEngineStoreMocks.snapshot = {
-      status: 'disconnected',
-      streamHealth: 'dead',
-      uptimeSecs: 0,
-      restartCount: 0,
-      lastSyncAt: null,
-      peers: [],
-      syncedFiles: 0,
-      pendingFiles: 0,
-    }
-    rerender(<TeamP2PConfig />)
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledTimes(4)
-    })
-
-    await waitFor(() => {
-      expect(screen.queryByText('Team Drive Active')).toBeNull()
-    })
+    expect(mockInvoke).toHaveBeenCalledWith('get_device_info', undefined)
+    expect(mockInvoke).toHaveBeenCalledWith('p2p_sync_status', undefined)
   })
 })

@@ -91,45 +91,29 @@ describe('TeamP2P Publish Flow', () => {
     })
   })
 
-  it('shows cancel button in create form', async () => {
+  it('shows team name input in the create form', async () => {
     await renderTeamSection()
 
     await act(async () => {
       await new Promise(r => setTimeout(r, 50))
     })
 
-    // Open the create form
-    await act(async () => {
-      const buttons = screen.getAllByRole('button', { name: /create team/i })
-      fireEvent.click(buttons[0])
-    })
-
+    // The create form is always visible (inline) when not connected
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /cancel/i })).toBeDefined()
+      expect(screen.getByPlaceholderText(/team name/i)).toBeDefined()
     })
   })
 
-  it('hides form when cancel is clicked', async () => {
+  it('shows create team button in the form', async () => {
     await renderTeamSection()
 
     await act(async () => {
       await new Promise(r => setTimeout(r, 50))
     })
 
-    // Open the create form
-    await act(async () => {
-      const buttons = screen.getAllByRole('button', { name: /create team/i })
-      fireEvent.click(buttons[0])
-    })
-
-    // Cancel
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
-    })
-
-    // Form input should no longer be visible
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText(/team name/i)).toBeNull()
+      const buttons = screen.getAllByRole('button', { name: /create team/i })
+      expect(buttons.length).toBeGreaterThan(0)
     })
   })
 })

@@ -54,7 +54,7 @@ beforeEach(() => {
 })
 
 describe('TeamSection dual tabs (P2P / S3)', () => {
-  it('shows exactly two tabs: P2P and S3', async () => {
+  it('shows exactly three tabs: P2P, S3, and Git', async () => {
     const { TeamSection } = await import('../components/settings/TeamSection')
 
     await act(async () => {
@@ -62,12 +62,13 @@ describe('TeamSection dual tabs (P2P / S3)', () => {
     })
 
     const tabs = screen.queryAllByRole('tab')
-    expect(tabs.length).toBe(2)
+    expect(tabs.length).toBe(3)
     expect(tabs[0].textContent).toBe('P2P')
     expect(tabs[1].textContent).toBe('S3')
+    expect(tabs[2].textContent).toBe('Git')
   })
 
-  it('does not show a Git or WebDAV tab', async () => {
+  it('does not show a WebDAV tab', async () => {
     const { TeamSection } = await import('../components/settings/TeamSection')
 
     await act(async () => {
@@ -75,7 +76,6 @@ describe('TeamSection dual tabs (P2P / S3)', () => {
     })
 
     const tabs = screen.queryAllByRole('tab')
-    expect(tabs.every(t => !t.textContent?.toLowerCase().includes('git'))).toBe(true)
     expect(tabs.every(t => !t.textContent?.toLowerCase().includes('webdav'))).toBe(true)
   })
 })

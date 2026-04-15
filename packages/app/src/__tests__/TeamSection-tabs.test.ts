@@ -50,7 +50,7 @@ beforeEach(() => {
 })
 
 describe('TeamSection tab switcher', () => {
-  it('renders two tabs: P2P and S3', async () => {
+  it('renders three tabs: P2P, S3, and Git', async () => {
     const { TeamSection } = await import('../components/settings/TeamSection')
 
     await act(async () => {
@@ -58,9 +58,10 @@ describe('TeamSection tab switcher', () => {
     })
 
     const tabs = screen.queryAllByRole('tab')
-    expect(tabs.length).toBe(2)
+    expect(tabs.length).toBe(3)
     expect(tabs[0].textContent).toBe('P2P')
     expect(tabs[1].textContent).toBe('S3')
+    expect(tabs[2].textContent).toBe('Git')
   })
 
   it('renders a heading for the Team section', async () => {
