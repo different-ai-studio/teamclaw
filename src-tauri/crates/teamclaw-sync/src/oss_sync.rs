@@ -576,7 +576,16 @@ impl OssSyncManager {
             .key(key)
             .send()
             .await
-            .map_err(|e| format!("S3 GET {key} failed: {e}"))?;
+            .map_err(|e| {
+                let msg = format!("S3 GET {key} failed: {e}");
+                if let aws_sdk_s3::error::SdkError::ServiceError(ref se) = e {
+                    let raw = se.raw();
+                    let status = raw.status().as_u16();
+                    let body = std::str::from_utf8(raw.body().bytes().unwrap_or_default()).unwrap_or("<non-utf8>");
+                    warn!("{msg} | status={status} body={body}");
+                }
+                msg
+            })?;
 
         let data = resp
             .body
@@ -1215,6 +1224,7 @@ impl OssSyncManager {
 
             let doc = self.get_doc(doc_type);
             let files_map = doc.get_map("files");
+            let seen = self.seen_disk_files.get(&doc_type);
             let map_value = files_map.get_deep_value();
             if let loro::LoroValue::Map(entries) = &map_value {
                 for (path, value) in entries.iter() {
@@ -1224,6 +1234,15 @@ impl OssSyncManager {
                             _ => false,
                         };
                         if !deleted && !local_files.contains_key(path.as_str()) {
+                            // Only treat as a deletion if we previously saw this
+                            // file on disk.  Otherwise it may simply not have been
+                            // synced down yet.
+                            let was_seen = seen
+                                .map(|s| s.contains(path.as_str()))
+                                .unwrap_or(false);
+                            if !was_seen {
+                                continue;
+                            }
                             // At least one file was deleted locally — hand off
                             // to the full upload path which marks deletions.
                             return self.upload_local_changes(doc_type).await;
@@ -1938,6 +1957,218 @@ impl OssSyncManager {
         Ok(uploaded)
     }
 
+    /// Dump the CRDT state for a doc type — returns all file entries with
+    /// their deleted status, content length, and version count.
+    pub async fn list_remote_keys(&self, doc_type: DocType) -> Result<serde_json::Value, String> {
+        let snap_prefix = format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
+        let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
+        let gen_key = format!("teams/{}/{}/generation.json", self.team_id, doc_type.path());
+
+        let snap_keys = self.s3_list(&snap_prefix).await.unwrap_or_default();
+        let update_node_prefixes = self.s3_list_common_prefixes(&update_prefix).await.unwrap_or_default();
+        let mut update_keys: Vec<String> = Vec::new();
+        for np in &update_node_prefixes {
+            update_keys.extend(self.s3_list(np).await.unwrap_or_default());
+        }
+
+        let gen_exists = self.s3_get(&gen_key).await.is_ok();
+
+        info!(
+            "list_remote_keys({:?}): {} snapshots, {} updates, generation.json={}",
+            doc_type, snap_keys.len(), update_keys.len(), gen_exists
+        );
+
+        Ok(serde_json::json!({
+            "docType": doc_type.path(),
+            "generationExists": gen_exists,
+            "snapshotKeys": snap_keys,
+            "updateKeys": update_keys,
+        }))
+    }
+
+    pub fn dump_crdt_state(&self, doc_type: DocType) -> Result<serde_json::Value, String> {
+        let doc = self.get_doc(doc_type);
+        let files_map = doc.get_map("files");
+        let map_value = files_map.get_deep_value();
+
+        let mut entries = Vec::new();
+        if let loro::LoroValue::Map(file_entries) = map_value {
+            for (path, value) in file_entries.iter() {
+                if let loro::LoroValue::Map(entry) = value {
+                    let deleted = matches!(entry.get("deleted"), Some(loro::LoroValue::Bool(true)));
+                    let content_len = match entry.get("content") {
+                        Some(loro::LoroValue::String(s)) => s.len() as i64,
+                        _ => -1,
+                    };
+                    let updated_by = match entry.get("updatedBy") {
+                        Some(loro::LoroValue::String(s)) => s.as_ref().to_string(),
+                        _ => String::new(),
+                    };
+                    let updated_at = match entry.get("updatedAt") {
+                        Some(loro::LoroValue::String(s)) => s.as_ref().to_string(),
+                        _ => String::new(),
+                    };
+                    let version_count = match entry.get("versions") {
+                        Some(loro::LoroValue::List(list)) => list.len() as i64,
+                        _ => 0,
+                    };
+                    entries.push(serde_json::json!({
+                        "path": path.as_str(),
+                        "deleted": deleted,
+                        "contentLen": content_len,
+                        "updatedBy": updated_by,
+                        "updatedAt": updated_at,
+                        "versionCount": version_count,
+                    }));
+                }
+            }
+        }
+
+        Ok(serde_json::json!({
+            "docType": doc_type.path(),
+            "entryCount": entries.len(),
+            "entries": entries,
+        }))
+    }
+
+    /// Restore all deleted entries from their archived versions.
+    /// Returns the number of entries restored.
+    pub async fn restore_deleted_entries(&mut self, doc_type: DocType) -> Result<u32, String> {
+        let now = Utc::now().to_rfc3339();
+        let node_id = self.node_id.clone();
+        let mut restored_count = 0u32;
+
+        {
+            let doc = self.get_doc_mut(doc_type);
+            let files_map = doc.get_map("files");
+            let map_value = files_map.get_deep_value();
+
+            // Collect paths that need restoration
+            let mut to_restore: Vec<(String, String, String)> = Vec::new(); // (path, content, hash)
+            if let loro::LoroValue::Map(entries) = &map_value {
+                for (path, value) in entries.iter() {
+                    if let loro::LoroValue::Map(entry) = value {
+                        let deleted = matches!(entry.get("deleted"), Some(loro::LoroValue::Bool(true)));
+                        if !deleted {
+                            continue;
+                        }
+
+                        // Try to find the last non-deleted version in the archive
+                        if let Some(loro::LoroValue::List(versions)) = entry.get("versions") {
+                            for ver in versions.iter().rev() {
+                                if let loro::LoroValue::Map(ver_map) = ver {
+                                    let ver_deleted = matches!(
+                                        ver_map.get("deleted"),
+                                        Some(loro::LoroValue::Bool(true))
+                                    );
+                                    if ver_deleted {
+                                        continue;
+                                    }
+                                    if let Some(loro::LoroValue::String(content)) = ver_map.get("content") {
+                                        let hash = match ver_map.get("hash") {
+                                            Some(loro::LoroValue::String(h)) => h.as_ref().to_string(),
+                                            _ => String::new(),
+                                        };
+                                        to_restore.push((
+                                            path.to_string(),
+                                            content.as_ref().to_string(),
+                                            hash,
+                                        ));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // If no archived version found, try the entry's own content
+                        // (might still have content even if marked deleted)
+                        if !to_restore.iter().any(|(p, _, _)| p == path.as_str()) {
+                            if let Some(loro::LoroValue::String(content)) = entry.get("content") {
+                                if !content.is_empty() {
+                                    let hash = match entry.get("hash") {
+                                        Some(loro::LoroValue::String(h)) => h.as_ref().to_string(),
+                                        _ => String::new(),
+                                    };
+                                    to_restore.push((
+                                        path.to_string(),
+                                        content.as_ref().to_string(),
+                                        hash,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Apply restorations
+            for (path, content, hash) in &to_restore {
+                let computed_hash = if hash.is_empty() {
+                    Self::compute_hash(content.as_bytes())
+                } else {
+                    hash.clone()
+                };
+
+                let entry_map = files_map
+                    .get_or_create_container(path, loro::LoroMap::new())
+                    .map_err(|e| format!("restore: get map for {path}: {e}"))?;
+                entry_map
+                    .insert("content", content.as_str())
+                    .map_err(|e| format!("restore: set content for {path}: {e}"))?;
+                entry_map
+                    .insert("hash", computed_hash.as_str())
+                    .map_err(|e| format!("restore: set hash for {path}: {e}"))?;
+                entry_map
+                    .insert("deleted", false)
+                    .map_err(|e| format!("restore: set deleted for {path}: {e}"))?;
+                entry_map
+                    .insert("updatedBy", node_id.as_str())
+                    .map_err(|e| format!("restore: set updatedBy for {path}: {e}"))?;
+                entry_map
+                    .insert("updatedAt", now.as_str())
+                    .map_err(|e| format!("restore: set updatedAt for {path}: {e}"))?;
+
+                info!("Restored deleted entry {:?}/{}", doc_type, path);
+                restored_count += 1;
+            }
+        }
+
+        if restored_count > 0 {
+            // Write restored files to disk
+            self.write_doc_to_disk(doc_type)?;
+
+            // Upload the restoration
+            let updates = {
+                let doc = self.get_doc(doc_type);
+                doc.export(loro::ExportMode::snapshot())
+                    .map_err(|e| format!("restore: export snapshot: {e}"))?
+            };
+            let key = format!(
+                "teams/{}/{}/updates/{}/{}.bin",
+                self.team_id,
+                doc_type.path(),
+                self.node_id,
+                Utc::now().timestamp_millis()
+            );
+            self.upload_with_fallback(doc_type, &updates, &key).await?;
+
+            let current_vv = self.get_doc(doc_type).oplog_vv().encode();
+            self.last_exported_version.insert(doc_type, current_vv);
+
+            if let Err(e) = self.write_signal_flag().await {
+                warn!("restore: failed to write signal flag: {e}");
+            }
+            let _ = self.persist_local_snapshot(doc_type);
+
+            info!(
+                "Restored {} deleted entries for {:?} and uploaded",
+                restored_count, doc_type
+            );
+        }
+
+        Ok(restored_count)
+    }
+
     pub async fn upload_local_changes(&mut self, doc_type: DocType) -> Result<bool, String> {
         self.skipped_files.clear();
         let dir = self.team_dir.join(doc_type.dir_name());
@@ -2017,7 +2248,12 @@ impl OssSyncManager {
                 }
             }
 
-            // Mark deleted files
+            // Mark deleted files — only if we have previously seen the file
+            // on disk during this session.  Without this guard, a file that
+            // was never written to disk (e.g. because the app just started
+            // and write_doc_to_disk hasn't run yet) would be incorrectly
+            // marked as deleted, propagating the deletion to all nodes.
+            let seen = self.seen_disk_files.get(&doc_type);
             let map_value = files_map.get_deep_value();
             if let loro::LoroValue::Map(entries) = &map_value {
                 for (path, value) in entries.iter() {
@@ -2027,6 +2263,22 @@ impl OssSyncManager {
                             _ => false,
                         };
                         if !deleted && !local_files.contains_key(path.as_str()) {
+                            // Safety: only mark as deleted if we previously
+                            // observed this file on disk.  If the file was
+                            // never seen, it may simply not have been synced
+                            // down yet — marking it deleted would corrupt the
+                            // shared state.
+                            let was_seen = seen
+                                .map(|s| s.contains(path.as_str()))
+                                .unwrap_or(false);
+                            if !was_seen {
+                                info!(
+                                    "Skipping deletion of '{}' in {:?}: file was never seen on disk this session",
+                                    path, doc_type
+                                );
+                                continue;
+                            }
+
                             // Archive the current version before marking deleted
                             Self::archive_current_version(&files_map, path.as_str())?;
 
@@ -2113,11 +2365,42 @@ impl OssSyncManager {
                 if !remote_gen.is_empty() && remote_gen != local_gen {
                     info!("Generation mismatch for {:?}: local={}, remote={}", doc_type, local_gen, remote_gen);
 
+                    // Try the snapshot from generation.json first, then fall
+                    // back to listing the snapshots/ directory if it's missing.
+                    let mut reloaded = false;
                     if let Some(snap_key) = gen_json.get("snapshotKey").and_then(|v| v.as_str()) {
-                        let snap_data = self.s3_get(snap_key).await?;
-                        let doc = self.get_doc_mut(doc_type);
-                        doc.import(&snap_data).map_err(|e| format!("Re-bootstrap import failed: {e}"))?;
+                        match self.s3_get(snap_key).await {
+                            Ok(snap_data) => {
+                                let doc = self.get_doc_mut(doc_type);
+                                doc.import(&snap_data).map_err(|e| format!("Re-bootstrap import failed: {e}"))?;
+                                reloaded = true;
+                            }
+                            Err(e) => {
+                                warn!("Generation snapshot missing for {:?}, trying listing: {e}", doc_type);
+                            }
+                        }
+                    }
 
+                    // Fallback: list snapshots/ and try the latest one
+                    if !reloaded {
+                        let snap_prefix = format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
+                        let snap_keys = self.s3_list(&snap_prefix).await.unwrap_or_default();
+                        if let Some(latest) = snap_keys.last() {
+                            info!("Fallback: loading snapshot from listing: {latest}");
+                            match self.s3_get(latest).await {
+                                Ok(snap_data) => {
+                                    let doc = self.get_doc_mut(doc_type);
+                                    doc.import(&snap_data).map_err(|e| format!("Fallback snapshot import failed: {e}"))?;
+                                    reloaded = true;
+                                }
+                                Err(e) => {
+                                    warn!("Fallback snapshot also failed for {:?}: {e}", doc_type);
+                                }
+                            }
+                        }
+                    }
+
+                    if reloaded {
                         self.last_known_key_per_node.retain(|k, _| k.0 != doc_type);
                         self.last_known_key.remove(&doc_type);
                         self.generation.insert(doc_type, remote_gen.to_string());
@@ -2409,15 +2692,21 @@ impl OssSyncManager {
                     let remote_gen = gen_json.get("generationId").and_then(|v| v.as_str()).unwrap_or("");
                     if let Some(snap_key) = gen_json.get("snapshotKey").and_then(|v| v.as_str()) {
                         info!("Initial sync: loading snapshot from generation.json: {snap_key}");
-                        let snap_data = self.s3_get(snap_key).await?;
-                        let doc = self.get_doc_mut(doc_type);
-                        doc.import(&snap_data).map_err(|e| {
-                            format!("Failed to import generation snapshot for {:?}: {e}", doc_type)
-                        })?;
-                        if !remote_gen.is_empty() {
-                            self.generation.insert(doc_type, remote_gen.to_string());
+                        match self.s3_get(snap_key).await {
+                            Ok(snap_data) => {
+                                let doc = self.get_doc_mut(doc_type);
+                                doc.import(&snap_data).map_err(|e| {
+                                    format!("Failed to import generation snapshot for {:?}: {e}", doc_type)
+                                })?;
+                                if !remote_gen.is_empty() {
+                                    self.generation.insert(doc_type, remote_gen.to_string());
+                                }
+                                snapshot_loaded = true;
+                            }
+                            Err(e) => {
+                                warn!("Initial sync: generation.json snapshot missing, will try listing: {e}");
+                            }
                         }
-                        snapshot_loaded = true;
                     }
                 }
             }
