@@ -42,9 +42,14 @@ struct ContentView: View {
             }
         }
         .onReceive(connectionMonitor.mqttService.receivedMessage.receive(on: DispatchQueue.main)) { mqttMessage in
-            guard case .collabControl(let ctrl) = mqttMessage.payload,
-                  ctrl.type == .collabCreate else { return }
-            handleCollabCreate(ctrl)
+            switch mqttMessage.payload {
+            case .collabControl(let ctrl) where ctrl.type == .collabCreate:
+                handleCollabCreate(ctrl)
+            case .memberSyncResponse(let resp):
+                handleMemberSync(resp)
+            default:
+                break
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, pairingManager.isAuthenticated else { return }
@@ -161,6 +166,56 @@ struct ContentView: View {
             let sessionTopic = "teamclaw/\(creds.teamID)/session/\(ctrl.sessionID)"
             connectionMonitor.mqttService.subscribe(topic: sessionTopic, qos: 1)
         }
+    }
+
+    /// IDs received across all pages of the current member sync cycle.
+    @State private var memberSyncReceivedIDs: Set<String> = []
+
+    private func handleMemberSync(_ response: Teamclaw_MemberSyncResponse) {
+        let pg = response.pagination
+        guard !response.members.isEmpty || pg.total > 0 else { return }
+
+        let isFirstPage = pg.page <= 1
+        if isFirstPage { memberSyncReceivedIDs.removeAll() }
+
+        for data in response.members {
+            memberSyncReceivedIDs.insert(data.id)
+            let member = TeamMember(
+                id: data.id,
+                name: data.name,
+                avatarURL: data.avatarURL,
+                department: data.hasDepartment ? data.department : "",
+                isAIAlly: data.isAiAlly,
+                note: data.note
+            )
+            modelContext.insert(member)
+        }
+
+        let hasMore = pg.total > pg.page * pg.pageSize
+        if hasMore {
+            // Request next page
+            guard let creds = pairingManager.credentials else { return }
+            let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+            var req = Teamclaw_MemberSyncRequest()
+            var nextPg = Teamclaw_PageRequest()
+            nextPg.page = pg.page + 1
+            nextPg.pageSize = pg.pageSize
+            req.pagination = nextPg
+            connectionMonitor.mqttService.publish(
+                topic: topic,
+                message: ProtoMQTTCoder.makeEnvelope(.memberSyncRequest(req)),
+                qos: 1
+            )
+        } else {
+            // Remove stale members not present in this sync cycle
+            let descriptor = FetchDescriptor<TeamMember>()
+            if let existing = try? modelContext.fetch(descriptor) {
+                for member in existing where !memberSyncReceivedIDs.contains(member.id) {
+                    modelContext.delete(member)
+                }
+            }
+        }
+        try? modelContext.save()
     }
 
     private func resubscribeCollabSessions(creds: PairingCredentials) {

@@ -13,14 +13,10 @@ struct NewSessionSheet: View {
     @State private var collaborators: [TeamMember] = []
     @State private var messageText: String = ""
     @State private var showMemberPicker = false
-    @State private var isSending = false
-    @State private var pendingSession: Session?
-    @State private var pendingSessionID: String?
-    @State private var timeoutWork: DispatchWorkItem?
     @FocusState private var isInputFocused: Bool
 
     private var canSend: Bool {
-        !isSending && !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -33,19 +29,6 @@ struct NewSessionSheet: View {
                     inputBar
                 }
 
-                if isSending {
-                    Color.black.opacity(0.2)
-                        .ignoresSafeArea()
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .controlSize(.large)
-                        Text("等待 AI 响应...")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                }
             }
             .navigationTitle("New Session")
             .navigationBarTitleDisplayMode(.large)
@@ -56,7 +39,6 @@ struct NewSessionSheet: View {
                     }
                 }
             }
-            .allowsHitTesting(!isSending)
         }
         .sheet(isPresented: $showMemberPicker) {
             UnifiedMemberSheet(
@@ -71,19 +53,8 @@ struct NewSessionSheet: View {
                 mqttService: mqttService
             )
         }
-        .interactiveDismissDisabled(isSending)
         .onAppear {
             isInputFocused = true
-        }
-        .onDisappear {
-            timeoutWork?.cancel()
-        }
-        .onReceive(mqttService.receivedMessage.receive(on: DispatchQueue.main)) { msg in
-            guard isSending, let pendingSessionID else { return }
-            if case .chatResponse(let response) = msg.payload,
-               response.sessionID == pendingSessionID {
-                completeNavigation()
-            }
         }
     }
 
@@ -165,16 +136,25 @@ struct NewSessionSheet: View {
         guard !text.isEmpty else { return }
         guard let creds = PairingManager.currentCredentials else { return }
 
+        let isCollab = !collaborators.isEmpty
         let sessionID = UUID().uuidString
         let title = text.count > 40 ? String(text.prefix(40)) + "…" : text
+
+        var collaboratorIDs = collaborators.map(\.id)
+        if isCollab && !collaboratorIDs.contains(creds.deviceID) {
+            collaboratorIDs.append(creds.deviceID)
+        }
+
         let session = Session(
             id: sessionID,
             title: title,
             agentName: collaborators.first?.name ?? "AI",
             lastMessageContent: text,
             lastMessageTime: Date(),
-            isCollaborative: !collaborators.isEmpty,
-            collaboratorIDs: collaborators.map(\.id)
+            isCollaborative: isCollab,
+            collaboratorIDs: collaboratorIDs,
+            ownerNodeId: isCollab ? creds.deviceID : nil,
+            agentHostDevice: isCollab ? creds.desktopDeviceID : nil
         )
         modelContext.insert(session)
 
@@ -189,37 +169,72 @@ struct NewSessionSheet: View {
         modelContext.insert(userMessage)
         try? modelContext.save()
 
-        isSending = true
-        pendingSession = session
-        pendingSessionID = sessionID
         isInputFocused = false
 
-        // Send ChatRequest via MQTT (response handled by .onReceive)
-        let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
-        var req = Teamclaw_ChatRequest()
-        req.sessionID = sessionID
-        req.content = text
-        let msg = ProtoMQTTCoder.makeEnvelope(.chatRequest(req))
-        mqttService.publish(topic: topic, message: msg, qos: 1)
+        // For collaborative sessions, send CollabControl CREATE first
+        if isCollab {
+            let username = UserDefaults.standard.string(forKey: "teamclaw_username") ?? ""
 
-        // Timeout: navigate anyway after 30 seconds
-        let work = DispatchWorkItem { [self] in
-            if isSending { completeNavigation() }
+            var control = Teamclaw_CollabControl()
+            control.type = .collabCreate
+            control.senderID = creds.deviceID
+            control.senderName = username
+            control.sessionID = sessionID
+            control.agentHostDevice = creds.desktopDeviceID
+
+            for collab in collaborators {
+                var member = Teamclaw_CollabMember()
+                member.nodeID = collab.id
+                member.name = collab.name
+                control.members.append(member)
+            }
+            var selfMember = Teamclaw_CollabMember()
+            selfMember.nodeID = creds.deviceID
+            selfMember.name = username
+            control.members.append(selfMember)
+
+            let envelope = ProtoMQTTCoder.makeEnvelope(.collabControl(control))
+
+            // Send to desktop via the chat/req topic it actually listens on
+            let reqTopic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+            mqttService.publish(topic: reqTopic, message: envelope, qos: 1)
+
+            // Notify each collaborator via their inbox
+            for collab in collaborators {
+                let inboxTopic = "teamclaw/\(creds.teamID)/user/\(collab.id)/inbox"
+                mqttService.publish(topic: inboxTopic, message: envelope, qos: 1)
+            }
+
+            // Subscribe to the session topic
+            let sessionTopic = "teamclaw/\(creds.teamID)/session/\(sessionID)"
+            mqttService.subscribe(topic: sessionTopic, qos: 1)
         }
-        timeoutWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
-    }
 
-    private func completeNavigation() {
-        guard isSending, let session = pendingSession else { return }
-        timeoutWork?.cancel()
-        timeoutWork = nil
-        isSending = false
-        pendingSession = nil
-        pendingSessionID = nil
+        // Send ChatRequest via MQTT
+        let chatTopic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        // For collab sessions, delay to let desktop process CollabControl CREATE first
+        if isCollab {
+            let svc = mqttService
+            let sid = sessionID
+            let txt = text
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                var req = Teamclaw_ChatRequest()
+                req.sessionID = sid
+                req.content = txt
+                svc.publish(topic: chatTopic, message: ProtoMQTTCoder.makeEnvelope(.chatRequest(req)), qos: 1)
+            }
+        } else {
+            var req = Teamclaw_ChatRequest()
+            req.sessionID = sessionID
+            req.content = text
+            mqttService.publish(topic: chatTopic, message: ProtoMQTTCoder.makeEnvelope(.chatRequest(req)), qos: 1)
+        }
+
+        // Navigate immediately — AI response will stream into ChatDetailView
         onCreated(session)
         dismiss()
     }
+
 }
 
 // MARK: - CollaboratorChip

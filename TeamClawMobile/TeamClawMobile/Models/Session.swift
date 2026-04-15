@@ -23,6 +23,8 @@ final class Session {
     var ownerNodeId: String?
     // Collab session: desktop device ID that hosts the agent
     var agentHostDevice: String?
+    // OpenCode session ID — returned by desktop after first message
+    var openCodeSessionID: String?
 
     init(
         id: String,
@@ -40,7 +42,8 @@ final class Session {
         isPinned: Bool = false,
         isArchived: Bool = false,
         ownerNodeId: String? = nil,
-        agentHostDevice: String? = nil
+        agentHostDevice: String? = nil,
+        openCodeSessionID: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -58,5 +61,6 @@ final class Session {
         self.isArchived = isArchived
         self.ownerNodeId = ownerNodeId
         self.agentHostDevice = agentHostDevice
+        self.openCodeSessionID = openCodeSessionID
     }
 }

@@ -151,15 +151,15 @@ struct CreateCollabSheet: View {
 
         let envelope = ProtoMQTTCoder.makeEnvelope(.collabControl(control))
 
-        // Publish to each selected member's inbox
+        // Send to desktop via the chat/req topic it actually listens on
+        let reqTopic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
+        mqttService.publish(topic: reqTopic, message: envelope, qos: 1)
+
+        // Notify each collaborator via their inbox
         for memberID in selectedMemberIDs {
             let inboxTopic = "teamclaw/\(creds.teamID)/user/\(memberID)/inbox"
             mqttService.publish(topic: inboxTopic, message: envelope, qos: 1)
         }
-
-        // Publish to Desktop device topic so desktop agent joins
-        let desktopTopic = "teamclaw/\(creds.teamID)/\(creds.desktopDeviceID)/inbox"
-        mqttService.publish(topic: desktopTopic, message: envelope, qos: 1)
 
         // Subscribe to the session topic
         let sessionTopic = "teamclaw/\(creds.teamID)/session/\(sessionID)"

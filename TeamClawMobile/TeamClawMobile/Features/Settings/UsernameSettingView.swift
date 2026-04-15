@@ -10,10 +10,12 @@ struct UsernameSettingView: View {
 
     var body: some View {
         List {
-            Section("昵称") {
+            Section {
                 TextField("请输入昵称", text: $editedName)
                     .textContentType(.name)
                     .autocorrectionDisabled()
+            } header: {
+                Text("昵称")
             } footer: {
                 Text("其他团队成员将看到此昵称。")
             }

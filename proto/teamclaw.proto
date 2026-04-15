@@ -53,6 +53,8 @@ message ChatRequest {
   string content = 2;
   optional string image_url = 3;
   optional string model = 4;
+  optional string permission_mode = 5;  // "default" | "acceptEdits" | "plan" | "yolo"
+  optional string opencode_session_id = 6;  // OpenCode session ID for reuse
 
   // Collaboration sender info
   optional string sender_id = 10;
@@ -72,7 +74,9 @@ message ChatResponse {
   }
 }
 
-message StreamDone {}
+message StreamDone {
+  optional string opencode_session_id = 1;  // Sent back to iOS for session reuse
+}
 
 message StreamError {
   string message = 1;
@@ -102,6 +106,7 @@ message ChatCancel {
 message StatusReport {
   bool online = 1;
   optional string device_name = 2;
+  repeated string available_models = 3;
 }
 
 // ─── Sessions ───
@@ -224,6 +229,7 @@ message AutomationTaskData {
 
 message MessageSyncRequest {
   string session_id = 1;
+  optional string opencode_session_id = 2;
 }
 
 message MessageSyncResponse {

@@ -342,6 +342,26 @@ struct Teamclaw_ChatRequest: Sendable {
   /// Clears the value of `model`. Subsequent reads from it will return its default value.
   mutating func clearModel() {self._model = nil}
 
+  /// "default" | "acceptEdits" | "plan" | "yolo"
+  var permissionMode: String {
+    get {_permissionMode ?? String()}
+    set {_permissionMode = newValue}
+  }
+  /// Returns true if `permissionMode` has been explicitly set.
+  var hasPermissionMode: Bool {self._permissionMode != nil}
+  /// Clears the value of `permissionMode`. Subsequent reads from it will return its default value.
+  mutating func clearPermissionMode() {self._permissionMode = nil}
+
+  /// OpenCode session ID for reuse
+  var opencodeSessionID: String {
+    get {_opencodeSessionID ?? String()}
+    set {_opencodeSessionID = newValue}
+  }
+  /// Returns true if `opencodeSessionID` has been explicitly set.
+  var hasOpencodeSessionID: Bool {self._opencodeSessionID != nil}
+  /// Clears the value of `opencodeSessionID`. Subsequent reads from it will return its default value.
+  mutating func clearOpencodeSessionID() {self._opencodeSessionID = nil}
+
   /// Collaboration sender info
   var senderID: String {
     get {_senderID ?? String()}
@@ -377,6 +397,8 @@ struct Teamclaw_ChatRequest: Sendable {
 
   fileprivate var _imageURL: String? = nil
   fileprivate var _model: String? = nil
+  fileprivate var _permissionMode: String? = nil
+  fileprivate var _opencodeSessionID: String? = nil
   fileprivate var _senderID: String? = nil
   fileprivate var _senderName: String? = nil
   fileprivate var _senderType: String? = nil
@@ -452,9 +474,21 @@ struct Teamclaw_StreamDone: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// Sent back to iOS for session reuse
+  var opencodeSessionID: String {
+    get {_opencodeSessionID ?? String()}
+    set {_opencodeSessionID = newValue}
+  }
+  /// Returns true if `opencodeSessionID` has been explicitly set.
+  var hasOpencodeSessionID: Bool {self._opencodeSessionID != nil}
+  /// Clears the value of `opencodeSessionID`. Subsequent reads from it will return its default value.
+  mutating func clearOpencodeSessionID() {self._opencodeSessionID = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
+
+  fileprivate var _opencodeSessionID: String? = nil
 }
 
 struct Teamclaw_StreamError: Sendable {
@@ -558,6 +592,8 @@ struct Teamclaw_StatusReport: Sendable {
   var hasDeviceName: Bool {self._deviceName != nil}
   /// Clears the value of `deviceName`. Subsequent reads from it will return its default value.
   mutating func clearDeviceName() {self._deviceName = nil}
+
+  var availableModels: [String] = []
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -987,9 +1023,20 @@ struct Teamclaw_MessageSyncRequest: Sendable {
 
   var sessionID: String = String()
 
+  var opencodeSessionID: String {
+    get {_opencodeSessionID ?? String()}
+    set {_opencodeSessionID = newValue}
+  }
+  /// Returns true if `opencodeSessionID` has been explicitly set.
+  var hasOpencodeSessionID: Bool {self._opencodeSessionID != nil}
+  /// Clears the value of `opencodeSessionID`. Subsequent reads from it will return its default value.
+  mutating func clearOpencodeSessionID() {self._opencodeSessionID = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
+
+  fileprivate var _opencodeSessionID: String? = nil
 }
 
 struct Teamclaw_MessageSyncResponse: Sendable {
@@ -1712,7 +1759,7 @@ extension Teamclaw_MqttMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
 
 extension Teamclaw_ChatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ChatRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}content\0\u{3}image_url\0\u{1}model\0\u{4}\u{6}sender_id\0\u{3}sender_name\0\u{3}sender_type\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}content\0\u{3}image_url\0\u{1}model\0\u{3}permission_mode\0\u{3}opencode_session_id\0\u{4}\u{4}sender_id\0\u{3}sender_name\0\u{3}sender_type\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1724,6 +1771,8 @@ extension Teamclaw_ChatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
       case 2: try { try decoder.decodeSingularStringField(value: &self.content) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self._imageURL) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self._model) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._permissionMode) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self._opencodeSessionID) }()
       case 10: try { try decoder.decodeSingularStringField(value: &self._senderID) }()
       case 11: try { try decoder.decodeSingularStringField(value: &self._senderName) }()
       case 12: try { try decoder.decodeSingularStringField(value: &self._senderType) }()
@@ -1749,6 +1798,12 @@ extension Teamclaw_ChatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
     try { if let v = self._model {
       try visitor.visitSingularStringField(value: v, fieldNumber: 4)
     } }()
+    try { if let v = self._permissionMode {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
+    try { if let v = self._opencodeSessionID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 6)
+    } }()
     try { if let v = self._senderID {
       try visitor.visitSingularStringField(value: v, fieldNumber: 10)
     } }()
@@ -1766,6 +1821,8 @@ extension Teamclaw_ChatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
     if lhs.content != rhs.content {return false}
     if lhs._imageURL != rhs._imageURL {return false}
     if lhs._model != rhs._model {return false}
+    if lhs._permissionMode != rhs._permissionMode {return false}
+    if lhs._opencodeSessionID != rhs._opencodeSessionID {return false}
     if lhs._senderID != rhs._senderID {return false}
     if lhs._senderName != rhs._senderName {return false}
     if lhs._senderType != rhs._senderType {return false}
@@ -1894,18 +1951,33 @@ extension Teamclaw_ChatResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Teamclaw_StreamDone: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".StreamDone"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}opencode_session_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self._opencodeSessionID) }()
+      default: break
+      }
+    }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._opencodeSessionID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Teamclaw_StreamDone, rhs: Teamclaw_StreamDone) -> Bool {
+    if lhs._opencodeSessionID != rhs._opencodeSessionID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2072,7 +2144,7 @@ extension Teamclaw_ChatCancel: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
 
 extension Teamclaw_StatusReport: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".StatusReport"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}device_name\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}device_name\0\u{3}available_models\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2082,6 +2154,7 @@ extension Teamclaw_StatusReport: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularBoolField(value: &self.online) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self._deviceName) }()
+      case 3: try { try decoder.decodeRepeatedStringField(value: &self.availableModels) }()
       default: break
       }
     }
@@ -2098,12 +2171,16 @@ extension Teamclaw_StatusReport: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     try { if let v = self._deviceName {
       try visitor.visitSingularStringField(value: v, fieldNumber: 2)
     } }()
+    if !self.availableModels.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.availableModels, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Teamclaw_StatusReport, rhs: Teamclaw_StatusReport) -> Bool {
     if lhs.online != rhs.online {return false}
     if lhs._deviceName != rhs._deviceName {return false}
+    if lhs.availableModels != rhs.availableModels {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2873,7 +2950,7 @@ extension Teamclaw_AutomationTaskData: SwiftProtobuf.Message, SwiftProtobuf._Mes
 
 extension Teamclaw_MessageSyncRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MessageSyncRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}opencode_session_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2882,20 +2959,29 @@ extension Teamclaw_MessageSyncRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._opencodeSessionID) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.sessionID.isEmpty {
       try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
     }
+    try { if let v = self._opencodeSessionID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Teamclaw_MessageSyncRequest, rhs: Teamclaw_MessageSyncRequest) -> Bool {
     if lhs.sessionID != rhs.sessionID {return false}
+    if lhs._opencodeSessionID != rhs._opencodeSessionID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

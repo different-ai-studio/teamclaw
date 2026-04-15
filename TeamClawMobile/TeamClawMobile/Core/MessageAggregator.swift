@@ -41,7 +41,7 @@ final class MessageAggregator {
             states[messageID]!.subject.send(assembled)
         case .error(let err):
             states[messageID]!.subject.send("[Error: \(err.message)]")
-        case .toolEvent, .hasThinking:
+        case .toolEvent, .hasThinking_p:
             break
         case .none:
             break
@@ -62,11 +62,14 @@ final class MessageAggregator {
     }
 
     private func assembleInOrder(chunks: [Int: String]) -> String {
+        guard !chunks.isEmpty else { return "" }
+        let maxSeq = chunks.keys.max() ?? 0
         var result = ""
-        var seq = 0
-        while let delta = chunks[seq] {
-            result += delta
-            seq += 1
+        for seq in 0...maxSeq {
+            if let delta = chunks[seq] {
+                result += delta
+            }
+            // Skip gaps (tool events, thinking flags, etc.)
         }
         return result
     }

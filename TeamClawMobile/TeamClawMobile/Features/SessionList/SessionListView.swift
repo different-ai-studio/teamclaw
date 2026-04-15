@@ -16,7 +16,7 @@ struct SessionListView: View {
     @State private var showFunctionPanel = false
     @State private var showMemberPanel = false
     @State private var showNewSession = false
-    @State private var showNewCollab = false
+
     @State private var navigationPath: [String] = []
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
@@ -40,11 +40,15 @@ struct SessionListView: View {
         _viewModel = StateObject(wrappedValue: SessionListViewModel(mqttService: mqttService))
     }
 
-    private var workspaceTitle: String {
-        if let name = pairingManager.pairedDeviceName, !name.isEmpty {
-            return "\(name) Sessions"
+    private var connectionSubtitle: String {
+        if connectionMonitor.connectionState == .reconnecting {
+            return "重新连接中…"
+        } else if !connectionMonitor.isMQTTConnected {
+            return "未连接"
+        } else if !connectionMonitor.isDesktopOnline {
+            return "桌面端离线"
         }
-        return "Sessions"
+        return ""
     }
 
     var body: some View {
@@ -80,7 +84,9 @@ struct SessionListView: View {
                     addMemberSession: $addMemberSession
                 )
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("会话")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbarRole(.editor)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -89,23 +95,6 @@ struct SessionListView: View {
                         Image(systemName: "square.grid.2x2")
                             .font(.title3)
                             .foregroundStyle(.primary)
-                    }
-                }
-
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(workspaceTitle)
-                            .font(.headline)
-                            .lineLimit(1)
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(connectionMonitor.isMQTTConnected && connectionMonitor.isDesktopOnline ? .green :
-                                      connectionMonitor.connectionState == .reconnecting ? .yellow : .red)
-                                .frame(width: 6, height: 6)
-                            Text("\(viewModel.filteredSessions.count) 个会话")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
                     }
                 }
 
@@ -132,11 +121,7 @@ struct SessionListView: View {
             }
             .navigationDestination(for: String.self) { sessionID in
                 if let session = viewModel.sessions.first(where: { $0.id == sessionID }) {
-                    if session.isCollaborative && session.ownerNodeId != nil {
-                        CollabChatView(session: session, mqttService: mqttService)
-                    } else {
-                        ChatDetailView(session: session, mqttService: mqttService)
-                    }
+                    ChatDetailView(session: session, mqttService: mqttService)
                 } else {
                     Text("Session not found")
                 }
@@ -157,15 +142,9 @@ struct SessionListView: View {
                     viewModel.applySearch()
                     navigationPath.append(newSession.id)
                 }
-                .navigationTransition(.zoom(sourceID: "newSession", in: sheetTransition))
+                .modifier(ZoomTransitionModifier(sourceID: "newSession", namespace: sheetTransition))
             }
-            .sheet(isPresented: $showNewCollab) {
-                CreateCollabSheet(mqttService: mqttService) { newSession in
-                    viewModel.sessions.insert(newSession, at: 0)
-                    viewModel.applySearch()
-                    navigationPath.append(newSession.id)
-                }
-            }
+
             .sheet(item: $addMemberSession) { session in
                 UnifiedMemberSheet(
                     mode: .select(
@@ -254,35 +233,19 @@ struct SessionListView: View {
                     .liquidGlass(in: Circle())
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    HStack(spacing: 8) {
-                        // "新建协作" button — only for fully paired users
-                        if pairingManager.isPaired && !isLightweightUser {
-                            Button {
-                                showNewCollab = true
-                            } label: {
-                                Image(systemName: "person.2.badge.plus")
-                                    .font(.title2)
-                                    .foregroundStyle(.primary)
-                                    .frame(width: 48, height: 48)
-                            }
-                            .liquidGlass(in: Circle())
-                            .transition(.scale.combined(with: .opacity))
+                    // "new session" button — hidden for lightweight users
+                    if !isLightweightUser {
+                        Button {
+                            showNewSession = true
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                                .font(.title2)
+                                .foregroundStyle(.primary)
+                                .frame(width: 48, height: 48)
                         }
-
-                        // Personal "new session" button — hidden for lightweight users
-                        if !isLightweightUser {
-                            Button {
-                                showNewSession = true
-                            } label: {
-                                Image(systemName: "square.and.pencil")
-                                    .font(.title2)
-                                    .foregroundStyle(.primary)
-                                    .frame(width: 48, height: 48)
-                            }
-                            .liquidGlass(in: Circle())
-                            .matchedTransitionSource(id: "newSession", in: sheetTransition)
-                            .transition(.scale.combined(with: .opacity))
-                        }
+                        .liquidGlass(in: Circle())
+                        .modifier(MatchedTransitionSourceModifier(sourceID: "newSession", namespace: sheetTransition))
+                        .transition(.scale.combined(with: .opacity))
                     }
                 }
             }
@@ -379,14 +342,20 @@ private struct SessionListContent: View {
             } else {
                 List {
                     ForEach(viewModel.groupedFilteredSessions) { group in
-                        Section(header: Text(group.title).font(.headline).foregroundStyle(.primary)) {
+                        Section {
                             ForEach(group.sessions, id: \.id) { session in
                                 sessionRow(session)
                             }
+                        } header: {
+                            Text(group.title)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
                         }
                     }
                 }
-                .listStyle(.insetGrouped)
+                .listStyle(.plain)
                 .refreshable {
                     viewModel.requestSessions()
                 }
@@ -427,7 +396,7 @@ private struct SessionListContent: View {
                 navigationPath.append(session.id)
             }
         }
-        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 16))
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 viewModel.togglePin(session)
@@ -491,22 +460,47 @@ struct SessionRowView: View {
     let session: Session
     let relativeTime: String
 
-    private var isActive: Bool {
+    private var hasUnread: Bool {
         guard let status = session.status else { return false }
         let s = status.lowercased()
         return s == "running" || s == "active"
     }
 
+    /// First character of agent name or session title for avatar
+    private var avatarInitial: String {
+        let name = session.agentName.isEmpty ? session.title : session.agentName
+        return String(name.prefix(1)).uppercased()
+    }
+
+    /// Deterministic color from session id
+    private var avatarColor: Color {
+        let colors: [Color] = [.blue, .purple, .orange, .green, .pink, .teal, .indigo, .mint]
+        let hash = session.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        return colors[abs(hash) % colors.count]
+    }
+
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            // Blue dot for active status
+        HStack(spacing: 12) {
+            // Unread indicator
             Circle()
-                .fill(isActive ? Color.blue : Color.clear)
+                .fill(hasUnread ? Color.blue : Color.clear)
                 .frame(width: 10, height: 10)
 
-            VStack(alignment: .leading, spacing: 3) {
-                // Line 1: title + pin icon + time
-                HStack {
+            // Avatar
+            ZStack {
+                Circle()
+                    .fill(avatarColor.gradient)
+                    .frame(width: 44, height: 44)
+                Text(avatarInitial)
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.white)
+            }
+
+            // Content
+            VStack(alignment: .leading, spacing: 4) {
+                // Line 1: title + badges + time + chevron
+                HStack(spacing: 4) {
                     if session.isPinned {
                         Image(systemName: "pin.fill")
                             .font(.caption2)
@@ -526,18 +520,22 @@ struct SessionRowView: View {
                     Spacer(minLength: 0)
 
                     Text(relativeTime)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Image(systemName: "chevron.right")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
 
                 // Line 2: last message preview
-                Text(session.lastMessageContent.isEmpty ? "—" : session.lastMessageContent)
+                Text(session.lastMessageContent.isEmpty ? "暂无消息" : session.lastMessageContent)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
         }
-        .padding(.vertical, 10)
+        .frame(height: 72)
     }
 }
 
@@ -559,6 +557,34 @@ private struct ConnectionBanner: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
         .background(color)
+    }
+}
+
+// MARK: - iOS 18 Transition Compatibility
+
+private struct ZoomTransitionModifier: ViewModifier {
+    let sourceID: String
+    let namespace: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.navigationTransition(.zoom(sourceID: sourceID, in: namespace))
+        } else {
+            content
+        }
+    }
+}
+
+private struct MatchedTransitionSourceModifier: ViewModifier {
+    let sourceID: String
+    let namespace: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.matchedTransitionSource(id: sourceID, in: namespace)
+        } else {
+            content
+        }
     }
 }
 

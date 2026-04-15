@@ -32,7 +32,7 @@ enum ProtoMQTTCoder {
             case .done: eventDesc = "done"
             case .error: eventDesc = "error"
             case .toolEvent(let t): eventDesc = "tool(\(t.toolName),\(t.status))"
-            case .hasThinking: eventDesc = "thinking"
+            case .hasThinking_p: eventDesc = "thinking"
             case .none: eventDesc = "none"
             @unknown default: eventDesc = "unknown"
             }

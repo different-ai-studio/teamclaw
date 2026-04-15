@@ -22,7 +22,9 @@ struct ChatInputBar: View {
 
     var body: some View {
         Group {
-            if isTextInputMode || isStreaming {
+            if isStreaming {
+                streamingStopButton
+            } else if isTextInputMode {
                 textInputBar
             } else {
                 floatingCapsules
@@ -112,6 +114,24 @@ struct ChatInputBar: View {
         .padding(.bottom, 8)
     }
 
+    // MARK: - Streaming Stop Button
+
+    private var streamingStopButton: some View {
+        HStack {
+            Spacer()
+            Button(action: onCancel) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(.red, in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
     // MARK: - Text Input Bar
 
     private var textInputBar: some View {
@@ -139,7 +159,7 @@ struct ChatInputBar: View {
                     .padding(.leading, 14)
                     .padding(.trailing, 4)
                     .padding(.vertical, 10)
-                    .disabled(isDisabled || isStreaming)
+                    .disabled(isDisabled)
                     .focused($isInputFocused)
 
                     if showActionButton {
@@ -151,17 +171,15 @@ struct ChatInputBar: View {
                 .background(Color(.systemGray6), in: Capsule())
 
                 // Dismiss text input mode
-                if !isStreaming {
-                    Button {
-                        text = ""
-                        isTextInputMode = false
-                        isInputFocused = false
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 17, weight: .medium))
-                            .frame(width: 40, height: 40)
-                            .liquidGlass(in: Circle())
-                    }
+                Button {
+                    text = ""
+                    isTextInputMode = false
+                    isInputFocused = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 40, height: 40)
+                        .liquidGlass(in: Circle())
                 }
             }
             .padding(.horizontal, 12)
@@ -172,33 +190,22 @@ struct ChatInputBar: View {
     // MARK: - Action Button
 
     private var showActionButton: Bool {
-        isStreaming || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    @ViewBuilder
     private var actionButton: some View {
-        if isStreaming {
-            Button(action: onCancel) {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(.red, in: Circle())
-            }
-        } else {
-            Button {
-                onSend()
-                isTextInputMode = false
-                isInputFocused = false
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(canSend ? Color.blue : Color.secondary, in: Circle())
-            }
-            .disabled(!canSend)
+        Button {
+            onSend()
+            isTextInputMode = false
+            isInputFocused = false
+        } label: {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(canSend ? Color.blue : Color.secondary, in: Circle())
         }
+        .disabled(!canSend)
     }
 
     private var canSend: Bool {

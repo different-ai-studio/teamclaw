@@ -185,7 +185,8 @@ struct ChatDetailView: View {
         .sheet(isPresented: $showMenuSheet) {
             ChatMenuSheet(
                 availableModels: viewModel.availableModels,
-                selectedModel: $viewModel.selectedModel
+                selectedModel: $viewModel.selectedModel,
+                permissionMode: $viewModel.permissionMode
             )
         }
         .onAppear {
@@ -208,6 +209,7 @@ struct ChatDetailView: View {
 struct ChatMenuSheet: View {
     let availableModels: [String]
     @Binding var selectedModel: String
+    @Binding var permissionMode: PermissionMode
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -232,11 +234,30 @@ struct ChatMenuSheet: View {
                 }
 
                 Section("权限") {
-                    HStack {
-                        Label("自动审批", systemImage: "checkmark.shield")
-                        Spacer()
-                        Text("开启")
-                            .foregroundStyle(.secondary)
+                    ForEach(PermissionMode.allCases) { mode in
+                        Button {
+                            permissionMode = mode
+                        } label: {
+                            HStack {
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(mode.displayName)
+                                            .foregroundStyle(.primary)
+                                        Text(mode.description)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } icon: {
+                                    Image(systemName: mode.icon)
+                                        .foregroundStyle(permissionMode == mode ? .blue : .secondary)
+                                }
+                                Spacer()
+                                if permissionMode == mode {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
                     }
                 }
             }

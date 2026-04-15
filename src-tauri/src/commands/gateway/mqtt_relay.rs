@@ -110,6 +110,28 @@ impl MqttRelay {
         }
     }
 
+    async fn resolve_or_create_opencode_session(
+        &self,
+        port: u16,
+        mobile_session_id: &str,
+    ) -> Result<String, String> {
+        // Check in-memory collab map first
+        if let Some(id) = self.collab_sessions.lock().await.get(mobile_session_id).cloned() {
+            return Ok(id);
+        }
+        // Create new OpenCode session
+        let oc_id = teamclaw_gateway::create_opencode_session(port).await?;
+        eprintln!(
+            "[MQTT Relay] Created OpenCode session {} for mobile session {}",
+            oc_id, mobile_session_id
+        );
+        self.collab_sessions
+            .lock()
+            .await
+            .insert(mobile_session_id.to_string(), oc_id.clone());
+        Ok(oc_id)
+    }
+
     /// Set the OssSyncState reference so the relay can read members from S3.
     pub fn set_oss_sync_state(
         &mut self,
@@ -255,6 +277,7 @@ impl MqttRelay {
                 } else {
                     None
                 },
+                available_models: vec![],
             },
         ));
         client
@@ -302,6 +325,20 @@ impl MqttRelay {
             .map_err(|e| format!("Protobuf decode failed: {}", e))?;
 
         let device_id = parts.get(2).map(|s| s.to_string());
+
+        let payload_type = match &msg.payload {
+            Some(proto::mqtt_message::Payload::ChatRequest(_)) => "ChatRequest",
+            Some(proto::mqtt_message::Payload::CollabControl(_)) => "CollabControl",
+            Some(proto::mqtt_message::Payload::ChatCancel(_)) => "ChatCancel",
+            Some(proto::mqtt_message::Payload::SessionSyncRequest(_)) => "SessionSyncRequest",
+            Some(proto::mqtt_message::Payload::MemberSyncRequest(_)) => "MemberSyncRequest",
+            Some(proto::mqtt_message::Payload::MessageSyncRequest(_)) => "MessageSyncRequest",
+            Some(proto::mqtt_message::Payload::SkillSyncRequest(_)) => "SkillSyncRequest",
+            Some(proto::mqtt_message::Payload::TalentSyncRequest(_)) => "TalentSyncRequest",
+            Some(proto::mqtt_message::Payload::AutomationSyncRequest(_)) => "AutomationSyncRequest",
+            _ => "Other",
+        };
+        eprintln!("[MQTT Relay] Received {} on topic {}", payload_type, topic);
 
         match msg.payload {
             Some(proto::mqtt_message::Payload::PairingRequest(ref req)) => {
@@ -391,7 +428,20 @@ impl MqttRelay {
         let device_id = parts.get(2).ok_or("Invalid topic format")?.to_string();
 
         let port = self.opencode_port;
-        let session_id = request.session_id.clone();
+        let mobile_session_id = request.session_id.clone();
+
+        // Use opencode_session_id from request if provided, otherwise resolve or create
+        let session_id = if let Some(ref oc_id) = request.opencode_session_id {
+            if !oc_id.is_empty() {
+                oc_id.clone()
+            } else {
+                self.resolve_or_create_opencode_session(port, &mobile_session_id)
+                    .await?
+            }
+        } else {
+            self.resolve_or_create_opencode_session(port, &mobile_session_id)
+                .await?
+        };
 
         let mut prompt_parts = vec![serde_json::json!({
             "type": "text",
@@ -424,30 +474,39 @@ impl MqttRelay {
             .map_err(|e| format!("SSE connect failed: {}", e))?;
 
         let body = serde_json::json!({ "parts": prompt_parts });
-        http_client
+        let prompt_resp = http_client
             .post(&prompt_url)
             .json(&body)
             .send()
             .await
             .map_err(|e| format!("Prompt send failed: {}", e))?;
+        let prompt_status = prompt_resp.status();
+        if !prompt_status.is_success() {
+            let resp_text = prompt_resp.text().await.unwrap_or_default();
+            eprintln!("[MQTT Relay] prompt_async failed: status={} body={}", prompt_status, &resp_text[..resp_text.len().min(200)]);
+            return Err(format!("prompt_async failed: {}", prompt_status));
+        }
+        eprintln!("[MQTT Relay] prompt_async OK for session {}", session_id);
 
-        // Create cancel token for this stream
+        // Create cancel token for this stream (keyed by mobile session ID for cancel lookups)
         let cancel_token = tokio_util::sync::CancellationToken::new();
         self.cancel_tokens
             .lock()
             .await
-            .insert(session_id.clone(), cancel_token.clone());
+            .insert(mobile_session_id.clone(), cancel_token.clone());
 
         let relay = self.clone();
-        let sid = session_id.clone();
+        // mobile_session_id for MQTT responses, opencode session_id for SSE event filtering
+        let mqtt_sid = mobile_session_id.clone();
+        let sse_sid = session_id.clone();
         tokio::spawn(async move {
             if let Err(e) = relay
-                .stream_sse_to_mqtt(sse_response, &device_id, &sid, &cancel_token)
+                .stream_sse_to_mqtt(sse_response, &device_id, &mqtt_sid, &sse_sid, &cancel_token)
                 .await
             {
                 eprintln!("[MQTT Relay] SSE streaming error: {}", e);
             }
-            relay.cancel_tokens.lock().await.remove(&sid);
+            relay.cancel_tokens.lock().await.remove(&mqtt_sid);
         });
 
         Ok(())
@@ -459,14 +518,26 @@ impl MqttRelay {
             session_id
         );
 
-        // Cancel the local SSE stream
+        // Cancel the local SSE stream (keyed by mobile session ID)
         if let Some(token) = self.cancel_tokens.lock().await.remove(session_id) {
             token.cancel();
         }
 
+        // Resolve collab session mapping for the OpenCode abort call
+        let opencode_session_id = {
+            let collab_map = self.collab_sessions.lock().await;
+            collab_map
+                .get(session_id)
+                .cloned()
+                .unwrap_or_else(|| session_id.to_string())
+        };
+
         // Also call OpenCode abort API
         let port = self.opencode_port;
-        let url = format!("http://127.0.0.1:{}/session/{}/abort", port, session_id);
+        let url = format!(
+            "http://127.0.0.1:{}/session/{}/abort",
+            port, opencode_session_id
+        );
         let _ = reqwest::Client::new().post(&url).send().await;
     }
 
@@ -476,6 +547,7 @@ impl MqttRelay {
         sse_response: reqwest::Response,
         device_id: &str,
         session_id: &str,
+        sse_session_id: &str,
         cancel_token: &tokio_util::sync::CancellationToken,
     ) -> Result<(), String> {
         let mut stream = sse_response.bytes_stream();
@@ -491,14 +563,13 @@ impl MqttRelay {
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
-                    // Send done to client so it stops waiting
-                    let msg = build_chat_done(session_id, seq);
+                    let msg = build_chat_done(session_id, seq, Some(sse_session_id));
                     self.publish_chat_response_proto(device_id, &msg).await?;
                     eprintln!("[MQTT Relay] Stream cancelled for session: {}", session_id);
                     break;
                 }
                 _ = tokio::time::sleep_until(deadline) => {
-                    let msg = build_chat_done(session_id, seq);
+                    let msg = build_chat_done(session_id, seq, Some(sse_session_id));
                     self.publish_chat_response_proto(device_id, &msg).await?;
                     break;
                 }
@@ -534,12 +605,27 @@ impl MqttRelay {
                                 let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
                                 let props = v.get("properties");
 
-                                // Filter: only process events for our session
+                                // Track part types to distinguish thinking text from real reply
+                                if event_type == "message.part.updated" {
+                                    if let Some(part) = props.and_then(|p| p.get("part")) {
+                                        let pt = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                        if pt == "reasoning" || pt == "thinking" {
+                                            if !sent_thinking {
+                                                sent_thinking = true;
+                                                let msg = build_chat_has_thinking(session_id, seq);
+                                                self.publish_chat_response_proto(device_id, &msg).await?;
+                                                seq += 1;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Filter: only process events for our session (match against OpenCode session ID)
                                 let event_sid = props
                                     .and_then(|p| p.get("sessionID").and_then(|s| s.as_str()))
                                     .or_else(|| props.and_then(|p| p.get("info").and_then(|i| i.get("sessionID").and_then(|s| s.as_str()))));
                                 if let Some(sid) = event_sid {
-                                    if sid != session_id { continue; }
+                                    if sid != sse_session_id { continue; }
                                 }
 
                                 match event_type {
@@ -549,6 +635,9 @@ impl MqttRelay {
                                             .unwrap_or("text");
                                         if field == "text" {
                                             if let Some(text) = props.and_then(|p| p.get("delta").and_then(|d| d.as_str())) {
+                                                if seq == 0 && pending_delta.is_empty() {
+                                                    eprintln!("[MQTT Relay] First text delta: {:?}", &text[..text.len().min(50)]);
+                                                }
                                                 pending_delta.push_str(text);
                                                 if last_flush.elapsed() >= flush_interval && !pending_delta.is_empty() {
                                                     let msg = build_chat_delta(session_id, seq, &pending_delta);
@@ -560,15 +649,16 @@ impl MqttRelay {
                                                 }
                                             }
                                         }
-                                        // field == "reasoning" → ignore (don't send thinking content)
+                                        // field == "reasoning" or pre-reasoning text → skip
                                     }
                                     "message.part.updated" => {
-                                        let part_type = props
+                                        let part = props.and_then(|p| p.get("part"));
+                                        let part_type = part
                                             .and_then(|p| p.get("type").and_then(|t| t.as_str()))
                                             .unwrap_or("");
 
                                         match part_type {
-                                            "tool" | "tool-call" => {
+                                            "tool" | "tool-call" | "tool-result" => {
                                                 // Flush any pending text delta first
                                                 if !pending_delta.is_empty() {
                                                     let msg = build_chat_delta(session_id, seq, &pending_delta);
@@ -579,20 +669,24 @@ impl MqttRelay {
                                                     last_flush = tokio::time::Instant::now();
                                                 }
 
-                                                let tool_name = props
+                                                let tool_name = part
                                                     .and_then(|p| p.get("tool").and_then(|t| t.as_str()))
+                                                    .or_else(|| part.and_then(|p| p.get("toolName").and_then(|t| t.as_str())))
                                                     .unwrap_or("unknown");
-                                                let tool_call_id = props
+                                                let tool_call_id = part
                                                     .and_then(|p| p.get("callID").and_then(|t| t.as_str()))
-                                                    .or_else(|| props.and_then(|p| p.get("id").and_then(|t| t.as_str())))
+                                                    .or_else(|| part.and_then(|p| p.get("toolCallId").and_then(|t| t.as_str())))
+                                                    .or_else(|| part.and_then(|p| p.get("id").and_then(|t| t.as_str())))
                                                     .unwrap_or("");
-                                                let state = props.and_then(|p| p.get("state"));
+                                                // Skip tool events without an ID (initial stub before details arrive)
+                                                if tool_call_id.is_empty() { continue; }
+                                                let state = part.and_then(|p| p.get("state"));
                                                 let status_raw = state
                                                     .and_then(|s| s.get("status"))
                                                     .and_then(|s| s.as_str())
                                                     .unwrap_or("");
-                                                let has_ended = props
-                                                    .and_then(|p| p.get("time"))
+                                                let time = props.and_then(|p| p.get("time"));
+                                                let has_ended = time
                                                     .and_then(|t| t.get("end"))
                                                     .is_some();
 
@@ -614,8 +708,7 @@ impl MqttRelay {
                                                         else { serde_json::to_string(r).unwrap_or_default() }
                                                     })
                                                     .unwrap_or_default();
-                                                let duration_ms = props
-                                                    .and_then(|p| p.get("time"))
+                                                let duration_ms = time
                                                     .and_then(|t| {
                                                         let start = t.get("start")?.as_f64()?;
                                                         let end = t.get("end")?.as_f64()?;
@@ -631,50 +724,32 @@ impl MqttRelay {
                                                 self.publish_chat_response_proto(device_id, &msg).await?;
                                                 seq += 1;
                                             }
-                                            "thinking" | "reasoning" => {
-                                                if !sent_thinking {
-                                                    sent_thinking = true;
-                                                    let msg = build_chat_has_thinking(session_id, seq);
-                                                    self.publish_chat_response_proto(device_id, &msg).await?;
-                                                    seq += 1;
-                                                }
-                                            }
                                             _ => {}
                                         }
                                     }
                                     "message.completed" => {
+                                        // Flush pending delta but don't end stream — more messages
+                                        // may follow (e.g. tool calls then final reply)
+                                        if !pending_delta.is_empty() {
+                                            let msg = build_chat_delta(session_id, seq, &pending_delta);
+                                            self.publish_chat_response_proto(device_id, &msg).await?;
+                                            full_content.push_str(&pending_delta);
+                                            pending_delta.clear();
+                                            seq += 1;
+                                            last_flush = tokio::time::Instant::now();
+                                        }
+                                    }
+                                    "session.idle" => {
+                                        eprintln!("[MQTT Relay] session.idle: seq={} pending={}bytes full={}bytes", seq, pending_delta.len(), full_content.len());
                                         if !pending_delta.is_empty() {
                                             let msg = build_chat_delta(session_id, seq, &pending_delta);
                                             self.publish_chat_response_proto(device_id, &msg).await?;
                                             seq += 1;
                                             pending_delta.clear();
                                         }
-                                        let msg = build_chat_done(session_id, seq);
+                                        let msg = build_chat_done(session_id, seq, Some(sse_session_id));
                                         self.publish_chat_response_proto(device_id, &msg).await?;
                                         return Ok(());
-                                    }
-                                    "message.updated" => {
-                                        // message.updated with time.completed signals assistant message finished
-                                        let is_completed = props
-                                            .and_then(|p| p.get("info"))
-                                            .and_then(|i| i.get("time"))
-                                            .and_then(|t| t.get("completed"))
-                                            .is_some();
-                                        let is_assistant = props
-                                            .and_then(|p| p.get("info"))
-                                            .and_then(|i| i.get("role").and_then(|r| r.as_str()))
-                                            == Some("assistant");
-                                        if is_completed && is_assistant && seq > 0 {
-                                            if !pending_delta.is_empty() {
-                                                let msg = build_chat_delta(session_id, seq, &pending_delta);
-                                                self.publish_chat_response_proto(device_id, &msg).await?;
-                                                seq += 1;
-                                                pending_delta.clear();
-                                            }
-                                            let msg = build_chat_done(session_id, seq);
-                                            self.publish_chat_response_proto(device_id, &msg).await?;
-                                            return Ok(());
-                                        }
                                     }
                                     _ => {}
                                 }
@@ -691,7 +766,7 @@ impl MqttRelay {
                                 self.publish_chat_response_proto(device_id, &msg).await?;
                                 seq += 1;
                             }
-                            let msg = build_chat_done(session_id, seq);
+                            let msg = build_chat_done(session_id, seq, Some(sse_session_id));
                             self.publish_chat_response_proto(device_id, &msg).await?;
                             break;
                         }
@@ -1107,7 +1182,17 @@ impl MqttRelay {
         req: &proto::MessageSyncRequest,
     ) -> Result<(), String> {
         let port = self.opencode_port;
-        let session_id = &req.session_id;
+        let mobile_session_id = &req.session_id;
+        // Use opencode_session_id from request if provided, otherwise resolve from map
+        let session_id = if let Some(ref oc_id) = req.opencode_session_id {
+            if !oc_id.is_empty() { oc_id.clone() } else { mobile_session_id.clone() }
+        } else {
+            let collab_map = self.collab_sessions.lock().await;
+            collab_map
+                .get(mobile_session_id)
+                .cloned()
+                .unwrap_or_else(|| mobile_session_id.clone())
+        };
         let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
 
         let client = reqwest::Client::builder()
@@ -1277,7 +1362,7 @@ impl MqttRelay {
 
         let msg = build_envelope(proto::mqtt_message::Payload::MessageSyncResponse(
             proto::MessageSyncResponse {
-                session_id: session_id.clone(),
+                session_id: mobile_session_id.clone(),
                 messages,
             },
         ));
@@ -1949,7 +2034,7 @@ impl MqttRelay {
                                 let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
                                 let props = v.get("properties");
 
-                                // Filter to our session
+                                // Filter to our session (match against OpenCode session ID)
                                 let event_sid = props
                                     .and_then(|p| p.get("sessionID").and_then(|s| s.as_str()))
                                     .or_else(|| props.and_then(|p| p.get("info").and_then(|i| i.get("sessionID").and_then(|s| s.as_str()))));
@@ -2021,6 +2106,8 @@ impl MqttRelay {
                 content: content.to_string(),
                 image_url: None,
                 model: None,
+                permission_mode: None,
+                opencode_session_id: None,
                 sender_id: Some(config.device_id.clone()),
                 sender_name: Some(config.device_name.clone()),
                 sender_type: Some("agent".to_string()),
@@ -2084,12 +2171,14 @@ fn build_chat_delta(session_id: &str, seq: i32, delta: &str) -> proto::MqttMessa
     ))
 }
 
-fn build_chat_done(session_id: &str, seq: i32) -> proto::MqttMessage {
+fn build_chat_done(session_id: &str, seq: i32, opencode_session_id: Option<&str>) -> proto::MqttMessage {
     build_envelope(proto::mqtt_message::Payload::ChatResponse(
         proto::ChatResponse {
             session_id: session_id.to_string(),
             seq,
-            event: Some(proto::chat_response::Event::Done(proto::StreamDone {})),
+            event: Some(proto::chat_response::Event::Done(proto::StreamDone {
+                opencode_session_id: opencode_session_id.map(|s| s.to_string()),
+            })),
         },
     ))
 }

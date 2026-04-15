@@ -2,6 +2,42 @@ import Combine
 import Foundation
 import SwiftData
 
+enum PermissionMode: String, CaseIterable, Identifiable {
+    case `default` = "default"
+    case acceptEdits = "acceptEdits"
+    case plan = "plan"
+    case yolo = "yolo"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .default: "默认"
+        case .acceptEdits: "接受编辑"
+        case .plan: "计划模式"
+        case .yolo: "Yolo 模式"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .default: "shield"
+        case .acceptEdits: "pencil.and.outline"
+        case .plan: "list.bullet.clipboard"
+        case .yolo: "bolt.fill"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .default: "每次操作都需要确认"
+        case .acceptEdits: "自动接受文件编辑"
+        case .plan: "先制定计划再执行"
+        case .yolo: "自动执行所有操作"
+        }
+    }
+}
+
 @MainActor
 final class ChatDetailViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
@@ -12,6 +48,7 @@ final class ChatDetailViewModel: ObservableObject {
     @Published var isDesktopOnline = true
     @Published var selectedModel: String = "default"
     @Published var availableModels: [String] = ["default"]
+    @Published var permissionMode: PermissionMode = .default
     @Published var streamingToolCalls: [ToolCallInfo] = []
     private var hasStreamingThinking = false
 
@@ -67,6 +104,9 @@ final class ChatDetailViewModel: ObservableObject {
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
         var req = Teamclaw_MessageSyncRequest()
         req.sessionID = sessionID
+        if let ocID = fetchSession()?.openCodeSessionID, !ocID.isEmpty {
+            req.opencodeSessionID = ocID
+        }
         let msg = ProtoMQTTCoder.makeEnvelope(.messageSyncRequest(req))
         mqttService.publish(topic: topic, message: msg, qos: 1)
     }
@@ -91,6 +131,10 @@ final class ChatDetailViewModel: ObservableObject {
         req.sessionID = sessionID
         req.content = text
         if selectedModel != "default" { req.model = selectedModel }
+        if permissionMode != .default { req.permissionMode = permissionMode.rawValue }
+        if let ocID = fetchSession()?.openCodeSessionID, !ocID.isEmpty {
+            req.opencodeSessionID = ocID
+        }
 
         guard let creds = PairingManager.currentCredentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
@@ -118,6 +162,10 @@ final class ChatDetailViewModel: ObservableObject {
         req.content = ""
         req.imageURL = ossURL
         if selectedModel != "default" { req.model = selectedModel }
+        if permissionMode != .default { req.permissionMode = permissionMode.rawValue }
+        if let ocID = fetchSession()?.openCodeSessionID, !ocID.isEmpty {
+            req.opencodeSessionID = ocID
+        }
 
         guard let creds = PairingManager.currentCredentials else { return }
         let topic = "teamclaw/\(creds.teamID)/\(creds.deviceID)/chat/req"
@@ -161,6 +209,9 @@ final class ChatDetailViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 self?.isDesktopOnline = status.online
+                if !status.availableModels.isEmpty {
+                    self?.availableModels = status.availableModels
+                }
             }
             .store(in: &cancellables)
     }
@@ -170,9 +221,14 @@ final class ChatDetailViewModel: ObservableObject {
         isLoadingHistory = false
         var newMessages: [ChatMessage] = []
         let existingIDs = Set(messages.map(\.id))
+        // Also track content+role for dedup against locally created messages (which use different IDs)
+        let existingContent = Set(messages.map { "\($0.role.rawValue):\($0.content.prefix(100))" })
 
         for data in response.messages {
             guard !existingIDs.contains(data.id) else { continue }
+            let role: MessageRole = data.role == "assistant" ? .assistant : .user
+            let contentKey = "\(role.rawValue):\(data.content.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))"
+            guard !existingContent.contains(contentKey) else { continue }
 
             let messageParts: [MessagePart] = data.parts.map { partData in
                 if partData.type == "tool" && partData.hasTool {
@@ -195,7 +251,6 @@ final class ChatDetailViewModel: ObservableObject {
             let displayContent = data.content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !displayContent.isEmpty || !messageParts.isEmpty else { continue }
 
-            let role: MessageRole = data.role == "assistant" ? .assistant : .user
             let message = ChatMessage(
                 id: data.id,
                 sessionID: sessionID,
@@ -204,7 +259,7 @@ final class ChatDetailViewModel: ObservableObject {
                 timestamp: Date(timeIntervalSince1970: data.timestamp),
                 imageURL: data.hasImageURL ? data.imageURL : nil,
                 partsJSON: partsJSON,
-                hasThinking: data.hasThinking
+                hasThinking: data.hasThinking_p
             )
             modelContext.insert(message)
             newMessages.append(message)
@@ -240,7 +295,14 @@ final class ChatDetailViewModel: ObservableObject {
         aggregator.feed(messageID: messageID, chunk: response)
 
         switch response.event {
-        case .done:
+        case .done(let doneMsg):
+            // Save opencode_session_id for future requests
+            if doneMsg.hasOpencodeSessionID, !doneMsg.opencodeSessionID.isEmpty {
+                if let session = fetchSession() {
+                    session.openCodeSessionID = doneMsg.opencodeSessionID
+                    try? modelContext?.save()
+                }
+            }
             // Read final content directly from aggregator to avoid race with async Combine pipeline
             let finalContent = aggregator.currentContent(for: messageID)
             finishStreaming(messageID: messageID, content: finalContent)
@@ -263,12 +325,24 @@ final class ChatDetailViewModel: ObservableObject {
                 streamingToolCalls.append(info)
             }
 
-        case .hasThinking(let flag):
-            if flag { hasStreamingThinking = true }
+        case .hasThinking_p(let flag):
+            if flag {
+                hasStreamingThinking = true
+                // Clear thinking text from streaming — everything before this was thinking content
+                aggregator.reset(messageID: messageID)
+                streamingContent = ""
+            }
 
         default:
             break
         }
+    }
+
+    private func fetchSession() -> Session? {
+        guard let modelContext else { return nil }
+        let sid = sessionID
+        let descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.id == sid })
+        return try? modelContext.fetch(descriptor).first
     }
 
     private func finishStreaming(messageID: String, content: String) {
