@@ -44,6 +44,9 @@ pub struct WeComGatewayStatusResponse {
     pub status: WeComGatewayStatus,
     pub error_message: Option<String>,
     pub bot_id: Option<String>,
+    /// Active session keys (e.g. "wecom:dm:userid", "wecom:chatid")
+    #[serde(default)]
+    pub active_sessions: Vec<String>,
 }
 
 impl Default for WeComGatewayStatusResponse {
@@ -52,6 +55,7 @@ impl Default for WeComGatewayStatusResponse {
             status: WeComGatewayStatus::Disconnected,
             error_message: None,
             bot_id: None,
+            active_sessions: Vec::new(),
         }
     }
 }

@@ -160,6 +160,8 @@ export interface WeComGatewayStatusResponse {
   status: WeComGatewayStatus
   errorMessage?: string
   botId?: string
+  /** Active session keys (e.g. "wecom:dm:userid", "wecom:chatid") */
+  activeSessions?: string[]
 }
 
 export interface WeComQrAuthStart {

@@ -414,7 +414,17 @@ impl WeComGateway {
     }
 
     pub async fn get_status(&self) -> WeComGatewayStatusResponse {
-        self.status.read().await.clone()
+        let mut resp = self.status.read().await.clone();
+        // Populate active sessions from session mapping
+        let data = self.session_mapping.get_all_sessions().await;
+        resp.active_sessions = data
+            .sessions
+            .keys()
+            .filter(|k| k.starts_with("wecom:"))
+            .cloned()
+            .collect();
+        resp.active_sessions.sort();
+        resp
     }
 
     async fn set_status(&self, status: WeComGatewayStatus, error: Option<String>) {

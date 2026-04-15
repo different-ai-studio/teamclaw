@@ -12,6 +12,9 @@ import {
   ArrowLeft,
   Zap,
   ScanQrCode,
+  Copy,
+  MessageSquare,
+  Users,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { cn } from '@/lib/utils'
@@ -609,9 +612,16 @@ export function WeComChannel() {
         status={wecomGatewayStatus.status}
         statusDetail={
           wecomGatewayStatus.botId ? (
-            <p className="text-sm text-muted-foreground">
-              Bot: {wecomGatewayStatus.botId}
-            </p>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">
+                Bot: {wecomGatewayStatus.botId}
+              </p>
+              {wecomGatewayStatus.activeSessions && wecomGatewayStatus.activeSessions.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {wecomGatewayStatus.activeSessions.length} active session{wecomGatewayStatus.activeSessions.length !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
           ) : undefined
         }
         errorMessage={wecomGatewayStatus.errorMessage}
@@ -710,6 +720,44 @@ export function WeComChannel() {
             placeholder={t('settings.channels.wecom.encodingAesKeyPlaceholder', '43-character key for attachment decryption')}
           />
         </div>
+
+        {/* Active Sessions */}
+        {wecomGatewayStatus.activeSessions && wecomGatewayStatus.activeSessions.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              {t('settings.channels.wecom.activeSessions', 'Active Sessions')}
+              <span className="text-xs text-muted-foreground font-normal">({wecomGatewayStatus.activeSessions.length})</span>
+            </label>
+            <div className="space-y-1">
+              {wecomGatewayStatus.activeSessions.map((sessionKey) => {
+                const isDm = sessionKey.startsWith('wecom:dm:')
+                const chatId = isDm ? sessionKey.replace('wecom:dm:', '') : sessionKey.replace('wecom:', '')
+                return (
+                  <div
+                    key={sessionKey}
+                    className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-sm group"
+                  >
+                    {isDm ? (
+                      <MessageSquare className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                    ) : (
+                      <Users className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                    )}
+                    <span className="text-xs text-muted-foreground">{isDm ? 'DM' : 'Group'}</span>
+                    <code className="text-xs font-mono flex-1 truncate">{chatId}</code>
+                    <button
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+                      onClick={() => navigator.clipboard.writeText(chatId)}
+                      title={t('settings.channels.wecom.copyChatId', 'Copy Chat ID')}
+                    >
+                      <Copy className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Error message */}
         {wecomGatewayStatus.errorMessage && (
