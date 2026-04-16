@@ -9,7 +9,7 @@ import { useSessionStore } from "@/stores/session";
 import { useStreamingStore } from "@/stores/streaming";
 import { useVoiceInputStore } from "@/stores/voice-input";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useProviderStore, getSelectedModelOption } from "@/stores/provider";
+import { useProviderStore, type ModelOption } from "@/stores/provider";
 import { useTeamModeStore } from "@/stores/team-mode";
 import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
@@ -218,7 +218,32 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Provider store ────────────────────────────────────────────────────
   const currentModelKey = useProviderStore(s => s.currentModelKey);
   const initProviderStore = useProviderStore(s => s.initAll);
-  const selectedModelOption = useProviderStore((s) => getSelectedModelOption(s));
+  // Derive selected model from currentModelKey + models. Use useMemo with a
+  // ref to avoid returning a new object when the logical value hasn't changed.
+  // This prevents re-render cascades when initAll() rebuilds the models array
+  // with identical data (fixes TEAMCLAW-REACT-1R).
+  const providerModels = useProviderStore(s => s.models);
+  const selectedModelOptionRef = React.useRef<ModelOption | null>(null);
+  const selectedModelOption = React.useMemo(() => {
+    if (!currentModelKey) {
+      selectedModelOptionRef.current = null;
+      return null;
+    }
+    const idx = currentModelKey.indexOf('/');
+    if (idx < 0) {
+      selectedModelOptionRef.current = null;
+      return null;
+    }
+    const providerId = currentModelKey.substring(0, idx);
+    const modelId = currentModelKey.substring(idx + 1);
+    const found = providerModels.find((m) => m.provider === providerId && m.id === modelId) || null;
+    const prev = selectedModelOptionRef.current;
+    if (prev && found && prev.id === found.id && prev.provider === found.provider && prev.name === found.name) {
+      return prev; // stable reference
+    }
+    selectedModelOptionRef.current = found;
+    return found;
+  }, [currentModelKey, providerModels]);
 
   // ── Refs ───────────────────────────────────────────────────────────────
   const messageListRef = React.useRef<MessageListHandle>(null);
