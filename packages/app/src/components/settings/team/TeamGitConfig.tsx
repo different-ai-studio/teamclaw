@@ -18,7 +18,6 @@ import {
   EyeOff,
   KeyRound,
   ChevronRight,
-  ChevronLeft,
   BookOpen,
   Settings,
   Save,
@@ -115,8 +114,7 @@ export function TeamGitConfig() {
   const [disconnectDialogOpen, setDisconnectDialogOpen] = React.useState(false)
   const [repoGuideOpen, setRepoGuideOpen] = React.useState(false)
 
-  // Create/Join wizard state
-  const [setupMode, setSetupMode] = React.useState<'choose' | 'create' | 'join' | null>(null)
+  // Create/Join form state
   const [teamName, setTeamName] = React.useState('')
   const [memberName, setMemberName] = React.useState('')
   const [teamIdInput, setTeamIdInput] = React.useState('')
@@ -315,7 +313,7 @@ export function TeamGitConfig() {
       setCreatedTeamId(result.teamId)
       setCreatedTeamSecret(result.teamSecret)
       setState('connected')
-      setSetupMode(null)
+
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err))
       setState('unconfigured')
@@ -357,7 +355,7 @@ export function TeamGitConfig() {
       await tauriInvoke('save_team_config', { team: newConfig })
       setTeamConfig(newConfig)
       setState('connected')
-      setSetupMode(null)
+
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err))
       setState('unconfigured')
@@ -520,254 +518,76 @@ export function TeamGitConfig() {
         </SettingCard>
       )}
 
-      {/* Unconfigured State - Create/Join Wizard */}
+      {/* Unconfigured State - Create/Join (stacked cards, same as OSS) */}
       {(state === 'unconfigured' || state === 'connecting') && (
         <>
-          {/* Mode Chooser */}
-          {(!setupMode || setupMode === 'choose') && state !== 'connecting' && (
-            <SettingCard>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  {t('settings.team.chooseMode', 'How would you like to get started?')}
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    className={cn(
-                      "flex flex-col items-center gap-3 rounded-xl border-2 border-dashed p-6 transition-all hover:border-violet-400 hover:bg-violet-50/50 dark:hover:border-violet-600 dark:hover:bg-violet-950/20",
-                      "text-center cursor-pointer"
-                    )}
-                    onClick={() => setSetupMode('create')}
-                  >
-                    <div className="h-12 w-12 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-                      <Users className="h-6 w-6 text-violet-700 dark:text-violet-400" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{t('settings.team.createTeam', 'Create Team')}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('settings.team.createTeamDesc', 'Start a new team with a Git repo')}
-                      </p>
-                    </div>
-                  </button>
-                  <button
-                    className={cn(
-                      "flex flex-col items-center gap-3 rounded-xl border-2 border-dashed p-6 transition-all hover:border-blue-400 hover:bg-blue-50/50 dark:hover:border-blue-600 dark:hover:bg-blue-950/20",
-                      "text-center cursor-pointer"
-                    )}
-                    onClick={() => setSetupMode('join')}
-                  >
-                    <div className="h-12 w-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                      <UserPlus className="h-6 w-6 text-blue-700 dark:text-blue-400" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{t('settings.team.joinTeam', 'Join Team')}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('settings.team.joinTeamDesc', 'Join an existing team')}
-                      </p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </SettingCard>
-          )}
-
-          {/* Create Team Form */}
-          {setupMode === 'create' && (
-            <SettingCard>
-              <div className="space-y-4">
-                <button
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setSetupMode('choose')}
+          <SettingCard>
+            <div className="mb-4 flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <h4 className="text-sm font-semibold text-foreground/90">{t('settings.team.createTeam', 'Create Team')}</h4>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamName', 'Team Name')}</label>
+                <Input
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  placeholder="My Team"
+                  className="bg-background/50"
                   disabled={state === 'connecting'}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  {t('common.back', 'Back')}
-                </button>
-
-                <h4 className="font-medium flex items-center gap-2">
-                  <Users className="h-4 w-4 text-violet-500" />
-                  {t('settings.team.createTeam', 'Create Team')}
-                </h4>
-
-                {/* Team Name */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {t('settings.team.teamName', 'Team Name')}
-                  </label>
-                  <Input
-                    value={teamName}
-                    onChange={(e) => setTeamName(e.target.value)}
-                    placeholder={t('settings.team.teamNamePlaceholder', 'My Team')}
-                    className="h-11"
-                    disabled={state === 'connecting'}
-                  />
-                </div>
-
-                {/* Your Name */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {t('settings.team.yourName', 'Your Name')}
-                  </label>
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.yourName', 'Your Name')}</label>
                   <Input
                     value={memberName}
                     onChange={(e) => setMemberName(e.target.value)}
-                    placeholder={t('settings.team.yourNamePlaceholder', 'Alice')}
-                    className="h-11"
+                    placeholder="Alice"
+                    className="bg-background/50"
                     disabled={state === 'connecting'}
                   />
                 </div>
-
-                {/* Git URL */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium flex items-center gap-2">
-                    <GitBranch className="h-4 w-4 text-muted-foreground" />
-                    {t('settings.team.gitUrl', 'Git Repository URL')}
-                  </label>
-                  <Input
-                    value={gitUrl}
-                    onChange={(e) => setGitUrl(e.target.value)}
-                    placeholder={t('settings.team.gitUrlPlaceholder', 'https://github.com/team/shared-workspace.git')}
-                    className="h-11"
-                    disabled={state === 'connecting'}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t('settings.team.urlHint', 'Supports HTTPS and SSH URLs. SSH uses your system keys automatically.')}
-                  </p>
-                </div>
-
-                {/* Token Input - shown only for HTTPS URLs */}
-                {isHttpsUrl && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-2">
-                      <KeyRound className="h-4 w-4 text-muted-foreground" />
-                      {t('settings.team.personalToken', 'Personal Access Token')}
-                      <span className="text-xs text-muted-foreground font-normal">({t('settings.team.optional', 'optional')})</span>
-                    </label>
-                    <div className="relative">
-                      <Input
-                        type={showToken ? 'text' : 'password'}
-                        value={gitToken}
-                        onChange={(e) => setGitToken(e.target.value)}
-                        placeholder={t('settings.team.tokenPlaceholder', 'glpat-xxxxxxxxxxxxxxxxxxxx')}
-                        className="h-11 pr-10"
-                        disabled={state === 'connecting'}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-                        onClick={() => setShowToken(!showToken)}
-                      >
-                        {showToken ? (
-                          <EyeOff className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <Eye className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Branch Input */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium flex items-center gap-2">
-                    <GitBranch className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
                     {t('settings.team.gitBranch', 'Branch')}
-                    <span className="text-xs text-muted-foreground font-normal">({t('settings.team.optional', 'optional')})</span>
+                    <span className="text-muted-foreground/60 font-normal ml-1">({t('settings.team.optional', 'optional')})</span>
                   </label>
                   <Input
                     value={gitBranch}
                     onChange={(e) => setGitBranch(e.target.value)}
-                    placeholder={t('settings.team.gitBranchPlaceholder', 'main')}
-                    className="h-9 text-sm"
+                    placeholder="main"
+                    className="bg-background/50"
                     disabled={state === 'connecting'}
                   />
                 </div>
-
-                {/* LLM hosting */}
-                <HostLlmConfig
-                  enabled={hostLlm}
-                  onEnabledChange={setHostLlm}
-                  baseUrl={llmUrl}
-                  onBaseUrlChange={setLlmUrl}
-                  models={llmModels}
-                  onModelsChange={setLlmModels}
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.gitUrl', 'Git Repository URL')}</label>
+                <Input
+                  value={gitUrl}
+                  onChange={(e) => setGitUrl(e.target.value)}
+                  placeholder="https://github.com/team/shared-workspace.git"
+                  className="bg-background/50 font-mono text-xs"
                   disabled={state === 'connecting'}
                 />
-
-                {/* Connection progress */}
-                {state === 'connecting' && connectStep && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {connectStep}
-                  </div>
-                )}
-
-                <Button
-                  onClick={handleCreate}
-                  disabled={state === 'connecting' || !gitUrl.trim() || !teamName.trim() || !memberName.trim()}
-                  className="gap-2 w-full"
-                >
-                  {state === 'connecting' ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('settings.team.creating', 'Creating...')}
-                    </>
-                  ) : (
-                    <>
-                      <Users className="h-4 w-4" />
-                      {t('settings.team.createTeam', 'Create Team')}
-                    </>
-                  )}
-                </Button>
+                <p className="mt-1 text-xs text-muted-foreground/60">
+                  {t('settings.team.urlHint', 'Supports HTTPS and SSH URLs. SSH uses your system keys automatically.')}
+                </p>
               </div>
-            </SettingCard>
-          )}
-
-          {/* Join Team Form */}
-          {setupMode === 'join' && (
-            <SettingCard>
-              <div className="space-y-4">
-                <button
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setSetupMode('choose')}
-                  disabled={state === 'connecting'}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  {t('common.back', 'Back')}
-                </button>
-
-                <h4 className="font-medium flex items-center gap-2">
-                  <UserPlus className="h-4 w-4 text-blue-500" />
-                  {t('settings.team.joinTeam', 'Join Team')}
-                </h4>
-
-                {/* Team ID */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {t('settings.team.teamId', 'Team ID')}
-                  </label>
-                  <Input
-                    value={teamIdInput}
-                    onChange={(e) => setTeamIdInput(e.target.value)}
-                    placeholder={t('settings.team.teamIdPlaceholder', 'team-xxxxxxxx')}
-                    className="h-11"
-                    disabled={state === 'connecting'}
-                  />
-                </div>
-
-                {/* Team Secret */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {t('settings.team.teamSecret', 'Team Secret')}
+              {isHttpsUrl && (
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    {t('settings.team.personalToken', 'Personal Access Token')}
+                    <span className="text-muted-foreground/60 font-normal ml-1">({t('settings.team.optional', 'optional')})</span>
                   </label>
                   <div className="relative">
                     <Input
                       type={showToken ? 'text' : 'password'}
-                      value={teamSecretInput}
-                      onChange={(e) => setTeamSecretInput(e.target.value)}
-                      placeholder={t('settings.team.teamSecretPlaceholder', 'Paste the team secret here')}
-                      className="h-11 pr-10"
+                      value={gitToken}
+                      onChange={(e) => setGitToken(e.target.value)}
+                      placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+                      className="bg-background/50 pr-10"
                       disabled={state === 'connecting'}
                     />
                     <Button
@@ -777,136 +597,136 @@ export function TeamGitConfig() {
                       className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
                       onClick={() => setShowToken(!showToken)}
                     >
-                      {showToken ? (
-                        <EyeOff className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Eye className="h-4 w-4 text-muted-foreground" />
-                      )}
+                      {showToken ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
                     </Button>
                   </div>
                 </div>
+              )}
+              <HostLlmConfig
+                enabled={hostLlm}
+                onEnabledChange={setHostLlm}
+                baseUrl={llmUrl}
+                onBaseUrlChange={setLlmUrl}
+                models={llmModels}
+                onModelsChange={setLlmModels}
+                disabled={state === 'connecting'}
+              />
+              {state === 'connecting' && connectStep && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {connectStep}
+                </div>
+              )}
+              <Button
+                onClick={handleCreate}
+                disabled={state === 'connecting' || !gitUrl.trim() || !teamName.trim() || !memberName.trim()}
+                className="w-full"
+              >
+                <Users className="mr-2 h-4 w-4" />
+                {state === 'connecting' ? t('settings.team.creating', 'Creating...') : t('settings.team.createTeam', 'Create Team')}
+              </Button>
+            </div>
+          </SettingCard>
 
-                {/* Your Name */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {t('settings.team.yourName', 'Your Name')}
-                  </label>
+          <div className="relative flex items-center py-1">
+            <div className="flex-1 border-t border-border/40" />
+            <span className="px-3 text-xs text-muted-foreground">or</span>
+            <div className="flex-1 border-t border-border/40" />
+          </div>
+
+          <SettingCard>
+            <div className="mb-4 flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-muted-foreground" />
+              <h4 className="text-sm font-semibold text-foreground/90">{t('settings.team.joinTeam', 'Join Team')}</h4>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamId', 'Team ID')}</label>
                   <Input
-                    value={memberName}
-                    onChange={(e) => setMemberName(e.target.value)}
-                    placeholder={t('settings.team.yourNamePlaceholder', 'Alice')}
-                    className="h-11"
+                    value={teamIdInput}
+                    onChange={(e) => setTeamIdInput(e.target.value)}
+                    placeholder="tc-xxxxxxxxxxxx"
+                    className="font-mono bg-background/50"
                     disabled={state === 'connecting'}
                   />
                 </div>
-
-                {/* Git URL */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium flex items-center gap-2">
-                    <GitBranch className="h-4 w-4 text-muted-foreground" />
-                    {t('settings.team.gitUrl', 'Git Repository URL')}
-                  </label>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamSecret', 'Team Secret')}</label>
                   <Input
-                    value={gitUrl}
-                    onChange={(e) => setGitUrl(e.target.value)}
-                    placeholder={t('settings.team.gitUrlPlaceholder', 'https://github.com/team/shared-workspace.git')}
-                    className="h-11"
-                    disabled={state === 'connecting'}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t('settings.team.urlHint', 'Supports HTTPS and SSH URLs. SSH uses your system keys automatically.')}
-                  </p>
-                </div>
-
-                {/* Token Input - shown only for HTTPS URLs */}
-                {isHttpsUrl && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-2">
-                      <KeyRound className="h-4 w-4 text-muted-foreground" />
-                      {t('settings.team.personalToken', 'Personal Access Token')}
-                      <span className="text-xs text-muted-foreground font-normal">({t('settings.team.optional', 'optional')})</span>
-                    </label>
-                    <div className="relative">
-                      <Input
-                        type={showToken ? 'text' : 'password'}
-                        value={gitToken}
-                        onChange={(e) => setGitToken(e.target.value)}
-                        placeholder={t('settings.team.tokenPlaceholder', 'glpat-xxxxxxxxxxxxxxxxxxxx')}
-                        className="h-11 pr-10"
-                        disabled={state === 'connecting'}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-                        onClick={() => setShowToken(!showToken)}
-                      >
-                        {showToken ? (
-                          <EyeOff className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <Eye className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Branch Input */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium flex items-center gap-2">
-                    <GitBranch className="h-4 w-4 text-muted-foreground" />
-                    {t('settings.team.gitBranch', 'Branch')}
-                    <span className="text-xs text-muted-foreground font-normal">({t('settings.team.optional', 'optional')})</span>
-                  </label>
-                  <Input
-                    value={gitBranch}
-                    onChange={(e) => setGitBranch(e.target.value)}
-                    placeholder={t('settings.team.gitBranchPlaceholder', 'main')}
-                    className="h-9 text-sm"
+                    type="password"
+                    value={teamSecretInput}
+                    onChange={(e) => setTeamSecretInput(e.target.value)}
+                    placeholder={t('settings.team.teamSecretPlaceholder', 'Paste the team secret')}
+                    className="bg-background/50"
                     disabled={state === 'connecting'}
                   />
                 </div>
-
-                {/* LLM hosting */}
-                <HostLlmConfig
-                  enabled={hostLlm}
-                  onEnabledChange={setHostLlm}
-                  baseUrl={llmUrl}
-                  onBaseUrlChange={setLlmUrl}
-                  models={llmModels}
-                  onModelsChange={setLlmModels}
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.yourName', 'Your Name')}</label>
+                <Input
+                  value={memberName}
+                  onChange={(e) => setMemberName(e.target.value)}
+                  placeholder="Bob"
+                  className="bg-background/50"
                   disabled={state === 'connecting'}
                 />
-
-                {/* Connection progress */}
-                {state === 'connecting' && connectStep && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {connectStep}
-                  </div>
-                )}
-
-                <Button
-                  onClick={handleJoin}
-                  disabled={state === 'connecting' || !gitUrl.trim() || !teamIdInput.trim() || !teamSecretInput.trim() || !memberName.trim()}
-                  className="gap-2 w-full"
-                >
-                  {state === 'connecting' ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('settings.team.joining', 'Joining...')}
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus className="h-4 w-4" />
-                      {t('settings.team.joinTeam', 'Join Team')}
-                    </>
-                  )}
-                </Button>
               </div>
-            </SettingCard>
-          )}
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.gitUrl', 'Git Repository URL')}</label>
+                <Input
+                  value={gitUrl}
+                  onChange={(e) => setGitUrl(e.target.value)}
+                  placeholder="https://github.com/team/shared-workspace.git"
+                  className="bg-background/50 font-mono text-xs"
+                  disabled={state === 'connecting'}
+                />
+              </div>
+              {isHttpsUrl && (
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    {t('settings.team.personalToken', 'Personal Access Token')}
+                    <span className="text-muted-foreground/60 font-normal ml-1">({t('settings.team.optional', 'optional')})</span>
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showToken ? 'text' : 'password'}
+                      value={gitToken}
+                      onChange={(e) => setGitToken(e.target.value)}
+                      placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+                      className="bg-background/50 pr-10"
+                      disabled={state === 'connecting'}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                      onClick={() => setShowToken(!showToken)}
+                    >
+                      {showToken ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {state === 'connecting' && connectStep && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {connectStep}
+                </div>
+              )}
+              <Button
+                onClick={handleJoin}
+                disabled={state === 'connecting' || !gitUrl.trim() || !teamIdInput.trim() || !teamSecretInput.trim() || !memberName.trim()}
+                variant="outline"
+                className="w-full"
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                {state === 'connecting' ? t('settings.team.joining', 'Joining...') : t('settings.team.joinTeam', 'Join Team')}
+              </Button>
+            </div>
+          </SettingCard>
         </>
       )}
 
