@@ -310,8 +310,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       onDragOver={(e) => isDirectory ? onDragOver(e, node.path) : undefined}
       onDragLeave={(e) => isDirectory ? onDragLeave(e) : undefined}
       onDrop={(e) => isDirectory ? onDrop(e, node.path) : undefined}
-      onContextMenu={(e) => {
-        e.currentTarget.focus();
+      onContextMenu={() => {
         window.getSelection()?.removeAllRanges();
       }}
       data-path={node.path}
