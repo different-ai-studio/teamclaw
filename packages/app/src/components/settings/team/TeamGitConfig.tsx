@@ -122,6 +122,8 @@ export function TeamGitConfig() {
   const [createdTeamId, setCreatedTeamId] = React.useState('')
   const [createdTeamSecret, setCreatedTeamSecret] = React.useState('')
   const [showCreatedSecret, setShowCreatedSecret] = React.useState(false)
+  const [showTeamSecret, setShowTeamSecret] = React.useState(false)
+  const [loadedTeamSecret, setLoadedTeamSecret] = React.useState('')
 
   // LLM hosting (create form + connected editing share same state)
   const defaultLlmUrl = buildConfig.team.llm.baseUrl || ''
@@ -818,6 +820,81 @@ export function TeamGitConfig() {
               </div>
             </div>
           </SettingCard>
+
+          {/* Team Credentials (for sharing with new members) */}
+          {teamConfig.teamId && (
+            <SettingCard>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
+                    <KeyRound className="h-5 w-5 text-blue-700 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{t('settings.team.teamCredentials', 'Team Credentials')}</p>
+                    <p className="text-xs text-muted-foreground">{t('settings.team.teamCredentialsDesc', 'Share with new members to join')}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamId', 'Team ID')}</label>
+                    <div className="flex items-center gap-1.5">
+                      <code className="flex-1 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">{teamConfig.teamId}</code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 h-7 w-7 p-0"
+                        onClick={() => navigator.clipboard.writeText(teamConfig.teamId!)}
+                      >
+                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamSecret', 'Team Secret')}</label>
+                    <div className="flex items-center gap-1.5">
+                      <code className="flex-1 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">
+                        {showTeamSecret && loadedTeamSecret ? loadedTeamSecret : '••••••••••••••••'}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 h-7 w-7 p-0"
+                        onClick={async () => {
+                          if (!showTeamSecret && !loadedTeamSecret) {
+                            try {
+                              const secret = await tauriInvoke<string>('get_git_team_secret', { teamId: teamConfig.teamId })
+                              setLoadedTeamSecret(secret)
+                            } catch { /* ignore */ }
+                          }
+                          setShowTeamSecret(!showTeamSecret)
+                        }}
+                      >
+                        {showTeamSecret ? <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> : <Eye className="h-3.5 w-3.5 text-muted-foreground" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 h-7 w-7 p-0"
+                        onClick={async () => {
+                          if (!loadedTeamSecret) {
+                            try {
+                              const secret = await tauriInvoke<string>('get_git_team_secret', { teamId: teamConfig.teamId })
+                              setLoadedTeamSecret(secret)
+                              navigator.clipboard.writeText(secret)
+                            } catch { /* ignore */ }
+                          } else {
+                            navigator.clipboard.writeText(loadedTeamSecret)
+                          }
+                        }}
+                      >
+                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </SettingCard>
+          )}
 
           {/* LLM Service Config */}
           <SettingCard>

@@ -1559,6 +1559,16 @@ pub async fn init_git_team_secrets(
     Ok(())
 }
 
+/// Load the team secret from keychain for display in settings.
+#[tauri::command]
+pub async fn get_git_team_secret(
+    team_id: String,
+    opencode_state: State<'_, OpenCodeState>,
+) -> Result<String, String> {
+    let workspace_path = get_workspace_path(&opencode_state)?;
+    crate::commands::oss_sync::load_team_secret(&workspace_path, &team_id)
+}
+
 // ─── Tauri Commands: Config Management ──────────────────────────────────────
 
 /// 2.2 - Get team config from teamclaw.json
