@@ -23,6 +23,9 @@ pub struct TeamConfig {
     /// Git branch to sync (e.g. "main", "master", "dev"). If None, auto-detect.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_branch: Option<String>,
+    /// Team ID for shared secrets (generated on create, provided on join)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
 }
 
 /// A single model entry in the team LLM configuration.
@@ -241,7 +244,7 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let dirs = ["skills", ".mcp", "knowledge", "_feedback", "_meta"];
+    let dirs = ["skills", ".mcp", "knowledge", "_feedback", "_meta", "_secrets"];
     for d in &dirs {
         std::fs::create_dir_all(team_path.join(d))
             .map_err(|e| format!("Failed to create {}: {}", d, e))?;
@@ -481,6 +484,8 @@ const GITIGNORE_CONTENT: &str = r#"# ===========================================
 !_feedback/**
 !_meta/
 !_meta/**
+!_secrets/
+!_secrets/**
 
 # 3. Allow workspace config
 !.gitignore
