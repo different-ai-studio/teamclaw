@@ -1329,6 +1329,7 @@ pub async fn team_generate_gitignore(
 #[tauri::command]
 pub async fn team_sync_repo(
     opencode_state: State<'_, OpenCodeState>,
+    secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<TeamGitResult, String> {
     let workspace_path = get_workspace_path(&opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
@@ -1487,6 +1488,11 @@ pub async fn team_sync_repo(
         }
     };
 
+    // Reload shared secrets from disk (other members may have added/updated secrets)
+    if let Err(e) = crate::commands::shared_secrets::load_all_secrets(&secrets_state) {
+        println!("[Team Sync] Warning: Failed to reload shared secrets: {}", e);
+    }
+
     let sync_detail = if conflict_resolved {
         format!("Synced with origin/{} (conflict resolved, local backup in .trash/){}", branch, mcp_msg)
     } else if had_local_changes {
@@ -1522,6 +1528,35 @@ pub async fn team_disconnect_repo(
         success: true,
         message: "Team repository disconnected".to_string(),
     })
+}
+
+/// Initialize shared secrets for an already-configured Git team.
+/// Called on app startup when team config has a team_id.
+#[tauri::command]
+pub async fn init_git_team_secrets(
+    team_id: String,
+    opencode_state: State<'_, OpenCodeState>,
+    secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
+) -> Result<(), String> {
+    let workspace_path = get_workspace_path(&opencode_state)?;
+    let team_dir = get_team_repo_path(&workspace_path);
+    let team_path = Path::new(&team_dir);
+
+    if !team_path.join("_meta").join("team.json").exists() {
+        return Ok(()); // No team metadata yet, skip
+    }
+
+    let team_secret =
+        crate::commands::oss_sync::load_team_secret(&workspace_path, &team_id)
+            .map_err(|e| format!("Failed to load team secret: {e}"))?;
+
+    crate::commands::shared_secrets::init_shared_secrets(
+        &secrets_state,
+        &team_secret,
+        team_path,
+    )?;
+
+    Ok(())
 }
 
 // ─── Tauri Commands: Config Management ──────────────────────────────────────

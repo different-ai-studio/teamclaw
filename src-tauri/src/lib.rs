@@ -422,6 +422,7 @@ pub fn run() {
             commands::team::team_init_repo,
             commands::team::team_git_create,
             commands::team::team_git_join,
+            commands::team::init_git_team_secrets,
             commands::team::team_generate_gitignore,
             commands::team::team_sync_repo,
             commands::team::team_disconnect_repo,
