@@ -32,6 +32,7 @@ interface GitReposState {
   setPersonalSkillsUrl: (url: string) => Promise<void>
   setPersonalDocumentsUrl: (url: string) => Promise<void>
   setTeamRepoUrl: (type: 'skills' | 'documents', url: string) => Promise<void>
+  reset: () => void
 }
 
 function loadPersistedState(): Partial<{ gitAvailable: boolean; gitVersion: string }> {
@@ -153,5 +154,9 @@ export const useGitReposStore = create<GitReposState>((set, get) => ({
       config.team.documentsUrl = url
     }
     await get().setConfig(config)
+  },
+
+  reset: () => {
+    set({ repos: [], config: {}, initialized: false, syncing: false })
   },
 }))

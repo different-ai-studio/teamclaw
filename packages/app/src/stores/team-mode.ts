@@ -49,11 +49,13 @@ interface TeamStatusResponse {
   llm: TeamStatusLlm | null
 }
 
-async function fetchTeamStatus(): Promise<TeamStatusResponse | null> {
+async function fetchTeamStatus(workspacePath?: string): Promise<TeamStatusResponse | null> {
   if (!isTauri()) return null
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    return await invoke<TeamStatusResponse>('get_team_status')
+    return await invoke<TeamStatusResponse>('get_team_status', {
+      workspacePath: workspacePath ?? null,
+    })
   } catch (err) {
     console.warn('[TeamMode] Failed to read team status:', err)
     return null
@@ -76,7 +78,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
   loadTeamConfig: async (_workspacePath: string) => {
     // teamMode = p2p.enabled || ossConfigured
-    const status = await fetchTeamStatus()
+    const status = await fetchTeamStatus(_workspacePath)
     // Check OSS config directly from backend to avoid stale store state on workspace switch
     let ossConfigured = false
     if (isTauri()) {

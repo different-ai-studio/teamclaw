@@ -374,24 +374,29 @@ export function useGitReposInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
   const { initialize: initGitRepos, syncAll: syncGitRepos } = useGitReposStore();
-  const hasGitSynced = useRef(false);
+  const prevWorkspaceRef = useRef<string | null>(null);
   const teamSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Local git repos init — runs immediately when workspace is set
+  // Local git repos init — re-runs when workspace changes
   useEffect(() => {
-    if (workspacePath && !hasGitSynced.current) {
-      hasGitSynced.current = true;
+    if (!workspacePath) return;
 
-      initGitRepos()
-        .then(() => {
-          syncGitRepos().catch((err: unknown) => {
-            console.warn("[App] Git auto-sync failed (non-critical):", err);
-          });
-        })
-        .catch((err: unknown) => {
-          console.warn("[App] Git repos init failed (non-critical):", err);
-        });
+    const isWorkspaceChange = prevWorkspaceRef.current !== null && prevWorkspaceRef.current !== workspacePath;
+    prevWorkspaceRef.current = workspacePath;
+
+    if (isWorkspaceChange) {
+      useGitReposStore.getState().reset();
     }
+
+    initGitRepos()
+      .then(() => {
+        syncGitRepos().catch((err: unknown) => {
+          console.warn("[App] Git auto-sync failed (non-critical):", err);
+        });
+      })
+      .catch((err: unknown) => {
+        console.warn("[App] Git repos init failed (non-critical):", err);
+      });
   }, [workspacePath, initGitRepos, syncGitRepos]);
 
   // Team sync — deferred until sidecar is ready to avoid I/O contention

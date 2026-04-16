@@ -706,10 +706,19 @@ fn convert_team_server_to_opencode(server: &TeamMCPServer) -> MCPServerConfig {
 // ─── Tauri Commands: Team Status ─────────────────────────────────────────────
 
 /// Unified team status check — single source of truth for frontend.
+/// Accepts an optional `workspace_path` override so the frontend can pass
+/// the correct path during workspace switches (before `start_opencode` updates
+/// `OpenCodeState`).
 #[tauri::command]
-pub fn get_team_status(opencode_state: State<'_, OpenCodeState>) -> Result<TeamStatus, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
-    Ok(check_team_status(&workspace_path))
+pub fn get_team_status(
+    workspace_path: Option<String>,
+    opencode_state: State<'_, OpenCodeState>,
+) -> Result<TeamStatus, String> {
+    let ws = workspace_path
+        .filter(|p| !p.is_empty())
+        .or_else(|| get_workspace_path(&opencode_state).ok())
+        .ok_or("No workspace path set. Please select a workspace first.".to_string())?;
+    Ok(check_team_status(&ws))
 }
 
 /// Update LLM config for an existing team (any mode: P2P, OSS, Git, WebDAV).
