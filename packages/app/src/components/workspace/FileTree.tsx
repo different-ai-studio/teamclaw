@@ -349,13 +349,18 @@ export function FileTree({
     return { fileGitStatusMap: fileMap, dirtyDirectories: dirtyDirs };
   }, [effectiveShowGitStatus, gitStatuses, workspacePath]);
 
-  // Pre-compute sync status data for team files (merge OSS and P2P sources)
+  // Pre-compute sync status data for team files (merge OSS, P2P, and Git sources)
   const ossFileSyncStatusMap = useTeamOssStore(s => s.fileSyncStatusMap);
   const p2pFileSyncStatusMap = useTeamModeStore(s => s.p2pFileSyncStatusMap);
+  const teamGitFileSyncStatusMap = useTeamModeStore(s => s.teamGitFileSyncStatusMap);
   const p2pConnected = useTeamModeStore(s => s.p2pConnected);
+  const teamModeType = useTeamModeStore(s => s.teamModeType);
   const teamGitSyncing = useTeamModeStore(s => s.teamGitSyncing);
   const teamGitLastSyncAt = useTeamModeStore(s => s.teamGitLastSyncAt);
-  const fileSyncStatusMap = p2pConnected ? p2pFileSyncStatusMap : ossFileSyncStatusMap;
+  const fileSyncStatusMap =
+    teamModeType === 'git' ? teamGitFileSyncStatusMap :
+    p2pConnected           ? p2pFileSyncStatusMap     :
+                             ossFileSyncStatusMap;
   const syncDirtyDirectories = useMemo(() => {
     const dirtyDirs = new Map<string, 'synced' | 'modified' | 'new'>();
     if (!workspacePath) return dirtyDirs;
