@@ -35,7 +35,9 @@ export function KnowledgeBrowser() {
         toast.success(result.message)
         useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() })
         await refreshFileTree()
-        await useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath!)
+        if (workspacePath) {
+          await useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath)
+        }
       } else {
         toast.error(result.message)
       }

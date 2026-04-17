@@ -416,7 +416,9 @@ export function useGitReposInit() {
                     if (r.success) {
                       const { useTeamModeStore } = await import("@/stores/team-mode");
                       useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() });
-                      useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath);
+                      if (useTeamModeStore.getState().teamModeType === "git") {
+                        useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath);
+                      }
                       console.log("[App] Team repo sync completed (MCP configs updated)");
                     } else {
                       console.warn("[App] Team repo sync skipped:", r.message);
