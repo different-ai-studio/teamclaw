@@ -1689,7 +1689,14 @@
       "feedbackCount": "Feedback Count",
       "teamRanking": "Team Ranking",
       "clickToView": "Click to view",
-      "you": "You"
+      "you": "You",
+      "skillRank": "Skill Rank",
+      "skillInvocations": "Skill Invocations",
+      "totalSkills_one": "{{count}} skill",
+      "totalSkills_other": "{{count}} skills",
+      "topSkills": "Top Skills This Team",
+      "calls": "calls",
+      "usedBy": "{{n}} members"
     }
   },
   "skillssh": {

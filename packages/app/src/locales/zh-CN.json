@@ -1710,7 +1710,13 @@
       "feedbackCount": "反馈数",
       "teamRanking": "团队排名",
       "clickToView": "点击查看",
-      "you": "你"
+      "you": "你",
+      "skillRank": "Skill 排名",
+      "skillInvocations": "Skill 调用",
+      "totalSkills_other": "{{count}} 次 skill",
+      "topSkills": "团队最常用 Skills",
+      "calls": "次",
+      "usedBy": "{{n}} 人用过"
     }
   },
   "skillssh": {
