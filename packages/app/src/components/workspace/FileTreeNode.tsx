@@ -41,9 +41,9 @@ import {
 
 function getSyncStatusTextColor(status: 'synced' | 'modified' | 'new'): string {
   switch (status) {
-    case 'synced': return 'text-green-600'
-    case 'modified': return 'text-orange-500'
-    case 'new': return 'text-gray-400'
+    case 'synced': return ''
+    case 'modified': return 'text-yellow-500'
+    case 'new': return 'text-green-500'
   }
 }
 
