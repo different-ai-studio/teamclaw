@@ -126,7 +126,7 @@ export const useLocalStatsStore = create<LocalStatsStore>((set, get) => ({
 
     try {
       await get()._updateStats(workspacePath, { skillInvoked: skillName })
-      console.log(`[LocalStats] Incremented skill usage: ${skillName}`)
+      console.debug(`[LocalStats] Incremented skill usage: ${skillName}`)
     } catch (err) {
       console.error('[LocalStats] Failed to increment skill usage:', err)
     }
