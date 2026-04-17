@@ -6,7 +6,7 @@ import {
 } from '@/lib/opencode/config'
 import { useProviderStore } from './provider'
 import { isTauri } from '@/lib/utils'
-import { appShortName, buildConfig, type TeamModelOption } from '@/lib/build-config'
+import { appShortName, buildConfig, TEAM_REPO_DIR, type TeamModelOption } from '@/lib/build-config'
 
 
 const TEAM_PROVIDER_ID = 'team'
@@ -28,6 +28,7 @@ interface TeamModeState {
   p2pConnected: boolean
   p2pConfigured: boolean
   p2pFileSyncStatusMap: Record<string, 'synced' | 'modified' | 'new'>
+  teamGitFileSyncStatusMap: Record<string, 'modified' | 'new'>
   /** True while a Git team sync is in progress (for file tree loading indicator) */
   teamGitSyncing: boolean
   /** ISO timestamp of last successful team repo sync (read from teamclaw.json) */
@@ -39,6 +40,7 @@ interface TeamModeState {
   clearTeamMode: (workspacePath?: string) => Promise<void>
   setDevUnlocked: (unlocked: boolean) => void
   loadP2pFileSyncStatus: () => Promise<void>
+  loadTeamGitFileSyncStatus: (workspacePath: string) => Promise<void>
 }
 
 interface TeamStatusLlm extends TeamModelConfig {
@@ -78,6 +80,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   teamGitSyncing: false,
   teamGitLastSyncAt: null,
   p2pFileSyncStatusMap: {},
+  teamGitFileSyncStatusMap: {},
 
   loadTeamConfig: async (_workspacePath: string) => {
     // teamMode = p2p.enabled || ossConfigured
@@ -104,6 +107,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
     if (isTeamMode) {
       set({ teamMode: true, teamModeType: status?.mode ?? (ossConfigured ? 'oss' : null) })
+      if ((status?.mode ?? (ossConfigured ? 'oss' : null)) === 'git' && _workspacePath) {
+        // Fire-and-forget; errors swallowed inside action
+        get().loadTeamGitFileSyncStatus(_workspacePath)
+      }
       if (status?.llm) {
         // Use models from team config (stored in teamclaw.json), fallback to build config
         const teamModels = status.llm.models && status.llm.models.length > 0
@@ -284,12 +291,42 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     }
   },
 
+  loadTeamGitFileSyncStatus: async (workspacePath: string) => {
+    if (!isTauri() || !workspacePath) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const result = await invoke<{
+        branch: string | null
+        clean: boolean
+        files: Array<{ path: string; status: string; staged: boolean }>
+      }>('git_status', { path: `${workspacePath}/${TEAM_REPO_DIR}` })
+      const map: Record<string, 'modified' | 'new'> = {}
+      for (const f of result.files) {
+        if (f.status === 'untracked') {
+          map[f.path] = 'new'
+        } else if (
+          f.status === 'modified' ||
+          f.status === 'added' ||
+          f.status === 'deleted' ||
+          f.status === 'renamed' ||
+          f.status === 'copied'
+        ) {
+          map[f.path] = 'modified'
+        }
+        // 'ignored' and 'unknown' are omitted
+      }
+      set({ teamGitFileSyncStatusMap: map })
+    } catch (e) {
+      console.debug('[team-mode] loadTeamGitFileSyncStatus skipped:', e)
+    }
+  },
+
   clearTeamMode: async (workspacePath?: string) => {
     // When LLM config is locked via build config, prevent exiting team mode
     if (buildConfig.team.lockLlmConfig) return
 
     // Set state immediately to trigger UI updates
-    set({ teamMode: false, teamModeType: null, teamModelConfig: null, _appliedConfigKey: null, p2pFileSyncStatusMap: {} })
+    set({ teamMode: false, teamModeType: null, teamModelConfig: null, _appliedConfigKey: null, p2pFileSyncStatusMap: {}, teamGitFileSyncStatusMap: {} })
 
     // Remove team provider from opencode.json
     if (workspacePath) {
