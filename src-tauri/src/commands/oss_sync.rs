@@ -776,6 +776,31 @@ mod tests {
     }
 
     #[test]
+    fn scan_incremental_includes_leaderboard_dir_under_team_whitelist() {
+        use crate::commands::team::GITIGNORE_CONTENT;
+
+        let ws = create_temp_workspace();
+        let team_dir = ws.path().join(crate::commands::TEAM_REPO_DIR);
+        std::fs::create_dir_all(&team_dir).unwrap();
+        std::fs::write(team_dir.join(".gitignore"), GITIGNORE_CONTENT).unwrap();
+
+        // Record time before writing the new file so incremental picks it up.
+        let since = std::time::SystemTime::now();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let leaderboard_dir = team_dir.join(".leaderboard");
+        std::fs::create_dir_all(&leaderboard_dir).unwrap();
+        std::fs::write(leaderboard_dir.join("alice.json"), "{}").unwrap();
+
+        let (files, _) = OssSyncManager::scan_local_files_incremental(&team_dir, since).unwrap();
+        assert!(
+            files.contains_key(".leaderboard/alice.json"),
+            "incremental scan must include newly-whitelisted .leaderboard entries; got keys: {:?}",
+            files.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn scan_incremental_only_new_files() {
         let ws = create_temp_workspace();
         let skills_dir = ws

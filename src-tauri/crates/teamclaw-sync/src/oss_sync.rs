@@ -1019,14 +1019,14 @@ impl OssSyncManager {
                     }
                     walk(base, &path, gitignore, result, skipped)?;
                 } else {
-                    // Skip hidden files unless explicitly whitelisted (.gitignore is always included)
+                    let m = gitignore.matched(&path, false);
+                    // Hidden files: only include if explicitly whitelisted.
+                    // .gitignore is always included (special case).
                     if name_str.starts_with('.') && name_str != ".gitignore" {
-                        if !gitignore.matched(&path, false).is_whitelist() {
+                        if !m.is_whitelist() {
                             continue;
                         }
-                    }
-                    // Check gitignore for files
-                    if gitignore.matched(&path, false).is_ignore() {
+                    } else if m.is_ignore() {
                         continue;
                     }
                     // Skip files exceeding the size limit
@@ -1125,13 +1125,14 @@ impl OssSyncManager {
                     }
                     walk_incremental(base, &path, since, gitignore, result, skipped)?;
                 } else {
-                    // Skip hidden files unless explicitly whitelisted (.gitignore is always included)
+                    let m = gitignore.matched(&path, false);
+                    // Hidden files: only include if explicitly whitelisted.
+                    // .gitignore is always included (special case).
                     if name_str.starts_with('.') && name_str != ".gitignore" {
-                        if !gitignore.matched(&path, false).is_whitelist() {
+                        if !m.is_whitelist() {
                             continue;
                         }
-                    }
-                    if gitignore.matched(&path, false).is_ignore() {
+                    } else if m.is_ignore() {
                         continue;
                     }
                     // Skip files exceeding the size limit
