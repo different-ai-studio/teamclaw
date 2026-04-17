@@ -565,6 +565,7 @@ pub async fn telemetry_export_leaderboard(
             total_tokens: local_stats.total_tokens,
             total_cost: local_stats.total_cost,
             session_count: local_stats.sessions.total,
+            skill_usage: local_stats.skill_usage.clone(),
         };
 
         let team_dir_str = team_dir.to_string_lossy().to_string();
@@ -631,6 +632,7 @@ fn aggregate_workspace_stats(
         total_tokens: 0,
         total_cost: 0.0,
         session_count: 0,
+        skill_usage: std::collections::HashMap::new(),
     };
 
     for stats in workspaces.values() {
@@ -640,6 +642,9 @@ fn aggregate_workspace_stats(
         total.total_tokens += stats.total_tokens;
         total.total_cost += stats.total_cost;
         total.session_count += stats.session_count;
+        for (name, count) in &stats.skill_usage {
+            *total.skill_usage.entry(name.clone()).or_insert(0) += count;
+        }
     }
 
     total
@@ -715,6 +720,7 @@ pub async fn telemetry_get_member_aggregated_stats(
             total_tokens: 0,
             total_cost: 0.0,
             session_count: 0,
+            skill_usage: std::collections::HashMap::new(),
         });
     }
 
@@ -724,4 +730,38 @@ pub async fn telemetry_get_member_aggregated_stats(
         .map_err(|e| format!("Failed to parse leaderboard file: {}", e))?;
 
     Ok(aggregate_workspace_stats(&export.workspaces))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leaderboard_stats_has_skill_usage_field() {
+        let stats = LeaderboardStats {
+            total_feedbacks: 0,
+            positive_count: 0,
+            negative_count: 0,
+            total_tokens: 0,
+            total_cost: 0.0,
+            session_count: 0,
+            skill_usage: std::collections::HashMap::from([
+                ("sentry-fix".to_string(), 3_i64),
+                ("fc-deploy".to_string(), 1_i64),
+            ]),
+        };
+
+        let json = serde_json::to_string(&stats).expect("serialize");
+        assert!(
+            json.contains("\"skillUsage\""),
+            "expected camelCase skillUsage, got: {json}"
+        );
+        assert!(json.contains("sentry-fix"));
+
+        // Round trip through a JSON without skillUsage (pre-migration file).
+        let legacy = r#"{"totalFeedbacks":5,"positiveCount":4,"negativeCount":1,"totalTokens":1000,"totalCost":0.05,"sessionCount":2}"#;
+        let parsed: LeaderboardStats = serde_json::from_str(legacy).expect("parse legacy");
+        assert_eq!(parsed.total_feedbacks, 5);
+        assert!(parsed.skill_usage.is_empty());
+    }
 }

@@ -69,6 +69,8 @@ pub struct LeaderboardStats {
     pub total_tokens: i64,
     pub total_cost: f64,
     pub session_count: i64,
+    #[serde(default)]
+    pub skill_usage: std::collections::HashMap<String, i64>,
 }
 
 // ─── Database ────────────────────────────────────────────────────────────
@@ -779,6 +781,7 @@ impl TelemetryDb {
             total_tokens,
             total_cost: (total_cost * 10000.0).round() / 10000.0,
             session_count,
+            skill_usage: std::collections::HashMap::new(),
         })
     }
 }
