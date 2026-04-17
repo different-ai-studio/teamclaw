@@ -23,6 +23,12 @@ const ENDPOINT = () =>
 const LITELLM_URL = () => process.env.LITELLM_URL || "https://ai.ucar.cc";
 const LITELLM_MASTER_KEY = () => process.env.LITELLM_MASTER_KEY || "";
 
+// CodeUp (Managed Git)
+const CODEUP_ORG_ID = () => process.env.CODEUP_ORG_ID || "";
+const CODEUP_PAT = () => process.env.CODEUP_PAT || "";
+const CODEUP_BOT_USERNAME = () => process.env.CODEUP_BOT_USERNAME || "teamclaw";
+const CODEUP_API_BASE = "https://openapi-rdc.aliyuncs.com";
+
 /** Default team max spend (USD) applied on POST /ai/setup-team → LiteLLM /team/new */
 const LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD = () => {
   const raw = process.env.LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD;
@@ -662,6 +668,77 @@ async function handleAiBudget(body) {
 }
 
 // ---------------------------------------------------------------------------
+// Managed Git (CodeUp) route handlers
+// ---------------------------------------------------------------------------
+
+async function codeupFetch(path, method, body) {
+  const url = `${CODEUP_API_BASE}${path}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "x-yunxiao-token": CODEUP_PAT(),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  try {
+    return { ok: res.ok, status: res.status, data: JSON.parse(text) };
+  } catch {
+    return { ok: res.ok, status: res.status, data: text };
+  }
+}
+
+/** POST /managed-git/create-repo — create a private CodeUp repo for a team */
+async function handleManagedGitCreateRepo(body) {
+  const { teamName } = body;
+  if (!teamName) {
+    return json(400, { error: "Missing teamName" });
+  }
+
+  const orgId = CODEUP_ORG_ID();
+  const pat = CODEUP_PAT();
+  const botUsername = CODEUP_BOT_USERNAME();
+  if (!orgId || !pat) {
+    return json(500, { error: "Managed Git not configured (missing CODEUP_ORG_ID or CODEUP_PAT)" });
+  }
+
+  // Sanitize repo name: lowercase, replace non-alphanumeric with hyphens
+  const repoName = `tc-${teamName.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")}`;
+
+  // Create private repository
+  const res = await codeupFetch(
+    `/oapi/v1/codeup/organizations/${orgId}/repositories`,
+    "POST",
+    {
+      name: repoName,
+      path: repoName,
+      visibility: "private",
+      description: `TeamClaw managed team repo: ${teamName}`,
+    }
+  );
+
+  if (!res.ok) {
+    if (res.status === 409) {
+      console.error(`[managed-git] Repo name conflict: ${repoName}`);
+      return json(409, { error: "Team name already exists, please choose a different name" });
+    }
+    console.error(`[managed-git] CodeUp error:`, res.data);
+    return json(502, { error: "Failed to create repository", detail: res.data });
+  }
+
+  const repoHttpUrl = res.data.httpUrlToRepo;
+  console.log(`[managed-git] Created repo ${repoName} → ${repoHttpUrl}`);
+
+  return json(200, {
+    repoHttpUrl,
+    pat,
+    botUsername,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // FC HTTP handler
 // ---------------------------------------------------------------------------
 export async function handler(event, context) {
@@ -685,6 +762,11 @@ export async function handler(event, context) {
     "unknown";
   if (isRateLimited(ip)) {
     return json(429, { error: "Too many requests" });
+  }
+
+  // Handle CORS preflight (FC gateway adds CORS headers automatically)
+  if (httpMethod === "OPTIONS") {
+    return { statusCode: 204, headers: {}, body: "" };
   }
 
   if (httpMethod !== "POST") {
@@ -720,6 +802,8 @@ export async function handler(event, context) {
         return await handleAiUsage(body);
       case "/ai/budget":
         return await handleAiBudget(body);
+      case "/managed-git/create-repo":
+        return await handleManagedGitCreateRepo(body);
       default:
         return json(404, { error: "Not found" });
     }

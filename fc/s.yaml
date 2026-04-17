@@ -24,6 +24,9 @@ resources:
         LITELLM_URL: ${env('LITELLM_URL')}
         LITELLM_MASTER_KEY: ${env('LITELLM_MASTER_KEY')}
         LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD: ${env('LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD')}
+        CODEUP_ORG_ID: ${env('CODEUP_ORG_ID')}
+        CODEUP_PAT: ${env('CODEUP_PAT')}
+        CODEUP_BOT_USERNAME: ${env('CODEUP_BOT_USERNAME')}
       triggers:
         - triggerName: http-trigger
           triggerType: http
@@ -31,3 +34,4 @@ resources:
             authType: anonymous
             methods:
               - POST
+              - OPTIONS

@@ -993,6 +993,7 @@ pub async fn team_git_create(
     println!("[Team Create] Wrote _meta/team.json with team_id={}", team_id);
 
     // Write _meta/members.json with self as owner
+    let git_user_name = member_name.clone();
     {
         use crate::commands::team_unified::{MemberRole, TeamManifest, TeamMember};
         let manifest = TeamManifest {
@@ -1024,6 +1025,9 @@ pub async fn team_git_create(
     if !ok {
         println!("[Team Create] git add warning: {}", stderr.trim());
     }
+    // Set git user identity for this repo (so commits show the member's name)
+    let _ = run_git(&["config", "user.name", &git_user_name], &team_dir);
+    let _ = run_git(&["config", "user.email", &format!("{}@teamclaw.local", node_id.chars().take(8).collect::<String>())], &team_dir);
     let (ok, _, stderr) = run_git(&["commit", "-m", "chore: initialize team"], &team_dir)?;
     if !ok {
         println!("[Team Create] git commit warning: {}", stderr.trim());
@@ -1245,7 +1249,11 @@ pub async fn team_git_join(
         return Err(format!("Failed to write members.json: {}", e));
     }
 
-    // 9. Git add, commit, push
+    // 9. Set git user identity for this repo (so commits show the member's name)
+    let _ = run_git(&["config", "user.name", &member_name], &team_dir);
+    let _ = run_git(&["config", "user.email", &format!("{}@teamclaw.local", node_id.chars().take(8).collect::<String>())], &team_dir);
+
+    // 10. Git add, commit, push
     let (ok, _, stderr) = run_git(&["add", "-A"], &team_dir)?;
     if !ok {
         println!("[Team Join] git add warning: {}", stderr.trim());

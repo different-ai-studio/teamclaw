@@ -93,4 +93,4 @@ Deploy: use the `fc-deploy` skill (`.claude/skills/fc-deploy/deploy.sh`).
 
 Production endpoint: `https://cloud.ucar.cc`
 
-FC endpoints: `/register`, `/token`, `/reset-secret`, `/apply`, `/ai/setup-team`, `/ai/add-member`, `/ai/remove-member`, `/ai/keys`, `/ai/usage`, `/ai/budget`
+FC endpoints: `/register`, `/token`, `/reset-secret`, `/apply`, `/ai/setup-team`, `/ai/add-member`, `/ai/remove-member`, `/ai/keys`, `/ai/usage`, `/ai/budget`, `/managed-git/create-repo`
