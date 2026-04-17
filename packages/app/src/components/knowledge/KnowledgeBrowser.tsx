@@ -33,6 +33,7 @@ export function KnowledgeBrowser() {
       const result = await invoke<{ success: boolean; message: string }>('team_sync_repo')
       if (result.success) {
         toast.success(result.message)
+        useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() })
         await refreshFileTree()
       } else {
         toast.error(result.message)

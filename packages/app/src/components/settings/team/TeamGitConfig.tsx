@@ -485,6 +485,8 @@ export function TeamGitConfig() {
       }
       await tauriInvoke('save_team_config', { team: updatedConfig })
       setTeamConfig(updatedConfig)
+      const { useTeamModeStore } = await import('@/stores/team-mode')
+      useTeamModeStore.setState({ teamGitLastSyncAt: now })
 
       if (updateUi) {
         setState('connected')

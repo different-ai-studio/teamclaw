@@ -178,7 +178,9 @@
     "pasted": "Pasted",
     "pasteFailed": "Paste failed",
     "externalDropped": "Copied {{count}} file(s)",
-    "externalDropFailed": "Failed to copy files"
+    "externalDropFailed": "Failed to copy files",
+    "teamLastSyncTooltip": "Last sync: {{time}}",
+    "teamSyncing": "Syncing…"
   },
   "git": {
     "modified": "Modified",

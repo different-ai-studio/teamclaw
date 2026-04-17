@@ -30,6 +30,8 @@ interface TeamModeState {
   p2pFileSyncStatusMap: Record<string, 'synced' | 'modified' | 'new'>
   /** True while a Git team sync is in progress (for file tree loading indicator) */
   teamGitSyncing: boolean
+  /** ISO timestamp of last successful team repo sync (read from teamclaw.json) */
+  teamGitLastSyncAt: string | null
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
   applyTeamModelToOpenCode: (workspacePath: string, force?: boolean) => Promise<void>
@@ -74,6 +76,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   p2pConnected: false,
   p2pConfigured: false,
   teamGitSyncing: false,
+  teamGitLastSyncAt: null,
   p2pFileSyncStatusMap: {},
 
   loadTeamConfig: async (_workspacePath: string) => {
@@ -86,6 +89,14 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         const { invoke } = await import('@tauri-apps/api/core')
         const ossConfig = await invoke<{ enabled?: boolean } | null>('oss_get_team_config', { workspacePath: _workspacePath })
         ossConfigured = !!ossConfig?.enabled
+      } catch { /* ignore */ }
+    }
+    // Load last sync timestamp from teamclaw.json (git mode persists it via team_sync_repo)
+    if (isTauri()) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        const teamConfig = await invoke<{ lastSyncAt?: string | null } | null>('get_team_config')
+        set({ teamGitLastSyncAt: teamConfig?.lastSyncAt ?? null })
       } catch { /* ignore */ }
     }
     const p2pActive = !!status?.active

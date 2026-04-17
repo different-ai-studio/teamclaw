@@ -27,6 +27,7 @@ import { useTeamModeStore } from '@/stores/team-mode';
 import { useTabsStore } from '@/stores/tabs';
 import { getFileIcon } from '@/lib/file-icons';
 import { getGitStatusIndicator, getGitStatusTextColor } from '@/lib/git-status-utils';
+import { formatDateTime, formatRelativeTime } from '@/lib/date-format';
 import { GitStatus } from "@/lib/git/service";
 import type { FileNode } from "@/stores/workspace";
 import {
@@ -163,6 +164,8 @@ export interface FileTreeItemProps {
   isTeamClawTeam?: boolean;
   /** Whether the team directory is currently syncing (Git mode) */
   teamSyncing?: boolean;
+  /** ISO timestamp of last successful team repo sync (for relative-time label) */
+  teamLastSyncAt?: string | null;
   /** OSS sync status for team files */
   syncStatus?: 'synced' | 'modified' | 'new' | null;
   compactName?: string;
@@ -214,6 +217,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   isDragOver,
   isTeamClawTeam,
   teamSyncing,
+  teamLastSyncAt,
   syncStatus,
   onSelectFile,
   onSelectFileRange,
@@ -397,6 +401,19 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         })()}
       {hasGitChanges && isDirectory && (
         <Circle className="h-1.5 w-1.5 fill-amber-500 text-amber-500 shrink-0" />
+      )}
+      {isTeamClawTeam && !teamSyncing && teamLastSyncAt && (
+        <span
+          className="ml-auto pl-2 text-[10px] text-muted-foreground/70 font-normal shrink-0"
+          title={t('fileExplorer.teamLastSyncTooltip', 'Last sync: {{time}}', { time: formatDateTime(teamLastSyncAt) })}
+        >
+          {formatRelativeTime(teamLastSyncAt)}
+        </span>
+      )}
+      {isTeamClawTeam && teamSyncing && (
+        <span className="ml-auto pl-2 text-[10px] text-muted-foreground/70 font-normal shrink-0">
+          {t('fileExplorer.teamSyncing', 'Syncing…')}
+        </span>
       )}
     </button>
   );

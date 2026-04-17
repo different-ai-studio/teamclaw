@@ -1510,6 +1510,12 @@ pub async fn team_sync_repo(
         println!("[Team Sync] Warning: Failed to reload shared secrets: {}", e);
     }
 
+    // Persist last sync timestamp to teamclaw.json so the UI can display it
+    if let Ok(Some(mut cfg)) = read_team_config_from_file(&workspace_path) {
+        cfg.last_sync_at = Some(chrono::Utc::now().to_rfc3339());
+        let _ = write_team_config_to_file(&workspace_path, Some(&cfg));
+    }
+
     let sync_detail = if conflict_resolved {
         format!("Synced with origin/{} (conflict resolved, local backup in .trash/){}", branch, mcp_msg)
     } else if had_local_changes {
