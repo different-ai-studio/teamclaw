@@ -220,15 +220,12 @@ fn is_https_url(url: &str) -> bool {
     url.starts_with("https://") || url.starts_with("http://")
 }
 
-/// Get the workspace path from OpenCodeState
+/// Get the workspace path from OpenCodeState (back-compat single-instance path).
+///
+/// Phase 1 scaffolding: delegates to `current_workspace_path`, which errors if
+/// 0 or 2+ instances exist. Phase 2 callers will gain a workspace-aware variant.
 pub fn get_workspace_path(opencode_state: &OpenCodeState) -> Result<String, String> {
-    opencode_state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set. Please select a workspace first.".to_string())
+    crate::commands::opencode::current_workspace_path(opencode_state)
 }
 
 /// Read team config from teamclaw.json

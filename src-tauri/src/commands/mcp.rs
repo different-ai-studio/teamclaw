@@ -86,13 +86,7 @@ pub(crate) fn write_config(
 pub async fn get_mcp_config(
     state: State<'_, OpenCodeState>,
 ) -> Result<IndexMap<String, MCPServerConfig>, String> {
-    let workspace_path = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set. Please select a workspace first.")?;
+    let workspace_path = super::opencode::current_workspace_path(&state)?;
 
     let config = read_config(&workspace_path)?;
     Ok(config.mcp.unwrap_or_default())
@@ -104,13 +98,7 @@ pub async fn save_mcp_config(
     state: State<'_, OpenCodeState>,
     mcp_config: IndexMap<String, MCPServerConfig>,
 ) -> Result<(), String> {
-    let workspace_path = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set. Please select a workspace first.")?;
+    let workspace_path = super::opencode::current_workspace_path(&state)?;
 
     let mut config = read_config(&workspace_path)?;
     config.mcp = if mcp_config.is_empty() {
@@ -128,13 +116,7 @@ pub async fn add_mcp_server(
     name: String,
     server_config: MCPServerConfig,
 ) -> Result<(), String> {
-    let workspace_path = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set. Please select a workspace first.")?;
+    let workspace_path = super::opencode::current_workspace_path(&state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -155,13 +137,7 @@ pub async fn update_mcp_server(
     name: String,
     server_config: MCPServerConfig,
 ) -> Result<(), String> {
-    let workspace_path = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set. Please select a workspace first.")?;
+    let workspace_path = super::opencode::current_workspace_path(&state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -181,13 +157,7 @@ pub async fn remove_mcp_server(
     state: State<'_, OpenCodeState>,
     name: String,
 ) -> Result<(), String> {
-    let workspace_path = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set. Please select a workspace first.")?;
+    let workspace_path = super::opencode::current_workspace_path(&state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -208,13 +178,7 @@ pub async fn toggle_mcp_server(
     name: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let workspace_path = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set. Please select a workspace first.")?;
+    let workspace_path = super::opencode::current_workspace_path(&state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -242,13 +206,7 @@ pub async fn test_mcp_server(
     state: State<'_, OpenCodeState>,
     name: String,
 ) -> Result<MCPTestResult, String> {
-    let workspace_path = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set. Please select a workspace first.")?;
+    let workspace_path = super::opencode::current_workspace_path(&state)?;
 
     let config = read_config(&workspace_path)?;
     let mcp = config.mcp.unwrap_or_default();
@@ -726,13 +684,7 @@ async fn read_jsonrpc_response(
 pub async fn list_mcp_tools(
     state: State<'_, OpenCodeState>,
 ) -> Result<HashMap<String, Vec<String>>, String> {
-    let workspace_path = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set")?;
+    let workspace_path = super::opencode::current_workspace_path(&state)?;
 
     let config = read_config(&workspace_path)?;
     let servers = config.mcp.unwrap_or_default();

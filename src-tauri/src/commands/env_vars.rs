@@ -323,15 +323,9 @@ fn set_env_vars_in_json(json: &mut serde_json::Value, entries: &[EnvVarEntry]) {
     }
 }
 
-/// Extract workspace_path from OpenCodeState.
+/// Extract workspace_path from OpenCodeState (back-compat single-instance path).
 fn get_workspace_path(state: &State<'_, OpenCodeState>) -> Result<String, String> {
-    state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())
+    super::opencode::current_workspace_path(state)
 }
 
 // ─── Tauri Commands ─────────────────────────────────────────────────────

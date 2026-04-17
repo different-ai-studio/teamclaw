@@ -264,6 +264,7 @@ pub fn run() {
             }
         })
         .manage(commands::opencode::OpenCodeState::default())
+        .manage(commands::window::WindowRegistry::default())
         .manage(commands::filewatcher::FileWatcherState::default())
         .manage(commands::gateway::GatewayState::default())
         .manage(commands::cron::CronState::default())
@@ -309,6 +310,7 @@ pub fn run() {
             commands::knowledge::rag_stop_watcher,
             commands::opencode::start_opencode,
             commands::opencode::stop_opencode,
+            commands::window::create_workspace_window,
             commands::opencode::clear_last_workspace,
             commands::opencode::get_opencode_status,
             commands::opencode::get_opencode_project_id,
@@ -989,14 +991,22 @@ pub fn run() {
                     // which causes block_on to deadlock or panic, preventing
                     // std::process::exit from ever being called.
                     let oc_state = app.state::<commands::opencode::OpenCodeState>();
-                    if let Ok(mut inner) = oc_state.inner.lock() {
-                        if let Some(handle) = inner.reader_task.take() {
-                            handle.abort();
-                        }
-                        if let Some(child) = inner.child_process.take() {
-                            if let Err(e) = child.kill() {
-                                sentry_utils::capture_err("[OpenCode] Failed to stop sidecar on exit", &e);
-                                eprintln!("[OpenCode] Failed to stop sidecar on app exit: {}", e);
+                    if let Ok(mut instances) = oc_state.instances.lock() {
+                        for (ws, inner) in instances.iter_mut() {
+                            if let Some(handle) = inner.reader_task.take() {
+                                handle.abort();
+                            }
+                            if let Some(child) = inner.child_process.take() {
+                                if let Err(e) = child.kill() {
+                                    sentry_utils::capture_err(
+                                        &format!("[OpenCode] Failed to stop sidecar on exit ({})", ws),
+                                        &e,
+                                    );
+                                    eprintln!(
+                                        "[OpenCode] Failed to stop sidecar on app exit ({}): {}",
+                                        ws, e
+                                    );
+                                }
                             }
                         }
                     }

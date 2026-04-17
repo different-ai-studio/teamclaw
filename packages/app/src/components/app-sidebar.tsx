@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, BookOpen, } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, BookOpen, SquarePlus, } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -316,6 +316,56 @@ export function SidebarIconGroup({ className }: { className?: string }) {
       <SidebarCollapseToggle />
       <SidebarSecondarySessionActions />
     </div>
+  )
+}
+
+// Open the picked folder in a brand-new TeamClaw window with its own sidecar.
+function OpenInNewWindowButton() {
+  const { t } = useTranslation()
+  const [busy, setBusy] = React.useState(false)
+
+  if (!isTauri()) return null
+
+  const handleClick = async () => {
+    setBusy(true)
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: t('workspace.openInNewWindow', '在新窗口打开工作区'),
+      })
+      if (!selected || typeof selected !== 'string') return
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('create_workspace_window', { workspacePath: selected })
+    } catch (error) {
+      console.error('[Window] Failed to open workspace in new window:', error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          disabled={busy}
+          onClick={handleClick}
+        >
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <SquarePlus className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <p>{t('workspace.openInNewWindow', '在新窗口打开工作区')}</p>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -969,7 +1019,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <Settings className="h-3.5 w-3.5 shrink-0" />
               {t('sidebar.settings', '设置')}
             </Button>
-            <WorkspaceSelectorButton />
+            <div className="flex items-center gap-0.5">
+              <WorkspaceSelectorButton />
+              <OpenInNewWindowButton />
+            </div>
           </div>
         </SidebarFooter>
       </div>

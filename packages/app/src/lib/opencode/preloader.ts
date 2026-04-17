@@ -33,8 +33,12 @@ function cleanupCurrentEntry(entry: typeof current): void {
  * - If a request for the **same** path is already in flight, return the existing promise.
  * - If the path differs, start a brand-new request.
  * - On failure the entry is cleared so the next call retries.
+ *
+ * `port` is optional: secondary windows opened via `create_workspace_window`
+ * receive an explicit port via URL params and pass it here so each window's
+ * sidecar lives on its own port.
  */
-export function startOpenCode(workspacePath: string): Promise<PreloadResult> {
+export function startOpenCode(workspacePath: string, port?: number): Promise<PreloadResult> {
   if (current?.path === workspacePath) {
     return current.promise;
   }
@@ -72,9 +76,12 @@ export function startOpenCode(workspacePath: string): Promise<PreloadResult> {
         },
       );
 
-      return invoke<PreloadResult>("start_opencode", {
-        config: { workspace_path: workspacePath },
-      });
+      const config: { workspace_path: string; port?: number } = {
+        workspace_path: workspacePath,
+      };
+      if (typeof port === "number") config.port = port;
+
+      return invoke<PreloadResult>("start_opencode", { config });
     })
     .catch((err) => {
       // Clear on failure so a retry creates a fresh invocation
@@ -90,9 +97,12 @@ export function startOpenCode(workspacePath: string): Promise<PreloadResult> {
   return promise;
 }
 
-export function waitForOpenCodeBootstrapped(workspacePath: string): Promise<PreloadResult> {
+export function waitForOpenCodeBootstrapped(
+  workspacePath: string,
+  port?: number,
+): Promise<PreloadResult> {
   if (current?.path !== workspacePath) {
-    void startOpenCode(workspacePath);
+    void startOpenCode(workspacePath, port);
   }
 
   if (!current || current.path !== workspacePath) {

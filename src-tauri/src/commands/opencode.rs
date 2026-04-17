@@ -1,58 +1,123 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
 
 /// Default port for the OpenCode server.
-/// This is the single source of truth for the port number.
-const DEFAULT_PORT: u16 = 13141;
+/// Used for the first/main workspace instance and for dev mode.
+pub const DEFAULT_PORT: u16 = 13141;
 const PLUGIN_UPDATE_TTL_SECS: u64 = 60 * 60 * 6;
 
-/// Mutable runtime state for the OpenCode sidecar, protected by a single Mutex.
+/// Mutable runtime state for a single OpenCode sidecar instance.
+/// Keyed by workspace_path inside `OpenCodeState::instances`.
 pub struct OpenCodeInner {
     pub is_running: bool,
     pub port: u16,
     pub child_process: Option<CommandChild>,
-    pub is_dev_mode: bool,
-    pub workspace_path: Option<String>,
     /// Handle to the async task monitoring sidecar stdout/stderr.
     /// Aborted on shutdown to prevent resource leaks.
     pub reader_task: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
-/// OpenCode server state
+/// OpenCode server state.
+///
+/// Multi-instance scaffolding: `instances` is keyed by workspace_path so that
+/// multiple windows can each run their own sidecar. In single-window flow the
+/// map holds at most one entry and `resolve_workspace(state, None)` returns
+/// it without needing an explicit workspace argument (back-compat).
 pub struct OpenCodeState {
-    pub inner: Mutex<OpenCodeInner>,
-    /// Async lock that serializes `start_opencode` calls to prevent concurrent spawns.
-    pub start_lock: tokio::sync::Mutex<()>,
+    /// Active sidecar instances, keyed by workspace_path.
+    pub instances: Mutex<HashMap<String, OpenCodeInner>>,
+    /// Per-workspace start locks that serialize concurrent `start_opencode`
+    /// calls for the same workspace (different workspaces can start in parallel).
+    pub start_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Early launch state — set by setup hook, consumed by start_opencode.
     pub early_launch: tokio::sync::Mutex<Option<EarlyLaunchState>>,
+    /// Process-wide dev mode flag (read from OPENCODE_DEV_MODE env var at startup).
+    pub is_dev_mode: bool,
 }
 
 impl Default for OpenCodeState {
     fn default() -> Self {
-        // Check if dev mode is enabled (external OpenCode server)
         let is_dev = env::var("OPENCODE_DEV_MODE")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
 
         Self {
-            inner: Mutex::new(OpenCodeInner {
-                is_running: false,
-                port: DEFAULT_PORT,
-                child_process: None,
-                is_dev_mode: is_dev,
-                workspace_path: None,
-                reader_task: None,
-            }),
-            start_lock: tokio::sync::Mutex::new(()),
+            instances: Mutex::new(HashMap::new()),
+            start_locks: Mutex::new(HashMap::new()),
             early_launch: tokio::sync::Mutex::new(None),
+            is_dev_mode: is_dev,
         }
     }
+}
+
+/// Pick a free TCP port on 127.0.0.1 by binding to port 0 and reading back.
+/// Used by Phase 2 to allocate ports for additional workspace windows.
+pub async fn find_available_port() -> Result<u16, String> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("Failed to bind for port allocation: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to read local addr: {}", e))?
+        .port();
+    drop(listener);
+    Ok(port)
+}
+
+/// Resolve which sidecar instance to operate on.
+///
+/// - `explicit = Some(ws)`: must exist in `instances`; returns its `(workspace_path, port)`.
+/// - `explicit = None` + 0 instances: error (no workspace selected yet).
+/// - `explicit = None` + 1 instance: returns that one (back-compat single-window).
+/// - `explicit = None` + 2+ instances: error (caller must pass an explicit workspace).
+pub fn resolve_workspace(
+    state: &OpenCodeState,
+    explicit: Option<&str>,
+) -> Result<(String, u16), String> {
+    let instances = state.instances.lock().map_err(|e| e.to_string())?;
+    if let Some(ws) = explicit {
+        match instances.get(ws) {
+            Some(inner) => Ok((ws.to_string(), inner.port)),
+            None => Err(format!("No OpenCode instance for workspace: {}", ws)),
+        }
+    } else {
+        match instances.len() {
+            0 => Err("No workspace path set. Please select a workspace first.".to_string()),
+            1 => {
+                let (ws, inner) = instances.iter().next().unwrap();
+                Ok((ws.clone(), inner.port))
+            }
+            n => Err(format!(
+                "{} OpenCode instances active; caller must specify workspace_path",
+                n
+            )),
+        }
+    }
+}
+
+/// Convenience wrapper around `resolve_workspace(state, None)` for callers that
+/// only need the workspace path (back-compat single-window).
+pub fn current_workspace_path(state: &OpenCodeState) -> Result<String, String> {
+    resolve_workspace(state, None).map(|(w, _)| w)
+}
+
+/// Get (or create) the per-workspace start lock.
+fn get_start_lock(
+    state: &OpenCodeState,
+    workspace_path: &str,
+) -> Result<Arc<tokio::sync::Mutex<()>>, String> {
+    let mut locks = state.start_locks.lock().map_err(|e| e.to_string())?;
+    Ok(locks
+        .entry(workspace_path.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -143,67 +208,87 @@ pub async fn start_opencode(
 }
 
 /// Core sidecar startup logic, shared between the Tauri command and early launch.
+///
+/// Phase 1 scaffolding semantics:
+/// - Sidecar instances live in `state.instances`, keyed by workspace_path.
+/// - For now `start_opencode` is treated as the "main slot" path: it uses
+///   `DEFAULT_PORT` (or `config.port` if explicitly given) and assumes the
+///   caller wants only one main-slot instance at a time. If a different
+///   workspace already occupies that slot, it is shut down before starting
+///   the new one — preserving today's single-window UX.
+/// - Phase 2 will add a separate `create_workspace_window` command path that
+///   uses `find_available_port()` to spawn additional sidecars without
+///   disturbing the main slot.
 pub async fn start_opencode_inner(
     app: AppHandle,
     state: &OpenCodeState,
     config: OpenCodeConfig,
 ) -> Result<OpenCodeStatus, String> {
     let inner_t0 = std::time::Instant::now();
-    // Serialize concurrent calls — only one start_opencode runs at a time.
-    let _start_guard = state.start_lock.lock().await;
+
+    let is_dev_mode = state.is_dev_mode;
+    let port = config.port.unwrap_or(DEFAULT_PORT);
+    let workspace_key = config.workspace_path.clone();
+
+    // Per-workspace start lock — concurrent starts for the same workspace serialize,
+    // but different workspaces may start in parallel.
+    let start_lock = get_start_lock(state, &workspace_key)?;
+    let _start_guard = start_lock.lock().await;
     eprintln!(
         "[Startup] start_opencode_inner: lock acquired in {:.1}ms",
         inner_t0.elapsed().as_secs_f64() * 1000.0
     );
 
-    let port = config.port.unwrap_or(DEFAULT_PORT);
-
-    // Check if already running (extract values and drop guard before any await)
-    let mut needs_restart = false;
-    let is_dev_mode;
+    // Already running for this workspace? Return cached status.
     {
-        let inner = state.inner.lock().map_err(|e| e.to_string())?;
-        is_dev_mode = inner.is_dev_mode;
-
-        if inner.is_running {
-            let workspace_changed = inner.workspace_path.as_ref() != Some(&config.workspace_path);
-
-            if !workspace_changed {
+        let instances = state.instances.lock().map_err(|e| e.to_string())?;
+        if let Some(inner) = instances.get(&workspace_key) {
+            if inner.is_running {
                 return Ok(OpenCodeStatus {
                     is_running: true,
                     port: inner.port,
                     url: format!("http://127.0.0.1:{}", inner.port),
                     is_dev_mode,
-                    workspace_path: inner.workspace_path.clone(),
+                    workspace_path: Some(workspace_key.clone()),
                 });
             }
-
-            println!(
-                "[OpenCode] Workspace changed from {:?} to {}, restarting...",
-                inner.workspace_path.as_ref(),
-                config.workspace_path
-            );
-
-            needs_restart = true;
         }
     }
 
-    if needs_restart {
-        // Stop the existing server
+    // Detect main-slot collision: another workspace already holds the same port.
+    // For Phase 1 (scaffolding), that means the user "switched workspace" in the
+    // single window — shut down the previous instance to free the port.
+    let conflicting_workspace: Option<String> = {
+        let instances = state.instances.lock().map_err(|e| e.to_string())?;
+        instances
+            .iter()
+            .find(|(ws, inner)| ws.as_str() != workspace_key && inner.port == port)
+            .map(|(ws, _)| ws.clone())
+    };
+
+    if let Some(prev_ws) = conflicting_workspace {
+        println!(
+            "[OpenCode] Port {} held by workspace {:?}, shutting it down before starting {}",
+            port, prev_ws, workspace_key
+        );
+        // Stop the previous instance
         if !is_dev_mode {
-            let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-            if let Some(child) = inner.child_process.take() {
-                println!("[OpenCode] Killing previous process...");
-                let _ = child.kill();
+            let mut instances = state.instances.lock().map_err(|e| e.to_string())?;
+            if let Some(inner) = instances.get_mut(&prev_ws) {
+                if let Some(child) = inner.child_process.take() {
+                    println!("[OpenCode] Killing previous process...");
+                    let _ = child.kill();
+                }
+                if let Some(handle) = inner.reader_task.take() {
+                    handle.abort();
+                }
+                inner.is_running = false;
             }
-            // Abort old reader task
-            if let Some(handle) = inner.reader_task.take() {
-                handle.abort();
-            }
-            inner.is_running = false;
+            // Drop the entry entirely so we don't keep stale instances around.
+            instances.remove(&prev_ws);
         } else {
-            let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-            inner.is_running = false;
+            let mut instances = state.instances.lock().map_err(|e| e.to_string())?;
+            instances.remove(&prev_ws);
         }
 
         // Wait for port to be released with exponential backoff
@@ -320,10 +405,16 @@ pub async fn start_opencode_inner(
 
         // Update state
         {
-            let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-            inner.is_running = true;
-            inner.port = port;
-            inner.workspace_path = Some(requested_path.clone());
+            let mut instances = state.instances.lock().map_err(|e| e.to_string())?;
+            instances.insert(
+                requested_path.clone(),
+                OpenCodeInner {
+                    is_running: true,
+                    port,
+                    child_process: None,
+                    reader_task: None,
+                },
+            );
         }
 
         let url = format!("http://127.0.0.1:{}", port);
@@ -590,10 +681,18 @@ pub async fn start_opencode_inner(
         .spawn()
         .map_err(|e| format!("Failed to spawn OpenCode sidecar: {}", e))?;
 
-    // Store the child process
+    // Store the child process — insert/replace this workspace's instance.
     {
-        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-        inner.child_process = Some(child);
+        let mut instances = state.instances.lock().map_err(|e| e.to_string())?;
+        instances.insert(
+            workspace_path.clone(),
+            OpenCodeInner {
+                is_running: false,
+                port,
+                child_process: Some(child),
+                reader_task: None,
+            },
+        );
     }
 
     // Wait for server to be ready — channel carries Ok(()) on success or Err(message) on crash
@@ -657,8 +756,10 @@ pub async fn start_opencode_inner(
 
     // Store the reader task handle for cleanup
     {
-        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-        inner.reader_task = Some(reader_handle);
+        let mut instances = state.instances.lock().map_err(|e| e.to_string())?;
+        if let Some(inner) = instances.get_mut(&workspace_path) {
+            inner.reader_task = Some(reader_handle);
+        }
     }
 
     // Wait for ready signal with timeout
@@ -713,12 +814,13 @@ pub async fn start_opencode_inner(
         println!("[OpenCode] Server confirmed running in directory: {}", dir);
     }
 
-    // Update state
+    // Mark instance as ready
     {
-        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-        inner.is_running = true;
-        inner.port = port;
-        inner.workspace_path = Some(workspace_path.clone());
+        let mut instances = state.instances.lock().map_err(|e| e.to_string())?;
+        if let Some(inner) = instances.get_mut(&workspace_path) {
+            inner.is_running = true;
+            inner.port = port;
+        }
     }
 
     eprintln!(
@@ -1954,71 +2056,106 @@ async fn get_server_paths(port: u16) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
-/// Stop OpenCode sidecar (production) or clear running state (dev). Shared by the
-/// `stop_opencode` command and application exit (`RunEvent::Exit`).
-pub async fn shutdown_opencode(state: &OpenCodeState) -> Result<(), String> {
-    let (is_dev_mode, port) = {
-        let inner = state.inner.lock().map_err(|e| e.to_string())?;
-        (inner.is_dev_mode, inner.port)
+/// Stop OpenCode sidecar(s) (production) or clear running state (dev).
+///
+/// `workspace_path = None` shuts down ALL instances (used by `RunEvent::Exit`
+/// and the back-compat `stop_opencode` command). `Some(ws)` shuts down only
+/// the named instance — Phase 2 will use this for per-window cleanup.
+pub async fn shutdown_opencode(
+    state: &OpenCodeState,
+    workspace_path: Option<&str>,
+) -> Result<(), String> {
+    let is_dev_mode = state.is_dev_mode;
+
+    // Snapshot the targets we need to kill (workspace_path, port, child, reader_handle).
+    // We remove entries from the map up-front so any concurrent caller sees a clean slate.
+    let targets: Vec<(
+        String,
+        u16,
+        Option<CommandChild>,
+        Option<tauri::async_runtime::JoinHandle<()>>,
+    )> = {
+        let mut instances = state.instances.lock().map_err(|e| e.to_string())?;
+        let keys: Vec<String> = match workspace_path {
+            Some(ws) => {
+                if instances.contains_key(ws) {
+                    vec![ws.to_string()]
+                } else {
+                    return Ok(());
+                }
+            }
+            None => instances.keys().cloned().collect(),
+        };
+        keys.into_iter()
+            .filter_map(|k| {
+                instances.remove(&k).map(|mut inner| {
+                    let child = inner.child_process.take();
+                    let reader = inner.reader_task.take();
+                    (k, inner.port, child, reader)
+                })
+            })
+            .collect()
     };
 
-    // In dev mode, just update state (don't try to kill external process)
-    if is_dev_mode {
-        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-        inner.is_running = false;
+    if targets.is_empty() {
         return Ok(());
     }
 
-    // Production mode: kill sidecar and abort reader task
-    {
-        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-        if let Some(child) = inner.child_process.take() {
-            child
-                .kill()
-                .map_err(|e| format!("Failed to stop OpenCode: {}", e))?;
+    for (ws, port, child, reader) in targets {
+        if is_dev_mode {
+            // External server — don't kill, just clear state (already removed above).
+            println!("[OpenCode] Dev mode: cleared state for {}", ws);
+            continue;
         }
-        if let Some(handle) = inner.reader_task.take() {
+
+        if let Some(child) = child {
+            if let Err(e) = child.kill() {
+                eprintln!("[OpenCode] Failed to kill sidecar for {}: {}", ws, e);
+            }
+        }
+        if let Some(handle) = reader {
             handle.abort();
         }
-    }
 
-    // Wait for port to be released with exponential backoff
-    println!("[OpenCode] Waiting for graceful shutdown...");
-    let start_time = std::time::Instant::now();
-    const MAX_WAIT_TIME: std::time::Duration = std::time::Duration::from_secs(5);
-    let mut delay = std::time::Duration::from_millis(100);
+        // Wait for port to be released with exponential backoff
+        println!(
+            "[OpenCode] Waiting for graceful shutdown of {} (port {})...",
+            ws, port
+        );
+        let start_time = std::time::Instant::now();
+        const MAX_WAIT_TIME: std::time::Duration = std::time::Duration::from_secs(5);
+        let mut delay = std::time::Duration::from_millis(100);
 
-    loop {
-        if !is_port_in_use(port).await {
-            println!(
-                "[OpenCode] Shutdown complete after {:.1}s",
-                start_time.elapsed().as_secs_f32()
-            );
-            break;
+        loop {
+            if !is_port_in_use(port).await {
+                println!(
+                    "[OpenCode] Shutdown of {} complete after {:.1}s",
+                    ws,
+                    start_time.elapsed().as_secs_f32()
+                );
+                break;
+            }
+
+            if start_time.elapsed() >= MAX_WAIT_TIME {
+                println!(
+                    "[OpenCode] Warning: process for {} did not release port {} after 5s",
+                    ws, port
+                );
+                break;
+            }
+
+            tokio::time::sleep(delay).await;
+            delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(1));
         }
-
-        if start_time.elapsed() >= MAX_WAIT_TIME {
-            println!("[OpenCode] Warning: Process did not release port after 5s");
-            break;
-        }
-
-        tokio::time::sleep(delay).await;
-        delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(1));
-    }
-
-    // Update state
-    {
-        let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
-        inner.is_running = false;
     }
 
     Ok(())
 }
 
-/// Stop OpenCode server
+/// Stop OpenCode server (back-compat: shuts down all instances).
 #[tauri::command]
 pub async fn stop_opencode(state: State<'_, OpenCodeState>) -> Result<(), String> {
-    shutdown_opencode(&state).await
+    shutdown_opencode(&state, None).await
 }
 
 // ─── OpenCode DB allowlist commands ──────────────────────────────────
@@ -2268,17 +2405,39 @@ pub fn clear_last_workspace() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// Get OpenCode server status
+/// Get OpenCode server status.
+///
+/// Single-instance flow: returns the lone instance's status. Zero instances:
+/// returns a placeholder `is_running: false` on `DEFAULT_PORT` so the frontend
+/// can boot before a workspace is selected. Two-or-more instances: error
+/// (Phase 2 will add a workspace-aware variant).
 #[tauri::command]
 pub async fn get_opencode_status(
     state: State<'_, OpenCodeState>,
 ) -> Result<OpenCodeStatus, String> {
-    let inner = state.inner.lock().map_err(|e| e.to_string())?;
-    Ok(OpenCodeStatus {
-        is_running: inner.is_running,
-        port: inner.port,
-        url: format!("http://127.0.0.1:{}", inner.port),
-        is_dev_mode: inner.is_dev_mode,
-        workspace_path: inner.workspace_path.clone(),
-    })
+    let is_dev_mode = state.is_dev_mode;
+    let instances = state.instances.lock().map_err(|e| e.to_string())?;
+    match instances.len() {
+        0 => Ok(OpenCodeStatus {
+            is_running: false,
+            port: DEFAULT_PORT,
+            url: format!("http://127.0.0.1:{}", DEFAULT_PORT),
+            is_dev_mode,
+            workspace_path: None,
+        }),
+        1 => {
+            let (ws, inner) = instances.iter().next().unwrap();
+            Ok(OpenCodeStatus {
+                is_running: inner.is_running,
+                port: inner.port,
+                url: format!("http://127.0.0.1:{}", inner.port),
+                is_dev_mode,
+                workspace_path: Some(ws.clone()),
+            })
+        }
+        n => Err(format!(
+            "{} OpenCode instances active; use a workspace-aware status query",
+            n
+        )),
+    }
 }

@@ -2,8 +2,8 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for the main window",
-  "windows": ["main", "spotlight"],
-  "webviews": ["main", "wv-*"],
+  "windows": ["main", "spotlight", "ws-*"],
+  "webviews": ["main", "wv-*", "ws-*"],
   "remote": {
     "urls": ["https://*", "http://*"]
   },

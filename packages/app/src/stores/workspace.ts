@@ -392,11 +392,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       useTeamModeStore.getState().loadTeamConfig(expandedPath).catch(() => {});
     } catch { /* ignore */ }
 
-    // Persist workspace path for auto-restore on next launch
-    try {
-      localStorage.setItem(WORKSPACE_STORAGE_KEY, expandedPath);
-    } catch {
-      /* ignore storage errors */
+    // Persist workspace path for auto-restore on next launch.
+    // Secondary windows opened via create_workspace_window pass `?workspace=`
+    // in the URL — they must not overwrite the main window's saved value.
+    const isSecondaryWindow =
+      typeof window !== 'undefined' &&
+      typeof window.location?.search === 'string' &&
+      new URLSearchParams(window.location.search).has('workspace');
+    if (!isSecondaryWindow) {
+      try {
+        localStorage.setItem(WORKSPACE_STORAGE_KEY, expandedPath);
+      } catch {
+        /* ignore storage errors */
+      }
     }
 
     try {

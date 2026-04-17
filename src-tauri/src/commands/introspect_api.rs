@@ -187,13 +187,7 @@ async fn handle_cron_run(app: &AppHandle, body: &[u8]) -> Result<String, String>
 /// Returns the ownerId or an error if not configured.
 fn resolve_wecom_owner_id(app: &AppHandle) -> Result<String, String> {
     let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace_path = oc_state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("No workspace path set")?;
+    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
 
     let config = teamclaw_gateway::read_config(&workspace_path)?;
     let owner_id = config

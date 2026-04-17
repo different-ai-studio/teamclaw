@@ -39,6 +39,23 @@ export const SKILLS_CHANGED_EVENT = "skills-files-changed";
 // OpenCode server start / workspace restore
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Parse `?workspace=&port=` from window.location for secondary windows opened
+ * via `create_workspace_window`. Returns null in the main window.
+ */
+function readWindowParams(): { workspace: string; port: number } | null {
+  if (typeof window === "undefined" || !window.location?.search) return null;
+  const params = new URLSearchParams(window.location.search);
+  const workspace = params.get("workspace");
+  const portStr = params.get("port");
+  if (!workspace || !portStr) return null;
+  const port = Number.parseInt(portStr, 10);
+  if (!Number.isFinite(port) || port <= 0) return null;
+  return { workspace, port };
+}
+
+const windowParams = readWindowParams();
+
 export function useOpenCodeInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
@@ -47,36 +64,46 @@ export function useOpenCodeInit() {
   const [openCodeError, setOpenCodeError] = useState<string | null>(null);
   const [initialWorkspaceResolved, setInitialWorkspaceResolved] = useState(false);
 
-  // Auto-restore last workspace on launch (runs once on mount)
+  // Auto-restore last workspace on launch (runs once on mount).
+  // Secondary windows opened via create_workspace_window skip the localStorage
+  // path and use the URL-provided workspace so they don't clobber main's saved value.
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       if (!workspacePath) {
-        try {
-          const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
-          if (savedPath) {
-            let canRestore = true;
+        if (windowParams) {
+          console.log(
+            "[App] Secondary window detected; using URL workspace:",
+            windowParams.workspace,
+          );
+          await setWorkspace(windowParams.workspace);
+        } else {
+          try {
+            const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
+            if (savedPath) {
+              let canRestore = true;
 
-            if (isTauri()) {
-              try {
-                const { exists } = await import("@tauri-apps/plugin-fs");
-                canRestore = await exists(savedPath);
-              } catch (error) {
-                console.warn("[App] Failed to validate saved workspace:", error);
+              if (isTauri()) {
+                try {
+                  const { exists } = await import("@tauri-apps/plugin-fs");
+                  canRestore = await exists(savedPath);
+                } catch (error) {
+                  console.warn("[App] Failed to validate saved workspace:", error);
+                }
+              }
+
+              if (canRestore) {
+                console.log("[App] Restoring workspace from last session:", savedPath);
+                await setWorkspace(savedPath);
+              } else {
+                console.log("[App] Saved workspace no longer exists, clearing restore path:", savedPath);
+                localStorage.removeItem(`${appShortName}-workspace-path`);
               }
             }
-
-            if (canRestore) {
-              console.log("[App] Restoring workspace from last session:", savedPath);
-              await setWorkspace(savedPath);
-            } else {
-              console.log("[App] Saved workspace no longer exists, clearing restore path:", savedPath);
-              localStorage.removeItem(`${appShortName}-workspace-path`);
-            }
+          } catch {
+            /* ignore storage errors */
           }
-        } catch {
-          /* ignore storage errors */
         }
       }
 
@@ -126,7 +153,10 @@ export function useOpenCodeInit() {
         : "[OpenCode] Starting server for:",
       workspacePath,
     );
-    waitForOpenCodeBootstrapped(workspacePath)
+    const explicitPort =
+      windowParams && windowParams.workspace === workspacePath ? windowParams.port : undefined;
+
+    waitForOpenCodeBootstrapped(workspacePath, explicitPort)
       .then((status) => {
         if (cancelled) return;
         console.log("[OpenCode] Server bootstrapped:", status);
@@ -138,7 +168,7 @@ export function useOpenCodeInit() {
         if (cancelled) return;
         console.warn("[OpenCode] Failed waiting for bootstrap event:", error);
       });
-    startOpenCode(workspacePath)
+    startOpenCode(workspacePath, explicitPort)
       .then((status) => {
         if (cancelled) return;
         console.log("[OpenCode] Server started:", status);

@@ -316,13 +316,7 @@ pub async fn telemetry_export_team_feedback(
     let node_id = crate::commands::oss_commands::get_device_id()?;
     let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    let workspace_path = opencode_state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("Workspace path not set")?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
     if !team_dir.exists() {
         return Ok(());
@@ -366,13 +360,8 @@ pub async fn telemetry_export_team_feedback(
 pub async fn telemetry_get_team_feedback_summary(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<TeamFeedbackSummary, String> {
-    let workspace_path = opencode_state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("Workspace path not set")?;
+    let workspace_path =
+        crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let feedback_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join("_feedback");
@@ -486,13 +475,7 @@ pub async fn telemetry_export_leaderboard(
     let node_id = crate::commands::oss_commands::get_device_id()?;
     let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    let workspace_path = opencode_state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("Workspace path not set")?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
     if !team_dir.exists() {
         return Ok(());
@@ -631,13 +614,8 @@ fn aggregate_workspace_stats(
 pub async fn telemetry_get_team_leaderboard(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<TeamLeaderboard, String> {
-    let workspace_path = opencode_state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("Workspace path not set")?;
+    let workspace_path =
+        crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join(".leaderboard");
@@ -669,13 +647,8 @@ pub async fn telemetry_get_member_aggregated_stats(
     member_name: String,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<LeaderboardStats, String> {
-    let workspace_path = opencode_state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .workspace_path
-        .clone()
-        .ok_or("Workspace path not set")?;
+    let workspace_path =
+        crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join(".leaderboard");

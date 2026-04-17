@@ -303,11 +303,8 @@ pub async fn shared_secret_set(
     if let Some(opencode_state) =
         app_handle.try_state::<super::opencode::OpenCodeState>()
     {
-        let workspace_path = opencode_state
-            .inner
-            .lock()
-            .ok()
-            .and_then(|inner| inner.workspace_path.clone());
+        let workspace_path =
+            super::opencode::current_workspace_path(&opencode_state).ok();
         if let Some(wp) = workspace_path {
             if let Err(e) = try_lazy_init_from_workspace(&state, &wp) {
                 log::debug!("shared_secret_set: lazy init skipped: {e}");
@@ -385,11 +382,8 @@ pub async fn shared_secret_delete(
     if let Some(opencode_state) =
         app_handle.try_state::<super::opencode::OpenCodeState>()
     {
-        let workspace_path = opencode_state
-            .inner
-            .lock()
-            .ok()
-            .and_then(|inner| inner.workspace_path.clone());
+        let workspace_path =
+            super::opencode::current_workspace_path(&opencode_state).ok();
         if let Some(wp) = workspace_path {
             if let Err(e) = try_lazy_init_from_workspace(&state, &wp) {
                 log::debug!("shared_secret_delete: lazy init skipped: {e}");
