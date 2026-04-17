@@ -28,6 +28,7 @@ interface LocalStatsStore {
   incrementFeedback: (workspacePath: string, rating: FeedbackRating) => Promise<void>
   addStarRating: (workspacePath: string, rating: StarRating) => Promise<void>
   incrementSessionCount: (workspacePath: string, hasFeedback?: boolean) => Promise<void>
+  incrementSkillUsage: (workspacePath: string, skillName: string) => Promise<void>
   resetStats: (workspacePath: string) => Promise<void>
   
   // Internal
@@ -120,6 +121,17 @@ export const useLocalStatsStore = create<LocalStatsStore>((set, get) => ({
     }
   },
   
+  incrementSkillUsage: async (workspacePath: string, skillName: string) => {
+    if (!isTauri() || !workspacePath || !skillName) return
+
+    try {
+      await get()._updateStats(workspacePath, { skillInvoked: skillName })
+      console.log(`[LocalStats] Incremented skill usage: ${skillName}`)
+    } catch (err) {
+      console.error('[LocalStats] Failed to increment skill usage:', err)
+    }
+  },
+
   resetStats: async (workspacePath: string) => {
     if (!isTauri() || !workspacePath) return
     
