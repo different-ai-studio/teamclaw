@@ -31,7 +31,7 @@ import {
   waitForOpenCodeBootstrapped,
 } from "@/lib/opencode/preloader";
 import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
-import { appShortName } from "@/lib/build-config";
+import { appShortName, TEAM_REPO_DIR } from "@/lib/build-config";
 
 export const SKILLS_CHANGED_EVENT = "skills-files-changed";
 
@@ -416,6 +416,7 @@ export function useGitReposInit() {
                     if (r.success) {
                       const { useTeamModeStore } = await import("@/stores/team-mode");
                       useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() });
+                      useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath);
                       console.log("[App] Team repo sync completed (MCP configs updated)");
                     } else {
                       console.warn("[App] Team repo sync skipped:", r.message);
@@ -464,6 +465,40 @@ export function useGitReposInit() {
       }
     };
   }, [workspacePath, openCodeReady]);
+
+  // Real-time: refresh team-git file status when files inside teamclaw-team/ change
+  useEffect(() => {
+    if (!workspacePath || !isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+
+    const teamDirPrefix = `${workspacePath}/${TEAM_REPO_DIR}/`;
+
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      if (cancelled) return;
+      listen<{ path: string; kind: string }>("file-change", (event) => {
+        const path = event.payload.path.replace(/\\/g, "/");
+        if (!path.startsWith(teamDirPrefix)) return;
+        // Skip churn inside .git/
+        if (path.includes(`/${TEAM_REPO_DIR}/.git/`)) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const { useTeamModeStore } = await import("@/stores/team-mode");
+          if (useTeamModeStore.getState().teamModeType !== "git") return;
+          useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath);
+        }, 500);
+      }).then((fn) => {
+        unlisten = fn;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      unlisten?.();
+    };
+  }, [workspacePath]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
