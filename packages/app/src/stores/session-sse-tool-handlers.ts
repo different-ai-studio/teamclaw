@@ -22,6 +22,8 @@ import {
 import {
   useStreamingStore,
 } from "@/stores/streaming";
+import { useLocalStatsStore } from "@/stores/local-stats";
+import { useWorkspaceStore } from "@/stores/workspace";
 import { sessionDataCache } from "./session-data-cache";
 import {
   buildTerminalInputQuestion,
@@ -276,6 +278,24 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
             ...m,
             toolCalls: [...(m.toolCalls || []), newToolCall],
           };
+
+          // Skill usage telemetry — fire-and-forget, never blocks streaming.
+          // Fires once per tool invocation (we're in the "new tool call" branch).
+          if (toolNameLower === "skill" || toolNameLower === "role_skill") {
+            const args = event.arguments as
+              | { name?: unknown; skill?: unknown; skill_name?: unknown }
+              | undefined;
+            const rawName =
+              args?.name ?? args?.skill ?? args?.skill_name;
+            const skillName =
+              typeof rawName === "string" ? rawName : undefined;
+            const workspacePath = useWorkspaceStore.getState().workspacePath;
+            if (skillName && workspacePath) {
+              void useLocalStatsStore
+                .getState()
+                .incrementSkillUsage(workspacePath, skillName);
+            }
+          }
         }
 
         const messages = [...session.messages];
