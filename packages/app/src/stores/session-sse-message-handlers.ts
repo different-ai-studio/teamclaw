@@ -26,6 +26,8 @@ import {
 } from "@/stores/streaming";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
 import type { MessagePart, Message } from "./session-types";
+import { useLocalStatsStore } from '@/stores/local-stats';
+import { useWorkspaceStore } from '@/stores/workspace';
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -286,6 +288,24 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
               startTime: new Date(),
             },
           ];
+
+          // Skill usage telemetry — fire-and-forget, never blocks streaming.
+          const tname = event.tool.name?.toLowerCase();
+          if (tname === "skill" || tname === "role_skill") {
+            const input = event.tool.input as
+              | { skill?: unknown; skill_name?: unknown; name?: unknown }
+              | undefined;
+            const rawName =
+              input?.skill ?? input?.skill_name ?? input?.name;
+            const skillName =
+              typeof rawName === "string" ? rawName : undefined;
+            const workspacePath = useWorkspaceStore.getState().workspacePath;
+            if (skillName && workspacePath) {
+              void useLocalStatsStore
+                .getState()
+                .incrementSkillUsage(workspacePath, skillName);
+            }
+          }
         }
       }
 
