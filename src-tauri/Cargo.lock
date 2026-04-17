@@ -11769,6 +11769,7 @@ dependencies = [
  "keyring",
  "libsql",
  "log",
+ "loro",
  "markitdown",
  "md5",
  "minisign-verify",

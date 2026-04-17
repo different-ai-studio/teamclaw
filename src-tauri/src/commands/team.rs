@@ -498,7 +498,7 @@ pub fn write_team_mode(workspace_path: &str, mode: Option<&str>) -> Result<(), S
 }
 
 /// The whitelist .gitignore content
-const GITIGNORE_CONTENT: &str = r#"# ============================================
+pub const GITIGNORE_CONTENT: &str = r#"# ============================================
 # TeamClaw Team Drive — Whitelist mode
 # Ignore everything by default, only allow shared layer
 # ============================================
@@ -519,6 +519,8 @@ const GITIGNORE_CONTENT: &str = r#"# ===========================================
 !_meta/**
 !_secrets/
 !_secrets/**
+!.leaderboard/
+!.leaderboard/**
 
 # 3. Allow workspace config
 !.gitignore

@@ -755,6 +755,27 @@ mod tests {
     }
 
     #[test]
+    fn scan_includes_leaderboard_dir_under_team_whitelist() {
+        use crate::commands::team::GITIGNORE_CONTENT;
+
+        let ws = create_temp_workspace();
+        let team_dir = ws.path().join(crate::commands::TEAM_REPO_DIR);
+        std::fs::create_dir_all(&team_dir).unwrap();
+        std::fs::write(team_dir.join(".gitignore"), GITIGNORE_CONTENT).unwrap();
+
+        let leaderboard_dir = team_dir.join(".leaderboard");
+        std::fs::create_dir_all(&leaderboard_dir).unwrap();
+        std::fs::write(leaderboard_dir.join("alice.json"), "{}").unwrap();
+
+        let (files, _) = OssSyncManager::scan_local_files(&team_dir).unwrap();
+        assert!(
+            files.contains_key(".leaderboard/alice.json"),
+            ".leaderboard/ must be whitelisted for team sync; got keys: {:?}",
+            files.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn scan_incremental_only_new_files() {
         let ws = create_temp_workspace();
         let skills_dir = ws
@@ -785,7 +806,7 @@ mod tests {
     async fn write_doc_to_disk_creates_files_atomically() {
         let s3 = mini_s3::MiniS3::start().await;
         let ws = create_temp_workspace();
-        let mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
+        let mut mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
         // Populate the LoroDoc with a file entry
         let doc = mgr.get_doc(DocType::Skills);
@@ -820,7 +841,7 @@ mod tests {
     async fn write_doc_to_disk_deletes_removed_files() {
         let s3 = mini_s3::MiniS3::start().await;
         let ws = create_temp_workspace();
-        let mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
+        let mut mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
         let skills_dir = ws
             .path()
@@ -855,7 +876,7 @@ mod tests {
     async fn write_doc_to_disk_absorbs_local_only_files() {
         let s3 = mini_s3::MiniS3::start().await;
         let ws = create_temp_workspace();
-        let mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
+        let mut mgr = create_test_manager(ws.path().to_str().unwrap(), &s3.endpoint());
 
         let skills_dir = ws
             .path()

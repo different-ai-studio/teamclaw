@@ -132,6 +132,7 @@ objc2-web-kit = { version = "0.3", features = ["WKWebViewConfiguration", "WKWebV
 
 [dev-dependencies]
 wiremock = "0.5"
+loro = "1"
 
 [profile.release]
 # Use unwind so catch_unwind in email.rs and deps (e.g. html2md) work; abort would conflict.

@@ -693,14 +693,14 @@ mod tests {
                 &mut self.node,
                 &team_dir,
                 &workspace_path,
-                None,
-                None,
-                None,
                 Some("Unified Team Test".to_string()),
                 Some(self.name.clone()),
                 None,
                 None,
                 self.engine.clone(),
+                crate::commands::TEAMCLAW_DIR,
+                crate::commands::CONFIG_FILE_NAME,
+                crate::commands::TEAM_REPO_DIR,
             )
             .await
             .unwrap()
@@ -716,6 +716,9 @@ mod tests {
                 &workspace_path,
                 None,
                 self.engine.clone(),
+                crate::commands::TEAMCLAW_DIR,
+                crate::commands::CONFIG_FILE_NAME,
+                crate::commands::TEAM_REPO_DIR,
             )
             .await
             .unwrap();
@@ -762,6 +765,8 @@ mod tests {
             &owner.team_dir_path(),
             &owner.node_id(),
             joiner_member,
+            crate::commands::TEAMCLAW_DIR,
+            crate::commands::CONFIG_FILE_NAME,
         )
         .unwrap();
 
