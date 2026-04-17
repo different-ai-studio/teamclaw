@@ -15,6 +15,7 @@ export interface LocalStats {
   sessions: SessionStats     // Session statistics
   lastUpdated: string        // ISO 8601 timestamp
   createdAt: string          // ISO 8601 timestamp
+  skillUsage: Record<string, number>  // Skill usage count by skill name
 }
 
 export interface StarRatings {
@@ -40,6 +41,7 @@ export interface LocalStatsUpdate {
   starRating?: 1 | 2 | 3 | 4 | 5
   sessionsTotal?: number
   sessionsWithFeedback?: number
+  skillInvoked?: string
 }
 
 export type FeedbackRating = 'positive' | 'negative'
