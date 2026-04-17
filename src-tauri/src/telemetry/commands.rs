@@ -493,132 +493,125 @@ pub struct TeamLeaderboard {
 
 /// Export the current user's leaderboard stats to teamclaw-team/.leaderboard/{memberName}.json.
 /// Reads from .teamclaw/stats.json and organizes by workspace.
+///
+/// Works in all team sync modes (P2P, OSS, managed-git) — the export is a pure
+/// filesystem write that relies only on the stable device ID from
+/// `~/.teamclaw/iroh/secret_key`. The iroh node does NOT need to be running.
 #[tauri::command]
 pub async fn telemetry_export_leaderboard(
-    state: tauri::State<'_, TelemetryState>,
-    iroh_state: tauri::State<'_, crate::commands::p2p_state::IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
-    #[cfg(not(feature = "p2p"))]
-    let _ = (state, iroh_state, opencode_state);
+    let node_id = crate::commands::oss_commands::get_device_id()?;
+    let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    #[cfg(not(feature = "p2p"))]
-    return Err("P2P team sync is not available on this build.".into());
+    let workspace_path = opencode_state
+        .inner
+        .lock()
+        .map_err(|e| e.to_string())?
+        .workspace_path
+        .clone()
+        .ok_or("Workspace path not set")?;
+    let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
+    if !team_dir.exists() {
+        return Ok(());
+    }
+    let leaderboard_dir = team_dir.join(".leaderboard");
 
-    #[cfg(feature = "p2p")]
-    {
-        let _db = get_db(&state).await?;
+    std::fs::create_dir_all(&leaderboard_dir)
+        .map_err(|e| format!("Failed to create .leaderboard dir: {}", e))?;
 
-        let guard = iroh_state.lock().await;
-        let node = guard.as_ref().ok_or("P2P node not running")?;
-        let node_id = crate::commands::team_p2p::get_node_id(node);
-        let device_info = crate::commands::team_p2p::get_device_metadata();
-        drop(guard);
-
-        let workspace_path = opencode_state
-            .inner
-            .lock()
-            .map_err(|e| e.to_string())?
-            .workspace_path
-            .clone()
-            .ok_or("Workspace path not set")?;
-        let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
-        if !team_dir.exists() {
-            return Ok(());
-        }
-        let leaderboard_dir = team_dir.join(".leaderboard");
-
-        std::fs::create_dir_all(&leaderboard_dir)
-            .map_err(|e| format!("Failed to create .leaderboard dir: {}", e))?;
-
-        // Read local stats from current workspace's .teamclaw/stats.json
-        let stats_path = std::path::Path::new(&workspace_path)
-            .join(crate::commands::TEAMCLAW_DIR)
-            .join("stats.json");
-        let local_stats = if stats_path.exists() {
-            let content = std::fs::read_to_string(&stats_path).map_err(|e| {
+    // Read local stats from current workspace's .teamclaw/stats.json
+    let stats_path = std::path::Path::new(&workspace_path)
+        .join(crate::commands::TEAMCLAW_DIR)
+        .join("stats.json");
+    let local_stats = if stats_path.exists() {
+        let content = std::fs::read_to_string(&stats_path).map_err(|e| {
+            format!(
+                "Failed to read {}/stats.json: {}",
+                crate::commands::TEAMCLAW_DIR,
+                e
+            )
+        })?;
+        serde_json::from_str::<crate::commands::local_stats::LocalStats>(&content).map_err(
+            |e| {
                 format!(
-                    "Failed to read {}/stats.json: {}",
+                    "Failed to parse {}/stats.json: {}",
                     crate::commands::TEAMCLAW_DIR,
                     e
                 )
-            })?;
-            serde_json::from_str::<crate::commands::local_stats::LocalStats>(&content).map_err(
-                |e| {
-                    format!(
-                        "Failed to parse {}/stats.json: {}",
-                        crate::commands::TEAMCLAW_DIR,
-                        e
-                    )
-                },
-            )?
-        } else {
-            // If stats.json doesn't exist, use default
-            crate::commands::local_stats::LocalStats::default()
-        };
+            },
+        )?
+    } else {
+        // If stats.json doesn't exist, use default
+        crate::commands::local_stats::LocalStats::default()
+    };
 
-        // Convert LocalStats to LeaderboardStats
-        let workspace_stats = LeaderboardStats {
-            total_feedbacks: local_stats.feedback_count,
-            positive_count: local_stats.positive_count,
-            negative_count: local_stats.negative_count,
-            total_tokens: local_stats.total_tokens,
-            total_cost: local_stats.total_cost,
-            session_count: local_stats.sessions.total,
-            skill_usage: local_stats.skill_usage.clone(),
-        };
+    // Convert LocalStats to LeaderboardStats
+    let workspace_stats = LeaderboardStats {
+        total_feedbacks: local_stats.feedback_count,
+        positive_count: local_stats.positive_count,
+        negative_count: local_stats.negative_count,
+        total_tokens: local_stats.total_tokens,
+        total_cost: local_stats.total_cost,
+        session_count: local_stats.sessions.total,
+        skill_usage: local_stats.skill_usage.clone(),
+    };
 
-        let team_dir_str = team_dir.to_string_lossy().to_string();
-        let member_name = crate::commands::team_p2p::read_members_manifest(&team_dir_str)
-            .ok()
-            .flatten()
-            .and_then(|m| {
-                m.members
-                    .iter()
-                    .find(|mem| mem.node_id == node_id)
-                    .map(|mem| mem.name.clone())
-            })
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| device_info.hostname.clone());
+    let member_name = read_team_member_name(&team_dir, &node_id)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| hostname.clone());
 
-        let safe_filename = member_name
-            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
-            .chars()
-            .take(200)
-            .collect::<String>();
-        let file_path = leaderboard_dir.join(format!("{}.json", safe_filename));
+    let safe_filename = member_name
+        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let file_path = leaderboard_dir.join(format!("{}.json", safe_filename));
 
-        // Read existing leaderboard file or create new
-        let mut workspaces = if file_path.exists() {
-            let content = std::fs::read_to_string(&file_path)
-                .map_err(|e| format!("Failed to read existing leaderboard: {}", e))?;
-            let existing: MemberLeaderboardExport = serde_json::from_str(&content)
-                .map_err(|e| format!("Failed to parse existing leaderboard: {}", e))?;
-            existing.workspaces
-        } else {
-            std::collections::HashMap::new()
-        };
+    // Read existing leaderboard file or create new
+    let mut workspaces = if file_path.exists() {
+        let content = std::fs::read_to_string(&file_path)
+            .map_err(|e| format!("Failed to read existing leaderboard: {}", e))?;
+        let existing: MemberLeaderboardExport = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse existing leaderboard: {}", e))?;
+        existing.workspaces
+    } else {
+        std::collections::HashMap::new()
+    };
 
-        // Update current workspace stats
-        workspaces.insert(workspace_path.clone(), workspace_stats);
+    // Update current workspace stats
+    workspaces.insert(workspace_path.clone(), workspace_stats);
 
-        let now = chrono::Utc::now().to_rfc3339();
-        let export = MemberLeaderboardExport {
-            member_id: node_id.clone(),
-            member_name: member_name.clone(),
-            exported_at: now.clone(),
-            update_at: now,
-            workspaces,
-        };
+    let now = chrono::Utc::now().to_rfc3339();
+    let export = MemberLeaderboardExport {
+        member_id: node_id,
+        member_name: member_name.clone(),
+        exported_at: now.clone(),
+        update_at: now,
+        workspaces,
+    };
 
-        let json = serde_json::to_string_pretty(&export)
-            .map_err(|e| format!("Failed to serialize leaderboard: {}", e))?;
+    let json = serde_json::to_string_pretty(&export)
+        .map_err(|e| format!("Failed to serialize leaderboard: {}", e))?;
 
-        std::fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write leaderboard file: {}", e))?;
+    std::fs::write(&file_path, json)
+        .map_err(|e| format!("Failed to write leaderboard file: {}", e))?;
 
-        Ok(())
-    }
+    Ok(())
+}
+
+/// Look up this device's member name from `<team_dir>/_team/members.json`.
+/// Returns None if the manifest is missing, malformed, or does not contain the
+/// given node_id. Caller falls back to hostname.
+fn read_team_member_name(team_dir: &std::path::Path, node_id: &str) -> Option<String> {
+    let manifest_path = team_dir.join("_team").join("members.json");
+    let content = std::fs::read_to_string(&manifest_path).ok()?;
+    let manifest: teamclaw_sync::oss_types::TeamManifest = serde_json::from_str(&content).ok()?;
+    manifest
+        .members
+        .into_iter()
+        .find(|m| m.node_id == node_id)
+        .map(|m| m.name)
 }
 
 /// Aggregate stats from all workspaces for a member
