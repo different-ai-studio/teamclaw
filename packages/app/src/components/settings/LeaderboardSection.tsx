@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Trophy, Flame, MessageSquareHeart, RefreshCw, Loader2 } from 'lucide-react'
+import { Trophy, Flame, MessageSquareHeart, Sparkles, RefreshCw, Loader2 } from 'lucide-react'
 import { cn, isTauri } from '@/lib/utils'
 import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { buildSharedRankMap } from '@/lib/team-leaderboard-ranks'
@@ -295,11 +295,12 @@ export function LeaderboardSection() {
         <>
           <div className="rounded-xl border bg-card overflow-hidden">
             {/* Table header */}
-            <div className="grid grid-cols-[40px_1fr_80px_100px_120px] items-center gap-2 px-4 py-2.5 bg-muted/30 border-b text-[11px] font-medium text-muted-foreground">
+            <div className="grid grid-cols-[40px_1fr_72px_72px_72px_112px] items-center gap-2 px-4 py-2.5 bg-muted/30 border-b text-[11px] font-medium text-muted-foreground">
               <span className="text-center">{t('settings.leaderboard.rank', '#')}</span>
               <span>{t('settings.leaderboard.member', 'Member')}</span>
               <span className="text-center">{t('settings.leaderboard.tokenRank', 'Token Rank')}</span>
               <span className="text-center">{t('settings.leaderboard.feedbackRank', 'Feedback Rank')}</span>
+              <span className="text-center">{t('settings.leaderboard.skillRank', 'Skill Rank')}</span>
               <span className="text-right">{t('settings.leaderboard.totalTokens', 'Total Tokens')}</span>
             </div>
 
@@ -317,7 +318,7 @@ export function LeaderboardSection() {
                   <div
                     key={member.name}
                     className={cn(
-                      "grid grid-cols-[40px_1fr_80px_100px_120px] items-center gap-2 px-4 py-2.5 border-b last:border-b-0 transition-colors",
+                      "grid grid-cols-[40px_1fr_72px_72px_72px_112px] items-center gap-2 px-4 py-2.5 border-b last:border-b-0 transition-colors",
                       member.isCurrentUser
                         ? "bg-indigo-500/[0.06]"
                         : "hover:bg-muted/30"
@@ -367,6 +368,9 @@ export function LeaderboardSection() {
                     {/* Feedback Rank */}
                     <RankCell rank={member.feedbackRank} />
 
+                    {/* Skill Rank */}
+                    <RankCell rank={member.skillRank} />
+
                     {/* Total Tokens */}
                     <div className="text-right">
                       <span className="text-sm font-medium tabular-nums">
@@ -374,6 +378,8 @@ export function LeaderboardSection() {
                       </span>
                       <div className="text-[10px] text-muted-foreground">
                         {member.totalFeedbacks} {t('settings.leaderboard.feedbacks', 'feedbacks')}
+                        {' · '}
+                        {t('settings.leaderboard.totalSkills', { count: member.totalSkillInvocations, defaultValue: '{{count}} skills' })}
                       </div>
                     </div>
                   </div>
@@ -386,6 +392,7 @@ export function LeaderboardSection() {
             {[
               { key: 'token', label: t('settings.leaderboard.tokenUsage', 'Token Usage'), icon: Flame, color: 'text-amber-500' },
               { key: 'feedback', label: t('settings.leaderboard.feedbackCount', 'Feedback Count'), icon: MessageSquareHeart, color: 'text-pink-500' },
+              { key: 'skill', label: t('settings.leaderboard.skillInvocations', 'Skill Invocations'), icon: Sparkles, color: 'text-violet-500' },
             ].map((col) => {
               const Icon = col.icon
               return (
