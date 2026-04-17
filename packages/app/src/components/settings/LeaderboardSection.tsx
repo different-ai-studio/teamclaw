@@ -29,16 +29,17 @@ function formatTokens(tokens: number | undefined | null): string {
 
 // ── Types ──────────────────────────────────────────────────────────
 
-interface LeaderboardStats {
+export interface LeaderboardStats {
   totalFeedbacks: number
   positiveCount: number
   negativeCount: number
   totalTokens: number
   totalCost: number
   sessionCount: number
+  skillUsage?: Record<string, number>
 }
 
-interface MemberLeaderboardExport {
+export interface MemberLeaderboardExport {
   memberId: string
   memberName: string
   exportedAt: string
@@ -46,7 +47,7 @@ interface MemberLeaderboardExport {
   workspaces: Record<string, LeaderboardStats>  // workspace path -> stats
 }
 
-interface TeamLeaderboard {
+export interface TeamLeaderboard {
   members: MemberLeaderboardExport[]
 }
 
@@ -56,10 +57,12 @@ interface MemberStats {
   overallScore: number
   tokenRank: number
   feedbackRank: number
+  skillRank: number
   totalTokens: number
   totalFeedbacks: number
   totalCost: number
   sessionCount: number
+  totalSkillInvocations: number
   isCurrentUser?: boolean
 }
 
@@ -135,15 +138,19 @@ export function LeaderboardSection() {
       totalFeedbacks: 0,
       totalCost: 0,
       sessionCount: 0,
+      totalSkillInvocations: 0,
     }
-    
+
     Object.values(workspaces || {}).forEach(stats => {
       total.totalTokens += stats.totalTokens || 0
       total.totalFeedbacks += stats.totalFeedbacks || 0
       total.totalCost += stats.totalCost || 0
       total.sessionCount += stats.sessionCount || 0
+      for (const n of Object.values(stats.skillUsage || {})) {
+        total.totalSkillInvocations += n
+      }
     })
-    
+
     return total
   }, [])
 
@@ -167,10 +174,18 @@ export function LeaderboardSection() {
       getKey: (member) => member.memberName,
       getScore: (member) => member.aggregated.totalFeedbacks,
     })
+    const skillRanks = buildSharedRankMap({
+      items: membersWithAggregated,
+      getKey: (member) => member.memberName,
+      getScore: (member) => member.aggregated.totalSkillInvocations,
+    })
 
     const overallScores = membersWithAggregated.map((member) => ({
       memberName: member.memberName,
-      overallScore: ((tokenRanks.get(member.memberName) ?? 0) + (feedbackRanks.get(member.memberName) ?? 0)) / 2,
+      overallScore:
+        ((tokenRanks.get(member.memberName) ?? 0) +
+          (feedbackRanks.get(member.memberName) ?? 0) +
+          (skillRanks.get(member.memberName) ?? 0)) / 3,
     }))
     const overallScoreMap = new Map(
       overallScores.map((member) => [member.memberName, member.overallScore])
@@ -188,10 +203,12 @@ export function LeaderboardSection() {
       overallScore: overallScoreMap.get(member.memberName) ?? 0,
       tokenRank: tokenRanks.get(member.memberName) ?? 0,
       feedbackRank: feedbackRanks.get(member.memberName) ?? 0,
+      skillRank: skillRanks.get(member.memberName) ?? 0,
       totalTokens: member.aggregated.totalTokens,
       totalFeedbacks: member.aggregated.totalFeedbacks,
       totalCost: member.aggregated.totalCost,
       sessionCount: member.aggregated.sessionCount,
+      totalSkillInvocations: member.aggregated.totalSkillInvocations,
     }))
   }, [leaderboard, aggregateWorkspaceStats])
 
@@ -383,6 +400,29 @@ export function LeaderboardSection() {
       )}
     </div>
   )
+}
+
+// ── Pure helpers ────────────────────────────────────────────────────────
+
+export function computeTopSkills(
+  leaderboard: TeamLeaderboard,
+  limit: number,
+): Array<{ name: string; count: number; userCount: number }> {
+  const totals = new Map<string, { count: number; users: Set<string> }>()
+  for (const member of leaderboard.members || []) {
+    for (const ws of Object.values(member.workspaces || {})) {
+      for (const [name, n] of Object.entries(ws.skillUsage || {})) {
+        const entry = totals.get(name) ?? { count: 0, users: new Set<string>() }
+        entry.count += n
+        entry.users.add(member.memberName)
+        totals.set(name, entry)
+      }
+    }
+  }
+  return [...totals.entries()]
+    .map(([name, { count, users }]) => ({ name, count, userCount: users.size }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, limit)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
