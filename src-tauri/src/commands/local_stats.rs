@@ -17,6 +17,8 @@ pub struct LocalStats {
     pub sessions: SessionStats,
     pub last_updated: String,
     pub created_at: String,
+    #[serde(default)]
+    pub skill_usage: std::collections::HashMap<String, i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +54,7 @@ pub struct LocalStatsUpdate {
     pub star_rating: Option<i64>,
     pub sessions_total: Option<i64>,
     pub sessions_with_feedback: Option<i64>,
+    pub skill_invoked: Option<String>,
 }
 
 impl Default for LocalStats {
@@ -72,6 +75,7 @@ impl Default for LocalStats {
             },
             last_updated: now.clone(),
             created_at: now,
+            skill_usage: std::collections::HashMap::new(),
         }
     }
 }
@@ -192,6 +196,11 @@ pub async fn update_local_stats(
     if let Some(sessions_with_feedback) = updates.sessions_with_feedback {
         stats.sessions.with_feedback += sessions_with_feedback;
     }
+    if let Some(name) = updates.skill_invoked {
+        if !name.is_empty() && name.len() <= 256 {
+            *stats.skill_usage.entry(name).or_insert(0) += 1;
+        }
+    }
 
     // Update timestamp
     stats.last_updated = chrono::Utc::now().to_rfc3339();
@@ -208,4 +217,84 @@ pub async fn reset_local_stats(workspace_path: String) -> Result<LocalStats, Str
     let stats = LocalStats::default();
     write_local_stats(workspace_path, stats.clone()).await?;
     Ok(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn temp_workspace() -> TempDir {
+        TempDir::new().expect("create tempdir")
+    }
+
+    fn empty_update() -> LocalStatsUpdate {
+        LocalStatsUpdate {
+            task_completed: None,
+            total_tokens: None,
+            total_cost: None,
+            feedback_count: None,
+            positive_count: None,
+            negative_count: None,
+            star_rating: None,
+            sessions_total: None,
+            sessions_with_feedback: None,
+            skill_invoked: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn update_local_stats_increments_skill_usage() {
+        let ws = temp_workspace();
+        let ws_path = ws.path().to_string_lossy().to_string();
+
+        let stats = update_local_stats(
+            ws_path.clone(),
+            LocalStatsUpdate {
+                skill_invoked: Some("superpowers:brainstorming".to_string()),
+                ..empty_update()
+            },
+        )
+        .await
+        .expect("first update ok");
+        assert_eq!(
+            stats.skill_usage.get("superpowers:brainstorming"),
+            Some(&1)
+        );
+
+        let stats = update_local_stats(
+            ws_path.clone(),
+            LocalStatsUpdate {
+                skill_invoked: Some("superpowers:brainstorming".to_string()),
+                ..empty_update()
+            },
+        )
+        .await
+        .expect("second update ok");
+        assert_eq!(
+            stats.skill_usage.get("superpowers:brainstorming"),
+            Some(&2)
+        );
+
+        let stats = update_local_stats(
+            ws_path.clone(),
+            LocalStatsUpdate {
+                skill_invoked: Some("sentry-fix".to_string()),
+                ..empty_update()
+            },
+        )
+        .await
+        .expect("third update ok");
+        assert_eq!(stats.skill_usage.get("sentry-fix"), Some(&1));
+        assert_eq!(
+            stats.skill_usage.get("superpowers:brainstorming"),
+            Some(&2)
+        );
+    }
+
+    #[tokio::test]
+    async fn default_local_stats_has_empty_skill_usage() {
+        let s = LocalStats::default();
+        assert!(s.skill_usage.is_empty());
+    }
 }
