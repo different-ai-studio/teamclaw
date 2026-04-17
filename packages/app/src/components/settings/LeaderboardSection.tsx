@@ -212,6 +212,11 @@ export function LeaderboardSection() {
     }))
   }, [leaderboard, aggregateWorkspaceStats])
 
+  const topSkills = React.useMemo(
+    () => (leaderboard ? computeTopSkills(leaderboard, 10) : []),
+    [leaderboard],
+  )
+
   const teamSummary = React.useMemo(() => {
     const totalTokens = memberStats.reduce((sum, m) => sum + (m.totalTokens ?? 0), 0)
     const totalFeedbacks = memberStats.reduce((sum, m) => sum + (m.totalFeedbacks ?? 0), 0)
@@ -403,6 +408,35 @@ export function LeaderboardSection() {
               )
             })}
           </div>
+
+          {/* Top skills this team */}
+          {topSkills.length > 0 && (
+            <div className="rounded-xl border bg-card overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/30 border-b">
+                <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+                <span className="text-xs font-medium">
+                  {t('settings.leaderboard.topSkills', 'Top Skills This Team')}
+                </span>
+              </div>
+              {topSkills.map((skill, idx) => (
+                <div
+                  key={skill.name}
+                  className="grid grid-cols-[40px_1fr_100px_120px] items-center gap-2 px-4 py-2.5 border-b last:border-b-0"
+                >
+                  <span className="text-xs text-muted-foreground font-medium tabular-nums text-center">
+                    {idx + 1}
+                  </span>
+                  <span className="text-sm truncate">{skill.name}</span>
+                  <span className="text-xs text-right tabular-nums">
+                    {skill.count} {t('settings.leaderboard.calls', 'calls')}
+                  </span>
+                  <span className="text-xs text-right text-muted-foreground tabular-nums">
+                    {t('settings.leaderboard.usedBy', { n: skill.userCount, defaultValue: '{{n}} members' })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
