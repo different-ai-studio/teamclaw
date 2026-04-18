@@ -290,11 +290,31 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
             const skillName =
               typeof rawName === "string" ? rawName : undefined;
             const workspacePath = useWorkspaceStore.getState().workspacePath;
+            console.debug("[SkillTelemetry] detected", {
+              toolName: event.toolName,
+              args: event.arguments,
+              skillName,
+              workspacePath,
+            });
             if (skillName && workspacePath) {
               void useLocalStatsStore
                 .getState()
                 .incrementSkillUsage(workspacePath, skillName);
+            } else {
+              console.warn("[SkillTelemetry] skipped — missing skillName or workspace", {
+                skillName,
+                workspacePath,
+              });
             }
+          } else if (
+            event.toolName &&
+            event.toolName.toLowerCase().includes("skill")
+          ) {
+            // Unexpected skill-ish tool name — log so we can add it to the matcher.
+            console.warn("[SkillTelemetry] skill-looking tool not matched", {
+              toolName: event.toolName,
+              args: event.arguments,
+            });
           }
         }
 
