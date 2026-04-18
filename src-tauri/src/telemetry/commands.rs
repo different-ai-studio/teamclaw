@@ -302,81 +302,63 @@ pub struct TeamFeedbackSummary {
 }
 
 /// Export the current user's feedback summary to teamclaw-team/_feedback/{nodeId}.json.
+///
+/// Works in all team sync modes (P2P, OSS, managed-git) — identity comes from
+/// the stable device key at ~/.teamclaw/iroh/secret_key; the iroh node does
+/// NOT need to be running.
 #[tauri::command]
 pub async fn telemetry_export_team_feedback(
     state: tauri::State<'_, TelemetryState>,
-    iroh_state: tauri::State<'_, crate::commands::p2p_state::IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<(), String> {
-    #[cfg(not(feature = "p2p"))]
-    {
-        let _ = (state, iroh_state, opencode_state);
-        return Err("P2P team sync is not available on this build.".into());
+    let db = get_db(&state).await?;
+
+    let node_id = crate::commands::oss_commands::get_device_id()?;
+    let hostname = gethostname::gethostname().to_string_lossy().to_string();
+
+    let workspace_path = opencode_state
+        .inner
+        .lock()
+        .map_err(|e| e.to_string())?
+        .workspace_path
+        .clone()
+        .ok_or("Workspace path not set")?;
+    let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
+    if !team_dir.exists() {
+        return Ok(());
     }
+    let feedback_dir = team_dir.join("_feedback");
 
-    #[cfg(feature = "p2p")]
-    {
-        let db = get_db(&state).await?;
+    std::fs::create_dir_all(&feedback_dir)
+        .map_err(|e| format!("Failed to create _feedback dir: {}", e))?;
 
-        let guard = iroh_state.lock().await;
-        let node = guard.as_ref().ok_or("P2P node not running")?;
-        let node_id = crate::commands::team_p2p::get_node_id(node);
-        let device_info = crate::commands::team_p2p::get_device_metadata();
-        drop(guard);
+    let summary = db.export_feedback_summary().await?;
 
-        let workspace_path = opencode_state
-            .inner
-            .lock()
-            .map_err(|e| e.to_string())?
-            .workspace_path
-            .clone()
-            .ok_or("Workspace path not set")?;
-        let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
-        if !team_dir.exists() {
-            return Ok(());
-        }
-        let feedback_dir = team_dir.join("_feedback");
+    let member_name = read_team_member_name(&team_dir, &node_id)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| hostname.clone());
 
-        std::fs::create_dir_all(&feedback_dir)
-            .map_err(|e| format!("Failed to create _feedback dir: {}", e))?;
+    let export = MemberFeedbackExport {
+        member_id: node_id,
+        member_name: member_name.clone(),
+        exported_at: chrono::Utc::now().to_rfc3339(),
+        summary,
+    };
 
-        let summary = db.export_feedback_summary().await?;
+    let json = serde_json::to_string_pretty(&export)
+        .map_err(|e| format!("Failed to serialize feedback: {}", e))?;
 
-        let team_dir_str = team_dir.to_string_lossy().to_string();
-        let member_name = crate::commands::team_p2p::read_members_manifest(&team_dir_str)
-            .ok()
-            .flatten()
-            .and_then(|m| {
-                m.members
-                    .iter()
-                    .find(|mem| mem.node_id == node_id)
-                    .map(|mem| mem.name.clone())
-            })
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| device_info.hostname.clone());
+    // Use memberName as filename (sanitize for safety)
+    let safe_filename = member_name
+        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let file_path = feedback_dir.join(format!("{}.json", safe_filename));
+    std::fs::write(&file_path, json)
+        .map_err(|e| format!("Failed to write feedback file: {}", e))?;
 
-        let export = MemberFeedbackExport {
-            member_id: node_id.clone(),
-            member_name: member_name.clone(),
-            exported_at: chrono::Utc::now().to_rfc3339(),
-            summary,
-        };
-
-        let json = serde_json::to_string_pretty(&export)
-            .map_err(|e| format!("Failed to serialize feedback: {}", e))?;
-
-        // Use memberName as filename (sanitize for safety)
-        let safe_filename = member_name
-            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
-            .chars()
-            .take(200)
-            .collect::<String>();
-        let file_path = feedback_dir.join(format!("{}.json", safe_filename));
-        std::fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write feedback file: {}", e))?;
-
-        Ok(())
-    }
+    Ok(())
 }
 
 /// Read all member feedback JSONs from teamclaw-team/_feedback/ and return aggregated team summary.
