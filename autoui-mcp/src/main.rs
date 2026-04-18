@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     tracing::info!("Starting AutoUI MCP Server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!(
         vision_enabled = config.has_vision(),
-        model = config.qwen_model.as_str(),
+        model = config.vision_model.as_str(),
         "Configuration loaded"
     );
 

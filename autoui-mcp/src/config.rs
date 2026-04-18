@@ -3,27 +3,28 @@ use std::env;
 /// Application configuration loaded from environment variables.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Qwen API key for vision locate / verify
-    pub qwen_api_key: String,
-    /// Qwen-compatible API base URL
-    pub qwen_base_url: String,
+    /// API key for the OpenAI-compatible vision endpoint (locate / verify / plan)
+    pub vision_api_key: String,
+    /// OpenAI-compatible API base URL
+    pub vision_base_url: String,
     /// Vision model name
-    pub qwen_model: String,
+    pub vision_model: String,
 }
 
 impl Config {
     /// Build config from environment variables.
     pub fn from_env() -> Self {
         Self {
-            qwen_api_key: env::var("QWEN_API_KEY").unwrap_or_default(),
-            qwen_base_url: env::var("QWEN_BASE_URL")
+            vision_api_key: env::var("AUTOUI_VISION_API_KEY").unwrap_or_default(),
+            vision_base_url: env::var("AUTOUI_VISION_BASE_URL")
                 .unwrap_or_else(|_| "https://dashscope.aliyuncs.com/compatible-mode/v1".into()),
-            qwen_model: env::var("QWEN_MODEL").unwrap_or_else(|_| "qwen3-vl-flash".into()),
+            vision_model: env::var("AUTOUI_VISION_MODEL")
+                .unwrap_or_else(|_| "qwen3-vl-flash".into()),
         }
     }
 
-    /// Returns true when a Qwen API key has been configured.
+    /// Returns true when a vision API key has been configured.
     pub fn has_vision(&self) -> bool {
-        !self.qwen_api_key.is_empty()
+        !self.vision_api_key.is_empty()
     }
 }

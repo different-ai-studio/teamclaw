@@ -485,7 +485,7 @@ fn build_chat_body(
     max_tokens: u32,
 ) -> Value {
     serde_json::json!({
-        "model": config.qwen_model,
+        "model": config.vision_model,
         "messages": [
             { "role": "system", "content": system_prompt },
             {
@@ -515,8 +515,8 @@ async fn call_qwen(config: &Config, body: &Value) -> Result<String> {
         .context("HTTP client build failed")?;
 
     let resp = client
-        .post(format!("{}/chat/completions", config.qwen_base_url))
-        .header("Authorization", format!("Bearer {}", config.qwen_api_key))
+        .post(format!("{}/chat/completions", config.vision_base_url))
+        .header("Authorization", format!("Bearer {}", config.vision_api_key))
         .header("Content-Type", "application/json")
         .json(body)
         .send()
