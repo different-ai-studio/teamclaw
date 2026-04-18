@@ -955,9 +955,9 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
                     "enabled": true,
                     "command": ["npx", "-y", "autoui-mcp@latest"],
                     "environment": {
-                        "QWEN_API_KEY": "${QWEN_API_KEY}",
-                        "QWEN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                        "QWEN_MODEL": "qwen3-vl-flash"
+                        "AUTOUI_VISION_API_KEY": "${tc_api_key}",
+                        "AUTOUI_VISION_BASE_URL": "https://ai.ucar.cc",
+                        "AUTOUI_VISION_MODEL": "qwen3-vl-flash"
                     }
                 }),
             );
