@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -9,6 +10,7 @@ use tokio::sync::mpsc;
 /// Default port for the OpenCode server.
 /// This is the single source of truth for the port number.
 const DEFAULT_PORT: u16 = 13141;
+const PLUGIN_UPDATE_TTL_SECS: u64 = 60 * 60 * 6;
 
 /// Mutable runtime state for the OpenCode sidecar, protected by a single Mutex.
 pub struct OpenCodeInner {
@@ -66,6 +68,18 @@ pub struct OpenCodeStatus {
     pub url: String,
     pub is_dev_mode: bool,
     pub workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PluginUpdateTarget {
+    spec: String,
+    package_name: String,
+    auto_update: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PluginUpdateState {
+    last_checked_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -402,6 +416,9 @@ pub async fn start_opencode_inner(
             }
             if let Err(e) = resolve_sidecar_binary_paths(&ws_for_config) {
                 eprintln!("[OpenCode] Warning: failed to resolve binary paths: {}", e);
+            }
+            if let Err(e) = refresh_npm_plugins_if_needed(&ws_for_config) {
+                eprintln!("[OpenCode] Warning: failed to refresh npm plugins: {}", e);
             }
         }),
         // Branch 2: inherent skills (writes to .opencode/skills/, no opencode.json conflict)
@@ -943,7 +960,9 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
                 changed = true;
                 println!("[Config] Added inherent 'teamclaw-introspect' MCP config");
             } else {
-                println!("[Config] teamclaw-introspect binary not found, skipping MCP registration");
+                println!(
+                    "[Config] teamclaw-introspect binary not found, skipping MCP registration"
+                );
             }
         }
 
@@ -1007,6 +1026,281 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn refresh_npm_plugins_if_needed(workspace_path: &str) -> Result<(), String> {
+    let state_path = plugin_update_state_path(workspace_path);
+    let ttl = std::time::Duration::from_secs(PLUGIN_UPDATE_TTL_SECS);
+    if !should_check_plugin_updates(&state_path, ttl) {
+        return Ok(());
+    }
+
+    let config_path = super::mcp::get_config_path(workspace_path);
+    if !config_path.exists() {
+        write_plugin_update_state(&state_path)?;
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read opencode.json for plugin refresh: {}", e))?;
+    let config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse opencode.json for plugin refresh: {}", e))?;
+
+    let plugin_specs = config
+        .get("plugin")
+        .and_then(|value| value.as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.as_str())
+                .filter_map(parse_plugin_update_target)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if plugin_specs.is_empty() {
+        write_plugin_update_state(&state_path)?;
+        return Ok(());
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| reqwest::blocking::Client::new());
+
+    for plugin in plugin_specs {
+        let latest_version = match fetch_latest_npm_version(&client, &plugin.package_name) {
+            Ok(version) => version,
+            Err(err) => {
+                eprintln!(
+                    "[OpenCode] Plugin update check skipped for {}: {}",
+                    plugin.spec, err
+                );
+                continue;
+            }
+        };
+
+        let Some(latest_version) = latest_version else {
+            continue;
+        };
+
+        let cache_dir = plugin_cache_dir(workspace_path, &plugin.spec);
+        let Some(local_version) = read_installed_plugin_version(&cache_dir, &plugin.package_name)?
+        else {
+            continue;
+        };
+
+        if !is_remote_version_newer(&local_version, &latest_version) {
+            continue;
+        }
+
+        if cache_dir.exists() {
+            std::fs::remove_dir_all(&cache_dir).map_err(|e| {
+                format!(
+                    "Failed to remove plugin cache {}: {}",
+                    cache_dir.display(),
+                    e
+                )
+            })?;
+            println!(
+                "[OpenCode] Removed stale plugin cache for {} ({} -> {})",
+                plugin.spec, local_version, latest_version
+            );
+        }
+    }
+
+    write_plugin_update_state(&state_path)?;
+    Ok(())
+}
+
+fn parse_plugin_update_target(spec: &str) -> Option<PluginUpdateTarget> {
+    let spec = spec.trim();
+    if spec.is_empty()
+        || spec.starts_with("git+")
+        || spec.starts_with("github:")
+        || spec.starts_with("file:")
+        || spec.starts_with("link:")
+        || spec.starts_with("workspace:")
+        || spec.contains("://")
+    {
+        return None;
+    }
+
+    let (package_name, version) = split_npm_package_spec(spec)?;
+    let auto_update = version.is_none() || version == Some("latest");
+    if !auto_update {
+        return None;
+    }
+
+    Some(PluginUpdateTarget {
+        spec: spec.to_string(),
+        package_name: package_name.to_string(),
+        auto_update,
+    })
+}
+
+fn split_npm_package_spec(spec: &str) -> Option<(&str, Option<&str>)> {
+    if spec.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = spec.strip_prefix('@') {
+        let slash = rest.find('/')?;
+        let after_scope = slash + 2;
+        if after_scope >= spec.len() {
+            return None;
+        }
+        let version_sep = spec[after_scope..].rfind('@').map(|idx| idx + after_scope);
+        return match version_sep {
+            Some(idx) => Some((&spec[..idx], Some(&spec[idx + 1..]))),
+            None => Some((spec, None)),
+        };
+    }
+
+    match spec.rfind('@') {
+        Some(idx) => Some((&spec[..idx], Some(&spec[idx + 1..]))),
+        None => Some((spec, None)),
+    }
+}
+
+fn fetch_latest_npm_version(
+    client: &reqwest::blocking::Client,
+    package_name: &str,
+) -> Result<Option<String>, String> {
+    let package_url = format!(
+        "https://registry.npmjs.org/{}",
+        urlencoding::encode(package_name)
+    );
+    let response = client
+        .get(&package_url)
+        .send()
+        .map_err(|e| format!("registry request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("registry returned status {}", response.status()));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .map_err(|e| format!("registry response parse failed: {}", e))?;
+
+    Ok(body
+        .get("dist-tags")
+        .and_then(|tags| tags.get("latest"))
+        .and_then(|latest| latest.as_str())
+        .map(str::to_string))
+}
+
+fn plugin_update_state_path(workspace_path: &str) -> PathBuf {
+    Path::new(workspace_path)
+        .join(".opencode")
+        .join("state")
+        .join("plugin-update-check.json")
+}
+
+fn should_check_plugin_updates(state_path: &Path, ttl: std::time::Duration) -> bool {
+    let Ok(content) = std::fs::read_to_string(state_path) else {
+        return true;
+    };
+    let Ok(state) = serde_json::from_str::<PluginUpdateState>(&content) else {
+        return true;
+    };
+
+    current_time_ms().saturating_sub(state.last_checked_at_ms) >= ttl.as_millis() as u64
+}
+
+fn write_plugin_update_state(state_path: &Path) -> Result<(), String> {
+    if let Some(parent) = state_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create plugin update state directory {}: {}",
+                parent.display(),
+                e
+            )
+        })?;
+    }
+
+    let content = serde_json::to_string_pretty(&PluginUpdateState {
+        last_checked_at_ms: current_time_ms(),
+    })
+    .map_err(|e| format!("Failed to serialize plugin update state: {}", e))?;
+
+    std::fs::write(state_path, content).map_err(|e| {
+        format!(
+            "Failed to write plugin update state {}: {}",
+            state_path.display(),
+            e
+        )
+    })
+}
+
+fn plugin_cache_dir(workspace_path: &str, spec: &str) -> PathBuf {
+    Path::new(workspace_path)
+        .join(".opencode")
+        .join("cache")
+        .join("opencode")
+        .join("packages")
+        .join(normalized_plugin_cache_key(spec))
+}
+
+fn normalized_plugin_cache_key(spec: &str) -> String {
+    let Some((_, version)) = split_npm_package_spec(spec) else {
+        return spec.to_string();
+    };
+    if version.is_none() {
+        return format!("{}@latest", spec);
+    }
+    spec.to_string()
+}
+
+fn read_installed_plugin_version(
+    cache_dir: &Path,
+    package_name: &str,
+) -> Result<Option<String>, String> {
+    let package_json_path = cache_dir
+        .join("node_modules")
+        .join(package_name)
+        .join("package.json");
+    if !package_json_path.exists() {
+        return Ok(None);
+    }
+
+    let content = std::fs::read_to_string(&package_json_path).map_err(|e| {
+        format!(
+            "Failed to read plugin package.json {}: {}",
+            package_json_path.display(),
+            e
+        )
+    })?;
+    let package_json: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        format!(
+            "Failed to parse plugin package.json {}: {}",
+            package_json_path.display(),
+            e
+        )
+    })?;
+
+    Ok(package_json
+        .get("version")
+        .and_then(|value| value.as_str())
+        .map(str::to_string))
+}
+
+fn is_remote_version_newer(local_version: &str, remote_version: &str) -> bool {
+    match (
+        semver::Version::parse(local_version),
+        semver::Version::parse(remote_version),
+    ) {
+        (Ok(local), Ok(remote)) => remote > local,
+        _ => local_version != remote_version,
+    }
+}
+
+fn current_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// Inherent skill definition: a skill that TeamClaw auto-provisions in every workspace.
