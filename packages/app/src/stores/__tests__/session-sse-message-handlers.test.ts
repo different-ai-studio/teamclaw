@@ -143,6 +143,44 @@ describe('session-sse-message-handlers', () => {
     expect(scheduleTypewriter).toHaveBeenCalled()
   })
 
+  it('binds pending assistant to the real message id when part events arrive first', () => {
+    const session = sessionLookupCache.get('sess-1')!
+    session.messages.push({
+      id: 'pending-assistant-1',
+      sessionId: 'sess-1',
+      role: 'assistant',
+      content: '',
+      parts: [],
+      timestamp: new Date(),
+      isStreaming: true,
+    } as any)
+    sessionLookupCache.set('sess-1', session)
+    state.sessions = [session]
+
+    const streamState = useStreamingStore.getState()
+    streamState.streamingMessageId = 'pending-assistant-1'
+    streamState.streamingContent = ''
+
+    handlers.handleMessagePartCreated({
+      messageId: 'assist-msg-1',
+      partId: 'step-1',
+      type: 'step-start',
+    } as any)
+
+    const updated = sessionLookupCache.get('sess-1')!
+    expect(updated.messages.find((m: any) => m.id === 'pending-assistant-1')).toBeUndefined()
+    const rebound = updated.messages.find((m: any) => m.id === 'assist-msg-1')
+    expect(rebound).toBeDefined()
+    expect(rebound.isStreaming).toBe(true)
+    expect(rebound.parts).toEqual([
+      expect.objectContaining({
+        id: 'step-1',
+        type: 'step-start',
+      }),
+    ])
+    expect(streamState.setStreaming).toHaveBeenCalledWith('assist-msg-1', '')
+  })
+
   it('handleMessageCompleted sets isStreaming to false and clears streaming', () => {
     // Setup: add an assistant message
     const session = sessionLookupCache.get('sess-1')!

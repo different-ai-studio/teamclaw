@@ -38,6 +38,37 @@ const DEBUG = () => {
 };
 
 export function createMessageHandlers(set: SessionSet, get: SessionGet) {
+  const bindPendingAssistantToRealMessage = (
+    sessionId: string,
+    pendingMessageId: string,
+    realMessageId: string,
+  ) => {
+    const currentStreamingContent = useStreamingStore.getState().streamingContent;
+    useStreamingStore.getState().setStreaming(realMessageId, currentStreamingContent);
+
+    set((state) => {
+      const session = getSessionById(sessionId);
+      if (!session) return state;
+
+      const newSession = {
+        ...session,
+        messages: session.messages.map((message) =>
+          message.id === pendingMessageId
+            ? { ...message, id: realMessageId }
+            : message,
+        ),
+        updatedAt: new Date(),
+      };
+      sessionLookupCache.set(sessionId, newSession);
+
+      return {
+        sessions: state.sessions.map((sessionItem) =>
+          sessionItem.id === sessionId ? newSession : sessionItem,
+        ),
+      };
+    });
+  };
+
   return {
     handleMessageCreated: (event: MessageCreatedEvent) => {
       const { activeSessionId } = get();
@@ -216,8 +247,18 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
       if (event.messageId !== streamingMessageId && activeSessionId) {
         const session = getSessionById(activeSessionId);
         const targetMessage = session?.messages.find(m => m.id === event.messageId);
-        
-        if (targetMessage?.isStreaming) {
+
+        if (
+          !targetMessage &&
+          streamingMessageId?.startsWith("pending-assistant-") &&
+          session?.messages.some((message) => message.id === streamingMessageId)
+        ) {
+          bindPendingAssistantToRealMessage(
+            activeSessionId,
+            streamingMessageId,
+            event.messageId,
+          );
+        } else if (targetMessage?.isStreaming) {
           console.warn("[PartCreated] Auto-recovering lost streamingMessageId:", {
             eventMessageId: event.messageId,
             oldStreamingId: streamingMessageId,
@@ -326,8 +367,18 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
       if (event.messageId !== streamingMessageId && activeSessionId) {
         const session = getSessionById(activeSessionId);
         const targetMessage = session?.messages.find(m => m.id === event.messageId);
-        
-        if (targetMessage?.isStreaming) {
+
+        if (
+          !targetMessage &&
+          streamingMessageId?.startsWith("pending-assistant-") &&
+          session?.messages.some((message) => message.id === streamingMessageId)
+        ) {
+          bindPendingAssistantToRealMessage(
+            activeSessionId,
+            streamingMessageId,
+            event.messageId,
+          );
+        } else if (targetMessage?.isStreaming) {
           console.warn("[PartUpdated] Auto-recovering lost streamingMessageId:", {
             eventMessageId: event.messageId,
             oldStreamingId: streamingMessageId,
