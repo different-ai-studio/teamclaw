@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 
@@ -58,10 +58,16 @@ pub async fn create_workspace_window(
     let encoded_ws = urlencoding::encode(&workspace_path);
     let url = format!("index.html?workspace={}&port={}", encoded_ws, port);
 
+    let ws_name = std::path::Path::new(&workspace_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("TeamClaw");
+    let window_title = format!("TeamClaw — {}", ws_name);
+
     // Match the main window chrome: hidden title + overlay traffic lights on macOS,
     // so the workspace name shown inside the app remains the only label.
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
-        .title("TeamClaw")
+        .title(&window_title)
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 600.0)
         .resizable(true)
@@ -81,6 +87,10 @@ pub async fn create_workspace_window(
         }
         format!("Failed to create window: {}", e)
     })?;
+
+    // hidden_title(true) on macOS hides the title bar text but the OS still reads
+    // NSWindow.title for the dock right-click menu — set it explicitly post-build.
+    let _ = win.set_title(&window_title);
 
     // Reposition the macOS traffic lights to match the main window's offset.
     #[cfg(target_os = "macos")]
@@ -112,4 +122,11 @@ pub async fn create_workspace_window(
     });
 
     Ok(label)
+}
+
+/// Update the title of the calling window (used by the frontend after workspace selection).
+/// This keeps the dock right-click menu label in sync with the active workspace.
+#[tauri::command]
+pub fn set_window_title(window: WebviewWindow, title: String) {
+    let _ = window.set_title(&title);
 }

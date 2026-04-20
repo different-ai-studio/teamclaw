@@ -311,6 +311,7 @@ pub fn run() {
             commands::opencode::start_opencode,
             commands::opencode::stop_opencode,
             commands::window::create_workspace_window,
+            commands::window::set_window_title,
             commands::opencode::clear_last_workspace,
             commands::opencode::get_opencode_status,
             commands::opencode::get_opencode_project_id,

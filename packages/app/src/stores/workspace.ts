@@ -334,6 +334,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       clipboardMode: null,
     });
 
+    // Update dock right-click menu title to show workspace name
+    if (isTauri()) {
+      const wsName = getFolderName(expandedPath);
+      import('@tauri-apps/api/core')
+        .then(m => m.invoke('set_window_title', { title: `TeamClaw — ${wsName}` }))
+        .catch(() => {});
+    }
+
     // Check if this is a new workspace (no .teamclaw directory yet)
     // Runs right after set() using pre-cached imports to minimize delay
     // before OpenCode server creates .teamclaw
