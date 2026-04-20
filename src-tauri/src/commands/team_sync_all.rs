@@ -65,6 +65,8 @@ async fn sync_oss(app: &AppHandle) -> SyncAllResult {
     use teamclaw_sync::oss_types::DocType;
 
     let oss_state = app.state::<OssSyncState>();
+    // Hold the mutex for the entire sync operation to serialize with the background poll loop.
+    // OssSyncManager cannot be accessed without holding this lock.
     let mut manager_guard = oss_state.manager.lock().await;
 
     let manager = match manager_guard.as_mut() {
@@ -93,18 +95,17 @@ async fn sync_oss(app: &AppHandle) -> SyncAllResult {
     let mut changed_names: Vec<String> = Vec::new();
 
     for dt in doc_types {
-        let dt_name = dt.path().to_string();
         match manager.upload_local_changes_incremental(dt).await {
             Ok(true) => {
                 changed += 1;
-                changed_names.push(dt_name);
+                changed_names.push(dt.path().to_string());
             }
             Ok(false) => {}
             Err(e) => {
                 return SyncAllResult {
                     mode: "oss".to_string(),
                     success: false,
-                    message: format!("OSS push failed for {dt_name}: {e}"),
+                    message: format!("OSS push failed for {}: {e}", dt.path()),
                     changed_files: changed,
                 };
             }
