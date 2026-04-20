@@ -23,12 +23,13 @@ import {
   Save,
   Copy,
 } from 'lucide-react'
-import { cn, isTauri } from '@/lib/utils'
+import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { ToggleSwitch } from '@/components/settings/shared'
 import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
 import { HostLlmConfig } from './HostLlmConfig'
 import { useTeamMembersStore } from '@/stores/team-members'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { buildConfig, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -135,6 +136,8 @@ function SettingCard({ children, className }: { children: React.ReactNode; class
 export function TeamGitConfig() {
   const { t } = useTranslation()
   const teamMembersStore = useTeamMembersStore()
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady)
   const [deviceInfo, setDeviceInfo] = React.useState<{ nodeId: string } | null>(null)
   const [state, setState] = React.useState<ConnectionState>('loading')
   const [teamConfig, setTeamConfig] = React.useState<TeamConfig | null>(null)
@@ -193,6 +196,12 @@ export function TeamGitConfig() {
         return
       }
 
+      // Wait for OpenCode to register the workspace in backend state.
+      // Otherwise get_team_config races startup and throws "No workspace path set".
+      if (!workspacePath || !openCodeReady) {
+        return
+      }
+
       const gitCheck = await tauriInvoke<GitCheckResult>('team_check_git_installed')
       if (!gitCheck.installed) {
         setState('no-git')
@@ -227,7 +236,7 @@ export function TeamGitConfig() {
       setErrorMessage(err instanceof Error ? err.message : String(err))
       setState('error')
     }
-  }, [])
+  }, [workspacePath, openCodeReady])
 
   React.useEffect(() => {
     initialize()
@@ -367,6 +376,7 @@ export function TeamGitConfig() {
         llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
         llmModelName: hostLlm ? (llmModels[0]?.name || null) : null,
         llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
+        fcEndpoint: managedGit ? MANAGED_GIT_FC_ENDPOINT : null,
       })
       setConnectStep('Saving configuration...')
       const now = new Date().toISOString()
@@ -431,6 +441,9 @@ export function TeamGitConfig() {
     try {
       setConnectStep('Joining team...')
       const effectiveGitToken = gitToken.trim() || null
+      // Joining via invite code implies the team was created via managed-Git,
+      // so its LiteLLM team is registered on the managed FC endpoint.
+      const joinedViaInvite = !!decodeInviteCode(inviteCodeInput)
       await tauriInvoke<{ success: boolean; message: string }>('team_git_join', {
         gitUrl: gitUrl.trim(),
         gitToken: effectiveGitToken,
@@ -442,6 +455,7 @@ export function TeamGitConfig() {
         llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
         llmModelName: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
         llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
+        fcEndpoint: joinedViaInvite ? MANAGED_GIT_FC_ENDPOINT : null,
       })
       setConnectStep('Saving configuration...')
       const now = new Date().toISOString()
@@ -1001,7 +1015,7 @@ export function TeamGitConfig() {
                           p: teamConfig.gitToken!,
                           u: 'teamclaw',
                         })
-                        navigator.clipboard.writeText(code)
+                        await copyToClipboard(code, t('common.copied', 'Copied!'))
                       }}
                     >
                       <Copy className="h-3 w-3" />
@@ -1018,7 +1032,7 @@ export function TeamGitConfig() {
                         variant="ghost"
                         size="sm"
                         className="shrink-0 h-7 w-7 p-0"
-                        onClick={() => navigator.clipboard.writeText(teamConfig.teamId!)}
+                        onClick={() => copyToClipboard(teamConfig.teamId!, t('common.copied', 'Copied!'))}
                       >
                         <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
@@ -1051,15 +1065,14 @@ export function TeamGitConfig() {
                         size="sm"
                         className="shrink-0 h-7 w-7 p-0"
                         onClick={async () => {
-                          if (!loadedTeamSecret) {
+                          let secret = loadedTeamSecret
+                          if (!secret) {
                             try {
-                              const secret = await tauriInvoke<string>('get_git_team_secret', { teamId: teamConfig.teamId })
+                              secret = await tauriInvoke<string>('get_git_team_secret', { teamId: teamConfig.teamId })
                               setLoadedTeamSecret(secret)
-                              navigator.clipboard.writeText(secret)
-                            } catch { /* ignore */ }
-                          } else {
-                            navigator.clipboard.writeText(loadedTeamSecret)
+                            } catch { return }
                           }
+                          await copyToClipboard(secret, t('common.copied', 'Copied!'))
                         }}
                       >
                         <Copy className="h-3.5 w-3.5 text-muted-foreground" />
