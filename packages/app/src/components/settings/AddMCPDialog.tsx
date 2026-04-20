@@ -9,6 +9,7 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  KeyRound,
 } from 'lucide-react'
 import { type MCPServerConfig } from '@/stores/mcp'
 import { cn } from '@/lib/utils'
@@ -28,6 +29,19 @@ interface AddMCPDialogProps {
   onOpenChange: (open: boolean) => void
   editingServer?: { name: string; config: MCPServerConfig } | null
   onSave: (name: string, config: MCPServerConfig) => Promise<void>
+}
+
+/** MCP servers TeamClaw auto-injects — env vars are managed in the env-var settings page. */
+const INHERENT_MCP_NAMES = new Set([
+  'playwright',
+  'chrome-control',
+  'autoui',
+  'teamclaw-introspect',
+])
+
+/** For each inherent server, the env-var keys the user should configure on the env-var page. */
+const INHERENT_REQUIRED_ENV_KEYS: Record<string, string[]> = {
+  autoui: ['AUTOUI_VISION_BASE_URL', 'AUTOUI_VISION_API_KEY', 'AUTOUI_VISION_MODEL'],
 }
 
 interface EnvVar {
@@ -54,6 +68,8 @@ export function AddMCPDialog({
   const [error, setError] = React.useState<string | null>(null)
 
   const isEditing = !!editingServer
+  const isInherent = isEditing && INHERENT_MCP_NAMES.has(editingServer!.name)
+  const requiredEnvKeys = isInherent ? INHERENT_REQUIRED_ENV_KEYS[editingServer!.name] ?? [] : []
 
   // Convert array to object
   const arrayToObject = (vars: EnvVar[]): Record<string, string> => {
@@ -125,7 +141,9 @@ export function AddMCPDialog({
 
       if (serverType === 'local') {
         config.command = command.trim().split(/\s+/)
-        const env = arrayToObject(envVars)
+        // Inherent servers source secrets from the env-var settings page; never
+        // persist an `environment` block here (legacy entries get cleaned up).
+        const env = isInherent ? {} : arrayToObject(envVars)
         if (Object.keys(env).length > 0) {
           config.environment = env
         }
@@ -242,7 +260,43 @@ export function AddMCPDialog({
                   {t('settings.mcp.commandHint', 'The command to start the MCP server')}
                 </p>
               </div>
-              {/* Environment Variables */}
+              {/* Environment Variables — for inherent servers, point users to
+                  the env-var settings page instead of accepting inline values. */}
+              {isInherent ? (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    {t('settings.mcp.envVars', '环境变量')}
+                  </label>
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/30 p-3 flex gap-3">
+                    <KeyRound className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                    <div className="space-y-2 text-sm">
+                      <p className="text-foreground">
+                        {t(
+                          'settings.mcp.inherentEnvNotice',
+                          '此服务器的环境变量由"环境变量"设置统一管理，请前往配置以下变量：',
+                        )}
+                      </p>
+                      {requiredEnvKeys.length > 0 && (
+                        <ul className="space-y-1">
+                          {requiredEnvKeys.map((k) => (
+                            <li key={k}>
+                              <code className="text-xs font-mono bg-background/80 px-1.5 py-0.5 rounded">
+                                {k}
+                              </code>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          'settings.mcp.inherentEnvHint',
+                          '在"设置 → 环境变量"中填写后，重启 OpenCode 即可生效。',
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <div className="space-y-2">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-medium">
@@ -339,6 +393,7 @@ export function AddMCPDialog({
                   </div>
                 )}
               </div>
+              )}
             </>
           )}
 
