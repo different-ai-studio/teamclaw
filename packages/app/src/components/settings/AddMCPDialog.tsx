@@ -35,14 +35,11 @@ interface AddMCPDialogProps {
 const INHERENT_MCP_NAMES = new Set([
   'playwright',
   'chrome-control',
-  'autoui',
   'teamclaw-introspect',
 ])
 
 /** For each inherent server, the env-var keys the user should configure on the env-var page. */
-const INHERENT_REQUIRED_ENV_KEYS: Record<string, string[]> = {
-  autoui: ['AUTOUI_VISION_BASE_URL', 'AUTOUI_VISION_API_KEY', 'AUTOUI_VISION_MODEL'],
-}
+const INHERENT_REQUIRED_ENV_KEYS: Record<string, string[]> = {}
 
 interface EnvVar {
   id: string

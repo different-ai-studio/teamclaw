@@ -71,7 +71,12 @@ vi.mock('@/stores/shared-secrets', () => ({
 
 vi.mock('@/stores/team-members', () => ({
   useTeamMembersStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ currentNodeId: null, myRole: null }),
+    selector({
+      currentNodeId: null,
+      myRole: null,
+      loadMyRole: vi.fn(),
+      loadCurrentNodeId: vi.fn(),
+    }),
 }))
 
 vi.mock('@tauri-apps/api/event', () => ({

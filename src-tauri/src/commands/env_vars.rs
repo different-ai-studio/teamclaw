@@ -222,6 +222,7 @@ pub(crate) enum DefaultPolicy {
     RegenerateAlways,
     /// Write the default only when the key is missing from the blob.
     /// Empty user-set values are preserved (treated as "user has decided to leave blank").
+    #[allow(dead_code)]
     SetIfAbsent,
 }
 
@@ -239,43 +240,20 @@ pub(crate) struct SystemEnvVarDef {
 
 /// Registry of all system env vars.
 /// To add a new one: append an entry here — nothing else changes.
-pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[
-    SystemEnvVarDef {
-        key: "tc_api_key",
-        description: "Team LLM API Key",
-        default_fn: |ctx| {
-            if ctx.device_id.is_empty() {
-                return None;
-            }
-            let id = &ctx.device_id;
-            // 40 chars: matches the LiteLLM virtual key suffix length limit
-            Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
-        },
-        policy: DefaultPolicy::RegenerateAlways,
-        shared_default: false,
+pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[SystemEnvVarDef {
+    key: "tc_api_key",
+    description: "Team LLM API Key",
+    default_fn: |ctx| {
+        if ctx.device_id.is_empty() {
+            return None;
+        }
+        let id = &ctx.device_id;
+        // 40 chars: matches the LiteLLM virtual key suffix length limit
+        Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
     },
-    SystemEnvVarDef {
-        key: "AUTOUI_VISION_BASE_URL",
-        description: "AutoUI vision endpoint (OpenAI-compatible)",
-        default_fn: |_| None,
-        policy: DefaultPolicy::SetIfAbsent,
-        shared_default: true,
-    },
-    SystemEnvVarDef {
-        key: "AUTOUI_VISION_API_KEY",
-        description: "AutoUI vision API key",
-        default_fn: |_| None,
-        policy: DefaultPolicy::SetIfAbsent,
-        shared_default: true,
-    },
-    SystemEnvVarDef {
-        key: "AUTOUI_VISION_MODEL",
-        description: "AutoUI vision model name",
-        default_fn: |_| None,
-        policy: DefaultPolicy::SetIfAbsent,
-        shared_default: true,
-    },
-];
+    policy: DefaultPolicy::RegenerateAlways,
+    shared_default: false,
+}];
 
 /// A single environment variable entry (key + description, no value).
 #[derive(Debug, Clone, Serialize, Deserialize)]

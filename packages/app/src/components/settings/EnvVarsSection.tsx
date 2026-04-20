@@ -17,6 +17,8 @@ import { SettingCard, SectionHeader } from './shared'
 import { useEnvVarsStore } from '@/stores/env-vars'
 import { useSharedSecretsStore } from '@/stores/shared-secrets'
 import { useTeamMembersStore } from '@/stores/team-members'
+// `myRole` is null until the user joins a team; gate team-shared UI on it so
+// users without a team don't hit the backend's `secrets not initialized` error.
 import { useWorkspaceStore } from '@/stores/workspace'
 import { initOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { listen } from '@tauri-apps/api/event'
@@ -41,6 +43,8 @@ interface EnvVarDialogProps {
 
 function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialogProps) {
   const { t } = useTranslation()
+  const myRole = useTeamMembersStore((s) => s.myRole)
+  const teamAvailable = myRole !== null
   const [key, setKey] = React.useState('')
   const [value, setValue] = React.useState('')
   const [description, setDescription] = React.useState('')
@@ -66,8 +70,12 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialog
       if (editingEntry) {
         setKey(editingEntry.key)
         setDescription(editingEntry.description || '')
-        // Default-share when editing a team secret OR a system-shared placeholder.
-        setShared(editingEntry.scope === 'team' || editingEntry.scope === 'team-placeholder')
+        // Default-share when editing a team secret OR a system-shared placeholder,
+        // but only if a team is actually available.
+        setShared(
+          teamAvailable &&
+            (editingEntry.scope === 'team' || editingEntry.scope === 'team-placeholder'),
+        )
         setValue('')
       } else {
         setKey('')
@@ -77,7 +85,7 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialog
       }
       setError(null)
     }
-  }, [open, editingEntry])
+  }, [open, editingEntry, teamAvailable])
 
   const handleSave = async () => {
     const trimmedKey = key.trim()
@@ -184,23 +192,28 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialog
           </div>
 
           {/* Share with team checkbox — locked for system-shared placeholders
-              (always team-shared) and existing team secrets (scope is fixed). */}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="shared"
-              checked={shared}
-              onCheckedChange={(checked) => setShared(checked === true)}
-              disabled={isEditing || isPlaceholder}
-            />
-            <label htmlFor="shared" className="text-sm font-medium cursor-pointer select-none flex items-center gap-1.5">
-              <Users className="h-3.5 w-3.5 text-blue-500" />
-              {t('settings.envVars.shareWithTeam', 'Share with team')}
-            </label>
-          </div>
-          {shared && isFirstSave && (
-            <p className="text-xs text-muted-foreground ml-6">
-              {t('settings.envVars.shareHint', 'This variable will be encrypted and synced to all team members.')}
-            </p>
+              (always team-shared) and existing team secrets (scope is fixed).
+              Hidden entirely when the user has not joined a team. */}
+          {teamAvailable && (
+            <>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="shared"
+                  checked={shared}
+                  onCheckedChange={(checked) => setShared(checked === true)}
+                  disabled={isEditing || isPlaceholder}
+                />
+                <label htmlFor="shared" className="text-sm font-medium cursor-pointer select-none flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 text-blue-500" />
+                  {t('settings.envVars.shareWithTeam', 'Share with team')}
+                </label>
+              </div>
+              {shared && isFirstSave && (
+                <p className="text-xs text-muted-foreground ml-6">
+                  {t('settings.envVars.shareHint', 'This variable will be encrypted and synced to all team members.')}
+                </p>
+              )}
+            </>
           )}
 
           {error && (
@@ -437,6 +450,12 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const { secrets, isLoading: secretsLoading, loadSecrets, setSecret, deleteSecret, listenForChanges } = useSharedSecretsStore()
   const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
   const myRole = useTeamMembersStore((s) => s.myRole)
+  // `myRole` / `currentNodeId` are usually hydrated by TeamMemberList when the
+  // user opens the Team settings panel. Env-Vars can be reached without ever
+  // visiting that panel, so load them here too — otherwise the "Share with team"
+  // gate stays closed for users who are actually in a team.
+  const loadMyRole = useTeamMembersStore((s) => s.loadMyRole)
+  const loadCurrentNodeId = useTeamMembersStore((s) => s.loadCurrentNodeId)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const [addDialogOpen, setAddDialogOpen] = React.useState(false)
@@ -453,6 +472,8 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   React.useEffect(() => {
     loadEnvVars()
     loadSecrets()
+    loadMyRole()
+    loadCurrentNodeId()
     let unlisten: (() => void) | undefined
     listenForChanges().then((fn) => { unlisten = fn })
     // Also listen for secrets-changed from sync to mark as dirty
@@ -470,7 +491,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       unlisten?.()
       unlistenSync?.()
     }
-  }, [loadEnvVars, loadSecrets, listenForChanges])
+  }, [loadEnvVars, loadSecrets, listenForChanges, loadMyRole, loadCurrentNodeId])
 
   // Build unified list: personal env vars + team secrets, with `system-shared`
   // system defs surfaced as either the matching team secret (uppercase key) or
