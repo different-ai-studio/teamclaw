@@ -45,6 +45,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import {
+  shouldShowPrecheckWarning,
+  formatBytes,
+  type SyncPrecheckResult,
+} from './syncPrecheck'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -142,6 +147,8 @@ export function TeamGitConfig() {
   const [connectStep, setConnectStep] = React.useState('')
   const [disconnectDialogOpen, setDisconnectDialogOpen] = React.useState(false)
   const [repoGuideOpen, setRepoGuideOpen] = React.useState(false)
+  const [precheckDialog, setPrecheckDialog] = React.useState<SyncPrecheckResult | null>(null)
+  const [pendingUpdateUi, setPendingUpdateUi] = React.useState(true)
 
   // Create/Join form state
   const [teamName, setTeamName] = React.useState('')
@@ -458,7 +465,7 @@ export function TeamGitConfig() {
 
   // ─── Sync flow ─────────────────────────────────────────────────────
 
-  const performSync = async (updateUi = true) => {
+  const executeSync = async (updateUi: boolean) => {
     if (updateUi) {
       setState('syncing')
     }
@@ -498,6 +505,21 @@ export function TeamGitConfig() {
         setState('connected')
       }
     }
+  }
+
+  const performSync = async (updateUi = true) => {
+    // Run precheck first. Any error → log and fall through to sync (advisory only).
+    try {
+      const precheck = await tauriInvoke<SyncPrecheckResult>('team_sync_precheck')
+      if (shouldShowPrecheckWarning(precheck)) {
+        setPendingUpdateUi(updateUi)
+        setPrecheckDialog(precheck)
+        return
+      }
+    } catch (err) {
+      console.warn('Team sync precheck failed, proceeding without warning:', err)
+    }
+    await executeSync(updateUi)
   }
 
   // ─── Disconnect flow ───────────────────────────────────────────────
@@ -1261,6 +1283,71 @@ export function TeamGitConfig() {
             <Button variant="destructive" onClick={handleDisconnect} className="gap-2">
               <Unlink className="h-4 w-4" />
               {t('settings.team.disconnect', 'Disconnect')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pre-sync warning for too many / too large new files */}
+      <Dialog
+        open={precheckDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setPrecheckDialog(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>
+              {t('settings.team.syncPrecheckTitle', '检测到较多新文件')}
+            </DialogTitle>
+            <DialogDescription>
+              {precheckDialog &&
+                t('settings.team.syncPrecheckDesc', {
+                  defaultValue: '即将同步 {{count}} 个新文件，共 {{size}}。请确认是否继续。',
+                  count: precheckDialog.newFiles.length,
+                  size: formatBytes(precheckDialog.totalBytes),
+                })}
+            </DialogDescription>
+          </DialogHeader>
+          {precheckDialog && (
+            <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-muted/30 px-3 py-2">
+              <ul className="space-y-1 text-sm font-mono">
+                {[...precheckDialog.newFiles]
+                  .sort((a, b) => b.sizeBytes - a.sizeBytes)
+                  .slice(0, 10)
+                  .map((file) => (
+                    <li key={file.path} className="flex items-center justify-between gap-3">
+                      <span className="truncate" title={file.path}>
+                        {file.path}
+                      </span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {formatBytes(file.sizeBytes)}
+                      </span>
+                    </li>
+                  ))}
+                {precheckDialog.newFiles.length > 10 && (
+                  <li className="text-xs text-muted-foreground pt-1">
+                    {t('settings.team.syncPrecheckMore', {
+                      defaultValue: '… 及另外 {{count}} 个文件',
+                      count: precheckDialog.newFiles.length - 10,
+                    })}
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPrecheckDialog(null)}>
+              {t('common.cancel', '取消')}
+            </Button>
+            <Button
+              onClick={() => {
+                const updateUi = pendingUpdateUi
+                setPrecheckDialog(null)
+                void executeSync(updateUi)
+              }}
+            >
+              {t('settings.team.syncAnyway', '仍然同步')}
             </Button>
           </DialogFooter>
         </DialogContent>
