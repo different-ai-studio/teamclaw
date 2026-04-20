@@ -45,11 +45,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import {
-  shouldShowPrecheckWarning,
-  formatBytes,
-  type SyncPrecheckResult,
-} from './syncPrecheck'
+import { formatBytes, type SyncPrecheckFile } from './syncPrecheck'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -70,6 +66,9 @@ interface GitCheckResult {
 interface TeamGitResult {
   success: boolean
   message: string
+  needsConfirmation?: boolean
+  newFiles?: SyncPrecheckFile[]
+  totalBytes?: number
 }
 
 type ConnectionState =
@@ -147,7 +146,10 @@ export function TeamGitConfig() {
   const [connectStep, setConnectStep] = React.useState('')
   const [disconnectDialogOpen, setDisconnectDialogOpen] = React.useState(false)
   const [repoGuideOpen, setRepoGuideOpen] = React.useState(false)
-  const [precheckDialog, setPrecheckDialog] = React.useState<SyncPrecheckResult | null>(null)
+  const [precheckDialog, setPrecheckDialog] = React.useState<
+    | null
+    | { newFiles: SyncPrecheckFile[]; totalBytes: number }
+  >(null)
   const [pendingUpdateUi, setPendingUpdateUi] = React.useState(true)
 
   // Create/Join form state
@@ -465,14 +467,26 @@ export function TeamGitConfig() {
 
   // ─── Sync flow ─────────────────────────────────────────────────────
 
-  const executeSync = async (updateUi: boolean) => {
+  const performSync = async (updateUi = true, force = false) => {
     if (updateUi) {
       setState('syncing')
     }
     setErrorMessage(null)
 
     try {
-      const result = await tauriInvoke<TeamGitResult>('team_sync_repo')
+      const result = await tauriInvoke<TeamGitResult>('team_sync_repo', { force })
+
+      if (result.needsConfirmation) {
+        setPendingUpdateUi(updateUi)
+        setPrecheckDialog({
+          newFiles: result.newFiles ?? [],
+          totalBytes: result.totalBytes ?? 0,
+        })
+        if (updateUi) {
+          setState('connected')
+        }
+        return
+      }
 
       if (!result.success) {
         console.warn('Team sync skipped:', result.message)
@@ -505,21 +519,6 @@ export function TeamGitConfig() {
         setState('connected')
       }
     }
-  }
-
-  const performSync = async (updateUi = true) => {
-    // Run precheck first. Any error → log and fall through to sync (advisory only).
-    try {
-      const precheck = await tauriInvoke<SyncPrecheckResult>('team_sync_precheck')
-      if (shouldShowPrecheckWarning(precheck)) {
-        setPendingUpdateUi(updateUi)
-        setPrecheckDialog(precheck)
-        return
-      }
-    } catch (err) {
-      console.warn('Team sync precheck failed, proceeding without warning:', err)
-    }
-    await executeSync(updateUi)
   }
 
   // ─── Disconnect flow ───────────────────────────────────────────────
@@ -1344,7 +1343,7 @@ export function TeamGitConfig() {
               onClick={() => {
                 const updateUi = pendingUpdateUi
                 setPrecheckDialog(null)
-                void executeSync(updateUi)
+                void performSync(updateUi, true)
               }}
             >
               {t('settings.team.syncAnyway', '仍然同步')}

@@ -30,7 +30,19 @@ export function KnowledgeBrowser() {
     useTeamModeStore.setState({ teamGitSyncing: true })
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      const result = await invoke<{ success: boolean; message: string }>('team_sync_repo')
+      const result = await invoke<{
+        success: boolean
+        message: string
+        needsConfirmation?: boolean
+        newFiles?: Array<{ path: string; sizeBytes: number }>
+        totalBytes?: number
+      }>('team_sync_repo', { force: false })
+      if (result.needsConfirmation) {
+        toast.warning(
+          `检测到 ${result.newFiles?.length ?? 0} 个较大的新文件待同步，请在设置 → 团队中确认`,
+        )
+        return
+      }
       if (result.success) {
         toast.success(result.message)
         useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() })

@@ -1,29 +1,12 @@
 /**
- * Pre-sync warning thresholds for team git mode.
- * Trigger the warning dialog if ANY of these is exceeded among untracked files.
+ * Types mirroring the backend `SyncPrecheckFile` and the precheck fields on
+ * `TeamGitResult`. The threshold check itself lives in Rust (see
+ * `team_sync_repo` in src-tauri/src/commands/team.rs) so all sync entry points
+ * are gated at the source.
  */
-export const MAX_NEW_FILE_COUNT = 50
-export const MAX_SINGLE_FILE_BYTES = 10 * 1024 * 1024 // 10 MB
-export const MAX_TOTAL_NEW_BYTES = 100 * 1024 * 1024 // 100 MB
-
 export interface SyncPrecheckFile {
   path: string
   sizeBytes: number
-}
-
-export interface SyncPrecheckResult {
-  newFiles: SyncPrecheckFile[]
-  totalBytes: number
-}
-
-/**
- * Returns true if the precheck result breaches any threshold and the user
- * should see a confirmation dialog before sync proceeds.
- */
-export function shouldShowPrecheckWarning(result: SyncPrecheckResult): boolean {
-  if (result.newFiles.length > MAX_NEW_FILE_COUNT) return true
-  if (result.totalBytes > MAX_TOTAL_NEW_BYTES) return true
-  return result.newFiles.some((f) => f.sizeBytes > MAX_SINGLE_FILE_BYTES)
 }
 
 /**

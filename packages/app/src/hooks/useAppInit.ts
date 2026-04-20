@@ -410,9 +410,26 @@ export function useGitReposInit() {
             const teamConfig = config as { enabled?: boolean } | null;
             if (teamConfig?.enabled) {
               const doSync = () => {
-                invoke("team_sync_repo")
+                invoke("team_sync_repo", { force: false })
                   .then(async (result: unknown) => {
-                    const r = result as { success: boolean; message: string };
+                    const r = result as {
+                      success: boolean;
+                      message: string;
+                      needsConfirmation?: boolean;
+                      newFiles?: Array<{ path: string; sizeBytes: number }>;
+                      totalBytes?: number;
+                    };
+                    if (r.needsConfirmation) {
+                      console.warn(
+                        "[App] Team sync blocked by precheck — waiting for user confirmation in Settings",
+                        { count: r.newFiles?.length ?? 0, totalBytes: r.totalBytes ?? 0 },
+                      );
+                      const { toast } = await import("sonner");
+                      toast.warning(
+                        `检测到 ${r.newFiles?.length ?? 0} 个较大的新文件待同步，请在设置 → 团队中确认`,
+                      );
+                      return;
+                    }
                     if (r.success) {
                       const { useTeamModeStore } = await import("@/stores/team-mode");
                       useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() });
