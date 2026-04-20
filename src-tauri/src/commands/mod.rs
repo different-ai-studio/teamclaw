@@ -24,6 +24,7 @@ pub mod stt;
 pub mod team;
 #[cfg(feature = "p2p")]
 pub mod team_p2p;
+pub mod team_sync_all;
 pub mod team_unified;
 pub mod team_webdav;
 pub mod trash;
