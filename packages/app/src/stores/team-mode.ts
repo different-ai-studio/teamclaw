@@ -11,6 +11,39 @@ import { appShortName, buildConfig, TEAM_REPO_DIR, type TeamModelOption } from '
 
 const TEAM_PROVIDER_ID = 'team'
 
+/**
+ * Upgrade `http://` → `https://` for remote LLM hosts.
+ *
+ * LiteLLM deployments behind Caddy/Nginx typically 308-redirect `http` → `https`,
+ * and both fetch and the AI SDK drop the `Authorization` header across that
+ * redirect — surfacing as `Authentication Error, No api key passed in.` on
+ * chat-completions calls. Force https for any non-local host before we hand
+ * the URL to OpenCode's provider config.
+ *
+ * Local/private hosts keep `http://` (they don't redirect, and users may run
+ * a dev LiteLLM without TLS).
+ */
+function normalizeLlmBaseUrl(url: string): string {
+  if (!url.startsWith('http://')) return url
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname
+    const isLocal =
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '0.0.0.0' ||
+      host.endsWith('.local') ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    if (isLocal) return url
+    parsed.protocol = 'https:'
+    return parsed.toString().replace(/\/$/, '')
+  } catch {
+    return url
+  }
+}
+
 export interface TeamModelConfig {
   baseUrl: string
   model: string
@@ -130,7 +163,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
           } catch { /* ignore */ }
         }
         const config: TeamModelConfig = {
-          baseUrl: status.llm.baseUrl,
+          baseUrl: normalizeLlmBaseUrl(status.llm.baseUrl),
           model: selectedModel,
           modelName: selectedModelName,
         }

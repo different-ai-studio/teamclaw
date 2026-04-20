@@ -131,7 +131,7 @@ impl AutoUiService {
     ) -> Result<CallToolResult, McpError> {
         if !self.config.has_vision() {
             return Ok(CallToolResult::error(vec![Content::text(
-                "Error: AUTOUI_VISION_API_KEY not configured. Set it in environment.",
+                "Error: QWEN_API_KEY not configured. Set it in environment.",
             )]));
         }
         let assertion = req.assertion.trim().to_string();
@@ -173,7 +173,7 @@ impl AutoUiService {
     ) -> Result<CallToolResult, McpError> {
         if !self.config.has_vision() {
             return Ok(CallToolResult::error(vec![Content::text(
-                "Error: AUTOUI_VISION_API_KEY not configured. Set it in environment.",
+                "Error: QWEN_API_KEY not configured. Set it in environment.",
             )]));
         }
         let intent = req.intent.trim().to_string();

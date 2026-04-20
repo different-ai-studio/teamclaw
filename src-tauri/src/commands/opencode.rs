@@ -487,54 +487,21 @@ pub async fn start_opencode_inner(
     // Merge shared secrets (team KMS) into secrets vec.
     // Shared secrets take priority over local keyring entries with the same key.
     //
-    // Lazy init: if shared secrets haven't been initialized yet (e.g. early launch
-    // before oss_restore_sync), try to read team config and init from disk.
+    // On every (re)start: (1) lazy-init if needed — supports both OSS and Git
+    // teams via `try_lazy_init_from_workspace`, and (2) re-read the `_secrets/`
+    // directory unconditionally so we pick up envelopes that arrived via sync
+    // while the app was running (or while opencode was stopped).
     if let Some(shared_state) = app.try_state::<super::shared_secrets::SharedSecretsState>() {
-        {
-            let dk = shared_state
-                .derived_key
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if dk.is_none() {
-                drop(dk);
-                // Try to init from workspace team config
-                let config_path = format!(
-                    "{}/{}/{}",
-                    workspace_path,
-                    super::TEAMCLAW_DIR,
-                    super::CONFIG_FILE_NAME
-                );
-                if let Ok(content) = std::fs::read_to_string(&config_path) {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(oss) = json.get("oss") {
-                            if let (Some(team_id), Some(true)) = (
-                                oss.get("teamId").and_then(|v| v.as_str()),
-                                oss.get("enabled").and_then(|v| v.as_bool()),
-                            ) {
-                                if let Ok(team_secret) =
-                                    super::oss_sync::load_team_secret(&workspace_path, team_id)
-                                {
-                                    let team_dir = std::path::Path::new(&workspace_path)
-                                        .join(super::TEAM_REPO_DIR);
-                                    match super::shared_secrets::init_shared_secrets(
-                                        &shared_state,
-                                        &team_secret,
-                                        &team_dir,
-                                    ) {
-                                        Ok(()) => println!(
-                                            "[OpenCode] Lazy-initialized shared secrets from disk"
-                                        ),
-                                        Err(e) => eprintln!(
-                                            "[OpenCode] Failed to lazy-init shared secrets: {}",
-                                            e
-                                        ),
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        if let Err(e) = super::shared_secrets::try_lazy_init_from_workspace(
+            &shared_state,
+            &workspace_path,
+        ) {
+            // Not an error when the workspace has no team — expected for solo workspaces.
+            println!("[OpenCode] shared_secrets init skipped: {}", e);
+        }
+        if let Err(e) = super::shared_secrets::load_all_secrets(&shared_state) {
+            // Only surfaces when init also failed (no team_dir set). Safe to ignore.
+            println!("[OpenCode] shared_secrets reload skipped: {}", e);
         }
 
         let shared_map = shared_state
@@ -967,42 +934,41 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
         }
 
         if !mcp_obj.contains_key("autoui") {
-            // No `environment` block: AUTOUI_VISION_* are managed via the env-var
-            // settings page (system-shared scope) and injected into the opencode
-            // sidecar process at startup, so autoui-mcp picks them up via std::env::var.
             mcp_obj.insert(
                 "autoui".to_string(),
                 serde_json::json!({
                     "type": "local",
                     "enabled": true,
-                    "command": ["npx", "-y", "autoui-mcp@latest"]
+                    "command": ["npx", "-y", "autoui-mcp@latest"],
+                    "environment": {
+                        "QWEN_API_KEY": "${QWEN_API_KEY}",
+                        "QWEN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "QWEN_MODEL": "qwen3-vl-flash"
+                    }
                 }),
             );
             changed = true;
             println!("[Config] Added inherent 'autoui' MCP config");
         } else if let Some(autoui) = mcp_obj.get_mut("autoui").and_then(|v| v.as_object_mut()) {
-            // Migration: drop the auto-injected `environment` block so vision config
-            // is sourced from the env-var settings page (system-shared scope) and
-            // injected via the opencode sidecar's process env. Only strip when every
-            // key matches the known auto-injected set, so user-added overrides are
-            // preserved.
-            let known_keys: &[&str] = &[
-                "AUTOUI_VISION_API_KEY",
-                "AUTOUI_VISION_BASE_URL",
-                "AUTOUI_VISION_MODEL",
-                "QWEN_API_KEY",
-                "QWEN_BASE_URL",
-                "QWEN_MODEL",
-            ];
-            let strip = autoui
+            // Migration for users whose autoui `environment` block was stripped by a
+            // previous build: restore the 3 QWEN_* defaults. Only runs when the block
+            // is absent or empty, so partial user customizations are left alone.
+            let needs_restore = autoui
                 .get("environment")
                 .and_then(|v| v.as_object())
-                .map(|env| !env.is_empty() && env.keys().all(|k| known_keys.contains(&k.as_str())))
-                .unwrap_or(false);
-            if strip {
-                autoui.remove("environment");
+                .map(|env| env.is_empty())
+                .unwrap_or(true);
+            if needs_restore {
+                autoui.insert(
+                    "environment".to_string(),
+                    serde_json::json!({
+                        "QWEN_API_KEY": "${QWEN_API_KEY}",
+                        "QWEN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "QWEN_MODEL": "qwen3-vl-flash"
+                    }),
+                );
                 changed = true;
-                println!("[Config] Stripped legacy 'environment' block from autoui MCP config");
+                println!("[Config] Restored default environment block on autoui MCP config");
             }
         }
     }

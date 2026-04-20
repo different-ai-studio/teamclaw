@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use super::shared_secrets_crypto::{
     decrypt_secret, derive_key, encrypt_secret, EncryptedEnvelope, SecretEntry, SecretMeta,
@@ -228,6 +228,59 @@ pub fn get_secret_value(state: &SharedSecretsState, key_id: &str) -> Option<Stri
     secrets.get(key_id).map(|e| e.key.clone())
 }
 
+/// Try to initialize shared_secrets from the workspace's team config.
+/// Supports both `oss.teamId` (OSS teams) and `team.teamId` (managed-Git teams).
+/// Fast-path returns Ok() immediately when already initialized.
+///
+/// Called by `shared_secret_set` / `shared_secret_delete` so a user who joined
+/// a team but hasn't yet mounted the TeamGitConfig panel (which eagerly inits
+/// from the frontend) can still save/delete shared secrets.
+pub fn try_lazy_init_from_workspace(
+    state: &SharedSecretsState,
+    workspace_path: &str,
+) -> Result<(), String> {
+    // Fast path: already initialized.
+    {
+        let dk = state
+            .derived_key
+            .lock()
+            .map_err(|e| format!("try_lazy_init: lock derived_key: {e}"))?;
+        if dk.is_some() {
+            return Ok(());
+        }
+    }
+
+    let config_path = format!(
+        "{}/{}/{}",
+        workspace_path,
+        super::TEAMCLAW_DIR,
+        super::CONFIG_FILE_NAME
+    );
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|_| "No team configured for this workspace".to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse teamclaw.json: {e}"))?;
+
+    // Pick the first enabled team section that carries a `teamId`.
+    // Both OSS and Git team configs use camelCase `teamId` in JSON.
+    let team_id = ["oss", "team"]
+        .iter()
+        .find_map(|section| {
+            let obj = json.get(*section)?.as_object()?;
+            if obj.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
+                return None;
+            }
+            obj.get("teamId")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .ok_or_else(|| "No team configured for this workspace".to_string())?;
+
+    let team_secret = super::oss_sync::load_team_secret(workspace_path, &team_id)?;
+    let team_dir = std::path::Path::new(workspace_path).join(super::TEAM_REPO_DIR);
+    init_shared_secrets(state, &team_secret, &team_dir)
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
@@ -244,6 +297,23 @@ pub async fn shared_secret_set(
     node_id: String,
 ) -> Result<(), String> {
     validate_key_id(&key_id)?;
+
+    // Lazy-init from workspace config when not yet initialized (e.g. Git teams
+    // whose TeamGitConfig panel hasn't been mounted yet this session).
+    if let Some(opencode_state) =
+        app_handle.try_state::<super::opencode::OpenCodeState>()
+    {
+        let workspace_path = opencode_state
+            .inner
+            .lock()
+            .ok()
+            .and_then(|inner| inner.workspace_path.clone());
+        if let Some(wp) = workspace_path {
+            if let Err(e) = try_lazy_init_from_workspace(&state, &wp) {
+                log::debug!("shared_secret_set: lazy init skipped: {e}");
+            }
+        }
+    }
 
     let team_dir = {
         let td = state
@@ -310,6 +380,22 @@ pub async fn shared_secret_delete(
     role: String,
 ) -> Result<(), String> {
     validate_key_id(&key_id)?;
+
+    // Same lazy-init as `shared_secret_set` — needed before the team_dir check below.
+    if let Some(opencode_state) =
+        app_handle.try_state::<super::opencode::OpenCodeState>()
+    {
+        let workspace_path = opencode_state
+            .inner
+            .lock()
+            .ok()
+            .and_then(|inner| inner.workspace_path.clone());
+        if let Some(wp) = workspace_path {
+            if let Err(e) = try_lazy_init_from_workspace(&state, &wp) {
+                log::debug!("shared_secret_delete: lazy init skipped: {e}");
+            }
+        }
+    }
 
     // Check permission: Owner can delete any; others can only delete their own
     {
