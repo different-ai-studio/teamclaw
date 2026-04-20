@@ -3,6 +3,7 @@ mod config;
 mod cron;
 mod send;
 mod shortcuts;
+mod sync;
 
 use clap::Parser;
 use serde_json::{json, Value};
@@ -148,6 +149,14 @@ fn tool_definitions() -> Value {
                 },
                 "required": ["action"]
             }
+        },
+        {
+            "name": "sync_team_dir",
+            "description": "Bidirectional sync of the shared team directory. Auto-detects the configured sync mode (git, oss, or p2p). Pulls remote changes first, then pushes local changes. Returns a summary of what was synced.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
         }
     ])
 }
@@ -272,6 +281,15 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
                 }
                 "manage_shortcuts" => {
                     match shortcuts::handle(workspace, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                "sync_team_dir" => {
+                    match sync::handle(workspace, api_port, &arguments).await {
                         Ok(v) => {
                             let text = serde_json::to_string_pretty(&v).unwrap_or_default();
                             tool_ok(&text)
