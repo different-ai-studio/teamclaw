@@ -60,12 +60,72 @@ async fn sync_git(app: &AppHandle) -> SyncAllResult {
     }
 }
 
-async fn sync_oss(_app: &AppHandle) -> SyncAllResult {
+async fn sync_oss(app: &AppHandle) -> SyncAllResult {
+    use crate::commands::oss_sync::OssSyncState;
+    use teamclaw_sync::oss_types::DocType;
+
+    let oss_state = app.state::<OssSyncState>();
+    let mut manager_guard = oss_state.manager.lock().await;
+
+    let manager = match manager_guard.as_mut() {
+        Some(m) => m,
+        None => {
+            return SyncAllResult {
+                mode: "oss".to_string(),
+                success: false,
+                message: "OSS sync not initialized. Please connect to a team first.".to_string(),
+                changed_files: 0,
+            }
+        }
+    };
+
+    if let Err(e) = manager.initial_sync().await {
+        return SyncAllResult {
+            mode: "oss".to_string(),
+            success: false,
+            message: format!("OSS pull failed: {e}"),
+            changed_files: 0,
+        };
+    }
+
+    let doc_types = [DocType::Skills, DocType::Mcp, DocType::Knowledge, DocType::Meta];
+    let mut changed = 0u32;
+    let mut changed_names: Vec<String> = Vec::new();
+
+    for dt in doc_types {
+        let dt_name = dt.path().to_string();
+        match manager.upload_local_changes_incremental(dt).await {
+            Ok(true) => {
+                changed += 1;
+                changed_names.push(dt_name);
+            }
+            Ok(false) => {}
+            Err(e) => {
+                return SyncAllResult {
+                    mode: "oss".to_string(),
+                    success: false,
+                    message: format!("OSS push failed for {dt_name}: {e}"),
+                    changed_files: changed,
+                };
+            }
+        }
+    }
+
+    let message = if changed == 0 {
+        "Synced via oss: no changes.".to_string()
+    } else {
+        format!(
+            "Synced via oss: {} doc type(s) changed ({}).",
+            changed,
+            changed_names.join(", ")
+        )
+    };
+
     SyncAllResult {
         mode: "oss".to_string(),
-        success: false,
-        message: "oss sync not yet implemented".to_string(),
-        changed_files: 0,
+        success: true,
+        message,
+        changed_files: changed,
     }
 }
 
