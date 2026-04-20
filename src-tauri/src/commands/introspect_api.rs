@@ -80,6 +80,7 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
             let resp = match (method, path) {
                 ("POST", "/send-wecom") => handle_send_wecom(&app_clone, body_bytes).await,
                 ("POST", "/cron-run") => handle_cron_run(&app_clone, body_bytes).await,
+                ("POST", "/team-sync-all") => handle_team_sync_all(&app_clone, body_bytes).await,
                 _ => Err(format!("Not found: {} {}", method, path)),
             };
 
@@ -154,6 +155,16 @@ async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, Strin
         r#"{{"ok":true,"chatid":"{}","chat_type":{},"media_sent":{}}}"#,
         chatid, chat_type, media_sent
     ))
+}
+
+async fn handle_team_sync_all(app: &AppHandle, _body: &[u8]) -> Result<String, String> {
+    use super::team::get_workspace_path;
+    use super::opencode::OpenCodeState;
+
+    let opencode_state = app.state::<OpenCodeState>();
+    let workspace = get_workspace_path(&opencode_state)?;
+    let result = super::team_sync_all::sync_all(app, &workspace).await;
+    serde_json::to_string(&result).map_err(|e| format!("Serialization error: {e}"))
 }
 
 async fn handle_cron_run(app: &AppHandle, body: &[u8]) -> Result<String, String> {
