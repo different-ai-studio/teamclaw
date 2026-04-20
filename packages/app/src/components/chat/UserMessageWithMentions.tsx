@@ -1,5 +1,5 @@
 import * as React from "react";
-import { FileText, Folder, User, Paperclip, ChevronDown, ChevronUp, Zap, Command as CommandIcon } from "lucide-react";
+import { FileText, Folder, User, UserRound, Paperclip, ChevronDown, ChevronUp, Zap, Command as CommandIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { ClickableImage, LocalImage, resolveImagePath } from "@/packages/ai/message";
@@ -29,11 +29,25 @@ function isImagePath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
 }
 
+function parseSlashToken(body: string): { type: "role" | "skill" | "command"; name: string } {
+  if (body.startsWith("role:")) return { type: "role", name: body.slice("role:".length) };
+  if (body.startsWith("skill:")) return { type: "skill", name: body.slice("skill:".length) };
+  if (body.startsWith("command:")) return { type: "command", name: body.slice("command:".length) };
+  return { type: "skill", name: body };
+}
+
 export function UserMessageWithMentions({ content, basePath }: { content: string; basePath?: string }) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [needsCollapse, setNeedsCollapse] = React.useState(false);
   const contentRef = React.useRef<HTMLDivElement>(null);
+  const displayContent = React.useMemo(
+    () =>
+      content
+        .replace(/(?:\r?\n){0,2}First tool call:\s*role_load\(\{\s*name:\s*"[^"]+"\s*\}\)\.\s*/g, "")
+        .trim(),
+    [content],
+  )
 
   // Measure content height after render to decide whether to collapse
   React.useEffect(() => {
@@ -42,11 +56,11 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
       // Add a small buffer (20px) so we don't collapse content that's barely over the limit
       setNeedsCollapse(el.scrollHeight > COLLAPSED_HEIGHT + 20);
     }
-  }, [content]);
+  }, [displayContent]);
 
   const parts = React.useMemo(() => {
     const result: Array<{
-      type: "text" | "file" | "directory" | "image" | "mentioned" | "attachment" | "filemention" | "skill" | "command";
+      type: "text" | "file" | "directory" | "image" | "mentioned" | "attachment" | "filemention" | "role" | "skill" | "command";
       content: string;
       people?: string[];
       dataUrl?: string;
@@ -55,14 +69,14 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
     }> = [];
 
     let lastIndex = 0;
-    // Match @{filepath}, /{skillname}, /[commandname], [File: filepath], [Skill: skillname], [Command: commandname], [Attachment: ...], and other formats
+    // Match @{filepath}, unified /{type:name}, legacy /<role> and /[command], [Role: ...], [File: ...], [Skill: ...], [Command: ...], [Attachment: ...], and other formats
     const combinedRegex =
-      /@\{([^}]+)\}|\/\{([^}]+)\}|\/\[([^\]]+)\]|\[Mentioned: ([^\]]+)\]|\[File: ([^\]]+)\](?:\n```[\s\S]*?```)?|\[Skill: ([^\]]+)\]|\[Command: ([^\]]+)\]|\[Directory: ([^\]]+)\]\s*|\[Image: ([^\]]+)\](?:\n([^\n]*))?|\[Attachment: ([^\]]+)\]\s*\(([^)]*)\)/g;
+      /@\{([^}]+)\}|\/\{([^}]+)\}|\/<([a-z0-9]+(?:-[a-z0-9]+)*)>|\/\[([^\]]+)\]|\[Mentioned: ([^\]]+)\]|\[Role: ([^\]]+)\]|\[File: ([^\]]+)\](?:\n```[\s\S]*?```)?|\[Skill: ([^\]]+)\]|\[Command: ([^\]]+)\]|\[Directory: ([^\]]+)\]\s*|\[Image: ([^\]]+)\](?:\n([^\n]*))?|\[Attachment: ([^\]]+)\]\s*\(([^)]*)\)/g;
 
     let match;
-    while ((match = combinedRegex.exec(content)) !== null) {
+    while ((match = combinedRegex.exec(displayContent)) !== null) {
       if (match.index > lastIndex) {
-        const text = content.slice(lastIndex, match.index);
+        const text = displayContent.slice(lastIndex, match.index);
         if (text) {
           result.push({ type: "text", content: text });
         }
@@ -72,56 +86,60 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
         // @{filepath} format (for user input display)
         result.push({ type: "filemention", content: match[1] });
       } else if (match[2]) {
-        // /{skillname} format (for user input display)
-        result.push({ type: "skill", content: match[2] });
+        const token = parseSlashToken(match[2]);
+        result.push({ type: token.type, content: token.name });
       } else if (match[3]) {
-        // /[commandname] format (for user input display)
-        result.push({ type: "command", content: match[3] });
+        result.push({ type: "role", content: match[3] });
       } else if (match[4]) {
-        const people = match[4].split(',').map(p => p.trim());
-        result.push({ type: "mentioned", content: match[4], people });
+        // /[commandname] format (for user input display)
+        result.push({ type: "command", content: match[4] });
       } else if (match[5]) {
-        // [File: filepath] format (sent to LLM)
-        result.push({ type: "file", content: match[5] });
+        const people = match[5].split(',').map(p => p.trim());
+        result.push({ type: "mentioned", content: match[5], people });
       } else if (match[6]) {
-        // [Skill: skillname] format (sent to LLM)
-        result.push({ type: "skill", content: match[6] });
+        result.push({ type: "role", content: match[6] });
       } else if (match[7]) {
-        // [Command: commandname] format (sent to LLM)
-        result.push({ type: "command", content: match[7] });
+        // [File: filepath] format (sent to LLM)
+        result.push({ type: "file", content: match[7] });
       } else if (match[8]) {
-        result.push({ type: "directory", content: match[8] });
+        // [Skill: skillname] format (sent to LLM)
+        result.push({ type: "skill", content: match[8] });
       } else if (match[9]) {
-        const dataUrl = match[10] && match[10].startsWith("data:") ? match[10] : undefined;
-        result.push({ type: "image", content: match[9], dataUrl });
+        // [Command: commandname] format (sent to LLM)
+        result.push({ type: "command", content: match[9] });
+      } else if (match[10]) {
+        result.push({ type: "directory", content: match[10] });
       } else if (match[11]) {
+        const dataUrl = match[12] && match[12].startsWith("data:") ? match[12] : undefined;
+        result.push({ type: "image", content: match[11], dataUrl });
+      } else if (match[13]) {
         // Parse the parenthesised info: may contain path:..., size:...
-        const info = match[12] ?? "";
+        const info = match[14] ?? "";
         const pathMatch = info.match(/path:\s*([^,)]+)/);
         const sizeMatch = info.match(/size:\s*([^,)]+)/);
         const fullPath = pathMatch ? pathMatch[1].trim() : undefined;
         const size = sizeMatch ? sizeMatch[1].trim() : (!pathMatch && info.trim() ? info.trim() : undefined);
-        result.push({ type: "attachment", content: match[11], size, fullPath });
+        result.push({ type: "attachment", content: match[13], size, fullPath });
       }
 
       lastIndex = match.index + match[0].length;
     }
 
-    if (lastIndex < content.length) {
-      const text = content.slice(lastIndex);
+    if (lastIndex < displayContent.length) {
+      const text = displayContent.slice(lastIndex);
       if (text) {
         result.push({ type: "text", content: text });
       }
     }
 
     return result;
-  }, [content]);
+  }, [displayContent]);
 
   const isSimpleText = parts.length === 0 || (parts.length === 1 && parts[0].type === "text");
 
   // Build the inner content - render parts in order
   const innerContent = isSimpleText ? (
-    <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{content}</div>
+    <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{displayContent}</div>
   ) : (
     <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
       {parts.map((part, index) => {
@@ -216,15 +234,17 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
           <span
             key={index}
             className={cn(
-              "inline-flex items-center gap-1 px-2 py-1 mx-0.5 rounded-md text-xs",
-              (part.type === "file" || part.type === "filemention") && "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+              "inline-flex items-center gap-1.5 px-2.5 py-1 mx-0.5 rounded-md border text-xs font-medium",
+              (part.type === "file" || part.type === "filemention") && "bg-[#edf2f7] border-[#d8e1ea] text-[#5a7086] dark:bg-[#202a34] dark:border-[#31404d] dark:text-[#aec3d6]",
               part.type === "directory" && "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-              part.type === "skill" && "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
-              part.type === "command" && "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+              part.type === "role" && "bg-[#eef3f5] border-[#d8e2e7] text-[#5b7080] dark:bg-[#222d33] dark:border-[#334149] dark:text-[#b8cad3]",
+              part.type === "skill" && "bg-[#f3efe6] border-[#e5dccb] text-[#7a6a52] dark:bg-[#302b22] dark:border-[#443b2d] dark:text-[#d3c5ac]",
+              part.type === "command" && "bg-[#f1ebf3] border-[#ddd2e2] text-[#75607c] dark:bg-[#2f2632] dark:border-[#433647] dark:text-[#ccbcd2]",
             )}
           >
             {(part.type === "file" || part.type === "filemention") && <FileText className="h-3 w-3" />}
             {part.type === "directory" && <Folder className="h-3 w-3" />}
+            {part.type === "role" && <UserRound className="h-3 w-3" />}
             {part.type === "skill" && <Zap className="h-3 w-3" />}
             {part.type === "command" && <CommandIcon className="h-3 w-3" />}
             <span className="truncate max-w-[400px]" title={part.content}>{part.content}</span>
@@ -253,11 +273,7 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
         {/* Gradient fade overlay when collapsed — matches the bubble bg color */}
         {isCollapsed && (
           <div
-            className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none"
-            style={{
-              background:
-                "linear-gradient(to top, #6f8c8a 0%, rgba(111,140,138,0) 100%)",
-            }}
+            className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-[#cdd3d8] to-transparent dark:from-[#ffffff1a]"
           />
         )}
       </div>
@@ -266,7 +282,7 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
       {needsCollapse && (
         <button
           onClick={() => setIsExpanded((v) => !v)}
-          className="flex items-center gap-1 mt-1.5 text-xs text-white/70 hover:text-white/95 transition-colors cursor-pointer"
+          className="flex items-center gap-1 mt-1.5 text-xs text-[#5a6874] hover:text-[#33404c] dark:text-[#c9d3db] dark:hover:text-[#f5f8fb] transition-colors cursor-pointer"
         >
           {isExpanded ? (
             <>

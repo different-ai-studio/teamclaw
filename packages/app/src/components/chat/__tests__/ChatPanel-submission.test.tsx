@@ -288,7 +288,7 @@ describe('ChatPanel submission flow', () => {
     });
 
     it('preserves namespaced skill mentions in submitted content', async () => {
-      mockSessionState.draftInput = '/{superpowers/brainstorming}';
+      mockSessionState.draftInput = '/{skill:superpowers/brainstorming}';
 
       const { ChatPanel } = await import('../ChatPanel');
       render(React.createElement(ChatPanel));
@@ -299,6 +299,24 @@ describe('ChatPanel submission flow', () => {
       });
 
       expect(mockSendMessage).toHaveBeenCalledWith('[Skill: superpowers/brainstorming]', undefined, undefined);
+    });
+
+    it('serializes role mentions into role directives on submit', async () => {
+      mockSessionState.draftInput = '/{role:accounting-dimensions}';
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      const submitBtn = screen.getByTestId('mock-submit');
+      await act(async () => {
+        fireEvent.click(submitBtn);
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '[Role: accounting-dimensions]\n\nFirst tool call: role_load({ name: "accounting-dimensions" }).',
+        undefined,
+        undefined,
+      );
     });
   });
 

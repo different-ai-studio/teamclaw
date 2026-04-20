@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { CommandPopover } from '../CommandPopover'
 
-const { mockListCommands, mockLoadAllSkills, mockReadSkillPermissions } = vi.hoisted(() => ({
+const { mockListCommands, mockLoadAllSkills, mockReadSkillPermissions, mockLoadAllRoles } = vi.hoisted(() => ({
   mockListCommands: vi.fn(),
   mockLoadAllSkills: vi.fn(),
   mockReadSkillPermissions: vi.fn(),
+  mockLoadAllRoles: vi.fn(),
 }))
 
 vi.mock('@/lib/utils', async () => {
@@ -36,11 +37,16 @@ vi.mock('@/lib/opencode/config', () => ({
   resolveSkillPermission: () => ({ permission: 'allow', matchedPattern: '*', isExact: false }),
 }))
 
+vi.mock('@/lib/roles/loader', () => ({
+  loadAllRoles: mockLoadAllRoles,
+}))
+
 describe('CommandPopover', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockListCommands.mockResolvedValue([])
     mockReadSkillPermissions.mockResolvedValue({})
+    mockLoadAllRoles.mockResolvedValue([])
     mockLoadAllSkills.mockResolvedValue({
       skills: [
         {
@@ -80,6 +86,47 @@ describe('CommandPopover', () => {
       expect.objectContaining({
         name: 'superpowers/brainstorming',
         description: 'Brainstorm first',
+      }),
+    )
+  })
+
+  it('shows roles in a dedicated group and selects a role mention', async () => {
+    const onSelect = vi.fn()
+    mockLoadAllRoles.mockResolvedValue([
+      {
+        slug: 'accounting-dimensions',
+        name: 'accounting-dimensions',
+        description: 'Accounting role',
+        role: '',
+        whenToUse: '',
+        workingStyle: '',
+        roleSkills: [],
+        body: '',
+        filePath: '/workspace/.opencode/roles/accounting-dimensions/ROLE.md',
+        rawMarkdown: '',
+      },
+    ])
+
+    render(
+      <CommandPopover
+        open={true}
+        onOpenChange={vi.fn()}
+        searchQuery="account"
+        onSelect={onSelect}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Roles (1)')).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByText('accounting-dimensions'))
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'accounting-dimensions',
+        description: 'Accounting role',
+        _type: 'role',
       }),
     )
   })

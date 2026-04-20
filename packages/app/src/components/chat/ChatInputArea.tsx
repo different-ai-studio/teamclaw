@@ -79,7 +79,7 @@ function CommandPopoverWrapper({
 }) {
   const insertSkillMention = useInsertSkillMention();
 
-  const handleSelect = React.useCallback((command: OpenCodeCommand & { _type?: 'skill' | 'command' }) => {
+  const handleSelect = React.useCallback((command: OpenCodeCommand & { _type?: 'role' | 'skill' | 'command' }) => {
     console.log('[CommandPopoverWrapper] 🎯 handleSelect called, command:', command.name, 'type:', command._type);
     const type = command._type || 'skill'; // Default to skill for backward compatibility
     insertSkillMention(command.name, type);

@@ -1,11 +1,12 @@
 import * as React from 'react'
-import { Command as CommandIcon, Zap, Loader2 } from 'lucide-react'
+import { Command as CommandIcon, Zap, Loader2, UserRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getOpenCodeClient, type Command as OpenCodeCommand } from '@/lib/opencode/sdk-client'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isTauri } from '@/lib/utils'
 import { loadAllSkills } from '@/lib/git/skill-loader'
 import { readSkillPermissions, resolveSkillPermission } from '@/lib/opencode/config'
+import { loadAllRoles } from '@/lib/roles/loader'
 
 interface CommandPopoverProps {
   open: boolean
@@ -22,12 +23,23 @@ interface SkillEntry {
   permissionKey: string
 }
 
+interface RoleEntry {
+  name: string
+  slug: string
+  description: string
+}
+
 function isSkillEntry(item: CommandOrSkill): item is SkillEntry {
   return 'invocationName' in item
 }
 
+function isRoleEntry(item: PickerItem): item is RoleEntry {
+  return 'slug' in item
+}
+
 // Unified type for display in the list
 type CommandOrSkill = OpenCodeCommand | SkillEntry
+type PickerItem = OpenCodeCommand | SkillEntry | RoleEntry
 
 async function scanAvailableSkills(workspacePath: string): Promise<SkillEntry[]> {
   const { skills } = await loadAllSkills(workspacePath)
@@ -45,6 +57,17 @@ async function scanAvailableSkills(workspacePath: string): Promise<SkillEntry[]>
           permissionKey: skill.invocationName,
         }
       })
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+async function scanAvailableRoles(workspacePath: string): Promise<RoleEntry[]> {
+  const roles = await loadAllRoles(workspacePath)
+  return roles
+    .map((role) => ({
+      name: role.name,
+      slug: role.slug,
+      description: role.description,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -74,6 +97,7 @@ export function CommandPopover({
 }: CommandPopoverProps) {
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const [commands, setCommands] = React.useState<OpenCodeCommand[]>([])
+  const [roles, setRoles] = React.useState<RoleEntry[]>([])
   const [skills, setSkills] = React.useState<CommandOrSkill[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const [highlightedIndex, setHighlightedIndex] = React.useState(0)
@@ -100,6 +124,13 @@ export function CommandPopover({
           })
         : Promise.resolve([])
 
+      const rolesPromise = (isTauri() && workspacePath)
+        ? scanAvailableRoles(workspacePath).catch(error => {
+            console.error('[CommandPopover] Failed to scan roles:', error)
+            return []
+          })
+        : Promise.resolve([])
+
       const permissionsPromise = workspacePath
         ? readSkillPermissions(workspacePath).catch(error => {
             console.error('[CommandPopover] Failed to load skill permissions:', error)
@@ -107,8 +138,8 @@ export function CommandPopover({
           })
         : Promise.resolve({})
       
-      Promise.all([commandsPromise, skillsPromise, permissionsPromise])
-        .then(([cmds, skls, permissions]) => {
+      Promise.all([commandsPromise, skillsPromise, rolesPromise, permissionsPromise])
+        .then(([cmds, skls, loadedRoles, permissions]) => {
           // Separate OpenCode commands by source
           const deniedSkillNames = new Set(
             skls
@@ -133,9 +164,14 @@ export function CommandPopover({
           const uniqueFrontendSkills = allowedFrontendSkills.filter(s => !skillNameSet.has(s.name))
           
           setCommands(openCodeCommands)
+          setRoles(loadedRoles)
           setSkills([...openCodeSkills, ...uniqueFrontendSkills])
           setIsLoading(false)
         })
+    } else {
+      setRoles([])
+      setSkills([])
+      setCommands([])
     }
   }, [open, workspacePath])
   
@@ -146,6 +182,10 @@ export function CommandPopover({
   }, [open])
   
   // Filter commands and skills based on search query
+  const filteredRoles = React.useMemo(() => {
+    return filterItems(roles, searchQuery, 20)
+  }, [roles, searchQuery])
+
   const filteredSkills = React.useMemo(() => {
     return filterItems(skills, searchQuery, 20)
   }, [skills, searchQuery])
@@ -156,20 +196,27 @@ export function CommandPopover({
   
   // Combine all items for keyboard navigation, with type metadata
   const allItems = React.useMemo(() => {
+    const rolesWithType = filteredRoles.map(r => ({ ...r, _itemType: 'role' as const }))
     const skillsWithType = filteredSkills.map(s => ({ ...s, _itemType: 'skill' as const }))
     const commandsWithType = filteredCommands.map(c => ({ ...c, _itemType: 'command' as const }))
-    return [...skillsWithType, ...commandsWithType]
-  }, [filteredSkills, filteredCommands])
+    return [...rolesWithType, ...skillsWithType, ...commandsWithType]
+  }, [filteredRoles, filteredSkills, filteredCommands])
   
   React.useEffect(() => {
     setHighlightedIndex(0)
   }, [allItems])
   
-  const handleSelect = React.useCallback((item: (SkillEntry | OpenCodeCommand) & { _itemType: 'skill' | 'command' }) => {
+  const handleSelect = React.useCallback((item: PickerItem & { _itemType: 'role' | 'skill' | 'command' }) => {
     console.log('[CommandPopover] 🎯 handleSelect called, item:', item.name, 'type:', item._itemType);
     onSelect({
-      name: item._itemType === 'skill' && isSkillEntry(item) ? item.invocationName : item.name,
+      name:
+        item._itemType === 'skill' && isSkillEntry(item)
+          ? item.invocationName
+          : item._itemType === 'role' && isRoleEntry(item)
+            ? item.slug
+            : item.name,
       description: item.description,
+      _type: item._itemType,
     } as OpenCodeCommand)
     console.log('[CommandPopover] ✅ onSelect called, closing popover');
     onOpenChange(false)
@@ -210,7 +257,7 @@ export function CommandPopover({
   
   if (!open) return null
   
-  const totalCount = filteredSkills.length + filteredCommands.length
+  const totalCount = filteredRoles.length + filteredSkills.length + filteredCommands.length
   const highlightedItem = allItems[highlightedIndex]
   let currentIndex = 0
   
@@ -220,7 +267,7 @@ export function CommandPopover({
       <div className="w-64 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2 text-[10px] text-muted-foreground border-b bg-muted/30">
-          <span className="font-medium">Select skill or command</span>
+          <span className="font-medium">Select role, skill, or command</span>
           {searchQuery && (
             <span className="text-[9px] text-primary font-mono">
               {searchQuery}
@@ -248,6 +295,43 @@ export function CommandPopover({
           </div>
         ) : (
           <>
+            {filteredRoles.length > 0 && (
+              <>
+                <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground">
+                  Roles ({filteredRoles.length})
+                </div>
+                {filteredRoles.map((role) => {
+                  const index = currentIndex++
+                  return (
+                    <div
+                      key={`role-${role.slug}`}
+                      data-index={index}
+                      onClick={() => handleSelect(allItems[index])}
+                      onMouseEnter={() => setHighlightedIndex(index)}
+                      className={cn(
+                        "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer select-none transition-colors",
+                        index === highlightedIndex
+                          ? "bg-accent text-accent-foreground"
+                          : "text-foreground hover:bg-accent/50"
+                      )}
+                    >
+                      <UserRound className="h-4 w-4 text-sky-600 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium truncate">
+                          {role.name}
+                        </div>
+                        {role.slug !== role.name && (
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {role.slug}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
+            )}
+
             {filteredSkills.length > 0 && (
               <>
                 <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground">

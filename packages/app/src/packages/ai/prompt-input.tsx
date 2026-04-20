@@ -26,6 +26,47 @@ import {
   useInsertSkillMentionHook,
 } from "./prompt-input-insert-hooks"
 
+function getSlashMentionLength(textAfterSlash: string): number {
+  const skillMatch = textAfterSlash.match(/^\{[^}]*\}/)
+  if (skillMatch) return skillMatch[0].length
+  return 0
+}
+
+function isImmediatelyAfterCompletedSlashMention(text: string, slashIndex: number): boolean {
+  if (slashIndex <= 0) return false
+  const prefix = text.slice(0, slashIndex)
+  return /\/\{[^}]+\}$/.test(prefix)
+}
+
+export function getCommandTriggerContext(newText: string, cursorPos: number): { index: number; query: string } | null {
+  const textBeforeCursor = newText.slice(0, cursorPos)
+
+  for (let i = textBeforeCursor.length - 1; i >= 0; i--) {
+    if (textBeforeCursor[i] !== '/') continue
+
+    const afterSlash = newText.slice(i + 1)
+    const slashMentionLength = getSlashMentionLength(afterSlash)
+    if (slashMentionLength > 0) {
+      continue
+    }
+
+    const charBefore = i > 0 ? newText[i - 1] : ' '
+    const canReuseChipBoundary = isImmediatelyAfterCompletedSlashMention(newText, i)
+    if (!/\s/.test(charBefore) && i !== 0 && !canReuseChipBoundary) {
+      continue
+    }
+
+    const query = newText.slice(i + 1, cursorPos)
+    if (query.includes(' ')) {
+      return null
+    }
+
+    return { index: i, query }
+  }
+
+  return null
+}
+
 const PromptInputContext = React.createContext<PromptInputContextValue | null>(null)
 
 export function usePromptInputContext() {
@@ -337,27 +378,9 @@ export function PromptInputTextarea({
 
   // Check for / command trigger
   const checkCommandTrigger = React.useCallback((newText: string, cursorPos: number) => {
-    // Find all / positions before cursor, excluding those in /{...}
-    const textBeforeCursor = newText.slice(0, cursorPos)
-    
-    // Find the last / that is NOT part of /{...} or /[...]
-    let lastValidSlashIndex = -1
-    for (let i = textBeforeCursor.length - 1; i >= 0; i--) {
-      if (textBeforeCursor[i] === '/') {
-        // Check if this / is part of /{...} (skill) or /[...] (command)
-        const afterSlash = newText.slice(i + 1)
-        const isSkillMention = afterSlash.match(/^\{[^}]*\}/)
-        const isCommandMention = afterSlash.match(/^\[[^\]]*\]/)
-        
-        if (!isSkillMention && !isCommandMention) {
-          // This is a valid / for triggering
-          lastValidSlashIndex = i
-          break
-        }
-      }
-    }
-    
-    if (lastValidSlashIndex === -1) {
+    const context = getCommandTriggerContext(newText, cursorPos)
+
+    if (!context) {
       // No valid / found, close command if open
       if (commandStartRef.current !== null) {
         commandStartRef.current = null
@@ -365,32 +388,10 @@ export function PromptInputTextarea({
       }
       return
     }
-    
-    // Check if / is at start or preceded by whitespace or newline
-    const charBefore = lastValidSlashIndex > 0 ? newText[lastValidSlashIndex - 1] : ' '
-    if (!/\s/.test(charBefore) && lastValidSlashIndex !== 0) {
-      // / is part of a word, not a trigger
-      if (commandStartRef.current !== null) {
-        commandStartRef.current = null
-        onCommandClose?.()
-      }
-      return
-    }
-    
-    // Check if there's a space after /, which would close the command
-    const textAfterSlash = newText.slice(lastValidSlashIndex + 1, cursorPos)
-    if (textAfterSlash.includes(' ')) {
-      if (commandStartRef.current !== null) {
-        commandStartRef.current = null
-        onCommandClose?.()
-      }
-      return
-    }
-    
+
     // Trigger command
-    commandStartRef.current = lastValidSlashIndex
-    const query = textAfterSlash
-    onCommandTrigger?.(query)
+    commandStartRef.current = context.index
+    onCommandTrigger?.(context.query)
   }, [onCommandTrigger, onCommandClose])
 
   // Check for # hash trigger
@@ -599,10 +600,24 @@ export function PromptInputTextarea({
           return false
         }
         
-        // Skill chip: count as /{skillname} length
+        // Skill chip: count as /{skill:name} length
         if (el.classList.contains("skill-chip")) {
           const skillname = el.getAttribute("data-skillname") || ""
-          position += `/{${skillname}}`.length
+          position += `/{skill:${skillname}}`.length
+          
+          // Check if we need to stop inside the chip
+          if (el.contains(stopNode)) {
+            // If cursor is inside chip, treat it as being after the chip
+            return true
+          }
+          
+          return false
+        }
+
+        // Role chip: count as /{role:name} length
+        if (el.classList.contains("role-chip")) {
+          const rolename = el.getAttribute("data-rolename") || ""
+          position += `/{role:${rolename}}`.length
           
           // Check if we need to stop inside the chip
           if (el.contains(stopNode)) {
@@ -613,10 +628,10 @@ export function PromptInputTextarea({
           return false
         }
         
-        // Command chip: count as /[commandname] length
+        // Command chip: count as /{command:name} length
         if (el.classList.contains("command-chip")) {
           const commandname = el.getAttribute("data-commandname") || ""
-          position += `/[${commandname}]`.length
+          position += `/{command:${commandname}}`.length
           
           // Check if we need to stop inside the chip
           if (el.contains(stopNode)) {

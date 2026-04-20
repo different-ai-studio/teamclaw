@@ -1,6 +1,13 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
+function parseSlashToken(body: string): { type: 'role' | 'skill' | 'command'; name: string } {
+  if (body.startsWith('role:')) return { type: 'role', name: body.slice('role:'.length) }
+  if (body.startsWith('skill:')) return { type: 'skill', name: body.slice('skill:'.length) }
+  if (body.startsWith('command:')) return { type: 'command', name: body.slice('command:'.length) }
+  return { type: 'skill', name: body }
+}
+
 interface EditableWithFileChipsProps {
   value?: string
   onChange?: (value: string) => void
@@ -22,13 +29,13 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
 
     React.useImperativeHandle(ref, () => editableRef.current!)
 
-    // Convert @{filepath}, /{skillname}, and /[commandname] text to HTML with chips
+    // Convert @{filepath} and unified /{...} slash tokens to HTML with chips
     const valueToHTML = React.useCallback((text: string): string => {
       if (!text) return ""
       
       const parts: string[] = []
-      // Match @{filepath}, /{skillname}, and /[commandname]
-      const regex = /(@\{([^}]+)\})|(\/{([^}]+)\})|\/(\[([^\]]+)\])/g
+      // Match @{filepath}, /{...}, and legacy /[...] /<...> tokens
+      const regex = /(@\{([^}]+)\})|(\/\{([^}]+)\})|(\/\[([^\]]+)\])|(\/<([a-z0-9]+(?:-[a-z0-9]+)*)>)/g
       let lastIndex = 0
       let match: RegExpExecArray | null
 
@@ -43,34 +50,67 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
           // @{filepath} - file chip (blue)
           const filePath = match[2]
           parts.push(
-            `<span class="file-chip inline-flex items-center gap-1 px-2 py-0.5 mx-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-medium whitespace-nowrap" contenteditable="false" data-filepath="${escapeHTML(filePath)}" style="vertical-align: baseline;">` +
+            `<span class="file-chip inline-flex items-center gap-1.5 px-2.5 py-1 mx-0.5 rounded-md border bg-[#edf2f7] border-[#d8e1ea] text-[#5a7086] dark:bg-[#202a34] dark:border-[#31404d] dark:text-[#aec3d6] text-xs font-medium whitespace-nowrap" contenteditable="false" data-filepath="${escapeHTML(filePath)}" style="vertical-align: baseline;">` +
             `<svg class="lucide lucide-file-text shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>` +
             `<span class="max-w-[400px] truncate">${escapeHTML(filePath)}</span>` +
-            `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-blue-200 dark:hover:bg-blue-800 inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
+            `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-muted dark:hover:bg-muted inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
             `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
             `</span>` +
             `</span>`
           )
         } else if (match[3]) {
-          // /{skillname} - skill chip (yellow)
-          const skillName = match[4]
-          parts.push(
-            `<span class="skill-chip inline-flex items-center gap-1 px-2 py-0.5 mx-0.5 rounded-md bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 text-xs font-medium whitespace-nowrap" contenteditable="false" data-skillname="${escapeHTML(skillName)}" style="vertical-align: baseline;">` +
-            `<svg class="lucide lucide-zap shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>` +
-            `<span class="max-w-[400px] truncate">${escapeHTML(skillName)}</span>` +
-            `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-yellow-200 dark:hover:bg-yellow-800 inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
-            `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
-            `</span>` +
-            `</span>`
-          )
+          const parsed = parseSlashToken(match[4])
+          if (parsed.type === 'role') {
+            parts.push(
+              `<span class="role-chip inline-flex items-center gap-1.5 px-2.5 py-1 mx-0.5 rounded-md border bg-[#eef3f5] border-[#d8e2e7] text-[#5b7080] dark:bg-[#222d33] dark:border-[#334149] dark:text-[#b8cad3] text-xs font-medium whitespace-nowrap" contenteditable="false" data-rolename="${escapeHTML(parsed.name)}" style="vertical-align: baseline;">` +
+              `<svg class="lucide lucide-user-round shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>` +
+              `<span class="max-w-[400px] truncate">${escapeHTML(parsed.name)}</span>` +
+              `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-muted dark:hover:bg-muted inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
+              `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
+              `</span>` +
+              `</span>`
+            )
+          } else if (parsed.type === 'command') {
+            parts.push(
+              `<span class="command-chip inline-flex items-center gap-1.5 px-2.5 py-1 mx-0.5 rounded-md border bg-[#f1ebf3] border-[#ddd2e2] text-[#75607c] dark:bg-[#2f2632] dark:border-[#433647] dark:text-[#ccbcd2] text-xs font-medium whitespace-nowrap" contenteditable="false" data-commandname="${escapeHTML(parsed.name)}" style="vertical-align: baseline;">` +
+              `<svg class="lucide lucide-command shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>` +
+              `<span class="max-w-[400px] truncate">${escapeHTML(parsed.name)}</span>` +
+              `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-muted dark:hover:bg-muted inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
+              `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
+              `</span>` +
+              `</span>`
+            )
+          } else {
+            parts.push(
+              `<span class="skill-chip inline-flex items-center gap-1.5 px-2.5 py-1 mx-0.5 rounded-md border bg-[#f3efe6] border-[#e5dccb] text-[#7a6a52] dark:bg-[#302b22] dark:border-[#443b2d] dark:text-[#d3c5ac] text-xs font-medium whitespace-nowrap" contenteditable="false" data-skillname="${escapeHTML(parsed.name)}" style="vertical-align: baseline;">` +
+              `<svg class="lucide lucide-zap shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>` +
+              `<span class="max-w-[400px] truncate">${escapeHTML(parsed.name)}</span>` +
+              `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-muted dark:hover:bg-muted inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
+              `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
+              `</span>` +
+              `</span>`
+            )
+          }
         } else if (match[5]) {
           // /[commandname] - command chip (purple)
           const commandName = match[6]
           parts.push(
-            `<span class="command-chip inline-flex items-center gap-1 px-2 py-0.5 mx-0.5 rounded-md bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-xs font-medium whitespace-nowrap" contenteditable="false" data-commandname="${escapeHTML(commandName)}" style="vertical-align: baseline;">` +
+            `<span class="command-chip inline-flex items-center gap-1.5 px-2.5 py-1 mx-0.5 rounded-md border bg-[#f1ebf3] border-[#ddd2e2] text-[#75607c] dark:bg-[#2f2632] dark:border-[#433647] dark:text-[#ccbcd2] text-xs font-medium whitespace-nowrap" contenteditable="false" data-commandname="${escapeHTML(commandName)}" style="vertical-align: baseline;">` +
             `<svg class="lucide lucide-command shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>` +
             `<span class="max-w-[400px] truncate">${escapeHTML(commandName)}</span>` +
-            `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-purple-200 dark:hover:bg-purple-800 inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
+            `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-muted dark:hover:bg-muted inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
+            `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
+            `</span>` +
+            `</span>`
+          )
+        } else if (match[7]) {
+          // /<role-name> - role chip (sky)
+          const roleName = match[8]
+          parts.push(
+            `<span class="role-chip inline-flex items-center gap-1.5 px-2.5 py-1 mx-0.5 rounded-md border bg-[#eef3f5] border-[#d8e2e7] text-[#5b7080] dark:bg-[#222d33] dark:border-[#334149] dark:text-[#b8cad3] text-xs font-medium whitespace-nowrap" contenteditable="false" data-rolename="${escapeHTML(roleName)}" style="vertical-align: baseline;">` +
+            `<svg class="lucide lucide-user-round shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>` +
+            `<span class="max-w-[400px] truncate">${escapeHTML(roleName)}</span>` +
+            `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-muted dark:hover:bg-muted inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
             `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
             `</span>` +
             `</span>`
@@ -88,7 +128,7 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
       return parts.join("")
     }, [])
 
-    // Convert HTML back to @{filepath}, /{skillname}, and /[commandname] text
+    // Convert HTML back to @{filepath} and unified /{...} slash tokens
     const htmlToValue = React.useCallback((element: HTMLElement): string => {
       let result = ""
       
@@ -100,12 +140,15 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
           if (el.classList.contains("file-chip")) {
             const filepath = el.getAttribute("data-filepath") || ""
             result += `@{${filepath}}`
+          } else if (el.classList.contains("role-chip")) {
+            const rolename = el.getAttribute("data-rolename") || ""
+            result += `/{role:${rolename}}`
           } else if (el.classList.contains("skill-chip")) {
             const skillname = el.getAttribute("data-skillname") || ""
-            result += `/{${skillname}}`
+            result += `/{skill:${skillname}}`
           } else if (el.classList.contains("command-chip")) {
             const commandname = el.getAttribute("data-commandname") || ""
-            result += `/[${commandname}]`
+            result += `/{command:${commandname}}`
           } else if (el.tagName === "BR") {
             result += "\n"
           } else if (el.tagName === "DIV") {
@@ -203,7 +246,7 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
           let node = container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement
           while (node && node !== editableRef.current) {
             const classes = (node as HTMLElement).classList
-            if (classes?.contains("file-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip")) {
+            if (classes?.contains("file-chip") || classes?.contains("role-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip")) {
               chipToDelete = node as HTMLElement
               break
             }
@@ -219,7 +262,7 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
 
               // Case A: caret is directly after a chip node.
               const prevClasses = (prevNode as HTMLElement).classList
-              if (prevNode && (prevClasses?.contains("file-chip") || prevClasses?.contains("skill-chip") || prevClasses?.contains("command-chip"))) {
+              if (prevNode && (prevClasses?.contains("file-chip") || prevClasses?.contains("role-chip") || prevClasses?.contains("skill-chip") || prevClasses?.contains("command-chip"))) {
                 chipToDelete = prevNode as HTMLElement
               }
 
@@ -230,7 +273,7 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
                 if (prevText.trim() === "") {
                   const maybeChip = prevNode.previousSibling as HTMLElement | null
                   const classes = maybeChip?.classList
-                  if (classes?.contains("file-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip")) {
+                  if (classes?.contains("file-chip") || classes?.contains("role-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip")) {
                     chipToDelete = maybeChip
                   }
                 }
@@ -247,8 +290,17 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
               
               if (prevSibling && prevSibling.nodeType === Node.ELEMENT_NODE) {
                 const classes = (prevSibling as HTMLElement).classList
-                if (classes?.contains("file-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip")) {
+                if (classes?.contains("file-chip") || classes?.contains("role-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip")) {
                   chipToDelete = prevSibling as HTMLElement
+                }
+              } else if (prevSibling?.nodeType === Node.TEXT_NODE) {
+                const prevText = prevSibling.textContent || ""
+                if (prevText.trim() === "") {
+                  const maybeChip = prevSibling.previousSibling as HTMLElement | null
+                  const classes = maybeChip?.classList
+                  if (classes?.contains("file-chip") || classes?.contains("role-chip") || classes?.contains("skill-chip") || classes?.contains("command-chip")) {
+                    chipToDelete = maybeChip
+                  }
                 }
               }
             }
@@ -351,7 +403,7 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
           const removeBtn = target.closest('[data-action="remove"]')
           if (removeBtn) {
             e.preventDefault()
-            const chip = removeBtn.closest('.file-chip, .skill-chip, .command-chip')
+            const chip = removeBtn.closest('.file-chip, .role-chip, .skill-chip, .command-chip')
             if (chip) {
               const chipEl = chip as HTMLElement
               const parent = chipEl.parentNode as HTMLElement | null

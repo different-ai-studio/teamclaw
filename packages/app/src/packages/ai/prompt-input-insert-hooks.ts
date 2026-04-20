@@ -1,8 +1,12 @@
 import * as React from "react"
 import type { MentionedPerson, PromptInputContextValue } from "./prompt-input-types"
 
+function encodeSlashChip(type: 'role' | 'skill' | 'command', name: string) {
+  return `/{${type}:${name}}`
+}
+
 // Shared cursor-positioning helper for contenteditable
-// Walks through the DOM tree to find the target position, accounting for file/skill/command chips
+// Walks through the DOM tree to find the target position, accounting for file/role/skill/command chips
 function walkToPosition(
   editable: HTMLElement,
   targetPos: number,
@@ -43,10 +47,10 @@ function walkToPosition(
         return false
       }
 
-      // Skill chip: count as /{skillname} length
+      // Skill chip: count as /{skill:name} length
       if (el.classList.contains("skill-chip")) {
         const skillname = el.getAttribute("data-skillname") || ""
-        const chipLength = `/{${skillname}}`.length
+        const chipLength = encodeSlashChip('skill', skillname).length
         if (currentPos + chipLength >= targetPos) {
           const nextSibling = node.nextSibling
           if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
@@ -63,10 +67,30 @@ function walkToPosition(
         return false
       }
 
-      // Command chip: count as /[commandname] length
+      // Role chip: count as /{role:name} length
+      if (el.classList.contains("role-chip")) {
+        const rolename = el.getAttribute("data-rolename") || ""
+        const chipLength = encodeSlashChip('role', rolename).length
+        if (currentPos + chipLength >= targetPos) {
+          const nextSibling = node.nextSibling
+          if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
+            targetNode = nextSibling
+            targetOffset = 0
+          } else {
+            targetNode = node.parentNode
+            const children = Array.from(node.parentNode?.childNodes || [])
+            targetOffset = children.indexOf(node as ChildNode) + 1
+          }
+          return true
+        }
+        currentPos += chipLength
+        return false
+      }
+
+      // Command chip: count as /{command:name} length
       if (el.classList.contains("command-chip")) {
         const commandname = el.getAttribute("data-commandname") || ""
-        const chipLength = `/[${commandname}]`.length
+        const chipLength = encodeSlashChip('command', commandname).length
         if (currentPos + chipLength >= targetPos) {
           const nextSibling = node.nextSibling
           if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
@@ -193,7 +217,7 @@ export function createInsertFileMention(context: PromptInputContextValue) {
         const editable = textareaRef.current
         if (editable) {
           editable.focus()
-          const targetPos = beforeAt.length + mentionText.trimEnd().length
+          const targetPos = beforeAt.length + mentionText.length
           setCursorAtPosition(editable, targetPos)
         }
       }, 10)
@@ -207,14 +231,13 @@ export function createInsertFileMention(context: PromptInputContextValue) {
 export function createInsertSkillMention(context: PromptInputContextValue) {
   const { text, setText, onCommandClose, textareaRef, commandStartRef } = context
 
-  return (skillName: string, type: 'skill' | 'command' = 'skill') => {
+  return (skillName: string, type: 'role' | 'skill' | 'command' = 'skill') => {
     let lastValidSlashIndex = -1
     for (let i = text.length - 1; i >= 0; i--) {
       if (text[i] === '/') {
         const afterSlash = text.slice(i + 1)
         const isSkillMention = afterSlash.match(/^\{[^}]*\}/)
-        const isCommandMention = afterSlash.match(/^\[[^\]]*\]/)
-        if (!isSkillMention && !isCommandMention) {
+        if (!isSkillMention) {
           lastValidSlashIndex = i
           break
         }
@@ -228,7 +251,7 @@ export function createInsertSkillMention(context: PromptInputContextValue) {
       const queryEnd = queryEndMatch ? queryEndMatch[0].length : 1
       const afterQuery = text.slice(lastValidSlashIndex + queryEnd)
 
-      const mentionText = type === 'skill' ? `/{${skillName}} ` : `/[${skillName}] `
+      const mentionText = `${encodeSlashChip(type, skillName)} `
       const newText = `${beforeSlash}${mentionText}${afterQuery}`
 
       setText(newText)
@@ -237,7 +260,7 @@ export function createInsertSkillMention(context: PromptInputContextValue) {
         const editable = textareaRef.current
         if (editable) {
           editable.focus()
-          const targetPos = beforeSlash.length + mentionText.trimEnd().length
+          const targetPos = beforeSlash.length + mentionText.length
           setCursorAtPosition(editable, targetPos)
         }
       }, 10)
@@ -282,7 +305,7 @@ export function useInsertSkillMentionHook(PromptInputContext: React.Context<Prom
   }
 
   return React.useCallback(
-    (skillName: string, type: 'skill' | 'command' = 'skill') => createInsertSkillMention(context)(skillName, type),
+    (skillName: string, type: 'role' | 'skill' | 'command' = 'skill') => createInsertSkillMention(context)(skillName, type),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [context.text, context.setText, context.onCommandClose, context.textareaRef, context.commandStartRef]
   )
