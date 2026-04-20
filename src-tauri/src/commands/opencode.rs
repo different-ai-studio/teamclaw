@@ -967,21 +967,43 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
         }
 
         if !mcp_obj.contains_key("autoui") {
+            // No `environment` block: AUTOUI_VISION_* are managed via the env-var
+            // settings page (system-shared scope) and injected into the opencode
+            // sidecar process at startup, so autoui-mcp picks them up via std::env::var.
             mcp_obj.insert(
                 "autoui".to_string(),
                 serde_json::json!({
                     "type": "local",
                     "enabled": true,
-                    "command": ["npx", "-y", "autoui-mcp@latest"],
-                    "environment": {
-                        "AUTOUI_VISION_API_KEY": "${tc_api_key}",
-                        "AUTOUI_VISION_BASE_URL": "https://ai.ucar.cc",
-                        "AUTOUI_VISION_MODEL": "qwen3-vl-flash"
-                    }
+                    "command": ["npx", "-y", "autoui-mcp@latest"]
                 }),
             );
             changed = true;
             println!("[Config] Added inherent 'autoui' MCP config");
+        } else if let Some(autoui) = mcp_obj.get_mut("autoui").and_then(|v| v.as_object_mut()) {
+            // Migration: drop the auto-injected `environment` block so vision config
+            // is sourced from the env-var settings page (system-shared scope) and
+            // injected via the opencode sidecar's process env. Only strip when every
+            // key matches the known auto-injected set, so user-added overrides are
+            // preserved.
+            let known_keys: &[&str] = &[
+                "AUTOUI_VISION_API_KEY",
+                "AUTOUI_VISION_BASE_URL",
+                "AUTOUI_VISION_MODEL",
+                "QWEN_API_KEY",
+                "QWEN_BASE_URL",
+                "QWEN_MODEL",
+            ];
+            let strip = autoui
+                .get("environment")
+                .and_then(|v| v.as_object())
+                .map(|env| !env.is_empty() && env.keys().all(|k| known_keys.contains(&k.as_str())))
+                .unwrap_or(false);
+            if strip {
+                autoui.remove("environment");
+                changed = true;
+                println!("[Config] Stripped legacy 'environment' block from autoui MCP config");
+            }
         }
     }
 

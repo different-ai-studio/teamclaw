@@ -213,27 +213,69 @@ struct SystemEnvVarContext {
     device_id: String,
 }
 
+/// How a system env var's default value should be applied on startup.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DefaultPolicy {
+    /// Re-derive on every startup; overwrite the stored value if it differs.
+    /// Use when the default depends on system state that may change
+    /// (e.g. `tc_api_key` is derived from `device_id`).
+    RegenerateAlways,
+    /// Write the default only when the key is missing from the blob.
+    /// Empty user-set values are preserved (treated as "user has decided to leave blank").
+    SetIfAbsent,
+}
+
 /// Definition of a system-managed env var.
 pub(crate) struct SystemEnvVarDef {
     key: &'static str,
     description: &'static str,
     default_fn: fn(&SystemEnvVarContext) -> Option<String>,
+    policy: DefaultPolicy,
+    /// When true, the entry is registered with category `system-shared`. The UI uses
+    /// this to surface the key as a team-shared candidate (encrypted, synced via
+    /// `shared_secrets`) and never seeds a value into the local keychain blob.
+    shared_default: bool,
 }
 
 /// Registry of all system env vars.
 /// To add a new one: append an entry here — nothing else changes.
-pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[SystemEnvVarDef {
-    key: "tc_api_key",
-    description: "Team LLM API Key",
-    default_fn: |ctx| {
-        if ctx.device_id.is_empty() {
-            return None;
-        }
-        let id = &ctx.device_id;
-        // 40 chars: matches the LiteLLM virtual key suffix length limit
-        Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
+pub(crate) const SYSTEM_ENV_VARS: &[SystemEnvVarDef] = &[
+    SystemEnvVarDef {
+        key: "tc_api_key",
+        description: "Team LLM API Key",
+        default_fn: |ctx| {
+            if ctx.device_id.is_empty() {
+                return None;
+            }
+            let id = &ctx.device_id;
+            // 40 chars: matches the LiteLLM virtual key suffix length limit
+            Some(format!("sk-tc-{}", &id[..id.len().min(40)]))
+        },
+        policy: DefaultPolicy::RegenerateAlways,
+        shared_default: false,
     },
-}];
+    SystemEnvVarDef {
+        key: "AUTOUI_VISION_BASE_URL",
+        description: "AutoUI vision endpoint (OpenAI-compatible)",
+        default_fn: |_| None,
+        policy: DefaultPolicy::SetIfAbsent,
+        shared_default: true,
+    },
+    SystemEnvVarDef {
+        key: "AUTOUI_VISION_API_KEY",
+        description: "AutoUI vision API key",
+        default_fn: |_| None,
+        policy: DefaultPolicy::SetIfAbsent,
+        shared_default: true,
+    },
+    SystemEnvVarDef {
+        key: "AUTOUI_VISION_MODEL",
+        description: "AutoUI vision model name",
+        default_fn: |_| None,
+        policy: DefaultPolicy::SetIfAbsent,
+        shared_default: true,
+    },
+];
 
 /// A single environment variable entry (key + description, no value).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -385,10 +427,14 @@ pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Res
     let mut json = read_teamclaw_json(&workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
-    // Check category — system vars cannot be deleted
+    // Check category — system / system-shared vars cannot be deleted from the index
+    // (they're auto-registered each launch by `ensure_system_env_vars`).
     if let Some(entry) = entries.iter().find(|e| e.key == key) {
-        if entry.category.as_deref() == Some("system") {
-            return Err(format!("System variable '{}' cannot be deleted", key));
+        match entry.category.as_deref() {
+            Some("system") | Some("system-shared") => {
+                return Err(format!("System variable '{}' cannot be deleted", key));
+            }
+            _ => {}
         }
     }
 
@@ -509,47 +555,87 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, device_id: &str) -> R
     let mut index_changed = false;
 
     for def in SYSTEM_ENV_VARS {
-        // Check if there's already a non-empty value in the blob
-        let existing_value = blob.get(def.key).and_then(|v| v.as_str()).unwrap_or("");
+        // `system-shared` defs never touch the local keychain blob — their values
+        // live in `shared_secrets` (team KMS) and are injected into opencode at startup.
+        // We only register them in the teamclaw.json index so the key shows up in
+        // the env-var UI on every member's machine.
+        if !def.shared_default {
+            let key_present_in_blob = blob.contains_key(def.key);
+            let existing_value = blob.get(def.key).and_then(|v| v.as_str()).unwrap_or("");
 
-        // Always regenerate: the device_id source may have changed (e.g. UUID → iroh node_id),
-        // so we overwrite whenever the generated value differs from the stored one.
-        if let Some(new_value) = (def.default_fn)(&ctx) {
-            if existing_value != new_value {
-                if !existing_value.is_empty() {
-                    println!("[EnvVars] Updating system var {} (value changed)", def.key);
-                } else {
-                    println!(
-                        "[EnvVars] Generated default value for system var: {}",
-                        def.key
-                    );
+            match def.policy {
+                DefaultPolicy::RegenerateAlways => {
+                    // Re-derive on every startup; overwrite if the result differs.
+                    // Used when the default depends on mutable system state (e.g. device_id).
+                    if let Some(new_value) = (def.default_fn)(&ctx) {
+                        if existing_value != new_value {
+                            if !existing_value.is_empty() {
+                                println!(
+                                    "[EnvVars] Updating system var {} (value changed)",
+                                    def.key
+                                );
+                            } else {
+                                println!(
+                                    "[EnvVars] Generated default value for system var: {}",
+                                    def.key
+                                );
+                            }
+                            blob.insert(
+                                def.key.to_string(),
+                                serde_json::Value::String(new_value),
+                            );
+                            blob_changed = true;
+                        }
+                    }
                 }
-                blob.insert(def.key.to_string(), serde_json::Value::String(new_value));
-                blob_changed = true;
+                DefaultPolicy::SetIfAbsent => {
+                    // Only seed the default when the key has never been written.
+                    // An existing empty string is treated as "user left it blank intentionally".
+                    if !key_present_in_blob {
+                        if let Some(default) = (def.default_fn)(&ctx) {
+                            println!("[EnvVars] Seeding system var {} with default", def.key);
+                            blob.insert(
+                                def.key.to_string(),
+                                serde_json::Value::String(default),
+                            );
+                            blob_changed = true;
+                        }
+                    }
+                }
             }
         }
 
-        // Only register in index if the blob has a value (either pre-existing or just generated)
-        let blob_has_value_now = blob
-            .get(def.key)
-            .and_then(|v| v.as_str())
-            .map_or(false, |v| !v.is_empty());
-        if !blob_has_value_now {
-            // Skip index entry — no value available (e.g., device_id not ready)
+        // Decide whether to register in the index (synced via teamclaw.json):
+        //   - shared_default:                always register (key shows in UI; value lives in shared_secrets).
+        //   - SetIfAbsent (local):           always register so the key shows even before a value is set.
+        //   - RegenerateAlways (local):      only when the blob holds a non-empty value
+        //                                    (skip when the generator yielded nothing, e.g. device_id not ready).
+        let should_index = if def.shared_default {
+            true
+        } else {
+            match def.policy {
+                DefaultPolicy::RegenerateAlways => blob
+                    .get(def.key)
+                    .and_then(|v| v.as_str())
+                    .map_or(false, |v| !v.is_empty()),
+                DefaultPolicy::SetIfAbsent => true,
+            }
+        };
+        if !should_index {
             continue;
         }
 
-        // Ensure index entry exists with category: "system"
+        let target_category = if def.shared_default { "system-shared" } else { "system" };
         if let Some(existing) = entries.iter_mut().find(|e| e.key == def.key) {
-            if existing.category.as_deref() != Some("system") {
-                existing.category = Some("system".to_string());
+            if existing.category.as_deref() != Some(target_category) {
+                existing.category = Some(target_category.to_string());
                 index_changed = true;
             }
         } else {
             entries.push(EnvVarEntry {
                 key: def.key.to_string(),
                 description: Some(def.description.to_string()),
-                category: Some("system".to_string()),
+                category: Some(target_category.to_string()),
             });
             index_changed = true;
         }

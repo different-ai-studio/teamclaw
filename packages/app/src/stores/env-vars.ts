@@ -6,7 +6,13 @@ import { withAsync } from '@/lib/store-utils'
 export interface EnvVarEntry {
   key: string
   description?: string
-  category?: 'system' | null
+  /**
+   * `system`        — locally seeded by Rust on every launch (e.g. `tc_api_key`).
+   * `system-shared` — registered by Rust on every launch but the value lives in
+   *                   `shared_secrets` (team KMS). Surfaced in the UI even when no
+   *                   value has been set so the user is reminded to fill it in.
+   */
+  category?: 'system' | 'system-shared' | null
 }
 
 interface EnvVarsState {
