@@ -690,6 +690,85 @@ async function codeupFetch(path, method, body) {
   }
 }
 
+/**
+ * POST /managed-git/setup-litellm — bootstrap LiteLLM for a managed-Git team.
+ *
+ * Managed-Git teams skip the OSS /register flow, so they have no entry in
+ * teams/{teamId}/_registry/auth.json. This endpoint:
+ *   1. Writes auth.json + _meta/team.json (idempotent — same secret hash → no-op).
+ *   2. Creates the LiteLLM team (idempotent — 409 treated as success).
+ *   3. Issues the owner's LiteLLM key.
+ *
+ * After this runs, subsequent /ai/add-member calls (for joining members) work,
+ * because verifyTeam can now find auth.json.
+ */
+async function handleManagedGitSetupLitellm(body) {
+  const { teamId, teamSecret, teamName, ownerNodeId, ownerName } = body;
+  if (!teamId || !teamSecret || !ownerNodeId) {
+    return json(400, { error: "Missing teamId, teamSecret, or ownerNodeId" });
+  }
+
+  const teamSecretHash = sha256(teamSecret);
+  const existing = await ossGet(`teams/${teamId}/_registry/auth.json`);
+  if (existing) {
+    if (existing.teamSecretHash !== teamSecretHash) {
+      return json(403, { error: "Team already registered with different secret" });
+    }
+  } else {
+    const createdAt = new Date().toISOString();
+    await ossPut(`teams/${teamId}/_registry/auth.json`, {
+      schemaVersion: 1,
+      teamSecretHash,
+      ownerNodeId,
+      createdAt,
+    });
+    await ossPut(`teams/${teamId}/_meta/team.json`, {
+      schemaVersion: 1,
+      teamId,
+      teamName: teamName || teamId,
+      ownerName: ownerName || "",
+      ownerNodeId,
+      createdAt,
+    });
+    console.log(`[managed-git/setup-litellm] Registered teamId=${teamId} owner=${ownerNodeId.slice(0, 8)}`);
+  }
+
+  const litellmTeamId = `tc-${teamId}`;
+  const maxBudget = LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD();
+  const teamRes = await litellmFetch("/team/new", "POST", {
+    team_id: litellmTeamId,
+    team_alias: teamName || teamId,
+    max_budget: maxBudget,
+  });
+  if (!teamRes.ok && teamRes.status !== 409) {
+    console.error(`[managed-git/setup-litellm] team/new error:`, teamRes.data);
+    return json(502, { error: "Failed to create LiteLLM team", detail: teamRes.data });
+  }
+
+  const keyAlias = `${ownerName || "owner"}-${ownerNodeId.slice(0, 8)}`;
+  const keyValue = `sk-tc-${ownerNodeId.slice(0, 40)}`;
+  const keyRes = await litellmFetch("/key/generate", "POST", {
+    key: keyValue,
+    team_id: litellmTeamId,
+    key_alias: keyAlias,
+  });
+  if (!keyRes.ok) {
+    console.error(`[managed-git/setup-litellm] key/generate error:`, keyRes.data);
+    return json(502, { error: "Failed to create owner key", detail: keyRes.data });
+  }
+
+  console.log(
+    `[managed-git/setup-litellm] team=${litellmTeamId} owner=${ownerNodeId.slice(0, 8)} max_budget_usd=${maxBudget}`
+  );
+  return json(200, {
+    success: true,
+    litellmTeamId,
+    key: keyValue,
+    keyAlias,
+    maxBudgetUsd: maxBudget,
+  });
+}
+
 /** POST /managed-git/create-repo — create a private CodeUp repo for a team */
 async function handleManagedGitCreateRepo(body) {
   const { teamName } = body;
@@ -804,6 +883,8 @@ export async function handler(event, context) {
         return await handleAiBudget(body);
       case "/managed-git/create-repo":
         return await handleManagedGitCreateRepo(body);
+      case "/managed-git/setup-litellm":
+        return await handleManagedGitSetupLitellm(body);
       default:
         return json(404, { error: "Not found" });
     }

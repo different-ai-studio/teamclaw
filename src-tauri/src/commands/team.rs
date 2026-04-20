@@ -952,6 +952,7 @@ pub async fn team_git_create(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
     llm_models: Option<String>,
+    fc_endpoint: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<TeamGitCreateResult, String> {
@@ -1137,6 +1138,35 @@ pub async fn team_git_create(
         }
     }
 
+    // Fire-and-forget: bootstrap LiteLLM team + owner key via FC.
+    // Only runs for managed-Git (frontend passes fc_endpoint when managedGit=true).
+    if let Some(endpoint) = fc_endpoint.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let url = format!("{}/managed-git/setup-litellm", endpoint.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "teamId": team_id,
+            "teamSecret": team_secret,
+            "teamName": team_name,
+            "ownerNodeId": node_id,
+            "ownerName": git_user_name,
+        });
+        println!("[Team Create] Scheduling LiteLLM bootstrap via FC: {}", url);
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+            match client.post(&url).json(&body).send().await {
+                Ok(r) => println!(
+                    "[Team Create] LiteLLM via FC: setup-litellm HTTP status={}",
+                    r.status()
+                ),
+                Err(e) => eprintln!(
+                    "[Team Create] LiteLLM via FC: setup-litellm request failed: {e}"
+                ),
+            }
+        });
+    }
+
     Ok(TeamGitCreateResult {
         team_id,
         team_secret,
@@ -1156,6 +1186,7 @@ pub async fn team_git_join(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
     llm_models: Option<String>,
+    fc_endpoint: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<TeamGitResult, String> {
@@ -1362,6 +1393,34 @@ pub async fn team_git_join(
         Err(e) => {
             println!("[Team Join] Warning: Failed to sync MCP configs: {}", e);
         }
+    }
+
+    // Fire-and-forget: register joining member's LiteLLM key via FC.
+    // Only runs for managed-Git (frontend passes fc_endpoint when managedGit=true).
+    if let Some(endpoint) = fc_endpoint.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let url = format!("{}/ai/add-member", endpoint.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "teamId": team_id,
+            "teamSecret": team_secret,
+            "nodeId": node_id,
+            "memberName": member_name,
+        });
+        println!("[Team Join] Scheduling LiteLLM add-member via FC: {}", url);
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+            match client.post(&url).json(&body).send().await {
+                Ok(r) => println!(
+                    "[Team Join] LiteLLM via FC: add-member HTTP status={}",
+                    r.status()
+                ),
+                Err(e) => eprintln!(
+                    "[Team Join] LiteLLM via FC: add-member request failed: {e}"
+                ),
+            }
+        });
     }
 
     // 14. Return success
