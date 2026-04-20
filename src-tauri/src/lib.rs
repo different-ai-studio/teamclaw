@@ -426,6 +426,7 @@ pub fn run() {
             commands::team::get_git_team_secret,
             commands::team::team_generate_gitignore,
             commands::team::team_sync_repo,
+            commands::team::team_sync_precheck,
             commands::team::team_disconnect_repo,
             commands::team::get_team_config,
             commands::team::save_team_config,
