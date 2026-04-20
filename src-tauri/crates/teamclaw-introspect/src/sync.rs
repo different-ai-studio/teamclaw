@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+// _workspace and _arguments match the signature of other handle() functions in this crate.
+// The workspace is retrieved server-side from OpenCodeState; no parameters are needed.
 pub async fn handle(_workspace: &str, api_port: u16, _arguments: &Value) -> Result<Value, String> {
     let url = format!("http://127.0.0.1:{api_port}/team-sync-all");
     let client = reqwest::Client::new();

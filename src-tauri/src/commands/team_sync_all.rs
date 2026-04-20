@@ -49,7 +49,7 @@ async fn sync_git(app: &AppHandle) -> SyncAllResult {
             mode: "git".to_string(),
             success: result.success,
             message: result.message,
-            changed_files: 0,
+            changed_files: 0, // git sync detail is in message; TeamGitResult has no per-file count
         },
         Err(e) => SyncAllResult {
             mode: "git".to_string(),
@@ -90,6 +90,8 @@ async fn sync_oss(app: &AppHandle) -> SyncAllResult {
         };
     }
 
+    // Secrets are intentionally excluded from MCP-triggered sync to prevent
+    // credential exposure through the AI agent tool interface.
     let doc_types = [DocType::Skills, DocType::Mcp, DocType::Knowledge, DocType::Meta];
     let mut changed = 0u32;
     let mut changed_names: Vec<String> = Vec::new();
