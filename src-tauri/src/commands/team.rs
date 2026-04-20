@@ -69,6 +69,23 @@ pub struct TeamGitResult {
     pub message: String,
 }
 
+/// One untracked file surfaced by team_sync_precheck.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPrecheckFile {
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+/// Result of team_sync_precheck: untracked files that `git add -A` would stage,
+/// with individual sizes and a running total.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPrecheckResult {
+    pub new_files: Vec<SyncPrecheckFile>,
+    pub total_bytes: u64,
+}
+
 /// Team metadata stored in _meta/team.json (committed to Git)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1354,6 +1371,59 @@ pub async fn team_generate_gitignore(
     Ok(TeamGitResult {
         success: true,
         message: ".gitignore ensured".to_string(),
+    })
+}
+
+/// 1.4 - Precheck before team_sync_repo: list untracked files with sizes so
+/// the frontend can warn the user about accidentally syncing huge binaries.
+#[tauri::command]
+pub async fn team_sync_precheck(
+    opencode_state: State<'_, OpenCodeState>,
+) -> Result<SyncPrecheckResult, String> {
+    let workspace_path = get_workspace_path(&opencode_state)?;
+    let team_dir = get_team_repo_path(&workspace_path);
+
+    let git_dir = Path::new(&team_dir).join(".git");
+    if !git_dir.exists() {
+        return Err(format!(
+            "Team directory '{}' is not a git repository.",
+            team_dir
+        ));
+    }
+
+    // `-uall` expands untracked directories into individual files.
+    // `-z` gives NUL-delimited records, safe for any filename.
+    let output = Command::new("git")
+        .args(["status", "--porcelain", "-z", "-uall"])
+        .current_dir(&team_dir)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to execute git: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "git status failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let paths = parse_untracked_paths(&output.stdout);
+
+    let mut new_files: Vec<SyncPrecheckFile> = Vec::with_capacity(paths.len());
+    let mut total_bytes: u64 = 0;
+    for rel_path in paths {
+        let abs = Path::new(&team_dir).join(&rel_path);
+        let size_bytes = std::fs::metadata(&abs).map(|m| m.len()).unwrap_or(0);
+        total_bytes = total_bytes.saturating_add(size_bytes);
+        new_files.push(SyncPrecheckFile {
+            path: rel_path,
+            size_bytes,
+        });
+    }
+
+    Ok(SyncPrecheckResult {
+        new_files,
+        total_bytes,
     })
 }
 
