@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::commands::team::check_team_status;
 
@@ -26,12 +26,37 @@ pub async fn sync_all(app: &AppHandle, workspace: &str) -> SyncAllResult {
     }
 }
 
-async fn sync_git(_app: &AppHandle) -> SyncAllResult {
-    SyncAllResult {
-        mode: "git".to_string(),
-        success: false,
-        message: "git sync not yet implemented".to_string(),
-        changed_files: 0,
+async fn sync_git(app: &AppHandle) -> SyncAllResult {
+    use crate::commands::opencode::OpenCodeState;
+    use crate::commands::shared_secrets::SharedSecretsState;
+    use crate::commands::team::team_sync_repo;
+
+    let opencode = app.state::<OpenCodeState>();
+    let secrets = app.state::<SharedSecretsState>();
+
+    match team_sync_repo(opencode, secrets, Some(false)).await {
+        Ok(result) if result.needs_confirmation => SyncAllResult {
+            mode: "git".to_string(),
+            success: false,
+            message: format!(
+                "Sync blocked: {} untracked file(s) exceed size thresholds ({} bytes total).",
+                result.new_files.len(),
+                result.total_bytes
+            ),
+            changed_files: result.new_files.len() as u32,
+        },
+        Ok(result) => SyncAllResult {
+            mode: "git".to_string(),
+            success: result.success,
+            message: result.message,
+            changed_files: 0,
+        },
+        Err(e) => SyncAllResult {
+            mode: "git".to_string(),
+            success: false,
+            message: e,
+            changed_files: 0,
+        },
     }
 }
 
