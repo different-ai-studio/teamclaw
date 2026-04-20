@@ -273,7 +273,7 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
         {/* Gradient fade overlay when collapsed — matches the bubble bg color */}
         {isCollapsed && (
           <div
-            className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-[#cdd3d8] to-transparent dark:from-[#ffffff1a]"
+            className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-[#e8edf2] to-transparent dark:from-[#ffffff1a]"
           />
         )}
       </div>
@@ -282,7 +282,7 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
       {needsCollapse && (
         <button
           onClick={() => setIsExpanded((v) => !v)}
-          className="flex items-center gap-1 mt-1.5 text-xs text-[#5a6874] hover:text-[#33404c] dark:text-[#c9d3db] dark:hover:text-[#f5f8fb] transition-colors cursor-pointer"
+          className="flex items-center gap-1 mt-1.5 text-xs text-[#66727d] hover:text-[#1f2933] dark:text-[#c9d3db] dark:hover:text-[#f5f8fb] transition-colors cursor-pointer"
         >
           {isExpanded ? (
             <>

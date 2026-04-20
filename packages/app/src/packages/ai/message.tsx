@@ -100,7 +100,7 @@ export function MessageContent({
       className={cn(
         "text-sm overflow-hidden break-words [overflow-wrap:anywhere] min-w-0",
         from === "user"
-          ? "max-w-[85%] rounded-2xl px-4 py-3 bg-[#cdd3d8] text-[#33404c] dark:border dark:border-white/8 dark:bg-white/10 dark:backdrop-blur-sm dark:text-[#eef3f7]"
+          ? "max-w-[85%] rounded-2xl px-4 py-3 bg-[#e8edf2] text-[#1f2933] dark:border dark:border-white/8 dark:bg-white/10 dark:backdrop-blur-sm dark:text-[#eef3f7]"
           : "w-full",
         className
       )}
