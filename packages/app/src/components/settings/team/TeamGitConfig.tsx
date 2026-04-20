@@ -29,6 +29,7 @@ import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { DeviceIdDisplay } from '@/components/settings/DeviceIdDisplay'
 import { HostLlmConfig } from './HostLlmConfig'
 import { useTeamMembersStore } from '@/stores/team-members'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { buildConfig, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -135,6 +136,8 @@ function SettingCard({ children, className }: { children: React.ReactNode; class
 export function TeamGitConfig() {
   const { t } = useTranslation()
   const teamMembersStore = useTeamMembersStore()
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady)
   const [deviceInfo, setDeviceInfo] = React.useState<{ nodeId: string } | null>(null)
   const [state, setState] = React.useState<ConnectionState>('loading')
   const [teamConfig, setTeamConfig] = React.useState<TeamConfig | null>(null)
@@ -193,6 +196,12 @@ export function TeamGitConfig() {
         return
       }
 
+      // Wait for OpenCode to register the workspace in backend state.
+      // Otherwise get_team_config races startup and throws "No workspace path set".
+      if (!workspacePath || !openCodeReady) {
+        return
+      }
+
       const gitCheck = await tauriInvoke<GitCheckResult>('team_check_git_installed')
       if (!gitCheck.installed) {
         setState('no-git')
@@ -227,7 +236,7 @@ export function TeamGitConfig() {
       setErrorMessage(err instanceof Error ? err.message : String(err))
       setState('error')
     }
-  }, [])
+  }, [workspacePath, openCodeReady])
 
   React.useEffect(() => {
     initialize()
