@@ -129,11 +129,38 @@ async fn sync_oss(app: &AppHandle) -> SyncAllResult {
     }
 }
 
+#[cfg(feature = "p2p")]
+async fn sync_p2p(app: &AppHandle) -> SyncAllResult {
+    use crate::commands::p2p_state::SyncEngineState;
+
+    let engine_state = app.state::<SyncEngineState>();
+    let engine = engine_state.lock().await;
+    let snapshot = engine.snapshot();
+
+    let is_running = !matches!(snapshot.status, teamclaw_p2p::EngineStatus::Disconnected);
+
+    let message = format!(
+        "P2P sync {}: {} synced, {} pending, {} peer(s) connected.",
+        if is_running { "active" } else { "inactive" },
+        snapshot.synced_files,
+        snapshot.pending_files,
+        snapshot.peers.len(),
+    );
+
+    SyncAllResult {
+        mode: "p2p".to_string(),
+        success: is_running,
+        message,
+        changed_files: snapshot.synced_files,
+    }
+}
+
+#[cfg(not(feature = "p2p"))]
 async fn sync_p2p(_app: &AppHandle) -> SyncAllResult {
     SyncAllResult {
         mode: "p2p".to_string(),
         success: false,
-        message: "p2p sync not yet implemented".to_string(),
+        message: "P2P sync is not available on this platform.".to_string(),
         changed_files: 0,
     }
 }
