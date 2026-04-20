@@ -134,6 +134,21 @@ fn run_git(args: &[&str], cwd: &str) -> Result<(bool, String, String), String> {
     ))
 }
 
+/// Parse the NUL-delimited output of `git status --porcelain -z -uall`
+/// and return only the paths of untracked entries (records starting with `?? `).
+fn parse_untracked_paths(porcelain_bytes: &[u8]) -> Vec<String> {
+    porcelain_bytes
+        .split(|&b| b == 0)
+        .filter_map(|record| {
+            if record.len() > 3 && &record[..3] == b"?? " {
+                Some(String::from_utf8_lossy(&record[3..]).to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// Embed a Personal Access Token into an HTTPS git URL.
 /// - `https://git.garena.com/path` → `https://oauth2:TOKEN@git.garena.com/path`
 /// - SSH URLs are returned as-is (they don't use tokens).
@@ -1623,3 +1638,34 @@ pub async fn clear_team_config(opencode_state: State<'_, OpenCodeState>) -> Resu
 // NOTE: Startup team sync is triggered from the frontend after workspace is set,
 // since workspace_path is not available at Tauri setup time.
 // The frontend calls team_sync_repo on startup when team config is enabled.
+
+#[cfg(test)]
+mod sync_precheck_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_untracked_paths_basic() {
+        let input = b"?? new.txt\x00 M modified.txt\x00?? subdir/other.bin\x00";
+        let paths = parse_untracked_paths(input);
+        assert_eq!(paths, vec!["new.txt".to_string(), "subdir/other.bin".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_untracked_paths_ignores_staged_modified_deleted() {
+        let input = b"A  staged.txt\x00MM both.txt\x00 D gone.txt\x00?? real.txt\x00";
+        let paths = parse_untracked_paths(input);
+        assert_eq!(paths, vec!["real.txt".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_untracked_paths_empty() {
+        assert!(parse_untracked_paths(b"").is_empty());
+    }
+
+    #[test]
+    fn test_parse_untracked_paths_handles_spaces_in_name() {
+        let input = b"?? my new file.txt\x00";
+        let paths = parse_untracked_paths(input);
+        assert_eq!(paths, vec!["my new file.txt".to_string()]);
+    }
+}
