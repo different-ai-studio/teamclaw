@@ -3,6 +3,7 @@ import { FileText, Folder, User, UserRound, Paperclip, ChevronDown, ChevronUp, Z
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { ClickableImage, LocalImage, resolveImagePath } from "@/packages/ai/message";
+import { getTrailingPathLabel } from "@/packages/ai/chip-labels";
 
 /** Max pixel height before the message is collapsed */
 const COLLAPSED_HEIGHT = 200;
@@ -247,7 +248,11 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
             {part.type === "role" && <UserRound className="h-3 w-3" />}
             {part.type === "skill" && <Zap className="h-3 w-3" />}
             {part.type === "command" && <CommandIcon className="h-3 w-3" />}
-            <span className="truncate max-w-[400px]" title={part.content}>{part.content}</span>
+            <span className="truncate max-w-[320px]" title={part.content}>
+              {part.type === "file" || part.type === "filemention"
+                ? getTrailingPathLabel(part.content)
+                : part.content}
+            </span>
           </span>
         );
       })}

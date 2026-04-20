@@ -1,5 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { getTrailingPathLabel } from "./chip-labels"
 
 function parseSlashToken(body: string): { type: 'role' | 'skill' | 'command'; name: string } {
   if (body.startsWith('role:')) return { type: 'role', name: body.slice('role:'.length) }
@@ -49,10 +50,11 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
         if (match[1]) {
           // @{filepath} - file chip (blue)
           const filePath = match[2]
+          const fileLabel = getTrailingPathLabel(filePath)
           parts.push(
             `<span class="file-chip inline-flex items-center gap-1.5 px-2.5 py-1 mx-0.5 rounded-md border bg-[#edf2f7] border-[#d8e1ea] text-[#5a7086] dark:bg-[#202a34] dark:border-[#31404d] dark:text-[#aec3d6] text-xs font-medium whitespace-nowrap" contenteditable="false" data-filepath="${escapeHTML(filePath)}" style="vertical-align: baseline;">` +
             `<svg class="lucide lucide-file-text shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>` +
-            `<span class="max-w-[400px] truncate">${escapeHTML(filePath)}</span>` +
+            `<span class="max-w-[320px] truncate">${escapeHTML(fileLabel)}</span>` +
             `<span class="chip-remove ml-0.5 cursor-pointer rounded-full hover:bg-muted dark:hover:bg-muted inline-flex items-center justify-center" style="width:14px;height:14px;" data-action="remove">` +
             `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
             `</span>` +
