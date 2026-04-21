@@ -218,6 +218,43 @@ jobs:
           prerelease: false
           args: "--target ${{ matrix.target }}"
 
+      - name: Upload to Alibaba Cloud OSS (CN mirror)
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          MATRIX_TARGET: ${{ matrix.target }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "OSS secrets not configured, skipping mirror upload"
+            exit 0
+          fi
+          pip install oss2 --quiet
+          python3 - <<'EOF'
+          import oss2, os, glob, sys
+
+          auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
+          endpoint = os.environ['OSS_ENDPOINT']
+          if not endpoint.startswith('http'):
+              endpoint = 'https://' + endpoint
+          bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
+          version = os.environ['GITHUB_REF_NAME']
+          target = os.environ['MATRIX_TARGET']
+
+          files = glob.glob(f'src-tauri/target/{target}/release/bundle/dmg/*.dmg')
+          if not files:
+              print(f'No DMG found for target {target}, skipping')
+              sys.exit(0)
+
+          for f in files:
+              key = f'releases/{version}/{os.path.basename(f)}'
+              print(f'Uploading {os.path.basename(f)} → oss://{os.environ["OSS_BUCKET"]}/{key}')
+              bucket.put_object_from_file(key, f)
+              host = os.environ['OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
+              print(f'✅ https://{os.environ["OSS_BUCKET"]}.{host}/{key}')
+          EOF
+
   # Windows job uploads artifacts to the same GitHub Release created by macOS job
   release-windows:
     permissions:
@@ -356,3 +393,39 @@ jobs:
           prerelease: false
           # Windows: NSIS installer, no p2p feature (avoids wmi/windows-core conflicts)
           args: "--bundles nsis -- --no-default-features"
+
+      - name: Upload to Alibaba Cloud OSS (CN mirror)
+        shell: bash
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "OSS secrets not configured, skipping mirror upload"
+            exit 0
+          fi
+          pip install oss2 --quiet
+          python3 - <<'EOF'
+          import oss2, os, glob, sys
+
+          auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
+          endpoint = os.environ['OSS_ENDPOINT']
+          if not endpoint.startswith('http'):
+              endpoint = 'https://' + endpoint
+          bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
+          version = os.environ['GITHUB_REF_NAME']
+
+          files = glob.glob('src-tauri/target/release/bundle/nsis/*.exe')
+          if not files:
+              print('No NSIS installer found, skipping')
+              sys.exit(0)
+
+          for f in files:
+              key = f'releases/{version}/{os.path.basename(f)}'
+              print(f'Uploading {os.path.basename(f)} → oss://{os.environ["OSS_BUCKET"]}/{key}')
+              bucket.put_object_from_file(key, f)
+              host = os.environ['OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
+              print(f'✅ https://{os.environ["OSS_BUCKET"]}.{host}/{key}')
+          EOF
