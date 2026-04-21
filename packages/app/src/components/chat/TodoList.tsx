@@ -26,13 +26,14 @@ export const TodoList = React.memo(function TodoList({ todos, compact: _compact 
   const completedCount = todos.filter(t => t.status === 'completed').length
 
   return (
-    <div className="space-y-1">
+    <div data-testid="todo-list" className="rounded-xl border border-border/70 bg-card/70 px-3 py-2.5">
       {/* Header */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground pb-1 mb-1 border-b">
+      <div className="flex items-center justify-between text-xs text-muted-foreground pb-1.5 mb-1.5 border-b border-border/50">
         <span>{completedCount}/{todos.length} done</span>
       </div>
 
       {/* Task list */}
+      <div className="space-y-1">
       {todos.map(todo => (
         <div
           key={todo.id}
@@ -50,6 +51,7 @@ export const TodoList = React.memo(function TodoList({ todos, compact: _compact 
           </span>
         </div>
       ))}
+      </div>
     </div>
   )
 })

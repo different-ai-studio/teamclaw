@@ -78,9 +78,9 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
   const showInteractiveUI = isPending && !hasSubmitted
 
   return (
-    <div className="rounded-xl border bg-card overflow-hidden">
+    <div data-testid="question-card" className="rounded-xl border border-border/80 bg-card overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 bg-muted/30 border-b">
+      <div className="flex items-center gap-2 px-4 py-3 bg-muted/20 border-b border-border/50">
         <HelpCircle className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">Question</span>
         {isCompleted && (
@@ -102,7 +102,7 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
       </div>
 
       {/* Questions */}
-      <div className="px-4 py-3 space-y-4">
+      <div className="px-4 py-3 space-y-4 bg-background/20">
         {questionList.map((question, qIndex) => {
           const questionId = question.id || String(qIndex)
           const selectedOption = answers[questionId]
@@ -133,8 +133,8 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
                       className={cn(
                         'w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md border text-left transition-all',
                         isSelected
-                          ? 'border-foreground/30 bg-muted/70 text-foreground'
-                          : 'border-border hover:border-foreground/20 hover:bg-muted/50'
+                          ? 'border-foreground/20 bg-muted/40 text-foreground'
+                          : 'border-border/70 hover:border-foreground/15 hover:bg-muted/25'
                       )}
                       disabled={isCompleted || isSubmitting}
                     >
@@ -189,7 +189,7 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
 
               {/* Show selected answer for completed or submitted questions */}
               {(isCompleted || isWaitingForCompletion) && (selectedOption || customInput) && (
-                <div className="px-4 py-2 rounded-lg bg-muted/50 text-sm">
+                <div className="px-4 py-2 rounded-lg bg-muted/30 text-sm">
                   <span className="text-muted-foreground">Answer: </span>
                   <span className="font-medium">{customInput || selectedOption}</span>
                 </div>

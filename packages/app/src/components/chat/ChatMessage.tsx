@@ -164,6 +164,12 @@ export const ChatMessage = React.memo(function ChatMessage({
     setTimeout(() => setCopied(false), 2000);
   }, [textContent, t]);
 
+  const shouldShowAssistantCopyAction =
+    !isUser &&
+    !latestMessage.isStreaming &&
+    Boolean(textContent) &&
+    !(tokenGroupInfo?.hideTokenUsage ?? false);
+
   return (
     <div className={cn("group/msg", isToolCallOnly ? "mb-0.5" : "mb-1.5")} data-testid="chat-message" data-message-role={message.role}>
       {/* Thinking indicator - MUST be first for assistant messages during streaming */}
@@ -266,7 +272,7 @@ export const ChatMessage = React.memo(function ChatMessage({
       )}
 
       {/* Copy action for assistant text responses */}
-      {!isUser && !latestMessage.isStreaming && textContent && (
+      {shouldShowAssistantCopyAction && (
         <div className={cn("pl-1 mt-1 transition-opacity", copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100")}>
           <button
             type="button"

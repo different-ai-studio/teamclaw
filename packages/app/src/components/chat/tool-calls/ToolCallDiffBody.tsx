@@ -6,7 +6,29 @@ import type { DiffLine } from "@/components/diff/diff-ast";
 /** Default visible rows before tail fold (collapsed preview height). */
 const DEFAULT_PREVIEW_LINES = 6;
 
-function DiffLineRow({ line }: { line: DiffLine }) {
+function DiffLineRow({ line, variant }: { line: DiffLine; variant: "viewer" | "snippet" }) {
+  if (variant === "snippet") {
+    const displayLineNumber = line.newLineNumber ?? line.oldLineNumber ?? "";
+
+    return (
+      <div className="grid min-w-full w-max grid-cols-[42px_1fr] font-mono text-[11px] leading-5">
+        <span className="select-none border-r border-[#eef2f5] bg-[#fafbfd] px-[10px] py-[6px] text-right text-[10px] text-[#94a3b8] dark:border-border/60 dark:bg-background/60 dark:text-muted-foreground">
+          {displayLineNumber}
+        </span>
+        <span
+          className={cn(
+            "whitespace-pre px-[10px] py-[6px] text-foreground/90",
+            line.type === "added" && "bg-[#f0fdf4] text-[#166534] dark:bg-green-950/20 dark:text-green-300",
+            line.type === "removed" && "bg-[#fef2f2] text-[#991b1b] dark:bg-red-950/20 dark:text-red-300",
+            line.type === "context" && "bg-[#fcfdff] dark:bg-transparent",
+          )}
+        >
+          {line.type === "added" ? `+ ${line.content}` : line.type === "removed" ? `- ${line.content}` : line.content}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -43,6 +65,7 @@ export interface ToolCallDiffBodyProps {
   lines: DiffLine[];
   /** How many diff rows to show before the tail fold (default 6). */
   previewLineCount?: number;
+  variant?: "viewer" | "snippet";
 }
 
 /**
@@ -52,25 +75,31 @@ export interface ToolCallDiffBodyProps {
 export function ToolCallDiffBody({
   lines,
   previewLineCount = DEFAULT_PREVIEW_LINES,
+  variant = "viewer",
 }: ToolCallDiffBodyProps) {
   const [tailExpanded, setTailExpanded] = useState(false);
-  const needsTailToggle = lines.length > previewLineCount;
+  const needsTailToggle = variant === "viewer" && lines.length > previewLineCount;
   const displayed =
-    !needsTailToggle || tailExpanded ? lines : lines.slice(0, previewLineCount);
+    variant === "snippet"
+      ? lines
+      : !needsTailToggle || tailExpanded
+        ? lines
+        : lines.slice(0, previewLineCount);
   const collapsedPreview = needsTailToggle && !tailExpanded;
 
   return (
-    <div className="group relative border-t border-border bg-background">
+    <div className="group relative bg-background">
       <div
         className={cn(
           "max-w-full",
+          variant === "snippet" && "max-h-[180px] overflow-auto",
           needsTailToggle && tailExpanded
             ? "max-h-[min(400px,70vh)] overflow-auto"
             : "overflow-x-auto",
         )}
       >
         {displayed.map((line, index) => (
-          <DiffLineRow key={index} line={line} />
+          <DiffLineRow key={index} line={line} variant={variant} />
         ))}
       </div>
 

@@ -36,6 +36,8 @@ export type { PermissionAskedEvent };
 export interface PendingPermissionEntry {
   permission: PermissionAskedEvent;
   childSessionId: string | null;
+  sourceToolName?: string | null;
+  sourceToolCallId?: string | null;
 }
 
 export interface ToolCallPermission {

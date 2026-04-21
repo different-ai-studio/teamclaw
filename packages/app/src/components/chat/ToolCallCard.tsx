@@ -12,7 +12,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { QuestionCard } from "./QuestionCard";
-import { getCommandText } from "@/lib/terminal-interaction";
+import { getCommandText, getToolCallOutputText } from "@/lib/terminal-interaction";
 
 // Import sub-cards and utilities from tool-calls/
 import { WriteToolCard } from "./tool-calls/WriteToolCard";
@@ -20,7 +20,6 @@ import { EditToolCard } from "./tool-calls/EditToolCard";
 import { ReadToolCard } from "./tool-calls/ReadToolCard";
 import { RoleLoadToolCard } from "./tool-calls/RoleLoadToolCard";
 import { RoleSkillToolCard, SkillToolCard, TaskToolCard } from "./tool-calls/TaskToolCard";
-import { PermissionApprovalBar } from "./tool-calls/PermissionApprovalBar";
 import {
   statusConfig,
   getToolIcon,
@@ -33,6 +32,7 @@ import {
   isRoleSkillTool,
   isRoleLoadTool,
   isCommandTool,
+  isTodoTool,
   isCommandToolLikelyWaitingForInput,
   formatToolName,
   useToolCallTimeout,
@@ -56,6 +56,17 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
   const isCommand = isCommandTool(toolCall.name);
   const isWaitingForInput = isCommandToolLikelyWaitingForInput(toolCall);
   const commandText = getCommandText(toolCall.arguments);
+  const commandOutput = getToolCallOutputText(toolCall.result).trim();
+  const commandDescription = (() => {
+    const args = toolCall.arguments as Record<string, unknown> | undefined;
+    if (!args) return "执行命令";
+    const preferred =
+      (typeof args.description === "string" ? args.description : null) ||
+      (typeof args.summary === "string" ? args.summary : null) ||
+      (typeof args.title === "string" ? args.title : null) ||
+      (typeof args.action === "string" ? args.action : null);
+    return preferred?.trim() || "执行命令";
+  })();
 
   const handleForceComplete = useCallback(
     (e: React.MouseEvent) => {
@@ -106,6 +117,107 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
   };
 
   const summary = getSummary();
+  const compactToolName = toolCall.name.toLowerCase();
+  const isCompactSearchTool =
+    compactToolName.includes("grep") ||
+    compactToolName === "glob" ||
+    compactToolName === "find";
+  const isTodo = isTodoTool(toolCall.name);
+  const statusGlyphClass =
+    toolCall.status === "completed"
+      ? "text-green-600 dark:text-green-400"
+      : toolCall.status === "failed"
+        ? "text-red-600 dark:text-red-400"
+        : "text-muted-foreground";
+  const statusGlyph = (() => {
+    if (toolCall.status === "completed") return "✓";
+    if (toolCall.status === "failed") return "✕";
+    return "●";
+  })();
+
+  const getCompactTitle = () => {
+    if (compactToolName.includes("grep")) return "Grep";
+    if (compactToolName === "glob") return "Glob";
+    if (compactToolName === "find") return "Find";
+    if (isTodo) return "Todo";
+    return formatToolName(toolCall.name);
+  };
+
+  const parseTodoSummary = () => {
+    if (!isTodo || typeof toolCall.result !== "string" || !toolCall.result.trim()) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(toolCall.result) as Array<{ status?: string }>;
+      if (!Array.isArray(parsed)) return null;
+
+      const total = parsed.length;
+      const inProgress = parsed.filter((item) => item?.status === "in_progress").length;
+      const completed = parsed.filter((item) => item?.status === "completed").length;
+
+      return {
+        primary: `${total} items updated`,
+        meta:
+          inProgress > 0
+            ? `${inProgress} in progress`
+            : completed === total && total > 0
+              ? "all done"
+              : null,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const todoSummary = parseTodoSummary();
+  const commandStatusText = isWaitingForInput
+    ? "等待终端输入"
+    : isTimedOut
+      ? "运行时间过长"
+      : toolCall.status === "failed"
+        ? "已失败"
+        : toolCall.status === "waiting"
+          ? "等待中"
+          : null;
+
+  const getCompactPrimary = () => {
+    if (isCompactSearchTool) {
+      return summary || "";
+    }
+
+    if (isTodo) {
+      if (todoSummary) {
+        return todoSummary.primary;
+      }
+      const text = typeof toolCall.result === "string" ? toolCall.result : summary || "";
+      return text.split("·")[0]?.trim() || "items updated";
+    }
+    return summary || "";
+  };
+
+  const getCompactMeta = () => {
+    if (isCompactSearchTool) {
+      return null;
+    }
+
+    if (
+      isTodo &&
+      todoSummary
+    ) {
+      return todoSummary.meta;
+    }
+
+    if (
+      isTodo &&
+      typeof toolCall.result === "string" &&
+      toolCall.result &&
+      toolCall.result.includes("·")
+    ) {
+      return toolCall.result.split("·").slice(1).join("·").trim();
+    }
+    return null;
+  };
 
   // If this is a Write tool, render WriteToolCard
   if (isWriteTool(toolCall.name)) {
@@ -162,6 +274,99 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
         />
       );
     }
+  }
+
+  if (isCommand) {
+    return (
+      <div
+        data-testid="tool-card-bash"
+        className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] dark:border-border dark:bg-card"
+      >
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="flex w-full items-center gap-[10px] px-[14px] py-[10px] text-left transition-colors hover:bg-[#f4f7fa] dark:hover:bg-muted/30"
+          aria-expanded={expanded}
+          aria-label={`${commandDescription} ${summary || commandText}`.trim()}
+        >
+          <ChevronRight
+            size={13}
+            className={cn(
+              "shrink-0 text-[#64748b] transition-transform duration-200 dark:text-muted-foreground",
+              expanded && "rotate-90",
+            )}
+          />
+          <span className="text-[13px] font-semibold text-[#1f2933] shrink-0 dark:text-foreground">{commandDescription}</span>
+          {commandStatusText ? (
+            <span className="text-[11px] text-[#64748b] dark:text-muted-foreground">
+              {commandStatusText}
+            </span>
+          ) : null}
+          <span className="max-w-[20rem] truncate text-[11px] font-mono text-[#64748b] dark:text-muted-foreground">
+            {summary || commandText}
+          </span>
+          <span className="ml-auto" />
+          <span className={cn("shrink-0 text-[13px]", statusGlyphClass)}>{statusGlyph}</span>
+        </button>
+        {(isWaitingForInput || isTimedOut) && (
+          <div className="border-t border-[#eef2f5] px-[14px] py-3 dark:border-border/60">
+            <div className="rounded-[10px] border border-amber-200/80 bg-amber-50/60 px-3 py-2.5 text-[12px] text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">
+                    {isWaitingForInput ? "命令正在等待确认或标准输入。" : "命令运行时间过长。"}
+                  </div>
+                  <div className="mt-1 text-[11px] text-amber-900/80 dark:text-amber-200/80">
+                    {isWaitingForInput
+                      ? "优先使用非交互参数，或者先向用户提问再继续执行。"
+                      : "如果确认当前不会再有输出，可以直接标记为完成。"}
+                  </div>
+                </div>
+                {isTimedOut ? (
+                  <button
+                    type="button"
+                    onClick={handleForceComplete}
+                    className="shrink-0 rounded-[8px] border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 dark:hover:bg-amber-900/40"
+                  >
+                    标记为完成
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+        {expanded ? (
+          <div
+            data-testid="tool-card-bash-output"
+            className="max-h-[220px] overflow-auto border-t border-[#eef2f5] bg-white/80 px-[14px] py-3 dark:border-border/60 dark:bg-background/40"
+          >
+            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground/85">
+              {commandOutput || "无输出"}
+            </pre>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (isCompactSearchTool || isTodo) {
+    const rowTestId = `tool-row-${compactToolName.includes("grep") ? "grep" : compactToolName === "glob" ? "glob" : compactToolName.includes("bash") ? "bash" : compactToolName === "role_skill" ? "role-skill" : compactToolName}`
+    const primaryText = getCompactPrimary()
+    const metaText = getCompactMeta()
+
+    return (
+      <div
+        data-testid={rowTestId}
+        className="grid grid-cols-[minmax(0,1fr)] items-center px-[10px] py-[4px]"
+      >
+        <span className="min-w-0 text-[12px] text-[#475569] dark:text-slate-400">
+          <strong className="font-medium text-foreground/80">{getCompactTitle()}</strong>
+          {primaryText ? <span className="ml-1 font-mono text-foreground/70">{primaryText}</span> : null}
+          {metaText ? <span className="ml-1 text-[#94a3b8] dark:text-muted-foreground">· {metaText}</span> : null}
+        </span>
+      </div>
+    )
   }
 
   return (
@@ -326,8 +531,6 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
               )}
             </div>
           </CollapsibleContent>
-
-          <PermissionApprovalBar toolCall={toolCall} />
         </div>
       </Collapsible>
 

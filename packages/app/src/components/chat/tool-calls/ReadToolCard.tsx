@@ -1,86 +1,48 @@
-import { useCallback, useMemo } from "react";
-import { Eye, FolderOpen } from "lucide-react";
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { ToolCall } from "@/stores/session";
-import { useWorkspaceStore } from "@/stores/workspace";
-import { PermissionApprovalBar } from "./PermissionApprovalBar";
-import { statusConfig, extractFilePath, getFileName } from "./tool-call-utils";
-import {
-  resolveWorkspaceRelativePath,
-  useToolCallFileOnDisk,
-} from "@/hooks/useToolCallFileOnDisk";
+import { extractFilePath, getFileName } from "./tool-call-utils";
+import { useToolCallFileOnDisk } from "@/hooks/useToolCallFileOnDisk";
 
 export function ReadToolCard({ toolCall }: { toolCall: ToolCall }) {
   const args = toolCall.arguments as Record<string, unknown>;
   const filePath = extractFilePath(args);
-  const config = statusConfig[toolCall.status];
-  const StatusIcon = config.icon;
   const displayName = filePath ? getFileName(filePath) : "file";
-  const selectFile = useWorkspaceStore((s) => s.selectFile);
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-
-  const fullPath = useMemo(
-    () => resolveWorkspaceRelativePath(filePath, workspacePath),
-    [filePath, workspacePath],
-  );
+  const fullPath = useMemo(() => filePath, [filePath]);
   const shouldVerifyFileOnDisk =
     Boolean(fullPath) &&
     (toolCall.status === "completed" || toolCall.status === "failed");
   const fileOnDisk = useToolCallFileOnDisk(fullPath, shouldVerifyFileOnDisk);
   const fileMissingOnDisk = fileOnDisk === false;
 
-  const hasPendingPermission =
-    toolCall.status === "calling" &&
-    toolCall.permission?.decision === "pending";
-
-  const canOpenFile =
-    Boolean(filePath) && Boolean(fullPath) && !fileMissingOnDisk;
-
-  const handleClick = useCallback(() => {
-    if (!canOpenFile || !fullPath) return;
-    selectFile(fullPath);
-  }, [canOpenFile, fullPath, selectFile]);
+  const sizeText = useMemo(() => {
+    if (typeof toolCall.result !== "string" || !toolCall.result.length) return null;
+    const bytes = new TextEncoder().encode(toolCall.result).length;
+    if (bytes < 1024) return `${bytes} B`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }, [toolCall.result]);
 
   return (
-    <div>
-      <div
-        className={cn(
-          "flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground transition-colors select-none",
-          canOpenFile
-            ? "cursor-pointer hover:text-foreground/80"
-            : "cursor-default opacity-80",
-        )}
-        onClick={canOpenFile ? handleClick : undefined}
-        title={filePath || "Open file"}
-        role={canOpenFile ? "button" : undefined}
-      >
-        <Eye size={12} className="text-muted-foreground/60 shrink-0" />
-        <span
-          className={cn(
-            "font-mono text-[11px] truncate max-w-[300px]",
-            fileMissingOnDisk && "line-through",
-          )}
-        >
-          {displayName}
-        </span>
-        {hasPendingPermission && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium flex items-center gap-1 border border-border">
-            <FolderOpen size={10} />
-            {toolCall.permission?.permission === "external_directory"
-              ? "External path"
-              : "Approval needed"}
+    <div
+      data-testid="tool-row-read"
+      className="grid grid-cols-[minmax(0,1fr)] items-center px-[10px] py-[4px]"
+    >
+      <div className="grid grid-cols-[minmax(0,1fr)] items-center select-none">
+        <span className="min-w-0 text-[12px] text-[#475569] dark:text-slate-400">
+          <strong className="font-medium text-foreground/80">Read</strong>
+          <span
+            className={cn(
+              "ml-1 font-mono text-foreground/70",
+              fileMissingOnDisk && "line-through",
+            )}
+          >
+            {displayName}
           </span>
-        )}
-        <StatusIcon
-          size={12}
-          className={cn(
-            "shrink-0",
-            config.animate && "animate-spin",
-            config.textColor,
-          )}
-        />
+            {sizeText ? (
+              <span className="ml-1 text-[#94a3b8] dark:text-muted-foreground">· {sizeText}</span>
+            ) : null}
+          </span>
       </div>
-      <PermissionApprovalBar toolCall={toolCall} />
     </div>
   );
 }

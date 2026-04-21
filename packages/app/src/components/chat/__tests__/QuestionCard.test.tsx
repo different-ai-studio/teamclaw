@@ -69,6 +69,7 @@ describe('QuestionCard', () => {
       />
     );
 
+    expect(screen.getByTestId('question-card').className).toContain('rounded-xl');
     expect(screen.getByText('What would you like to do?')).toBeTruthy();
     expect(screen.getByText('Option A')).toBeTruthy();
     expect(screen.getByText('Option B')).toBeTruthy();

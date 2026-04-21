@@ -11,6 +11,23 @@ vi.mock('react-i18next', () => ({
 
 // Session store state — mutated per test
 const sessionState = {
+  activeSessionId: null as string | null,
+  sessions: [] as Array<{
+    id: string;
+    messages: Array<{
+      toolCalls?: Array<{
+        id: string;
+        status: string;
+        permission?: {
+          id: string;
+          permission: string;
+          patterns: string[];
+          metadata?: Record<string, string>;
+          decision: string;
+        };
+      }>;
+    }>;
+  }>,
   pendingPermissions: [] as Array<{
     permission: {
       id: string;
@@ -43,6 +60,8 @@ vi.mock('@/stores/streaming', () => ({
 describe('PendingPermissionInline', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionState.activeSessionId = null;
+    sessionState.sessions = [];
     sessionState.pendingPermissions = [];
     sessionState.replyPermission = vi.fn(() => Promise.resolve());
     streamingState.childSessionStreaming = {};
@@ -74,28 +93,42 @@ describe('PendingPermissionInline', () => {
 
     const overlay = screen.getByTestId('pending-permission-inline');
     expect(overlay.className).toContain('justify-center');
-    expect(overlay.className).toContain('w-[min(92vw,40rem)]');
+    expect(overlay.className).toContain('w-[min(92vw,48rem)]');
 
     const card = screen.getByTestId('pending-permission-card');
     expect(card.className).toContain('slide-in-from-bottom-4');
-    expect(card.className).toContain('rounded-t-[18px]');
-    expect(card.className).toContain('rounded-b-none');
+    expect(card.className).toContain('rounded-[16px]');
+    expect(card.className).toContain('border');
     expect(card.className).not.toContain('shadow-');
-    expect(card.className).not.toContain('border ');
-
-    const tail = screen.getByTestId('pending-permission-tail');
-    expect(tail.className).toContain('bg-card');
-    expect(tail.className).toContain('h-16');
 
     const actions = screen.getByTestId('pending-permission-actions');
-    expect(actions.className).toContain('rounded-xl');
+    expect(actions.className).toContain('gap-2');
 
-    // Should show the command text from patterns
+    expect(screen.getByText('Bash 请求执行命令')).toBeTruthy();
     expect(screen.getByText('ls -la')).toBeTruthy();
-    // Should show the allow button
-    expect(screen.getByText('Allow')).toBeTruthy();
-    // Should show the deny button
-    expect(screen.getByText('Deny')).toBeTruthy();
+    expect(screen.getByText('允许')).toBeTruthy();
+    expect(screen.getByText('拒绝')).toBeTruthy();
+  });
+
+  it('summarizes long bash command details to avoid squeezing the UI', async () => {
+    const longCommand = "ps -axo pid,ppid,stat,command rg '[[:<:]]8082[[:>:]]' printf 'no ps-visible process args mention 8082\\n'"
+    sessionState.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-long-bash',
+          permission: 'bash',
+          patterns: [longCommand],
+        },
+        childSessionId: 'child-sess-long',
+      },
+    ];
+
+    const { PendingPermissionInline } = await import('../PermissionCard');
+    render(<PendingPermissionInline />);
+
+    expect(screen.getByText(/ps -axo pid,ppid,stat,command/)).toBeTruthy();
+    expect(screen.getByText((text) => text.includes(' ... '))).toBeTruthy();
+    expect(screen.queryByText(longCommand)).toBeNull();
   });
 
   it('clicking allow calls replyPermission with correct arguments', async () => {
@@ -124,10 +157,52 @@ describe('PendingPermissionInline', () => {
 
     render(<PendingPermissionInline />);
 
-    const allowButton = screen.getByText('Allow').closest('button');
+    const allowButton = screen.getByText('允许').closest('button');
     expect(allowButton).not.toBeNull();
     fireEvent.click(allowButton!);
 
+    await waitFor(() => {
+      expect(replyMock).toHaveBeenCalledWith('perm-1', 'allow');
+    });
+  });
+
+  it('promotes the next queued permission immediately before reply resolves', async () => {
+    let resolveReply: (() => void) | null = null;
+    const replyMock = vi.fn(() => new Promise<void>((resolve) => {
+      resolveReply = resolve;
+    }));
+    sessionState.replyPermission = replyMock;
+    sessionState.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-1',
+          permission: 'bash',
+          patterns: ['first-command'],
+        },
+        childSessionId: 'child-sess-1',
+      },
+      {
+        permission: {
+          id: 'perm-2',
+          permission: 'read',
+          patterns: ['second-path'],
+        },
+        childSessionId: 'child-sess-2',
+      },
+    ];
+
+    const { PendingPermissionInline } = await import('../PermissionCard');
+    render(<PendingPermissionInline />);
+
+    expect(screen.getByText('first-command')).toBeTruthy();
+    fireEvent.click(screen.getByText('允许'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('first-command')).toBeNull();
+      expect(screen.getByText('second-path')).toBeTruthy();
+    });
+
+    resolveReply?.();
     await waitFor(() => {
       expect(replyMock).toHaveBeenCalledWith('perm-1', 'allow');
     });
@@ -152,10 +227,10 @@ describe('PendingPermissionInline', () => {
 
     render(<PendingPermissionInline />);
 
-    expect(screen.getByText('Run skill')).toBeTruthy();
-    expect(screen.getByText('Allow')).toBeTruthy();
-    expect(screen.getByText('Always allow')).toBeTruthy();
-    expect(screen.getByText('Deny')).toBeTruthy();
+    expect(screen.getByText('Skill 请求运行技能')).toBeTruthy();
+    expect(screen.getByText('允许')).toBeTruthy();
+    expect(screen.getByText('总是允许')).toBeTruthy();
+    expect(screen.getByText('拒绝')).toBeTruthy();
     expect(screen.getByText('brainstorming')).toBeTruthy();
   });
 
@@ -195,10 +270,69 @@ describe('PendingPermissionInline', () => {
     render(<PendingPermissionInline />);
 
     expect(screen.getByText('first-command')).toBeTruthy();
-    expect(screen.queryByText('second-skill')).toBeNull();
-    expect(screen.queryByText('third-path')).toBeNull();
+    expect(screen.getByText('second-skill')).toBeTruthy();
+    expect(screen.getByText('third-path')).toBeTruthy();
     expect(screen.getByText('3 pending')).toBeTruthy();
-    expect(screen.getAllByTestId('pending-permission-backplate')).toHaveLength(2);
+    const backplates = screen.getAllByTestId('pending-permission-backplate');
+    expect(backplates).toHaveLength(2);
+    expect(backplates[0].getAttribute('style')).toContain('bottom: 24px');
+    expect(backplates[1].getAttribute('style')).toContain('bottom: 12px');
+    expect(screen.getByTestId('pending-permission-current').className).toContain('bottom-0');
+    expect(backplates[0].getAttribute('style')).toContain('42.25rem');
+    expect(backplates[1].getAttribute('style')).toContain('40rem');
+    expect(screen.getByTestId('pending-permission-actions')).toBeTruthy();
+  });
+
+  it('uses the same stacked approval UI for tool-attached and child-session permissions together', async () => {
+    sessionState.activeSessionId = 'session-1';
+    sessionState.sessions = [
+      {
+        id: 'session-1',
+        messages: [
+          {
+            toolCalls: [
+              {
+                id: 'tool-1',
+                name: 'bash',
+                status: 'waiting',
+                permission: {
+                  id: 'perm-tool-1',
+                  permission: 'external_directory',
+                  patterns: ['/tmp/outside'],
+                  metadata: {
+                    file: '/tmp/outside',
+                  },
+                  decision: 'pending',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    sessionState.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-child-1',
+          permission: 'skill',
+          patterns: [],
+          metadata: {
+            skill: 'brainstorming',
+          },
+        },
+        childSessionId: 'child-sess-1',
+      },
+    ];
+
+    const { PendingPermissionInline } = await import('../PermissionCard');
+
+    render(<PendingPermissionInline />);
+
+    expect(screen.getByText('Bash 请求访问外部路径')).toBeTruthy();
+    expect(screen.getByText('brainstorming')).toBeTruthy();
+    expect(screen.getByText('来自 Bash 工具调用')).toBeTruthy();
+    expect(screen.getByText('子会话正在等待你的审批')).toBeTruthy();
+    expect(screen.getAllByTestId('pending-permission-backplate')).toHaveLength(1);
   });
 
   it('renders child-session permissions even when child streaming state is already gone', async () => {
@@ -221,8 +355,78 @@ describe('PendingPermissionInline', () => {
 
     render(<PendingPermissionInline />);
 
-    expect(screen.getByText('Edit file')).toBeTruthy();
+    expect(screen.getByText('Edit 请求编辑文件')).toBeTruthy();
     expect(screen.getByText('/workspace/notes.md')).toBeTruthy();
-    expect(screen.getByText('Allow')).toBeTruthy();
+    expect(screen.getByText('允许')).toBeTruthy();
+  });
+
+  it('renders tool-attached permissions from the active session above the input', async () => {
+    sessionState.activeSessionId = 'session-1';
+    sessionState.sessions = [
+      {
+        id: 'session-1',
+        messages: [
+          {
+            toolCalls: [
+              {
+                id: 'tool-1',
+                status: 'waiting',
+                permission: {
+                  id: 'perm-tool-1',
+                  permission: 'bash',
+                  patterns: ['pnpm test'],
+                  decision: 'pending',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const { PendingPermissionInline } = await import('../PermissionCard');
+
+    render(<PendingPermissionInline />);
+
+    expect(screen.getByText('Bash 请求执行命令')).toBeTruthy();
+    expect(screen.getByText('pnpm test')).toBeTruthy();
+    expect(screen.getByText('工具调用正在等待你的审批')).toBeTruthy();
+  });
+
+  it('uses the source tool context for external directory approvals', async () => {
+    sessionState.activeSessionId = 'session-1';
+    sessionState.sessions = [
+      {
+        id: 'session-1',
+        messages: [
+          {
+            toolCalls: [
+              {
+                id: 'tool-bash-1',
+                name: 'bash',
+                status: 'waiting',
+                permission: {
+                  id: 'perm-tool-external-1',
+                  permission: 'external_directory',
+                  patterns: ['/tmp/outside'],
+                  metadata: {
+                    file: '/tmp/outside',
+                  },
+                  decision: 'pending',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const { PendingPermissionInline } = await import('../PermissionCard');
+
+    render(<PendingPermissionInline />);
+
+    expect(screen.getByText('Bash 请求访问外部路径')).toBeTruthy();
+    expect(screen.getByText('/tmp/outside')).toBeTruthy();
+    expect(screen.getByText('来自 Bash 工具调用')).toBeTruthy();
   });
 });

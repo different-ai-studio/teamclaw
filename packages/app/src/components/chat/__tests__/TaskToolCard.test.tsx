@@ -92,13 +92,13 @@ describe("TaskToolCard", () => {
 
     render(<TaskToolCard toolCall={toolCall} />);
 
-    expect(screen.getByText("查看会话")).toBeTruthy();
+    expect(screen.getByText(/查看会话/)).toBeTruthy();
     expect(screen.queryByText("查看子任务详情")).toBeNull();
     expect(screen.queryByText("final child output should not be shown inline")).toBeNull();
     expect(screen.queryByText("streaming details should stay in the child session view")).toBeNull();
   });
 
-  it("renders permission approval actions for pending skill tool calls", () => {
+  it("does not render inline permission approval actions for pending skill tool calls", () => {
     const toolCall: ToolCall = {
       id: "skill-1",
       name: "skill",
@@ -117,9 +117,10 @@ describe("TaskToolCard", () => {
 
     render(<SkillToolCard toolCall={toolCall} />);
 
-    expect(screen.getByText("Skill dispatching-parallel-agents")).toBeTruthy();
-    expect(screen.getByText("Deny")).toBeTruthy();
-    expect(screen.getByText("Always allow 'dispatching-parallel-agents'")).toBeTruthy();
-    expect(screen.getByText("Allow")).toBeTruthy();
+    expect(screen.getByText("Skill")).toBeTruthy();
+    expect(screen.getByText("dispatching-parallel-agents")).toBeTruthy();
+    expect(screen.queryByText("Deny")).toBeNull();
+    expect(screen.queryByText("Always allow 'dispatching-parallel-agents'")).toBeNull();
+    expect(screen.queryByText("Allow")).toBeNull();
   });
 });

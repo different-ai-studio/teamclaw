@@ -1,226 +1,65 @@
-import React, { useState, useCallback } from "react";
-import {
-  ChevronRight,
-  Zap,
-  Bot,
-  AlertTriangle,
-  CheckCircle2,
-} from "lucide-react";
+import { useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { ToolCall, useSessionStore } from "@/stores/session";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  statusConfig,
-  useToolCallTimeout,
-} from "./tool-call-utils";
-import { PermissionApprovalBar } from "./PermissionApprovalBar";
 
-// Skill Tool Card - Shows skill execution inline
+function StatusGlyph({ status }: { status: ToolCall["status"] }) {
+  if (status === "completed") {
+    return <span className="text-[13px] text-green-600 dark:text-green-400">✓</span>;
+  }
+  if (status === "failed") {
+    return <span className="text-[13px] text-red-600 dark:text-red-400">✕</span>;
+  }
+  return <span className="text-[12px] text-muted-foreground">●</span>;
+}
+
 export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
-  const [expanded, setExpanded] = useState(false);
-  const isTimedOut = useToolCallTimeout(toolCall);
-  const forceComplete = useSessionStore((s) => s.forceCompleteToolCall);
-
   const args = toolCall.arguments as {
     name?: string;
-    [key: string]: unknown;
   };
-
-  const skillName = args?.name || "Unknown Skill";
-  const config = statusConfig[toolCall.status];
-  const StatusIcon = config.icon;
-
-  const handleForceComplete = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      forceComplete(toolCall.id);
-    },
-    [forceComplete, toolCall.id],
-  );
-
-  const formatDuration = (ms: number) => {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  };
+  const skillName = args?.name || "unknown-skill";
 
   return (
-    <Collapsible open={expanded} onOpenChange={setExpanded}>
-      <div className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all duration-200">
-        <CollapsibleTrigger asChild>
-          <button className="w-full flex items-center gap-2 px-3 py-2 text-left bg-muted/50 hover:bg-muted/70 transition-colors">
-            {/* Expand icon */}
-            <ChevronRight
-              size={14}
-              className={cn(
-                "text-muted-foreground transition-transform duration-200 shrink-0",
-                expanded && "rotate-90",
-              )}
-            />
-
-            {/* Tool icon */}
-            <Zap size={14} className="text-muted-foreground shrink-0" />
-
-            {/* Tool name - show "Skill" + skill name */}
-            <span className="text-xs font-medium text-foreground">
-              Skill {skillName}
-            </span>
-
-            {/* Status indicator */}
-            <div className="ml-auto flex items-center gap-2">
-              {/* Duration */}
-              {toolCall.duration && (
-                <span className="text-[10px] text-muted-foreground/70">
-                  {formatDuration(toolCall.duration)}
-                </span>
-              )}
-
-              {/* Status icon or timeout button */}
-              {isTimedOut ? (
-                <button
-                  onClick={handleForceComplete}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors"
-                  title="Tool call timed out - click to mark as done"
-                >
-                  <AlertTriangle size={10} />
-                  <span>Timed out</span>
-                  <CheckCircle2 size={10} />
-                </button>
-              ) : (
-                <StatusIcon
-                  size={14}
-                  className={cn(
-                    config.textColor,
-                    config.animate && "animate-spin",
-                  )}
-                />
-              )}
-            </div>
-          </button>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          <div className="px-3 pb-3 pt-1 text-xs space-y-2 border-t border-border/50">
-            {/* Result */}
-            {toolCall.result !== undefined && toolCall.result !== null && (
-              <div>
-                <span className="text-muted-foreground font-medium">Result</span>
-                <div className="mt-1 p-2 rounded-md bg-muted/30 border border-border/30 max-h-[400px] overflow-y-auto">
-                  <pre className="whitespace-pre-wrap text-xs text-foreground/90 m-0 p-0 font-mono">
-                    {String(typeof toolCall.result === 'string' ? toolCall.result : JSON.stringify(toolCall.result, null, 2))}
-                  </pre>
-                </div>
-              </div>
-            )}
-          </div>
-        </CollapsibleContent>
-        <PermissionApprovalBar toolCall={toolCall} />
+    <div
+      data-testid="tool-card-skill"
+      className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] dark:border-border dark:bg-card"
+    >
+      <div className="flex items-center gap-[10px] px-3 py-[10px]">
+        <span className="text-[12px] text-[#8a7a63]">⚡</span>
+        <span className="text-[13px] font-bold text-[#334155] dark:text-foreground">Skill</span>
+        <span className="rounded-full border border-[#e8dfd1] bg-[#f7f4ed] px-2 py-0.5 text-[11px] text-[#8a7a63]">
+          {skillName}
+        </span>
+        <div className="ml-auto">
+          <StatusGlyph status={toolCall.status} />
+        </div>
       </div>
-    </Collapsible>
+    </div>
   );
 }
 
 export function RoleSkillToolCard({ toolCall }: { toolCall: ToolCall }) {
-  const [expanded, setExpanded] = useState(false);
-  const isTimedOut = useToolCallTimeout(toolCall);
-  const forceComplete = useSessionStore((s) => s.forceCompleteToolCall);
-
   const args = toolCall.arguments as {
     name?: string;
-    [key: string]: unknown;
   };
-
-  const skillName = args?.name || "Unknown Skill";
-  const config = statusConfig[toolCall.status];
-  const StatusIcon = config.icon;
-
-  const handleForceComplete = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      forceComplete(toolCall.id);
-    },
-    [forceComplete, toolCall.id],
-  );
-
-  const formatDuration = (ms: number) => {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  };
+  const skillName = args?.name || "unknown-role-skill";
 
   return (
-    <Collapsible open={expanded} onOpenChange={setExpanded}>
-      <div className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all duration-200">
-        <CollapsibleTrigger asChild>
-          <button className="w-full flex items-center gap-2 px-3 py-2 text-left bg-muted/50 hover:bg-muted/70 transition-colors">
-            <ChevronRight
-              size={14}
-              className={cn(
-                "text-muted-foreground transition-transform duration-200 shrink-0",
-                expanded && "rotate-90",
-              )}
-            />
-            <Zap size={14} className="text-muted-foreground shrink-0" />
-            <span className="text-xs font-medium text-foreground">
-              Role skill
-            </span>
-            <span className="rounded-full border border-border bg-background/80 px-2 py-0.5 text-[11px] font-mono text-foreground/90">
-              {skillName}
-            </span>
-
-            <div className="ml-auto flex items-center gap-2">
-              {toolCall.duration && (
-                <span className="text-[10px] text-muted-foreground/70">
-                  {formatDuration(toolCall.duration)}
-                </span>
-              )}
-
-              {isTimedOut ? (
-                <button
-                  onClick={handleForceComplete}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors"
-                  title="Tool call timed out - click to mark as done"
-                >
-                  <AlertTriangle size={10} />
-                  <span>Timed out</span>
-                  <CheckCircle2 size={10} />
-                </button>
-              ) : (
-                <StatusIcon
-                  size={14}
-                  className={cn(
-                    config.textColor,
-                    config.animate && "animate-spin",
-                  )}
-                />
-              )}
-            </div>
-          </button>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          <div className="px-3 pb-3 pt-1 text-xs space-y-2 border-t border-border/50">
-            {toolCall.result !== undefined && toolCall.result !== null && (
-              <div>
-                <span className="text-muted-foreground font-medium">Result</span>
-                <div className="mt-1 p-2 rounded-md bg-muted/30 border border-border/30 max-h-[400px] overflow-y-auto">
-                  <pre className="whitespace-pre-wrap break-words text-xs text-foreground/90 m-0 p-0 font-mono">
-                    {String(typeof toolCall.result === "string" ? toolCall.result : JSON.stringify(toolCall.result, null, 2))}
-                  </pre>
-                </div>
-              </div>
-            )}
-          </div>
-        </CollapsibleContent>
-        <PermissionApprovalBar toolCall={toolCall} />
+    <div
+      data-testid="tool-row-role-skill"
+      className="grid grid-cols-[18px_minmax(0,1fr)_48px] items-center gap-[10px] px-[10px] py-[6px]"
+    >
+      <span className="text-[12px] text-muted-foreground">⚡</span>
+      <div className="min-w-0 text-[13px] text-[#334155] dark:text-slate-300">
+        <strong className="font-semibold text-foreground">Role skill</strong>
+        <span className="ml-2 font-mono text-foreground/85">{skillName}</span>
       </div>
-    </Collapsible>
+      <div className="text-right">
+        <StatusGlyph status={toolCall.status} />
+      </div>
+    </div>
   );
 }
 
-// Task Tool Card - Shows subagent execution inline with visual distinction
 export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
   const args = toolCall.arguments as {
     description?: string;
@@ -237,11 +76,9 @@ export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
     }
   }
 
-  const config = statusConfig[toolCall.status];
-  const StatusIcon = config.icon;
-
-  const description = args?.description || "Subagent Task";
-  const subagentType = args?.subagent_type || "explore";
+  const description = args?.description || "Subagent task";
+  const subagentType = args?.subagent_type || "explorer";
+  const updateCount = toolCall.metadata?.summary?.length ?? 0;
 
   const openChildSession = useCallback(() => {
     if (sessionId) {
@@ -249,34 +86,56 @@ export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
     }
   }, [sessionId]);
 
-  return (
-    <div className="border-l-2 border-border pl-3 py-1">
-      <div className="flex items-center gap-2 text-[11px]">
-        <Bot size={12} className="text-muted-foreground" />
-        <span className="text-foreground font-medium">@{subagentType}</span>
-        <span className="text-muted-foreground truncate">{description}</span>
-        {toolCall.duration && (
-          <span className="text-[10px] text-muted-foreground/70">
-            {toolCall.duration < 1000
-              ? `${toolCall.duration}ms`
-              : `${(toolCall.duration / 1000).toFixed(1)}s`}
-          </span>
-        )}
-        {sessionId && (
-          <button
-            type="button"
-            onClick={openChildSession}
-            className="rounded border border-border bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="打开子会话"
-          >
-            查看会话
-          </button>
-        )}
-        <StatusIcon
-          size={12}
-          className={cn(config.textColor, config.animate && "animate-spin")}
-        />
+  const content = (
+    <div className="flex items-center gap-[10px]">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[8px] border border-[#e5eaf0] bg-[#f8fafc] text-[12px] text-[#64748b] dark:border-border dark:bg-muted/20 dark:text-muted-foreground">
+        ↗
       </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[14px] font-bold text-[#1f2933] dark:text-foreground">Subagent</span>
+          <span className="rounded-full border border-[#dbe4ea] px-2 py-0.5 text-[11px] text-[#475569] dark:border-border dark:text-foreground/80">
+            {subagentType}
+          </span>
+          <StatusGlyph status={toolCall.status} />
+        </div>
+        <div className="mt-[3px] truncate text-[12px] leading-5 text-[#475569] dark:text-foreground/80">
+          {description}
+        </div>
+        <div className="mt-[3px] text-[11px] text-[#94a3b8] dark:text-muted-foreground">
+          opens child conversation{updateCount > 0 ? ` · ${updateCount} updates` : ""}
+        </div>
+      </div>
+      {sessionId ? (
+        <span className="shrink-0 pt-1 text-[12px] text-[#64748b] dark:text-muted-foreground">
+          查看会话 →
+        </span>
+      ) : null}
+    </div>
+  );
+
+  if (sessionId) {
+    return (
+      <button
+        type="button"
+        data-testid="tool-card-task"
+        onClick={openChildSession}
+        title="打开子会话"
+        className={cn(
+          "block w-full overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] px-[14px] py-3 text-left dark:border-border dark:bg-card",
+        )}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      data-testid="tool-card-task"
+      className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] px-[14px] py-3 dark:border-border dark:bg-card"
+    >
+      {content}
     </div>
   );
 }

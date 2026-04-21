@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Clock,
   Search,
+  Circle,
   FileText,
   Terminal,
   Globe,
@@ -69,6 +70,9 @@ export function getToolIcon(toolName: string) {
   ) {
     return Globe;
   }
+  if (name.includes("glob")) {
+    return Circle;
+  }
   if (
     name.includes("file") ||
     name.includes("read") ||
@@ -129,6 +133,11 @@ export function isCommandTool(toolName: string): boolean {
     name.includes("terminal") ||
     name.includes("run_command")
   );
+}
+
+export function isTodoTool(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  return name === "todowrite" || name === "todoread" || name === "todo_write" || name === "todo_read";
 }
 
 export function isCommandToolLikelyWaitingForInput(

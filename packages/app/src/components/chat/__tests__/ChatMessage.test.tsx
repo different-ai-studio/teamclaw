@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { useStreamingStore } from '@/stores/streaming';
 import { useSessionStore, sessionLookupCache } from '@/stores/session';
 
@@ -91,6 +91,49 @@ describe('ChatMessage', () => {
 
     const { container } = render(<ChatMessage message={message} />);
     expect(container.textContent).toContain('Hello from the assistant');
+  });
+
+  it('only shows copy action on the last assistant text output in a group', async () => {
+    const ChatMessage = await importChatMessage();
+
+    const firstMessage = makeMessage({
+      id: 'msg-asst-group-1',
+      role: 'assistant',
+      content: 'First assistant text',
+      isStreaming: false,
+    });
+
+    const lastMessage = makeMessage({
+      id: 'msg-asst-group-2',
+      role: 'assistant',
+      content: 'Last assistant text',
+      isStreaming: false,
+    });
+
+    useSessionStore.setState({ activeSessionId: 'sess-1' });
+    sessionLookupCache.set('sess-1', {
+      id: 'sess-1',
+      messages: [firstMessage, lastMessage],
+      updatedAt: new Date(),
+    } as never);
+
+    const { rerender } = render(
+      <ChatMessage
+        message={firstMessage}
+        tokenGroupInfo={{ hideTokenUsage: true }}
+      />,
+    );
+
+    expect(screen.queryByTitle('Copy')).toBeNull();
+
+    rerender(
+      <ChatMessage
+        message={lastMessage}
+        tokenGroupInfo={{ hideTokenUsage: false }}
+      />,
+    );
+
+    expect(screen.getByTitle('Copy')).toBeTruthy();
   });
 
   it('code blocks within messages render correctly', async () => {
