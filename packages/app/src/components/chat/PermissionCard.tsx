@@ -276,7 +276,7 @@ function PermissionEntryCard({
                   type="button"
                   onClick={() => handleReply("allow")}
                   disabled={submitting}
-                  className="shrink-0 rounded-[9px] bg-[#111827] px-[10px] py-[5px] text-[12px] font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50 dark:bg-primary"
+                  className="shrink-0 rounded-[9px] bg-primary px-[10px] py-[5px] text-[12px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                 >
                   {t("chat.permissionCard.approve", "允许")}
                 </button>
