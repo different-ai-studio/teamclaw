@@ -253,7 +253,7 @@ jobs:
 
           for f in files:
               key = f'releases/{version}/{os.path.basename(f)}'
-              print(f'Uploading {os.path.basename(f)} → oss://{os.environ["OSS_BUCKET"]}/{key}')
+              print(f'Uploading {os.path.basename(f)} -> oss://{os.environ["OSS_BUCKET"]}/{key}')
               bucket.put_object_from_file(key, f)
               print(f'✅ {oss_base}/{key}')
 
@@ -262,7 +262,7 @@ jobs:
               sys.exit(0)
 
           bucket.put_object('releases/latest.txt', version.encode())
-          print(f'✅ {oss_base}/releases/latest.txt → {version}')
+          print(f'✅ {oss_base}/releases/latest.txt -> {version}')
 
           with open('scripts/install-mac-cn.sh', 'r') as f:
               script = f.read().replace('__OSS_BASE_URL__', oss_base)
@@ -440,7 +440,7 @@ jobs:
 
           for f in files:
               key = f'releases/{version}/{os.path.basename(f)}'
-              print(f'Uploading {os.path.basename(f)} → oss://{os.environ["OSS_BUCKET"]}/{key}')
+              print(f'Uploading {os.path.basename(f)} -> oss://{os.environ["OSS_BUCKET"]}/{key}')
               bucket.put_object_from_file(key, f)
               host = os.environ['OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
               print(f'✅ https://{os.environ["OSS_BUCKET"]}.{host}/{key}')
