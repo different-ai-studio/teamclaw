@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "teamclaw"
-version = "0.1.59"
+version = "0.1.60"
 description = "TeamClaw - AI Agent Desktop Platform"
 authors = ["TeamClaw Team"]
 edition = "2021"
