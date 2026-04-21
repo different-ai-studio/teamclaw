@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
+import { QuestionCard } from '../QuestionCard';
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -48,6 +49,10 @@ describe('QuestionCard', () => {
     mockSessionState.answerQuestion = vi.fn(() => Promise.resolve());
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it('renders question text and options', async () => {
     const question = makeQuestion();
     mockSessionState.pendingQuestions = [
@@ -59,8 +64,6 @@ describe('QuestionCard', () => {
       },
     ];
 
-    const { QuestionCard } = await import('../QuestionCard');
-
     render(
       <QuestionCard
         toolCallId="tc-1"
@@ -69,10 +72,11 @@ describe('QuestionCard', () => {
       />
     );
 
-    expect(screen.getByTestId('question-card').className).toContain('rounded-xl');
-    expect(screen.getByText('What would you like to do?')).toBeTruthy();
-    expect(screen.getByText('Option A')).toBeTruthy();
-    expect(screen.getByText('Option B')).toBeTruthy();
+    const card = screen.getByTestId('question-card');
+    expect(card.className).toContain('rounded-xl');
+    expect(within(card).getByText('What would you like to do?')).toBeTruthy();
+    expect(within(card).getByText('Option A')).toBeTruthy();
+    expect(within(card).getByText('Option B')).toBeTruthy();
   });
 
   it('clicking an option and submitting calls answerQuestion with correct mapping', async () => {
@@ -88,8 +92,6 @@ describe('QuestionCard', () => {
     ];
     mockSessionState.answerQuestion = answerMock;
 
-    const { QuestionCard } = await import('../QuestionCard');
-
     render(
       <QuestionCard
         toolCallId="tc-1"
@@ -99,12 +101,13 @@ describe('QuestionCard', () => {
     );
 
     // Click Option A
-    const optionAButton = screen.getByText('Option A').closest('button');
+    const card = screen.getByTestId('question-card');
+    const optionAButton = within(card).getByText('Option A').closest('button');
     expect(optionAButton).not.toBeNull();
     fireEvent.click(optionAButton!);
 
     // Click the Submit Answer button
-    const submitButton = screen.getByText('Submit Answer');
+    const submitButton = within(card).getByText('Submit Answer');
     fireEvent.click(submitButton);
 
     await waitFor(() => {

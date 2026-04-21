@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, cleanup } from '@testing-library/react';
 import { useStreamingStore } from '@/stores/streaming';
 import { useSessionStore, sessionLookupCache } from '@/stores/session';
+import { ChatMessage } from '../ChatMessage';
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -40,11 +41,6 @@ function makeMessage(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function importChatMessage() {
-  const mod = await import('../ChatMessage');
-  return mod.ChatMessage;
-}
-
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe('ChatMessage', () => {
@@ -59,9 +55,11 @@ describe('ChatMessage', () => {
     useSessionStore.setState({ activeSessionId: null });
   });
 
-  it('user message renders its content', async () => {
-    const ChatMessage = await importChatMessage();
+  afterEach(() => {
+    cleanup();
+  });
 
+  it('user message renders its content', () => {
     const message = makeMessage({
       id: 'msg-user-1',
       role: 'user',
@@ -72,9 +70,7 @@ describe('ChatMessage', () => {
     expect(container.textContent).toContain('Hello from the user');
   });
 
-  it('assistant message renders its content', async () => {
-    const ChatMessage = await importChatMessage();
-
+  it('assistant message renders its content', () => {
     const message = makeMessage({
       id: 'msg-asst-1',
       role: 'assistant',
@@ -93,9 +89,7 @@ describe('ChatMessage', () => {
     expect(container.textContent).toContain('Hello from the assistant');
   });
 
-  it('only shows copy action on the last assistant text output in a group', async () => {
-    const ChatMessage = await importChatMessage();
-
+  it('only shows copy action on the last assistant text output in a group', () => {
     const firstMessage = makeMessage({
       id: 'msg-asst-group-1',
       role: 'assistant',
@@ -136,9 +130,7 @@ describe('ChatMessage', () => {
     expect(screen.getByTitle('Copy')).toBeTruthy();
   });
 
-  it('code blocks within messages render correctly', async () => {
-    const ChatMessage = await importChatMessage();
-
+  it('code blocks within messages render correctly', () => {
     const message = makeMessage({
       id: 'msg-code-1',
       role: 'assistant',
@@ -159,9 +151,7 @@ describe('ChatMessage', () => {
     expect(codeEl).not.toBeNull();
   });
 
-  it('thinking indicator renders BEFORE message content during streaming', async () => {
-    const ChatMessage = await importChatMessage();
-
+  it('thinking indicator renders BEFORE message content during streaming', () => {
     // Message with thinking parts but no content yet (early streaming state)
     const message = makeMessage({
       id: 'msg-thinking-1',
