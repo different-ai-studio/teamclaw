@@ -443,3 +443,48 @@ jobs:
               host = os.environ['OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
               print(f'✅ https://{os.environ["OSS_BUCKET"]}.{host}/{key}')
           EOF
+
+  update-release-notes:
+    needs: [release-macos, release-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Append CN mirror section to release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+        run: |
+          if [ -z "$OSS_BUCKET" ]; then
+            echo "OSS not configured, skipping release notes update"
+            exit 0
+          fi
+          HOST="${OSS_ENDPOINT#https://}"
+          HOST="${HOST#http://}"
+          OSS_BASE="https://${OSS_BUCKET}.${HOST}"
+          VERSION="${{ github.ref_name }}"
+          VERSION_NUM="${VERSION#v}"
+
+          CURRENT=$(gh release view "$VERSION" --repo ${{ github.repository }} --json body -q '.body')
+
+          CN_SECTION="
+
+          ---
+
+          ### 国内加速下载（阿里云 OSS）
+
+          #### macOS（一键安装）
+          \`\`\`bash
+          curl -fsSL ${OSS_BASE}/install-mac-cn.sh | bash
+          \`\`\`
+
+          #### macOS（手动下载）
+          - Apple Silicon：[TeamClaw_${VERSION_NUM}_aarch64.dmg](${OSS_BASE}/releases/${VERSION}/TeamClaw_${VERSION_NUM}_aarch64.dmg)
+          - Intel：[TeamClaw_${VERSION_NUM}_x64.dmg](${OSS_BASE}/releases/${VERSION}/TeamClaw_${VERSION_NUM}_x64.dmg)
+
+          #### Windows
+          - [TeamClaw_${VERSION_NUM}_x64-setup.exe](${OSS_BASE}/releases/${VERSION}/TeamClaw_${VERSION_NUM}_x64-setup.exe)"
+
+          gh release edit "$VERSION" --repo ${{ github.repository }} --notes "${CURRENT}${CN_SECTION}"
+          echo "✅ Release notes updated with CN mirror links"
