@@ -219,6 +219,7 @@ jobs:
           args: "--target ${{ matrix.target }}"
 
       - name: Upload to Alibaba Cloud OSS (CN mirror)
+        continue-on-error: true
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
@@ -409,6 +410,7 @@ jobs:
           args: "--bundles nsis -- --no-default-features"
 
       - name: Upload to Alibaba Cloud OSS (CN mirror)
+        continue-on-error: true
         shell: bash
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
