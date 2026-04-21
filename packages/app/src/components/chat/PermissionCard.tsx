@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { useSessionStore } from "@/stores/session"
 import type { PendingPermissionEntry, Session, ToolCallPermission } from "@/stores/session-types"
@@ -11,25 +12,38 @@ const BACKPLATE_HEIGHT_PX = 72
 const STACK_CARD_WIDTH = "min(88vw,44rem)"
 const BACKPLATE_WIDTHS = ["min(86vw,42.25rem)", "min(82vw,40rem)"] as const
 
-const permissionMeta: Record<string, { glyph: string; title: string; subject: string }> = {
-  bash: { glyph: ">", title: "请求执行命令", subject: "Bash" },
-  execute: { glyph: ">", title: "请求执行命令", subject: "Bash" },
-  write: { glyph: "✎", title: "请求写入文件", subject: "Write" },
-  edit: { glyph: "✎", title: "请求编辑文件", subject: "Edit" },
-  read: { glyph: "📄", title: "请求读取文件", subject: "Read" },
-  external_directory: { glyph: "📄", title: "请求访问外部路径", subject: "Read" },
-  skill: { glyph: "⚡", title: "请求运行技能", subject: "Skill" },
+type TranslateFn = (key: string, fallback?: string, options?: Record<string, unknown>) => string
+
+function translate(
+  t: ReturnType<typeof useTranslation>["t"],
+  key: string,
+  fallback?: string,
+  options?: Record<string, unknown>,
+) {
+  return (t as unknown as TranslateFn)(key, fallback, options)
 }
 
-function getSourceToolLabel(sourceToolName?: string | null) {
+function getPermissionMeta(t: TranslateFn): Record<string, { glyph: string; title: string; subject: string }> {
+  return {
+    bash: { glyph: ">", title: t("chat.permissionCard.requestExecuteCommand", "请求执行命令"), subject: "Bash" },
+    execute: { glyph: ">", title: t("chat.permissionCard.requestExecuteCommand", "请求执行命令"), subject: "Bash" },
+    write: { glyph: "✎", title: t("chat.permissionCard.requestWriteFile", "请求写入文件"), subject: t("permission.write", "Write") },
+    edit: { glyph: "✎", title: t("chat.permissionCard.requestEditFile", "请求编辑文件"), subject: t("permission.edit", "Edit") },
+    read: { glyph: "📄", title: t("chat.permissionCard.requestReadFile", "请求读取文件"), subject: t("permission.read", "Read") },
+    external_directory: { glyph: "📄", title: t("chat.permissionCard.requestAccessExternalPath", "请求访问外部路径"), subject: t("permission.read", "Read") },
+    skill: { glyph: "⚡", title: t("chat.permissionCard.requestRunSkill", "请求运行技能"), subject: "Skill" },
+  }
+}
+
+function getSourceToolLabel(t: TranslateFn, sourceToolName?: string | null) {
   if (!sourceToolName) return null
   const normalized = sourceToolName.toLowerCase()
   if (normalized.includes("bash") || normalized.includes("shell") || normalized.includes("terminal")) {
     return "Bash"
   }
-  if (normalized === "write") return "Write"
-  if (normalized === "edit") return "Edit"
-  if (normalized === "read") return "Read"
+  if (normalized === "write") return t("permission.write", "Write")
+  if (normalized === "edit") return t("permission.edit", "Edit")
+  if (normalized === "read") return t("permission.read", "Read")
   if (normalized === "skill") return "Skill"
   return sourceToolName
 }
@@ -56,11 +70,16 @@ function summarizePermissionDetail(detail: string, permType: string) {
   return normalized.length > 88 ? truncateMiddle(normalized, 88, 40, 20) : normalized
 }
 
-function getPermissionCardPresentation(entry: PendingPermissionEntry) {
+function getPermissionCardPresentation(entry: PendingPermissionEntry, t: TranslateFn) {
   const permType = entry.permission.permission || "write"
   const isExternal = permType === "external_directory"
-  const baseMeta = permissionMeta[permType] || { glyph: "•", title: "请求权限", subject: "Tool" }
-  const sourceToolLabel = getSourceToolLabel(entry.sourceToolName)
+  const permissionMeta = getPermissionMeta(t)
+  const baseMeta = permissionMeta[permType] || {
+    glyph: "•",
+    title: t("permission.request", "请求权限"),
+    subject: "Tool",
+  }
+  const sourceToolLabel = getSourceToolLabel(t, entry.sourceToolName)
   const meta = {
     ...baseMeta,
     subject: isExternal && sourceToolLabel ? sourceToolLabel : baseMeta.subject,
@@ -80,7 +99,7 @@ function getPermissionCardPresentation(entry: PendingPermissionEntry) {
       return filePath
     }
     if (permType === "skill") {
-      return skillName || firstPattern || "Requested skill"
+      return skillName || firstPattern || t("chat.permissionCard.requestedSkill", "Requested skill")
     }
     if (firstPattern) {
       return firstPattern
@@ -90,13 +109,13 @@ function getPermissionCardPresentation(entry: PendingPermissionEntry) {
 
   const subtitle = isExternal
     ? sourceToolLabel
-      ? `来自 ${sourceToolLabel} 工具调用`
-      : "读取工作区外路径前需要你的确认"
+      ? t("chat.permissionCard.sourceToolInvocation", "来自 {{tool}} 工具调用", { tool: sourceToolLabel })
+      : t("chat.permissionCard.waitingExternalPathApproval", "读取工作区外路径前需要你的确认")
     : entry.childSessionId
-      ? "子会话正在等待你的审批"
+      ? t("chat.permissionCard.childSessionWaitingApproval", "子会话正在等待你的审批")
       : sourceToolLabel
-        ? `来自 ${sourceToolLabel} 工具调用`
-        : "工具调用正在等待你的审批"
+        ? t("chat.permissionCard.sourceToolInvocation", "来自 {{tool}} 工具调用", { tool: sourceToolLabel })
+        : t("chat.permissionCard.toolInvocationWaitingApproval", "工具调用正在等待你的审批")
 
   return { meta, detail: summarizePermissionDetail(detail, permType), subtitle }
 }
@@ -170,6 +189,10 @@ function PermissionEntryCard({
   onReplyStart?: (permissionId: string) => void
   onReplyRollback?: (permissionId: string) => void
 }) {
+  const { t: i18nT } = useTranslation()
+  const t = React.useCallback<TranslateFn>((key, fallback, options) => {
+    return translate(i18nT, key, fallback, options)
+  }, [i18nT])
   const replyPermission = useSessionStore((s) => s.replyPermission)
   const [submitting, setSubmitting] = React.useState(false)
   const [decided, setDecided] = React.useState<string | null>(null)
@@ -180,7 +203,7 @@ function PermissionEntryCard({
     if (decided !== null) setDecided(null)
   }
 
-  const { meta, detail, subtitle } = getPermissionCardPresentation(entry)
+  const { meta, detail, subtitle } = getPermissionCardPresentation(entry, t)
 
   const handleReply = async (d: "allow" | "deny" | "always") => {
     setSubmitting(true)
@@ -216,7 +239,7 @@ function PermissionEntryCard({
                 <div className="text-[13px] font-semibold text-foreground">{meta.subject} {meta.title}</div>
                 {pendingCount > 1 ? (
                   <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {pendingCount} pending
+                    {t("chat.permissionCard.pendingCount", "{{count}} pending", { count: pendingCount })}
                   </span>
                 ) : null}
               </div>
@@ -239,7 +262,7 @@ function PermissionEntryCard({
                   disabled={submitting}
                   className="shrink-0 rounded-[9px] border border-[#e5eaf0] bg-white px-[10px] py-[5px] text-[12px] font-medium text-[#475569] transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-50 dark:border-border dark:bg-background dark:text-muted-foreground"
                 >
-                  拒绝
+                  {t("permission.deny", "拒绝")}
                 </button>
                 <button
                   type="button"
@@ -247,7 +270,7 @@ function PermissionEntryCard({
                   disabled={submitting}
                   className="shrink-0 rounded-[9px] border border-[#e5eaf0] bg-white px-[10px] py-[5px] text-[12px] font-medium text-[#475569] transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-50 dark:border-border dark:bg-background dark:text-muted-foreground"
                 >
-                  总是允许
+                  {t("permission.alwaysAllow", "总是允许")}
                 </button>
                 <button
                   type="button"
@@ -255,7 +278,7 @@ function PermissionEntryCard({
                   disabled={submitting}
                   className="shrink-0 rounded-[9px] bg-[#111827] px-[10px] py-[5px] text-[12px] font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50 dark:bg-primary"
                 >
-                  允许
+                  {t("chat.permissionCard.approve", "允许")}
                 </button>
               </div>
             ) : null}
@@ -272,6 +295,10 @@ function PermissionEntryCard({
  * child-session/floating permissions queued in the global store.
  */
 export function PendingPermissionInline() {
+  const { t: i18nT } = useTranslation()
+  const t = React.useCallback<TranslateFn>((key, fallback, options) => {
+    return translate(i18nT, key, fallback, options)
+  }, [i18nT])
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
   const sessions = useSessionStore((s) => s.sessions)
   const pendingPermissions = useSessionStore((s) => s.pendingPermissions)
@@ -308,7 +335,7 @@ export function PendingPermissionInline() {
         <div className="relative" style={{ minHeight: stackHeight }}>
           {Array.from({ length: backplateCount }).map((_, index) => {
             const queuedEntry = visiblePermissions[index + 1]
-            const presentation = queuedEntry ? getPermissionCardPresentation(queuedEntry) : null
+            const presentation = queuedEntry ? getPermissionCardPresentation(queuedEntry, t) : null
             const bottom = (backplateCount - index) * STACK_STEP_PX
 
             return (

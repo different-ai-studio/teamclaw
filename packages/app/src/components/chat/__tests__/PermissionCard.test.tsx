@@ -5,7 +5,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (key: string, fallback?: string, options?: Record<string, unknown>) => {
+      const template = fallback ?? key;
+      return template.replace(/\{\{(\w+)\}\}/g, (_, token: string) => String(options?.[token] ?? `{{${token}}}`));
+    },
   }),
 }));
 
