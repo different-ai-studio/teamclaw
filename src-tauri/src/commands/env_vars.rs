@@ -278,7 +278,7 @@ fn get_teamclaw_json_path(workspace_path: &str) -> String {
 }
 
 /// Read the envVars index from teamclaw.json (preserving all other fields).
-fn read_teamclaw_json(workspace_path: &str) -> Result<serde_json::Value, String> {
+pub(crate) fn read_teamclaw_json(workspace_path: &str) -> Result<serde_json::Value, String> {
     let path = get_teamclaw_json_path(workspace_path);
     if !Path::new(&path).exists() {
         return Ok(serde_json::json!({
@@ -292,7 +292,7 @@ fn read_teamclaw_json(workspace_path: &str) -> Result<serde_json::Value, String>
 }
 
 /// Write the full teamclaw.json back (preserving all other fields).
-fn write_teamclaw_json(workspace_path: &str, json: &serde_json::Value) -> Result<(), String> {
+pub(crate) fn write_teamclaw_json(workspace_path: &str, json: &serde_json::Value) -> Result<(), String> {
     let teamclaw_dir = format!("{}/{}", workspace_path, super::TEAMCLAW_DIR);
     let _ = std::fs::create_dir_all(&teamclaw_dir);
     let path = get_teamclaw_json_path(workspace_path);
