@@ -52,19 +52,36 @@ const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf8'));
 
 let updated = false;
 
-if (buildConfig.app?.updater?.endpoint) {
+function ensureUpdater() {
   if (!tauriConf.plugins) tauriConf.plugins = {};
   if (!tauriConf.plugins.updater) tauriConf.plugins.updater = {};
-  
-  tauriConf.plugins.updater.endpoints = [buildConfig.app.updater.endpoint];
-  console.log(`✓ Updated updater endpoint: ${buildConfig.app.updater.endpoint}`);
+}
+
+// Start from buildConfig override (array or singular), else keep existing endpoints.
+let endpoints;
+if (Array.isArray(buildConfig.app?.updater?.endpoints)) {
+  endpoints = buildConfig.app.updater.endpoints.slice();
+} else if (buildConfig.app?.updater?.endpoint) {
+  endpoints = [buildConfig.app.updater.endpoint];
+} else if (Array.isArray(tauriConf.plugins?.updater?.endpoints)) {
+  endpoints = tauriConf.plugins.updater.endpoints.slice();
+}
+
+if (endpoints) {
+  const ossBase = (process.env.OSS_BASE_URL || '').replace(/\/+$/, '');
+  endpoints = endpoints
+    .map((url) => (ossBase ? url.replace('__OSS_BASE_URL__', ossBase) : url))
+    .filter((url) => !url.includes('__OSS_BASE_URL__'));
+
+  ensureUpdater();
+  tauriConf.plugins.updater.endpoints = endpoints;
+  console.log(`✓ Updated updater endpoints (${endpoints.length}):`);
+  for (const url of endpoints) console.log(`    - ${url}`);
   updated = true;
 }
 
 if (buildConfig.app?.updater?.pubkey) {
-  if (!tauriConf.plugins) tauriConf.plugins = {};
-  if (!tauriConf.plugins.updater) tauriConf.plugins.updater = {};
-  
+  ensureUpdater();
   tauriConf.plugins.updater.pubkey = buildConfig.app.updater.pubkey;
   console.log(`✓ Updated updater pubkey: ${buildConfig.app.updater.pubkey.substring(0, 50)}...`);
   updated = true;

@@ -169,17 +169,32 @@ jobs:
           ls -lh src-tauri/binaries/
           ls -lh packages/app/dist/ | head -5
 
-      # Skip beforeBuildCommand since frontend is already built above
-      - name: Skip frontend rebuild in tauri build
+      # Skip beforeBuildCommand since frontend is already built above,
+      # and substitute __OSS_BASE_URL__ in updater endpoints (drop if OSS not configured).
+      - name: Finalize tauri.conf.json for build
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
         run: |
-          python3 -c "
-          import json
+          python3 - <<'EOF'
+          import json, os
           with open('src-tauri/tauri.conf.json', 'r') as f:
               conf = json.load(f)
           conf['build']['beforeBuildCommand'] = 'echo frontend already built'
+          endpoints = conf.get('plugins', {}).get('updater', {}).get('endpoints', [])
+          bucket = os.environ.get('OSS_BUCKET', '')
+          endpoint_host = os.environ.get('OSS_ENDPOINT', '').replace('https://', '').replace('http://', '').rstrip('/')
+          oss_base = f'https://{bucket}.{endpoint_host}' if bucket and endpoint_host else ''
+          if oss_base:
+              endpoints = [e.replace('__OSS_BASE_URL__', oss_base) for e in endpoints]
+          endpoints = [e for e in endpoints if '__OSS_BASE_URL__' not in e]
+          conf.setdefault('plugins', {}).setdefault('updater', {})['endpoints'] = endpoints
           with open('src-tauri/tauri.conf.json', 'w') as f:
               json.dump(conf, f, indent=2)
-          "
+          print('Final updater endpoints:')
+          for e in endpoints:
+              print(f'  - {e}')
+          EOF
 
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -362,15 +377,29 @@ jobs:
           echo "teamclaw-introspect ready"
 
       # Skip beforeBuildCommand since frontend is already built above
-      - name: Skip frontend rebuild in tauri build
+      - name: Finalize tauri.conf.json for build
         shell: python
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
         run: |
-          import json
+          import json, os
           with open('src-tauri/tauri.conf.json', 'r') as f:
               conf = json.load(f)
           conf['build']['beforeBuildCommand'] = 'echo frontend already built'
+          endpoints = conf.get('plugins', {}).get('updater', {}).get('endpoints', [])
+          bucket = os.environ.get('OSS_BUCKET', '')
+          endpoint_host = os.environ.get('OSS_ENDPOINT', '').replace('https://', '').replace('http://', '').rstrip('/')
+          oss_base = f'https://{bucket}.{endpoint_host}' if bucket and endpoint_host else ''
+          if oss_base:
+              endpoints = [e.replace('__OSS_BASE_URL__', oss_base) for e in endpoints]
+          endpoints = [e for e in endpoints if '__OSS_BASE_URL__' not in e]
+          conf.setdefault('plugins', {}).setdefault('updater', {})['endpoints'] = endpoints
           with open('src-tauri/tauri.conf.json', 'w') as f:
               json.dump(conf, f, indent=2)
+          print('Final updater endpoints:')
+          for e in endpoints:
+              print(f'  - {e}')
 
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -452,6 +481,40 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Mirror latest.json to OSS
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "OSS not configured, skipping latest.json mirror"
+            exit 0
+          fi
+          gh release download "$VERSION" \
+            --repo ${{ github.repository }} \
+            --pattern 'latest.json' \
+            --dir /tmp/oss-latest
+          python3 -m pip install oss2 --quiet
+          python3 - <<'EOF'
+          import oss2, os
+          auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
+          endpoint = os.environ['OSS_ENDPOINT']
+          if not endpoint.startswith('http'):
+              endpoint = 'https://' + endpoint
+          bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
+          version = os.environ['VERSION']
+          bucket.put_object_from_file('releases/latest.json', '/tmp/oss-latest/latest.json')
+          bucket.put_object_from_file(f'releases/{version}/latest.json', '/tmp/oss-latest/latest.json')
+          host = os.environ['OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
+          print(f'Mirrored latest.json -> https://{os.environ["OSS_BUCKET"]}.{host}/releases/latest.json')
+          print(f'Also archived -> https://{os.environ["OSS_BUCKET"]}.{host}/releases/{version}/latest.json')
+          EOF
+
       - name: Append CN mirror section to release notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
