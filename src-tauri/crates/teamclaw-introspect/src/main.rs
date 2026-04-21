@@ -1,6 +1,10 @@
 mod capabilities;
+mod channels;
 mod config;
 mod cron;
+mod env_vars;
+mod knowledge;
+mod roles;
 mod send;
 mod shortcuts;
 mod sync;
@@ -157,6 +161,123 @@ fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {}
             }
+        },
+        {
+            "name": "manage_knowledge",
+            "description": "Manage the knowledge base: search entries, add a memory note, list all memory entries, or delete one. Use 'search' to find relevant information. Use 'add' to persist content for future reference.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["search", "add", "list", "delete"],
+                        "description": "The action to perform."
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (required for action=search)."
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Max results to return for search (default 5)."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to save (required for action=add)."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Title of the memory note (optional for action=add)."
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Filename for the note (optional for add/delete). Auto-generated if omitted for add. Required for delete."
+                    }
+                },
+                "required": ["action"]
+            }
+        },
+        {
+            "name": "manage_roles",
+            "description": "Manage AI agent roles: list available roles, create a new role, update an existing role, or delete one. Roles are defined by a name, description, and working style.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "create", "update", "delete"],
+                        "description": "The action to perform."
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": "Role identifier (directory name). Required for update/delete. Auto-generated from name if omitted for create."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Display name for the role (required for create)."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Short description of what this role does."
+                    },
+                    "working_style": {
+                        "type": "string",
+                        "description": "Working style instructions for the role."
+                    }
+                },
+                "required": ["action"]
+            }
+        },
+        {
+            "name": "manage_env_vars",
+            "description": "Manage environment variables: list registered keys (no values returned), set a key-value pair, or delete a key. Values are stored securely in the system keychain.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "set", "delete"],
+                        "description": "The action to perform."
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "The environment variable name (required for set/delete)."
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The value to store (required for set). Never returned by list."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional description for the env var (used for set)."
+                    }
+                },
+                "required": ["action"]
+            }
+        },
+        {
+            "name": "manage_channels",
+            "description": "View or update message channel configuration (WeCom, Discord, Feishu, Email, KOOK, WeChat). Use 'get' to check what's configured (sensitive values are redacted). Use 'set' to configure a channel with the provided fields.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["get", "set"],
+                        "description": "The action to perform."
+                    },
+                    "channel": {
+                        "type": "string",
+                        "enum": ["wecom", "discord", "feishu", "email", "kook", "wechat"],
+                        "description": "Target channel. Required for set; optional for get (omit to get all channels)."
+                    },
+                    "config": {
+                        "type": "object",
+                        "description": "Channel config fields to set. Required for set. Fields vary by channel:\n- wecom: botId, secret, encodingAesKey, ownerId\n- discord: token, dm, guilds\n- feishu: appId, appSecret, chats\n- email: provider, gmailEmail, gmailClientId, gmailClientSecret (or imapServer, smtpServer, username, password for custom)\n- kook: token, dm, guilds\n- wechat: botToken, accountId, baseUrl"
+                    }
+                },
+                "required": ["action"]
+            }
         }
     ])
 }
@@ -290,6 +411,42 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
                 }
                 "sync_team_dir" => {
                     match sync::handle(workspace, api_port, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                "manage_knowledge" => {
+                    match knowledge::handle(workspace, api_port, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                "manage_roles" => {
+                    match roles::handle(workspace, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                "manage_env_vars" => {
+                    match env_vars::handle(workspace, api_port, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
+                "manage_channels" => {
+                    match channels::handle(workspace, api_port, &arguments).await {
                         Ok(v) => {
                             let text = serde_json::to_string_pretty(&v).unwrap_or_default();
                             tool_ok(&text)

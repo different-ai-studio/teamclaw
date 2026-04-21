@@ -1,8 +1,15 @@
 /// Internal HTTP API server for the teamclaw-introspect MCP binary.
 ///
 /// Listens on 127.0.0.1:13144 and handles:
-///   POST /send-wecom   — send a proactive WeCom message
-///   POST /cron-run     — manually trigger a cron job
+///   POST /send-wecom        — send a proactive WeCom message
+///   POST /cron-run          — manually trigger a cron job
+///   POST /team-sync-all     — trigger team sync
+///   POST /knowledge-search  — semantic search in knowledge base
+///   POST /knowledge-add     — save a memory entry
+///   POST /knowledge-list    — list memory entries
+///   POST /knowledge-delete  — delete a memory entry
+///   POST /env-var-set       — create or update an env var
+///   POST /env-var-delete    — delete an env var
 ///
 /// Uses raw TCP + manual HTTP parsing to stay minimal (no axum state needed).
 
@@ -81,6 +88,13 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
                 ("POST", "/send-wecom") => handle_send_wecom(&app_clone, body_bytes).await,
                 ("POST", "/cron-run") => handle_cron_run(&app_clone, body_bytes).await,
                 ("POST", "/team-sync-all") => handle_team_sync_all(&app_clone, body_bytes).await,
+                ("POST", "/knowledge-search") => handle_knowledge_search(&app_clone, body_bytes).await,
+                ("POST", "/knowledge-add") => handle_knowledge_add(&app_clone, body_bytes).await,
+                ("POST", "/knowledge-list") => handle_knowledge_list(&app_clone, body_bytes).await,
+                ("POST", "/knowledge-delete") => handle_knowledge_delete(&app_clone, body_bytes).await,
+                ("POST", "/env-var-set") => handle_env_var_set(&app_clone, body_bytes).await,
+                ("POST", "/env-var-delete") => handle_env_var_delete(&app_clone, body_bytes).await,
+                ("POST", "/channel-set") => handle_channel_set(&app_clone, body_bytes).await,
                 _ => Err(format!("Not found: {} {}", method, path)),
             };
 
@@ -231,6 +245,200 @@ fn detect_media_type(filename: &str) -> &'static str {
         "mp4" | "mov" | "avi" | "mkv" | "wmv" => "video",
         _ => "file",
     }
+}
+
+// ─── Knowledge Handlers ──────────────────────────────────────────────────────
+
+async fn handle_knowledge_search(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let query = v
+        .get("query")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing field: query")?
+        .to_string();
+    let top_k = v.get("top_k").and_then(|v| v.as_u64()).map(|n| n as usize);
+
+    let oc_state = app.state::<super::opencode::OpenCodeState>();
+    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+
+    let rag_state = app.state::<super::knowledge::RagState>();
+    let result =
+        super::knowledge::rag_search(workspace_path, query, top_k, None, None, rag_state).await?;
+
+    serde_json::to_string(&result).map_err(|e| format!("Serialization error: {e}"))
+}
+
+async fn handle_knowledge_add(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let content = v
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing field: content")?;
+    let title = v
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Untitled");
+    let filename = v.get("filename").and_then(|v| v.as_str());
+
+    let oc_state = app.state::<super::opencode::OpenCodeState>();
+    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let safe_filename = filename
+        .map(|f| {
+            if f.ends_with(".md") {
+                f.to_string()
+            } else {
+                format!("{}.md", f)
+            }
+        })
+        .unwrap_or_else(|| {
+            let slug = title
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '-' })
+                .collect::<String>()
+                .to_lowercase();
+            let slug = slug.trim_matches('-').to_string();
+            let ts = chrono::Utc::now().timestamp();
+            format!("{slug}-{ts}.md")
+        });
+
+    let file_content = format!(
+        "---\ntitle: \"{title}\"\ncreated: \"{now}\"\nupdated: \"{now}\"\n---\n\n{content}\n"
+    );
+
+    let rag_state = app.state::<super::knowledge::RagState>();
+    super::knowledge::rag_save_memory(workspace_path, safe_filename.clone(), file_content, rag_state)
+        .await?;
+
+    Ok(format!(r#"{{"ok":true,"filename":"{}"}}"#, safe_filename))
+}
+
+async fn handle_knowledge_list(app: &AppHandle, _body: &[u8]) -> Result<String, String> {
+    let oc_state = app.state::<super::opencode::OpenCodeState>();
+    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+
+    let memories = super::knowledge::rag_list_memories(workspace_path).await?;
+    serde_json::to_string(&memories).map_err(|e| format!("Serialization error: {e}"))
+}
+
+async fn handle_knowledge_delete(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let filename = v
+        .get("filename")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing field: filename")?
+        .to_string();
+
+    let oc_state = app.state::<super::opencode::OpenCodeState>();
+    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+
+    let rag_state = app.state::<super::knowledge::RagState>();
+    super::knowledge::rag_delete_memory(workspace_path, filename.clone(), rag_state).await?;
+
+    Ok(format!(r#"{{"ok":true,"filename":"{}"}}"#, filename))
+}
+
+// ─── Env Var Handlers ────────────────────────────────────────────────────────
+
+async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let key = v
+        .get("key")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing field: key")?
+        .to_string();
+    let value = v
+        .get("value")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing field: value")?
+        .to_string();
+    let description = v
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let oc_state = app.state::<super::opencode::OpenCodeState>();
+    super::env_vars::env_var_set(oc_state, key.clone(), value, description).await?;
+
+    Ok(format!(r#"{{"ok":true,"key":"{}"}}"#, key))
+}
+
+async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let key = v
+        .get("key")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing field: key")?
+        .to_string();
+
+    let oc_state = app.state::<super::opencode::OpenCodeState>();
+    super::env_vars::env_var_delete(oc_state, key.clone()).await?;
+
+    Ok(format!(r#"{{"ok":true,"key":"{}"}}"#, key))
+}
+
+// ─── Channel Handler ─────────────────────────────────────────────────────────
+
+async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let channel = v
+        .get("channel")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing field: channel")?;
+    let patch = v.get("config").ok_or("Missing field: config")?;
+
+    let valid_channels = ["wecom", "discord", "feishu", "email", "kook", "wechat"];
+    if !valid_channels.contains(&channel) {
+        return Err(format!(
+            "Unknown channel: '{}'. Valid: {}",
+            channel,
+            valid_channels.join(", ")
+        ));
+    }
+
+    let oc_state = app.state::<super::opencode::OpenCodeState>();
+    let workspace = super::opencode::current_workspace_path(&oc_state)?;
+
+    let mut json = super::env_vars::read_teamclaw_json(&workspace)?;
+
+    // Ensure channels object exists
+    if json.get("channels").is_none() {
+        json["channels"] = serde_json::json!({});
+    }
+
+    let channels = json["channels"]
+        .as_object_mut()
+        .ok_or("channels is not an object")?;
+
+    // Merge patch fields into channel config (shallow merge)
+    let ch_entry = channels
+        .entry(channel.to_string())
+        .or_insert_with(|| serde_json::json!({}));
+
+    if let (Some(obj), Some(patch_obj)) = (ch_entry.as_object_mut(), patch.as_object()) {
+        for (k, val) in patch_obj {
+            obj.insert(k.clone(), val.clone());
+        }
+    } else {
+        return Err("config must be a JSON object".to_string());
+    }
+
+    super::env_vars::write_teamclaw_json(&workspace, &json)?;
+
+    Ok(format!(r#"{{"ok":true,"channel":"{}"}}"#, channel))
 }
 
 /// Find the position of `\r\n\r\n` in `data`, returning the index of the first `\r`.
