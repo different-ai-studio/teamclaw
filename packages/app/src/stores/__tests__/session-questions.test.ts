@@ -42,33 +42,21 @@ describe("session-questions", () => {
   let set: ReturnType<typeof vi.fn>;
   let get: ReturnType<typeof vi.fn>;
   let actions: ReturnType<typeof createQuestionActions>;
-  let abortSession: ReturnType<typeof vi.fn>;
-  let sendMessage: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
     vi.clearAllMocks();
     sessionDataCache.clear();
-
-    abortSession = vi.fn().mockResolvedValue(undefined);
-    sendMessage = vi.fn().mockResolvedValue(undefined);
 
     state = {
       activeSessionId: "sess-1",
       pendingQuestions: [
         {
-          questionId: "terminal-input:tc-1",
+          questionId: "event-1",
           toolCallId: "tc-1",
           messageId: "msg-1",
-          source: "terminal_input",
-          terminalInputContext: {
-            command: "rm -rf build",
-            prompt: "Continue? [y/N]",
-            kind: "confirm",
-          },
           questions: [
             {
-              id: "terminal-input",
-              header: "Terminal Input",
+              id: "q-1",
+              header: "Question",
               question: "Continue?",
               options: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }],
             },
@@ -85,13 +73,13 @@ describe("session-questions", () => {
               toolCalls: [
                 {
                   id: "tc-1",
-                  name: "bash",
+                  name: "question",
                   status: "waiting",
-                  arguments: { command: "rm -rf build" },
+                  arguments: {},
                   questions: [
                     {
-                      id: "terminal-input",
-                      header: "Terminal Input",
+                      id: "q-1",
+                      header: "Question",
                       question: "Continue?",
                       options: [],
                     },
@@ -102,8 +90,6 @@ describe("session-questions", () => {
           ],
         },
       ],
-      abortSession,
-      sendMessage,
     };
 
     sessionDataCache.set("sess-1", {
@@ -123,23 +109,19 @@ describe("session-questions", () => {
     actions = createQuestionActions(set, get);
   });
 
-  it("aborts the stuck run and sends a follow-up message for synthetic terminal questions", async () => {
-    await actions.answerQuestion({ "terminal-input": "yes" });
+  it("replies to OpenCode questions and clears pending state", async () => {
+    await actions.answerQuestion({ "q-1": "yes" });
 
-    expect(abortSession).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendMessage.mock.calls[0][0]).toContain("User wants this response: `yes`");
-    expect(sendMessage.mock.calls[0][0]).toContain("rm -rf build");
+    expect(mockReplyQuestion).toHaveBeenCalledWith("event-1", [["yes"]]);
     expect((state as any).pendingQuestions).toEqual([]);
-    expect(mockReplyQuestion).not.toHaveBeenCalled();
+    const toolCall = (state as any).sessions[0].messages[0].toolCalls[0];
+    expect(toolCall.status).toBe("completed");
   });
 
-  it("aborts and clears state without sending follow-up when user cancels", async () => {
-    await actions.answerQuestion({ "terminal-input": "cancel" });
+  it("submits the selected answer text as-is", async () => {
+    await actions.answerQuestion({ "q-1": "cancel" });
 
-    expect(abortSession).toHaveBeenCalledTimes(1);
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(mockReplyQuestion).toHaveBeenCalledWith("event-1", [["cancel"]]);
     expect((state as any).pendingQuestions).toEqual([]);
-    expect(mockReplyQuestion).not.toHaveBeenCalled();
   });
 });

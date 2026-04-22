@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import React from 'react'
 
+let shouldThrowMarkdown = false
+
 vi.mock('@/lib/utils', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
   isTauri: () => false,
@@ -18,7 +20,12 @@ vi.mock('@/components/ui/dialog', () => ({
 }))
 
 vi.mock('react-markdown', () => ({
-  default: ({ children }: { children: string }) => React.createElement('div', { 'data-testid': 'markdown' }, children),
+  default: ({ children }: { children: string }) => {
+    if (shouldThrowMarkdown) {
+      throw new Error('Invalid regular expression: invalid group specifier name')
+    }
+    return React.createElement('div', { 'data-testid': 'markdown' }, children)
+  },
 }))
 
 vi.mock('remark-gfm', () => ({
@@ -32,6 +39,7 @@ vi.mock('lucide-react', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  shouldThrowMarkdown = false
 })
 
 describe('Message', () => {
@@ -128,5 +136,27 @@ describe('image preview rendering', () => {
     const images = screen.getAllByAltText('photo.png')
     expect(images.length).toBeGreaterThan(0)
     expect(images[0].getAttribute('src')).toBe(pngDataUrl)
+  })
+})
+
+describe('MessageResponse', () => {
+  it('falls back to plain text when markdown rendering throws', async () => {
+    shouldThrowMarkdown = true
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const { Message, MessageContent, MessageResponse } = await import('@/packages/ai/message')
+
+    render(
+      React.createElement(Message, { from: 'assistant' },
+        React.createElement(MessageContent, null,
+          React.createElement(MessageResponse, null, 'hello **world**')
+        )
+      )
+    )
+
+    expect(screen.getByText('hello **world**')).toBeDefined()
+    expect(screen.queryByTestId('markdown')).toBeNull()
+
+    warnSpy.mockRestore()
   })
 })

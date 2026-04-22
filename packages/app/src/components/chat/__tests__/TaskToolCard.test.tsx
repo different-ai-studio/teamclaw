@@ -2,11 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { ToolCall } from "@/stores/session";
 
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, fallback?: string, options?: Record<string, unknown>) => {
+      const template = fallback ?? key;
+      return template.replace(/\{\{(\w+)\}\}/g, (_, token: string) =>
+        String(options?.[token] ?? `{{${token}}}`),
+      );
+    },
+  }),
+}));
+
 vi.mock("@/stores/session", () => ({
   useSessionStore: Object.assign(
     (selector: (state: unknown) => unknown) =>
       selector({
-        forceCompleteToolCall: vi.fn(),
         replyPermission: vi.fn(() => Promise.resolve()),
       }),
     {
@@ -92,7 +102,7 @@ describe("TaskToolCard", () => {
 
     render(<TaskToolCard toolCall={toolCall} />);
 
-    expect(screen.getByText(/查看会话/)).toBeTruthy();
+    expect(screen.getByText(/View session/)).toBeTruthy();
     expect(screen.queryByText("查看子任务详情")).toBeNull();
     expect(screen.queryByText("final child output should not be shown inline")).toBeNull();
     expect(screen.queryByText("streaming details should stay in the child session view")).toBeNull();

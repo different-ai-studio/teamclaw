@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { HelpCircle, Check, ChevronRight, Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -13,6 +14,7 @@ interface QuestionCardProps {
 }
 
 export const QuestionCard = React.memo(function QuestionCard({ toolCallId, questions, isCompleted }: QuestionCardProps) {
+  const { t } = useTranslation()
   const questionList = Array.isArray(questions) ? (questions as Question[]) : []
   const pendingQuestions = useSessionStore(s => s.pendingQuestions)
   const pendingQuestion = pendingQuestions.find(q => q.toolCallId === toolCallId)
@@ -23,11 +25,6 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
   const [hasSubmitted, setHasSubmitted] = React.useState(false)
 
   const isPending = !!pendingQuestion
-  const terminalPromptKind =
-    isPending && pendingQuestion?.source === 'terminal_input'
-      ? pendingQuestion.terminalInputContext?.kind
-      : undefined
-  const isSensitiveTerminalInput = terminalPromptKind === 'password'
   // questionId arrives via question.asked SSE event (may lag behind tool executing event)
   const hasQuestionId = !!pendingQuestion?.questionId
   // Show as waiting for completion if submitted but not yet completed
@@ -82,21 +79,23 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 bg-muted/20 border-b border-border/50">
         <HelpCircle className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Question</span>
+        <span className="text-sm font-medium">
+          {t('chat.toolCall.question.title', 'Question')}
+        </span>
         {isCompleted && (
           <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1">
             <Check className="h-3 w-3 text-foreground/60" />
-            Answered
+            {t('chat.toolCall.question.answered', 'Answered')}
           </span>
         )}
         {isWaitingForCompletion && (
           <span className="ml-auto text-xs text-muted-foreground animate-pulse">
-            Processing answer...
+            {t('chat.toolCall.question.processingAnswer', 'Processing answer...')}
           </span>
         )}
         {isPending && !hasSubmitted && (
           <span className="ml-auto text-xs text-muted-foreground animate-pulse">
-            Waiting for response...
+            {t('chat.toolCall.question.waitingForResponse', 'Waiting for response...')}
           </span>
         )}
       </div>
@@ -164,14 +163,11 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
               {showInteractiveUI && (
                 <div className="pt-1">
                   <Input
-                    type={isSensitiveTerminalInput ? "password" : "text"}
-                    autoComplete={isSensitiveTerminalInput ? "off" : undefined}
+                    type="text"
                     placeholder={
-                      isSensitiveTerminalInput
-                        ? "Type the password or passphrase..."
-                        : question.options?.length
-                          ? "Or type a custom answer..."
-                          : "Type your answer..."
+                      question.options?.length
+                        ? t('chat.toolCall.question.customAnswerPlaceholder', 'Or type a custom answer...')
+                        : t('chat.toolCall.question.answerPlaceholder', 'Type your answer...')
                     }
                     value={customInput}
                     onChange={(e) => handleCustomInput(qIndex, e.target.value)}
@@ -190,7 +186,9 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
               {/* Show selected answer for completed or submitted questions */}
               {(isCompleted || isWaitingForCompletion) && (selectedOption || customInput) && (
                 <div className="px-4 py-2 rounded-lg bg-muted/30 text-sm">
-                  <span className="text-muted-foreground">Answer: </span>
+                  <span className="text-muted-foreground">
+                    {t('chat.toolCall.question.answerLabel', 'Answer: ')}
+                  </span>
                   <span className="font-medium">{customInput || selectedOption}</span>
                 </div>
               )}
@@ -209,7 +207,11 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
             size="sm"
           >
             <Send className="h-3.5 w-3.5" />
-            {isSubmitting ? 'Submitting...' : !hasQuestionId ? 'Preparing...' : 'Submit Answer'}
+            {isSubmitting
+              ? t('chat.toolCall.question.submitting', 'Submitting...')
+              : !hasQuestionId
+                ? t('chat.toolCall.question.preparing', 'Preparing...')
+                : t('chat.toolCall.question.submitAnswer', 'Submit Answer')}
           </Button>
         </div>
       )}

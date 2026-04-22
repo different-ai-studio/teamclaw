@@ -107,7 +107,7 @@ describe('PendingPermissionInline', () => {
     const actions = screen.getByTestId('pending-permission-actions');
     expect(actions.className).toContain('gap-2');
 
-    expect(screen.getByText('Bash 请求执行命令')).toBeTruthy();
+    expect(screen.getByText('Bash Request command execution')).toBeTruthy();
     expect(screen.getByText('ls -la')).toBeTruthy();
     expect(screen.getByText('允许')).toBeTruthy();
     expect(screen.getByText('拒绝')).toBeTruthy();
@@ -230,7 +230,7 @@ describe('PendingPermissionInline', () => {
 
     render(<PendingPermissionInline />);
 
-    expect(screen.getByText('Skill 请求运行技能')).toBeTruthy();
+    expect(screen.getByText('Skill Request skill run')).toBeTruthy();
     expect(screen.getByText('允许')).toBeTruthy();
     expect(screen.getByText('总是允许')).toBeTruthy();
     expect(screen.getByText('拒绝')).toBeTruthy();
@@ -331,7 +331,7 @@ describe('PendingPermissionInline', () => {
 
     render(<PendingPermissionInline />);
 
-    expect(screen.getByText('Bash 请求访问外部路径')).toBeTruthy();
+    expect(screen.getByText('Bash Request external path access')).toBeTruthy();
     expect(screen.getByText('brainstorming')).toBeTruthy();
     expect(screen.getByText('来自 Bash 工具调用')).toBeTruthy();
     expect(screen.getByText('子会话正在等待你的审批')).toBeTruthy();
@@ -358,7 +358,7 @@ describe('PendingPermissionInline', () => {
 
     render(<PendingPermissionInline />);
 
-    expect(screen.getByText('Edit 请求编辑文件')).toBeTruthy();
+    expect(screen.getByText('Edit Request file edit')).toBeTruthy();
     expect(screen.getByText('/workspace/notes.md')).toBeTruthy();
     expect(screen.getByText('允许')).toBeTruthy();
   });
@@ -391,7 +391,7 @@ describe('PendingPermissionInline', () => {
 
     render(<PendingPermissionInline />);
 
-    expect(screen.getByText('Bash 请求执行命令')).toBeTruthy();
+    expect(screen.getByText('Bash Request command execution')).toBeTruthy();
     expect(screen.getByText('pnpm test')).toBeTruthy();
     expect(screen.getByText('工具调用正在等待你的审批')).toBeTruthy();
   });
@@ -428,7 +428,7 @@ describe('PendingPermissionInline', () => {
 
     render(<PendingPermissionInline />);
 
-    expect(screen.getByText('Bash 请求访问外部路径')).toBeTruthy();
+    expect(screen.getByText('Bash Request external path access')).toBeTruthy();
     expect(screen.getByText('/tmp/outside')).toBeTruthy();
     expect(screen.getByText('来自 Bash 工具调用')).toBeTruthy();
   });

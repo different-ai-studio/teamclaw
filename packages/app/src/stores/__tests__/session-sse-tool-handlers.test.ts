@@ -147,7 +147,7 @@ describe('session-sse-tool-handlers', () => {
     expect(stateMutations).toHaveLength(0)
   })
 
-  it('creates a synthetic question when a command waits for input', () => {
+  it('treats prompt-like command output as a normal running command', () => {
     handlers.handleToolExecuting({
       toolCallId: 'tc-bash-1',
       toolName: 'bash',
@@ -158,16 +158,12 @@ describe('session-sse-tool-handlers', () => {
       messageId: 'msg-assist-1',
     } as any)
 
-    expect((state as any).pendingQuestions[0]).toMatchObject({
-      questionId: 'terminal-input:tc-bash-1',
-      toolCallId: 'tc-bash-1',
-      source: 'terminal_input',
-    })
+    expect((state as any).pendingQuestions).toEqual([])
 
     const session = sessionLookupCache.get('sess-1')
     const toolCall = session?.messages[0]?.toolCalls?.find((t: any) => t.id === 'tc-bash-1')
-    expect(toolCall?.status).toBe('waiting')
-    expect(toolCall?.questions?.[0]?.header).toBe('Terminal Input')
+    expect(toolCall?.status).toBe('calling')
+    expect(toolCall?.questions).toBeUndefined()
   })
 
   it('handleTodoUpdated sets todos in state and caches them', () => {

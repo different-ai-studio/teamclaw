@@ -4,22 +4,32 @@ import type { ToolCall } from "@/stores/session";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallbackOrOptions?: string | { defaultValue?: string }) =>
-      typeof fallbackOrOptions === "string"
-        ? fallbackOrOptions
-        : fallbackOrOptions?.defaultValue ?? key,
+    t: (
+      key: string,
+      fallbackOrOptions?: string | { defaultValue?: string; [key: string]: unknown },
+      maybeOptions?: Record<string, unknown>,
+    ) => {
+      const template =
+        typeof fallbackOrOptions === "string"
+          ? fallbackOrOptions
+          : fallbackOrOptions?.defaultValue ?? key;
+      const options =
+        typeof fallbackOrOptions === "string"
+          ? maybeOptions
+          : { ...fallbackOrOptions, ...maybeOptions };
+      return template.replace(/\{\{(\w+)\}\}/g, (_, token: string) =>
+        String(options?.[token] ?? `{{${token}}}`),
+      );
+    },
   }),
 }));
 
-const forceCompleteToolCall = vi.fn();
 const setViewingChildSession = vi.fn();
 
 vi.mock("@/stores/session", () => ({
   useSessionStore: Object.assign(
     (selector: (state: unknown) => unknown) =>
-      selector({
-        forceCompleteToolCall,
-      }),
+      selector({}),
     {
       getState: () => ({
         setViewingChildSession,
@@ -108,7 +118,7 @@ describe("Tool call visual redesign", () => {
     expect(screen.queryByRole("button", { name: /glob/i })).toBeNull();
   });
 
-  it("renders bash waiting state as a lightweight command card", () => {
+  it("renders prompt-like bash output as a normal running command card", () => {
     render(<ToolCallCard toolCall={makeToolCall({
       name: "bash",
       status: "calling",
@@ -119,26 +129,10 @@ describe("Tool call visual redesign", () => {
     const row = screen.getByTestId("tool-card-bash");
     expect(row.className).toContain("rounded-[14px]");
     expect(row.className).not.toContain("shadow");
-    expect(screen.getByText("执行命令")).toBeTruthy();
-    expect(screen.getByText("等待终端输入")).toBeTruthy();
+    expect(screen.getByText("Execute command")).toBeTruthy();
     expect(screen.getByText("gws sheets values")).toBeTruthy();
-    expect(screen.getByText("命令正在等待确认或标准输入。")).toBeTruthy();
-  });
-
-  it("renders bash timeout recovery affordance inside the command card", () => {
-    render(<ToolCallCard toolCall={makeToolCall({
-      name: "bash",
-      status: "calling",
-      startTime: new Date(Date.now() - 5 * 60 * 1000),
-      arguments: { command: "pnpm dev" },
-      result: "still running",
-    })} />);
-
-    const action = screen.getByRole("button", { name: "标记为完成" });
-    fireEvent.click(action);
-
-    expect(screen.getByText("运行时间过长")).toBeTruthy();
-    expect(forceCompleteToolCall).toHaveBeenCalledWith("tool-1");
+    expect(screen.queryByText("Waiting for input")).toBeNull();
+    expect(screen.queryByText("This command is waiting for confirmation or stdin.")).toBeNull();
   });
 
   it("renders bash output in a collapsible area with max height", () => {
@@ -152,7 +146,7 @@ describe("Tool call visual redesign", () => {
     expect(screen.queryByText("line 7")).toBeNull();
     expect(screen.queryByText("已完成")).toBeNull();
 
-    const header = screen.getByRole("button", { name: /执行命令 cat long\.log/ });
+    const header = screen.getByRole("button", { name: /Execute command cat long\.log/ });
     fireEvent.click(header);
 
     const output = screen.getByTestId("tool-card-bash-output");
@@ -170,11 +164,11 @@ describe("Tool call visual redesign", () => {
       result: "",
     })} />);
 
-    const header = screen.getByRole("button", { name: /执行命令 lsof -nP -iTCP:8081 -sTCP:LISTEN/ });
+    const header = screen.getByRole("button", { name: /Execute command lsof -nP -iTCP:8081 -sTCP:LISTEN/ });
     fireEvent.click(header);
 
     const output = screen.getByTestId("tool-card-bash-output");
-    expect(output.textContent).toContain("无输出");
+    expect(output.textContent).toContain("No output");
   });
 
   it("prefers an explicit command description before the command text", () => {
@@ -297,8 +291,8 @@ describe("Tool call visual redesign", () => {
     const card = screen.getByTestId("tool-card-task");
     expect(card.className).toContain("rounded-[14px]");
     expect(card.className).toContain("bg-[#fbfcfe]");
-    expect(screen.getByText(/查看会话/)).toBeTruthy();
-    expect(screen.getByText("opens child conversation · 3 updates")).toBeTruthy();
+    expect(screen.getByText(/View session/)).toBeTruthy();
+    expect(screen.getByText("Opens child conversation · 3 updates")).toBeTruthy();
     expect(screen.getByText("✓")).toBeTruthy();
   });
 

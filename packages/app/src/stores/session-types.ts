@@ -9,7 +9,6 @@ import type {
   SessionErrorEvent,
   SendMessageFilePart,
 } from '@/lib/opencode/sdk-types';
-import type { TerminalPromptKind } from "@/lib/terminal-interaction";
 import type {
   SessionCreatedEvent,
   SessionUpdatedEvent,
@@ -82,12 +81,7 @@ export interface PendingQuestionState {
   messageId: string;
   questions: Question[];
   sessionId?: string; // source session ID (child or parent)
-  source?: "opencode" | "terminal_input";
-  terminalInputContext?: {
-    command?: string;
-    prompt?: string;
-    kind?: TerminalPromptKind;
-  };
+  source?: "opencode";
 }
 
 export interface MessagePart {
@@ -287,9 +281,6 @@ export interface SessionState {
   refreshSessionDiff: () => Promise<void>;
   handleSessionError: (event: SessionErrorEvent) => void;
   clearSessionError: () => void;
-
-  // Actions - Tool call management
-  forceCompleteToolCall: (toolCallId: string) => void;
 
   // Actions - Child session viewing
   setViewingChildSession: (sessionId: string | null) => void;

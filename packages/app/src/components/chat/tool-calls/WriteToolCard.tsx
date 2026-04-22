@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Loader2,
 } from "lucide-react";
@@ -52,6 +53,7 @@ function generateNewFileDiff(content: string, filePath: string): string {
 }
 
 export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
+  const { t } = useTranslation();
   const selectFile = useWorkspaceStore((s) => s.selectFile);
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
 
@@ -128,7 +130,9 @@ export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
         onClick={canOpenFile ? handleOpenFile : undefined}
       >
         <span className="text-[13px] text-muted-foreground shrink-0">+</span>
-        <span className="text-sm font-semibold text-foreground shrink-0">Write</span>
+        <span className="text-sm font-semibold text-foreground shrink-0">
+          {t("chat.toolCall.write.title", "Write")}
+        </span>
         {filePath && (
           <span
             className={cn(
@@ -160,13 +164,13 @@ export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
       {!content && toolCall.status === "calling" && (
         <div className="border-t border-border/50 p-3 flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 size={12} className="animate-spin" />
-          <span>Writing file...</span>
+          <span>{t("chat.toolCall.write.writing", "Writing file...")}</span>
         </div>
       )}
 
       {content && !diffData && (
         <div className="border-t border-border/50 p-3 text-xs text-muted-foreground italic">
-          Unable to generate diff view
+          {t("chat.toolCall.diff.unavailable", "Unable to generate diff view")}
         </div>
       )}
 

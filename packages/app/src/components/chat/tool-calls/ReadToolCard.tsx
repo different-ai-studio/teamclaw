@@ -1,13 +1,15 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { ToolCall } from "@/stores/session";
 import { extractFilePath, getFileName } from "./tool-call-utils";
 import { useToolCallFileOnDisk } from "@/hooks/useToolCallFileOnDisk";
 
 export function ReadToolCard({ toolCall }: { toolCall: ToolCall }) {
+  const { t } = useTranslation();
   const args = toolCall.arguments as Record<string, unknown>;
   const filePath = extractFilePath(args);
-  const displayName = filePath ? getFileName(filePath) : "file";
+  const displayName = filePath ? getFileName(filePath) : t("chat.toolCall.read.defaultFile", "file");
   const fullPath = useMemo(() => filePath, [filePath]);
   const shouldVerifyFileOnDisk =
     Boolean(fullPath) &&
@@ -29,7 +31,9 @@ export function ReadToolCard({ toolCall }: { toolCall: ToolCall }) {
     >
       <div className="grid grid-cols-[minmax(0,1fr)] items-center select-none">
         <span className="min-w-0 text-[12px] text-[#475569] dark:text-slate-400">
-          <strong className="font-medium text-foreground/80">Read</strong>
+          <strong className="font-medium text-foreground/80">
+            {t("chat.toolCall.read.title", "Read")}
+          </strong>
           <span
             className={cn(
               "ml-1 font-mono text-foreground/70",

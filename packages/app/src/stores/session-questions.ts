@@ -19,9 +19,6 @@ import {
 } from "@/stores/streaming";
 import { sessionDataCache } from "./session-data-cache";
 import {
-  buildTerminalInputFollowUpMessage,
-  isTerminalCancelAnswer,
-  isSyntheticTerminalQuestionId,
 } from "@/lib/terminal-interaction";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
@@ -57,71 +54,6 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
           pendingQuestion.questionId,
         );
         console.log("[Question] Answers:", formattedAnswers);
-
-        if (
-          pendingQuestion.source === "terminal_input" ||
-          isSyntheticTerminalQuestionId(pendingQuestion.questionId)
-        ) {
-          const answerText = formattedAnswers.flat().join("; ").trim();
-          const streamingMessageId = useStreamingStore.getState().streamingMessageId;
-
-          if (streamingMessageId) {
-            await get().abortSession();
-          }
-
-          set((state) => ({
-            sessions: state.sessions.map((s) =>
-              s.id === activeSessionId
-                ? {
-                    ...s,
-                    messages: s.messages.map((m) => ({
-                      ...m,
-                      toolCalls: m.toolCalls?.map((tc) =>
-                        tc.id === pendingQuestion.toolCallId
-                          ? {
-                              ...tc,
-                              status: "failed" as const,
-                              questions: undefined,
-                            }
-                          : tc,
-                      ),
-                    })),
-                    updatedAt: new Date(),
-                  }
-                : s,
-            ),
-            pendingQuestions: state.pendingQuestions.filter(
-              (q) => q.questionId !== pendingQuestion.questionId,
-            ),
-          }));
-
-          if (activeSessionId) {
-            const cached = sessionDataCache.get(activeSessionId);
-            if (cached) {
-              const qs = (cached.pendingQuestions || []).filter(
-                (q) => q.questionId !== pendingQuestion.questionId,
-              );
-              sessionDataCache.set(activeSessionId, {
-                ...cached,
-                pendingQuestions: qs,
-              });
-            }
-          }
-
-          if (isTerminalCancelAnswer(answerText)) {
-            return;
-          }
-
-          const followUp = buildTerminalInputFollowUpMessage({
-            command: pendingQuestion.terminalInputContext?.command || "",
-            prompt: pendingQuestion.terminalInputContext?.prompt || "",
-            answer: answerText,
-            kind: pendingQuestion.terminalInputContext?.kind || "generic",
-          });
-
-          await get().sendMessage(followUp);
-          return;
-        }
 
         try {
           await client.replyQuestion(

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DiffLine } from "@/components/diff/diff-ast";
@@ -77,6 +78,7 @@ export function ToolCallDiffBody({
   previewLineCount = DEFAULT_PREVIEW_LINES,
   variant = "viewer",
 }: ToolCallDiffBodyProps) {
+  const { t } = useTranslation();
   const [tailExpanded, setTailExpanded] = useState(false);
   const needsTailToggle = variant === "viewer" && lines.length > previewLineCount;
   const displayed =
@@ -132,7 +134,11 @@ export function ToolCallDiffBody({
               setTailExpanded((v) => !v);
             }}
             aria-expanded={tailExpanded}
-            aria-label={tailExpanded ? "Collapse diff preview" : "Expand full diff"}
+            aria-label={
+              tailExpanded
+                ? t("chat.toolCall.diff.collapsePreview", "Collapse diff preview")
+                : t("chat.toolCall.diff.expandFull", "Expand full diff")
+            }
           >
             <ChevronDown
               size={16}

@@ -2,11 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { ToolCall } from "@/stores/session";
 import { isCommandToolLikelyWaitingForInput } from "../tool-calls/tool-call-utils";
 import {
-  buildTerminalInputQuestion,
   getCommandText,
-  getTerminalPromptKind,
   getToolCallOutputText,
-  isTerminalCancelAnswer,
 } from "@/lib/terminal-interaction";
 
 function makeToolCall(overrides: Partial<ToolCall> = {}): ToolCall {
@@ -33,20 +30,12 @@ describe("tool-call-utils", () => {
     expect(getToolCallOutputText("plain")).toBe("plain");
   });
 
-  it("detects confirmation prompts in terminal output", () => {
+  it("does not flag prompt-like command output anymore", () => {
     const toolCall = makeToolCall({
       result: "This will remove files. Continue? [y/N]",
     });
 
-    expect(isCommandToolLikelyWaitingForInput(toolCall)).toBe(true);
-  });
-
-  it("detects password prompts in terminal output", () => {
-    const toolCall = makeToolCall({
-      result: "Password:",
-    });
-
-    expect(isCommandToolLikelyWaitingForInput(toolCall)).toBe(true);
+    expect(isCommandToolLikelyWaitingForInput(toolCall)).toBe(false);
   });
 
   it("does not flag completed or normal command output", () => {
@@ -60,23 +49,5 @@ describe("tool-call-utils", () => {
 
     expect(isCommandToolLikelyWaitingForInput(completedToolCall)).toBe(false);
     expect(isCommandToolLikelyWaitingForInput(normalRunningToolCall)).toBe(false);
-  });
-
-  it("builds a yes/no terminal input question from the prompt", () => {
-    const question = buildTerminalInputQuestion(
-      "rm -rf build",
-      "This will remove files. Continue? [y/N]",
-    );
-
-    expect(question.header).toBe("Terminal Input");
-    expect(question.question).toContain("rm -rf build");
-    expect(question.options.map((option) => option.value)).toEqual(["yes", "no", "cancel"]);
-  });
-
-  it("classifies password prompts and cancel answers", () => {
-    expect(getTerminalPromptKind("Password:")).toBe("password");
-    expect(getTerminalPromptKind("Press Enter to continue")).toBe("continue");
-    expect(isTerminalCancelAnswer("cancel")).toBe(true);
-    expect(isTerminalCancelAnswer("yes")).toBe(false);
   });
 });

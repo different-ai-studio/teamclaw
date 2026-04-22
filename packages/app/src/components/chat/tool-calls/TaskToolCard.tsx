@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { ToolCall, useSessionStore } from "@/stores/session";
 
@@ -13,10 +14,11 @@ function StatusGlyph({ status }: { status: ToolCall["status"] }) {
 }
 
 export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
+  const { t } = useTranslation();
   const args = toolCall.arguments as {
     name?: string;
   };
-  const skillName = args?.name || "unknown-skill";
+  const skillName = args?.name || t("chat.toolCall.skill.unknown", "unknown-skill");
 
   return (
     <div
@@ -25,7 +27,9 @@ export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
     >
       <div className="flex items-center gap-[10px] px-3 py-[10px]">
         <span className="text-[12px] text-[#8a7a63]">⚡</span>
-        <span className="text-[13px] font-bold text-[#334155] dark:text-foreground">Skill</span>
+        <span className="text-[13px] font-bold text-[#334155] dark:text-foreground">
+          {t("chat.toolCall.skill.title", "Skill")}
+        </span>
         <span className="rounded-full border border-[#e8dfd1] bg-[#f7f4ed] px-2 py-0.5 text-[11px] text-[#8a7a63]">
           {skillName}
         </span>
@@ -38,10 +42,11 @@ export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
 }
 
 export function RoleSkillToolCard({ toolCall }: { toolCall: ToolCall }) {
+  const { t } = useTranslation();
   const args = toolCall.arguments as {
     name?: string;
   };
-  const skillName = args?.name || "unknown-role-skill";
+  const skillName = args?.name || t("chat.toolCall.roleSkill.unknown", "unknown-role-skill");
 
   return (
     <div
@@ -50,7 +55,9 @@ export function RoleSkillToolCard({ toolCall }: { toolCall: ToolCall }) {
     >
       <span className="text-[12px] text-muted-foreground">⚡</span>
       <div className="min-w-0 text-[13px] text-[#334155] dark:text-slate-300">
-        <strong className="font-semibold text-foreground">Role skill</strong>
+        <strong className="font-semibold text-foreground">
+          {t("chat.toolCall.roleSkill.title", "Role skill")}
+        </strong>
         <span className="ml-2 font-mono text-foreground/85">{skillName}</span>
       </div>
       <div className="text-right">
@@ -61,6 +68,7 @@ export function RoleSkillToolCard({ toolCall }: { toolCall: ToolCall }) {
 }
 
 export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
+  const { t } = useTranslation();
   const args = toolCall.arguments as {
     description?: string;
     subagent_type?: string;
@@ -76,7 +84,7 @@ export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
     }
   }
 
-  const description = args?.description || "Subagent task";
+  const description = args?.description || t("chat.toolCall.task.defaultDescription", "Subagent task");
   const subagentType = args?.subagent_type || "explorer";
   const updateCount = toolCall.metadata?.summary?.length ?? 0;
 
@@ -93,7 +101,9 @@ export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-[14px] font-bold text-[#1f2933] dark:text-foreground">Subagent</span>
+          <span className="text-[14px] font-bold text-[#1f2933] dark:text-foreground">
+            {t("chat.toolCall.task.title", "Subagent")}
+          </span>
           <span className="rounded-full border border-[#dbe4ea] px-2 py-0.5 text-[11px] text-[#475569] dark:border-border dark:text-foreground/80">
             {subagentType}
           </span>
@@ -103,12 +113,15 @@ export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
           {description}
         </div>
         <div className="mt-[3px] text-[11px] text-[#94a3b8] dark:text-muted-foreground">
-          opens child conversation{updateCount > 0 ? ` · ${updateCount} updates` : ""}
+          {t("chat.toolCall.task.opensChildConversation", "Opens child conversation")}
+          {updateCount > 0
+            ? ` · ${t("chat.toolCall.task.updateCount", "{{count}} updates", { count: updateCount })}`
+            : ""}
         </div>
       </div>
       {sessionId ? (
         <span className="shrink-0 pt-1 text-[12px] text-[#64748b] dark:text-muted-foreground">
-          查看会话 →
+          {t("chat.toolCall.task.viewSession", "View session")} →
         </span>
       ) : null}
     </div>
@@ -120,7 +133,7 @@ export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
         type="button"
         data-testid="tool-card-task"
         onClick={openChildSession}
-        title="打开子会话"
+        title={t("chat.toolCall.task.openChildSession", "Open child session")}
         className={cn(
           "block w-full overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] px-[14px] py-3 text-left dark:border-border dark:bg-card",
         )}
