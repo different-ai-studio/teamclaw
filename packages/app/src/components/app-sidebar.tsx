@@ -1017,7 +1017,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               onClick={() => openSettings()}
             >
               <Settings className="h-3.5 w-3.5 shrink-0" />
-              {t('sidebar.settings', '设置')}
+              {t('common.settings', 'Settings')}
             </Button>
             <div className="flex items-center gap-0.5">
               <WorkspaceSelectorButton />
