@@ -149,7 +149,7 @@ export function TeamOSSConfig() {
             if (config) setCfgFcEndpoint(config.teamEndpoint || '')
           })
           .catch(() => {})
-        invoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status')
+        invoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', { workspacePath })
           .then((status) => {
             if (status.llm?.baseUrl) {
               setCfgHostLlm(true)

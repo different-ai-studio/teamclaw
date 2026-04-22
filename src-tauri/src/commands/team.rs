@@ -228,6 +228,18 @@ pub fn get_workspace_path(opencode_state: &OpenCodeState) -> Result<String, Stri
     crate::commands::opencode::current_workspace_path(opencode_state)
 }
 
+/// Resolve a workspace path from an explicit frontend argument when provided,
+/// otherwise fall back to the legacy single-instance OpenCode selection.
+pub fn resolve_workspace_path(
+    workspace_path: Option<String>,
+    opencode_state: &OpenCodeState,
+) -> Result<String, String> {
+    workspace_path
+        .filter(|path| !path.is_empty())
+        .or_else(|| get_workspace_path(opencode_state).ok())
+        .ok_or("No workspace path set. Please select a workspace first.".to_string())
+}
+
 /// Read team config from teamclaw.json
 fn read_team_config_from_file(workspace_path: &str) -> Result<Option<TeamConfig>, String> {
     let config_path = format!(
@@ -754,10 +766,7 @@ pub fn get_team_status(
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<TeamStatus, String> {
-    let ws = workspace_path
-        .filter(|p| !p.is_empty())
-        .or_else(|| get_workspace_path(&opencode_state).ok())
-        .ok_or("No workspace path set. Please select a workspace first.".to_string())?;
+    let ws = resolve_workspace_path(workspace_path, &opencode_state)?;
     Ok(check_team_status(&ws))
 }
 
@@ -769,9 +778,10 @@ pub fn update_team_llm_config(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
     llm_models: Option<String>,
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     write_llm_config(&workspace_path, llm_config.as_ref())?;
     Ok(())
@@ -805,9 +815,10 @@ pub fn team_check_git_installed() -> Result<GitCheckResult, String> {
 /// 1.2 - Check if workspace already has a .git directory
 #[tauri::command]
 pub async fn team_check_workspace_has_git(
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<WorkspaceGitCheckResult, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let git_dir = Path::new(&workspace_path).join(".git");
     Ok(WorkspaceGitCheckResult {
         has_git: git_dir.exists(),
@@ -824,9 +835,10 @@ pub async fn team_init_repo(
     llm_model: Option<String>,
     llm_model_name: Option<String>,
     llm_models: Option<String>,
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if Path::new(&team_dir).exists() {
@@ -950,10 +962,11 @@ pub async fn team_git_create(
     llm_model_name: Option<String>,
     llm_models: Option<String>,
     fc_endpoint: Option<String>,
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<TeamGitCreateResult, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if Path::new(&team_dir).exists() {
@@ -1184,10 +1197,11 @@ pub async fn team_git_join(
     llm_model_name: Option<String>,
     llm_models: Option<String>,
     fc_endpoint: Option<String>,
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     // 1. Validate team_dir doesn't exist
@@ -1432,9 +1446,10 @@ pub async fn team_git_join(
 /// Creates the file if missing, or appends missing rules if it already exists.
 #[tauri::command]
 pub async fn team_generate_gitignore(
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
     ensure_gitignore_rules(&team_dir);
     Ok(TeamGitResult {
@@ -1491,11 +1506,12 @@ fn detect_precheck_breach(team_dir: &str) -> Option<(Vec<SyncPrecheckFile>, u64)
 /// without touching the repo — the caller must confirm and re-invoke with force.
 #[tauri::command]
 pub async fn team_sync_repo(
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
     force: Option<bool>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     let git_dir = Path::new(&team_dir).join(".git");
@@ -1693,9 +1709,10 @@ pub async fn team_sync_repo(
 /// 1.6 - Disconnect team repo: remove workspace/teamclaw-team directory
 #[tauri::command]
 pub async fn team_disconnect_repo(
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if !Path::new(&team_dir).exists() {
@@ -1721,10 +1738,11 @@ pub async fn team_disconnect_repo(
 #[tauri::command]
 pub async fn init_git_team_secrets(
     team_id: String,
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
     let team_path = Path::new(&team_dir);
 
@@ -1749,9 +1767,10 @@ pub async fn init_git_team_secrets(
 #[tauri::command]
 pub async fn get_git_team_secret(
     team_id: String,
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<String, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     crate::commands::oss_sync::load_team_secret(&workspace_path, &team_id)
 }
 
@@ -1760,9 +1779,10 @@ pub async fn get_git_team_secret(
 /// 2.2 - Get team config from teamclaw.json
 #[tauri::command]
 pub async fn get_team_config(
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<Option<TeamConfig>, String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     read_team_config_from_file(&workspace_path)
 }
 
@@ -1770,16 +1790,20 @@ pub async fn get_team_config(
 #[tauri::command]
 pub async fn save_team_config(
     team: TeamConfig,
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     write_team_config_to_file(&workspace_path, Some(&team))
 }
 
 /// 2.4 - Clear team config from teamclaw.json
 #[tauri::command]
-pub async fn clear_team_config(opencode_state: State<'_, OpenCodeState>) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&opencode_state)?;
+pub async fn clear_team_config(
+    workspace_path: Option<String>,
+    opencode_state: State<'_, OpenCodeState>,
+) -> Result<(), String> {
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     write_team_config_to_file(&workspace_path, None)
 }
 
@@ -1790,6 +1814,7 @@ pub async fn clear_team_config(opencode_state: State<'_, OpenCodeState>) -> Resu
 #[cfg(test)]
 mod sync_precheck_tests {
     use super::*;
+    use crate::commands::opencode::OpenCodeInner;
 
     #[test]
     fn test_parse_untracked_paths_basic() {
@@ -1815,5 +1840,35 @@ mod sync_precheck_tests {
         let input = b"?? my new file.txt\x00";
         let paths = parse_untracked_paths(input);
         assert_eq!(paths, vec!["my new file.txt".to_string()]);
+    }
+
+    #[test]
+    fn resolve_workspace_path_prefers_explicit_workspace_in_multi_instance_mode() {
+        let state = OpenCodeState::default();
+        let mut instances = state.instances.lock().unwrap();
+        instances.insert(
+            "/workspace-a".to_string(),
+            OpenCodeInner {
+                is_running: true,
+                port: 13141,
+                child_process: None,
+                reader_task: None,
+            },
+        );
+        instances.insert(
+            "/workspace-b".to_string(),
+            OpenCodeInner {
+                is_running: true,
+                port: 13142,
+                child_process: None,
+                reader_task: None,
+            },
+        );
+        drop(instances);
+
+        let resolved =
+            resolve_workspace_path(Some("/workspace-b".to_string()), &state).unwrap();
+
+        assert_eq!(resolved, "/workspace-b");
     }
 }

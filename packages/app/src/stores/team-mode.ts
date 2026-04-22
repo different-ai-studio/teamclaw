@@ -131,7 +131,9 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     if (isTauri()) {
       try {
         const { invoke } = await import('@tauri-apps/api/core')
-        const teamConfig = await invoke<{ lastSyncAt?: string | null } | null>('get_team_config')
+        const teamConfig = await invoke<{ lastSyncAt?: string | null } | null>('get_team_config', {
+          workspacePath: _workspacePath,
+        })
         set({ teamGitLastSyncAt: teamConfig?.lastSyncAt ?? null })
       } catch { /* ignore */ }
     }
