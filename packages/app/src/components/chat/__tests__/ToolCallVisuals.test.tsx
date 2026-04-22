@@ -345,4 +345,33 @@ describe("Tool call visual redesign", () => {
     expect(screen.getByText("Role skill")).toBeTruthy();
     expect(screen.getByText("recon-parse-config-authoring")).toBeTruthy();
   });
+
+  it("renders unknown tools with a compact expandable fallback card", () => {
+    render(<ToolCallCard toolCall={makeToolCall({
+      name: "team_create",
+      status: "completed",
+      arguments: {
+        name: "review-team",
+        roles: ["planner", "reviewer"],
+      },
+      result: {
+        ok: true,
+        team_id: "team-1",
+      },
+    })} />);
+
+    const header = screen.getByRole("button", { name: /Team create/ });
+    expect(header.className).toContain("px-[12px]");
+    expect(header.className).toContain("py-[10px]");
+    expect(header.textContent).toContain("Team create");
+    expect(header.textContent).toContain("2 args");
+    expect(header.textContent).not.toContain("Done");
+    expect(header.querySelector("[data-testid='tool-fallback-icon']")).toBeTruthy();
+    expect(header.textContent).not.toContain("⚡");
+
+    expect(screen.queryByText("Arguments")).toBeNull();
+    fireEvent.click(header);
+    expect(screen.getByText("Arguments")).toBeTruthy();
+    expect(screen.getByText("Result")).toBeTruthy();
+  });
 });

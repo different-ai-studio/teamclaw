@@ -21,7 +21,6 @@ import { RoleLoadToolCard } from "./tool-calls/RoleLoadToolCard";
 import { RoleSkillToolCard, SkillToolCard, TaskToolCard } from "./tool-calls/TaskToolCard";
 import {
   getStatusConfig,
-  getToolIcon,
   isQuestionTool,
   isWriteTool,
   isEditTool,
@@ -50,7 +49,6 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
     t(key, { defaultValue: fallback, ...options }),
   )[toolCall.status];
   const StatusIcon = config.icon;
-  const ToolIcon = getToolIcon(toolCall.name);
   const isCommand = isCommandTool(toolCall.name);
   const commandText = getCommandText(toolCall.arguments);
   const commandOutput = getToolCallOutputText(toolCall.result).trim();
@@ -327,36 +325,59 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
     )
   }
 
+  const fallbackArgCount = toolCall.arguments ? Object.keys(toolCall.arguments).length : 0;
+  const fallbackSummary =
+    summary ||
+    (typeof toolCall.arguments === "object" && toolCall.arguments
+      ? (["description", "title", "action", "query", "url"] as const)
+          .map((key) => toolCall.arguments?.[key])
+          .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : null) ||
+    null;
+
   return (
     <div className="space-y-2">
       <Collapsible open={expanded} onOpenChange={setExpanded}>
-        <div className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all duration-200">
+        <div className="overflow-hidden rounded-[16px] border border-[#e7edf4] bg-[#fbfcfe] transition-all duration-200 dark:border-border dark:bg-card">
           <CollapsibleTrigger asChild>
-            <button className="w-full flex items-center gap-2 px-3 py-2 text-left bg-muted/50 hover:bg-muted/70 transition-colors">
+            <button className="w-full flex items-center gap-[10px] px-[12px] py-[10px] text-left transition-colors hover:bg-[#f4f7fa] dark:hover:bg-muted/30">
               <ChevronRight
-                size={14}
+                size={13}
                 className={cn(
-                  "text-muted-foreground transition-transform duration-200 shrink-0",
+                  "shrink-0 text-[#64748b] transition-transform duration-200 dark:text-muted-foreground",
                   expanded && "rotate-90",
                 )}
               />
-              <ToolIcon size={14} className="text-muted-foreground shrink-0" />
-              <span className="text-xs font-medium text-foreground">
+              <span
+                data-testid="tool-fallback-icon"
+                className="relative h-[22px] w-[22px] shrink-0 rounded-[8px] border border-[#e2e8f0] bg-[#f8fafc] dark:border-border dark:bg-muted/20"
+                aria-hidden="true"
+              >
+                <span className="absolute left-[4px] top-[5px] h-[5px] w-[5px] rounded-full bg-[#475569] dark:bg-slate-300" />
+                <span className="absolute left-[12px] top-[5px] h-[4px] w-[4px] rounded-full bg-[#94a3b8] dark:bg-slate-500" />
+                <span className="absolute left-[8px] top-[12px] h-[6px] w-[6px] rounded-full bg-[#cbd5e1] dark:bg-slate-600" />
+              </span>
+              <span className="min-w-0 flex-1 text-[13px] font-medium text-[#1f2933] dark:text-foreground">
                 {formatToolName((key, fallback, options) => t(key, { defaultValue: fallback, ...options }), toolCall.name)}
               </span>
-              {summary && !expanded && (
-                <span className="text-xs text-muted-foreground truncate flex-1 max-w-[200px] font-mono">
-                  {summary}
+              {!expanded && fallbackSummary && (
+                <span className="max-w-[18rem] truncate text-[11px] text-[#64748b] dark:text-muted-foreground">
+                  {fallbackSummary}
                 </span>
               )}
               <div className="ml-auto flex items-center gap-2">
+                {fallbackArgCount > 0 && (
+                  <span className="rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-[6px] py-[1px] text-[10px] text-[#64748b] dark:border-border dark:bg-muted/20 dark:text-muted-foreground">
+                    {t("chat.toolCall.argCount", "{{count}} args", { count: fallbackArgCount })}
+                  </span>
+                )}
                 {toolCall.duration && (
-                  <span className="text-[10px] text-muted-foreground/70">
+                  <span className="text-[10px] text-[#94a3b8] dark:text-muted-foreground/70">
                     {formatDuration(toolCall.duration)}
                   </span>
                 )}
                 <StatusIcon
-                  size={14}
+                  size={13}
                   className={cn(
                     config.textColor,
                     config.animate && "animate-spin",
@@ -367,7 +388,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
           </CollapsibleTrigger>
 
           <CollapsibleContent>
-            <div className="px-3 pb-3 pt-1 text-xs space-y-2 border-t border-border/50">
+            <div className="space-y-2 border-t border-[#eef2f5] bg-white/80 px-[12px] pb-3 pt-2 text-xs dark:border-border/60 dark:bg-background/40">
               {toolCall.arguments &&
                 Object.keys(toolCall.arguments).length > 0 && (
                   <div>
