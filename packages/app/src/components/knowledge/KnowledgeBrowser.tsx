@@ -36,7 +36,7 @@ export function KnowledgeBrowser() {
         needsConfirmation?: boolean
         newFiles?: Array<{ path: string; sizeBytes: number }>
         totalBytes?: number
-      }>('team_sync_repo', { force: false })
+      }>('team_sync_repo', { force: false, workspacePath })
       if (result.needsConfirmation) {
         toast.warning(
           `检测到 ${result.newFiles?.length ?? 0} 个较大的新文件待同步，请在设置 → 团队中确认`,

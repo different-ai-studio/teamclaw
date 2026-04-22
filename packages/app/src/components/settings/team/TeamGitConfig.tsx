@@ -138,6 +138,10 @@ export function TeamGitConfig() {
   const teamMembersStore = useTeamMembersStore()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady)
+  const workspaceArgs = React.useMemo<{ workspacePath?: string }>(
+    () => (workspacePath ? { workspacePath } : {}),
+    [workspacePath],
+  )
   const [deviceInfo, setDeviceInfo] = React.useState<{ nodeId: string } | null>(null)
   const [state, setState] = React.useState<ConnectionState>('loading')
   const [teamConfig, setTeamConfig] = React.useState<TeamConfig | null>(null)
@@ -208,7 +212,7 @@ export function TeamGitConfig() {
         return
       }
 
-      const config = await tauriInvoke<TeamConfig | null>('get_team_config')
+      const config = await tauriInvoke<TeamConfig | null>('get_team_config', workspaceArgs)
       if (config) {
         setTeamConfig(config)
         setGitUrl(config.gitUrl)
@@ -217,7 +221,10 @@ export function TeamGitConfig() {
         // Init shared secrets if team_id exists
         if (config.teamId) {
           try {
-            await tauriInvoke('init_git_team_secrets', { teamId: config.teamId })
+            await tauriInvoke('init_git_team_secrets', {
+              teamId: config.teamId,
+              ...workspaceArgs,
+            })
           } catch (err) {
             console.warn('Failed to init shared secrets:', err)
           }
@@ -236,7 +243,7 @@ export function TeamGitConfig() {
       setErrorMessage(err instanceof Error ? err.message : String(err))
       setState('error')
     }
-  }, [workspacePath, openCodeReady])
+  }, [workspacePath, openCodeReady, workspaceArgs])
 
   React.useEffect(() => {
     initialize()
@@ -245,7 +252,7 @@ export function TeamGitConfig() {
   // Load current LLM config when connected
   React.useEffect(() => {
     if ((state === 'connected' || state === 'syncing') && !llmLoaded && isTauri()) {
-      tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status')
+      tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', workspaceArgs)
         .then((status) => {
           if (status.llm?.baseUrl) {
             setHostLlm(true)
@@ -260,7 +267,7 @@ export function TeamGitConfig() {
         .catch(() => {})
       setLlmLoaded(true)
     }
-  }, [state, llmLoaded])
+  }, [state, llmLoaded, workspaceArgs])
 
   // Load members and device info when connected
   React.useEffect(() => {
@@ -280,6 +287,7 @@ export function TeamGitConfig() {
         llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
         llmModelName: hostLlm ? (llmModels[0]?.name || null) : null,
         llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
+        ...workspaceArgs,
       })
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err))
@@ -307,10 +315,11 @@ export function TeamGitConfig() {
         llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
         llmModelName: hostLlm ? (llmModels[0]?.name || null) : null,
         llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
+        ...workspaceArgs,
       })
 
       setConnectStep(t('settings.team.generatingGitignore', 'Generating .gitignore...'))
-      await tauriInvoke<TeamGitResult>('team_generate_gitignore')
+      await tauriInvoke<TeamGitResult>('team_generate_gitignore', workspaceArgs)
 
       setConnectStep(t('settings.team.savingConfig', 'Saving configuration...'))
       const now = new Date().toISOString()
@@ -321,7 +330,7 @@ export function TeamGitConfig() {
         ...(isHttpsUrl && gitToken.trim() ? { gitToken: gitToken.trim() } : {}),
         ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
-      await tauriInvoke('save_team_config', { team: newConfig })
+      await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
 
       setTeamConfig(newConfig)
       setState('connected')
@@ -377,6 +386,7 @@ export function TeamGitConfig() {
         llmModelName: hostLlm ? (llmModels[0]?.name || null) : null,
         llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
         fcEndpoint: managedGit ? MANAGED_GIT_FC_ENDPOINT : null,
+        ...workspaceArgs,
       })
       setConnectStep('Saving configuration...')
       const now = new Date().toISOString()
@@ -388,7 +398,7 @@ export function TeamGitConfig() {
         ...(effectiveGitToken ? { gitToken: effectiveGitToken } : {}),
         ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
-      await tauriInvoke('save_team_config', { team: newConfig })
+      await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
       setTeamConfig(newConfig)
       setCreatedTeamId(result.teamId)
       setCreatedTeamSecret(result.teamSecret)
@@ -456,6 +466,7 @@ export function TeamGitConfig() {
         llmModelName: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
         llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
         fcEndpoint: joinedViaInvite ? MANAGED_GIT_FC_ENDPOINT : null,
+        ...workspaceArgs,
       })
       setConnectStep('Saving configuration...')
       const now = new Date().toISOString()
@@ -467,7 +478,7 @@ export function TeamGitConfig() {
         ...(effectiveGitToken ? { gitToken: effectiveGitToken } : {}),
         ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
-      await tauriInvoke('save_team_config', { team: newConfig })
+      await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
       setTeamConfig(newConfig)
       setState('connected')
 
@@ -488,7 +499,7 @@ export function TeamGitConfig() {
     setErrorMessage(null)
 
     try {
-      const result = await tauriInvoke<TeamGitResult>('team_sync_repo', { force })
+      const result = await tauriInvoke<TeamGitResult>('team_sync_repo', { force, ...workspaceArgs })
 
       if (result.needsConfirmation) {
         setPendingUpdateUi(updateUi)
@@ -518,7 +529,7 @@ export function TeamGitConfig() {
         ...teamConfig!,
         lastSyncAt: now,
       }
-      await tauriInvoke('save_team_config', { team: updatedConfig })
+      await tauriInvoke('save_team_config', { team: updatedConfig, ...workspaceArgs })
       setTeamConfig(updatedConfig)
       const { useTeamModeStore } = await import('@/stores/team-mode')
       useTeamModeStore.setState({ teamGitLastSyncAt: now })
@@ -542,8 +553,8 @@ export function TeamGitConfig() {
     setErrorMessage(null)
 
     try {
-      await tauriInvoke<TeamGitResult>('team_disconnect_repo')
-      await tauriInvoke('clear_team_config')
+      await tauriInvoke<TeamGitResult>('team_disconnect_repo', workspaceArgs)
+      await tauriInvoke('clear_team_config', workspaceArgs)
 
       setTeamConfig(null)
       setGitUrl('')
@@ -562,7 +573,7 @@ export function TeamGitConfig() {
 
     try {
       const updatedConfig: TeamConfig = { ...teamConfig, enabled }
-      await tauriInvoke('save_team_config', { team: updatedConfig })
+      await tauriInvoke('save_team_config', { team: updatedConfig, ...workspaceArgs })
       setTeamConfig(updatedConfig)
     } catch (err) {
       console.error('Toggle error:', err)
@@ -1004,7 +1015,10 @@ export function TeamGitConfig() {
                         let secret = loadedTeamSecret
                         if (!secret) {
                           try {
-                            secret = await tauriInvoke<string>('get_git_team_secret', { teamId: teamConfig.teamId })
+                            secret = await tauriInvoke<string>('get_git_team_secret', {
+                              teamId: teamConfig.teamId,
+                              ...workspaceArgs,
+                            })
                             setLoadedTeamSecret(secret)
                           } catch { return }
                         }
@@ -1051,7 +1065,10 @@ export function TeamGitConfig() {
                         onClick={async () => {
                           if (!showTeamSecret && !loadedTeamSecret) {
                             try {
-                              const secret = await tauriInvoke<string>('get_git_team_secret', { teamId: teamConfig.teamId })
+                              const secret = await tauriInvoke<string>('get_git_team_secret', {
+                                teamId: teamConfig.teamId,
+                                ...workspaceArgs,
+                              })
                               setLoadedTeamSecret(secret)
                             } catch { /* ignore */ }
                           }
@@ -1068,7 +1085,10 @@ export function TeamGitConfig() {
                           let secret = loadedTeamSecret
                           if (!secret) {
                             try {
-                              secret = await tauriInvoke<string>('get_git_team_secret', { teamId: teamConfig.teamId })
+                              secret = await tauriInvoke<string>('get_git_team_secret', {
+                                teamId: teamConfig.teamId,
+                                ...workspaceArgs,
+                              })
                               setLoadedTeamSecret(secret)
                             } catch { return }
                           }

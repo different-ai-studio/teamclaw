@@ -195,7 +195,7 @@ export function TeamP2PConfig() {
         // Load current LLM config for editing
         if (!cfgLoaded) {
           try {
-            const status = await tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status')
+            const status = await tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', { workspacePath })
             if (status.llm?.baseUrl) {
               setCfgHostLlm(true)
               setCfgLlmUrl(status.llm.baseUrl)
@@ -412,6 +412,7 @@ export function TeamP2PConfig() {
         llmModel: cfgHostLlm ? (cfgLlmModels[0]?.id || null) : null,
         llmModelName: cfgHostLlm ? (cfgLlmModels[0]?.name || null) : null,
         llmModels: cfgHostLlm && cfgLlmModels.length > 0 ? JSON.stringify(cfgLlmModels) : null,
+        workspacePath,
       })
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : String(err))

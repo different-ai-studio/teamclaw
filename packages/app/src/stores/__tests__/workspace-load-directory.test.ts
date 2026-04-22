@@ -78,4 +78,58 @@ describe("workspace loadDirectory", () => {
       },
     ]);
   });
+
+  it("treats alias-like ambiguous entries as directories via stat fallback", async () => {
+    mockReadDir.mockResolvedValue([
+      {
+        name: "skills",
+        isDirectory: false,
+        isFile: false,
+        isSymlink: false,
+      },
+    ]);
+    mockStat.mockResolvedValue({
+      isDirectory: true,
+      isFile: false,
+      isSymlink: false,
+    });
+
+    const result = await useWorkspaceStore.getState().loadDirectory(".");
+
+    expect(mockStat).toHaveBeenCalledWith("/workspace/skills");
+    expect(result).toEqual([
+      {
+        name: "skills",
+        path: "/workspace/skills",
+        type: "directory",
+      },
+    ]);
+  });
+
+  it("treats ambiguous linked files as files via stat fallback", async () => {
+    mockReadDir.mockResolvedValue([
+      {
+        name: "linked-file.md",
+        isDirectory: false,
+        isFile: false,
+        isSymlink: false,
+      },
+    ]);
+    mockStat.mockResolvedValue({
+      isDirectory: false,
+      isFile: true,
+      isSymlink: false,
+    });
+
+    const result = await useWorkspaceStore.getState().loadDirectory(".");
+
+    expect(mockStat).toHaveBeenCalledWith("/workspace/linked-file.md");
+    expect(result).toEqual([
+      {
+        name: "linked-file.md",
+        path: "/workspace/linked-file.md",
+        type: "file",
+      },
+    ]);
+  });
 });

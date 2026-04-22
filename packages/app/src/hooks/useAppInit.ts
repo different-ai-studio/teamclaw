@@ -435,12 +435,12 @@ export function useGitReposInit() {
 
     import("@tauri-apps/api/core")
       .then(({ invoke }) => {
-        invoke("get_team_config")
+        invoke("get_team_config", { workspacePath })
           .then((config: unknown) => {
             const teamConfig = config as { enabled?: boolean } | null;
             if (teamConfig?.enabled) {
               const doSync = () => {
-                invoke("team_sync_repo", { force: false })
+                invoke("team_sync_repo", { force: false, workspacePath })
                   .then(async (result: unknown) => {
                     const r = result as {
                       success: boolean;

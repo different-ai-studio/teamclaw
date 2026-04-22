@@ -14,7 +14,7 @@ pub struct SyncAllResult {
 pub async fn sync_all(app: &AppHandle, workspace: &str) -> SyncAllResult {
     let status = check_team_status(workspace);
     match status.mode.as_deref() {
-        Some("git") => sync_git(app).await,
+        Some("git") => sync_git(app, workspace).await,
         Some("oss") | Some("webdav") => sync_oss(app).await,
         Some("p2p") => sync_p2p(app).await,
         _ => SyncAllResult {
@@ -26,7 +26,7 @@ pub async fn sync_all(app: &AppHandle, workspace: &str) -> SyncAllResult {
     }
 }
 
-async fn sync_git(app: &AppHandle) -> SyncAllResult {
+async fn sync_git(app: &AppHandle, workspace: &str) -> SyncAllResult {
     use crate::commands::opencode::OpenCodeState;
     use crate::commands::shared_secrets::SharedSecretsState;
     use crate::commands::team::team_sync_repo;
@@ -34,7 +34,7 @@ async fn sync_git(app: &AppHandle) -> SyncAllResult {
     let opencode = app.state::<OpenCodeState>();
     let secrets = app.state::<SharedSecretsState>();
 
-    match team_sync_repo(opencode, secrets, Some(false)).await {
+    match team_sync_repo(Some(workspace.to_string()), opencode, secrets, Some(false)).await {
         Ok(result) if result.needs_confirmation => SyncAllResult {
             mode: "git".to_string(),
             success: false,
