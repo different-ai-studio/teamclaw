@@ -298,6 +298,13 @@ describe('AppSidebar', () => {
     expect(screen.queryByText('Knowledge')).toBeNull()
   })
 
+  it('workspace mode renders settings entry with english fallback text', () => {
+    uiVariantMocks.workspaceShell = true
+    render(<AppSidebar />)
+    expect(screen.getByText('Settings')).toBeDefined()
+    expect(screen.queryByText('设置')).toBeNull()
+  })
+
   it('clicking Shortcuts in Quick Access calls openPanel with "shortcuts"', () => {
     uiVariantMocks.workspaceShell = false
     render(<AppSidebar />)
