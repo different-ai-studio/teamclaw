@@ -158,7 +158,7 @@ function collectToolPendingPermissions(session: Session | null): PendingPermissi
   return collected
 }
 
-function collectVisiblePermissions(
+export function collectVisiblePermissions(
   activeSessionId: string | null,
   sessions: Session[],
   pendingPermissions: PendingPermissionEntry[],
@@ -176,6 +176,14 @@ function collectVisiblePermissions(
     seen.add(entry.permission.id)
     return true
   })
+}
+
+export function hasVisiblePendingPermissions(
+  activeSessionId: string | null,
+  sessions: Session[],
+  pendingPermissions: PendingPermissionEntry[],
+) {
+  return collectVisiblePermissions(activeSessionId, sessions, pendingPermissions).length > 0
 }
 
 function PermissionEntryCard({

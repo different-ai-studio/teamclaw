@@ -24,7 +24,7 @@ describe('workspace store: behavioral tests', () => {
       workspacePath: null,
       workspaceName: null,
       isPanelOpen: false,
-      activeTab: 'tasks',
+      activeTab: 'shortcuts',
       fileTree: [],
       expandedPaths: new Set<string>(),
       loadingPaths: new Set<string>(),
@@ -74,7 +74,7 @@ describe('workspace store: behavioral tests', () => {
     });
 
     it('setActiveTab changes tab without affecting panel open state', () => {
-      useWorkspaceStore.setState({ isPanelOpen: false, activeTab: 'tasks' });
+      useWorkspaceStore.setState({ isPanelOpen: false, activeTab: 'shortcuts' });
       useWorkspaceStore.getState().setActiveTab('shortcuts');
       expect(useWorkspaceStore.getState().activeTab).toBe('shortcuts');
       expect(useWorkspaceStore.getState().isPanelOpen).toBe(false);

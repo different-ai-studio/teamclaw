@@ -9,7 +9,7 @@ type View = 'chat' | 'settings'
 export type LayoutMode = 'task' | 'file'
 
 // Right panel tab in file mode
-export type FileModeRightTab = 'shortcuts' | 'tasks' | 'changes' | 'files' | 'agent'
+export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
 
 export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 

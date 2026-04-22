@@ -25,7 +25,8 @@ import { ChatInputArea } from "./ChatInputArea";
 import { getFileName } from "./utils/fileUtils";
 import { MessageList, type MessageListHandle } from "./MessageList";
 import { SessionErrorAlert } from "./SessionErrorAlert";
-import { PendingPermissionInline } from "./PermissionCard";
+import { PendingPermissionInline, hasVisiblePendingPermissions } from "./PermissionCard";
+import { TodoList } from "./TodoList";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -98,6 +99,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const sessionError = useSessionStore(s => s.sessionError);
   const inactivityWarning = useSessionStore(s => s.inactivityWarning);
   const draftInput = useSessionStore(s => s.draftInput);
+  const todos = useSessionStore(s => s.todos);
+  const pendingPermissions = useSessionStore(s => s.pendingPermissions);
+  const sessions = useSessionStore(s => s.sessions);
 
   // ── Child session viewing ──────────────────────────────────────────
   const viewingChildSessionId = useSessionStore(s => s.viewingChildSessionId);
@@ -111,6 +115,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     viewingChildSessionId ? s.childSessionStreaming[viewingChildSessionId] : undefined
   );
   const isViewingChild = !!viewingChildSessionId;
+  const showInlineTodo = React.useMemo(() => {
+    if (isViewingChild || todos.length === 0) return false;
+    return !hasVisiblePendingPermissions(activeSessionId, sessions, pendingPermissions);
+  }, [activeSessionId, isViewingChild, pendingPermissions, sessions, todos]);
   const displayedChildSessionMessages = React.useMemo(() => {
     if (!viewingChildSessionId) return EMPTY_MESSAGES;
 
@@ -907,6 +915,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           onHeightChange={handleInputHeightChange}
           headerContent={
             <>
+              {showInlineTodo ? <TodoList todos={todos} variant="inline" /> : null}
               <PendingPermissionInline />
               {sessionError && (
                 <SessionErrorAlert

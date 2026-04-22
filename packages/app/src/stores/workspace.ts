@@ -62,7 +62,7 @@ export interface FileNode {
 }
 
 // Right panel tab type
-export type RightPanelTab = "tasks" | "diff" | "files" | "shortcuts" | "knowledge";
+export type RightPanelTab = "diff" | "files" | "shortcuts" | "knowledge";
 
 // Undo operation types for file operations
 interface UndoOperation {
@@ -224,7 +224,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       ...(url ? { openCodeUrl: url } : {}),
     }),
   isPanelOpen: false,
-  activeTab: "tasks",
+  activeTab: "shortcuts",
   fileTree: [],
   expandedPaths: new Set<string>(),
   loadingPaths: new Set<string>(),

@@ -22,7 +22,7 @@ const workspaceStoreMocks = vi.hoisted(() => ({
   workspaceName: 'workspace',
   isLoadingWorkspace: false,
   isPanelOpen: false,
-  activeTab: 'tasks',
+  activeTab: 'shortcuts',
 }))
 
 const teamModeStoreMocks = vi.hoisted(() => ({
@@ -201,7 +201,7 @@ describe('AppSidebar', () => {
     uiStoreMocks.openEmbeddedSettingsSection = vi.fn()
     uiStoreMocks.closeEmbeddedSettingsSection = vi.fn()
     workspaceStoreMocks.isPanelOpen = false
-    workspaceStoreMocks.activeTab = 'tasks'
+    workspaceStoreMocks.activeTab = 'shortcuts'
     workspaceStoreMocks.openPanel = vi.fn()
     workspaceStoreMocks.closePanel = vi.fn()
     teamModeStoreMocks.teamMode = false

@@ -19,19 +19,10 @@ import { useTabsStore, selectActiveTab } from "@/stores/tabs";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function usePanelAutoOpen() {
-  const todos = useSessionStore((s) => s.todos);
   const sessionDiff = useSessionStore((s) => s.sessionDiff);
   const openPanel = useWorkspaceStore((s) => s.openPanel);
   const advancedMode = useUIStore((s) => s.advancedMode);
-  const prevTodosCount = useRef(0);
   const prevDiffCount = useRef(0);
-
-  useEffect(() => {
-    if (todos.length > 0 && prevTodosCount.current === 0) {
-      openPanel("tasks");
-    }
-    prevTodosCount.current = todos.length;
-  }, [todos.length, openPanel]);
 
   useEffect(() => {
     if (!advancedMode) {

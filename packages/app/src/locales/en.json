@@ -52,6 +52,12 @@
     "session": "Session",
     "shortcuts": "Shortcuts"
   },
+  "panel": {
+    "tasks": {
+      "noTasks": "No tasks yet",
+      "movedToChat": "Tasks now appear above the chat input"
+    }
+  },
   "chat": {
     "title": "Chat",
     "inputPlaceholder": "Type your message here...",
@@ -95,6 +101,13 @@
       "toolInvocationWaitingApproval": "A tool call is waiting for your approval",
       "pendingCount": "{{count}} pending",
       "approve": "Allow"
+    },
+    "todo": {
+      "summary": "{{count}} tasks, {{completed}} completed",
+      "activeSummary": "In progress: {{task}}",
+      "allCompleted": "All tasks completed",
+      "collapseAria": "Collapse todo panel",
+      "expandAria": "Expand todo panel"
     },
     "toolCall": {
       "status": {

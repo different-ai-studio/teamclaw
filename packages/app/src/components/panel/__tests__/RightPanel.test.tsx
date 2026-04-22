@@ -2,19 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import React from 'react'
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ activeTab: 'tasks' }),
+    selector({ activeTab: 'shortcuts' }),
 }))
 
 vi.mock('@/stores/session', () => ({
   useSessionStore: (selector: (s: Record<string, unknown>) => unknown) =>
     selector({ todos: [], sessionDiff: [] }),
-}))
-
-vi.mock('@/components/chat/TodoList', () => ({
-  TodoList: ({ todos }: { todos: unknown[] }) =>
-    React.createElement('div', { 'data-testid': 'todo-list' }, `${todos.length} todos`),
 }))
 
 vi.mock('@/components/chat/SessionDiffPanel', () => ({
@@ -42,10 +43,10 @@ beforeEach(() => {
 })
 
 describe('RightPanel', () => {
-  it('renders tasks tab with empty state', async () => {
+  it('renders shortcuts tab from store', async () => {
     const { RightPanel } = await import('@/components/panel/RightPanel')
     render(React.createElement(RightPanel))
-    expect(screen.getByText('No tasks yet')).toBeDefined()
+    expect(screen.getByTestId('shortcuts-panel')).toBeDefined()
   })
 
   it('renders diff tab when defaultTab=diff', async () => {

@@ -53,6 +53,12 @@
     "shortcuts": "快捷方式",
     "knowledge": "文档"
   },
+  "panel": {
+    "tasks": {
+      "noTasks": "暂无任务",
+      "movedToChat": "任务现在显示在聊天输入框上方"
+    }
+  },
   "chat": {
     "title": "聊天",
     "inputPlaceholder": "在此输入您的消息...",
@@ -96,6 +102,13 @@
       "toolInvocationWaitingApproval": "工具调用正在等待你的审批",
       "pendingCount": "{{count}} 个待处理",
       "approve": "允许"
+    },
+    "todo": {
+      "summary": "共 {{count}} 个任务，已经完成 {{completed}} 个",
+      "activeSummary": "进行中：{{task}}",
+      "allCompleted": "任务已全部完成",
+      "collapseAria": "收起待办面板",
+      "expandAria": "展开待办面板"
     },
     "toolCall": {
       "status": {

@@ -2,10 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}));
+
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 // Use a mutable ref so tests can change the store's activeTab
-const mockStoreState = { activeTab: 'tasks' as string };
+const mockStoreState = { activeTab: 'shortcuts' as string };
 
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: (selector: (s: Record<string, unknown>) => unknown) =>
@@ -15,11 +21,6 @@ vi.mock('@/stores/workspace', () => ({
 vi.mock('@/stores/session', () => ({
   useSessionStore: (selector: (s: Record<string, unknown>) => unknown) =>
     selector({ todos: [], sessionDiff: [] }),
-}));
-
-vi.mock('@/components/chat/TodoList', () => ({
-  TodoList: ({ todos }: { todos: unknown[] }) =>
-    React.createElement('div', { 'data-testid': 'todo-list' }, `${todos.length} todos`),
 }));
 
 vi.mock('@/components/chat/SessionDiffPanel', () => ({
@@ -49,15 +50,15 @@ vi.mock('@/components/knowledge/KnowledgeBrowser', () => ({
 describe('RightPanel interactions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockStoreState.activeTab = 'tasks';
+    mockStoreState.activeTab = 'shortcuts';
   });
 
   describe('tab content rendering based on store state', () => {
-    it('shows tasks tab when store activeTab is tasks', async () => {
-      mockStoreState.activeTab = 'tasks';
+    it('shows shortcuts tab when store activeTab is shortcuts', async () => {
+      mockStoreState.activeTab = 'shortcuts';
       const { RightPanel } = await import('@/components/panel/RightPanel');
       render(React.createElement(RightPanel));
-      expect(screen.getByText('No tasks yet')).toBeDefined();
+      expect(screen.getByTestId('shortcuts-panel')).toBeDefined();
       expect(screen.queryByTestId('session-diff')).toBeNull();
       expect(screen.queryByTestId('file-browser')).toBeNull();
     });
@@ -96,26 +97,15 @@ describe('RightPanel interactions', () => {
 
   describe('defaultTab overrides store tab', () => {
     it('uses defaultTab over store activeTab', async () => {
-      mockStoreState.activeTab = 'tasks'; // store says tasks
+      mockStoreState.activeTab = 'shortcuts'; // store says shortcuts
       const { RightPanel } = await import('@/components/panel/RightPanel');
       render(React.createElement(RightPanel, { defaultTab: 'diff' })); // but prop says diff
       expect(screen.getByText('No changes yet')).toBeDefined();
-      expect(screen.queryByText('No tasks yet')).toBeNull();
+      expect(screen.queryByTestId('shortcuts-panel')).toBeNull();
     });
   });
 
   describe('data flow: props vs store fallback', () => {
-    it('uses provided todos prop instead of store data', async () => {
-      const { RightPanel } = await import('@/components/panel/RightPanel');
-      const customTodos = [
-        { id: '1', content: 'Task 1', status: 'pending' },
-        { id: '2', content: 'Task 2', status: 'done' },
-      ];
-      render(React.createElement(RightPanel, { todos: customTodos }));
-      expect(screen.getByTestId('todo-list')).toBeDefined();
-      expect(screen.getByText('2 todos')).toBeDefined();
-    });
-
     it('uses provided diff prop instead of store data', async () => {
       const { RightPanel } = await import('@/components/panel/RightPanel');
       const customDiff = [
@@ -126,10 +116,10 @@ describe('RightPanel interactions', () => {
       expect(screen.getByText('1 diffs')).toBeDefined();
     });
 
-    it('shows empty state when store and props both have no todos', async () => {
+    it('uses shortcuts tab from store when no override is provided', async () => {
       const { RightPanel } = await import('@/components/panel/RightPanel');
       render(React.createElement(RightPanel));
-      expect(screen.getByText('No tasks yet')).toBeDefined();
+      expect(screen.getByTestId('shortcuts-panel')).toBeDefined();
     });
   });
 
@@ -172,16 +162,16 @@ describe('RightPanel interactions', () => {
 
   describe('only one tab content is rendered at a time', () => {
     it('does not render multiple tabs simultaneously', async () => {
-      mockStoreState.activeTab = 'tasks';
+      mockStoreState.activeTab = 'shortcuts';
       const { RightPanel } = await import('@/components/panel/RightPanel');
       render(React.createElement(RightPanel));
 
-      // Only tasks should be visible
-      expect(screen.getByText('No tasks yet')).toBeDefined();
+      // Only shortcuts should be visible
+      expect(screen.getByTestId('shortcuts-panel')).toBeDefined();
       expect(screen.queryByTestId('session-diff')).toBeNull();
       expect(screen.queryByTestId('file-browser')).toBeNull();
       expect(screen.queryByTestId('session-list')).toBeNull();
-      expect(screen.queryByTestId('shortcuts-panel')).toBeNull();
+      expect(screen.getAllByTestId('shortcuts-panel')).toHaveLength(1);
     });
   });
 });

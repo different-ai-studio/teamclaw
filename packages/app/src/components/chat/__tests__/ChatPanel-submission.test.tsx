@@ -29,6 +29,8 @@ const mockSessionState = {
   sessionError: null,
   inactivityWarning: false,
   draftInput: '',
+  pendingPermissions: [] as Array<unknown>,
+  todos: [] as Array<unknown>,
   sessions: [
     {
       id: 'sess-1',
@@ -145,7 +147,12 @@ vi.mock('../SessionErrorAlert', () => ({
 }));
 
 vi.mock('../PermissionCard', () => ({
-  PendingPermissionInline: () => null,
+  PendingPermissionInline: () =>
+    mockSessionState.pendingPermissions.length > 0
+      ? React.createElement('div', { 'data-testid': 'pending-permission-inline' }, 'permissions')
+      : null,
+  hasVisiblePendingPermissions: (_activeSessionId: string | null, _sessions: unknown[], pendingPermissions: unknown[]) =>
+    pendingPermissions.length > 0,
 }));
 
 vi.mock('../ChatInputArea', () => ({
@@ -220,6 +227,8 @@ describe('ChatPanel submission flow', () => {
     mockSessionState.isConnected = true;
     mockSessionState.sessionError = null;
     mockSessionState.draftInput = '';
+    mockSessionState.pendingPermissions = [];
+    mockSessionState.todos = [];
     mockSessionState.sessions = [
       {
         id: 'sess-1',
@@ -351,6 +360,34 @@ describe('ChatPanel submission flow', () => {
       render(React.createElement(ChatPanel));
 
       expect(screen.queryByText('Connecting...')).toBeNull();
+    });
+  });
+
+  describe('inline todo dock', () => {
+    it('renders inline todo panel above the input when no approval is pending', async () => {
+      mockSessionState.todos = [
+        { id: 'todo-1', content: 'Inspect parser config', status: 'in_progress', priority: 'high' },
+        { id: 'todo-2', content: 'Verify markdown rendering', status: 'pending', priority: 'medium' },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(screen.getByTestId('todo-list-inline')).toBeTruthy();
+      expect(screen.queryByTestId('pending-permission-inline')).toBeNull();
+    });
+
+    it('hides inline todo panel when a permission card is occupying the dock', async () => {
+      mockSessionState.todos = [
+        { id: 'todo-1', content: 'Inspect parser config', status: 'in_progress', priority: 'high' },
+      ];
+      mockSessionState.pendingPermissions = [{ permission: { id: 'perm-1' } }];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(screen.queryByTestId('todo-list-inline')).toBeNull();
+      expect(screen.getByTestId('pending-permission-inline')).toBeTruthy();
     });
   });
 
