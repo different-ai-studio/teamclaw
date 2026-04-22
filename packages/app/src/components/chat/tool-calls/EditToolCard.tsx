@@ -1,4 +1,5 @@
 import { useMemo, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ToolCall } from "@/stores/session";
@@ -49,6 +50,7 @@ function StatusGlyph({ status }: { status: ToolCall["status"] }) {
 }
 
 export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
+  const { t } = useTranslation();
   const selectFile = useWorkspaceStore((s) => s.selectFile);
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
 
@@ -131,9 +133,13 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
       >
         <div className="flex items-center gap-2 border-b border-[#eef2f5] px-[14px] py-3 dark:border-border/60">
           <Trash2 size={14} className="text-muted-foreground shrink-0" />
-          <span className="text-sm font-semibold text-foreground">Edit</span>
+          <span className="text-sm font-semibold text-foreground">
+            {t("chat.toolCall.edit.title", "Edit")}
+          </span>
           <span className="text-xs text-muted-foreground">
-            Deleted {deletedFiles.length} file{deletedFiles.length !== 1 ? "s" : ""}
+            {t("chat.toolCall.edit.deletedFiles", "Deleted {{count}} files", {
+              count: deletedFiles.length,
+            })}
           </span>
           <span className="flex-1" />
           <StatusGlyph status={toolCall.status} />
@@ -163,7 +169,9 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
         onClick={canOpenFile ? handleOpenFile : undefined}
       >
         <span className="text-[13px] text-muted-foreground shrink-0">~</span>
-        <span className="text-sm font-semibold text-foreground shrink-0">Edit</span>
+        <span className="text-sm font-semibold text-foreground shrink-0">
+          {t("chat.toolCall.edit.title", "Edit")}
+        </span>
         {headerPath ? (
           <span
             className={cn(
@@ -197,7 +205,7 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
         </div>
       ) : patchText ? (
         <div className="border-t border-border/50 p-3 text-xs text-muted-foreground italic">
-          Unable to generate diff view
+          {t("chat.toolCall.diff.unavailable", "Unable to generate diff view")}
         </div>
       ) : null}
     </div>

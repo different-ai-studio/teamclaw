@@ -53,6 +53,12 @@
     "shortcuts": "快捷方式",
     "knowledge": "文档"
   },
+  "panel": {
+    "tasks": {
+      "noTasks": "暂无任务",
+      "movedToChat": "任务现在显示在聊天输入框上方"
+    }
+  },
   "chat": {
     "title": "聊天",
     "inputPlaceholder": "在此输入您的消息...",
@@ -96,6 +102,101 @@
       "toolInvocationWaitingApproval": "工具调用正在等待你的审批",
       "pendingCount": "{{count}} 个待处理",
       "approve": "允许"
+    },
+    "todo": {
+      "summary": "共 {{count}} 个任务，已经完成 {{completed}} 个",
+      "activeSummary": "进行中：{{task}}",
+      "allCompleted": "任务已全部完成",
+      "collapseAria": "收起待办面板",
+      "expandAria": "展开待办面板"
+    },
+    "toolCall": {
+      "status": {
+        "running": "运行中",
+        "done": "已完成",
+        "failed": "失败",
+        "waiting": "等待中"
+      },
+      "arguments": "参数",
+      "result": "结果",
+      "noDetails": "暂无详情",
+      "viewFullDetails": "查看完整详情",
+      "search": {
+        "grep": "文本搜索",
+        "glob": "文件匹配",
+        "find": "查找"
+      },
+      "todo": {
+        "title": "待办",
+        "itemsUpdated": "已更新 {{count}} 项",
+        "itemsUpdatedFallback": "已更新待办",
+        "inProgressCount": "{{count}} 项进行中",
+        "allDone": "全部完成"
+      },
+      "command": {
+        "defaultDescription": "执行命令",
+        "noOutput": "无输出"
+      },
+      "permission": {
+        "bash": "Bash",
+        "tool": "工具",
+        "externalPath": "外部路径，位于工作区之外",
+        "alwaysAllowLabel": "始终允许 '{{label}}'",
+        "deniedByUser": "已被用户拒绝"
+      },
+      "read": {
+        "title": "读取",
+        "defaultFile": "文件"
+      },
+      "write": {
+        "title": "写入",
+        "writing": "写入文件中..."
+      },
+      "edit": {
+        "title": "编辑",
+        "deletedFiles": "已删除 {{count}} 个文件"
+      },
+      "diff": {
+        "unavailable": "无法生成 diff 视图",
+        "collapsePreview": "收起 diff 预览",
+        "expandFull": "展开完整 diff"
+      },
+      "skill": {
+        "title": "技能",
+        "unknown": "未知技能"
+      },
+      "roleSkill": {
+        "title": "角色技能",
+        "unknown": "未知角色技能"
+      },
+      "task": {
+        "title": "子助手",
+        "defaultDescription": "子助手任务",
+        "opensChildConversation": "打开子会话",
+        "updateCount": "{{count}} 条更新",
+        "viewSession": "查看会话",
+        "openChildSession": "打开子会话"
+      },
+      "roleLoad": {
+        "title": "加载角色",
+        "ready": "就绪",
+        "context": "上下文",
+        "instructionsReady": "角色说明已就绪",
+        "instructionsAndSkills": "角色说明与 {{count}} 个角色技能已就绪",
+        "noAdditionalContext": "无额外上下文"
+      },
+      "question": {
+        "title": "问题",
+        "answered": "已回答",
+        "processingAnswer": "正在处理回答...",
+        "waitingForResponse": "等待响应中...",
+        "customAnswerPlaceholder": "或输入自定义回答...",
+        "answerPlaceholder": "输入你的回答...",
+        "answerLabel": "回答：",
+        "submitting": "提交中...",
+        "preparing": "准备中...",
+        "submitAnswer": "提交回答"
+      }
     },
     "voiceInputStart": "开始语音输入",
     "voiceInputStop": "停止录音",

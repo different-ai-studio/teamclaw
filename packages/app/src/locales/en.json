@@ -52,6 +52,12 @@
     "session": "Session",
     "shortcuts": "Shortcuts"
   },
+  "panel": {
+    "tasks": {
+      "noTasks": "No tasks yet",
+      "movedToChat": "Tasks now appear above the chat input"
+    }
+  },
   "chat": {
     "title": "Chat",
     "inputPlaceholder": "Type your message here...",
@@ -95,6 +101,101 @@
       "toolInvocationWaitingApproval": "A tool call is waiting for your approval",
       "pendingCount": "{{count}} pending",
       "approve": "Allow"
+    },
+    "todo": {
+      "summary": "{{count}} tasks, {{completed}} completed",
+      "activeSummary": "In progress: {{task}}",
+      "allCompleted": "All tasks completed",
+      "collapseAria": "Collapse todo panel",
+      "expandAria": "Expand todo panel"
+    },
+    "toolCall": {
+      "status": {
+        "running": "Running",
+        "done": "Done",
+        "failed": "Failed",
+        "waiting": "Waiting"
+      },
+      "arguments": "Arguments",
+      "result": "Result",
+      "noDetails": "No details available",
+      "viewFullDetails": "View full details",
+      "search": {
+        "grep": "Grep",
+        "glob": "Glob",
+        "find": "Find"
+      },
+      "todo": {
+        "title": "Todo",
+        "itemsUpdated": "{{count}} items updated",
+        "itemsUpdatedFallback": "items updated",
+        "inProgressCount": "{{count}} in progress",
+        "allDone": "all done"
+      },
+      "command": {
+        "defaultDescription": "Execute command",
+        "noOutput": "No output"
+      },
+      "permission": {
+        "bash": "Bash",
+        "tool": "Tool",
+        "externalPath": "External path outside workspace",
+        "alwaysAllowLabel": "Always allow '{{label}}'",
+        "deniedByUser": "Denied by user"
+      },
+      "read": {
+        "title": "Read",
+        "defaultFile": "file"
+      },
+      "write": {
+        "title": "Write",
+        "writing": "Writing file..."
+      },
+      "edit": {
+        "title": "Edit",
+        "deletedFiles": "Deleted {{count}} files"
+      },
+      "diff": {
+        "unavailable": "Unable to generate diff view",
+        "collapsePreview": "Collapse diff preview",
+        "expandFull": "Expand full diff"
+      },
+      "skill": {
+        "title": "Skill",
+        "unknown": "unknown-skill"
+      },
+      "roleSkill": {
+        "title": "Role skill",
+        "unknown": "unknown-role-skill"
+      },
+      "task": {
+        "title": "Subagent",
+        "defaultDescription": "Subagent task",
+        "opensChildConversation": "Opens child conversation",
+        "updateCount": "{{count}} updates",
+        "viewSession": "View session",
+        "openChildSession": "Open child session"
+      },
+      "roleLoad": {
+        "title": "Role Load",
+        "ready": "Ready",
+        "context": "Context",
+        "instructionsReady": "role instructions ready",
+        "instructionsAndSkills": "role instructions + {{count}} role skills",
+        "noAdditionalContext": "No additional context"
+      },
+      "question": {
+        "title": "Question",
+        "answered": "Answered",
+        "processingAnswer": "Processing answer...",
+        "waitingForResponse": "Waiting for response...",
+        "customAnswerPlaceholder": "Or type a custom answer...",
+        "answerPlaceholder": "Type your answer...",
+        "answerLabel": "Answer: ",
+        "submitting": "Submitting...",
+        "preparing": "Preparing...",
+        "submitAnswer": "Submit Answer"
+      }
     },
     "voiceInputStart": "Start voice input",
     "voiceInputStop": "Stop recording",

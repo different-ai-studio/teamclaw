@@ -95,7 +95,7 @@ vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: vi.fn((sel: (s: any) => any) => {
     const state = {
       workspacePath: null, openCodeBootstrapped: false, openCodeReady: false, isPanelOpen: false,
-      activeTab: 'tasks', openPanel: vi.fn(), closePanel: vi.fn(),
+      activeTab: 'shortcuts', openPanel: vi.fn(), closePanel: vi.fn(),
       clearWorkspace: vi.fn(), selectedFile: null, fileContent: '',
       isLoadingFile: false, clearSelection: vi.fn(), selectFile: vi.fn(),
       setOpenCodeBootstrapped: vi.fn(), setOpenCodeReady: vi.fn(),

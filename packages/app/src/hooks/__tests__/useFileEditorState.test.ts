@@ -7,7 +7,7 @@ vi.mock('@/stores/workspace', () => ({
       selectedFile: null,
       openPanel: vi.fn(),
       closePanel: vi.fn(),
-      activeTab: 'tasks',
+      activeTab: 'shortcuts',
       selectFile: vi.fn(),
     }),
 }))

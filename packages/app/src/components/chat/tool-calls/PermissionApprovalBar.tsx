@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { FolderOpen } from "lucide-react";
 import { ToolCall, useSessionStore } from "@/stores/session";
 import { truncatePermissionSnippet } from "@/lib/utils";
@@ -6,6 +7,7 @@ import { truncatePermissionSnippet } from "@/lib/utils";
 // Shared permission approval bar — renders inline at the bottom of any tool card.
 // Reads permission state directly from toolCall.permission (not global store).
 export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
+  const { t } = useTranslation();
   const replyPermission = useSessionStore((s) => s.replyPermission);
   const [submitting, setSubmitting] = useState(false);
 
@@ -44,7 +46,7 @@ export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
               <FolderOpen size={13} className="text-muted-foreground shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <span className="text-[11px] font-medium text-foreground">
-                  External path — outside workspace
+                  {t("chat.toolCall.permission.externalPath", "External path outside workspace")}
                 </span>
                 <code className="block text-[11px] font-mono text-muted-foreground mt-0.5 break-all">
                   {externalPath}
@@ -58,7 +60,7 @@ export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
               disabled={submitting}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 shrink-0"
             >
-              Deny
+              {t("permission.deny", "Deny")}
             </button>
             <div className="ml-auto flex min-w-0 shrink items-center justify-end gap-2">
               <button
@@ -68,7 +70,7 @@ export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
                 title={label}
                 className="min-w-0 max-w-[min(100%,14rem)] shrink truncate text-left text-xs bg-muted hover:bg-muted/80 text-muted-foreground px-2.5 py-1 rounded transition-colors disabled:opacity-50"
               >
-                Always allow &apos;{allowListLabel}&apos;
+                {t("chat.toolCall.permission.alwaysAllowLabel", "Always allow '{{label}}'", { label: allowListLabel })}
               </button>
               <button
                 type="button"
@@ -76,7 +78,7 @@ export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
                 disabled={submitting}
                 className="shrink-0 text-xs bg-primary hover:bg-primary/90 text-primary-foreground px-2.5 py-1 rounded font-medium transition-colors disabled:opacity-50"
               >
-                Allow
+                {t("chat.permissionCard.approve", "Allow")}
               </button>
             </div>
           </div>
@@ -85,7 +87,7 @@ export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
       {isDenied && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-t border-border/50 bg-muted/10">
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">
-            Denied by user
+            {t("chat.toolCall.permission.deniedByUser", "Denied by user")}
           </span>
         </div>
       )}

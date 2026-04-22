@@ -5,6 +5,7 @@ import {
   lazy,
   Suspense,
   MouseEvent as ReactMouseEvent,
+  type ComponentType,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
@@ -13,7 +14,6 @@ import { buildConfig } from "@/lib/build-config";
 import {
   AlertTriangle,
   Terminal,
-  ListTodo,
   FolderGit,
   FolderTree,
   ChevronLeft,
@@ -300,7 +300,7 @@ function HeaderPanelTab({
   isActive,
   onClick,
 }: {
-  icon: typeof ListTodo;
+  icon: ComponentType<{ className?: string }>;
   label: string;
   count?: number;
   isActive: boolean;
@@ -471,7 +471,6 @@ function AppContent() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Session store - individual selectors
   const getActiveSession = useSessionStore((s) => s.getActiveSession);
-  const todos = useSessionStore((s) => s.todos);
   const sessionDiff = useSessionStore((s) => s.sessionDiff);
   const sessions = useSessionStore((s) => s.sessions);
   const reloadActiveSessionMessages = useSessionStore(
@@ -836,17 +835,6 @@ function AppContent() {
               onClick={() => setFileModeRightTab("shortcuts")}
             />
             <HeaderPanelTab
-              icon={ListTodo}
-              label={t("navigation.tasks", "Tasks")}
-              count={
-                todos.filter(
-                  (t) => t.status !== "completed" && t.status !== "cancelled",
-                ).length
-              }
-              isActive={fileModeRightTab === "tasks"}
-              onClick={() => setFileModeRightTab("tasks")}
-            />
-            <HeaderPanelTab
               icon={FolderGit}
               label={t("navigation.changes", "Changes")}
               count={sessionDiff.length}
@@ -934,7 +922,6 @@ function AppContent() {
                   {(() => {
                     switch (fileModeRightTab) {
                       case "shortcuts": return t("navigation.shortcuts", "Shortcuts");
-                      case "tasks": return t("navigation.tasks", "Tasks");
                       case "changes": return t("navigation.changes", "Changes");
                       default: return t("navigation.files", "Files");
                     }
@@ -953,9 +940,6 @@ function AppContent() {
               )}
               {fileModeRightTab === "changes" && (
                 <RightPanel defaultTab="diff" compact />
-              )}
-              {fileModeRightTab === "tasks" && (
-                <RightPanel defaultTab="tasks" compact />
               )}
               {fileModeRightTab === "files" && (
                 <RightPanel defaultTab="files" compact />
@@ -1017,7 +1001,7 @@ function AppContent() {
                   <div className="min-w-0 flex-1" data-tauri-drag-region />
                 </div>
                 <div className="min-h-0 flex-1 overflow-hidden">
-                  <RightPanel todos={todos} diff={sessionDiff} />
+                  <RightPanel diff={sessionDiff} />
                 </div>
               </>
             )}
@@ -1109,17 +1093,6 @@ function AppContent() {
                   <AppWindow className="h-4 w-4" />
                 </button>
               )}
-              <HeaderPanelTab
-                icon={ListTodo}
-                label={t("navigation.tasks", "Tasks")}
-                count={
-                  todos.filter(
-                    (t) => t.status !== "completed" && t.status !== "cancelled",
-                  ).length
-                }
-                isActive={isPanelOpen && activeTab === "tasks"}
-                onClick={() => isPanelOpen && activeTab === "tasks" ? closePanel() : openPanel("tasks")}
-              />
               {advancedMode && (
                 <HeaderPanelTab
                   icon={FolderGit}
@@ -1170,7 +1143,7 @@ function AppContent() {
         >
           <div className="h-full w-72">
             {showRightWorkspacePanel && (
-              <RightPanel todos={todos} diff={sessionDiff} />
+              <RightPanel diff={sessionDiff} />
             )}
           </div>
         </div>

@@ -25,14 +25,6 @@ import {
 import { useLocalStatsStore } from "@/stores/local-stats";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { sessionDataCache } from "./session-data-cache";
-import {
-  buildTerminalInputQuestion,
-  extractTerminalPromptSnippet,
-  getCommandText,
-  getTerminalPromptKind,
-  getToolCallOutputText,
-  isLikelyTerminalPromptText,
-} from "@/lib/terminal-interaction";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -79,86 +71,12 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
       const isQuestionTool = event.toolName.toLowerCase() === "question";
       const isRunning = event.status === "running";
       const toolNameLower = event.toolName.toLowerCase();
-      const isCommandTool =
-        toolNameLower.includes("bash") ||
-        toolNameLower.includes("shell") ||
-        toolNameLower.includes("terminal") ||
-        toolNameLower.includes("run_command");
-      const commandText = getCommandText(event.arguments);
-      const outputText = getToolCallOutputText(event.result);
-      const needsTerminalInput =
-        isCommandTool &&
-        isRunning &&
-        isLikelyTerminalPromptText(outputText);
 
       let questions: Question[] | undefined;
       if (isQuestionTool && event.arguments) {
         const args = event.arguments as unknown as QuestionToolInput;
         if (args.questions && Array.isArray(args.questions)) {
           questions = args.questions;
-        }
-      }
-
-      if (needsTerminalInput) {
-        const promptSnippet = extractTerminalPromptSnippet(outputText);
-        questions = [buildTerminalInputQuestion(commandText, outputText)];
-
-        const questionData = {
-          questionId: `terminal-input:${event.toolCallId}`,
-          toolCallId: event.toolCallId,
-          messageId: streamingMessageId,
-          questions,
-          sessionId: event.sessionId ?? activeSessionId ?? undefined,
-          source: "terminal_input" as const,
-          terminalInputContext: {
-            command: commandText,
-            prompt: promptSnippet,
-            kind: getTerminalPromptKind(promptSnippet),
-          },
-        };
-
-        const existingQuestions = get().pendingQuestions;
-        const existingForTool = existingQuestions.find((q) => q.toolCallId === event.toolCallId);
-        if (
-          !existingForTool ||
-          existingForTool.source !== "opencode"
-        ) {
-          set((state) => ({
-            pendingQuestions: [
-              ...state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
-              questionData,
-            ].slice(-20),
-          }));
-          if (activeSessionId) {
-            const cached = sessionDataCache.get(activeSessionId) || { todos: [], diff: [] };
-            const cacheQuestions = cached.pendingQuestions || [];
-            sessionDataCache.set(activeSessionId, {
-              ...cached,
-              pendingQuestions: [
-                ...cacheQuestions.filter((q) => q.toolCallId !== event.toolCallId),
-                questionData,
-              ],
-            });
-          }
-        }
-      } else if (
-        get().pendingQuestions.some(
-          (q) => q.source === "terminal_input" && q.toolCallId === event.toolCallId,
-        ) &&
-        event.status !== "running"
-      ) {
-        set((state) => ({
-          pendingQuestions: state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
-        }));
-        if (activeSessionId) {
-          const cached = sessionDataCache.get(activeSessionId);
-          if (cached) {
-            const cacheQs = cached.pendingQuestions || [];
-            sessionDataCache.set(activeSessionId, {
-              ...cached,
-              pendingQuestions: cacheQs.filter((q) => q.toolCallId !== event.toolCallId),
-            });
-          }
         }
       }
 
@@ -230,9 +148,7 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
         );
 
         if (existingTool) {
-          const newStatus = needsTerminalInput
-            ? "waiting"
-            : mapStatus(event.status);
+          const newStatus = mapStatus(event.status);
           updatedMessage = {
             ...m,
             toolCalls: m.toolCalls?.map((tc) =>
@@ -266,7 +182,7 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
           const newToolCall: ToolCall = {
             id: event.toolCallId,
             name: event.toolName,
-            status: needsTerminalInput ? "waiting" : mapStatus(event.status),
+            status: mapStatus(event.status),
             arguments: event.arguments || {},
             result: event.result,
             duration: event.duration,
@@ -330,28 +246,6 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
           }
         }
       }
-    },
-
-    forceCompleteToolCall: (toolCallId: string) => {
-      set((state) => ({
-        sessions: state.sessions.map((s) => ({
-          ...s,
-          messages: s.messages.map((m) => ({
-            ...m,
-            toolCalls: m.toolCalls?.map((tc) =>
-              tc.id === toolCallId && tc.status === "calling"
-                ? {
-                    ...tc,
-                    status: "completed" as const,
-                    duration: tc.startTime
-                      ? Date.now() - tc.startTime.getTime()
-                      : tc.duration,
-                  }
-                : tc,
-            ),
-          })),
-        })),
-      }));
     },
 
     // Handle todo.updated SSE event

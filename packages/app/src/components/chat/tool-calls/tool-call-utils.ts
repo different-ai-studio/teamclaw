@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import {
   Clock,
   Search,
@@ -14,45 +13,49 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { ToolCall } from "@/stores/session";
-import {
-  getToolCallOutputText,
-  isLikelyTerminalPromptText,
-} from "@/lib/terminal-interaction";
 
-export const statusConfig = {
-  calling: {
-    icon: Loader2,
-    bgColor: "bg-muted/30",
-    textColor: "text-muted-foreground",
-    borderColor: "border-border",
-    label: "Running",
-    animate: true,
-  },
-  completed: {
-    icon: Check,
-    bgColor: "bg-muted/20",
-    textColor: "text-foreground/60",
-    borderColor: "border-border",
-    label: "Done",
-    animate: false,
-  },
-  failed: {
-    icon: X,
-    bgColor: "bg-muted/30",
-    textColor: "text-red-600 dark:text-red-500",
-    borderColor: "border-border",
-    label: "Failed",
-    animate: false,
-  },
-  waiting: {
-    icon: Clock,
-    bgColor: "bg-muted/30",
-    textColor: "text-muted-foreground",
-    borderColor: "border-border",
-    label: "Waiting",
-    animate: true,
-  },
-};
+type TranslateFn = (
+  key: string,
+  fallback?: string,
+  options?: Record<string, unknown>,
+) => string;
+
+export function getStatusConfig(t: TranslateFn) {
+  return {
+    calling: {
+      icon: Loader2,
+      bgColor: "bg-muted/30",
+      textColor: "text-muted-foreground",
+      borderColor: "border-border",
+      label: t("chat.toolCall.status.running", "Running"),
+      animate: true,
+    },
+    completed: {
+      icon: Check,
+      bgColor: "bg-muted/20",
+      textColor: "text-foreground/60",
+      borderColor: "border-border",
+      label: t("chat.toolCall.status.done", "Done"),
+      animate: false,
+    },
+    failed: {
+      icon: X,
+      bgColor: "bg-muted/30",
+      textColor: "text-red-600 dark:text-red-500",
+      borderColor: "border-border",
+      label: t("chat.toolCall.status.failed", "Failed"),
+      animate: false,
+    },
+    waiting: {
+      icon: Clock,
+      bgColor: "bg-muted/30",
+      textColor: "text-muted-foreground",
+      borderColor: "border-border",
+      label: t("chat.toolCall.status.waiting", "Waiting"),
+      animate: true,
+    },
+  } as const;
+}
 
 // Get appropriate icon based on tool name
 export function getToolIcon(toolName: string) {
@@ -141,16 +144,9 @@ export function isTodoTool(toolName: string): boolean {
 }
 
 export function isCommandToolLikelyWaitingForInput(
-  toolCall: Pick<ToolCall, "name" | "status" | "arguments" | "result">,
+  _toolCall: Pick<ToolCall, "name" | "status" | "arguments" | "result">,
 ): boolean {
-  if (!isCommandTool(toolCall.name) || toolCall.status !== "calling") {
-    return false;
-  }
-
-  const output = getToolCallOutputText(toolCall.result).trim();
-  if (!output) return false;
-
-  return isLikelyTerminalPromptText(output);
+  return false;
 }
 
 // Check if this is a Task tool (subagent)
@@ -212,12 +208,12 @@ export function getLanguageName(ext: string): string {
 }
 
 // Format tool name for display
-export function formatToolName(name: string): string {
+export function formatToolName(t: TranslateFn, name: string): string {
   if (name.toLowerCase() === "role_skill") {
-    return "Role skill";
+    return t("chat.toolCall.roleSkill.title", "Role skill");
   }
   if (name.toLowerCase() === "role_load") {
-    return "Role Load";
+    return t("chat.toolCall.roleLoad.title", "Role Load");
   }
   return name
     .replace(/_/g, " ")
@@ -229,33 +225,6 @@ export function formatToolName(name: string): string {
 // Get filename from path
 export function getFileName(path: string): string {
   return path.split("/").pop() || path;
-}
-
-// Timeout threshold for tool calls (2 minutes)
-const TOOL_CALL_TIMEOUT_MS = 2 * 60 * 1000;
-
-// Hook to detect if a tool call has timed out
-export function useToolCallTimeout(toolCall: ToolCall): boolean {
-  const [isTimedOut, setIsTimedOut] = useState(false);
-
-  useEffect(() => {
-    if (toolCall.status !== "calling" || !toolCall.startTime) {
-      setIsTimedOut(false);
-      return;
-    }
-
-    const elapsed = Date.now() - toolCall.startTime.getTime();
-    if (elapsed >= TOOL_CALL_TIMEOUT_MS) {
-      setIsTimedOut(true);
-      return;
-    }
-
-    const remaining = TOOL_CALL_TIMEOUT_MS - elapsed;
-    const timer = setTimeout(() => setIsTimedOut(true), remaining);
-    return () => clearTimeout(timer);
-  }, [toolCall.status, toolCall.startTime]);
-
-  return isTimedOut;
 }
 
 // Extract file path from tool call arguments, trying multiple possible field names

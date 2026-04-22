@@ -1,11 +1,10 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
-  AlertTriangle,
-  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ToolCall, useSessionStore } from "@/stores/session";
+import { ToolCall } from "@/stores/session";
 import {
   Collapsible,
   CollapsibleContent,
@@ -21,8 +20,7 @@ import { ReadToolCard } from "./tool-calls/ReadToolCard";
 import { RoleLoadToolCard } from "./tool-calls/RoleLoadToolCard";
 import { RoleSkillToolCard, SkillToolCard, TaskToolCard } from "./tool-calls/TaskToolCard";
 import {
-  statusConfig,
-  getToolIcon,
+  getStatusConfig,
   isQuestionTool,
   isWriteTool,
   isEditTool,
@@ -33,9 +31,7 @@ import {
   isRoleLoadTool,
   isCommandTool,
   isTodoTool,
-  isCommandToolLikelyWaitingForInput,
   formatToolName,
-  useToolCallTimeout,
 } from "./tool-calls/tool-call-utils";
 
 interface ToolCallCardProps {
@@ -47,34 +43,25 @@ interface ToolCallCardProps {
 }
 
 export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenDetail }: ToolCallCardProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  const isTimedOut = useToolCallTimeout(toolCall);
-  const forceComplete = useSessionStore((s) => s.forceCompleteToolCall);
-  const config = statusConfig[toolCall.status];
+  const config = getStatusConfig((key, fallback, options) =>
+    t(key, { defaultValue: fallback, ...options }),
+  )[toolCall.status];
   const StatusIcon = config.icon;
-  const ToolIcon = getToolIcon(toolCall.name);
   const isCommand = isCommandTool(toolCall.name);
-  const isWaitingForInput = isCommandToolLikelyWaitingForInput(toolCall);
   const commandText = getCommandText(toolCall.arguments);
   const commandOutput = getToolCallOutputText(toolCall.result).trim();
   const commandDescription = (() => {
     const args = toolCall.arguments as Record<string, unknown> | undefined;
-    if (!args) return "执行命令";
+    if (!args) return t("chat.toolCall.command.defaultDescription", "Execute command");
     const preferred =
       (typeof args.description === "string" ? args.description : null) ||
       (typeof args.summary === "string" ? args.summary : null) ||
       (typeof args.title === "string" ? args.title : null) ||
       (typeof args.action === "string" ? args.action : null);
-    return preferred?.trim() || "执行命令";
+    return preferred?.trim() || t("chat.toolCall.command.defaultDescription", "Execute command");
   })();
-
-  const handleForceComplete = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      forceComplete(toolCall.id);
-    },
-    [forceComplete, toolCall.id],
-  );
 
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms}ms`;
@@ -136,11 +123,11 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
   })();
 
   const getCompactTitle = () => {
-    if (compactToolName.includes("grep")) return "Grep";
-    if (compactToolName === "glob") return "Glob";
-    if (compactToolName === "find") return "Find";
-    if (isTodo) return "Todo";
-    return formatToolName(toolCall.name);
+    if (compactToolName.includes("grep")) return t("chat.toolCall.search.grep", "Grep");
+    if (compactToolName === "glob") return t("chat.toolCall.search.glob", "Glob");
+    if (compactToolName === "find") return t("chat.toolCall.search.find", "Find");
+    if (isTodo) return t("chat.toolCall.todo.title", "Todo");
+    return formatToolName((key, fallback, options) => t(key, { defaultValue: fallback, ...options }), toolCall.name);
   };
 
   const parseTodoSummary = () => {
@@ -157,12 +144,12 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
       const completed = parsed.filter((item) => item?.status === "completed").length;
 
       return {
-        primary: `${total} items updated`,
+        primary: t("chat.toolCall.todo.itemsUpdated", "{{count}} items updated", { count: total }),
         meta:
           inProgress > 0
-            ? `${inProgress} in progress`
+            ? t("chat.toolCall.todo.inProgressCount", "{{count}} in progress", { count: inProgress })
             : completed === total && total > 0
-              ? "all done"
+              ? t("chat.toolCall.todo.allDone", "all done")
               : null,
       };
     } catch {
@@ -171,15 +158,12 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
   };
 
   const todoSummary = parseTodoSummary();
-  const commandStatusText = isWaitingForInput
-    ? "等待终端输入"
-    : isTimedOut
-      ? "运行时间过长"
-      : toolCall.status === "failed"
-        ? "已失败"
-        : toolCall.status === "waiting"
-          ? "等待中"
-          : null;
+  const commandStatusText =
+    toolCall.status === "failed"
+      ? t("chat.toolCall.status.failed", "Failed")
+      : toolCall.status === "waiting"
+        ? t("chat.toolCall.status.waiting", "Waiting")
+        : null;
 
   const getCompactPrimary = () => {
     if (isCompactSearchTool) {
@@ -191,7 +175,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
         return todoSummary.primary;
       }
       const text = typeof toolCall.result === "string" ? toolCall.result : summary || "";
-      return text.split("·")[0]?.trim() || "items updated";
+      return text.split("·")[0]?.trim() || t("chat.toolCall.todo.itemsUpdatedFallback", "items updated");
     }
     return summary || "";
   };
@@ -308,41 +292,13 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
           <span className="ml-auto" />
           <span className={cn("shrink-0 text-[13px]", statusGlyphClass)}>{statusGlyph}</span>
         </button>
-        {(isWaitingForInput || isTimedOut) && (
-          <div className="border-t border-[#eef2f5] px-[14px] py-3 dark:border-border/60">
-            <div className="rounded-[10px] border border-amber-200/80 bg-amber-50/60 px-3 py-2.5 text-[12px] text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
-              <div className="flex items-start gap-2">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium">
-                    {isWaitingForInput ? "命令正在等待确认或标准输入。" : "命令运行时间过长。"}
-                  </div>
-                  <div className="mt-1 text-[11px] text-amber-900/80 dark:text-amber-200/80">
-                    {isWaitingForInput
-                      ? "优先使用非交互参数，或者先向用户提问再继续执行。"
-                      : "如果确认当前不会再有输出，可以直接标记为完成。"}
-                  </div>
-                </div>
-                {isTimedOut ? (
-                  <button
-                    type="button"
-                    onClick={handleForceComplete}
-                    className="shrink-0 rounded-[8px] border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 dark:hover:bg-amber-900/40"
-                  >
-                    标记为完成
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        )}
         {expanded ? (
           <div
             data-testid="tool-card-bash-output"
             className="max-h-[220px] overflow-auto border-t border-[#eef2f5] bg-white/80 px-[14px] py-3 dark:border-border/60 dark:bg-background/40"
           >
             <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground/85">
-              {commandOutput || "无输出"}
+              {commandOutput || t("chat.toolCall.command.noOutput", "No output")}
             </pre>
           </div>
         ) : null}
@@ -369,97 +325,75 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
     )
   }
 
+  const fallbackArgCount = toolCall.arguments ? Object.keys(toolCall.arguments).length : 0;
+  const fallbackSummary =
+    summary ||
+    (typeof toolCall.arguments === "object" && toolCall.arguments
+      ? (["description", "title", "action", "query", "url"] as const)
+          .map((key) => toolCall.arguments?.[key])
+          .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : null) ||
+    null;
+
   return (
     <div className="space-y-2">
       <Collapsible open={expanded} onOpenChange={setExpanded}>
-        <div className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all duration-200">
+        <div className="overflow-hidden rounded-[16px] border border-[#e7edf4] bg-[#fbfcfe] transition-all duration-200 dark:border-border dark:bg-card">
           <CollapsibleTrigger asChild>
-            <button className="w-full flex items-center gap-2 px-3 py-2 text-left bg-muted/50 hover:bg-muted/70 transition-colors">
+            <button className="w-full flex items-center gap-[10px] px-[12px] py-[10px] text-left transition-colors hover:bg-[#f4f7fa] dark:hover:bg-muted/30">
               <ChevronRight
-                size={14}
+                size={13}
                 className={cn(
-                  "text-muted-foreground transition-transform duration-200 shrink-0",
+                  "shrink-0 text-[#64748b] transition-transform duration-200 dark:text-muted-foreground",
                   expanded && "rotate-90",
                 )}
               />
-              <ToolIcon size={14} className="text-muted-foreground shrink-0" />
-              <span className="text-xs font-medium text-foreground">
-                {formatToolName(toolCall.name)}
+              <span
+                data-testid="tool-fallback-icon"
+                className="relative h-[22px] w-[22px] shrink-0 rounded-[8px] border border-[#e2e8f0] bg-[#f8fafc] dark:border-border dark:bg-muted/20"
+                aria-hidden="true"
+              >
+                <span className="absolute left-[4px] top-[5px] h-[5px] w-[5px] rounded-full bg-[#475569] dark:bg-slate-300" />
+                <span className="absolute left-[12px] top-[5px] h-[4px] w-[4px] rounded-full bg-[#94a3b8] dark:bg-slate-500" />
+                <span className="absolute left-[8px] top-[12px] h-[6px] w-[6px] rounded-full bg-[#cbd5e1] dark:bg-slate-600" />
               </span>
-              {summary && !expanded && (
-                <span className="text-xs text-muted-foreground truncate flex-1 max-w-[200px] font-mono">
-                  {summary}
+              <span className="min-w-0 flex-1 text-[13px] font-medium text-[#1f2933] dark:text-foreground">
+                {formatToolName((key, fallback, options) => t(key, { defaultValue: fallback, ...options }), toolCall.name)}
+              </span>
+              {!expanded && fallbackSummary && (
+                <span className="max-w-[18rem] truncate text-[11px] text-[#64748b] dark:text-muted-foreground">
+                  {fallbackSummary}
                 </span>
               )}
               <div className="ml-auto flex items-center gap-2">
+                {fallbackArgCount > 0 && (
+                  <span className="rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-[6px] py-[1px] text-[10px] text-[#64748b] dark:border-border dark:bg-muted/20 dark:text-muted-foreground">
+                    {t("chat.toolCall.argCount", "{{count}} args", { count: fallbackArgCount })}
+                  </span>
+                )}
                 {toolCall.duration && (
-                  <span className="text-[10px] text-muted-foreground/70">
+                  <span className="text-[10px] text-[#94a3b8] dark:text-muted-foreground/70">
                     {formatDuration(toolCall.duration)}
                   </span>
                 )}
-                {isTimedOut ? (
-                  <button
-                    onClick={handleForceComplete}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors"
-                    title={
-                      isCommand
-                        ? "Command may be blocked waiting for terminal input - click to mark as done"
-                        : "Tool call timed out - click to mark as done"
-                    }
-                  >
-                    <AlertTriangle size={10} />
-                    <span>{isCommand ? "Waiting input" : "Timed out"}</span>
-                    <CheckCircle2 size={10} />
-                  </button>
-                ) : isWaitingForInput ? (
-                  <div
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800 border border-amber-200"
-                    title="Command output looks like it is waiting for confirmation or stdin input"
-                  >
-                    <AlertTriangle size={10} />
-                    <span>Input needed</span>
-                  </div>
-                ) : (
-                  <StatusIcon
-                    size={14}
-                    className={cn(
-                      config.textColor,
-                      config.animate && "animate-spin",
-                    )}
-                  />
-                )}
+                <StatusIcon
+                  size={13}
+                  className={cn(
+                    config.textColor,
+                    config.animate && "animate-spin",
+                  )}
+                />
               </div>
             </button>
           </CollapsibleTrigger>
 
           <CollapsibleContent>
-            <div className="px-3 pb-3 pt-1 text-xs space-y-2 border-t border-border/50">
-              {isCommand && (isWaitingForInput || isTimedOut) && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-[11px] text-amber-900">
-                  <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-                  <div className="space-y-1">
-                    <p className="font-medium">
-                      {isWaitingForInput
-                        ? "This command looks like it is waiting for terminal input."
-                        : "This command has been running for a while."}
-                    </p>
-                    <p className="text-amber-800/90">
-                      Prefer non-interactive flags like `--yes` or `-y`. If input is required, ask a question before running the command.
-                    </p>
-                    {commandText && (
-                      <p className="font-mono text-[10px] break-all text-amber-800/80">
-                        {commandText}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-
+            <div className="space-y-2 border-t border-[#eef2f5] bg-white/80 px-[12px] pb-3 pt-2 text-xs dark:border-border/60 dark:bg-background/40">
               {toolCall.arguments &&
                 Object.keys(toolCall.arguments).length > 0 && (
                   <div>
                     <span className="text-muted-foreground font-medium">
-                      Arguments
+                      {t("chat.toolCall.arguments", "Arguments")}
                     </span>
                     <pre className="mt-1 p-2 bg-background/60 rounded text-[10px] overflow-x-auto font-mono max-h-24">
                       {JSON.stringify(toolCall.arguments, null, 2)}
@@ -500,7 +434,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
                   return (
                     <div>
                       <span className="text-muted-foreground font-medium">
-                        Result
+                        {t("chat.toolCall.result", "Result")}
                       </span>
                       <pre className="mt-1 p-2 bg-background/60 rounded text-[10px] overflow-x-auto max-h-48 font-mono whitespace-pre-wrap">
                         {displayText}
@@ -515,7 +449,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
                 Object.keys(toolCall.arguments).length === 0) &&
                 (toolCall.result === undefined || toolCall.result === null) && (
                   <div className="text-muted-foreground/60 italic py-2">
-                    No details available
+                    {t("chat.toolCall.noDetails", "No details available")}
                   </div>
                 )}
 
@@ -526,7 +460,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
                   }
                   className="text-[10px] text-muted-foreground hover:text-foreground hover:underline"
                 >
-                  View full details →
+                  {t("chat.toolCall.viewFullDetails", "View full details")} →
                 </button>
               )}
             </div>

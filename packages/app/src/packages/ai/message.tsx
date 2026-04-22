@@ -62,6 +62,63 @@ interface MessageContextValue {
 
 const MessageContext = React.createContext<MessageContextValue | null>(null)
 
+interface MarkdownRenderBoundaryProps {
+  content: string
+  children: React.ReactNode
+}
+
+interface MarkdownRenderBoundaryState {
+  hasError: boolean
+  lastContent: string
+}
+
+class MarkdownRenderBoundary extends React.Component<
+  MarkdownRenderBoundaryProps,
+  MarkdownRenderBoundaryState
+> {
+  constructor(props: MarkdownRenderBoundaryProps) {
+    super(props)
+    this.state = {
+      hasError: false,
+      lastContent: props.content,
+    }
+  }
+
+  static getDerivedStateFromError(): Partial<MarkdownRenderBoundaryState> {
+    return { hasError: true }
+  }
+
+  static getDerivedStateFromProps(
+    props: MarkdownRenderBoundaryProps,
+    state: MarkdownRenderBoundaryState,
+  ): Partial<MarkdownRenderBoundaryState> | null {
+    if (props.content !== state.lastContent) {
+      return {
+        hasError: false,
+        lastContent: props.content,
+      }
+    }
+
+    return null
+  }
+
+  componentDidCatch(error: Error) {
+    console.warn("[MessageResponse] Markdown render failed, falling back to plain text", error)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="whitespace-pre-wrap break-words">
+          {this.props.content}
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
 function useMessageContext() {
   const context = React.useContext(MessageContext)
   if (!context) {
@@ -689,12 +746,14 @@ export function MessageResponse({
           </div>
         ) : (
           <div key={index} className="prose prose-sm max-w-none min-w-0 text-foreground space-y-3 break-words [overflow-wrap:anywhere]">
-            <ReactMarkdown
-              remarkPlugins={remarkPluginsStable}
-              components={markdownComponents}
-            >
-              {part.content}
-            </ReactMarkdown>
+            <MarkdownRenderBoundary content={part.content}>
+              <ReactMarkdown
+                remarkPlugins={remarkPluginsStable}
+                components={markdownComponents}
+              >
+                {part.content}
+              </ReactMarkdown>
+            </MarkdownRenderBoundary>
           </div>
         )
       ))}

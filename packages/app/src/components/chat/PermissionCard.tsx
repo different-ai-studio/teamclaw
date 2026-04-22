@@ -25,13 +25,13 @@ function translate(
 
 function getPermissionMeta(t: TranslateFn): Record<string, { glyph: string; title: string; subject: string }> {
   return {
-    bash: { glyph: ">", title: t("chat.permissionCard.requestExecuteCommand", "请求执行命令"), subject: "Bash" },
-    execute: { glyph: ">", title: t("chat.permissionCard.requestExecuteCommand", "请求执行命令"), subject: "Bash" },
-    write: { glyph: "✎", title: t("chat.permissionCard.requestWriteFile", "请求写入文件"), subject: t("permission.write", "Write") },
-    edit: { glyph: "✎", title: t("chat.permissionCard.requestEditFile", "请求编辑文件"), subject: t("permission.edit", "Edit") },
-    read: { glyph: "📄", title: t("chat.permissionCard.requestReadFile", "请求读取文件"), subject: t("permission.read", "Read") },
-    external_directory: { glyph: "📄", title: t("chat.permissionCard.requestAccessExternalPath", "请求访问外部路径"), subject: t("permission.read", "Read") },
-    skill: { glyph: "⚡", title: t("chat.permissionCard.requestRunSkill", "请求运行技能"), subject: "Skill" },
+    bash: { glyph: ">", title: t("chat.permissionCard.requestExecuteCommand", "Request command execution"), subject: t("chat.toolCall.permission.bash", "Bash") },
+    execute: { glyph: ">", title: t("chat.permissionCard.requestExecuteCommand", "Request command execution"), subject: t("chat.toolCall.permission.bash", "Bash") },
+    write: { glyph: "✎", title: t("chat.permissionCard.requestWriteFile", "Request file write"), subject: t("permission.write", "Write") },
+    edit: { glyph: "✎", title: t("chat.permissionCard.requestEditFile", "Request file edit"), subject: t("permission.edit", "Edit") },
+    read: { glyph: "📄", title: t("chat.permissionCard.requestReadFile", "Request file read"), subject: t("permission.read", "Read") },
+    external_directory: { glyph: "📄", title: t("chat.permissionCard.requestAccessExternalPath", "Request external path access"), subject: t("permission.read", "Read") },
+    skill: { glyph: "⚡", title: t("chat.permissionCard.requestRunSkill", "Request skill run"), subject: t("chat.toolCall.skill.title", "Skill") },
   }
 }
 
@@ -39,12 +39,12 @@ function getSourceToolLabel(t: TranslateFn, sourceToolName?: string | null) {
   if (!sourceToolName) return null
   const normalized = sourceToolName.toLowerCase()
   if (normalized.includes("bash") || normalized.includes("shell") || normalized.includes("terminal")) {
-    return "Bash"
+    return t("chat.toolCall.permission.bash", "Bash")
   }
   if (normalized === "write") return t("permission.write", "Write")
   if (normalized === "edit") return t("permission.edit", "Edit")
   if (normalized === "read") return t("permission.read", "Read")
-  if (normalized === "skill") return "Skill"
+  if (normalized === "skill") return t("chat.toolCall.skill.title", "Skill")
   return sourceToolName
 }
 
@@ -76,8 +76,8 @@ function getPermissionCardPresentation(entry: PendingPermissionEntry, t: Transla
   const permissionMeta = getPermissionMeta(t)
   const baseMeta = permissionMeta[permType] || {
     glyph: "•",
-    title: t("permission.request", "请求权限"),
-    subject: "Tool",
+    title: t("permission.request", "Request permission"),
+    subject: t("chat.toolCall.permission.tool", "Tool"),
   }
   const sourceToolLabel = getSourceToolLabel(t, entry.sourceToolName)
   const meta = {
@@ -158,7 +158,7 @@ function collectToolPendingPermissions(session: Session | null): PendingPermissi
   return collected
 }
 
-function collectVisiblePermissions(
+export function collectVisiblePermissions(
   activeSessionId: string | null,
   sessions: Session[],
   pendingPermissions: PendingPermissionEntry[],
@@ -176,6 +176,14 @@ function collectVisiblePermissions(
     seen.add(entry.permission.id)
     return true
   })
+}
+
+export function hasVisiblePendingPermissions(
+  activeSessionId: string | null,
+  sessions: Session[],
+  pendingPermissions: PendingPermissionEntry[],
+) {
+  return collectVisiblePermissions(activeSessionId, sessions, pendingPermissions).length > 0
 }
 
 function PermissionEntryCard({
