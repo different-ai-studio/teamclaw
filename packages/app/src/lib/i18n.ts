@@ -1,6 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import { appShortName } from '@/lib/build-config';
+import { getPreferredLanguage, normalizeSupportedLanguage, persistLanguage } from './locale';
 
 // Import translation files
 import enTranslation from '../locales/en.json';
@@ -21,27 +21,12 @@ const resources = FORCED_LOCALE && FORCED_LOCALE !== 'all'
   ? { [FORCED_LOCALE]: allResources[FORCED_LOCALE as keyof typeof allResources] }
   : allResources;
 
-// Detect user's language preference
 const getUserLanguage = (): string => {
-  // Single-locale build — always use the forced locale
   if (FORCED_LOCALE && FORCED_LOCALE !== 'all') {
     return FORCED_LOCALE;
   }
 
-  // Check for persisted language in localStorage
-  const persistedLang = localStorage.getItem(`${appShortName}-language`);
-  if (persistedLang && Object.keys(resources).includes(persistedLang)) {
-    return persistedLang;
-  }
-
-  // Fallback to browser language detection
-  const browserLang = navigator.language;
-  if (browserLang.startsWith('zh')) {
-    return 'zh-CN';
-  }
-
-  // Default to English
-  return 'en';
+  return normalizeSupportedLanguage(getPreferredLanguage());
 };
 
 const defaultLng = FORCED_LOCALE && FORCED_LOCALE !== 'all' ? FORCED_LOCALE : 'en';
@@ -71,9 +56,11 @@ export default i18n;
 
 // Export utility functions for language switching and persistence
 export const changeLanguage = (lang: string) => {
-  if (Object.keys(resources).includes(lang)) {
-    i18n.changeLanguage(lang);
-    localStorage.setItem(`${appShortName}-language`, lang); // Persist the language preference
+  const normalizedLang = normalizeSupportedLanguage(lang);
+  persistLanguage(normalizedLang);
+
+  if (Object.keys(resources).includes(normalizedLang)) {
+    i18n.changeLanguage(normalizedLang);
   }
 };
 

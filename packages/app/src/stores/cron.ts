@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { withAsync } from '@/lib/store-utils'
 import { appShortName } from '@/lib/build-config'
+import { getPreferredLanguage } from '@/lib/locale'
 
 // ==================== Types ====================
 
@@ -292,7 +293,7 @@ export function formatSchedule(schedule: CronSchedule): string {
 /** Format a relative time string with i18n support (e.g., "2 minutes ago" / "2分钟前") */
 export function formatRelativeTime(dateStr: string): string {
   try {
-    const lang = localStorage.getItem(`${appShortName}-language`) || 'en'
+    const lang = getPreferredLanguage()
     const date = new Date(dateStr)
     const now = new Date()
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)

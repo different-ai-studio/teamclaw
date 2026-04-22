@@ -1,10 +1,10 @@
-import { appShortName } from '@/lib/build-config'
+import { getPreferredLanguage } from './locale'
 
 /**
  * Format a date according to the current locale
  */
 export const formatDate = (date: Date | string | number, options: Intl.DateTimeFormatOptions = {}): string => {
-  const lang = localStorage.getItem(`${appShortName}-language`) || 'en';
+  const lang = getPreferredLanguage();
   const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
   
   // Default options if none provided
@@ -23,7 +23,7 @@ export const formatDate = (date: Date | string | number, options: Intl.DateTimeF
  * Format time according to the current locale
  */
 export const formatTime = (date: Date | string | number, options: Intl.DateTimeFormatOptions = {}): string => {
-  const lang = localStorage.getItem(`${appShortName}-language`) || 'en';
+  const lang = getPreferredLanguage();
   const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
   
   // Default time options
@@ -41,7 +41,7 @@ export const formatTime = (date: Date | string | number, options: Intl.DateTimeF
  * Format datetime according to the current locale
  */
 export const formatDateTime = (date: Date | string | number, options: Intl.DateTimeFormatOptions = {}): string => {
-  const lang = localStorage.getItem(`${appShortName}-language`) || 'en';
+  const lang = getPreferredLanguage();
   const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
   
   // Default datetime options
@@ -95,7 +95,7 @@ export function formatSessionDate(dateInput: string | Date): string {
  * Format relative time (e.g., "2 hours ago")
  */
 export const formatRelativeTime = (date: Date | string | number): string => {
-  const lang = localStorage.getItem(`${appShortName}-language`) || 'en';
+  const lang = getPreferredLanguage();
   const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - dateObj.getTime()) / 1000);
