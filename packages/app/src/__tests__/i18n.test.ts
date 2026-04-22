@@ -1,4 +1,5 @@
 import { appShortName } from '@/lib/build-config'
+import { vi } from 'vitest'
 
 // Mock localStorage BEFORE importing i18n (i18n.init calls getUserLanguage which uses localStorage)
 const mockLocalStorage = (() => {
@@ -22,6 +23,7 @@ Object.defineProperty(window, 'localStorage', {
   value: mockLocalStorage,
   writable: true,
 });
+vi.stubGlobal('localStorage', mockLocalStorage)
 
 // Use dynamic import so i18n loads after localStorage mock is set up
 let i18n: Awaited<typeof import('../lib/i18n')['default']>;

@@ -32,6 +32,7 @@ import { getPermissionPolicy, setPermissionPolicy, type PermissionPolicy } from 
 import { PermissionBatchSection } from './PermissionBatchSection'
 import { useSuggestionsStore } from '@/stores/suggestions'
 import { appShortName, buildConfig } from '@/lib/build-config'
+import { getPreferredLanguage, persistLanguage } from '@/lib/locale'
 import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -71,9 +72,7 @@ export const GeneralSection = React.memo(function GeneralSection() {
   const { t } = useTranslation()
   const [theme, setThemeState] = React.useState(getStoredTheme)
   const [language, setLanguage] = React.useState(() => {
-    const storedLang = localStorage.getItem(`${appShortName}-language`);
-    if (storedLang === 'zh') return 'zh-CN';
-    return storedLang || (navigator.language.startsWith('zh') ? 'zh-CN' : 'en');
+    return getPreferredLanguage()
   })
 
   // Sync language state with i18n instance
@@ -181,7 +180,7 @@ export const GeneralSection = React.memo(function GeneralSection() {
     onValueChange={(value) => {
       setLanguage(value);
       i18next.changeLanguage(value);
-      localStorage.setItem(`${appShortName}-language`, value);
+      persistLanguage(value);
       // Sync locale to config file for gateway i18n
       invoke('set_config_locale', { locale: value }).catch(console.error);
     }}
