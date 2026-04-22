@@ -107,7 +107,9 @@
       "activeSummary": "In progress: {{task}}",
       "allCompleted": "All tasks completed",
       "collapseAria": "Collapse todo panel",
-      "expandAria": "Expand todo panel"
+      "expandAria": "Expand todo panel",
+      "queueCollapseAria": "Collapse queued messages",
+      "queueExpandAria": "Expand queued messages"
     },
     "toolCall": {
       "status": {
@@ -134,7 +136,9 @@
       },
       "command": {
         "defaultDescription": "Execute command",
-        "noOutput": "No output"
+        "noOutput": "No output",
+        "commandLabel": "Command",
+        "outputLabel": "Output"
       },
       "permission": {
         "bash": "Bash",

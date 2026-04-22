@@ -108,7 +108,9 @@
       "activeSummary": "进行中：{{task}}",
       "allCompleted": "任务已全部完成",
       "collapseAria": "收起待办面板",
-      "expandAria": "展开待办面板"
+      "expandAria": "展开待办面板",
+      "queueCollapseAria": "收起排队消息",
+      "queueExpandAria": "展开排队消息"
     },
     "toolCall": {
       "status": {
@@ -135,7 +137,9 @@
       },
       "command": {
         "defaultDescription": "执行命令",
-        "noOutput": "无输出"
+        "noOutput": "无输出",
+        "commandLabel": "命令",
+        "outputLabel": "输出"
       },
       "permission": {
         "bash": "Bash",

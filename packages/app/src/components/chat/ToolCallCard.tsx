@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
+  Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ToolCall } from "@/stores/session";
@@ -121,6 +122,26 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
     if (toolCall.status === "failed") return "✕";
     return "●";
   })();
+
+  const renderExpandableHeaderSlot = (icon: React.ReactNode, testId?: string) => (
+    <span className="relative h-[22px] w-[22px] shrink-0" aria-hidden="true">
+      <span
+        data-testid={testId}
+        className="absolute inset-0 flex items-center justify-center group-hover:opacity-0"
+      >
+        {icon}
+      </span>
+      <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100">
+        <ChevronRight
+          size={13}
+          className={cn(
+            "text-[#64748b] transition-transform duration-200 dark:text-muted-foreground",
+            expanded && "rotate-90",
+          )}
+        />
+      </span>
+    </span>
+  );
 
   const getCompactTitle = () => {
     if (compactToolName.includes("grep")) return t("chat.toolCall.search.grep", "Grep");
@@ -269,17 +290,13 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="flex w-full items-center gap-[10px] px-[14px] py-[10px] text-left transition-colors hover:bg-[#f4f7fa] dark:hover:bg-muted/30"
+          className="group flex w-full items-center gap-[10px] px-[14px] py-[10px] text-left transition-colors hover:bg-[#f4f7fa] dark:hover:bg-muted/30"
           aria-expanded={expanded}
           aria-label={`${commandDescription} ${summary || commandText}`.trim()}
         >
-          <ChevronRight
-            size={13}
-            className={cn(
-              "shrink-0 text-[#64748b] transition-transform duration-200 dark:text-muted-foreground",
-              expanded && "rotate-90",
-            )}
-          />
+          {renderExpandableHeaderSlot(
+            <Terminal size={13} className="text-[#64748b] dark:text-muted-foreground" />,
+          )}
           <span className="text-[13px] font-semibold text-[#1f2933] shrink-0 dark:text-foreground">{commandDescription}</span>
           {commandStatusText ? (
             <span className="text-[11px] text-[#64748b] dark:text-muted-foreground">
@@ -295,11 +312,21 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
         {expanded ? (
           <div
             data-testid="tool-card-bash-output"
-            className="max-h-[220px] overflow-auto border-t border-[#eef2f5] bg-white/80 px-[14px] py-3 dark:border-border/60 dark:bg-background/40"
+            className="max-h-[280px] overflow-auto border-t border-[#eef2f5] bg-white px-[16px] py-[14px] dark:border-border/60 dark:bg-[#101318]"
           >
-            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground/85">
-              {commandOutput || t("chat.toolCall.command.noOutput", "No output")}
-            </pre>
+            <div className="space-y-4 font-mono">
+              <div>
+                <div className="flex items-start gap-2 text-[12px] leading-6 text-[#1f2937] dark:text-[#f3f4f6]">
+                  <span className="shrink-0 text-[#64748b] dark:text-[#94a3b8]">$</span>
+                  <pre className="min-w-0 whitespace-pre-wrap break-words">{commandText}</pre>
+                </div>
+              </div>
+              <div>
+                <pre className="whitespace-pre-wrap break-words text-[12px] leading-6 text-[#475569] dark:text-[#cbd5e1]">
+                  {commandOutput || t("chat.toolCall.command.noOutput", "No output")}
+                </pre>
+              </div>
+            </div>
           </div>
         ) : null}
       </div>
@@ -340,23 +367,18 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
       <Collapsible open={expanded} onOpenChange={setExpanded}>
         <div className="overflow-hidden rounded-[16px] border border-[#e7edf4] bg-[#fbfcfe] transition-all duration-200 dark:border-border dark:bg-card">
           <CollapsibleTrigger asChild>
-            <button className="w-full flex items-center gap-[10px] px-[12px] py-[10px] text-left transition-colors hover:bg-[#f4f7fa] dark:hover:bg-muted/30">
-              <ChevronRight
-                size={13}
-                className={cn(
-                  "shrink-0 text-[#64748b] transition-transform duration-200 dark:text-muted-foreground",
-                  expanded && "rotate-90",
-                )}
-              />
-              <span
-                data-testid="tool-fallback-icon"
-                className="relative h-[22px] w-[22px] shrink-0 rounded-[8px] border border-[#e2e8f0] bg-[#f8fafc] dark:border-border dark:bg-muted/20"
-                aria-hidden="true"
-              >
-                <span className="absolute left-[4px] top-[5px] h-[5px] w-[5px] rounded-full bg-[#475569] dark:bg-slate-300" />
-                <span className="absolute left-[12px] top-[5px] h-[4px] w-[4px] rounded-full bg-[#94a3b8] dark:bg-slate-500" />
-                <span className="absolute left-[8px] top-[12px] h-[6px] w-[6px] rounded-full bg-[#cbd5e1] dark:bg-slate-600" />
-              </span>
+            <button className="group w-full flex items-center gap-[10px] px-[12px] py-[10px] text-left transition-colors hover:bg-[#f4f7fa] dark:hover:bg-muted/30">
+              {renderExpandableHeaderSlot(
+                <span
+                  className="relative h-[22px] w-[22px] shrink-0 rounded-[8px] border border-[#e2e8f0] bg-[#f8fafc] dark:border-border dark:bg-muted/20"
+                  aria-hidden="true"
+                >
+                  <span className="absolute left-[4px] top-[5px] h-[5px] w-[5px] rounded-full bg-[#475569] dark:bg-slate-300" />
+                  <span className="absolute left-[12px] top-[5px] h-[4px] w-[4px] rounded-full bg-[#94a3b8] dark:bg-slate-500" />
+                  <span className="absolute left-[8px] top-[12px] h-[6px] w-[6px] rounded-full bg-[#cbd5e1] dark:bg-slate-600" />
+                </span>,
+                "tool-fallback-icon",
+              )}
               <span className="min-w-0 flex-1 text-[13px] font-medium text-[#1f2933] dark:text-foreground">
                 {formatToolName((key, fallback, options) => t(key, { defaultValue: fallback, ...options }), toolCall.name)}
               </span>
