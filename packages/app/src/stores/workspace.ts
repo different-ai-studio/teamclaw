@@ -582,12 +582,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         visibleEntries.map(async (entry) => {
           const entryPath = `${fullPath}/${entry.name}`;
           let isDirectory = entry.isDirectory;
+          const needsStatResolution = !entry.isDirectory && !entry.isFile;
 
-          if (!isDirectory && entry.isSymlink) {
+          if (!isDirectory && needsStatResolution) {
             try {
-              isDirectory = (await stat(entryPath)).isDirectory;
+              const resolved = await stat(entryPath);
+              isDirectory = resolved.isDirectory;
             } catch (error) {
-              console.warn("[Workspace] Failed to resolve symlink target:", entryPath, error);
+              console.warn("[Workspace] Failed to resolve ambiguous file tree entry:", entryPath, error);
             }
           }
 
