@@ -501,6 +501,7 @@ jobs:
             --dir /tmp/oss-latest
           python3 -m pip install oss2 --quiet
           python3 - <<'EOF'
+          import json
           import oss2, os
           auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
           endpoint = os.environ['OSS_ENDPOINT']
@@ -508,11 +509,30 @@ jobs:
               endpoint = 'https://' + endpoint
           bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
           version = os.environ['VERSION']
-          bucket.put_object_from_file('releases/latest.json', '/tmp/oss-latest/latest.json')
-          bucket.put_object_from_file(f'releases/{version}/latest.json', '/tmp/oss-latest/latest.json')
-          host = os.environ['OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
-          print(f'Mirrored latest.json -> https://{os.environ["OSS_BUCKET"]}.{host}/releases/latest.json')
-          print(f'Also archived -> https://{os.environ["OSS_BUCKET"]}.{host}/releases/{version}/latest.json')
+          host = os.environ['OSS_ENDPOINT'].replace('https://', '').replace('http://', '').rstrip('/')
+          oss_base = f'https://{os.environ["OSS_BUCKET"]}.{host}'
+          manifest_path = '/tmp/oss-latest/latest.json'
+
+          with open(manifest_path, 'r', encoding='utf-8') as f:
+              manifest = json.load(f)
+
+          for entry in manifest.get('platforms', {}).values():
+              url = entry.get('url', '')
+              if not url:
+                  continue
+              filename = url.rstrip('/').split('/')[-1]
+              if filename:
+                  entry['url'] = f'{oss_base}/releases/{version}/{filename}'
+
+          mirrored_manifest_path = '/tmp/oss-latest/latest.oss.json'
+          with open(mirrored_manifest_path, 'w', encoding='utf-8') as f:
+              json.dump(manifest, f, indent=2)
+              f.write('\n')
+
+          bucket.put_object_from_file('releases/latest.json', mirrored_manifest_path)
+          bucket.put_object_from_file(f'releases/{version}/latest.json', mirrored_manifest_path)
+          print(f'Mirrored latest.json -> {oss_base}/releases/latest.json')
+          print(f'Also archived -> {oss_base}/releases/{version}/latest.json')
           EOF
 
       - name: Append CN mirror section to release notes

@@ -31,8 +31,8 @@ describe('Auto Update - Configuration', () => {
     expect(config.plugins.updater.pubkey).toBeTruthy();
     expect(config.plugins.updater.endpoints).toBeInstanceOf(Array);
     expect(config.plugins.updater.endpoints.length).toBeGreaterThan(0);
-    expect(config.plugins.updater.endpoints[0]).toContain('github.com');
-    expect(config.plugins.updater.endpoints[0]).toContain('latest.json');
+    expect(config.plugins.updater.endpoints).toContain('__OSS_BASE_URL__/releases/latest.json');
+    expect(config.plugins.updater.endpoints).toContain('https://github.com/different-ai-studio/teamclaw/releases/latest/download/latest.json');
     expect(config.bundle.createUpdaterArtifacts).toBe(true);
   });
 
@@ -61,12 +61,15 @@ describe('Auto Update - Configuration', () => {
     );
     const workflow = fs.readFileSync(workflowPath, 'utf-8');
 
-    expect(workflow).toContain("'v*'");
+    expect(workflow).toContain('"v*"');
     expect(workflow).toContain('tauri-apps/tauri-action');
     expect(workflow).toContain('TAURI_SIGNING_PRIVATE_KEY');
     expect(workflow).toContain('TAURI_SIGNING_PRIVATE_KEY_PASSWORD');
     expect(workflow).toContain('aarch64-apple-darwin');
     expect(workflow).toContain('pnpm');
+    expect(workflow).toContain("bucket.put_object_from_file('releases/latest.json'");
+    expect(workflow).toContain("platforms");
+    expect(workflow).toContain("entry['url'] =");
   });
 });
 
