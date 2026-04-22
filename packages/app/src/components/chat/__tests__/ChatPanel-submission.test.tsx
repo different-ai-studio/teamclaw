@@ -106,7 +106,12 @@ vi.mock('@/stores/suggestions', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
+    t: (key: string, fallback?: string, options?: Record<string, unknown>) => {
+      const template = fallback ?? key;
+      return template.replace(/\{\{(\w+)\}\}/g, (_, token: string) =>
+        String(options?.[token] ?? `{{${token}}}`),
+      );
+    },
   }),
 }));
 
@@ -225,6 +230,7 @@ describe('ChatPanel submission flow', () => {
     mockSessionState.activeSessionId = 'sess-1';
     mockSessionState.error = null;
     mockSessionState.isConnected = true;
+    mockSessionState.messageQueue = [];
     mockSessionState.sessionError = null;
     mockSessionState.draftInput = '';
     mockSessionState.pendingPermissions = [];
@@ -388,6 +394,52 @@ describe('ChatPanel submission flow', () => {
 
       expect(screen.queryByTestId('todo-list-inline')).toBeNull();
       expect(screen.getByTestId('pending-permission-inline')).toBeTruthy();
+    });
+
+    it('renders a unified dock when todos and message queue are both present', async () => {
+      mockSessionState.todos = [
+        { id: 'todo-1', content: 'Inspect parser config', status: 'in_progress', priority: 'high' },
+      ];
+      mockSessionState.messageQueue = [
+        { id: 'queued-1', content: 'run follow-up check', timestamp: new Date() },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(screen.getByTestId('todo-list-inline')).toBeTruthy();
+      expect(screen.getByTestId('todo-list-inline-queue').textContent).toContain('1 messages queued');
+      expect(screen.getByText('Inspect parser config')).toBeTruthy();
+    });
+
+    it('renders the unified dock in queue-only mode when there are no todos', async () => {
+      mockSessionState.messageQueue = [
+        { id: 'queued-1', content: 'run follow-up check', timestamp: new Date() },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(screen.getByTestId('todo-list-inline')).toBeTruthy();
+      expect(screen.getByTestId('todo-list-inline-queue').textContent).toContain('1 messages queued');
+      expect(screen.getByText('run follow-up check')).toBeTruthy();
+    });
+
+    it('hides the unified dock when approval is occupying the dock, even if queue exists', async () => {
+      mockSessionState.todos = [
+        { id: 'todo-1', content: 'Inspect parser config', status: 'in_progress', priority: 'high' },
+      ];
+      mockSessionState.messageQueue = [
+        { id: 'queued-1', content: 'run follow-up check', timestamp: new Date() },
+      ];
+      mockSessionState.pendingPermissions = [{ permission: { id: 'perm-1' } }];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(screen.queryByTestId('todo-list-inline')).toBeNull();
+      expect(screen.getByTestId('pending-permission-inline')).toBeTruthy();
+      expect(screen.queryByText('1 messages queued')).toBeNull();
     });
   });
 

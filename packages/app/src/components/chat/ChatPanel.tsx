@@ -116,9 +116,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
   const isViewingChild = !!viewingChildSessionId;
   const showInlineTodo = React.useMemo(() => {
-    if (isViewingChild || todos.length === 0) return false;
+    if (isViewingChild) return false;
+    if (todos.length === 0 && messageQueue.length === 0) return false;
     return !hasVisiblePendingPermissions(activeSessionId, sessions, pendingPermissions);
-  }, [activeSessionId, isViewingChild, pendingPermissions, sessions, todos]);
+  }, [activeSessionId, isViewingChild, messageQueue.length, pendingPermissions, sessions, todos]);
   const displayedChildSessionMessages = React.useMemo(() => {
     if (!viewingChildSessionId) return EMPTY_MESSAGES;
 
@@ -915,7 +916,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           onHeightChange={handleInputHeightChange}
           headerContent={
             <>
-              {showInlineTodo ? <TodoList todos={todos} variant="inline" /> : null}
+              {showInlineTodo ? (
+                <TodoList
+                  todos={todos}
+                  queue={messageQueue}
+                  onRemoveFromQueue={removeFromQueue}
+                  variant="inline"
+                />
+              ) : null}
               <PendingPermissionInline />
               {sessionError && (
                 <SessionErrorAlert

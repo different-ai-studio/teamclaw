@@ -33,7 +33,6 @@ import {
 } from "@/packages/ai/model-selector";
 import { Button } from "@/components/ui/button";
 import { FileInputButton } from "./FileInputButton";
-import { MessageQueueDisplay } from "./MessageQueueDisplay";
 import { ContextUsageBadge } from "./ContextUsageBadge";
 import { type QueuedMessage, useSessionStore } from "@/stores/session";
 import { useVoiceInputStore } from "@/stores/voice-input";
@@ -135,8 +134,8 @@ export function ChatInputArea({
   onSubmit,
   isStreaming,
   onAbort,
-  messageQueue,
-  onRemoveFromQueue,
+  messageQueue: _messageQueue,
+  onRemoveFromQueue: _onRemoveFromQueue,
   onHeightChange,
   headerContent,
 }: ChatInputAreaProps) {
@@ -255,14 +254,6 @@ export function ChatInputArea({
       <div className={cn("relative w-full", compact ? "" : "mx-auto max-w-3xl")}>
         {/* Permission & Error UI (rendered above input so it's visible) */}
         {headerContent}
-
-        {/* Message Queue Display */}
-        {!compact && (
-          <MessageQueueDisplay
-            queue={messageQueue}
-            onRemove={onRemoveFromQueue}
-          />
-        )}
 
         <PromptInput
           data-onboarding-id="chat-input-root"
