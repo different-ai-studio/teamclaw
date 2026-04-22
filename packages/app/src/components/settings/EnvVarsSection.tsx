@@ -50,6 +50,7 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialog
   const [description, setDescription] = React.useState('')
   const [shared, setShared] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  const [showValue, setShowValue] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   const isEditing = !!editingEntry
@@ -67,6 +68,7 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialog
 
   React.useEffect(() => {
     if (open) {
+      setShowValue(false)
       if (editingEntry) {
         setKey(editingEntry.key)
         setDescription(editingEntry.description || '')
@@ -168,13 +170,27 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialog
             <label className="text-sm font-medium">
               {t('settings.envVars.value', 'Value')}
             </label>
-            <Input
-              type="password"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder={isEditing ? '••••••••' : 'sk-...'}
-              autoFocus={isEditing}
-            />
+            <div className="relative">
+              <Input
+                type={showValue ? 'text' : 'password'}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder={isEditing ? '••••••••' : 'sk-...'}
+                autoFocus={isEditing}
+                className="pr-9"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowValue((v) => !v)}
+                tabIndex={-1}
+                title={showValue ? t('settings.envVars.hideValue', 'Hide value') : t('settings.envVars.showValue', 'Show value')}
+              >
+                {showValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-2">
