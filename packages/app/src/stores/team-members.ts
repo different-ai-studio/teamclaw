@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import type { TeamMember } from '../lib/git/types'
+import { useWorkspaceStore } from './workspace'
 
 type MemberRole = 'owner' | 'manager' | 'editor' | 'viewer'
 
@@ -39,6 +40,11 @@ interface TeamMembersState {
   reset: () => void
 }
 
+function getWorkspaceArgs() {
+  const workspacePath = useWorkspaceStore.getState().workspacePath
+  return workspacePath ? { workspacePath } : {}
+}
+
 export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
   members: [],
   myRole: null,
@@ -61,7 +67,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
   loadMembers: async () => {
     set({ loading: true, error: null })
     try {
-      const members = await invoke<TeamMember[]>('unified_team_get_members')
+      const members = await invoke<TeamMember[]>('unified_team_get_members', getWorkspaceArgs())
       set({ members, loading: false })
     } catch (e) {
       set({ error: String(e), loading: false })
@@ -70,7 +76,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
 
   loadMyRole: async () => {
     try {
-      const role = await invoke<MemberRole | null>('unified_team_get_my_role')
+      const role = await invoke<MemberRole | null>('unified_team_get_my_role', getWorkspaceArgs())
       set({ myRole: role })
     } catch {
       set({ myRole: null })
@@ -80,7 +86,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
   addMember: async (member: TeamMember) => {
     set({ error: null })
     try {
-      await invoke('unified_team_add_member', { member })
+      await invoke('unified_team_add_member', { member, ...getWorkspaceArgs() })
       await get().loadMembers()
     } catch (e) {
       set({ error: String(e) })
@@ -91,7 +97,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
   removeMember: async (nodeId: string) => {
     set({ error: null })
     try {
-      await invoke('unified_team_remove_member', { nodeId })
+      await invoke('unified_team_remove_member', { nodeId, ...getWorkspaceArgs() })
       await get().loadMembers()
     } catch (e) {
       set({ error: String(e) })
@@ -102,7 +108,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
   updateMemberRole: async (nodeId: string, role: MemberRole) => {
     set({ error: null })
     try {
-      await invoke('unified_team_update_member_role', { nodeId, role })
+      await invoke('unified_team_update_member_role', { nodeId, role, ...getWorkspaceArgs() })
       await get().loadMembers()
     } catch (e) {
       set({ error: String(e) })

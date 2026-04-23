@@ -9,8 +9,13 @@ vi.mock('@tauri-apps/api/event', () => ({
 }))
 
 vi.mock('@/stores/workspace', () => ({
-  useWorkspaceStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ workspacePath: '/tmp/test-workspace' }),
+  useWorkspaceStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) =>
+      selector({ workspacePath: '/tmp/test-workspace' }),
+    {
+      getState: () => ({ workspacePath: '/tmp/test-workspace' }),
+    },
+  ),
 }))
 
 vi.mock('@/stores/p2p-engine', () => ({
@@ -96,6 +101,21 @@ describe('TeamMemberList', () => {
     })
 
     expect(screen.getByText('Owner')).toBeDefined()
+  })
+
+  it('passes workspacePath to workspace-aware team commands', async () => {
+    const { TeamMemberList } = await import('../components/settings/TeamMemberList')
+
+    await act(async () => {
+      render(React.createElement(TeamMemberList))
+    })
+
+    expect(mockInvoke).toHaveBeenCalledWith('unified_team_get_members', {
+      workspacePath: '/tmp/test-workspace',
+    })
+    expect(mockInvoke).toHaveBeenCalledWith('unified_team_get_my_role', {
+      workspacePath: '/tmp/test-workspace',
+    })
   })
 
   it('shows Remove buttons when myRole=owner', async () => {

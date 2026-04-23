@@ -1798,21 +1798,28 @@ pub async fn test_kook_token(token: String) -> Result<String, String> {
 /// Get WeCom configuration
 #[tauri::command]
 pub async fn get_wecom_config(
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<wecom_config::WeComConfig, String> {
-    let channels = get_channel_config(opencode_state).await?;
-    Ok(channels.wecom.unwrap_or_default())
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
+    let config = read_config(&workspace_path)?;
+    Ok(config
+        .channels
+        .and_then(|channels| channels.wecom)
+        .unwrap_or_default())
 }
 
 /// Save WeCom configuration
 #[tauri::command]
 pub async fn save_wecom_config(
     wecom: wecom_config::WeComConfig,
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -1827,7 +1834,7 @@ pub async fn save_wecom_config(
         gateway.as_ref().map(|gw| gw.clone())
     };
 
-    if let Some(gw) = gateway_clone {
+    if let Some(gw) = gateway_clone.filter(|gw| gw.workspace_path() == workspace_path) {
         gw.set_config(wecom).await;
     }
 
@@ -1837,11 +1844,14 @@ pub async fn save_wecom_config(
 /// Start WeCom gateway
 #[tauri::command]
 pub async fn start_wecom_gateway(
+    workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, None)?;
+    let (workspace_path, port) = crate::commands::opencode::resolve_workspace(
+        &opencode_state,
+        workspace_path.as_deref(),
+    )?;
 
     println!(
         "[Gateway] start_wecom_gateway called, workspace={}",
@@ -1883,6 +1893,25 @@ pub async fn start_wecom_gateway(
     ensure_session_initialized(&gateway_state, &workspace_path).await;
 
     let gateway_clone = {
+        let guard = gateway_state
+            .wecom_gateway
+            .lock()
+            .map_err(|e| e.to_string())?;
+        guard.as_ref().map(|gw| gw.clone())
+    };
+
+    if let Some(gw) = gateway_clone.as_ref() {
+        if gw.workspace_path() != workspace_path || gw.opencode_port() != port {
+            gw.stop().await?;
+            let mut guard = gateway_state
+                .wecom_gateway
+                .lock()
+                .map_err(|e| e.to_string())?;
+            *guard = None;
+        }
+    }
+
+    let gateway_clone = {
         let mut guard = gateway_state
             .wecom_gateway
             .lock()
@@ -1910,7 +1939,14 @@ pub async fn start_wecom_gateway(
 
 /// Stop WeCom gateway
 #[tauri::command]
-pub async fn stop_wecom_gateway(gateway_state: State<'_, GatewayState>) -> Result<(), String> {
+pub async fn stop_wecom_gateway(
+    workspace_path: Option<String>,
+    opencode_state: State<'_, OpenCodeState>,
+    gateway_state: State<'_, GatewayState>,
+) -> Result<(), String> {
+    let resolved_workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state).ok();
+
     let gateway_clone = {
         let guard = gateway_state
             .wecom_gateway
@@ -1919,7 +1955,12 @@ pub async fn stop_wecom_gateway(gateway_state: State<'_, GatewayState>) -> Resul
         guard.as_ref().map(|gw| gw.clone())
     };
 
-    if let Some(gw) = gateway_clone {
+    if let Some(gw) = gateway_clone.filter(|gw| {
+        resolved_workspace_path
+            .as_ref()
+            .map(|path| gw.workspace_path() == path)
+            .unwrap_or(true)
+    }) {
         gw.stop().await?;
     }
 
@@ -1929,8 +1970,12 @@ pub async fn stop_wecom_gateway(gateway_state: State<'_, GatewayState>) -> Resul
 /// Get WeCom gateway status
 #[tauri::command]
 pub async fn get_wecom_gateway_status(
+    workspace_path: Option<String>,
+    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<WeComGatewayStatusResponse, String> {
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
     let gateway_clone = {
         let guard = gateway_state
             .wecom_gateway
@@ -1939,7 +1984,7 @@ pub async fn get_wecom_gateway_status(
         guard.as_ref().map(|gw| gw.clone())
     };
 
-    if let Some(gw) = gateway_clone {
+    if let Some(gw) = gateway_clone.filter(|gw| gw.workspace_path() == workspace_path) {
         Ok(gw.get_status().await)
     } else {
         Ok(WeComGatewayStatusResponse::default())

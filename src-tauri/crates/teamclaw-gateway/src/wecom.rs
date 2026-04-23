@@ -413,6 +413,14 @@ impl WeComGateway {
         *self.config.write().await = config;
     }
 
+    pub fn workspace_path(&self) -> &str {
+        &self.workspace_path
+    }
+
+    pub fn opencode_port(&self) -> u16 {
+        self.opencode_port
+    }
+
     pub async fn get_status(&self) -> WeComGatewayStatusResponse {
         let mut resp = self.status.read().await.clone();
         // Populate active sessions from session mapping
