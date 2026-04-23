@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { withAsync } from '@/lib/store-utils'
-import { appShortName } from '@/lib/build-config'
 import { getPreferredLanguage } from '@/lib/locale'
 
 // ==================== Types ====================
