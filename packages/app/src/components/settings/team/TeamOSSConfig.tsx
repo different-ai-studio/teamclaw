@@ -11,6 +11,7 @@ import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { VersionHistorySection } from './VersionHistorySection'
 import { invoke } from '@tauri-apps/api/core'
 import { buildConfig } from '@/lib/build-config'
+import { buildTeamProviderConfig, loadTeamProviderFormState, saveTeamProviderFile } from '@/lib/team-provider'
 import type { DeviceInfo } from '@/lib/git/types'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useProviderStore } from '@/stores/provider'
@@ -149,17 +150,26 @@ export function TeamOSSConfig() {
             if (config) setCfgFcEndpoint(config.teamEndpoint || '')
           })
           .catch(() => {})
-        invoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', { workspacePath })
-          .then((status) => {
-            if (status.llm?.baseUrl) {
-              setCfgHostLlm(true)
-              setCfgLlmUrl(status.llm.baseUrl)
-              if (status.llm.models?.length) {
-                setCfgLlmModels(status.llm.models)
-              } else if (status.llm.model) {
-                setCfgLlmModels([{ id: status.llm.model, name: status.llm.modelName || status.llm.model }])
-              }
+        loadTeamProviderFormState(workspacePath)
+          .then((providerState) => {
+            if (providerState) {
+              setCfgHostLlm(providerState.enabled)
+              setCfgLlmUrl(providerState.baseUrl)
+              setCfgLlmModels(providerState.models)
+              return
             }
+            return invoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', { workspacePath })
+              .then((status) => {
+                if (status.llm?.baseUrl) {
+                  setCfgHostLlm(true)
+                  setCfgLlmUrl(status.llm.baseUrl)
+                  if (status.llm.models?.length) {
+                    setCfgLlmModels(status.llm.models)
+                  } else if (status.llm.model) {
+                    setCfgLlmModels([{ id: status.llm.model, name: status.llm.modelName || status.llm.model }])
+                  }
+                }
+              })
           })
           .catch(() => {})
         setCfgLoaded(true)
@@ -188,6 +198,11 @@ export function TeamOSSConfig() {
         llmModelName: createHostLlm ? (createLlmModels[0]?.name || undefined) : undefined,
         llmModels: createHostLlm && createLlmModels.length > 0 ? JSON.stringify(createLlmModels) : undefined,
       })
+      await saveTeamProviderFile(
+        workspacePath,
+        buildTeamProviderConfig(createHostLlm, createLlmUrl, createLlmModels),
+        createHostLlm ? createLlmModels[0]?.id : undefined,
+      )
       setTeamName('')
       setOwnerName('')
       setOwnerEmail('')
@@ -297,6 +312,11 @@ export function TeamOSSConfig() {
         llmModelName: cfgHostLlm ? (cfgLlmModels[0]?.name || undefined) : undefined,
         llmModels: cfgHostLlm && cfgLlmModels.length > 0 ? JSON.stringify(cfgLlmModels) : undefined,
       })
+      await saveTeamProviderFile(
+        workspacePath,
+        buildTeamProviderConfig(cfgHostLlm, cfgLlmUrl, cfgLlmModels),
+        cfgHostLlm ? cfgLlmModels[0]?.id : undefined,
+      )
     } catch {
       // error is set in the store
     } finally {

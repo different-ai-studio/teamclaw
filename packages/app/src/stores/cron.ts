@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { withAsync } from '@/lib/store-utils'
 import { getPreferredLanguage } from '@/lib/locale'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 // ==================== Types ====================
 
@@ -139,7 +140,8 @@ export const useCronStore = create<CronState>((set, get) => ({
       return
     }
     try {
-      await invoke('cron_init')
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      await invoke('cron_init', { workspacePath })
       set({ isInitialized: true })
       await Promise.all([get().loadJobs(), get().loadCronSessionIds()])
     } catch (error) {
@@ -151,8 +153,9 @@ export const useCronStore = create<CronState>((set, get) => ({
   // Force re-initialization (used when workspace changes)
   reinit: async () => {
     try {
+      const workspacePath = useWorkspaceStore.getState().workspacePath
       set({ isInitialized: false })
-      await invoke('cron_init')
+      await invoke('cron_init', { workspacePath })
       set({ isInitialized: true })
       await Promise.all([get().loadJobs(), get().loadCronSessionIds()])
     } catch (error) {
@@ -163,14 +166,16 @@ export const useCronStore = create<CronState>((set, get) => ({
 
   loadJobs: async () => {
     await withAsync(set, async () => {
-      const jobs = await invoke<CronJob[]>('cron_list_jobs')
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      const jobs = await invoke<CronJob[]>('cron_list_jobs', { workspacePath })
       set({ jobs })
     })
   },
 
   addJob: async (request: CreateCronJobRequest) => {
     const job = await withAsync(set, async () => {
-      const job = await invoke<CronJob>('cron_add_job', { request })
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      const job = await invoke<CronJob>('cron_add_job', { request, workspacePath })
       set((state) => ({
         jobs: [...state.jobs, job],
       }))
@@ -181,7 +186,8 @@ export const useCronStore = create<CronState>((set, get) => ({
 
   updateJob: async (request: UpdateCronJobRequest) => {
     const updated = await withAsync(set, async () => {
-      const updated = await invoke<CronJob>('cron_update_job', { request })
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      const updated = await invoke<CronJob>('cron_update_job', { request, workspacePath })
       set((state) => ({
         jobs: state.jobs.map((j) => (j.id === updated.id ? updated : j)),
       }))
@@ -192,7 +198,8 @@ export const useCronStore = create<CronState>((set, get) => ({
 
   removeJob: async (jobId: string) => {
     await withAsync(set, async () => {
-      await invoke('cron_remove_job', { jobId })
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      await invoke('cron_remove_job', { jobId, workspacePath })
       set((state) => ({
         jobs: state.jobs.filter((j) => j.id !== jobId),
         selectedJobId: state.selectedJobId === jobId ? null : state.selectedJobId,
@@ -202,7 +209,8 @@ export const useCronStore = create<CronState>((set, get) => ({
 
   toggleEnabled: async (jobId: string, enabled: boolean) => {
     try {
-      await invoke('cron_toggle_enabled', { jobId, enabled })
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      await invoke('cron_toggle_enabled', { jobId, enabled, workspacePath })
       set((state) => ({
         jobs: state.jobs.map((j) =>
           j.id === jobId ? { ...j, enabled } : j
@@ -215,7 +223,8 @@ export const useCronStore = create<CronState>((set, get) => ({
 
   runJob: async (jobId: string) => {
     try {
-      await invoke('cron_run_job', { jobId })
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      await invoke('cron_run_job', { jobId, workspacePath })
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) })
     }
@@ -223,7 +232,8 @@ export const useCronStore = create<CronState>((set, get) => ({
 
   loadCronSessionIds: async () => {
     try {
-      const ids = await invoke<string[]>('cron_get_all_session_ids')
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      const ids = await invoke<string[]>('cron_get_all_session_ids', { workspacePath })
       set({ cronSessionIds: new Set(ids) })
     } catch (error) {
       console.error('[Cron] Failed to load cron session IDs:', error)
@@ -233,9 +243,11 @@ export const useCronStore = create<CronState>((set, get) => ({
   loadRuns: async (jobId: string, limit?: number) => {
     set({ runsLoading: true, selectedJobId: jobId })
     try {
+      const workspacePath = useWorkspaceStore.getState().workspacePath
       const runs = await invoke<CronRunRecord[]>('cron_get_runs', {
         jobId,
         limit: limit ?? 50,
+        workspacePath,
       })
       set({ runs, runsLoading: false })
     } catch (error) {
@@ -246,7 +258,8 @@ export const useCronStore = create<CronState>((set, get) => ({
 
   refreshDelivery: async () => {
     try {
-      await invoke('cron_refresh_delivery')
+      const workspacePath = useWorkspaceStore.getState().workspacePath
+      await invoke('cron_refresh_delivery', { workspacePath })
     } catch (error) {
       console.error('[Cron] Failed to refresh delivery:', error)
     }

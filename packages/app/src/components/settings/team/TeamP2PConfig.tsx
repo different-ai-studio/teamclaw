@@ -24,6 +24,7 @@ import { HostLlmConfig } from './HostLlmConfig'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { toast } from 'sonner'
 import { buildConfig, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
+import { buildTeamProviderConfig, loadTeamProviderFormState, saveTeamProviderFile } from '@/lib/team-provider'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useP2pEngineStore } from '@/stores/p2p-engine'
 import { useTeamMembersStore } from '@/stores/team-members'
@@ -195,14 +196,21 @@ export function TeamP2PConfig() {
         // Load current LLM config for editing
         if (!cfgLoaded) {
           try {
-            const status = await tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', { workspacePath })
-            if (status.llm?.baseUrl) {
-              setCfgHostLlm(true)
-              setCfgLlmUrl(status.llm.baseUrl)
-              if (status.llm.models?.length) {
-                setCfgLlmModels(status.llm.models)
-              } else if (status.llm.model) {
-                setCfgLlmModels([{ id: status.llm.model, name: status.llm.modelName || status.llm.model }])
+            const providerState = await loadTeamProviderFormState(workspacePath)
+            if (providerState) {
+              setCfgHostLlm(providerState.enabled)
+              setCfgLlmUrl(providerState.baseUrl)
+              setCfgLlmModels(providerState.models)
+            } else {
+              const status = await tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', { workspacePath })
+              if (status.llm?.baseUrl) {
+                setCfgHostLlm(true)
+                setCfgLlmUrl(status.llm.baseUrl)
+                if (status.llm.models?.length) {
+                  setCfgLlmModels(status.llm.models)
+                } else if (status.llm.model) {
+                  setCfgLlmModels([{ id: status.llm.model, name: status.llm.modelName || status.llm.model }])
+                }
               }
             }
           } catch { /* ignore */ }
@@ -351,6 +359,13 @@ export function TeamP2PConfig() {
         llmModelName: createHostLlm ? (createLlmModels[0]?.name || null) : null,
         llmModels: createHostLlm && createLlmModels.length > 0 ? JSON.stringify(createLlmModels) : null,
       })
+      if (workspacePath) {
+        await saveTeamProviderFile(
+          workspacePath,
+          buildTeamProviderConfig(createHostLlm, createLlmUrl, createLlmModels),
+          createHostLlm ? createLlmModels[0]?.id : undefined,
+        )
+      }
       await loadSyncStatus()
       useWorkspaceStore.getState().refreshFileTree()
       if (workspacePath) {
@@ -414,6 +429,13 @@ export function TeamP2PConfig() {
         llmModels: cfgHostLlm && cfgLlmModels.length > 0 ? JSON.stringify(cfgLlmModels) : null,
         workspacePath,
       })
+      if (workspacePath) {
+        await saveTeamProviderFile(
+          workspacePath,
+          buildTeamProviderConfig(cfgHostLlm, cfgLlmUrl, cfgLlmModels),
+          cfgHostLlm ? cfgLlmModels[0]?.id : undefined,
+        )
+      }
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : String(err))
     } finally {
