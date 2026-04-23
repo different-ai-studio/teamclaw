@@ -163,7 +163,7 @@ pub async fn webview_eval_js(app: tauri::AppHandle, code: String) -> Result<Stri
     }
 }
 
-/// Create a native webview as a child of the main window at the given position.
+/// Create a native webview as a child of the calling window at the given position.
 ///
 /// When `device_no` and `device_name` are provided, a `window.teamclaw` global
 /// is injected into the webview before any page scripts run, exposing identity
@@ -171,6 +171,7 @@ pub async fn webview_eval_js(app: tauri::AppHandle, code: String) -> Result<Stri
 #[tauri::command]
 pub async fn webview_create(
     app: tauri::AppHandle,
+    window: tauri::Window,
     state: tauri::State<'_, WebviewManager>,
     label: String,
     url: String,
@@ -208,17 +209,19 @@ pub async fn webview_create(
         }
     }
 
-    let window = app
-        .get_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-
     let parsed_url = url
         .parse::<tauri::Url>()
         .map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
 
     eprintln!(
-        "[Webview] Creating '{}' url={} pos=({},{}) size={}x{}",
-        label, url, x, y, width, height
+        "[Webview] Creating '{}' in parent '{}' url={} pos=({},{}) size={}x{}",
+        label,
+        window.label(),
+        url,
+        x,
+        y,
+        width,
+        height
     );
 
     #[allow(unused_mut)]
