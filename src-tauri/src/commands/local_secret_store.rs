@@ -224,6 +224,48 @@ pub(crate) fn read_secret_blob(
     }
 }
 
+pub(crate) fn migrate_from_legacy_map_if_needed(
+    paths: &SecretStorePaths,
+    legacy_map: Option<serde_json::Map<String, serde_json::Value>>,
+) -> Result<(), String> {
+    if paths.blob_path.exists() {
+        return Ok(());
+    }
+
+    let had_legacy_data = legacy_map.is_some();
+    let map = legacy_map.unwrap_or_default();
+    write_secret_blob(paths, &map)?;
+
+    if had_legacy_data {
+        write_meta(
+            paths,
+            SecretStoreMeta {
+                version: LOCAL_SECRETS_VERSION,
+                algorithm: "aes-256-gcm".to_string(),
+                migrated_from_keychain: true,
+            },
+        )?;
+    }
+
+    Ok(())
+}
+
+pub(crate) fn read_or_migrate_secret_blob<F>(
+    paths: &SecretStorePaths,
+    legacy_reader: F,
+) -> Result<serde_json::Map<String, serde_json::Value>, String>
+where
+    F: FnOnce() -> Result<Option<serde_json::Map<String, serde_json::Value>>, String>,
+{
+    if paths.blob_path.exists() {
+        return read_secret_blob(paths);
+    }
+
+    let legacy_map = legacy_reader()?;
+    migrate_from_legacy_map_if_needed(paths, legacy_map)?;
+    read_secret_blob(paths)
+}
+
 fn write_blob_atomically(target: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = target
         .parent()
@@ -361,6 +403,54 @@ mod tests {
         assert_eq!(loaded.version, LOCAL_SECRETS_VERSION);
         assert_eq!(loaded.algorithm, "aes-256-gcm");
         assert!(loaded.migrated_from_keychain);
+    }
+
+    #[test]
+    fn migration_writes_local_blob_from_legacy_map() {
+        let dir = tempdir().unwrap();
+        let paths = SecretStorePaths::for_base_dir(dir.path().to_path_buf());
+        let mut legacy_map = serde_json::Map::new();
+        legacy_map.insert("A".into(), serde_json::Value::String("B".into()));
+
+        migrate_from_legacy_map_if_needed(&paths, Some(legacy_map.clone())).unwrap();
+
+        let loaded = read_secret_blob(&paths).unwrap();
+        let meta = read_meta(&paths).unwrap();
+
+        assert_eq!(loaded, legacy_map);
+        assert!(meta.migrated_from_keychain);
+    }
+
+    #[test]
+    fn migration_is_noop_when_encrypted_blob_already_exists() {
+        let dir = tempdir().unwrap();
+        let paths = SecretStorePaths::for_base_dir(dir.path().to_path_buf());
+        let mut existing_map = serde_json::Map::new();
+        existing_map.insert("EXISTING".into(), serde_json::Value::String("VALUE".into()));
+        write_secret_blob(&paths, &existing_map).unwrap();
+
+        let mut legacy_map = serde_json::Map::new();
+        legacy_map.insert("LEGACY".into(), serde_json::Value::String("SHOULD_NOT_WIN".into()));
+
+        migrate_from_legacy_map_if_needed(&paths, Some(legacy_map)).unwrap();
+
+        let loaded = read_secret_blob(&paths).unwrap();
+        let meta = read_meta(&paths).unwrap();
+
+        assert_eq!(loaded, existing_map);
+        assert!(!meta.migrated_from_keychain);
+    }
+
+    #[test]
+    fn read_or_migrate_initializes_empty_store_when_both_missing() {
+        let dir = tempdir().unwrap();
+        let paths = SecretStorePaths::for_base_dir(dir.path().to_path_buf());
+
+        let loaded = read_or_migrate_secret_blob(&paths, || Ok(None)).unwrap();
+        let meta = read_meta(&paths).unwrap();
+
+        assert!(loaded.is_empty());
+        assert!(!meta.migrated_from_keychain);
     }
 
     #[cfg(unix)]
