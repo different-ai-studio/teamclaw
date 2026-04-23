@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, BookOpen, SquarePlus, } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, SquarePlus, } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -28,6 +28,7 @@ import { cn, isTauri } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
 import { AnimatedClock } from "@/components/ui/animated-clock"
+import { DefaultBottomNav } from "@/components/navigation/DefaultBottomNav"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -594,18 +595,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     openEmbeddedSettingsSection(section)
   }
 
-  const handleQuickAccessEmbeddedSection = (section: EmbeddedSidebarSettingsSection) => {
-    clearSelection()
-    closeSettings()
-    useTabsStore.getState().hideAll()
-    if (embeddedSettingsSection === section) {
-      closeEmbeddedSettingsSection()
-      return
-    }
-    closePanel()
-    openEmbeddedSettingsSection(section)
-  }
-
   const handleWorkspaceShortcutsPanel = () => {
     clearSelection()
     closeSettings()
@@ -618,26 +607,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }
 
-  const handleOpenKnowledgePanel = () => {
-    clearSelection()
-    closeSettings()
-    closeEmbeddedSettingsSection()
-    useTabsStore.getState().hideAll()
-    if (isPanelOpen && activeWorkspacePanelTab === 'knowledge') {
-      closePanel()
-    } else {
-      openPanel('knowledge')
-    }
-  }
-
   const shortcutsStripActive =
     isPanelOpen &&
     activeWorkspacePanelTab === "shortcuts" &&
-    !embeddedSettingsSection
-
-  const knowledgeStripActive =
-    isPanelOpen &&
-    activeWorkspacePanelTab === 'knowledge' &&
     !embeddedSettingsSection
 
   const handleSelectSession = (id: string) => {
@@ -925,105 +897,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarContent>
 
         <SidebarFooter className="gap-1 px-3 pb-3 pt-1.5">
-          {/* Quick Access — default mode only */}
-          {!isWorkspaceUIVariant() && (
-            <div className="flex flex-col gap-0.5">
+          {!isWorkspaceUIVariant() ? (
+            <DefaultBottomNav />
+          ) : (
+            <div className="flex items-center justify-between">
               <Button
                 variant="ghost"
                 size="sm"
-                className={cn(
-                  'h-7 justify-start gap-1.5 px-2 font-normal',
-                  shortcutsStripActive && 'bg-primary/10 text-primary font-medium',
-                )}
-                onClick={handleWorkspaceShortcutsPanel}
+                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                onClick={() => openSettings()}
               >
-                <Bookmark
-                  className={cn(
-                    'h-3.5 w-3.5 shrink-0',
-                    shortcutsStripActive ? 'text-amber-500' : 'text-muted-foreground',
-                  )}
-                />
-                <span className="truncate text-xs">
-                  {t('navigation.shortcuts', 'Shortcuts')}
-                </span>
+                <Settings className="h-3.5 w-3.5 shrink-0" />
+                {t('common.settings', 'Settings')}
               </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  'h-7 justify-start gap-1.5 px-2 font-normal',
-                  embeddedSettingsSection === 'automation' && 'bg-primary/10 text-primary font-medium',
-                )}
-                onClick={() => handleQuickAccessEmbeddedSection('automation')}
-              >
-                <Clock
-                  className={cn(
-                    'h-3.5 w-3.5 shrink-0',
-                    embeddedSettingsSection === 'automation' ? 'text-amber-500' : 'text-muted-foreground',
-                  )}
-                />
-                <span className="truncate text-xs">
-                  {t('settings.nav.automation', 'Automation')}
-                </span>
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  'h-7 justify-start gap-1.5 px-2 font-normal',
-                  embeddedSettingsSection === 'rolesSkills' && 'bg-primary/10 text-primary font-medium',
-                )}
-                onClick={() => handleQuickAccessEmbeddedSection('rolesSkills')}
-              >
-                <Shapes
-                  className={cn(
-                    'h-3.5 w-3.5 shrink-0',
-                    embeddedSettingsSection === 'rolesSkills' ? 'text-foreground' : 'text-muted-foreground',
-                  )}
-                />
-                <span className="truncate text-xs">
-                  {t('settings.nav.rolesSkills', 'Roles & Skills')}
-                </span>
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  'h-7 justify-start gap-1.5 px-2 font-normal',
-                  knowledgeStripActive && 'bg-primary/10 text-primary font-medium',
-                )}
-                onClick={handleOpenKnowledgePanel}
-              >
-                <BookOpen
-                  className={cn(
-                    'h-3.5 w-3.5 shrink-0',
-                    knowledgeStripActive ? 'text-emerald-500' : 'text-muted-foreground',
-                  )}
-                />
-                <span className="truncate text-xs">
-                  {t('navigation.knowledge', 'Knowledge')}
-                </span>
-              </Button>
+              <div className="flex items-center gap-0.5">
+                <WorkspaceSelectorButton />
+                <OpenInNewWindowButton />
+              </div>
             </div>
           )}
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
-              onClick={() => openSettings()}
-            >
-              <Settings className="h-3.5 w-3.5 shrink-0" />
-              {t('common.settings', 'Settings')}
-            </Button>
-            <div className="flex items-center gap-0.5">
-              <WorkspaceSelectorButton />
-              <OpenInNewWindowButton />
-            </div>
-          </div>
         </SidebarFooter>
       </div>
     </Sidebar>

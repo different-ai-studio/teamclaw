@@ -11,7 +11,7 @@ export type LayoutMode = 'task' | 'file'
 // Right panel tab in file mode
 export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
 export type DefaultPrimaryTab = 'session' | 'knowledge' | 'shortcuts'
-export type DefaultMoreDestination = 'workspace' | 'automation' | 'rolesSkills' | 'settings'
+export type DefaultMoreDestination = 'automation' | 'rolesSkills' | 'settings'
 
 export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
@@ -97,15 +97,6 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (destination === 'rolesSkills') {
       get().openSettings('rolesSkills')
       return
-    }
-
-    if (destination === 'workspace') {
-      useWorkspaceStore.getState().clearSelection()
-      set({
-        currentView: 'chat',
-        settingsInitialSection: null,
-        embeddedSettingsSection: null,
-      })
     }
   },
 

@@ -38,4 +38,18 @@ describe('default layout navigation model', () => {
     expect(useUIStore.getState().currentView).toBe('settings')
     expect(useUIStore.getState().defaultMoreOpen).toBe(false)
   })
+
+  it('opens automation settings from more without changing the selected primary tab', () => {
+    useUIStore.setState({
+      defaultNavTab: 'knowledge',
+      defaultMoreOpen: true,
+    } as Partial<ReturnType<typeof useUIStore.getState>>)
+
+    useUIStore.getState().openDefaultMoreDestination('automation')
+
+    expect(useUIStore.getState().defaultNavTab).toBe('knowledge')
+    expect(useUIStore.getState().currentView).toBe('settings')
+    expect(useUIStore.getState().settingsInitialSection).toBe('automation')
+    expect(useUIStore.getState().defaultMoreOpen).toBe(false)
+  })
 })
