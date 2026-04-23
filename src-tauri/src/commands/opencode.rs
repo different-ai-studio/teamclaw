@@ -1705,6 +1705,7 @@ fn resolve_sidecar_binary_paths(workspace_path: &str) -> Result<(), String> {
 //   2. Write resolved values into opencode.json before OpenCode starts
 //   3. Restore the ${KEY} references after all MCP servers have connected
 
+#[cfg(test)]
 fn load_local_personal_secrets_from_blob<F>(
     paths: &super::local_secret_store::SecretStorePaths,
     legacy_reader: F,
@@ -1722,10 +1723,15 @@ where
 fn load_local_personal_secrets_from_paths(
     workspace_path: &str,
     paths: &super::local_secret_store::SecretStorePaths,
-) -> Result<Vec<(String, String)>, String> {
-    load_local_personal_secrets_from_blob(paths, || {
-        super::env_vars::read_legacy_keychain_blob(workspace_path)
-    })
+) -> Result<(Vec<(String, String)>, bool), String> {
+    let (blob, retry_needed) =
+        super::env_vars::read_personal_secret_blob_for_startup_from_paths(workspace_path, paths)?;
+    Ok((
+        blob.into_iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
+            .collect(),
+        retry_needed,
+    ))
 }
 
 /// Read all personal env vars from the local encrypted secret blob.
@@ -1744,12 +1750,19 @@ fn load_local_personal_secrets(workspace_path: &str) -> (Vec<(String, String)>, 
     };
 
     match load_local_personal_secrets_from_paths(workspace_path, &paths) {
-        Ok(blob) => {
+        Ok((blob, retry_needed)) => {
             println!(
                 "[OpenCode] Loaded {} personal secrets from local encrypted store",
                 blob.len()
             );
-            (blob, Vec::new())
+            (
+                blob,
+                if retry_needed {
+                    vec!["__blob__".to_string()]
+                } else {
+                    Vec::new()
+                },
+            )
         }
         Err(e) => {
             eprintln!(
@@ -2192,7 +2205,7 @@ mod tests {
         let custom_store_dir = tempdir().unwrap();
         let custom_paths = SecretStorePaths::for_base_dir(custom_store_dir.path().join("secrets"));
 
-        let secrets =
+        let (secrets, retry_needed) =
             load_local_personal_secrets_from_paths(&workspace_path, &custom_paths).unwrap();
 
         assert_eq!(
@@ -2202,6 +2215,7 @@ mod tests {
                 "from-legacy-reader".to_string()
             )]
         );
+        assert!(!retry_needed);
 
         let migrated = local_secret_store::read_secret_blob(&custom_paths).unwrap();
         assert_eq!(

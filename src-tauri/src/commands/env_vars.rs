@@ -7,6 +7,7 @@ use super::opencode::OpenCodeState;
 
 /// Single keychain entry that stores all env vars as a JSON blob.
 pub(crate) const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), ".env");
+const LEGACY_MIGRATION_MARKER_KEY: &str = "_localPersonalSecretsMigrationComplete";
 
 /// Disk-based fallback path for the env blob.
 /// Used when keychain is inaccessible (e.g. after an unsigned app update
@@ -109,9 +110,104 @@ fn read_personal_secret_blob(
     workspace_path: &str,
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let paths = personal_secret_store_paths()?;
-    local_secret_store::read_or_migrate_secret_blob(&paths, || {
-        read_legacy_keychain_blob(workspace_path)
-    })
+    read_personal_secret_blob_from_paths(workspace_path, &paths)
+}
+
+pub(crate) fn read_personal_secret_blob_from_paths(
+    workspace_path: &str,
+    paths: &local_secret_store::SecretStorePaths,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    read_personal_secret_blob_with_reader(workspace_path, paths, read_legacy_keychain_blob)
+}
+
+pub(crate) fn read_personal_secret_blob_for_startup_from_paths(
+    workspace_path: &str,
+    paths: &local_secret_store::SecretStorePaths,
+) -> Result<(serde_json::Map<String, serde_json::Value>, bool), String> {
+    read_personal_secret_blob_with_reader_for_startup(
+        workspace_path,
+        paths,
+        read_legacy_keychain_blob,
+    )
+}
+
+fn read_personal_secret_blob_with_reader<F>(
+    workspace_path: &str,
+    paths: &local_secret_store::SecretStorePaths,
+    legacy_reader: F,
+) -> Result<serde_json::Map<String, serde_json::Value>, String>
+where
+    F: Fn(&str) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String>,
+{
+    read_personal_secret_blob_with_reader_for_startup(workspace_path, paths, legacy_reader)
+        .map(|(blob, _retry_needed)| blob)
+}
+
+fn read_personal_secret_blob_with_reader_for_startup<F>(
+    workspace_path: &str,
+    paths: &local_secret_store::SecretStorePaths,
+    legacy_reader: F,
+) -> Result<(serde_json::Map<String, serde_json::Value>, bool), String>
+where
+    F: Fn(&str) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String>,
+{
+    if !paths.blob_path.exists() {
+        let blob = local_secret_store::read_or_migrate_secret_blob(paths, || {
+            legacy_reader(workspace_path)
+        })?;
+        if workspace_can_persist_legacy_migration_marker(workspace_path) {
+            mark_workspace_legacy_migration_complete_best_effort(workspace_path);
+        }
+        return Ok((blob, false));
+    }
+
+    let mut blob = local_secret_store::read_secret_blob(paths)?;
+    let mut top_up_succeeded = false;
+    let mut retry_needed = false;
+    let migration_pending = match workspace_legacy_migration_pending(workspace_path) {
+        Ok(pending) => pending,
+        Err(err) => {
+            eprintln!(
+                "[EnvVars] Legacy workspace top-up marker check failed for '{}': {}",
+                workspace_path, err
+            );
+            retry_needed = true;
+            false
+        }
+    };
+
+    if migration_pending {
+        match legacy_reader(workspace_path) {
+            Ok(Some(legacy_map)) => {
+                let mut changed = false;
+                for (key, value) in legacy_map {
+                    if let serde_json::map::Entry::Vacant(entry) = blob.entry(key) {
+                        entry.insert(value);
+                        changed = true;
+                    }
+                }
+                if changed {
+                    local_secret_store::write_secret_blob(paths, &blob)?;
+                }
+                top_up_succeeded = true;
+            }
+            Ok(None) => {
+                top_up_succeeded = true;
+            }
+            Err(err) => {
+                eprintln!(
+                    "[EnvVars] Legacy workspace top-up skipped for '{}': {}",
+                    workspace_path, err
+                );
+                retry_needed = true;
+            }
+        }
+        if top_up_succeeded {
+            mark_workspace_legacy_migration_complete_best_effort(workspace_path);
+        }
+    }
+
+    Ok((blob, retry_needed))
 }
 
 fn write_personal_secret_blob(
@@ -166,7 +262,8 @@ pub(crate) fn snapshot_env_blob_to_disk() {
 }
 
 /// Read old per-key keychain entries and consolidate into a map.
-/// Deletes old entries after reading.
+/// Legacy entries are intentionally retained so migration can be retried safely
+/// and additional workspaces can still top up the local encrypted store.
 fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde_json::Value> {
     let path = format!("{}/{}/teamclaw.json", workspace_path, super::TEAMCLAW_DIR);
     let json: serde_json::Value = match std::fs::read_to_string(&path)
@@ -194,8 +291,6 @@ fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde
             match e.get_password() {
                 Ok(value) => {
                     map.insert(key.to_string(), serde_json::Value::String(value));
-                    // Delete old entry
-                    let _ = e.delete_credential();
                 }
                 Err(e) => {
                     eprintln!(
@@ -207,6 +302,40 @@ fn migrate_legacy_keyring(workspace_path: &str) -> serde_json::Map<String, serde
         }
     }
     map
+}
+
+fn workspace_legacy_migration_pending(workspace_path: &str) -> Result<bool, String> {
+    let json = read_teamclaw_json(workspace_path)?;
+    Ok(!json
+        .get(LEGACY_MIGRATION_MARKER_KEY)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false))
+}
+
+fn mark_workspace_legacy_migration_complete(workspace_path: &str) -> Result<(), String> {
+    let mut json = read_teamclaw_json(workspace_path)?;
+    if let Some(obj) = json.as_object_mut() {
+        obj.insert(
+            LEGACY_MIGRATION_MARKER_KEY.to_string(),
+            serde_json::Value::Bool(true),
+        );
+        write_teamclaw_json(workspace_path, &json)?;
+    }
+    Ok(())
+}
+
+fn workspace_can_persist_legacy_migration_marker(workspace_path: &str) -> bool {
+    let path = get_teamclaw_json_path(workspace_path);
+    Path::new(&path).exists() && read_teamclaw_json(workspace_path).is_ok()
+}
+
+fn mark_workspace_legacy_migration_complete_best_effort(workspace_path: &str) {
+    if let Err(err) = mark_workspace_legacy_migration_complete(workspace_path) {
+        eprintln!(
+            "[EnvVars] Failed to persist legacy workspace migration marker for '{}': {}",
+            workspace_path, err
+        );
+    }
 }
 
 /// Context available to system env var default generators.
@@ -706,5 +835,183 @@ mod tests {
             reloaded.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
             Some("local-secret")
         );
+    }
+
+    #[test]
+    fn read_personal_secret_blob_merges_legacy_once_per_workspace() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let workspace_a = tempdir().unwrap();
+        let workspace_b = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+        let workspace_a_path = workspace_a.path().to_string_lossy().to_string();
+        let workspace_b_path = workspace_b.path().to_string_lossy().to_string();
+
+        let first = read_personal_secret_blob_with_reader(&workspace_a_path, &paths, |wp| {
+            let mut map = serde_json::Map::new();
+            if wp == workspace_a_path {
+                map.insert(
+                    "WORKSPACE_A_KEY".into(),
+                    serde_json::Value::String("a-secret".into()),
+                );
+            }
+            Ok(Some(map))
+        })
+        .unwrap();
+        assert_eq!(
+            first.get("WORKSPACE_A_KEY").and_then(|v| v.as_str()),
+            Some("a-secret")
+        );
+
+        let second = read_personal_secret_blob_with_reader(&workspace_b_path, &paths, |wp| {
+            let mut map = serde_json::Map::new();
+            if wp == workspace_b_path {
+                map.insert(
+                    "WORKSPACE_B_KEY".into(),
+                    serde_json::Value::String("b-secret".into()),
+                );
+            }
+            Ok(Some(map))
+        })
+        .unwrap();
+        assert_eq!(
+            second.get("WORKSPACE_A_KEY").and_then(|v| v.as_str()),
+            Some("a-secret")
+        );
+        assert_eq!(
+            second.get("WORKSPACE_B_KEY").and_then(|v| v.as_str()),
+            Some("b-secret")
+        );
+
+        let third = read_personal_secret_blob_with_reader(&workspace_b_path, &paths, |_wp| {
+            Err("legacy reader should not run after workspace migration".to_string())
+        })
+        .unwrap();
+        assert_eq!(third, second);
+    }
+
+    #[test]
+    fn existing_blob_survives_legacy_reader_error_without_marking_complete() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let workspace_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+
+        let mut blob = serde_json::Map::new();
+        blob.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("local-secret".into()),
+        );
+        local_secret_store::write_secret_blob(&paths, &blob).unwrap();
+
+        let (first, retry_needed) =
+            read_personal_secret_blob_with_reader_for_startup(&workspace_path, &paths, |_wp| {
+                Err("simulated legacy reader failure".to_string())
+            })
+            .unwrap();
+        assert_eq!(
+            first.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
+            Some("local-secret")
+        );
+        assert!(retry_needed);
+
+        let second = read_personal_secret_blob_with_reader(&workspace_path, &paths, |_wp| {
+            Err("legacy reader failure remains non-fatal on later reads".to_string())
+        })
+        .unwrap();
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn existing_blob_reads_even_if_teamclaw_json_is_invalid() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let workspace_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+
+        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
+        std::fs::create_dir_all(&teamclaw_dir).unwrap();
+        std::fs::write(teamclaw_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
+
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+
+        let mut blob = serde_json::Map::new();
+        blob.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("local-secret".into()),
+        );
+        local_secret_store::write_secret_blob(&paths, &blob).unwrap();
+
+        let loaded = read_personal_secret_blob_with_reader(&workspace_path, &paths, |_wp| {
+            Err("legacy reader should not be required when local blob already exists".into())
+        })
+        .unwrap();
+
+        assert_eq!(
+            loaded.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
+            Some("local-secret")
+        );
+    }
+
+    #[test]
+    fn first_migration_succeeds_even_if_teamclaw_json_is_invalid() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let workspace_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+
+        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
+        std::fs::create_dir_all(&teamclaw_dir).unwrap();
+        std::fs::write(teamclaw_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
+
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+        let loaded = read_env_blob(&workspace_path).unwrap();
+        assert!(loaded.is_empty());
+
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+        assert!(
+            paths.blob_path.exists(),
+            "expected encrypted blob to be created"
+        );
+    }
+
+    #[test]
+    fn startup_retry_is_requested_when_teamclaw_json_is_invalid() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let workspace_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+
+        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
+        std::fs::create_dir_all(&teamclaw_dir).unwrap();
+        std::fs::write(teamclaw_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
+
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+
+        let mut blob = serde_json::Map::new();
+        blob.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("local-secret".into()),
+        );
+        local_secret_store::write_secret_blob(&paths, &blob).unwrap();
+
+        let (loaded, retry_needed) =
+            read_personal_secret_blob_with_reader_for_startup(&workspace_path, &paths, |_wp| {
+                Ok(None)
+            })
+            .unwrap();
+
+        assert_eq!(
+            loaded.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
+            Some("local-secret")
+        );
+        assert!(retry_needed);
     }
 }
