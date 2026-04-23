@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, SquarePlus, } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, SquarePlus, GitBranch, ChevronsDownUp, X, RefreshCw } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -27,6 +27,7 @@ import {
 import { cn, isTauri } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { AnimatedClock } from "@/components/ui/animated-clock"
 import { DefaultBottomNav } from "@/components/navigation/DefaultBottomNav"
 import { RightPanel, ShortcutsPanel } from "@/components/panel"
@@ -152,6 +153,8 @@ export function SidebarCollapseToggle({ className }: { className?: string }) {
       size="icon"
       className={cn("h-7 w-7 text-muted-foreground hover:text-foreground", className)}
       onClick={toggleSidebar}
+      title="Collapse sidebar"
+      aria-label="Collapse sidebar"
     >
       <PanelLeftIcon className="h-4 w-4" />
     </Button>
@@ -317,6 +320,129 @@ export function SidebarIconGroup({ className }: { className?: string }) {
     <div className={cn("flex items-center gap-0.5", className)}>
       <SidebarCollapseToggle />
       <SidebarSecondarySessionActions />
+    </div>
+  )
+}
+
+function DefaultShortcutsHeaderControls() {
+  const { t } = useTranslation()
+  const openSettings = useUIStore((s) => s.openSettings)
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <SidebarCollapseToggle />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 shrink-0 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        onClick={() => openSettings('shortcuts')}
+        title={t('settings.shortcuts.addShortcut', 'New Shortcut')}
+        aria-label={t('settings.shortcuts.addShortcut', 'New Shortcut')}
+      >
+        <SquarePen className="h-4 w-4" />
+      </Button>
+    </div>
+  )
+}
+
+function DefaultKnowledgeHeaderControls({
+  onSearchExpandedChange,
+  gitChangedOnly,
+  onGitChangedOnlyChange,
+}: {
+  onSearchExpandedChange: (value: boolean) => void
+  gitChangedOnly: boolean
+  onGitChangedOnlyChange: (value: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const teamModeType = useTeamModeStore(s => s.teamModeType)
+  const refreshFileTree = useWorkspaceStore(s => s.refreshFileTree)
+  const collapseAll = useWorkspaceStore(s => s.collapseAll)
+  const workspacePath = useWorkspaceStore(s => s.workspacePath)
+  const [syncing, setSyncing] = React.useState(false)
+
+  const handleGitSync = React.useCallback(async () => {
+    if (!isTauri() || syncing || !workspacePath) return
+    setSyncing(true)
+    useTeamModeStore.setState({ teamGitSyncing: true })
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const result = await invoke<{
+        success: boolean
+        message: string
+        needsConfirmation?: boolean
+        newFiles?: Array<{ path: string; sizeBytes: number }>
+      }>('team_sync_repo', { force: false, workspacePath })
+      if (result.needsConfirmation) {
+        const { toast } = await import('sonner')
+        toast.warning(`检测到 ${result.newFiles?.length ?? 0} 个较大的新文件待同步，请在设置 → 团队中确认`)
+        return
+      }
+      const { toast } = await import('sonner')
+      if (result.success) {
+        toast.success(result.message)
+        useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() })
+        await refreshFileTree()
+        await useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath)
+      } else {
+        toast.error(result.message)
+      }
+    } catch (err) {
+      const { toast } = await import('sonner')
+      toast.error(String(err))
+    } finally {
+      setSyncing(false)
+      useTeamModeStore.setState({ teamGitSyncing: false })
+    }
+  }, [refreshFileTree, syncing, workspacePath])
+
+  const iconButtonClass =
+    'h-7 w-7 shrink-0 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <SidebarCollapseToggle />
+      {teamModeType === 'git' && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className={iconButtonClass}
+          onClick={handleGitSync}
+          disabled={syncing}
+          title={t('knowledge.gitSync', 'Sync Team')}
+        >
+          <RefreshCw className={cn('h-4 w-4', syncing && 'animate-spin')} />
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className={iconButtonClass}
+        onClick={() => onSearchExpandedChange(true)}
+        title={t('fileExplorer.filterPlaceholder', 'Filter files...')}
+      >
+        <Search className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn(iconButtonClass, gitChangedOnly && 'bg-primary/10 text-primary')}
+        onClick={() => onGitChangedOnlyChange(!gitChangedOnly)}
+        title={gitChangedOnly
+          ? t('fileExplorer.showAll', 'Show all files')
+          : t('fileExplorer.showGitChanged', 'Show git changed files only')}
+      >
+        <GitBranch className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className={iconButtonClass}
+        onClick={collapseAll}
+        title={t('fileExplorer.collapseAll', 'Collapse All')}
+      >
+        <ChevronsDownUp className="h-4 w-4" />
+      </Button>
     </div>
   )
 }
@@ -588,6 +714,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const activeWorkspacePanelTab = useWorkspaceStore(s => s.activeTab)
   const openPanel = useWorkspaceStore(s => s.openPanel)
   const closePanel = useWorkspaceStore(s => s.closePanel)
+  const [knowledgeFilterText, setKnowledgeFilterText] = React.useState('')
+  const [knowledgeSearchExpanded, setKnowledgeSearchExpanded] = React.useState(false)
+  const [knowledgeGitChangedOnly, setKnowledgeGitChangedOnly] = React.useState(false)
 
   const handleOpenEmbeddedSection = (section: EmbeddedSidebarSettingsSection) => {
     clearSelection()
@@ -614,6 +743,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     activeWorkspacePanelTab === "shortcuts" &&
     !embeddedSettingsSection
   const defaultSidebarContent = isWorkspaceUIVariant() ? 'session' : defaultNavTab
+
+  React.useEffect(() => {
+    if (defaultSidebarContent !== 'knowledge') {
+      setKnowledgeSearchExpanded(false)
+      setKnowledgeFilterText('')
+      setKnowledgeGitChangedOnly(false)
+    }
+  }, [defaultSidebarContent])
 
   const handleSelectSession = (id: string) => {
     useUIStore.getState().switchToSession(id)
@@ -771,9 +908,55 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <TrafficLights />
           {/* Flexible drag region */}
           <div className="flex-1" data-tauri-drag-region />
-          {/* Icon group: workspace shell keeps only collapse in the header */}
-          {isWorkspaceUIVariant() ? <SidebarCollapseToggle /> : <SidebarIconGroup />}
+          {isWorkspaceUIVariant() ? (
+            <SidebarCollapseToggle />
+          ) : defaultSidebarContent === 'knowledge' ? (
+            <DefaultKnowledgeHeaderControls
+              onSearchExpandedChange={setKnowledgeSearchExpanded}
+              gitChangedOnly={knowledgeGitChangedOnly}
+              onGitChangedOnlyChange={setKnowledgeGitChangedOnly}
+            />
+          ) : defaultSidebarContent === 'shortcuts' ? (
+            <DefaultShortcutsHeaderControls />
+          ) : (
+            <SidebarIconGroup />
+          )}
         </SidebarHeader>
+
+        {!isWorkspaceUIVariant() && defaultSidebarContent === 'knowledge' && knowledgeSearchExpanded && (
+          <div className="px-2 pb-1">
+            <div className="flex items-center gap-1 rounded-lg border border-border/50 bg-muted/20 px-1.5 py-1">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground/80" />
+                <Input
+                  autoFocus
+                  value={knowledgeFilterText}
+                  onChange={(e) => setKnowledgeFilterText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setKnowledgeSearchExpanded(false)
+                      setKnowledgeFilterText('')
+                    }
+                  }}
+                  placeholder={t('fileExplorer.filterPlaceholder', 'Filter files...')}
+                  className="h-7 border-0 bg-transparent pl-6.5 pr-1 text-xs shadow-none focus-visible:ring-0"
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0 rounded-md text-muted-foreground/80 transition-colors hover:bg-muted hover:text-foreground"
+                onClick={() => {
+                  setKnowledgeSearchExpanded(false)
+                  setKnowledgeFilterText('')
+                }}
+                title={t('common.close', 'Close')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
 
         <SidebarContent>
           {isWorkspaceUIVariant() && (
@@ -904,13 +1087,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             )}
 
             {defaultSidebarContent === 'knowledge' && (
-              <div className="min-h-0 flex-1 overflow-hidden border-t border-border/60">
-                <RightPanel defaultTab="knowledge" />
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <RightPanel
+                  defaultTab="knowledge"
+                  knowledgeBrowserProps={{
+                    hidePanelToolbar: true,
+                    filterText: knowledgeFilterText,
+                    onFilterTextChange: setKnowledgeFilterText,
+                    gitChangedOnly: knowledgeGitChangedOnly,
+                    onGitChangedOnlyChange: setKnowledgeGitChangedOnly,
+                    searchExpanded: knowledgeSearchExpanded,
+                    onSearchExpandedChange: setKnowledgeSearchExpanded,
+                  }}
+                />
               </div>
             )}
 
             {defaultSidebarContent === 'shortcuts' && (
-              <div className="min-h-0 flex-1 overflow-hidden border-t border-border/60">
+              <div className="min-h-0 flex-1 overflow-hidden">
                 <ShortcutsPanel />
               </div>
             )}

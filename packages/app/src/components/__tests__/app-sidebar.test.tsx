@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 
 const uiVariantMocks = vi.hoisted(() => ({ workspaceShell: false }))
@@ -28,7 +28,9 @@ const workspaceStoreMocks = vi.hoisted(() => ({
 
 const teamModeStoreMocks = vi.hoisted(() => ({
   teamMode: false,
+  teamModeType: null as string | null,
   p2pConnected: false,
+  loadTeamGitFileSyncStatus: vi.fn(),
 }))
 
 const teamOssStoreMocks = vi.hoisted(() => ({
@@ -320,6 +322,70 @@ describe('AppSidebar', () => {
     render(<AppSidebar />)
     expect(screen.getByTestId('right-panel').textContent).toBe('knowledge')
     expect(screen.queryByText('Session One')).toBeNull()
+  })
+
+  it('default mode uses the session header controls for the session tab', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'session'
+
+    render(<AppSidebar />)
+
+    expect(screen.getByTitle('Collapse sidebar')).toBeDefined()
+    expect(screen.getByTitle('Search (⌘K)')).toBeDefined()
+    expect(screen.getByTitle('Show scheduled sessions')).toBeDefined()
+    expect(screen.getByTitle('New Chat')).toBeDefined()
+  })
+
+  it('default mode uses the knowledge header controls for the knowledge tab', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'knowledge'
+
+    const { container } = render(<AppSidebar />)
+
+    expect(screen.getByTitle('Collapse sidebar')).toBeDefined()
+    expect(screen.getByTitle('Filter files...')).toBeDefined()
+    expect(screen.getByTitle('Show git changed files only')).toBeDefined()
+    expect(screen.getByTitle('Collapse All')).toBeDefined()
+    expect(screen.queryByTitle('New Chat')).toBeNull()
+    expect(screen.queryByTitle('Search (⌘K)')).toBeNull()
+    expect(container.querySelector('.border-t.border-border\\/60')).toBeNull()
+  })
+
+  it('default mode knowledge search opens a floating search bar below the topbar', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'knowledge'
+
+    render(<AppSidebar />)
+
+    expect(screen.queryByPlaceholderText('Filter files...')).toBeNull()
+    fireEvent.click(screen.getByTitle('Filter files...'))
+    expect(screen.getByPlaceholderText('Filter files...')).toBeDefined()
+    expect(screen.getByTitle('Show git changed files only')).toBeDefined()
+    expect(screen.getByTitle('Collapse All')).toBeDefined()
+  })
+
+  it('default mode uses only the collapse control for the shortcuts tab', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'shortcuts'
+
+    const { container } = render(<AppSidebar />)
+
+    expect(screen.getByTitle('Collapse sidebar')).toBeDefined()
+    expect(screen.getByTitle('New Shortcut')).toBeDefined()
+    expect(screen.queryByTitle('New Chat')).toBeNull()
+    expect(screen.queryByTitle('Search (⌘K)')).toBeNull()
+    expect(screen.queryByTitle('Filter files...')).toBeNull()
+    expect(container.querySelector('.border-t.border-border\\/60')).toBeNull()
+  })
+
+  it('default mode shortcuts new button opens the shortcuts settings page', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'shortcuts'
+
+    render(<AppSidebar />)
+
+    fireEvent.click(screen.getByTitle('New Shortcut'))
+    expect(uiStoreMocks.openSettings).toHaveBeenCalledWith('shortcuts')
   })
 
   it('workspace mode does not render bottom Knowledge entry', () => {

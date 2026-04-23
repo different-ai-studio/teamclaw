@@ -11,7 +11,25 @@ import { useUIStore } from '@/stores/ui'
 import { isTauri } from '@/lib/utils'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
 
-export function KnowledgeBrowser() {
+interface KnowledgeBrowserProps {
+  hidePanelToolbar?: boolean
+  filterText?: string
+  onFilterTextChange?: (value: string) => void
+  gitChangedOnly?: boolean
+  onGitChangedOnlyChange?: (value: boolean) => void
+  searchExpanded?: boolean
+  onSearchExpandedChange?: (value: boolean) => void
+}
+
+export function KnowledgeBrowser({
+  hidePanelToolbar = false,
+  filterText,
+  onFilterTextChange,
+  gitChangedOnly,
+  onGitChangedOnlyChange,
+  searchExpanded,
+  onSearchExpandedChange,
+}: KnowledgeBrowserProps = {}) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const teamMode = useTeamModeStore(s => s.teamMode)
@@ -143,6 +161,13 @@ export function KnowledgeBrowser() {
         rootPaths={rootPaths}
         rootLabels={rootLabels}
         hideGitStatus={!showFullTree}
+        hideToolbar={hidePanelToolbar}
+        filterText={filterText}
+        onFilterTextChange={onFilterTextChange}
+        gitChangedOnly={gitChangedOnly}
+        onGitChangedOnlyChange={onGitChangedOnlyChange}
+        searchExpanded={searchExpanded}
+        onSearchExpandedChange={onSearchExpandedChange}
         actionIcons={actionIcons}
         rootCreating={showFullTree ? undefined : rootCreating}
         onRootCreateConfirm={handleCreateConfirm}

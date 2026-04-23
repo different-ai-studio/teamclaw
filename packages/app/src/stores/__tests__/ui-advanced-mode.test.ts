@@ -23,63 +23,63 @@ vi.mock('@/stores/workspace', () => ({
 
 describe('UI Store - advancedMode', () => {
   beforeEach(() => {
-    useUIStore.setState({ advancedMode: false, layoutMode: 'task', fileModeRightTab: 'agent' })
+    useUIStore.setState({ advancedMode: true, layoutMode: 'task', fileModeRightTab: 'agent' })
     vi.clearAllMocks()
   })
 
-  it('defaults to false', () => {
-    expect(useUIStore.getState().advancedMode).toBe(false)
-  })
-
-  it('setAdvancedMode updates store state', () => {
-    useUIStore.getState().setAdvancedMode(true, null)
+  it('defaults to true', () => {
     expect(useUIStore.getState().advancedMode).toBe(true)
   })
 
-  it('setAdvancedMode(false) resets layoutMode from file to task', () => {
+  it('setAdvancedMode keeps the store enabled', () => {
+    useUIStore.getState().setAdvancedMode(false, null)
+    expect(useUIStore.getState().advancedMode).toBe(true)
+  })
+
+  it('setAdvancedMode(false) does not reset layoutMode from file to task', () => {
     useUIStore.setState({ advancedMode: true, layoutMode: 'file' })
     useUIStore.getState().setAdvancedMode(false, null)
-    expect(useUIStore.getState().layoutMode).toBe('task')
+    expect(useUIStore.getState().layoutMode).toBe('file')
   })
 
-  it('setAdvancedMode(false) resets fileModeRightTab to shortcuts', () => {
+  it('setAdvancedMode(false) does not reset fileModeRightTab', () => {
     useUIStore.setState({ advancedMode: true, fileModeRightTab: 'changes' })
     useUIStore.getState().setAdvancedMode(false, null)
-    expect(useUIStore.getState().fileModeRightTab).toBe('shortcuts')
+    expect(useUIStore.getState().fileModeRightTab).toBe('changes')
   })
 
-  it('loadAdvancedMode defaults to false when file does not exist', async () => {
+  it('loadAdvancedMode stays true when file does not exist', async () => {
     const { exists } = await import('@tauri-apps/plugin-fs')
     vi.mocked(exists).mockResolvedValue(false)
 
     await useUIStore.getState().loadAdvancedMode('/workspace')
-    expect(useUIStore.getState().advancedMode).toBe(false)
+    expect(useUIStore.getState().advancedMode).toBe(true)
   })
 
-  it(`loadAdvancedMode reads true from valid ${CONFIG_FILE_NAME}`, async () => {
+  it(`loadAdvancedMode ignores ${CONFIG_FILE_NAME} and stays true`, async () => {
     const { exists, readTextFile } = await import('@tauri-apps/plugin-fs')
     vi.mocked(exists).mockResolvedValue(true)
-    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ advancedMode: true }))
+    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ advancedMode: false }))
 
     await useUIStore.getState().loadAdvancedMode('/workspace')
     expect(useUIStore.getState().advancedMode).toBe(true)
   })
 
-  it('loadAdvancedMode defaults to false on malformed JSON', async () => {
+  it('loadAdvancedMode stays true on malformed JSON', async () => {
     const { exists, readTextFile } = await import('@tauri-apps/plugin-fs')
     vi.mocked(exists).mockResolvedValue(true)
     vi.mocked(readTextFile).mockResolvedValue('not json{{{')
 
     await useUIStore.getState().loadAdvancedMode('/workspace')
-    expect(useUIStore.getState().advancedMode).toBe(false)
+    expect(useUIStore.getState().advancedMode).toBe(true)
   })
 
-  it('loadAdvancedMode defaults to false when advancedMode field is missing', async () => {
+  it('loadAdvancedMode stays true when advancedMode field is missing', async () => {
     const { exists, readTextFile } = await import('@tauri-apps/plugin-fs')
     vi.mocked(exists).mockResolvedValue(true)
     vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({ team: {} }))
 
     await useUIStore.getState().loadAdvancedMode('/workspace')
-    expect(useUIStore.getState().advancedMode).toBe(false)
+    expect(useUIStore.getState().advancedMode).toBe(true)
   })
 })

@@ -15,7 +15,6 @@ import {
   MessageSquareText,
   Plus,
   X,
-  Wrench,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -33,8 +32,6 @@ import { PermissionBatchSection } from './PermissionBatchSection'
 import { useSuggestionsStore } from '@/stores/suggestions'
 import { appShortName, buildConfig } from '@/lib/build-config'
 import { getPreferredLanguage, persistLanguage } from '@/lib/locale'
-import { useUIStore } from '@/stores/ui'
-import { useWorkspaceStore } from '@/stores/workspace'
 
 // Theme helpers
 const THEME_STORAGE_KEY = `${buildConfig.app.shortName ?? 'teamclaw'}-theme`
@@ -86,9 +83,6 @@ export const GeneralSection = React.memo(function GeneralSection() {
       i18next.off('languageChanged', handleLanguageChange);
     };
   }, []);
-  const advancedMode = useUIStore((s) => s.advancedMode)
-  const setAdvancedMode = useUIStore((s) => s.setAdvancedMode)
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const [autoSave, setAutoSave] = React.useState(true)
   const [notificationLevel, setNotificationLevelState] = React.useState(() => {
     try {
@@ -272,19 +266,6 @@ export const GeneralSection = React.memo(function GeneralSection() {
       )}
 
       <ChatSuggestionsCard />
-
-      {buildConfig.features.advancedMode && (
-        <div className="flex items-center justify-between px-1 py-1">
-          <label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Wrench className="h-3 w-3" />
-            {t('settings.general.advancedMode', 'Advanced Mode')}
-          </label>
-          <ToggleSwitch
-            enabled={advancedMode}
-            onChange={(v) => setAdvancedMode(v, workspacePath)}
-          />
-        </div>
-      )}
     </div>
   )
 })

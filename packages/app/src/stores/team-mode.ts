@@ -106,7 +106,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   teamModelConfig: null,
   teamModelOptions: buildConfig.team.llm.models ?? [],
   _appliedConfigKey: null,
-  devUnlocked: false,
+  devUnlocked: true,
   myRole: null,
   p2pConnected: false,
   p2pConfigured: false,
@@ -303,12 +303,8 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     console.log('[TeamMode] Switched team model to:', modelId)
   },
 
-  setDevUnlocked: (unlocked: boolean) => {
-    set({ devUnlocked: unlocked })
-    // Refresh file tree so hidden files appear/disappear
-    import('./workspace').then(({ useWorkspaceStore }) => {
-      useWorkspaceStore.getState().refreshFileTree()
-    })
+  setDevUnlocked: (_unlocked: boolean) => {
+    set({ devUnlocked: true })
   },
 
   loadP2pFileSyncStatus: async () => {
