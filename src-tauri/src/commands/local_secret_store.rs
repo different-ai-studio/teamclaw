@@ -135,8 +135,11 @@ fn load_or_create_master_key(paths: &SecretStorePaths) -> Result<[u8; 32], Strin
 fn load_existing_master_key(paths: &SecretStorePaths) -> Result<[u8; 32], String> {
     let raw = std::fs::read(&paths.master_key_path)
         .map_err(|_| "Missing master key for existing encrypted secret store".to_string())?;
-    raw.try_into()
-        .map_err(|_| "Invalid master key length".to_string())
+    let key: [u8; 32] = raw
+        .try_into()
+        .map_err(|_| "Invalid master key length".to_string())?;
+    set_owner_only_permissions(&paths.master_key_path)?;
+    Ok(key)
 }
 
 pub(crate) fn write_secret_blob(
@@ -384,6 +387,28 @@ mod tests {
 
         let loaded = load_or_create_master_key(&paths).unwrap();
         assert_eq!(loaded, key);
+
+        let mode = std::fs::metadata(&paths.master_key_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_path_repairs_existing_master_key_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let paths = SecretStorePaths::for_base_dir(dir.path().to_path_buf());
+        let mut map = serde_json::Map::new();
+        map.insert("A".into(), serde_json::Value::String("B".into()));
+
+        write_secret_blob(&paths, &map).unwrap();
+        let mut perms = std::fs::metadata(&paths.master_key_path).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&paths.master_key_path, perms).unwrap();
+
+        let loaded = read_secret_blob(&paths).unwrap();
+        assert_eq!(loaded.get("A").and_then(|v| v.as_str()), Some("B"));
 
         let mode = std::fs::metadata(&paths.master_key_path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
