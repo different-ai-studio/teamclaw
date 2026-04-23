@@ -11,17 +11,17 @@ pub(crate) const LOCAL_SECRETS_VERSION: u32 = 1;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SecretStorePaths {
-    base_dir: PathBuf,
-    master_key_path: PathBuf,
-    blob_path: PathBuf,
-    meta_path: PathBuf,
+    pub(crate) base_dir: PathBuf,
+    pub(crate) master_key_path: PathBuf,
+    pub(crate) blob_path: PathBuf,
+    pub(crate) meta_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SecretStoreMeta {
-    version: u32,
-    algorithm: String,
-    migrated_from_keychain: bool,
+    pub(crate) version: u32,
+    pub(crate) algorithm: String,
+    pub(crate) migrated_from_keychain: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
