@@ -246,7 +246,7 @@ jobs:
             echo "OSS secrets not configured, skipping mirror upload"
             exit 0
           fi
-          python3 -m pip install oss2 --quiet
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
           python3 - <<'EOF'
           import oss2, os, glob, sys
 
@@ -451,7 +451,7 @@ jobs:
             echo "OSS secrets not configured, skipping mirror upload"
             exit 0
           fi
-          python3 -m pip install oss2 --quiet
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
           python3 - <<'EOF'
           import oss2, os, glob, sys
 
@@ -499,7 +499,7 @@ jobs:
             --repo ${{ github.repository }} \
             --pattern 'latest.json' \
             --dir /tmp/oss-latest
-          python3 -m pip install oss2 --quiet
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
           python3 - <<'EOF'
           import json
           import oss2, os
