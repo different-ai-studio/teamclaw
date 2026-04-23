@@ -5,7 +5,12 @@ use aes_gcm::{
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 pub(crate) const LOCAL_SECRETS_VERSION: u32 = 1;
 
@@ -54,21 +59,64 @@ fn ensure_base_dir(paths: &SecretStorePaths) -> Result<(), String> {
         .map_err(|e| format!("Failed to create secrets dir: {}", e))
 }
 
-fn load_or_create_master_key(paths: &SecretStorePaths) -> Result<[u8; 32], String> {
-    ensure_base_dir(paths)?;
-    if paths.master_key_path.exists() {
-        let raw = std::fs::read(&paths.master_key_path)
-            .map_err(|e| format!("Failed to read master key: {}", e))?;
-        return raw
-            .try_into()
-            .map_err(|_| "Invalid master key length".to_string());
+fn set_owner_only_permissions(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let mut perms = std::fs::metadata(path)
+            .map_err(|e| format!("Failed to inspect permissions for {}: {}", path.display(), e))?
+            .permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(path, perms)
+            .map_err(|e| format!("Failed to set permissions for {}: {}", path.display(), e))?;
     }
 
-    let mut key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut key);
-    std::fs::write(&paths.master_key_path, key)
-        .map_err(|e| format!("Failed to write master key: {}", e))?;
-    Ok(key)
+    Ok(())
+}
+
+fn load_or_create_master_key(paths: &SecretStorePaths) -> Result<[u8; 32], String> {
+    ensure_base_dir(paths)?;
+    for _ in 0..50 {
+        let mut open_options = std::fs::OpenOptions::new();
+        open_options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            open_options.mode(0o600);
+        }
+
+        match open_options.open(&paths.master_key_path) {
+            Ok(mut file) => {
+                let mut key = [0u8; 32];
+                rand::thread_rng().fill_bytes(&mut key);
+                file.write_all(&key)
+                    .map_err(|e| format!("Failed to write master key: {}", e))?;
+                file.sync_all()
+                    .map_err(|e| format!("Failed to flush master key: {}", e))?;
+                set_owner_only_permissions(&paths.master_key_path)?;
+                return Ok(key);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let raw = match std::fs::read(&paths.master_key_path) {
+                    Ok(raw) => raw,
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                        std::thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
+                    Err(err) => return Err(format!("Failed to read master key: {}", err)),
+                };
+
+                match raw.try_into() {
+                    Ok(key) => return Ok(key),
+                    Err(_) => {
+                        std::thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
+                }
+            }
+            Err(e) => return Err(format!("Failed to create master key: {}", e)),
+        }
+    }
+
+    Err("Failed to initialize master key after retries".to_string())
 }
 
 fn load_existing_master_key(paths: &SecretStorePaths) -> Result<[u8; 32], String> {
@@ -83,6 +131,10 @@ pub(crate) fn write_secret_blob(
     map: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
     ensure_base_dir(paths)?;
+    let migrated_from_keychain = read_meta(paths)
+        .ok()
+        .map(|m| m.migrated_from_keychain)
+        .unwrap_or(false);
     let key = load_or_create_master_key(paths)?;
     let cipher =
         Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Cipher init failed: {}", e))?;
@@ -101,25 +153,16 @@ pub(crate) fn write_secret_blob(
         ciphertext_b64: B64.encode(ciphertext),
     };
 
-    let tmp_path = paths.blob_path.with_extension("tmp");
-    std::fs::write(
-        &tmp_path,
-        serde_json::to_vec_pretty(&file)
-            .map_err(|e| format!("Failed to encode blob file: {}", e))?,
-    )
-    .map_err(|e| format!("Failed to write temp blob file: {}", e))?;
-    std::fs::rename(&tmp_path, &paths.blob_path)
-        .map_err(|e| format!("Failed to atomically replace blob file: {}", e))?;
+    let blob_bytes =
+        serde_json::to_vec_pretty(&file).map_err(|e| format!("Failed to encode blob file: {}", e))?;
+    write_blob_atomically(&paths.blob_path, &blob_bytes)?;
 
     write_meta(
         paths,
         SecretStoreMeta {
             version: LOCAL_SECRETS_VERSION,
             algorithm: "aes-256-gcm".to_string(),
-            migrated_from_keychain: read_meta(paths)
-                .ok()
-                .map(|m| m.migrated_from_keychain)
-                .unwrap_or(false),
+            migrated_from_keychain,
         },
     )?;
 
@@ -163,6 +206,57 @@ pub(crate) fn read_secret_blob(
         serde_json::Value::Object(map) => Ok(map),
         _ => Err("Secret blob JSON must be an object".to_string()),
     }
+}
+
+fn write_blob_atomically(target: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| format!("Blob path has no parent directory: {}", target.display()))?;
+    let stem = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("Invalid blob file name: {}", target.display()))?;
+
+    for _ in 0..50 {
+        let tmp_path = parent.join(format!(
+            ".{}.{}.{}.tmp",
+            stem,
+            std::process::id(),
+            rand::thread_rng().next_u64()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)
+        {
+            Ok(mut file) => {
+                let write_result = (|| -> Result<(), String> {
+                    file.write_all(bytes)
+                        .map_err(|e| format!("Failed to write temp blob file: {}", e))?;
+                    file.sync_all()
+                        .map_err(|e| format!("Failed to flush temp blob file: {}", e))?;
+                    Ok(())
+                })();
+
+                if let Err(err) = write_result {
+                    let _ = std::fs::remove_file(&tmp_path);
+                    return Err(err);
+                }
+
+                match std::fs::rename(&tmp_path, target) {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&tmp_path);
+                        return Err(format!("Failed to atomically replace blob file: {}", e));
+                    }
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("Failed to create temp blob file: {}", e)),
+        }
+    }
+
+    Err("Failed to create unique temp blob file after retries".to_string())
 }
 
 pub(crate) fn write_meta(paths: &SecretStorePaths, meta: SecretStoreMeta) -> Result<(), String> {
@@ -233,5 +327,23 @@ mod tests {
 
         let err = read_secret_blob(&paths).unwrap_err();
         assert!(err.contains("master key"));
+    }
+
+    #[test]
+    fn meta_round_trip_writes_and_reads() {
+        let dir = tempdir().unwrap();
+        let paths = SecretStorePaths::for_base_dir(dir.path().to_path_buf());
+        let meta = SecretStoreMeta {
+            version: LOCAL_SECRETS_VERSION,
+            algorithm: "aes-256-gcm".to_string(),
+            migrated_from_keychain: true,
+        };
+
+        write_meta(&paths, meta).unwrap();
+        let loaded = read_meta(&paths).unwrap();
+
+        assert_eq!(loaded.version, LOCAL_SECRETS_VERSION);
+        assert_eq!(loaded.algorithm, "aes-256-gcm");
+        assert!(loaded.migrated_from_keychain);
     }
 }
