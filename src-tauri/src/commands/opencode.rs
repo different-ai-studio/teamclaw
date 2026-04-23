@@ -462,13 +462,13 @@ pub async fn start_opencode_inner(
     // Three branches run concurrently via tokio::join!:
     //   1. opencode.json writers (sequential: permissions → config → binary paths)
     //   2. ensure_inherent_skills (writes to .opencode/skills/, independent)
-    //   3. read_keyring_secrets (reads OS keyring, independent)
+    //   3. load_local_personal_secrets (reads local encrypted secret blob, independent)
     //
     // resolve_config_secret_refs runs AFTER all three complete (depends on
-    // both the config writers finishing and keyring secrets being available).
+    // both the config writers finishing and local personal secrets being available).
 
-    // Ensure system env vars exist (e.g. tc_api_key) before reading keyring secrets.
-    // Runs synchronously — one keychain read + optional write.
+    // Ensure system env vars exist (e.g. tc_api_key) before reading personal secrets.
+    // Runs synchronously before the local encrypted secret blob load.
     {
         let device_id = super::oss_commands::get_device_id().unwrap_or_default();
         let ws = workspace_path.clone();
@@ -488,9 +488,9 @@ pub async fn start_opencode_inner(
 
     let ws_for_config = workspace_path.clone();
     let ws_for_skills = workspace_path.clone();
-    let ws_for_keyring = workspace_path.clone();
+    let ws_for_personal_secrets = workspace_path.clone();
 
-    let (config_result, skills_result, keyring_result) = tokio::join!(
+    let (config_result, skills_result, personal_secrets_result) = tokio::join!(
         // Branch 1: opencode.json writers (must be sequential with each other)
         tokio::task::spawn_blocking(move || {
             if let Err(e) = ensure_default_permissions(&ws_for_config) {
@@ -521,8 +521,8 @@ pub async fn start_opencode_inner(
                 );
             }
         }),
-        // Branch 3: keyring secrets
-        tokio::task::spawn_blocking(move || read_keyring_secrets(&ws_for_keyring))
+        // Branch 3: local personal secrets
+        tokio::task::spawn_blocking(move || load_local_personal_secrets(&ws_for_personal_secrets))
     );
 
     // Unwrap spawn results (panics inside spawn_blocking become JoinErrors)
@@ -533,18 +533,21 @@ pub async fn start_opencode_inner(
         eprintln!("[OpenCode] Skills setup task panicked: {}", e);
     }
 
-    let (mut secrets, failed_keys) = keyring_result.unwrap_or_else(|e| {
-        eprintln!("[OpenCode] spawn_blocking for keyring failed: {}", e);
+    let (mut secrets, failed_keys) = personal_secrets_result.unwrap_or_else(|e| {
+        eprintln!(
+            "[OpenCode] spawn_blocking for local personal secrets failed: {}",
+            e
+        );
         (Vec::new(), Vec::new())
     });
 
-    // Keyring retry logic (unchanged from original)
+    // Local encrypted secret blob retry logic (unchanged from original)
     if !failed_keys.is_empty() {
         if failed_keys == ["__blob__"] {
-            println!("[OpenCode] Keychain blob unavailable, retrying after keychain unlock...");
+            println!("[OpenCode] Local encrypted secret blob unavailable, retrying once...");
         } else {
             println!(
-                "[OpenCode] {} secret(s) failed to read ({:?}), retrying after keychain unlock...",
+                "[OpenCode] {} personal secret(s) failed to read ({:?}), retrying local encrypted blob load...",
                 failed_keys.len(),
                 failed_keys
             );
@@ -553,19 +556,24 @@ pub async fn start_opencode_inner(
 
         let ws_retry = workspace_path.clone();
         let (retry_secrets, still_failed) =
-            tokio::task::spawn_blocking(move || read_keyring_secrets(&ws_retry))
+            tokio::task::spawn_blocking(move || load_local_personal_secrets(&ws_retry))
                 .await
                 .unwrap_or_else(|e| {
-                    eprintln!("[OpenCode] spawn_blocking for keyring retry failed: {}", e);
+                    eprintln!(
+                        "[OpenCode] spawn_blocking for local personal secrets retry failed: {}",
+                        e
+                    );
                     (Vec::new(), Vec::new())
                 });
 
         if !still_failed.is_empty() {
             if still_failed == ["__blob__"] {
-                eprintln!("[OpenCode] Warning: keychain blob still unavailable after retry");
+                eprintln!(
+                    "[OpenCode] Warning: local encrypted secret blob still unavailable after retry"
+                );
             } else {
                 eprintln!(
-                    "[OpenCode] Warning: {} secret(s) still unavailable after retry: {:?}",
+                    "[OpenCode] Warning: {} personal secret(s) still unavailable after retry: {:?}",
                     still_failed.len(),
                     still_failed
                 );
@@ -583,10 +591,9 @@ pub async fn start_opencode_inner(
     // directory unconditionally so we pick up envelopes that arrived via sync
     // while the app was running (or while opencode was stopped).
     if let Some(shared_state) = app.try_state::<super::shared_secrets::SharedSecretsState>() {
-        if let Err(e) = super::shared_secrets::try_lazy_init_from_workspace(
-            &shared_state,
-            &workspace_path,
-        ) {
+        if let Err(e) =
+            super::shared_secrets::try_lazy_init_from_workspace(&shared_state, &workspace_path)
+        {
             // Not an error when the workspace has no team — expected for solo workspaces.
             println!("[OpenCode] shared_secrets init skipped: {}", e);
         }
@@ -1690,32 +1697,59 @@ fn resolve_sidecar_binary_paths(workspace_path: &str) -> Result<(), String> {
 
 // ─── Secret / env-var helpers for MCP config ────────────────────────────
 //
-// teamclaw stores API keys in the OS credential store (macOS Keychain /
-// Windows Credential Manager / Linux Secret Service).  opencode.json
+// teamclaw stores personal API keys in a local encrypted secret blob.
+// Legacy keychain data is migrated into that local store on first read.
+// opencode.json
 // references them via ${KEY_NAME}.  OpenCode passes environment values
 // literally to MCP server processes, so we must:
-//   1. Read secrets from the keyring
+//   1. Read personal secrets from the local encrypted store
 //   2. Write resolved values into opencode.json before OpenCode starts
 //   3. Restore the ${KEY} references after all MCP servers have connected
 
-/// Read all personal env vars from the single keychain blob.
+fn load_local_personal_secrets_from_paths<F>(
+    paths: &super::local_secret_store::SecretStorePaths,
+    legacy_reader: F,
+) -> Result<Vec<(String, String)>, String>
+where
+    F: FnOnce() -> Result<Option<serde_json::Map<String, serde_json::Value>>, String>,
+{
+    let blob = super::local_secret_store::read_or_migrate_secret_blob(paths, legacy_reader)?;
+    Ok(blob
+        .into_iter()
+        .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
+        .collect())
+}
+
+/// Read all personal env vars from the local encrypted secret blob.
 /// Returns `(secrets, failed)` — failed is always empty on success, or contains
 /// a diagnostic sentinel if the blob itself cannot be read.
-fn read_keyring_secrets(workspace_path: &str) -> (Vec<(String, String)>, Vec<String>) {
-    match super::env_vars::read_env_blob(workspace_path) {
-        Ok(blob) => {
-            let secrets: Vec<(String, String)> = blob
-                .into_iter()
-                .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
-                .collect();
-            println!(
-                "[OpenCode] Loaded {} secrets from keychain blob",
-                secrets.len()
+fn load_local_personal_secrets(workspace_path: &str) -> (Vec<(String, String)>, Vec<String>) {
+    let paths = match super::local_secret_store::SecretStorePaths::for_home_dir() {
+        Ok(paths) => paths,
+        Err(e) => {
+            eprintln!(
+                "[OpenCode] Failed to resolve local encrypted secret store path: {}",
+                e
             );
-            (secrets, Vec::new())
+            return (Vec::new(), vec!["__blob__".to_string()]);
+        }
+    };
+
+    match load_local_personal_secrets_from_paths(&paths, || {
+        super::env_vars::read_env_blob(workspace_path).map(Some)
+    }) {
+        Ok(blob) => {
+            println!(
+                "[OpenCode] Loaded {} personal secrets from local encrypted store",
+                blob.len()
+            );
+            (blob, Vec::new())
         }
         Err(e) => {
-            eprintln!("[OpenCode] Failed to read keychain blob: {}", e);
+            eprintln!(
+                "[OpenCode] Failed to read local encrypted secret blob: {}",
+                e
+            );
             (Vec::new(), vec!["__blob__".to_string()])
         }
     }
@@ -2054,6 +2088,71 @@ async fn get_server_paths(port: u16) -> (Option<String>, Option<String>) {
     }
 
     (None, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::local_secret_store::{self, SecretStorePaths};
+    use std::path::Path;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    fn home_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct HomeGuard {
+        original_home: Option<std::ffi::OsString>,
+    }
+
+    impl HomeGuard {
+        fn set(path: &Path) -> Self {
+            let original_home = std::env::var_os("HOME");
+            std::env::set_var("HOME", path);
+            Self { original_home }
+        }
+    }
+
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            match &self.original_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn load_local_personal_secrets_prefers_existing_encrypted_blob_without_legacy_read() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+
+        let mut map = serde_json::Map::new();
+        map.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("local-secret".into()),
+        );
+        map.insert("IGNORED".into(), serde_json::json!(123));
+        local_secret_store::write_secret_blob(&paths, &map).unwrap();
+
+        let legacy_reader_called = AtomicBool::new(false);
+        let secrets = load_local_personal_secrets_from_paths(&paths, || {
+            legacy_reader_called.store(true, Ordering::SeqCst);
+            Ok(Some(serde_json::Map::new()))
+        })
+        .unwrap();
+
+        assert_eq!(
+            secrets,
+            vec![("OPENAI_API_KEY".to_string(), "local-secret".to_string())]
+        );
+        assert!(!legacy_reader_called.load(Ordering::SeqCst));
+    }
 }
 
 /// Stop OpenCode sidecar(s) (production) or clear running state (dev).
