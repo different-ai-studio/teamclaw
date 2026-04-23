@@ -81,6 +81,7 @@ describe('DefaultBottomNav', () => {
     render(<DefaultBottomNav />)
 
     expect(screen.getByTestId('default-more-workspace-name').textContent).toBe('alpha-workspace')
+    expect(screen.queryByRole('button', { name: /^workspace$/i })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
 
     expect(uiStoreState.openDefaultMoreDestination).toHaveBeenCalledWith('settings')

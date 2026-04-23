@@ -897,9 +897,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarContent>
 
         <SidebarFooter className="gap-1 px-3 pb-3 pt-1.5">
-          {!isWorkspaceUIVariant() ? (
-            <DefaultBottomNav />
-          ) : (
+          {!isWorkspaceUIVariant() && <DefaultBottomNav />}
+
+          {isWorkspaceUIVariant() && (
             <div className="flex items-center justify-between">
               <Button
                 variant="ghost"
@@ -916,6 +916,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </div>
             </div>
           )}
+
         </SidebarFooter>
       </div>
     </Sidebar>
