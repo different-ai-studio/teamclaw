@@ -505,10 +505,10 @@ function AppContent() {
   const { state, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
   const hasActiveFileTab = !!useTabsStore(selectActiveTab);
   const hasHiddenTabs = useTabsStore(selectHasHiddenTabs);
-  /** In the workspace shell, shortcuts/knowledge can temporarily own the left dock.
-   * The default shell keeps the sidebar visible and routes those tabs to the right panel. */
+  const workspaceUIVariant = isWorkspaceUIVariant();
+  /** Shortcuts/knowledge open in the left dock for both shells.
+   * Only the workspace shell temporarily replaces the sidebar with that dock. */
   const leftDockActive =
-    isWorkspaceUIVariant() &&
     isPanelOpen &&
     (activeTab === "shortcuts" || activeTab === "knowledge");
   const showRightWorkspacePanel = isPanelOpen && !leftDockActive;
@@ -606,7 +606,7 @@ function AppContent() {
   /** When left dock opens, hide the main sidebar; restore prior expansion when it closes. */
   const restoreSidebarAfterLeftDockRef = useRef<boolean | null>(null);
   useEffect(() => {
-    if (leftDockActive) {
+    if (leftDockActive && workspaceUIVariant) {
       if (restoreSidebarAfterLeftDockRef.current === null) {
         restoreSidebarAfterLeftDockRef.current = sidebarOpen;
         if (sidebarOpen) {
@@ -623,7 +623,7 @@ function AppContent() {
         setSidebarOpen(true);
       }
     }
-  }, [leftDockActive, sidebarOpen, setSidebarOpen, closePanel]);
+  }, [leftDockActive, workspaceUIVariant, sidebarOpen, setSidebarOpen, closePanel]);
 
   // Remove HTML skeleton once OpenCode server is bootstrapped (sessions can load)
   // Also remove when workspace resolution completes with no workspace — otherwise

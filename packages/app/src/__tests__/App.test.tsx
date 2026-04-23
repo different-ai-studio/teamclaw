@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 
 const uiVariantState = vi.hoisted(() => ({
   workspace: false,
@@ -197,7 +197,7 @@ describe('App', () => {
     expect(document.body.textContent).toContain('workspace-prompt')
   })
 
-  it('keeps the sidebar open for default layout knowledge panels', () => {
+  it('keeps the sidebar open and shows the left dock for default layout knowledge panels', () => {
     workspaceStoreState.workspacePath = '/workspace'
     workspaceStoreState.isPanelOpen = true
     workspaceStoreState.activeTab = 'knowledge'
@@ -205,5 +205,6 @@ describe('App', () => {
     render(<App />)
 
     expect(sidebarState.setOpen).not.toHaveBeenCalledWith(false)
+    expect(screen.getByTitle('Back to sidebar')).toBeTruthy()
   })
 })
