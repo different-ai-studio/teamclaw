@@ -1706,7 +1706,7 @@ fn resolve_sidecar_binary_paths(workspace_path: &str) -> Result<(), String> {
 //   2. Write resolved values into opencode.json before OpenCode starts
 //   3. Restore the ${KEY} references after all MCP servers have connected
 
-fn load_local_personal_secrets_from_paths<F>(
+fn load_local_personal_secrets_from_blob<F>(
     paths: &super::local_secret_store::SecretStorePaths,
     legacy_reader: F,
 ) -> Result<Vec<(String, String)>, String>
@@ -1718,6 +1718,15 @@ where
         .into_iter()
         .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
         .collect())
+}
+
+fn load_local_personal_secrets_from_paths(
+    workspace_path: &str,
+    paths: &super::local_secret_store::SecretStorePaths,
+) -> Result<Vec<(String, String)>, String> {
+    load_local_personal_secrets_from_blob(paths, || {
+        super::env_vars::read_legacy_keychain_blob(workspace_path)
+    })
 }
 
 /// Read all personal env vars from the local encrypted secret blob.
@@ -1735,9 +1744,7 @@ fn load_local_personal_secrets(workspace_path: &str) -> (Vec<(String, String)>, 
         }
     };
 
-    match load_local_personal_secrets_from_paths(&paths, || {
-        super::env_vars::read_env_blob(workspace_path).map(Some)
-    }) {
+    match load_local_personal_secrets_from_paths(workspace_path, &paths) {
         Ok(blob) => {
             println!(
                 "[OpenCode] Loaded {} personal secrets from local encrypted store",
@@ -2141,7 +2148,7 @@ mod tests {
         local_secret_store::write_secret_blob(&paths, &map).unwrap();
 
         let legacy_reader_called = AtomicBool::new(false);
-        let secrets = load_local_personal_secrets_from_paths(&paths, || {
+        let secrets = load_local_personal_secrets_from_blob(&paths, || {
             legacy_reader_called.store(true, Ordering::SeqCst);
             Ok(Some(serde_json::Map::new()))
         })
@@ -2152,6 +2159,55 @@ mod tests {
             vec![("OPENAI_API_KEY".to_string(), "local-secret".to_string())]
         );
         assert!(!legacy_reader_called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn load_local_personal_secrets_migrates_from_legacy_reader_not_read_env_blob() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+        let workspace_dir = tempdir().unwrap();
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+
+        let home_paths = SecretStorePaths::for_home_dir().unwrap();
+        let mut home_map = serde_json::Map::new();
+        home_map.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("from-read-env-blob".into()),
+        );
+        local_secret_store::write_secret_blob(&home_paths, &home_map).unwrap();
+
+        let legacy_blob_dir = home_dir.path().join(concat!(".", env!("APP_SHORT_NAME")));
+        std::fs::create_dir_all(&legacy_blob_dir).unwrap();
+        let mut legacy_map = serde_json::Map::new();
+        legacy_map.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("from-legacy-reader".into()),
+        );
+        std::fs::write(
+            legacy_blob_dir.join("env-blob.json"),
+            serde_json::to_vec(&legacy_map).unwrap(),
+        )
+        .unwrap();
+
+        let custom_store_dir = tempdir().unwrap();
+        let custom_paths = SecretStorePaths::for_base_dir(custom_store_dir.path().join("secrets"));
+
+        let secrets = load_local_personal_secrets_from_paths(&workspace_path, &custom_paths).unwrap();
+
+        assert_eq!(
+            secrets,
+            vec![(
+                "OPENAI_API_KEY".to_string(),
+                "from-legacy-reader".to_string()
+            )]
+        );
+
+        let migrated = local_secret_store::read_secret_blob(&custom_paths).unwrap();
+        assert_eq!(
+            migrated.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
+            Some("from-legacy-reader")
+        );
     }
 }
 

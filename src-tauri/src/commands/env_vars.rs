@@ -46,7 +46,7 @@ fn personal_secret_store_paths() -> Result<local_secret_store::SecretStorePaths,
     local_secret_store::SecretStorePaths::for_home_dir()
 }
 
-fn read_legacy_keychain_blob(
+pub(crate) fn read_legacy_keychain_blob(
     workspace_path: &str,
 ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
