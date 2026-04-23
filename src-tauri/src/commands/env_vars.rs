@@ -109,7 +109,9 @@ fn read_personal_secret_blob(
     workspace_path: &str,
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let paths = personal_secret_store_paths()?;
-    local_secret_store::read_or_migrate_secret_blob(&paths, || read_legacy_keychain_blob(workspace_path))
+    local_secret_store::read_or_migrate_secret_blob(&paths, || {
+        read_legacy_keychain_blob(workspace_path)
+    })
 }
 
 fn write_personal_secret_blob(
@@ -127,21 +129,6 @@ pub(crate) fn read_env_blob(
     read_personal_secret_blob(workspace_path)
 }
 
-/// Write the env blob to the legacy keychain blob path.
-/// Retained only for compatibility helpers such as updater snapshots.
-#[allow(dead_code)]
-fn write_env_blob_to_keychain(
-    map: &serde_json::Map<String, serde_json::Value>,
-) -> Result<(), String> {
-    let json_str =
-        serde_json::to_string(map).map_err(|e| format!("Failed to serialize env blob: {}", e))?;
-    let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
-        .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
-    entry
-        .set_password(&json_str)
-        .map_err(|e| format!("Failed to write keychain blob: {}", e))
-}
-
 /// Write the entire env var blob to the local encrypted personal secret store.
 pub(crate) fn write_env_blob(
     map: &serde_json::Map<String, serde_json::Value>,
@@ -149,10 +136,18 @@ pub(crate) fn write_env_blob(
     write_personal_secret_blob(map)
 }
 
-/// Snapshot the current keychain env blob to the disk fallback file.
-/// Called by the updater before replacing the app bundle so the new binary
-/// (which may have a different code signature) can recover secrets.
+/// Snapshot legacy keychain data to the disk fallback file only when migration
+/// has not yet produced a local encrypted blob. Called by the updater before
+/// replacing the app bundle so pre-migration installs can still recover their
+/// personal secrets after a signature-changing update.
 pub(crate) fn snapshot_env_blob_to_disk() {
+    let Ok(paths) = personal_secret_store_paths() else {
+        return;
+    };
+    if paths.blob_path.exists() {
+        return;
+    }
+
     let entry = match keyring::Entry::new(KEYRING_SERVICE, "teamclaw") {
         Ok(e) => e,
         Err(_) => return,
@@ -298,7 +293,10 @@ pub(crate) fn read_teamclaw_json(workspace_path: &str) -> Result<serde_json::Val
 }
 
 /// Write the full teamclaw.json back (preserving all other fields).
-pub(crate) fn write_teamclaw_json(workspace_path: &str, json: &serde_json::Value) -> Result<(), String> {
+pub(crate) fn write_teamclaw_json(
+    workspace_path: &str,
+    json: &serde_json::Value,
+) -> Result<(), String> {
     let teamclaw_dir = format!("{}/{}", workspace_path, super::TEAMCLAW_DIR);
     let _ = std::fs::create_dir_all(&teamclaw_dir);
     let path = get_teamclaw_json_path(workspace_path);
@@ -558,10 +556,7 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, device_id: &str) -> R
                                     def.key
                                 );
                             }
-                            blob.insert(
-                                def.key.to_string(),
-                                serde_json::Value::String(new_value),
-                            );
+                            blob.insert(def.key.to_string(), serde_json::Value::String(new_value));
                             blob_changed = true;
                         }
                     }
@@ -572,10 +567,7 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, device_id: &str) -> R
                     if !key_present_in_blob {
                         if let Some(default) = (def.default_fn)(&ctx) {
                             println!("[EnvVars] Seeding system var {} with default", def.key);
-                            blob.insert(
-                                def.key.to_string(),
-                                serde_json::Value::String(default),
-                            );
+                            blob.insert(def.key.to_string(), serde_json::Value::String(default));
                             blob_changed = true;
                         }
                     }
@@ -603,7 +595,11 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, device_id: &str) -> R
             continue;
         }
 
-        let target_category = if def.shared_default { "system-shared" } else { "system" };
+        let target_category = if def.shared_default {
+            "system-shared"
+        } else {
+            "system"
+        };
         if let Some(existing) = entries.iter_mut().find(|e| e.key == def.key) {
             if existing.category.as_deref() != Some(target_category) {
                 existing.category = Some(target_category.to_string());
@@ -689,7 +685,10 @@ mod tests {
         assert_eq!(loaded, legacy_blob);
 
         let paths = SecretStorePaths::for_home_dir().unwrap();
-        assert!(paths.blob_path.exists(), "expected encrypted blob to be created");
+        assert!(
+            paths.blob_path.exists(),
+            "expected encrypted blob to be created"
+        );
         let meta = crate::commands::local_secret_store::read_meta(&paths).unwrap();
         assert!(meta.migrated_from_keychain);
 

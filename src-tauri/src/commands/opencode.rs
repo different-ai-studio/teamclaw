@@ -541,50 +541,20 @@ pub async fn start_opencode_inner(
         (Vec::new(), Vec::new())
     });
 
-    // Local encrypted secret blob retry logic (unchanged from original)
     if !failed_keys.is_empty() {
         if failed_keys == ["__blob__"] {
-            println!("[OpenCode] Local encrypted secret blob unavailable, retrying once...");
+            eprintln!("[OpenCode] Warning: local encrypted secret blob unavailable");
         } else {
-            println!(
-                "[OpenCode] {} personal secret(s) failed to read ({:?}), retrying local encrypted blob load...",
+            eprintln!(
+                "[OpenCode] Warning: {} personal secret(s) failed to read: {:?}",
                 failed_keys.len(),
                 failed_keys
             );
         }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-        let ws_retry = workspace_path.clone();
-        let (retry_secrets, still_failed) =
-            tokio::task::spawn_blocking(move || load_local_personal_secrets(&ws_retry))
-                .await
-                .unwrap_or_else(|e| {
-                    eprintln!(
-                        "[OpenCode] spawn_blocking for local personal secrets retry failed: {}",
-                        e
-                    );
-                    (Vec::new(), Vec::new())
-                });
-
-        if !still_failed.is_empty() {
-            if still_failed == ["__blob__"] {
-                eprintln!(
-                    "[OpenCode] Warning: local encrypted secret blob still unavailable after retry"
-                );
-            } else {
-                eprintln!(
-                    "[OpenCode] Warning: {} personal secret(s) still unavailable after retry: {:?}",
-                    still_failed.len(),
-                    still_failed
-                );
-            }
-        }
-
-        secrets = retry_secrets;
     }
 
     // Merge shared secrets (team KMS) into secrets vec.
-    // Shared secrets take priority over local keyring entries with the same key.
+    // Shared secrets take priority over local personal secrets with the same key.
     //
     // On every (re)start: (1) lazy-init if needed — supports both OSS and Git
     // teams via `try_lazy_init_from_workspace`, and (2) re-read the `_secrets/`
@@ -1698,7 +1668,7 @@ fn resolve_sidecar_binary_paths(workspace_path: &str) -> Result<(), String> {
 // ─── Secret / env-var helpers for MCP config ────────────────────────────
 //
 // teamclaw stores personal API keys in a local encrypted secret blob.
-// Legacy keychain data is migrated into that local store on first read.
+// Legacy keychain data is consulted only as first-read migration input.
 // opencode.json
 // references them via ${KEY_NAME}.  OpenCode passes environment values
 // literally to MCP server processes, so we must:
@@ -2193,7 +2163,8 @@ mod tests {
         let custom_store_dir = tempdir().unwrap();
         let custom_paths = SecretStorePaths::for_base_dir(custom_store_dir.path().join("secrets"));
 
-        let secrets = load_local_personal_secrets_from_paths(&workspace_path, &custom_paths).unwrap();
+        let secrets =
+            load_local_personal_secrets_from_paths(&workspace_path, &custom_paths).unwrap();
 
         assert_eq!(
             secrets,

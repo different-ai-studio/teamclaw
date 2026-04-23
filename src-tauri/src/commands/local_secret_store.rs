@@ -63,7 +63,13 @@ fn set_owner_only_permissions(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         let mut perms = std::fs::metadata(path)
-            .map_err(|e| format!("Failed to inspect permissions for {}: {}", path.display(), e))?
+            .map_err(|e| {
+                format!(
+                    "Failed to inspect permissions for {}: {}",
+                    path.display(),
+                    e
+                )
+            })?
             .permissions();
         perms.set_mode(0o600);
         std::fs::set_permissions(path, perms)
@@ -169,8 +175,8 @@ pub(crate) fn write_secret_blob(
         ciphertext_b64: B64.encode(ciphertext),
     };
 
-    let blob_bytes =
-        serde_json::to_vec_pretty(&file).map_err(|e| format!("Failed to encode blob file: {}", e))?;
+    let blob_bytes = serde_json::to_vec_pretty(&file)
+        .map_err(|e| format!("Failed to encode blob file: {}", e))?;
     write_blob_atomically(&paths.blob_path, &blob_bytes)?;
 
     write_meta(
@@ -343,7 +349,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let paths = SecretStorePaths::for_base_dir(dir.path().to_path_buf());
         let mut map = serde_json::Map::new();
-        map.insert("OPENAI_API_KEY".into(), serde_json::Value::String("sk-test".into()));
+        map.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("sk-test".into()),
+        );
 
         write_secret_blob(&paths, &map).unwrap();
         let loaded = read_secret_blob(&paths).unwrap();
@@ -430,7 +439,10 @@ mod tests {
         write_secret_blob(&paths, &existing_map).unwrap();
 
         let mut legacy_map = serde_json::Map::new();
-        legacy_map.insert("LEGACY".into(), serde_json::Value::String("SHOULD_NOT_WIN".into()));
+        legacy_map.insert(
+            "LEGACY".into(),
+            serde_json::Value::String("SHOULD_NOT_WIN".into()),
+        );
 
         migrate_from_legacy_map_if_needed(&paths, Some(legacy_map)).unwrap();
 
@@ -451,6 +463,40 @@ mod tests {
 
         assert!(loaded.is_empty());
         assert!(!meta.migrated_from_keychain);
+    }
+
+    #[test]
+    fn read_or_migrate_uses_legacy_reader_once_then_prefers_local_blob() {
+        let dir = tempdir().unwrap();
+        let paths = SecretStorePaths::for_base_dir(dir.path().to_path_buf());
+        let legacy_reads = std::sync::atomic::AtomicUsize::new(0);
+
+        let first = read_or_migrate_secret_blob(&paths, || {
+            legacy_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+            let mut legacy_map = serde_json::Map::new();
+            legacy_map.insert(
+                "OPENAI_API_KEY".into(),
+                serde_json::Value::String("migrated-secret".into()),
+            );
+            Ok(Some(legacy_map))
+        })
+        .unwrap();
+
+        assert_eq!(
+            first.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
+            Some("migrated-secret")
+        );
+        assert_eq!(legacy_reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let second = read_or_migrate_secret_blob(&paths, || {
+            legacy_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err("legacy reader should not run after local blob exists".to_string())
+        })
+        .unwrap();
+
+        assert_eq!(second, first);
+        assert_eq!(legacy_reads.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[cfg(unix)]
@@ -478,7 +524,11 @@ mod tests {
         let loaded = load_or_create_master_key(&paths).unwrap();
         assert_eq!(loaded, key);
 
-        let mode = std::fs::metadata(&paths.master_key_path).unwrap().permissions().mode() & 0o777;
+        let mode = std::fs::metadata(&paths.master_key_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(mode, 0o600);
     }
 
@@ -493,14 +543,20 @@ mod tests {
         map.insert("A".into(), serde_json::Value::String("B".into()));
 
         write_secret_blob(&paths, &map).unwrap();
-        let mut perms = std::fs::metadata(&paths.master_key_path).unwrap().permissions();
+        let mut perms = std::fs::metadata(&paths.master_key_path)
+            .unwrap()
+            .permissions();
         perms.set_mode(0o644);
         std::fs::set_permissions(&paths.master_key_path, perms).unwrap();
 
         let loaded = read_secret_blob(&paths).unwrap();
         assert_eq!(loaded.get("A").and_then(|v| v.as_str()), Some("B"));
 
-        let mode = std::fs::metadata(&paths.master_key_path).unwrap().permissions().mode() & 0o777;
+        let mode = std::fs::metadata(&paths.master_key_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(mode, 0o600);
     }
 }
