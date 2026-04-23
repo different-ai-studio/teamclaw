@@ -10,6 +10,8 @@ export type LayoutMode = 'task' | 'file'
 
 // Right panel tab in file mode
 export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
+export type DefaultPrimaryTab = 'session' | 'knowledge' | 'shortcuts'
+export type DefaultMoreDestination = 'workspace' | 'automation' | 'rolesSkills' | 'settings'
 
 export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
@@ -20,11 +22,16 @@ interface UIState {
   currentView: View
   layoutMode: LayoutMode
   fileModeRightTab: FileModeRightTab
+  defaultNavTab: DefaultPrimaryTab
+  defaultMoreOpen: boolean
   spotlightMode: boolean
   settingsInitialSection: SettingsSection | null
   /** When set, main column shows this settings section (workspace UI variant only). */
   embeddedSettingsSection: EmbeddedSidebarSettingsSection | null
   setView: (view: View) => void
+  setDefaultMoreOpen: (open: boolean) => void
+  selectDefaultPrimaryTab: (tab: DefaultPrimaryTab) => void
+  openDefaultMoreDestination: (destination: DefaultMoreDestination) => Promise<void> | void
   openSettings: (section?: SettingsSection) => void
   closeSettings: () => void
   openEmbeddedSettingsSection: (section: EmbeddedSidebarSettingsSection) => void
@@ -44,11 +51,63 @@ export const useUIStore = create<UIState>((set, get) => ({
   currentView: 'chat',
   layoutMode: 'task',
   fileModeRightTab: 'agent',
+  defaultNavTab: 'session',
+  defaultMoreOpen: false,
   spotlightMode: false,
   settingsInitialSection: null,
   embeddedSettingsSection: null,
 
   setView: (view) => set({ currentView: view }),
+
+  setDefaultMoreOpen: (open) => set({ defaultMoreOpen: open }),
+
+  selectDefaultPrimaryTab: (tab) => {
+    const ws = useWorkspaceStore.getState()
+
+    set({
+      defaultNavTab: tab,
+      defaultMoreOpen: false,
+      currentView: 'chat',
+      settingsInitialSection: null,
+      embeddedSettingsSection: null,
+    })
+
+    if (tab === 'session') {
+      ws.clearSelection()
+      ws.closePanel()
+      return
+    }
+
+    ws.openPanel(tab)
+  },
+
+  openDefaultMoreDestination: (destination) => {
+    set({ defaultMoreOpen: false })
+
+    if (destination === 'settings') {
+      get().openSettings()
+      return
+    }
+
+    if (destination === 'automation') {
+      get().openSettings('automation')
+      return
+    }
+
+    if (destination === 'rolesSkills') {
+      get().openSettings('rolesSkills')
+      return
+    }
+
+    if (destination === 'workspace') {
+      useWorkspaceStore.getState().clearSelection()
+      set({
+        currentView: 'chat',
+        settingsInitialSection: null,
+        embeddedSettingsSection: null,
+      })
+    }
+  },
 
   openSettings: (section) => set({
     currentView: 'settings',
