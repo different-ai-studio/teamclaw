@@ -543,14 +543,43 @@ pub async fn start_opencode_inner(
 
     if !failed_keys.is_empty() {
         if failed_keys == ["__blob__"] {
-            eprintln!("[OpenCode] Warning: local encrypted secret blob unavailable");
+            println!("[OpenCode] Local encrypted secret blob unavailable, retrying once...");
         } else {
-            eprintln!(
-                "[OpenCode] Warning: {} personal secret(s) failed to read: {:?}",
+            println!(
+                "[OpenCode] {} personal secret(s) failed to read ({:?}), retrying local encrypted blob load...",
                 failed_keys.len(),
                 failed_keys
             );
         }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        let ws_retry = workspace_path.clone();
+        let (retry_secrets, still_failed) =
+            tokio::task::spawn_blocking(move || load_local_personal_secrets(&ws_retry))
+                .await
+                .unwrap_or_else(|e| {
+                    eprintln!(
+                        "[OpenCode] spawn_blocking for local personal secrets retry failed: {}",
+                        e
+                    );
+                    (Vec::new(), Vec::new())
+                });
+
+        if !still_failed.is_empty() {
+            if still_failed == ["__blob__"] {
+                eprintln!(
+                    "[OpenCode] Warning: local encrypted secret blob still unavailable after retry"
+                );
+            } else {
+                eprintln!(
+                    "[OpenCode] Warning: {} personal secret(s) still unavailable after retry: {:?}",
+                    still_failed.len(),
+                    still_failed
+                );
+            }
+        }
+
+        secrets = retry_secrets;
     }
 
     // Merge shared secrets (team KMS) into secrets vec.
