@@ -918,7 +918,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
         </SidebarContent>
 
-        <SidebarFooter className="gap-1 px-3 pb-4 pt-2">
+        <SidebarFooter className="gap-1 px-2 pb-1 pt-1">
           {!isWorkspaceUIVariant() && <DefaultBottomNav />}
 
           {isWorkspaceUIVariant() && (

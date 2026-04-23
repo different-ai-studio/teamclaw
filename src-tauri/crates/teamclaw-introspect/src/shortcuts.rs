@@ -35,9 +35,7 @@ fn action_create(workspace: &str, args: &Value) -> Result<Value, String> {
     let icon = args.get("icon");
     let parent_id = args.get("parent_id").or_else(|| args.get("parentId"));
 
-    let parent_id_str = parent_id
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
+    let parent_id_str = parent_id.and_then(|v| v.as_str()).filter(|s| !s.is_empty());
 
     // Generate ID: shortcut-{timestamp_ms}-{uuid_prefix}
     let ts = std::time::SystemTime::now()

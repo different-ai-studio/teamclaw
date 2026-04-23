@@ -42,7 +42,9 @@ pub enum ErrorTrackerError {
 impl fmt::Display for ErrorTrackerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ErrorTrackerError::WebviewOperation(s) => write!(f, "Error tracking operation error: {}", s),
+            ErrorTrackerError::WebviewOperation(s) => {
+                write!(f, "Error tracking operation error: {}", s)
+            }
             ErrorTrackerError::TimeoutError(s) => write!(f, "Operation timed out: {}", s),
             ErrorTrackerError::ParseError(s) => write!(f, "Parse error: {}", s),
         }
@@ -132,8 +134,9 @@ pub async fn handle_get_exceptions<R: Runtime>(
     app: &AppHandle<R>,
     payload: Value,
 ) -> Result<SocketResponse, Error> {
-    let request: ErrorTrackerRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for error tracker: {}", e)))?;
+    let request: ErrorTrackerRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for error tracker: {}", e))
+    })?;
 
     // Get the window label or use "main" as default
     let window_label = request
@@ -152,8 +155,9 @@ pub async fn handle_get_exceptions<R: Runtime>(
     // Handle the result
     match result {
         Ok(response) => {
-            let data = serde_json::to_value(response)
-                .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+            let data = serde_json::to_value(response).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?;
 
             Ok(SocketResponse {
                 success: true,
@@ -174,8 +178,12 @@ pub async fn handle_inject_error_tracker<R: Runtime>(
     app: &AppHandle<R>,
     payload: Value,
 ) -> Result<SocketResponse, Error> {
-    let request: InjectErrorTrackerRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for error tracker injection: {}", e)))?;
+    let request: InjectErrorTrackerRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!(
+            "Invalid payload for error tracker injection: {}",
+            e
+        ))
+    })?;
 
     let window_label = request
         .window_label
@@ -191,20 +199,28 @@ pub async fn handle_inject_error_tracker<R: Runtime>(
 
     // Send injection event to the window
     window
-        .emit("inject-error-tracker", serde_json::json!({
-            "circular_buffer_size": circular_buffer_size
-        }))
-        .map_err(|e| Error::communication_error_with_context(
-            "Failed to emit injection event",
-            format!("window: {}, error: {}", window_label, e),
-        ))?;
+        .emit(
+            "inject-error-tracker",
+            serde_json::json!({
+                "circular_buffer_size": circular_buffer_size
+            }),
+        )
+        .map_err(|e| {
+            Error::communication_error_with_context(
+                "Failed to emit injection event",
+                format!("window: {}, error: {}", window_label, e),
+            )
+        })?;
 
     Ok(SocketResponse {
         success: true,
-        data: Some(serde_json::to_value(InjectErrorTrackerResponse {
-            message: "Error tracking script injected successfully".to_string(),
-            circular_buffer_size,
-        }).unwrap()),
+        data: Some(
+            serde_json::to_value(InjectErrorTrackerResponse {
+                message: "Error tracking script injected successfully".to_string(),
+                circular_buffer_size,
+            })
+            .unwrap(),
+        ),
         error: None,
     })
 }
@@ -219,12 +235,11 @@ pub async fn handle_clear_exceptions<R: Runtime>(
         window_label: Option<String>,
     }
 
-    let request: ClearRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for clear exceptions: {}", e)))?;
+    let request: ClearRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for clear exceptions: {}", e))
+    })?;
 
-    let window_label = request
-        .window_label
-        .unwrap_or_else(|| "main".to_string());
+    let window_label = request.window_label.unwrap_or_else(|| "main".to_string());
 
     // Verify the window exists
     let window = app
@@ -232,12 +247,12 @@ pub async fn handle_clear_exceptions<R: Runtime>(
         .ok_or_else(|| Error::window_not_found(&window_label))?;
 
     // Send clear event to the window
-    window
-        .emit("clear-exceptions", ())
-        .map_err(|e| Error::communication_error_with_context(
+    window.emit("clear-exceptions", ()).map_err(|e| {
+        Error::communication_error_with_context(
             "Failed to emit clear event",
             format!("window: {}, error: {}", window_label, e),
-        ))?;
+        )
+    })?;
 
     Ok(SocketResponse {
         success: true,
@@ -282,8 +297,9 @@ async fn retrieve_exceptions<R: Runtime>(
     match rx.recv_timeout(Duration::from_secs(10)) {
         Ok(result_string) => {
             // Parse the response
-            let response: Value = serde_json::from_str(&result_string)
-                .map_err(|e| ErrorTrackerError::ParseError(format!("Failed to parse response: {}", e)))?;
+            let response: Value = serde_json::from_str(&result_string).map_err(|e| {
+                ErrorTrackerError::ParseError(format!("Failed to parse response: {}", e))
+            })?;
 
             // Check if result contains an error
             if let Some(error) = response.get("error") {

@@ -668,14 +668,25 @@ pub async fn opencode_get_available_models(port: u16) -> Result<(Vec<ModelInfo>,
 }
 
 /// Format the model list response for chat commands
-pub fn format_model_list(models: &[ModelInfo], active_model: &str, is_custom: bool, locale: i18n::Locale) -> String {
+pub fn format_model_list(
+    models: &[ModelInfo],
+    active_model: &str,
+    is_custom: bool,
+    locale: i18n::Locale,
+) -> String {
     const MAX_LENGTH: usize = 1900;
 
     let mut text = String::new();
     if is_custom {
-        text.push_str(&i18n::t(i18n::MsgKey::CurrentModelCustom(active_model), locale));
+        text.push_str(&i18n::t(
+            i18n::MsgKey::CurrentModelCustom(active_model),
+            locale,
+        ));
     } else {
-        text.push_str(&i18n::t(i18n::MsgKey::CurrentModelDefault(active_model), locale));
+        text.push_str(&i18n::t(
+            i18n::MsgKey::CurrentModelDefault(active_model),
+            locale,
+        ));
     }
     text.push_str(&i18n::t(i18n::MsgKey::AvailableModels, locale));
 
@@ -852,7 +863,11 @@ pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, Strin
 }
 
 /// Fetch the latest assistant message text from a session
-async fn fetch_latest_assistant_message(port: u16, session_id: &str, locale: i18n::Locale) -> Result<String, String> {
+async fn fetch_latest_assistant_message(
+    port: u16,
+    session_id: &str,
+    locale: i18n::Locale,
+) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -994,12 +1009,11 @@ pub async fn handle_sessions_command(
                 };
 
                 match fetch_latest_assistant_message(port, &target.id, locale).await {
-                    Ok(latest) => {
-                        i18n::t(i18n::MsgKey::SwitchedToSessionWithLatest(title, &latest), locale)
-                    }
-                    Err(_) => {
-                        i18n::t(i18n::MsgKey::SwitchedToSessionNoLatest(title), locale)
-                    }
+                    Ok(latest) => i18n::t(
+                        i18n::MsgKey::SwitchedToSessionWithLatest(title, &latest),
+                        locale,
+                    ),
+                    Err(_) => i18n::t(i18n::MsgKey::SwitchedToSessionNoLatest(title), locale),
                 }
             }
             Err(e) => i18n::t(i18n::MsgKey::FailedToListSessions(&e), locale),
@@ -1034,7 +1048,10 @@ pub async fn handle_stop_command(
             } else {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                i18n::t(i18n::MsgKey::FailedToStopSessionWithStatus(status.as_u16(), &body), locale)
+                i18n::t(
+                    i18n::MsgKey::FailedToStopSessionWithStatus(status.as_u16(), &body),
+                    locale,
+                )
             }
         }
         Err(e) => i18n::t(i18n::MsgKey::FailedToStopSession(&e.to_string()), locale),
@@ -1127,7 +1144,11 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
         assert_eq!(body["noReply"], true);
         let text = body["parts"][0]["text"].as_str().unwrap();
-        assert!(text.starts_with("[张三]"), "Expected [张三] prefix, got: {}", text);
+        assert!(
+            text.starts_with("[张三]"),
+            "Expected [张三] prefix, got: {}",
+            text
+        );
         assert!(text.contains("hello world"));
     }
 
@@ -1144,7 +1165,11 @@ mod tests {
         let result = inject_context_no_reply(port, "test-session", "msg", "user").await;
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("500"), "Error should contain status code: {}", err);
+        assert!(
+            err.contains("500"),
+            "Error should contain status code: {}",
+            err
+        );
     }
 
     #[tokio::test]

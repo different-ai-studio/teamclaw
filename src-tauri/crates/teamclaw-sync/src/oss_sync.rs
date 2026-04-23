@@ -2,8 +2,9 @@ use crate::oss_types::*;
 use crate::version_types::MAX_VERSIONS;
 
 use aws_sdk_s3::primitives::ByteStream;
-use futures::stream::{self, StreamExt};
+use base64::Engine;
 use chrono::Utc;
+use futures::stream::{self, StreamExt};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -11,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use base64::Engine;
 use tracing::{info, warn};
 use zstd;
 
@@ -149,7 +149,9 @@ impl OssSyncManager {
         event_emitter: Option<Box<dyn SyncEventEmitter>>,
     ) -> Self {
         let team_dir = Path::new(&workspace_path).join(&team_repo_dir_name);
-        let loro_cache_dir = Path::new(&workspace_path).join(&teamclaw_dir_name).join("loro");
+        let loro_cache_dir = Path::new(&workspace_path)
+            .join(&teamclaw_dir_name)
+            .join("loro");
 
         let cursor = read_sync_cursor_with(&workspace_path, &teamclaw_dir_name);
 
@@ -217,7 +219,9 @@ impl OssSyncManager {
         // Restore known_files from Vec<String> to HashSet<String>
         let mut known_files = HashMap::new();
         for dt in DocType::all() {
-            let set = cursor.known_files.get(dt.path())
+            let set = cursor
+                .known_files
+                .get(dt.path())
                 .map(|v| v.iter().cloned().collect::<HashSet<String>>())
                 .unwrap_or_default();
             known_files.insert(dt, set);
@@ -416,10 +420,9 @@ impl OssSyncManager {
             .connect_timeout(std::time::Duration::from_secs(10))
             .build();
 
-        let stalled_stream =
-            aws_sdk_s3::config::StalledStreamProtectionConfig::enabled()
-                .grace_period(std::time::Duration::from_secs(30))
-                .build();
+        let stalled_stream = aws_sdk_s3::config::StalledStreamProtectionConfig::enabled()
+            .grace_period(std::time::Duration::from_secs(30))
+            .build();
 
         let s3_config = aws_sdk_s3::config::Builder::new()
             .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
@@ -581,7 +584,8 @@ impl OssSyncManager {
                 if let aws_sdk_s3::error::SdkError::ServiceError(ref se) = e {
                     let raw = se.raw();
                     let status = raw.status().as_u16();
-                    let body = std::str::from_utf8(raw.body().bytes().unwrap_or_default()).unwrap_or("<non-utf8>");
+                    let body = std::str::from_utf8(raw.body().bytes().unwrap_or_default())
+                        .unwrap_or("<non-utf8>");
                     warn!("{msg} | status={status} body={body}");
                 }
                 msg
@@ -940,7 +944,7 @@ impl OssSyncManager {
             ".DS_Store",
             "node_modules/",
             ".git/",
-            "target/",          // Rust / Cargo build output
+            "target/", // Rust / Cargo build output
             "dist/",
             "build/",
             "out/",
@@ -953,9 +957,9 @@ impl OssSyncManager {
             ".venv/",
             "venv/",
             ".tox/",
-            "vendor/",          // Go / PHP vendored deps
+            "vendor/", // Go / PHP vendored deps
             ".gradle/",
-            ".m2/",             // Maven local repo
+            ".m2/", // Maven local repo
             "*.log",
             "*.tmp",
         ];
@@ -976,12 +980,16 @@ impl OssSyncManager {
             let _ = builder.add(sub_gi);
         }
         builder.build().unwrap_or_else(|_| {
-            ignore::gitignore::GitignoreBuilder::new(dir).build().unwrap()
+            ignore::gitignore::GitignoreBuilder::new(dir)
+                .build()
+                .unwrap()
         })
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn scan_local_files(dir: &Path) -> Result<(HashMap<String, Vec<u8>>, Vec<SkippedFile>), String> {
+    pub fn scan_local_files(
+        dir: &Path,
+    ) -> Result<(HashMap<String, Vec<u8>>, Vec<SkippedFile>), String> {
         let mut result = HashMap::new();
         let mut skipped = Vec::new();
 
@@ -1060,10 +1068,7 @@ impl OssSyncManager {
                     // and from_utf8_lossy would corrupt binary data and cause
                     // infinite re-upload (hash mismatch every cycle).
                     if std::str::from_utf8(&content).is_err() {
-                        tracing::warn!(
-                            "Skipping non-UTF-8 file: {}",
-                            path.display()
-                        );
+                        tracing::warn!("Skipping non-UTF-8 file: {}", path.display());
                         skipped.retain(|f| f.path != rel_str);
                         skipped.push(SkippedFile {
                             path: rel_str,
@@ -1171,10 +1176,7 @@ impl OssSyncManager {
                         let content = std::fs::read(&path)
                             .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
                         if std::str::from_utf8(&content).is_err() {
-                            tracing::warn!(
-                                "Skipping non-UTF-8 file: {}",
-                                path.display()
-                            );
+                            tracing::warn!("Skipping non-UTF-8 file: {}", path.display());
                             skipped.retain(|f| f.path != rel_str);
                             skipped.push(SkippedFile {
                                 path: rel_str,
@@ -1250,9 +1252,7 @@ impl OssSyncManager {
                             // Only treat as a deletion if we previously saw this
                             // file on disk.  Otherwise it may simply not have been
                             // synced down yet.
-                            let was_seen = seen
-                                .map(|s| s.contains(path.as_str()))
-                                .unwrap_or(false);
+                            let was_seen = seen.map(|s| s.contains(path.as_str())).unwrap_or(false);
                             if !was_seen {
                                 continue;
                             }
@@ -1292,15 +1292,20 @@ impl OssSyncManager {
                     let entry_map = files_map
                         .get_or_create_container(path, loro::LoroMap::new())
                         .map_err(|e| format!("Failed to get/create map entry for {path}: {e}"))?;
-                    entry_map.insert("content", content_str.as_str())
+                    entry_map
+                        .insert("content", content_str.as_str())
                         .map_err(|e| format!("Failed to set content for {path}: {e}"))?;
-                    entry_map.insert("hash", hash.as_str())
+                    entry_map
+                        .insert("hash", hash.as_str())
                         .map_err(|e| format!("Failed to set hash for {path}: {e}"))?;
-                    entry_map.insert("deleted", false)
+                    entry_map
+                        .insert("deleted", false)
                         .map_err(|e| format!("Failed to set deleted for {path}: {e}"))?;
-                    entry_map.insert("updatedBy", node_id.as_str())
+                    entry_map
+                        .insert("updatedBy", node_id.as_str())
                         .map_err(|e| format!("Failed to set updatedBy for {path}: {e}"))?;
-                    entry_map.insert("updatedAt", now.as_str())
+                    entry_map
+                        .insert("updatedAt", now.as_str())
                         .map_err(|e| format!("Failed to set updatedAt for {path}: {e}"))?;
                 }
             }
@@ -1310,19 +1315,17 @@ impl OssSyncManager {
         let updates = {
             let doc = self.get_doc(doc_type);
             match self.last_exported_version.get(&doc_type) {
-                Some(vv_bytes) => {
-                    match loro::VersionVector::decode(vv_bytes) {
-                        Ok(vv) => doc
-                            .export(loro::ExportMode::updates(&vv))
-                            .unwrap_or_else(|_| {
-                                doc.export(loro::ExportMode::all_updates())
-                                    .unwrap_or_default()
-                            }),
-                        Err(_) => doc
-                            .export(loro::ExportMode::all_updates())
-                            .map_err(|e| format!("Failed to export updates for {:?}: {e}", doc_type))?,
-                    }
-                }
+                Some(vv_bytes) => match loro::VersionVector::decode(vv_bytes) {
+                    Ok(vv) => doc
+                        .export(loro::ExportMode::updates(&vv))
+                        .unwrap_or_else(|_| {
+                            doc.export(loro::ExportMode::all_updates())
+                                .unwrap_or_default()
+                        }),
+                    Err(_) => doc
+                        .export(loro::ExportMode::all_updates())
+                        .map_err(|e| format!("Failed to export updates for {:?}: {e}", doc_type))?,
+                },
                 None => doc
                     .export(loro::ExportMode::all_updates())
                     .map_err(|e| format!("Failed to export updates for {:?}: {e}", doc_type))?,
@@ -1542,17 +1545,15 @@ impl OssSyncManager {
                                         .and_then(|m| m.modified().ok()),
                                     entry.get("updatedAt"),
                                 ) {
-                                    (
-                                        Some(mtime),
-                                        Some(loro::LoroValue::String(updated_at)),
-                                    ) => {
+                                    (Some(mtime), Some(loro::LoroValue::String(updated_at))) => {
                                         if let Ok(crdt_time) =
                                             chrono::DateTime::parse_from_rfc3339(updated_at)
                                         {
                                             let mtime_unix = mtime
                                                 .duration_since(std::time::UNIX_EPOCH)
                                                 .unwrap_or_default()
-                                                .as_secs() as i64;
+                                                .as_secs()
+                                                as i64;
                                             mtime_unix > crdt_time.timestamp()
                                         } else {
                                             false
@@ -1572,10 +1573,7 @@ impl OssSyncManager {
                                 }
                                 let _ = std::fs::remove_file(&file_path);
                             } else if file_is_newer {
-                                info!(
-                                    "File re-added after deletion, preserving: {}",
-                                    path
-                                );
+                                info!("File re-added after deletion, preserving: {}", path);
                             }
                         }
                     } else {
@@ -1631,7 +1629,10 @@ impl OssSyncManager {
                                 if let Some(parent) = tmp_path.parent() {
                                     std::fs::create_dir_all(parent).map_err(|e| {
                                         let _ = std::fs::remove_dir_all(&tmp_dir);
-                                        format!("Failed to create tmp dir {}: {e}", parent.display())
+                                        format!(
+                                            "Failed to create tmp dir {}: {e}",
+                                            parent.display()
+                                        )
                                     })?;
                                 }
                                 std::fs::write(&tmp_path, content_str.as_bytes()).map_err(|e| {
@@ -1666,7 +1667,11 @@ impl OssSyncManager {
             }
             std::fs::rename(tmp_path, final_path).map_err(|e| {
                 let _ = std::fs::remove_dir_all(&tmp_dir);
-                format!("Failed to rename {} -> {}: {e}", tmp_path.display(), final_path.display())
+                format!(
+                    "Failed to rename {} -> {}: {e}",
+                    tmp_path.display(),
+                    final_path.display()
+                )
             })?;
         }
         if tmp_dir.exists() {
@@ -1835,8 +1840,12 @@ impl OssSyncManager {
 
         let re_exported = {
             let doc = self.get_doc(doc_type);
-            doc.export(loro::ExportMode::all_updates())
-                .map_err(|e| format!("Failed to re-export after compaction for {:?}: {e}", doc_type))?
+            doc.export(loro::ExportMode::all_updates()).map_err(|e| {
+                format!(
+                    "Failed to re-export after compaction for {:?}: {e}",
+                    doc_type
+                )
+            })?
         };
 
         // Retry layer 1 with re-exported data
@@ -1937,9 +1946,9 @@ impl OssSyncManager {
                             doc.export(loro::ExportMode::all_updates())
                                 .unwrap_or_default()
                         }),
-                    Err(_) => doc
-                        .export(loro::ExportMode::all_updates())
-                        .map_err(|e| format!("mark_file_deleted: export for {:?}: {e}", doc_type))?,
+                    Err(_) => doc.export(loro::ExportMode::all_updates()).map_err(|e| {
+                        format!("mark_file_deleted: export for {:?}: {e}", doc_type)
+                    })?,
                 },
                 None => doc
                     .export(loro::ExportMode::all_updates())
@@ -1958,7 +1967,10 @@ impl OssSyncManager {
 
         let uploaded = self.upload_with_fallback(doc_type, &updates, &key).await?;
         if uploaded {
-            info!("mark_file_deleted: uploaded deletion for {:?}/{}", doc_type, path);
+            info!(
+                "mark_file_deleted: uploaded deletion for {:?}/{}",
+                doc_type, path
+            );
             let current_vv = self.get_doc(doc_type).oplog_vv().encode();
             self.last_exported_version.insert(doc_type, current_vv);
             // Signal other nodes
@@ -1978,7 +1990,10 @@ impl OssSyncManager {
         let gen_key = format!("teams/{}/{}/generation.json", self.team_id, doc_type.path());
 
         let snap_keys = self.s3_list(&snap_prefix).await.unwrap_or_default();
-        let update_node_prefixes = self.s3_list_common_prefixes(&update_prefix).await.unwrap_or_default();
+        let update_node_prefixes = self
+            .s3_list_common_prefixes(&update_prefix)
+            .await
+            .unwrap_or_default();
         let mut update_keys: Vec<String> = Vec::new();
         for np in &update_node_prefixes {
             update_keys.extend(self.s3_list(np).await.unwrap_or_default());
@@ -1988,7 +2003,10 @@ impl OssSyncManager {
 
         info!(
             "list_remote_keys({:?}): {} snapshots, {} updates, generation.json={}",
-            doc_type, snap_keys.len(), update_keys.len(), gen_exists
+            doc_type,
+            snap_keys.len(),
+            update_keys.len(),
+            gen_exists
         );
 
         Ok(serde_json::json!({
@@ -2061,7 +2079,8 @@ impl OssSyncManager {
             if let loro::LoroValue::Map(entries) = &map_value {
                 for (path, value) in entries.iter() {
                     if let loro::LoroValue::Map(entry) = value {
-                        let deleted = matches!(entry.get("deleted"), Some(loro::LoroValue::Bool(true)));
+                        let deleted =
+                            matches!(entry.get("deleted"), Some(loro::LoroValue::Bool(true)));
                         if !deleted {
                             continue;
                         }
@@ -2077,9 +2096,13 @@ impl OssSyncManager {
                                     if ver_deleted {
                                         continue;
                                     }
-                                    if let Some(loro::LoroValue::String(content)) = ver_map.get("content") {
+                                    if let Some(loro::LoroValue::String(content)) =
+                                        ver_map.get("content")
+                                    {
                                         let hash = match ver_map.get("hash") {
-                                            Some(loro::LoroValue::String(h)) => h.as_ref().to_string(),
+                                            Some(loro::LoroValue::String(h)) => {
+                                                h.as_ref().to_string()
+                                            }
                                             _ => String::new(),
                                         };
                                         to_restore.push((
@@ -2281,9 +2304,7 @@ impl OssSyncManager {
                             // never seen, it may simply not have been synced
                             // down yet — marking it deleted would corrupt the
                             // shared state.
-                            let was_seen = seen
-                                .map(|s| s.contains(path.as_str()))
-                                .unwrap_or(false);
+                            let was_seen = seen.map(|s| s.contains(path.as_str())).unwrap_or(false);
                             if !was_seen {
                                 info!(
                                     "Skipping deletion of '{}' in {:?}: file was never seen on disk this session",
@@ -2317,26 +2338,20 @@ impl OssSyncManager {
         let updates = {
             let doc = self.get_doc(doc_type);
             match self.last_exported_version.get(&doc_type) {
-                Some(vv_bytes) => {
-                    match loro::VersionVector::decode(vv_bytes) {
-                        Ok(vv) => doc
-                            .export(loro::ExportMode::updates(&vv))
-                            .unwrap_or_else(|_| {
-                                doc.export(loro::ExportMode::all_updates())
-                                    .unwrap_or_default()
-                            }),
-                        Err(_) => doc
-                            .export(loro::ExportMode::all_updates())
-                            .map_err(|e| {
-                                format!("Failed to export loro updates for {:?}: {e}", doc_type)
-                            })?,
-                    }
-                }
-                None => doc
-                    .export(loro::ExportMode::all_updates())
-                    .map_err(|e| {
+                Some(vv_bytes) => match loro::VersionVector::decode(vv_bytes) {
+                    Ok(vv) => doc
+                        .export(loro::ExportMode::updates(&vv))
+                        .unwrap_or_else(|_| {
+                            doc.export(loro::ExportMode::all_updates())
+                                .unwrap_or_default()
+                        }),
+                    Err(_) => doc.export(loro::ExportMode::all_updates()).map_err(|e| {
                         format!("Failed to export loro updates for {:?}: {e}", doc_type)
                     })?,
+                },
+                None => doc.export(loro::ExportMode::all_updates()).map_err(|e| {
+                    format!("Failed to export loro updates for {:?}: {e}", doc_type)
+                })?,
             }
         };
 
@@ -2372,11 +2387,21 @@ impl OssSyncManager {
         let gen_key = format!("teams/{}/{}/generation.json", self.team_id, doc_type.path());
         if let Ok(gen_data) = self.s3_get(&gen_key).await {
             if let Ok(gen_json) = serde_json::from_slice::<Value>(&gen_data) {
-                let remote_gen = gen_json.get("generationId").and_then(|v| v.as_str()).unwrap_or("");
-                let local_gen = self.generation.get(&doc_type).map(|s| s.as_str()).unwrap_or("");
+                let remote_gen = gen_json
+                    .get("generationId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let local_gen = self
+                    .generation
+                    .get(&doc_type)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
 
                 if !remote_gen.is_empty() && remote_gen != local_gen {
-                    info!("Generation mismatch for {:?}: local={}, remote={}", doc_type, local_gen, remote_gen);
+                    info!(
+                        "Generation mismatch for {:?}: local={}, remote={}",
+                        doc_type, local_gen, remote_gen
+                    );
 
                     // Try the snapshot from generation.json first, then fall
                     // back to listing the snapshots/ directory if it's missing.
@@ -2385,25 +2410,32 @@ impl OssSyncManager {
                         match self.s3_get(snap_key).await {
                             Ok(snap_data) => {
                                 let doc = self.get_doc_mut(doc_type);
-                                doc.import(&snap_data).map_err(|e| format!("Re-bootstrap import failed: {e}"))?;
+                                doc.import(&snap_data)
+                                    .map_err(|e| format!("Re-bootstrap import failed: {e}"))?;
                                 reloaded = true;
                             }
                             Err(e) => {
-                                warn!("Generation snapshot missing for {:?}, trying listing: {e}", doc_type);
+                                warn!(
+                                    "Generation snapshot missing for {:?}, trying listing: {e}",
+                                    doc_type
+                                );
                             }
                         }
                     }
 
                     // Fallback: list snapshots/ and try the latest one
                     if !reloaded {
-                        let snap_prefix = format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
+                        let snap_prefix =
+                            format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
                         let snap_keys = self.s3_list(&snap_prefix).await.unwrap_or_default();
                         if let Some(latest) = snap_keys.last() {
                             info!("Fallback: loading snapshot from listing: {latest}");
                             match self.s3_get(latest).await {
                                 Ok(snap_data) => {
                                     let doc = self.get_doc_mut(doc_type);
-                                    doc.import(&snap_data).map_err(|e| format!("Fallback snapshot import failed: {e}"))?;
+                                    doc.import(&snap_data).map_err(|e| {
+                                        format!("Fallback snapshot import failed: {e}")
+                                    })?;
                                     reloaded = true;
                                 }
                                 Err(e) => {
@@ -2435,10 +2467,14 @@ impl OssSyncManager {
         // keys to be skipped.
         let mut new_keys: Vec<String> = Vec::new();
         for node_prefix in &node_prefixes {
-            let cursor = self.last_known_key_per_node.get(&(doc_type, node_prefix.clone())).map(|s| s.as_str());
+            let cursor = self
+                .last_known_key_per_node
+                .get(&(doc_type, node_prefix.clone()))
+                .map(|s| s.as_str());
             let node_keys = self.s3_list_after(node_prefix, cursor).await?;
             if let Some(last) = node_keys.last() {
-                self.last_known_key_per_node.insert((doc_type, node_prefix.clone()), last.clone());
+                self.last_known_key_per_node
+                    .insert((doc_type, node_prefix.clone()), last.clone());
             }
             new_keys.extend(node_keys);
         }
@@ -2488,7 +2524,8 @@ impl OssSyncManager {
                 for np in &fresh_node_prefixes {
                     let nk = self.s3_list(np).await?;
                     if let Some(last) = nk.last() {
-                        self.last_known_key_per_node.insert((doc_type, np.clone()), last.clone());
+                        self.last_known_key_per_node
+                            .insert((doc_type, np.clone()), last.clone());
                     }
                     fresh_keys.extend(nk);
                 }
@@ -2537,15 +2574,10 @@ impl OssSyncManager {
                     let t0 = std::time::Instant::now();
                     let result = match (client, bucket) {
                         (Ok(c), Ok(b)) => {
-                            match c
-                                .get_object()
-                                .bucket(&b)
-                                .key(&key)
-                                .send()
-                                .await
-                            {
+                            match c.get_object().bucket(&b).key(&key).send().await {
                                 Ok(resp) => {
-                                    match resp.body
+                                    match resp
+                                        .body
                                         .collect()
                                         .await
                                         .map(|d| d.into_bytes().to_vec())
@@ -2554,7 +2586,8 @@ impl OssSyncManager {
                                         Ok(bytes) => {
                                             // Decompress .zst files
                                             let data = if key.ends_with(".zst") {
-                                                match zstd::decode_all(std::io::Cursor::new(&bytes)) {
+                                                match zstd::decode_all(std::io::Cursor::new(&bytes))
+                                                {
                                                     Ok(decompressed) => decompressed,
                                                     Err(e) => {
                                                         warn!("Failed to decompress {key}: {e}");
@@ -2576,8 +2609,22 @@ impl OssSyncManager {
                     };
                     let elapsed = t0.elapsed();
                     match &result {
-                        Ok(data) => info!("[S3 GET] ({}/{}) done in {:.1}s, {} bytes: {}", idx + 1, total_keys, elapsed.as_secs_f64(), data.len(), key),
-                        Err(e) => warn!("[S3 GET] ({}/{}) FAILED in {:.1}s: {} — {}", idx + 1, total_keys, elapsed.as_secs_f64(), key, e),
+                        Ok(data) => info!(
+                            "[S3 GET] ({}/{}) done in {:.1}s, {} bytes: {}",
+                            idx + 1,
+                            total_keys,
+                            elapsed.as_secs_f64(),
+                            data.len(),
+                            key
+                        ),
+                        Err(e) => warn!(
+                            "[S3 GET] ({}/{}) FAILED in {:.1}s: {} — {}",
+                            idx + 1,
+                            total_keys,
+                            elapsed.as_secs_f64(),
+                            key,
+                            e
+                        ),
                     }
                     (key, result)
                 }
@@ -2610,7 +2657,9 @@ impl OssSyncManager {
                             } else {
                                 // Don't advance cursor for this node — remove its entry
                                 // so next pull re-fetches from before this key
-                                if let Some(np) = node_prefixes.iter().find(|np| key.starts_with(np.as_str())) {
+                                if let Some(np) =
+                                    node_prefixes.iter().find(|np| key.starts_with(np.as_str()))
+                                {
                                     self.last_known_key_per_node.remove(&(doc_type, np.clone()));
                                 }
                             }
@@ -2687,10 +2736,13 @@ impl OssSyncManager {
 
             // 1. Emit snapshot phase progress
             if let Some(emitter) = self.event_emitter.as_ref() {
-                emitter.emit("sync-progress", &serde_json::json!({
-                    "phase": "snapshot",
-                    "docType": doc_type.path(),
-                }));
+                emitter.emit(
+                    "sync-progress",
+                    &serde_json::json!({
+                        "phase": "snapshot",
+                        "docType": doc_type.path(),
+                    }),
+                );
             }
 
             // 2. Restore from local snapshot
@@ -2702,14 +2754,20 @@ impl OssSyncManager {
             let mut snapshot_loaded = false;
             if let Ok(gen_data) = self.s3_get(&gen_key).await {
                 if let Ok(gen_json) = serde_json::from_slice::<Value>(&gen_data) {
-                    let remote_gen = gen_json.get("generationId").and_then(|v| v.as_str()).unwrap_or("");
+                    let remote_gen = gen_json
+                        .get("generationId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     if let Some(snap_key) = gen_json.get("snapshotKey").and_then(|v| v.as_str()) {
                         info!("Initial sync: loading snapshot from generation.json: {snap_key}");
                         match self.s3_get(snap_key).await {
                             Ok(snap_data) => {
                                 let doc = self.get_doc_mut(doc_type);
                                 doc.import(&snap_data).map_err(|e| {
-                                    format!("Failed to import generation snapshot for {:?}: {e}", doc_type)
+                                    format!(
+                                        "Failed to import generation snapshot for {:?}: {e}",
+                                        doc_type
+                                    )
                                 })?;
                                 if !remote_gen.is_empty() {
                                     self.generation.insert(doc_type, remote_gen.to_string());
@@ -2726,7 +2784,8 @@ impl OssSyncManager {
 
             if !snapshot_loaded {
                 // Fall back: check snapshots/ (new format)
-                let snap_prefix_new = format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
+                let snap_prefix_new =
+                    format!("teams/{}/{}/snapshots/", self.team_id, doc_type.path());
                 let snap_keys_new = self.s3_list(&snap_prefix_new).await.unwrap_or_default();
                 if let Some(latest_key) = snap_keys_new.last() {
                     info!("Initial sync: found remote snapshot (snapshots/): {latest_key}");
@@ -2740,10 +2799,13 @@ impl OssSyncManager {
 
                 // Also try legacy snapshot/ (singular)
                 if !snapshot_loaded {
-                    let snapshot_prefix = format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
+                    let snapshot_prefix =
+                        format!("teams/{}/{}/snapshot/", self.team_id, doc_type.path());
                     let snapshot_keys = self.s3_list(&snapshot_prefix).await.unwrap_or_default();
                     if let Some(latest_key) = snapshot_keys.last() {
-                        info!("Initial sync: found remote snapshot (legacy snapshot/): {latest_key}");
+                        info!(
+                            "Initial sync: found remote snapshot (legacy snapshot/): {latest_key}"
+                        );
                         let data = self.s3_get(latest_key).await?;
                         let doc = self.get_doc_mut(doc_type);
                         doc.import(&data).map_err(|e| {
@@ -2755,30 +2817,40 @@ impl OssSyncManager {
 
             // 4. List all update keys across all nodes
             let update_prefix = format!("teams/{}/{}/updates/", self.team_id, doc_type.path());
-            let node_prefixes = self.s3_list_common_prefixes(&update_prefix).await.unwrap_or_default();
+            let node_prefixes = self
+                .s3_list_common_prefixes(&update_prefix)
+                .await
+                .unwrap_or_default();
             let mut all_update_keys: Vec<String> = Vec::new();
             for node_prefix in &node_prefixes {
                 let node_keys = self.s3_list(node_prefix).await.unwrap_or_default();
                 if let Some(last) = node_keys.last() {
-                    self.last_known_key_per_node.insert((doc_type, node_prefix.clone()), last.clone());
+                    self.last_known_key_per_node
+                        .insert((doc_type, node_prefix.clone()), last.clone());
                 }
                 all_update_keys.extend(node_keys);
             }
             all_update_keys.sort();
 
             let total_updates = all_update_keys.len();
-            info!("Initial sync: {} update files for {:?}", total_updates, doc_type);
+            info!(
+                "Initial sync: {} update files for {:?}",
+                total_updates, doc_type
+            );
 
             // 5. Download each update with progress events, decompress .zst
             for (idx, key) in all_update_keys.iter().enumerate() {
                 // Emit progress event for each update
                 if let Some(emitter) = self.event_emitter.as_ref() {
-                    emitter.emit("sync-progress", &serde_json::json!({
-                        "phase": "updates",
-                        "docType": doc_type.path(),
-                        "current": idx,
-                        "total": total_updates,
-                    }));
+                    emitter.emit(
+                        "sync-progress",
+                        &serde_json::json!({
+                            "phase": "updates",
+                            "docType": doc_type.path(),
+                            "current": idx,
+                            "total": total_updates,
+                        }),
+                    );
                 }
 
                 match self.s3_get(key).await {
@@ -2884,7 +2956,10 @@ impl OssSyncManager {
         let snapshot = match doc.export(loro::ExportMode::shallow_snapshot(&frontiers)) {
             Ok(s) => s,
             Err(_) => {
-                warn!("Shallow snapshot failed for {:?}, falling back to full snapshot", doc_type);
+                warn!(
+                    "Shallow snapshot failed for {:?}, falling back to full snapshot",
+                    doc_type
+                );
                 doc.export(loro::ExportMode::Snapshot)
                     .map_err(|e| format!("Failed to export snapshot for {:?}: {e}", doc_type))?
             }
@@ -2918,16 +2993,15 @@ impl OssSyncManager {
             "createdAt": Utc::now().to_rfc3339(),
         });
         let gen_key = format!("teams/{}/{}/generation.json", self.team_id, doc_type.path());
-        self.s3_put(&gen_key, generation_json.to_string().as_bytes()).await?;
+        self.s3_put(&gen_key, generation_json.to_string().as_bytes())
+            .await?;
         self.generation.insert(doc_type, generation_id);
 
         // 6. Re-list and delete only keys that already existed pre-snapshot
         //    AND are present in our live_keyset (safe deletion).
         let current_updates = self.s3_list(&update_prefix).await?;
-        let candidate_deletions = Self::select_compaction_deletion_keys(
-            &pre_snapshot_updates,
-            &current_updates,
-        );
+        let candidate_deletions =
+            Self::select_compaction_deletion_keys(&pre_snapshot_updates, &current_updates);
         let updates_to_delete: Vec<String> = candidate_deletions
             .into_iter()
             .filter(|key| self.live_keyset.contains(key.as_str()))
@@ -2952,10 +3026,7 @@ impl OssSyncManager {
                     self.live_keyset.remove(key.as_str());
                 }
             }
-            info!(
-                "Compaction: trimmed old snapshots/ for {:?}",
-                doc_type
-            );
+            info!("Compaction: trimmed old snapshots/ for {:?}", doc_type);
         }
 
         // 8. Clean up old snapshot/ (singular — legacy format) for migration
@@ -3272,7 +3343,10 @@ impl OssSyncManager {
                             match manager.write_doc_to_disk(doc_type) {
                                 Ok(true) => needs_upload = true, // absorbed local files
                                 Ok(false) => {}
-                                Err(e) => warn!("OSS fast write_doc_to_disk error for {:?}: {}", doc_type, e),
+                                Err(e) => warn!(
+                                    "OSS fast write_doc_to_disk error for {:?}: {}",
+                                    doc_type, e
+                                ),
                             }
                         }
 
@@ -3296,7 +3370,10 @@ impl OssSyncManager {
                         manager.last_check_at = Some(now);
                         if let Some(emitter) = manager.event_emitter.as_ref() {
                             let status = manager.get_sync_status();
-                            emitter.emit("oss-sync-status", &serde_json::to_value(&status).unwrap_or_default());
+                            emitter.emit(
+                                "oss-sync-status",
+                                &serde_json::to_value(&status).unwrap_or_default(),
+                            );
                         }
                     }
                     Ok(false) => {} // No new signals, skip
@@ -3310,7 +3387,11 @@ impl OssSyncManager {
             // Persist cursor after fast loop cycle
             {
                 let cursor = manager.export_sync_cursor();
-                if let Err(e) = write_sync_cursor_with(&manager.workspace_path, &cursor, &manager.teamclaw_dir_name) {
+                if let Err(e) = write_sync_cursor_with(
+                    &manager.workspace_path,
+                    &cursor,
+                    &manager.teamclaw_dir_name,
+                ) {
                     warn!("Failed to persist sync cursor in fast loop: {}", e);
                 }
             }
@@ -3323,7 +3404,10 @@ impl OssSyncManager {
                 }
             } else {
                 if consecutive_failures > 0 {
-                    info!("Fast loop: network recovered after {} failures", consecutive_failures);
+                    info!(
+                        "Fast loop: network recovered after {} failures",
+                        consecutive_failures
+                    );
                 }
                 consecutive_failures = 0;
             }
@@ -3362,7 +3446,9 @@ impl OssSyncManager {
                         match manager.write_doc_to_disk(doc_type) {
                             Ok(true) => needs_absorb_upload = true,
                             Ok(false) => {}
-                            Err(e) => warn!("OSS slow write_doc_to_disk error for {:?}: {}", doc_type, e),
+                            Err(e) => {
+                                warn!("OSS slow write_doc_to_disk error for {:?}: {}", doc_type, e)
+                            }
                         }
                         let _ = manager.persist_local_snapshot(doc_type);
                     }
@@ -3389,7 +3475,10 @@ impl OssSyncManager {
                         match manager.list_applications().await {
                             Ok(apps) => {
                                 if let Some(emitter) = manager.event_emitter.as_ref() {
-                                    emitter.emit("oss-applications-updated", &serde_json::to_value(&apps).unwrap_or_default());
+                                    emitter.emit(
+                                        "oss-applications-updated",
+                                        &serde_json::to_value(&apps).unwrap_or_default(),
+                                    );
                                 }
                             }
                             Err(e) => {
@@ -3400,7 +3489,11 @@ impl OssSyncManager {
 
                     // 3. Persist sync cursor
                     let cursor = manager.export_sync_cursor();
-                    if let Err(e) = write_sync_cursor_with(&manager.workspace_path, &cursor, &manager.teamclaw_dir_name) {
+                    if let Err(e) = write_sync_cursor_with(
+                        &manager.workspace_path,
+                        &cursor,
+                        &manager.teamclaw_dir_name,
+                    ) {
                         warn!("Failed to persist sync cursor: {}", e);
                     }
 
@@ -3437,7 +3530,11 @@ impl OssSyncManager {
                     // Persist cursor after compaction block
                     {
                         let cursor = manager.export_sync_cursor();
-                        if let Err(e) = write_sync_cursor_with(&manager.workspace_path, &cursor, &manager.teamclaw_dir_name) {
+                        if let Err(e) = write_sync_cursor_with(
+                            &manager.workspace_path,
+                            &cursor,
+                            &manager.teamclaw_dir_name,
+                        ) {
                             warn!("Failed to persist sync cursor after slow loop: {}", e);
                         }
                     }
@@ -3445,7 +3542,10 @@ impl OssSyncManager {
                     // Emit status event to frontend
                     if let Some(emitter) = manager.event_emitter.as_ref() {
                         let status = manager.get_sync_status();
-                        emitter.emit("oss-sync-status", &serde_json::to_value(&status).unwrap_or_default());
+                        emitter.emit(
+                            "oss-sync-status",
+                            &serde_json::to_value(&status).unwrap_or_default(),
+                        );
                     }
 
                     // Backoff on network errors: 5m, 10m, 20m, 40m, 60m (capped)
@@ -3458,7 +3558,10 @@ impl OssSyncManager {
                         backoff.min(max_interval)
                     } else {
                         if consecutive_failures > 0 {
-                            info!("Slow loop: network recovered after {} failures", consecutive_failures);
+                            info!(
+                                "Slow loop: network recovered after {} failures",
+                                consecutive_failures
+                            );
                         }
                         consecutive_failures = 0;
                         manager.poll_interval
@@ -3626,9 +3729,7 @@ impl OssSyncManager {
     }
 }
 
-
 // Tests remain in the main crate (they depend on axum mini-S3 server).
-
 
 // ---------------------------------------------------------------------------
 // Members Manifest S3 Operations
@@ -3662,7 +3763,9 @@ impl OssSyncManager {
     }
 
     /// Download members manifest from S3 and cache it locally.
-    pub async fn download_and_cache_members_manifest(&self) -> Result<Option<TeamManifest>, String> {
+    pub async fn download_and_cache_members_manifest(
+        &self,
+    ) -> Result<Option<TeamManifest>, String> {
         let manifest = self.download_members_manifest().await?;
         if let Some(ref m) = manifest {
             let team_dir = std::path::Path::new(&self.workspace_path)
@@ -3714,8 +3817,15 @@ impl OssSyncManager {
         // If caller is manager (not owner), block removing other managers
         let is_owner = manifest.owner_node_id == self.node_id;
         if !is_owner {
-            let target_role = manifest.members.iter().find(|m| m.node_id == node_id).map(|m| &m.role);
-            if matches!(target_role, Some(MemberRole::Owner) | Some(MemberRole::Manager)) {
+            let target_role = manifest
+                .members
+                .iter()
+                .find(|m| m.node_id == node_id)
+                .map(|m| &m.role);
+            if matches!(
+                target_role,
+                Some(MemberRole::Owner) | Some(MemberRole::Manager)
+            ) {
                 return Err("Managers can only remove editors and viewers".to_string());
             }
         }
@@ -3741,7 +3851,11 @@ impl OssSyncManager {
         }
 
         let is_owner = manifest.owner_node_id == self.node_id;
-        let target_role = manifest.members.iter().find(|m| m.node_id == node_id).map(|m| m.role.clone());
+        let target_role = manifest
+            .members
+            .iter()
+            .find(|m| m.node_id == node_id)
+            .map(|m| m.role.clone());
 
         // Manager restrictions
         if !is_owner {
@@ -3832,7 +3946,11 @@ impl OssSyncManager {
 // Config I/O
 // ---------------------------------------------------------------------------
 
-pub fn read_oss_config_with(workspace_path: &str, teamclaw_dir: &str, config_file_name: &str) -> Option<OssTeamConfig> {
+pub fn read_oss_config_with(
+    workspace_path: &str,
+    teamclaw_dir: &str,
+    config_file_name: &str,
+) -> Option<OssTeamConfig> {
     let config_path = Path::new(workspace_path)
         .join(teamclaw_dir)
         .join(config_file_name);
@@ -3856,7 +3974,12 @@ pub fn read_oss_config_with(workspace_path: &str, teamclaw_dir: &str, config_fil
     }
 }
 
-pub fn write_oss_config_with(workspace_path: &str, config: &OssTeamConfig, teamclaw_dir: &str, config_file_name: &str) -> Result<(), String> {
+pub fn write_oss_config_with(
+    workspace_path: &str,
+    config: &OssTeamConfig,
+    teamclaw_dir: &str,
+    config_file_name: &str,
+) -> Result<(), String> {
     let config_path = Path::new(workspace_path)
         .join(teamclaw_dir)
         .join(config_file_name);
@@ -3916,18 +4039,20 @@ pub fn read_sync_cursor_with(workspace_path: &str, teamclaw_dir: &str) -> SyncCu
     }
 }
 
-pub fn write_sync_cursor_with(workspace_path: &str, cursor: &SyncCursor, teamclaw_dir: &str) -> Result<(), String> {
+pub fn write_sync_cursor_with(
+    workspace_path: &str,
+    cursor: &SyncCursor,
+    teamclaw_dir: &str,
+) -> Result<(), String> {
     let path = sync_cursor_path(workspace_path, teamclaw_dir);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create cursor dir: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create cursor dir: {e}"))?;
     }
     let json = serde_json::to_string_pretty(cursor)
         .map_err(|e| format!("Failed to serialize sync cursor: {e}"))?;
     // Atomic write: write to tmp file, then rename
     let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, json)
-        .map_err(|e| format!("Failed to write sync cursor tmp: {e}"))?;
+    std::fs::write(&tmp_path, json).map_err(|e| format!("Failed to write sync cursor tmp: {e}"))?;
     std::fs::rename(&tmp_path, &path)
         .map_err(|e| format!("Failed to rename sync cursor tmp: {e}"))?;
     Ok(())
@@ -3977,7 +4102,11 @@ pub fn write_pending_application_with(
     Ok(())
 }
 
-pub fn read_pending_application_with(workspace_path: &str, teamclaw_dir: &str, config_file_name: &str) -> Option<PendingApplication> {
+pub fn read_pending_application_with(
+    workspace_path: &str,
+    teamclaw_dir: &str,
+    config_file_name: &str,
+) -> Option<PendingApplication> {
     let config_path = Path::new(workspace_path)
         .join(teamclaw_dir)
         .join(config_file_name);
@@ -3988,7 +4117,11 @@ pub fn read_pending_application_with(workspace_path: &str, teamclaw_dir: &str, c
     serde_json::from_value(pending.clone()).ok()
 }
 
-pub fn clear_pending_application_with(workspace_path: &str, teamclaw_dir: &str, config_file_name: &str) -> Result<(), String> {
+pub fn clear_pending_application_with(
+    workspace_path: &str,
+    teamclaw_dir: &str,
+    config_file_name: &str,
+) -> Result<(), String> {
     let config_path = Path::new(workspace_path)
         .join(teamclaw_dir)
         .join(config_file_name);

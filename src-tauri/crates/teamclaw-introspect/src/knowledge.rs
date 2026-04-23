@@ -49,7 +49,12 @@ pub async fn handle(workspace: &str, api_port: u16, arguments: &Value) -> Result
                 .and_then(|v| v.as_str())
                 .ok_or("Missing field: filename")?;
 
-            post_api(api_port, "/knowledge-delete", &json!({ "filename": filename })).await
+            post_api(
+                api_port,
+                "/knowledge-delete",
+                &json!({ "filename": filename }),
+            )
+            .await
         }
 
         unknown => Err(format!(

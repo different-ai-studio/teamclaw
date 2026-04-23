@@ -6,8 +6,8 @@ use crate::models::MouseMovementRequest;
 use crate::shared::{MouseMovementParams, MouseMovementResult};
 use crate::socket_server::SocketResponse;
 use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
-use std::time::Instant;
 use log::info;
+use std::time::Instant;
 
 pub async fn simulate_mouse_movement_async<R: Runtime>(
     app: &AppHandle<R>,
@@ -33,9 +33,9 @@ pub async fn simulate_mouse_movement_async<R: Runtime>(
     );
 
     // Also get inner position for comparison
-    let window_inner_position = window
-        .inner_position()
-        .map_err(|e| Error::window_operation_failed("get window inner position", format!("{}", e)))?;
+    let window_inner_position = window.inner_position().map_err(|e| {
+        Error::window_operation_failed("get window inner position", format!("{}", e))
+    })?;
     info!(
         "[MOUSE_MOVEMENT] Window inner position: {:?}",
         window_inner_position
@@ -69,8 +69,9 @@ pub async fn simulate_mouse_movement_async<R: Runtime>(
         .map_err(|e| Error::communication_error(format!("Failed to initialize Enigo: {}", e)))?;
 
     // Get current mouse position for reference
-    let current_position = Mouse::location(&enigo)
-        .map_err(|e| Error::communication_error(format!("Failed to get current mouse position: {}", e)))?;
+    let current_position = Mouse::location(&enigo).map_err(|e| {
+        Error::communication_error(format!("Failed to get current mouse position: {}", e))
+    })?;
     info!(
         "[MOUSE_MOVEMENT] Current mouse position before move: ({}, {})",
         current_position.0, current_position.1
@@ -139,11 +140,13 @@ pub async fn simulate_mouse_movement_async<R: Runtime>(
         info!("[MOUSE_MOVEMENT] Clicking with {} button", button_type);
 
         // Perform click (press and release)
-        Mouse::button(&mut enigo, button, Direction::Press)
-            .map_err(|e| Error::communication_error(format!("Failed to press mouse button: {}", e)))?;
+        Mouse::button(&mut enigo, button, Direction::Press).map_err(|e| {
+            Error::communication_error(format!("Failed to press mouse button: {}", e))
+        })?;
 
-        Mouse::button(&mut enigo, button, Direction::Release)
-            .map_err(|e| Error::communication_error(format!("Failed to release mouse button: {}", e)))?;
+        Mouse::button(&mut enigo, button, Direction::Release).map_err(|e| {
+            Error::communication_error(format!("Failed to release mouse button: {}", e))
+        })?;
     }
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
@@ -204,16 +207,18 @@ pub async fn handle_simulate_mouse_movement<R: Runtime>(
     payload: Value,
 ) -> Result<SocketResponse, Error> {
     // Parse the payload
-    let params: MouseMovementRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for simulateMouseMovement: {}", e)))?;
+    let params: MouseMovementRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for simulateMouseMovement: {}", e))
+    })?;
 
     // Call the async method
     let result = simulate_mouse_movement_async(app, params).await;
 
     match result {
         Ok(response) => {
-            let data = serde_json::to_value(response)
-                .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+            let data = serde_json::to_value(response).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?;
             Ok(SocketResponse {
                 success: true,
                 data: Some(data),

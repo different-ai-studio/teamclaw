@@ -3,7 +3,13 @@ fn main() {
     // This ensures the iroh storage directory matches across crates.
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     // crates/teamclaw-p2p -> src-tauri -> project root
-    let root_dir = manifest_dir.parent().unwrap().parent().unwrap().parent().unwrap();
+    let root_dir = manifest_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
 
     let base_path = root_dir.join("build.config.json");
     println!("cargo:rerun-if-changed={}", base_path.display());

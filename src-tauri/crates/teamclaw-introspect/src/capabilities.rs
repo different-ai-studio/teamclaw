@@ -82,17 +82,17 @@ fn build_overview(workspace: &str) -> Result<Value, String> {
         .unwrap_or(0);
 
     let team = config.get("team").cloned().unwrap_or(json!(null));
-    let team_enabled = team.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let team_enabled = team
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let team_mode = if team_enabled { "git" } else { "none" };
 
     let roles = crate::config::read_roles(workspace).unwrap_or_default();
     let role_count = roles.len();
 
     let members = crate::config::read_team_members(workspace).unwrap_or(json!({}));
-    let member_count = members
-        .as_object()
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let member_count = members.as_object().map(|m| m.len()).unwrap_or(0);
 
     let cron_jobs = crate::config::read_cron_jobs(workspace).unwrap_or(json!([]));
     let cron_total = cron_jobs.as_array().map(|a| a.len()).unwrap_or(0);
@@ -246,10 +246,7 @@ fn build_role(workspace: &str) -> Result<Value, String> {
 
 fn build_shortcuts(workspace: &str) -> Result<Value, String> {
     let config = crate::config::read_teamclaw_config(workspace)?;
-    let shortcuts = config
-        .get("shortcuts")
-        .cloned()
-        .unwrap_or(json!([]));
+    let shortcuts = config.get("shortcuts").cloned().unwrap_or(json!([]));
     Ok(json!({
         "shortcuts": shortcuts
     }))
@@ -367,7 +364,17 @@ fn build_cron_jobs(workspace: &str) -> Result<Value, String> {
         .iter()
         .map(|job| {
             let mut out = serde_json::Map::new();
-            for field in &["id", "name", "description", "enabled", "schedule", "lastRunAt", "nextRunAt", "last_run_at", "next_run_at"] {
+            for field in &[
+                "id",
+                "name",
+                "description",
+                "enabled",
+                "schedule",
+                "lastRunAt",
+                "nextRunAt",
+                "last_run_at",
+                "next_run_at",
+            ] {
                 if let Some(v) = job.get(*field) {
                     // Normalize field names to snake_case for output
                     let key = match *field {

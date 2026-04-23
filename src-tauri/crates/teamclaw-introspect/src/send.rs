@@ -16,8 +16,8 @@ pub async fn handle(workspace: &str, api_port: u16, arguments: &Value) -> Result
 
     // Read media file if provided
     let image_data = if let Some(path) = file_path {
-        let bytes = std::fs::read(path)
-            .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
+        let bytes =
+            std::fs::read(path).map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
         let filename = std::path::Path::new(path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -35,7 +35,15 @@ pub async fn handle(workspace: &str, api_port: u16, arguments: &Value) -> Result
     if channel == "all" {
         send_broadcast(workspace, api_port, message, target).await
     } else {
-        send_single(workspace, api_port, channel, message, target, image_data.as_ref()).await
+        send_single(
+            workspace,
+            api_port,
+            channel,
+            message,
+            target,
+            image_data.as_ref(),
+        )
+        .await
     }
 }
 
@@ -148,7 +156,9 @@ async fn send_discord(
             )
         })?
     } else {
-        return Err("Discord send requires a 'target' (dm:<user_id> or channel:<channel_id>)".to_string());
+        return Err(
+            "Discord send requires a 'target' (dm:<user_id> or channel:<channel_id>)".to_string(),
+        );
     };
 
     let chunks = split_message(message, 2000);
@@ -329,11 +339,7 @@ async fn feishu_send_message(
 
 // ─── Kook ─────────────────────────────────────────────────────────────────────
 
-async fn send_kook(
-    channels: &Value,
-    message: &str,
-    target: Option<&str>,
-) -> Result<Value, String> {
+async fn send_kook(channels: &Value, message: &str, target: Option<&str>) -> Result<Value, String> {
     let ch = &channels["kook"];
     let token = ch
         .get("token")
@@ -341,7 +347,8 @@ async fn send_kook(
         .filter(|s| !s.is_empty())
         .ok_or("KOOK token not configured")?;
 
-    let tgt = target.ok_or("KOOK send requires a 'target' (dm:<user_id> or channel:<channel_id>)")?;
+    let tgt =
+        target.ok_or("KOOK send requires a 'target' (dm:<user_id> or channel:<channel_id>)")?;
 
     let (target_id, is_dm) = if tgt.starts_with("dm:") {
         (tgt.strip_prefix("dm:").unwrap_or(tgt), true)
@@ -429,9 +436,8 @@ async fn send_wechat(
         .and_then(|v| v.as_str())
         .unwrap_or("https://ilinkai.weixin.qq.com");
 
-    let tgt = target.ok_or(
-        "WeChat send requires a 'target' (the user identifier for context_token lookup)",
-    )?;
+    let tgt = target
+        .ok_or("WeChat send requires a 'target' (the user identifier for context_token lookup)")?;
 
     // Look up context_token
     let context_token = ch
@@ -511,12 +517,9 @@ async fn send_wecom(
     }
 
     let client = reqwest::Client::new();
-    let resp = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("WeCom internal API request failed: {e}. Is the TeamClaw app running?"))?;
+    let resp = client.post(&url).json(&body).send().await.map_err(|e| {
+        format!("WeCom internal API request failed: {e}. Is the TeamClaw app running?")
+    })?;
 
     if !resp.status().is_success() {
         let status = resp.status();

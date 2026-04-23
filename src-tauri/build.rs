@@ -87,7 +87,12 @@ fn main() {
     let device_jwt_secret = std::env::var("DEVICE_JWT_SECRET")
         .ok()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| config["device"]["jwtSecret"].as_str().unwrap_or("").to_string());
+        .unwrap_or_else(|| {
+            config["device"]["jwtSecret"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        });
     println!("cargo:rustc-env=DEVICE_JWT_SECRET={}", device_jwt_secret);
     if device_jwt_secret.is_empty() {
         println!("cargo:warning=device.jwtSecret is not set — device token generation will fail at runtime");

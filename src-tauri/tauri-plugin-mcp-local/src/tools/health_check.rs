@@ -1,6 +1,6 @@
+use log::info;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, Runtime};
-use log::info;
 
 use crate::error::Error;
 use crate::socket_server::SocketResponse;

@@ -1,8 +1,8 @@
+use log::info;
 use tauri::{
     Manager, Runtime,
     plugin::{Builder, TauriPlugin},
 };
-use log::info;
 
 pub use models::*;
 
@@ -128,10 +128,7 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
             }
         }
         SocketType::Tcp { host, port } => {
-            info!(
-                "[TAURI_MCP] Socket server will use TCP: {}:{}",
-                host, port
-            );
+            info!("[TAURI_MCP] Socket server will use TCP: {}:{}", host, port);
         }
     }
 

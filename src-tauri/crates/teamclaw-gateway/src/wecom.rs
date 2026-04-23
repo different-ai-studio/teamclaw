@@ -1940,19 +1940,23 @@ impl WeComGateway {
                                         .await;
 
                                     // After text stream, check for image parts and send them
-                                    let msg_id_str = info
-                                        .get("id")
-                                        .and_then(|id| id.as_str())
-                                        .unwrap_or("");
+                                    let msg_id_str =
+                                        info.get("id").and_then(|id| id.as_str()).unwrap_or("");
                                     let gateway = self.clone();
                                     let req_id_owned = req_id.to_string();
                                     let ws_sink_clone = ws_sink.clone();
                                     let sid = session_id.to_string();
                                     let mid = msg_id_str.to_string();
                                     tokio::spawn(async move {
-                                        gateway.send_image_parts_if_any(
-                                            port, &sid, &mid, &req_id_owned, &ws_sink_clone,
-                                        ).await;
+                                        gateway
+                                            .send_image_parts_if_any(
+                                                port,
+                                                &sid,
+                                                &mid,
+                                                &req_id_owned,
+                                                &ws_sink_clone,
+                                            )
+                                            .await;
                                     });
 
                                     return Ok(());
@@ -2449,8 +2453,7 @@ impl WeComGateway {
         for i in 0..total_chunks {
             let start = i * CHUNK_SIZE;
             let end = (start + CHUNK_SIZE).min(total_size);
-            let chunk_data =
-                base64::engine::general_purpose::STANDARD.encode(&data[start..end]);
+            let chunk_data = base64::engine::general_purpose::STANDARD.encode(&data[start..end]);
 
             let chunk_req_id = uuid::Uuid::new_v4().to_string();
             let chunk_msg = serde_json::json!({
@@ -2541,8 +2544,11 @@ impl WeComGateway {
         media_type: &str,
         ws_sink: &WsSink,
     ) -> Result<(), String> {
-        let media_id = self.upload_media(data, filename, media_type, ws_sink).await?;
-        self.send_media_reply(req_id, &media_id, media_type, ws_sink).await
+        let media_id = self
+            .upload_media(data, filename, media_type, ws_sink)
+            .await?;
+        self.send_media_reply(req_id, &media_id, media_type, ws_sink)
+            .await
     }
 
     /// Send a media message proactively to a chat (image/voice/video/file).
@@ -2555,9 +2561,12 @@ impl WeComGateway {
     ) -> Result<(), String> {
         use futures_util::SinkExt;
 
-        let ws_sink = self.shared_ws_sink.read().await.clone().ok_or_else(|| {
-            "WeCom gateway is not connected.".to_string()
-        })?;
+        let ws_sink = self
+            .shared_ws_sink
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| "WeCom gateway is not connected.".to_string())?;
 
         let msg = serde_json::json!({
             "cmd": "aibot_send_msg",
@@ -2638,14 +2647,13 @@ impl WeComGateway {
                 None => continue,
             };
 
-            let image_bytes =
-                match base64::engine::general_purpose::STANDARD.decode(base64_part) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        eprintln!("[WeCom] Failed to decode image base64: {}", e);
-                        continue;
-                    }
-                };
+            let image_bytes = match base64::engine::general_purpose::STANDARD.decode(base64_part) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("[WeCom] Failed to decode image base64: {}", e);
+                    continue;
+                }
+            };
 
             // Determine filename from mime type
             let filename = if content.starts_with("data:image/png") {

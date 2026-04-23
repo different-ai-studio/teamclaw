@@ -28,9 +28,7 @@ pub async fn handle(workspace: &str, api_port: u16, arguments: &Value) -> Result
                 .get("channel")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing field: channel")?;
-            let config = arguments
-                .get("config")
-                .ok_or("Missing field: config")?;
+            let config = arguments.get("config").ok_or("Missing field: config")?;
 
             post_api(
                 api_port,

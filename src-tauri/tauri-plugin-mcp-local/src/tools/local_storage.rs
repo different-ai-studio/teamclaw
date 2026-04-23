@@ -55,8 +55,9 @@ pub async fn handle_get_local_storage<R: Runtime>(
     payload: Value,
 ) -> Result<SocketResponse, Error> {
     // Parse params from payload
-    let params: LocalStorageRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for localStorage: {}", e)))?;
+    let params: LocalStorageRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for localStorage: {}", e))
+    })?;
 
     // Validate input parameters
     match params.action.as_str() {
@@ -112,10 +113,9 @@ pub async fn handle_get_local_storage<R: Runtime>(
     match result {
         Ok(data) => Ok(SocketResponse {
             success: true,
-            data: Some(
-                serde_json::to_value(data)
-                    .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?,
-            ),
+            data: Some(serde_json::to_value(data).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?),
             error: None,
         }),
         Err(e) => Ok(SocketResponse {
@@ -139,7 +139,12 @@ async fn perform_local_storage_operation<R: Runtime>(
 
     // Emit event to the window
     app.emit_to(&window_label, "get-local-storage", &params)
-        .map_err(|e| LocalStorageError::WebviewOperation(format!("Failed to emit event to {}: {}", window_label, e)))?;
+        .map_err(|e| {
+            LocalStorageError::WebviewOperation(format!(
+                "Failed to emit event to {}: {}",
+                window_label, e
+            ))
+        })?;
 
     // Set up channel for response
     let (tx, rx) = mpsc::channel();

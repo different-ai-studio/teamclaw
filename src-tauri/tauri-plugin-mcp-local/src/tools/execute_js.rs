@@ -41,10 +41,7 @@ impl Serialize for ExecuteJsError {
 // Support conversion from timeout error
 impl From<mpsc::RecvTimeoutError> for ExecuteJsError {
     fn from(err: mpsc::RecvTimeoutError) -> Self {
-        ExecuteJsError::Timeout(format!(
-            "Timeout waiting for execute-js response: {}",
-            err
-        ))
+        ExecuteJsError::Timeout(format!("Timeout waiting for execute-js response: {}", err))
     }
 }
 
@@ -87,8 +84,9 @@ pub async fn handle_execute_js<R: Runtime>(
     match result {
         Ok(response) => {
             // Serialize the response
-            let data = serde_json::to_value(response)
-                .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+            let data = serde_json::to_value(response).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?;
 
             Ok(SocketResponse {
                 success: true,
@@ -118,15 +116,18 @@ async fn execute_js_in_window<R: Runtime>(
 
     let timeout = Duration::from_millis(params.timeout_ms.unwrap_or(10000));
 
-    let webview = app
-        .get_webview_window(&window_label)
-        .ok_or_else(|| ExecuteJsError::WebviewOperation(format!("Window '{}' not found", window_label)))?;
+    let webview = app.get_webview_window(&window_label).ok_or_else(|| {
+        ExecuteJsError::WebviewOperation(format!("Window '{}' not found", window_label))
+    })?;
 
     // Generate unique event name for this request
-    let event_name = format!("__exec_js_{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos());
+    let event_name = format!(
+        "__exec_js_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
 
     // Build a self-contained JS wrapper:
     // 1. eval the user's code
@@ -167,9 +168,9 @@ async fn execute_js_in_window<R: Runtime>(
     });
 
     // Execute the wrapped JS
-    webview.eval(&wrapper).map_err(|e| {
-        ExecuteJsError::WebviewOperation(format!("Failed to eval JS: {}", e))
-    })?;
+    webview
+        .eval(&wrapper)
+        .map_err(|e| ExecuteJsError::WebviewOperation(format!("Failed to eval JS: {}", e)))?;
 
     // Wait for the response
     match rx.recv_timeout(timeout) {
@@ -178,7 +179,11 @@ async fn execute_js_in_window<R: Runtime>(
             // then as the JSON we built in JS
             let inner: String = serde_json::from_str(&raw).unwrap_or(raw.clone());
             let response: Value = serde_json::from_str(&inner).map_err(|e| {
-                ExecuteJsError::JavaScriptError(format!("Failed to parse response: {} (raw: {})", e, &raw[..raw.len().min(200)]))
+                ExecuteJsError::JavaScriptError(format!(
+                    "Failed to parse response: {} (raw: {})",
+                    e,
+                    &raw[..raw.len().min(200)]
+                ))
             })?;
 
             if let Some(error) = response.get("error") {
@@ -204,6 +209,8 @@ async fn execute_js_in_window<R: Runtime>(
                 result_type,
             })
         }
-        Err(_) => Err(ExecuteJsError::Timeout(format!("Timeout waiting for execute-js response"))),
+        Err(_) => Err(ExecuteJsError::Timeout(format!(
+            "Timeout waiting for execute-js response"
+        ))),
     }
 }

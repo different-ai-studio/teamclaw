@@ -29,10 +29,7 @@ pub enum Error {
 
     /// Operation timed out with duration and operation name
     #[error("Operation timed out: {operation} (exceeded {duration_ms}ms)")]
-    TimeoutError {
-        operation: String,
-        duration_ms: u64,
-    },
+    TimeoutError { operation: String, duration_ms: u64 },
 
     /// Serialization/deserialization error
     #[error("Serialization error: {message}")]

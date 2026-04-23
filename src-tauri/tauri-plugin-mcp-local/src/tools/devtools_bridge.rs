@@ -1,6 +1,6 @@
-use serde_json::{json, Value};
-use tauri::{AppHandle, Runtime, Manager, Emitter, Listener};
 use log::info;
+use serde_json::{Value, json};
+use tauri::{AppHandle, Emitter, Listener, Manager, Runtime};
 
 use crate::error::Error;
 use crate::socket_server::SocketResponse;
@@ -25,7 +25,7 @@ pub struct DevToolsBridgeResponse {
 #[allow(dead_code)]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct FrameworkInfo {
-    framework_type: String,  // "react", "vue", "both", "none"
+    framework_type: String, // "react", "vue", "both", "none"
     react_version: Option<String>,
     vue_version: Option<String>,
 }
@@ -66,8 +66,9 @@ pub async fn handle_devtools_bridge<R: Runtime>(
     app: &AppHandle<R>,
     payload: Value,
 ) -> Result<SocketResponse, Error> {
-    let request: DevToolsBridgeRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for devtools_bridge: {}", e)))?;
+    let request: DevToolsBridgeRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for devtools_bridge: {}", e))
+    })?;
 
     // Get the window label or use "main" as default
     let window_label = request
@@ -90,10 +91,12 @@ pub async fn handle_devtools_bridge<R: Runtime>(
     let (tx, rx) = std::sync::mpsc::channel();
 
     app.emit_to(&window_label, "execute-js", &js_code)
-        .map_err(|e| Error::communication_error_with_context(
-            "Failed to emit execute-js event",
-            format!("window: {}, error: {}", window_label, e),
-        ))?;
+        .map_err(|e| {
+            Error::communication_error_with_context(
+                "Failed to emit execute-js event",
+                format!("window: {}, error: {}", window_label, e),
+            )
+        })?;
 
     // Listen for response
     app.once("execute-js-response", move |event| {
@@ -103,13 +106,17 @@ pub async fn handle_devtools_bridge<R: Runtime>(
 
     // Wait for the response with timeout
     let timeout = std::time::Duration::from_millis(request.timeout_ms.unwrap_or(5000));
-    let result_string = rx
-        .recv_timeout(timeout)
-        .map_err(|_| Error::timeout_error("devtools bridge execution", request.timeout_ms.unwrap_or(5000)))?;
+    let result_string = rx.recv_timeout(timeout).map_err(|_| {
+        Error::timeout_error(
+            "devtools bridge execution",
+            request.timeout_ms.unwrap_or(5000),
+        )
+    })?;
 
     // Parse the response
-    let response_value: Value = serde_json::from_str(&result_string)
-        .map_err(|e| Error::serialization_error(format!("Failed to parse devtools response: {}", e)))?;
+    let response_value: Value = serde_json::from_str(&result_string).map_err(|e| {
+        Error::serialization_error(format!("Failed to parse devtools response: {}", e))
+    })?;
 
     // Check if result contains an error
     if let Some(error) = response_value.get("error") {
@@ -128,8 +135,9 @@ pub async fn handle_devtools_bridge<R: Runtime>(
             // Parse the devtools result
             match serde_json::from_str::<Value>(result_str) {
                 Ok(bridge_data) => {
-                    let data = serde_json::to_value(bridge_data)
-                        .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+                    let data = serde_json::to_value(bridge_data).map_err(|e| {
+                        Error::serialization_error(format!("Failed to serialize response: {}", e))
+                    })?;
 
                     Ok(SocketResponse {
                         success: true,
@@ -168,9 +176,7 @@ pub async fn handle_devtools_bridge<R: Runtime>(
 
 /// Generate the JavaScript code to access React/Vue DevTools
 fn generate_devtools_bridge_code(max_depth: usize, component_filter: Option<String>) -> String {
-    let filter_value = component_filter
-        .unwrap_or_default()
-        .replace("'", "\\'");
+    let filter_value = component_filter.unwrap_or_default().replace("'", "\\'");
 
     let code = format!(
         r#"(async () => {{
@@ -511,8 +517,7 @@ fn generate_devtools_bridge_code(max_depth: usize, component_filter: Option<Stri
         }}));
     }}
 }})();"#,
-        max_depth,
-        filter_value
+        max_depth, filter_value
     );
 
     code

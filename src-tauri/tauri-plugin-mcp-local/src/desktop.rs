@@ -9,12 +9,12 @@ use crate::socket_server::SocketServer;
 use crate::tools::mouse_movement;
 use crate::{PluginConfig, Result};
 use enigo::{Enigo, Keyboard, Settings};
+use log::info;
 use serde::de::DeserializeOwned;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Runtime, plugin::PluginApi};
-use log::info;
 
 // ----- Screenshot Utilities -----
 
@@ -118,7 +118,10 @@ impl<R: Runtime> TauriMcp<R> {
 
         // Get the window by label
         let window = self.app.get_webview_window(&window_label).ok_or_else(|| {
-            Error::window_operation_failed("get_window", format!("Window not found: {}", window_label))
+            Error::window_operation_failed(
+                "get_window",
+                format!("Window not found: {}", window_label),
+            )
         })?;
 
         // Execute the requested operation
@@ -239,8 +242,9 @@ impl<R: Runtime> TauriMcp<R> {
         let initial_delay_ms = params.initial_delay_ms.unwrap_or(500);
 
         // Create Enigo instance with the latest API
-        let mut enigo = Enigo::new(&Settings::default())
-            .map_err(|e| Error::communication_error(format!("Failed to initialize Enigo: {}", e)))?;
+        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| {
+            Error::communication_error(format!("Failed to initialize Enigo: {}", e))
+        })?;
 
         // Initial delay before typing
         if initial_delay_ms > 0 {
@@ -252,13 +256,15 @@ impl<R: Runtime> TauriMcp<R> {
         // Use the text method from the Keyboard trait
         if delay_ms == 0 {
             // Fast typing (all at once)
-            Keyboard::text(&mut enigo, &text)
-                .map_err(|e| Error::communication_error(format!("Failed to simulate text input: {}", e)))?;
+            Keyboard::text(&mut enigo, &text).map_err(|e| {
+                Error::communication_error(format!("Failed to simulate text input: {}", e))
+            })?;
         } else {
             // Slow typing with configurable delay
             for c in text.chars() {
-                Keyboard::text(&mut enigo, &c.to_string())
-                    .map_err(|e| Error::communication_error(format!("Failed to simulate text input: {}", e)))?;
+                Keyboard::text(&mut enigo, &c.to_string()).map_err(|e| {
+                    Error::communication_error(format!("Failed to simulate text input: {}", e))
+                })?;
 
                 thread::sleep(Duration::from_millis(delay_ms));
             }

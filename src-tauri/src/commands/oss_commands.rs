@@ -182,7 +182,8 @@ pub async fn oss_create_team(
     let team_secret = generate_team_secret()?;
 
     // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
-    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
+    let llm_config =
+        super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
     info!(
         "oss_create_team: wrote LLM config to {}/{}",
@@ -497,7 +498,8 @@ pub async fn oss_join_team(
     super::team::scaffold_team_dir(&team_dir)?;
 
     // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
-    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
+    let llm_config =
+        super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
 
     // Cache team meta locally for fast restore
@@ -1090,12 +1092,16 @@ pub async fn oss_update_service_config(
         if let Some(mut config) = read_oss_config(&workspace_path) {
             config.team_endpoint = new_endpoint.clone();
             write_oss_config(&workspace_path, &config)?;
-            info!("oss_update_service_config: updated team_endpoint to {}", new_endpoint);
+            info!(
+                "oss_update_service_config: updated team_endpoint to {}",
+                new_endpoint
+            );
         }
     }
 
     // Update LLM config in teamclaw.json
-    let llm_config = super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
+    let llm_config =
+        super::team::build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     super::team::write_llm_config(&workspace_path, llm_config.as_ref())?;
     info!("oss_update_service_config: updated LLM config");
 

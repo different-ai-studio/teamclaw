@@ -102,8 +102,9 @@ pub async fn handle_get_console_logs<R: Runtime>(
     app: &AppHandle<R>,
     payload: Value,
 ) -> Result<SocketResponse, Error> {
-    let request: ConsoleLogsRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for console logs: {}", e)))?;
+    let request: ConsoleLogsRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for console logs: {}", e))
+    })?;
 
     // Get the window label or use "main" as default
     let window_label = request
@@ -122,8 +123,9 @@ pub async fn handle_get_console_logs<R: Runtime>(
     // Handle the result
     match result {
         Ok(response) => {
-            let data = serde_json::to_value(response)
-                .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+            let data = serde_json::to_value(response).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?;
 
             Ok(SocketResponse {
                 success: true,
@@ -152,9 +154,7 @@ pub async fn handle_inject_console_capture<R: Runtime>(
     let request: InjectionRequest = serde_json::from_value(payload)
         .map_err(|e| Error::serialization_error(format!("Invalid payload for injection: {}", e)))?;
 
-    let window_label = request
-        .window_label
-        .unwrap_or_else(|| "main".to_string());
+    let window_label = request.window_label.unwrap_or_else(|| "main".to_string());
 
     // Verify the window exists
     let window = app
@@ -162,12 +162,12 @@ pub async fn handle_inject_console_capture<R: Runtime>(
         .ok_or_else(|| Error::window_not_found(&window_label))?;
 
     // Send injection event to the window
-    window
-        .emit("inject-console-capture", ())
-        .map_err(|e| Error::communication_error_with_context(
+    window.emit("inject-console-capture", ()).map_err(|e| {
+        Error::communication_error_with_context(
             "Failed to emit injection event",
             format!("window: {}, error: {}", window_label, e),
-        ))?;
+        )
+    })?;
 
     Ok(SocketResponse {
         success: true,
@@ -214,8 +214,9 @@ async fn retrieve_console_logs<R: Runtime>(
     match rx.recv_timeout(Duration::from_secs(10)) {
         Ok(result_string) => {
             // Parse the response
-            let response: Value = serde_json::from_str(&result_string)
-                .map_err(|e| ConsoleLogsError::ParseError(format!("Failed to parse response: {}", e)))?;
+            let response: Value = serde_json::from_str(&result_string).map_err(|e| {
+                ConsoleLogsError::ParseError(format!("Failed to parse response: {}", e))
+            })?;
 
             // Check if result contains an error
             if let Some(error) = response.get("error") {
