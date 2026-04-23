@@ -78,7 +78,8 @@ export const useUIStore = create<UIState>((set, get) => ({
       return
     }
 
-    ws.openPanel(tab)
+    ws.clearSelection()
+    ws.closePanel()
   },
 
   openDefaultMoreDestination: (destination) => {

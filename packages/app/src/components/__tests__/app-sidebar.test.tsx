@@ -6,6 +6,7 @@ const uiVariantMocks = vi.hoisted(() => ({ workspaceShell: false }))
 
 const uiStoreMocks = vi.hoisted(() => ({
   advancedMode: true,
+  defaultNavTab: 'session',
   openSettings: vi.fn(),
   closeSettings: vi.fn(),
   embeddedSettingsSection: null as string | null,
@@ -184,6 +185,16 @@ vi.mock('@/components/navigation/DefaultBottomNav', () => ({
   DefaultBottomNav: () => <div data-testid="default-bottom-nav">default-bottom-nav</div>,
 }))
 
+vi.mock('@/components/panel/ShortcutsPanel', () => ({
+  ShortcutsPanel: () => <div data-testid="shortcuts-panel">shortcuts-panel</div>,
+}))
+
+vi.mock('@/components/panel/RightPanel', () => ({
+  RightPanel: ({ defaultTab }: { defaultTab?: string }) => (
+    <div data-testid="right-panel">{defaultTab}</div>
+  ),
+}))
+
 import { AppSidebar } from '@/components/app-sidebar'
 
 describe('AppSidebar', () => {
@@ -199,6 +210,7 @@ describe('AppSidebar', () => {
     sessionStoreMocks.pendingPermissions = []
     sessionStoreMocks.pendingQuestions = []
     uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'session'
     uiStoreMocks.embeddedSettingsSection = null
     uiStoreMocks.openSettings = vi.fn()
     uiStoreMocks.closeSettings = vi.fn()
@@ -292,6 +304,22 @@ describe('AppSidebar', () => {
     expect(screen.getByTestId('default-bottom-nav')).toBeDefined()
     expect(screen.queryByText('Automation')).toBeNull()
     expect(screen.queryByText('Roles & Skills')).toBeNull()
+  })
+
+  it('default mode replaces the session list with the shortcuts content', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'shortcuts'
+    render(<AppSidebar />)
+    expect(screen.getByTestId('shortcuts-panel')).toBeDefined()
+    expect(screen.queryByText('Session One')).toBeNull()
+  })
+
+  it('default mode replaces the session list with the knowledge content', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'knowledge'
+    render(<AppSidebar />)
+    expect(screen.getByTestId('right-panel').textContent).toBe('knowledge')
+    expect(screen.queryByText('Session One')).toBeNull()
   })
 
   it('workspace mode does not render bottom Knowledge entry', () => {

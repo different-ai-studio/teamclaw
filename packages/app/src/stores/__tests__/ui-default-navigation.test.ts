@@ -22,7 +22,7 @@ describe('default layout navigation model', () => {
     useUIStore.getState().selectDefaultPrimaryTab('knowledge')
 
     expect(useUIStore.getState().defaultNavTab).toBe('knowledge')
-    expect(useWorkspaceStore.getState().activeTab).toBe('knowledge')
+    expect(useWorkspaceStore.getState().isPanelOpen).toBe(false)
     expect(useUIStore.getState().currentView).toBe('chat')
   })
 

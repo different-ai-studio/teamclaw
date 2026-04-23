@@ -29,6 +29,7 @@ import { formatRelativeTime } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
 import { AnimatedClock } from "@/components/ui/animated-clock"
 import { DefaultBottomNav } from "@/components/navigation/DefaultBottomNav"
+import { RightPanel, ShortcutsPanel } from "@/components/panel"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -578,6 +579,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   
   const openSettings = useUIStore(s => s.openSettings)
   const closeSettings = useUIStore(s => s.closeSettings)
+  const defaultNavTab = useUIStore(s => s.defaultNavTab)
   const embeddedSettingsSection = useUIStore(s => s.embeddedSettingsSection)
   const openEmbeddedSettingsSection = useUIStore(s => s.openEmbeddedSettingsSection)
   const closeEmbeddedSettingsSection = useUIStore(s => s.closeEmbeddedSettingsSection)
@@ -611,6 +613,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     isPanelOpen &&
     activeWorkspacePanelTab === "shortcuts" &&
     !embeddedSettingsSection
+  const defaultSidebarContent = isWorkspaceUIVariant() ? 'session' : defaultNavTab
 
   const handleSelectSession = (id: string) => {
     useUIStore.getState().switchToSession(id)
@@ -822,76 +825,95 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </div>
           )}
           <SidebarGroup
-            className={cn(isWorkspaceUIVariant() && "!px-1 !pb-2 !pt-1")}
+            className={cn(
+              "min-h-0 flex-1",
+              isWorkspaceUIVariant() ? "!px-1 !pb-2 !pt-1" : "!px-0 !pb-0 !pt-0",
+            )}
           >
-          {isWorkspaceUIVariant() && (
-            <div className="flex w-full shrink-0 flex-col pb-3 pt-0.5">
-              <SidebarSecondarySessionActions
-                newChatVariant="sidebarWide"
-                includeSearchDialog={sidebarDisplayState !== 'collapsed'}
-              />
-            </div>
-          )}
-          <SidebarMenu>
-            {isLoading && sessions.length === 0 ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            {isWorkspaceUIVariant() && (
+              <div className="flex w-full shrink-0 flex-col pb-3 pt-0.5">
+                <SidebarSecondarySessionActions
+                  newChatVariant="sidebarWide"
+                  includeSearchDialog={sidebarDisplayState !== 'collapsed'}
+                />
               </div>
-            ) : sessions.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <MessageSquare className="h-8 w-8 text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">
-                  {t('sidebar.noConversations', 'No conversations')}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('sidebar.clickToStartChat', 'Click the edit icon to start a new chat')}
-                </p>
-              </div>
-            ) : (
+            )}
+
+            {defaultSidebarContent === 'session' && (
               <>
-                {pinnedSessions.length > 0 && (
-                  <>
-                    <div className="px-2 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                      {t('sidebar.pinnedSessions', 'Pinned')}
+                <SidebarMenu>
+                  {isLoading && sessions.length === 0 ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     </div>
-                    {pinnedSessions.map(renderSessionItem)}
-                  </>
-                )}
-                {unpinnedSessions.length > 0 && (
-                  <>
-                    {pinnedSessions.length > 0 && (
-                      <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                        {t('sidebar.allSessions', 'All sessions')}
-                      </div>
-                    )}
-                    {unpinnedSessions.map(renderSessionItem)}
-                  </>
+                  ) : sessions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <MessageSquare className="h-8 w-8 text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground">
+                        {t('sidebar.noConversations', 'No conversations')}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t('sidebar.clickToStartChat', 'Click the edit icon to start a new chat')}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {pinnedSessions.length > 0 && (
+                        <>
+                          <div className="px-2 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                            {t('sidebar.pinnedSessions', 'Pinned')}
+                          </div>
+                          {pinnedSessions.map(renderSessionItem)}
+                        </>
+                      )}
+                      {unpinnedSessions.length > 0 && (
+                        <>
+                          {pinnedSessions.length > 0 && (
+                            <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                              {t('sidebar.allSessions', 'All sessions')}
+                            </div>
+                          )}
+                          {unpinnedSessions.map(renderSessionItem)}
+                        </>
+                      )}
+                    </>
+                  )}
+                </SidebarMenu>
+
+                {hasMoreSessions && sessions.length > 0 && (
+                  <div className="px-2 py-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => loadMoreSessions()}
+                      disabled={isLoadingMore}
+                    >
+                      {isLoadingMore ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          {t('sidebar.loadingMore', 'Loading...')}
+                        </>
+                      ) : (
+                        t('sidebar.loadMore', 'Load More')
+                      )}
+                    </Button>
+                  </div>
                 )}
               </>
             )}
-          </SidebarMenu>
-          
-          {/* Load More button */}
-          {hasMoreSessions && sessions.length > 0 && (
-            <div className="px-2 py-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full"
-                onClick={() => loadMoreSessions()}
-                disabled={isLoadingMore}
-              >
-                {isLoadingMore ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {t('sidebar.loadingMore', 'Loading...')}
-                  </>
-                ) : (
-                  t('sidebar.loadMore', 'Load More')
-                )}
-              </Button>
-            </div>
-          )}
+
+            {defaultSidebarContent === 'knowledge' && (
+              <div className="min-h-0 flex-1 overflow-hidden border-t border-border/60">
+                <RightPanel defaultTab="knowledge" />
+              </div>
+            )}
+
+            {defaultSidebarContent === 'shortcuts' && (
+              <div className="min-h-0 flex-1 overflow-hidden border-t border-border/60">
+                <ShortcutsPanel />
+              </div>
+            )}
           </SidebarGroup>
 
         </SidebarContent>
