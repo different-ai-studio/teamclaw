@@ -8,6 +8,7 @@ pub mod gateway;
 pub mod git;
 pub mod introspect_api;
 pub mod knowledge;
+pub mod local_secret_store;
 pub mod local_stats;
 pub mod mcp;
 pub mod opencode;
