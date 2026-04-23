@@ -87,12 +87,22 @@ fn load_or_create_master_key(paths: &SecretStorePaths) -> Result<[u8; 32], Strin
             Ok(mut file) => {
                 let mut key = [0u8; 32];
                 rand::thread_rng().fill_bytes(&mut key);
-                file.write_all(&key)
-                    .map_err(|e| format!("Failed to write master key: {}", e))?;
-                file.sync_all()
-                    .map_err(|e| format!("Failed to flush master key: {}", e))?;
-                set_owner_only_permissions(&paths.master_key_path)?;
-                return Ok(key);
+                let write_result = (|| -> Result<[u8; 32], String> {
+                    file.write_all(&key)
+                        .map_err(|e| format!("Failed to write master key: {}", e))?;
+                    file.sync_all()
+                        .map_err(|e| format!("Failed to flush master key: {}", e))?;
+                    set_owner_only_permissions(&paths.master_key_path)?;
+                    Ok(key)
+                })();
+
+                match write_result {
+                    Ok(key) => return Ok(key),
+                    Err(err) => {
+                        let _ = std::fs::remove_file(&paths.master_key_path);
+                        return Err(err);
+                    }
+                }
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 let raw = match std::fs::read(&paths.master_key_path) {
@@ -105,7 +115,10 @@ fn load_or_create_master_key(paths: &SecretStorePaths) -> Result<[u8; 32], Strin
                 };
 
                 match raw.try_into() {
-                    Ok(key) => return Ok(key),
+                    Ok(key) => {
+                        set_owner_only_permissions(&paths.master_key_path)?;
+                        return Ok(key);
+                    }
                     Err(_) => {
                         std::thread::sleep(Duration::from_millis(10));
                         continue;
@@ -345,5 +358,34 @@ mod tests {
         assert_eq!(loaded.version, LOCAL_SECRETS_VERSION);
         assert_eq!(loaded.algorithm, "aes-256-gcm");
         assert!(loaded.migrated_from_keychain);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_master_key_permissions_are_corrected() {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let dir = tempdir().unwrap();
+        let paths = SecretStorePaths::for_base_dir(dir.path().to_path_buf());
+        std::fs::create_dir_all(&paths.base_dir).unwrap();
+
+        let mut key = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut key);
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o644)
+            .open(&paths.master_key_path)
+            .unwrap();
+        file.write_all(&key).unwrap();
+        file.sync_all().unwrap();
+
+        let loaded = load_or_create_master_key(&paths).unwrap();
+        assert_eq!(loaded, key);
+
+        let mode = std::fs::metadata(&paths.master_key_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }
