@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::State;
 
+use super::local_secret_store;
 use super::opencode::OpenCodeState;
 
 /// Single keychain entry that stores all env vars as a JSON blob.
@@ -41,14 +42,13 @@ fn write_env_blob_to_disk(map: &serde_json::Map<String, serde_json::Value>) {
     }
 }
 
-/// Read the entire env var blob from keychain.
-/// Returns an empty map if the entry doesn't exist yet.
-/// On first call after migration: detects old per-key entries and consolidates them.
-/// May write to keychain on first call if legacy migration is needed.
-/// Falls back to a disk file when keychain is inaccessible (e.g. after app update).
-pub(crate) fn read_env_blob(
+fn personal_secret_store_paths() -> Result<local_secret_store::SecretStorePaths, String> {
+    local_secret_store::SecretStorePaths::for_home_dir()
+}
+
+fn read_legacy_keychain_blob(
     workspace_path: &str,
-) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, "teamclaw")
         .map_err(|e| format!("Failed to open keychain entry: {}", e))?;
 
@@ -62,56 +62,74 @@ pub(crate) fn read_env_blob(
                 serde_json::Value::Object(serde_json::Map::new())
             });
             match val {
-                serde_json::Value::Object(map) => Ok(map),
-                _ => Ok(serde_json::Map::new()),
+                serde_json::Value::Object(map) => Ok(Some(map)),
+                _ => Ok(Some(serde_json::Map::new())),
             }
         }
         Err(keyring::Error::NoEntry) => {
-            // First launch (or blob deleted): attempt migration from legacy per-key format.
             let migrated = migrate_legacy_keyring(workspace_path);
             if !migrated.is_empty() {
                 println!(
-                    "[EnvVars] Migrated {} legacy keychain entries to blob",
+                    "[EnvVars] Migrated {} legacy keychain entries to local encrypted store",
                     migrated.len()
                 );
-                write_env_blob(&migrated)?;
-                return Ok(migrated);
+                return Ok(Some(migrated));
             }
-            // Try disk fallback (handles post-update keychain loss)
             if let Some(disk_blob) = read_env_blob_from_disk() {
                 if !disk_blob.is_empty() {
                     println!(
-                        "[EnvVars] Restored {} entries from disk fallback",
+                        "[EnvVars] Restored {} entries from legacy disk fallback",
                         disk_blob.len()
                     );
-                    // Re-populate keychain so subsequent reads are fast
-                    let _ = write_env_blob_to_keychain(&disk_blob);
-                    return Ok(disk_blob);
+                    return Ok(Some(disk_blob));
                 }
             }
-            Ok(serde_json::Map::new())
+            Ok(None)
         }
         Err(e) => {
-            // Keychain error (e.g. access denied after app update) — try disk fallback
             eprintln!(
-                "[EnvVars] Keychain read failed: {}. Trying disk fallback...",
+                "[EnvVars] Legacy keychain read failed: {}. Trying disk fallback...",
                 e
             );
             if let Some(disk_blob) = read_env_blob_from_disk() {
                 if !disk_blob.is_empty() {
                     println!(
-                        "[EnvVars] Restored {} entries from disk fallback",
+                        "[EnvVars] Restored {} entries from legacy disk fallback",
                         disk_blob.len()
                     );
-                    return Ok(disk_blob);
+                    return Ok(Some(disk_blob));
                 }
             }
-            Err(format!("Failed to read keychain blob: {}", e))
+            Err(format!("Failed to read legacy keychain blob: {}", e))
         }
     }
 }
 
-/// Write the env blob to keychain only (no disk fallback).
+fn read_personal_secret_blob(
+    workspace_path: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let paths = personal_secret_store_paths()?;
+    local_secret_store::read_or_migrate_secret_blob(&paths, || read_legacy_keychain_blob(workspace_path))
+}
+
+fn write_personal_secret_blob(
+    map: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let paths = personal_secret_store_paths()?;
+    local_secret_store::write_secret_blob(&paths, map)
+}
+
+/// Read the entire env var blob from the local encrypted personal secret store.
+/// On first read, migrate legacy keychain or disk-snapshot data if present.
+pub(crate) fn read_env_blob(
+    workspace_path: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    read_personal_secret_blob(workspace_path)
+}
+
+/// Write the env blob to the legacy keychain blob path.
+/// Retained only for compatibility helpers such as updater snapshots.
+#[allow(dead_code)]
 fn write_env_blob_to_keychain(
     map: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
@@ -124,23 +142,11 @@ fn write_env_blob_to_keychain(
         .map_err(|e| format!("Failed to write keychain blob: {}", e))
 }
 
-/// Write the entire env var blob to keychain and disk fallback.
+/// Write the entire env var blob to the local encrypted personal secret store.
 pub(crate) fn write_env_blob(
     map: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
-    // Always write disk fallback (survives app updates)
-    write_env_blob_to_disk(map);
-    // Write to keychain (may fail after update, but that's OK — disk has it)
-    match write_env_blob_to_keychain(map) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            eprintln!(
-                "[EnvVars] Keychain write failed (disk fallback saved): {}",
-                e
-            );
-            Ok(())
-        }
-    }
+    write_personal_secret_blob(map)
 }
 
 /// Snapshot the current keychain env blob to the disk fallback file.
@@ -330,7 +336,7 @@ fn get_workspace_path(state: &State<'_, OpenCodeState>) -> Result<String, String
 
 // ─── Tauri Commands ─────────────────────────────────────────────────────
 
-/// Store (or update) an environment variable in the keychain blob and update the index in teamclaw.json.
+/// Store (or update) an environment variable in the local encrypted store and update the index in teamclaw.json.
 #[tauri::command]
 pub async fn env_var_set(
     state: State<'_, OpenCodeState>,
@@ -370,7 +376,7 @@ pub async fn env_var_set(
     write_teamclaw_json(&workspace_path, &json)
 }
 
-/// Retrieve an environment variable value from the keychain blob.
+/// Retrieve an environment variable value from the local encrypted store.
 #[tauri::command]
 pub async fn env_var_get(state: State<'_, OpenCodeState>, key: String) -> Result<String, String> {
     let workspace_path = get_workspace_path(&state)?;
@@ -387,7 +393,7 @@ pub async fn env_var_get(state: State<'_, OpenCodeState>, key: String) -> Result
         .ok_or_else(|| format!("Key '{}' not found", key))
 }
 
-/// Delete an environment variable from both the keychain blob and teamclaw.json index.
+/// Delete an environment variable from both the local encrypted store and teamclaw.json index.
 #[tauri::command]
 pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
     let workspace_path = get_workspace_path(&state)?;
@@ -439,7 +445,7 @@ pub async fn env_var_list(state: State<'_, OpenCodeState>) -> Result<Vec<EnvVarE
 ///
 /// Resolution order for each `${KEY}`:
 ///   1. Shared secrets (team KMS, in-memory HashMap)
-///   2. Local keyring blob (per-user OS keyring, single blob entry)
+///   2. Local encrypted personal secret blob
 ///   3. System environment variables (`std::env::var`)
 #[tauri::command]
 pub async fn env_var_resolve(
@@ -462,14 +468,14 @@ pub async fn env_var_resolve(
         })
         .collect();
 
-    // Read blob once upfront (one keychain access for all keys)
+    // Read blob once upfront.
     let blob = {
         let wp = workspace_path.clone();
         tokio::task::spawn_blocking(move || read_env_blob(&wp))
             .await
             .map_err(|e| e.to_string())?
             .unwrap_or_else(|e| {
-                eprintln!("[EnvVars] env_var_resolve: failed to read keychain blob, proceeding without local secrets: {}", e);
+                eprintln!("[EnvVars] env_var_resolve: failed to read personal secret blob, proceeding without local secrets: {}", e);
                 serde_json::Map::new()
             })
     };
@@ -485,7 +491,7 @@ pub async fn env_var_resolve(
             continue;
         }
 
-        // 2. Check local keyring blob
+        // 2. Check local encrypted personal secret blob
         if let Some(value) = blob.get(&key).and_then(|v| v.as_str()) {
             result = result.replace(&full_match, value);
             continue;
@@ -512,10 +518,10 @@ pub async fn env_var_resolve(
     Ok(result)
 }
 
-/// Ensure all system env vars exist in keychain blob and in the teamclaw.json index.
+/// Ensure all system env vars exist in the local encrypted store and in the teamclaw.json index.
 /// If a key is missing from the blob, its default value is generated and written.
 /// If a key already has a value (user customized), it is left unchanged.
-/// This must be called on a blocking thread (keychain I/O).
+/// This must be called on a blocking thread (disk I/O).
 pub(crate) fn ensure_system_env_vars(workspace_path: &str, device_id: &str) -> Result<(), String> {
     let ctx = SystemEnvVarContext {
         device_id: device_id.to_string(),
@@ -622,4 +628,84 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, device_id: &str) -> R
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::local_secret_store::SecretStorePaths;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    fn home_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct HomeGuard {
+        original_home: Option<std::ffi::OsString>,
+    }
+
+    impl HomeGuard {
+        fn set(path: &Path) -> Self {
+            let original_home = std::env::var_os("HOME");
+            std::env::set_var("HOME", path);
+            Self { original_home }
+        }
+    }
+
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            match &self.original_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn read_env_blob_migrates_legacy_disk_snapshot_into_local_encrypted_store() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let workspace_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+
+        let legacy_blob_dir = home_dir.path().join(concat!(".", env!("APP_SHORT_NAME")));
+        std::fs::create_dir_all(&legacy_blob_dir).unwrap();
+
+        let mut legacy_blob = serde_json::Map::new();
+        legacy_blob.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("legacy-secret".into()),
+        );
+        std::fs::write(
+            legacy_blob_dir.join("env-blob.json"),
+            serde_json::to_vec(&legacy_blob).unwrap(),
+        )
+        .unwrap();
+
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+        let loaded = read_env_blob(&workspace_path).unwrap();
+        assert_eq!(loaded, legacy_blob);
+
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+        assert!(paths.blob_path.exists(), "expected encrypted blob to be created");
+        let meta = crate::commands::local_secret_store::read_meta(&paths).unwrap();
+        assert!(meta.migrated_from_keychain);
+
+        std::fs::remove_file(legacy_blob_dir.join("env-blob.json")).unwrap();
+
+        let mut updated_blob = loaded.clone();
+        updated_blob.insert(
+            "OPENAI_API_KEY".into(),
+            serde_json::Value::String("local-secret".into()),
+        );
+        write_env_blob(&updated_blob).unwrap();
+
+        let reloaded = read_env_blob(&workspace_path).unwrap();
+        assert_eq!(
+            reloaded.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
+            Some("local-secret")
+        );
+    }
 }
