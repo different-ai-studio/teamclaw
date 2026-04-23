@@ -87,7 +87,7 @@ function SectionHeader({
     <div
       className={cn(
         "flex items-center gap-2.5 px-4 text-[12px] font-medium text-muted-foreground",
-        isTop ? "rounded-t-[24px] bg-white/25 py-3 dark:bg-white/5" : "bg-white/10 py-2.5 dark:bg-white/[0.03]",
+        isTop ? "rounded-t-[24px] py-3" : "py-2.5",
       )}
     >
       {icon}
@@ -175,14 +175,14 @@ function InlineTodoList({
     >
       <div
         className={cn(
-          "overflow-hidden rounded-[24px] border border-[rgba(214,219,228,0.92)] bg-[rgba(250,251,252,0.07)] shadow-[0_1px_3px_rgba(15,23,42,0.03)] backdrop-blur-md supports-[backdrop-filter]:bg-[rgba(250,251,252,0.035)] dark:border-white/12 dark:bg-[rgba(15,23,42,0.22)] dark:supports-[backdrop-filter]:bg-[rgba(15,23,42,0.16)]",
+          "overflow-hidden rounded-[24px] border border-[rgba(214,219,228,0.42)] bg-[rgba(255,255,255,0.02)] shadow-[0_1px_2px_rgba(15,23,42,0.018)] backdrop-blur-[9px] supports-[backdrop-filter]:bg-[rgba(255,255,255,0.5)] dark:border-white/10 dark:bg-[rgba(15,23,42,0.08)] dark:supports-[backdrop-filter]:bg-[rgba(15,23,42,0.055)]",
           dockCollapsed ? "pb-1" : "pb-10",
           headerOnlyCollapsed && "rounded-b-none pb-0",
         )}
       >
         <>
           {hasTodos ? (
-            <section className={cn(hasQueue && "border-b border-white/40 dark:border-white/10")}>
+            <section>
               <SectionHeader
                 icon={<ListTodo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                 label={t("chat.todo.summary", "{{count}} tasks, {{completed}} completed", {
@@ -200,13 +200,10 @@ function InlineTodoList({
                 aria-hidden={todoCollapsed}
                 className={cn(
                   "overflow-hidden transition-[max-height,opacity,padding] duration-200 ease-in-out",
-                  !todoCollapsed ? "max-h-[11rem] opacity-100 px-4 py-3" : "max-h-0 opacity-0 px-4 py-0",
+                  !todoCollapsed ? "max-h-[11rem] opacity-100 px-4 pt-3 pb-0" : "max-h-0 opacity-0 px-4 py-0",
                 )}
               >
-                <div
-                  data-testid="todo-list-inline-scroll"
-                  className="space-y-2 overflow-y-auto max-h-[8.75rem]"
-                >
+                <div data-testid="todo-list-inline-scroll" className="space-y-2 overflow-y-auto max-h-[8.75rem]">
                   {todos.map((todo, index) => (
                     <div
                       key={todo.id}
@@ -255,13 +252,10 @@ function InlineTodoList({
                 aria-hidden={queueCollapsed}
                 className={cn(
                   "overflow-hidden transition-[max-height,opacity,padding] duration-200 ease-in-out",
-                  !queueCollapsed ? "max-h-[10rem] opacity-100 px-4 py-3" : "max-h-0 opacity-0 px-4 py-0",
+                  !queueCollapsed ? "max-h-[10rem] opacity-100 px-4 pt-3 pb-0" : "max-h-0 opacity-0 px-4 py-0",
                 )}
               >
-                <div
-                  className="space-y-1.5 overflow-y-auto max-h-[8.5rem]"
-                  data-testid="todo-list-inline-queue-body"
-                >
+                <div className="space-y-1.5 overflow-y-auto max-h-[8.5rem]" data-testid="todo-list-inline-queue-body">
                   {queue.map((msg, index) => (
                     <div
                       key={msg.id}

@@ -151,7 +151,9 @@ describe("Tool call visual redesign", () => {
 
     const output = screen.getByTestId("tool-card-bash-output");
     expect(output.textContent).toContain("line 7");
-    expect(output.className).toContain("max-h-[220px]");
+    expect(output.textContent).toContain("$");
+    expect(output.textContent).toContain("cat long.log");
+    expect(output.className).toContain("max-h-[280px]");
     expect(output.className).toContain("overflow-auto");
   });
 
@@ -169,6 +171,26 @@ describe("Tool call visual redesign", () => {
 
     const output = screen.getByTestId("tool-card-bash-output");
     expect(output.textContent).toContain("No output");
+  });
+
+  it("shows the full bash command in the expanded terminal-style body", () => {
+    render(<ToolCallCard toolCall={makeToolCall({
+      id: "tool-long-bash",
+      name: "bash",
+      status: "completed",
+      arguments: {
+        command:
+          '/Users/haigang.ye/project/accounting-live/scripts/query_logs.sh --application billing-core --trace-id 7d9e7db1-62f8-4b6b-9c38-0d64f542c104 --query-string "service:billing level:error" --hours 24 --limit 20 --output-path /Users/haigang.ye/project/accounting-live/tmp/query_logs_usage.txt',
+      },
+      result: "Usage:\nquery_logs.sh --application <app|suffix>",
+    })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Execute command/ }));
+
+    const output = screen.getByTestId("tool-card-bash-output");
+    expect(output.textContent).toContain("/Users/haigang.ye/project/accounting-live/scripts/query_logs.sh");
+    expect(output.textContent).toContain("--query-string");
+    expect(output.textContent).toContain("Usage:");
   });
 
   it("prefers an explicit command description before the command text", () => {
