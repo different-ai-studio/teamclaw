@@ -11,17 +11,17 @@ pub(crate) const LOCAL_SECRETS_VERSION: u32 = 1;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SecretStorePaths {
-    pub base_dir: PathBuf,
-    pub master_key_path: PathBuf,
-    pub blob_path: PathBuf,
-    pub meta_path: PathBuf,
+    base_dir: PathBuf,
+    master_key_path: PathBuf,
+    blob_path: PathBuf,
+    meta_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SecretStoreMeta {
-    pub version: u32,
-    pub algorithm: String,
-    pub migrated_from_keychain: bool,
+    version: u32,
+    algorithm: String,
+    migrated_from_keychain: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +31,7 @@ struct EncryptedBlobFile {
 }
 
 impl SecretStorePaths {
-    pub fn for_home_dir() -> Result<Self, String> {
+    pub(crate) fn for_home_dir() -> Result<Self, String> {
         let home = dirs::home_dir().ok_or_else(|| "Home directory not found".to_string())?;
         Ok(Self::for_base_dir(
             home.join(concat!(".", env!("APP_SHORT_NAME")))
@@ -39,7 +39,7 @@ impl SecretStorePaths {
         ))
     }
 
-    pub fn for_base_dir(base_dir: PathBuf) -> Self {
+    pub(crate) fn for_base_dir(base_dir: PathBuf) -> Self {
         Self {
             master_key_path: base_dir.join("master.key"),
             blob_path: base_dir.join("personal-secrets.json.enc"),
