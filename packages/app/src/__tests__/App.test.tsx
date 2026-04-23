@@ -1,5 +1,50 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render } from '@testing-library/react'
+
+const uiVariantState = vi.hoisted(() => ({
+  workspace: false,
+}))
+
+const uiStoreState = vi.hoisted(() => ({
+  currentView: 'chat',
+  closeSettings: vi.fn(),
+  layoutMode: 'task',
+  fileModeRightTab: 'agent',
+  setFileModeRightTab: vi.fn(),
+  spotlightMode: false,
+  toggleLayoutMode: vi.fn(),
+  embeddedSettingsSection: null as string | null,
+  closeEmbeddedSettingsSection: vi.fn(),
+  openEmbeddedSettingsSection: vi.fn(),
+  advancedMode: false,
+  openSettings: vi.fn(),
+}))
+
+const workspaceStoreState = vi.hoisted(() => ({
+  workspacePath: null as string | null,
+  openCodeBootstrapped: false,
+  openCodeReady: false,
+  isPanelOpen: false,
+  activeTab: 'shortcuts',
+  openPanel: vi.fn(),
+  closePanel: vi.fn(),
+  clearWorkspace: vi.fn(),
+  selectedFile: null as string | null,
+  fileContent: '',
+  isLoadingFile: false,
+  clearSelection: vi.fn(),
+  selectFile: vi.fn(),
+  setOpenCodeBootstrapped: vi.fn(),
+  setOpenCodeReady: vi.fn(),
+  isNewWorkspace: false,
+  setIsNewWorkspace: vi.fn(),
+}))
+
+const sidebarState = vi.hoisted(() => ({
+  state: 'expanded',
+  open: true,
+  setOpen: vi.fn(),
+}))
 
 // Polyfill browser APIs missing in jsdom
 globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
@@ -49,7 +94,7 @@ vi.mock('@/components/settings/section-registry', () => ({
   SettingsSectionBody: () => <div data-testid="settings-section-body" />,
 }))
 vi.mock('@/lib/ui-variant', () => ({
-  isWorkspaceUIVariant: () => false,
+  isWorkspaceUIVariant: () => uiVariantState.workspace,
 }))
 vi.mock('@/components/chat/ChatPanel', () => ({ ChatPanel: () => <div>chat</div> }))
 vi.mock('@/components/voice/VoiceInputFloatingButton', () => ({ VoiceInputFloatingButton: () => null }))
@@ -76,31 +121,14 @@ vi.mock('@/stores/session', () => ({
 vi.mock('@/stores/ui', () => ({
   useUIStore: Object.assign(
     vi.fn((sel: (s: any) => any) => {
-      const state = {
-        currentView: 'chat', closeSettings: vi.fn(), layoutMode: 'task',
-        fileModeRightTab: 'agent', setFileModeRightTab: vi.fn(),
-        spotlightMode: false, toggleLayoutMode: vi.fn(),
-        embeddedSettingsSection: null,
-        closeEmbeddedSettingsSection: vi.fn(),
-        openEmbeddedSettingsSection: vi.fn(),
-        advancedMode: false,
-        openSettings: vi.fn(),
-      }
-      return sel(state)
+      return sel(uiStoreState)
     }),
-    { getState: () => ({ spotlightMode: false }) }
+    { getState: () => ({ spotlightMode: uiStoreState.spotlightMode }) }
   ),
 }))
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: vi.fn((sel: (s: any) => any) => {
-    const state = {
-      workspacePath: null, openCodeBootstrapped: false, openCodeReady: false, isPanelOpen: false,
-      activeTab: 'shortcuts', openPanel: vi.fn(), closePanel: vi.fn(),
-      clearWorkspace: vi.fn(), selectedFile: null, fileContent: '',
-      isLoadingFile: false, clearSelection: vi.fn(), selectFile: vi.fn(),
-      setOpenCodeBootstrapped: vi.fn(), setOpenCodeReady: vi.fn(),
-    }
-    return sel(state)
+    return sel(workspaceStoreState)
   }),
 }))
 vi.mock('@/stores/tabs', () => ({
@@ -123,7 +151,7 @@ vi.mock('@/lib/opencode/preloader', () => ({ startOpenCode: vi.fn(), waitForOpen
 vi.mock('@/components/ui/sidebar', () => ({
   SidebarInset: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SidebarProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  useSidebar: () => ({ state: 'expanded' }),
+  useSidebar: () => sidebarState,
 }))
 vi.mock('@/components/ui/button', () => ({
   Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
@@ -142,6 +170,22 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
 import App from '../App'
 
 describe('App', () => {
+  beforeEach(() => {
+    uiVariantState.workspace = false
+    uiStoreState.currentView = 'chat'
+    uiStoreState.layoutMode = 'task'
+    uiStoreState.fileModeRightTab = 'agent'
+    uiStoreState.embeddedSettingsSection = null
+    uiStoreState.spotlightMode = false
+    workspaceStoreState.workspacePath = null
+    workspaceStoreState.isPanelOpen = false
+    workspaceStoreState.activeTab = 'shortcuts'
+    workspaceStoreState.isNewWorkspace = false
+    sidebarState.state = 'expanded'
+    sidebarState.open = true
+    sidebarState.setOpen.mockReset()
+  })
+
   it('renders without crashing', () => {
     const { container } = render(<App />)
     expect(container).toBeTruthy()
@@ -151,5 +195,15 @@ describe('App', () => {
     render(<App />)
     // The WorkspacePrompt mock renders 'workspace-prompt'
     expect(document.body.textContent).toContain('workspace-prompt')
+  })
+
+  it('keeps the sidebar open for default layout knowledge panels', () => {
+    workspaceStoreState.workspacePath = '/workspace'
+    workspaceStoreState.isPanelOpen = true
+    workspaceStoreState.activeTab = 'knowledge'
+
+    render(<App />)
+
+    expect(sidebarState.setOpen).not.toHaveBeenCalledWith(false)
   })
 })

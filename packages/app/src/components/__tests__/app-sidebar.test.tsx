@@ -180,6 +180,10 @@ vi.mock('@/components/NodeStatusPopover', () => ({
   NodeStatusPopover: ({ children }: any) => <div>{children}</div>,
 }))
 
+vi.mock('@/components/navigation/DefaultBottomNav', () => ({
+  DefaultBottomNav: () => <div data-testid="default-bottom-nav">default-bottom-nav</div>,
+}))
+
 import { AppSidebar } from '@/components/app-sidebar'
 
 describe('AppSidebar', () => {
@@ -282,13 +286,12 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Roles & Skills')).toBeDefined()
   })
 
-  it('default mode renders Quick Access section with merged roles and skills entry', () => {
+  it('default mode renders the default bottom navigation instead of the mixed quick access list', () => {
     uiVariantMocks.workspaceShell = false
     render(<AppSidebar />)
-    expect(screen.getByText('Shortcuts')).toBeDefined()
-    expect(screen.getByText('Automation')).toBeDefined()
-    expect(screen.getByText('Roles & Skills')).toBeDefined()
-    expect(screen.getByText('Knowledge')).toBeDefined()
+    expect(screen.getByTestId('default-bottom-nav')).toBeDefined()
+    expect(screen.queryByText('Automation')).toBeNull()
+    expect(screen.queryByText('Roles & Skills')).toBeNull()
   })
 
   it('workspace mode does not render bottom Knowledge entry', () => {
@@ -305,40 +308,14 @@ describe('AppSidebar', () => {
     expect(screen.queryByText('设置')).toBeNull()
   })
 
-  it('clicking Shortcuts in Quick Access calls openPanel with "shortcuts"', () => {
-    uiVariantMocks.workspaceShell = false
+  it('workspace variant preserves the settings footer row', () => {
+    uiVariantMocks.workspaceShell = true
     render(<AppSidebar />)
-    screen.getByText('Shortcuts').closest('button')!.click()
-    expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('shortcuts')
-  })
-
-  it('clicking Knowledge in Quick Access calls openPanel with "knowledge"', () => {
-    uiVariantMocks.workspaceShell = false
-    render(<AppSidebar />)
-    screen.getByText('Knowledge').closest('button')!.click()
-    expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('knowledge')
-  })
-
-  it('clicking active Automation in Quick Access closes it', () => {
-    uiVariantMocks.workspaceShell = false
-    uiStoreMocks.embeddedSettingsSection = 'automation'  // already active
-    render(<AppSidebar />)
-    screen.getByText('Automation').closest('button')!.click()
-    expect(uiStoreMocks.closeEmbeddedSettingsSection).toHaveBeenCalled()
-  })
-
-  it('clicking active Knowledge in Quick Access closes the panel', () => {
-    uiVariantMocks.workspaceShell = false
-    const closePanelFn = vi.fn()
-    workspaceStoreMocks.isPanelOpen = true
-    workspaceStoreMocks.activeTab = 'knowledge'
-    workspaceStoreMocks.closePanel = closePanelFn
-    render(<AppSidebar />)
-    screen.getByText('Knowledge').closest('button')!.click()
-    expect(closePanelFn).toHaveBeenCalled()
+    expect(screen.getByText('Settings')).toBeDefined()
   })
 
   it('shows connected P2P icon state from engine snapshot', () => {
+    uiVariantMocks.workspaceShell = true
     teamModeStoreMocks.teamMode = true
     p2pEngineStoreMocks.snapshot = {
       status: 'connected',
@@ -353,6 +330,7 @@ describe('AppSidebar', () => {
   })
 
   it('shows degraded P2P icon state from engine snapshot', () => {
+    uiVariantMocks.workspaceShell = true
     teamModeStoreMocks.teamMode = true
     p2pEngineStoreMocks.snapshot = {
       status: 'connected',
@@ -367,6 +345,7 @@ describe('AppSidebar', () => {
   })
 
   it('shows disconnected P2P icon state when engine is disconnected', () => {
+    uiVariantMocks.workspaceShell = true
     teamModeStoreMocks.teamMode = true
     p2pEngineStoreMocks.snapshot = {
       status: 'disconnected',

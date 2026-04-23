@@ -70,52 +70,59 @@ export function DefaultBottomNav() {
   const workspaceBusy = isLoadingWorkspace || isSwitchingWorkspace
 
   return (
-    <div className="border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="grid grid-cols-4 gap-1 px-2 py-2">
+    <div className="border-t border-border/60 px-1 pt-2">
+      <div className="grid grid-cols-4 gap-1 rounded-xl bg-muted/20 p-1">
         {PRIMARY_TABS.map(({ id, labelKey, fallback, icon: Icon }) => (
           <Button
             key={id}
             type="button"
             variant="ghost"
             className={cn(
-              'flex h-14 flex-col gap-1 rounded-xl text-muted-foreground',
-              activeTab === id && 'bg-muted text-foreground',
+              'flex h-11 min-w-0 flex-col justify-center gap-0.5 rounded-lg border border-transparent px-1 text-muted-foreground/85 transition-colors',
+              'hover:bg-background/80 hover:text-foreground',
+              activeTab === id && 'border-border/70 bg-background text-foreground shadow-sm',
             )}
             onClick={() => selectDefaultPrimaryTab(id)}
           >
-            <Icon className="h-4 w-4" />
-            <span className="text-[11px]">{t(labelKey, fallback)}</span>
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className="truncate text-[11px] font-medium">{t(labelKey, fallback)}</span>
           </Button>
         ))}
 
         <Popover open={moreOpen} onOpenChange={setDefaultMoreOpen}>
           <PopoverTrigger asChild>
             <Button
-              type="button"
-              variant="ghost"
-              className={cn(
-                'flex h-14 flex-col gap-1 rounded-xl text-muted-foreground',
-                moreOpen && 'bg-muted text-foreground',
+            type="button"
+            variant="ghost"
+            className={cn(
+                'flex h-11 min-w-0 flex-col justify-center gap-0.5 rounded-lg border border-transparent px-1 text-muted-foreground/85 transition-colors',
+                'hover:bg-background/80 hover:text-foreground',
+                moreOpen && 'border-border/70 bg-background text-foreground shadow-sm',
               )}
             >
-              <Ellipsis className="h-4 w-4" />
-              <span className="text-[11px]">{t('common.more', 'More')}</span>
+              <Ellipsis className="h-4 w-4 shrink-0" />
+              <span className="truncate text-[11px] font-medium">{t('common.more', 'More')}</span>
             </Button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="end" className="w-72 rounded-2xl p-2">
-            <div className="rounded-xl border bg-muted/30 p-3">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <PopoverContent
+            side="top"
+            align="end"
+            sideOffset={10}
+            className="w-64 rounded-xl border border-border/80 bg-popover/98 p-1.5 shadow-lg backdrop-blur"
+          >
+            <div className="rounded-lg bg-muted/25 p-2.5">
+              <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
                 {t('workspace.currentWorkspace', 'Workspace')}
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-background text-muted-foreground">
-                  <FolderOpen className="h-4 w-4" />
+              <div className="mt-2 flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border/70 bg-background/90 text-muted-foreground">
+                  <FolderOpen className="h-3.5 w-3.5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium" data-testid="default-more-workspace-name">
+                  <div className="truncate text-sm font-medium text-foreground" data-testid="default-more-workspace-name">
                     {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
                   </div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-[11px] text-muted-foreground">
                     {t('workspace.switchWorkspaceHint', 'Choose a different workspace')}
                   </div>
                 </div>
@@ -123,26 +130,26 @@ export function DefaultBottomNav() {
               <Button
                 type="button"
                 variant="outline"
-                className="mt-3 w-full justify-start gap-2"
+                className="mt-2.5 h-8 w-full justify-start gap-2 rounded-md border-border/70 bg-background/80 px-2.5 text-xs font-medium shadow-none hover:bg-background"
                 disabled={!isTauri() || workspaceBusy}
                 onClick={() => void handleSwitchWorkspace()}
               >
                 {workspaceBusy ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <FolderOpen className="h-4 w-4" />
+                  <FolderOpen className="h-3.5 w-3.5" />
                 )}
                 {t('workspace.switchWorkspace', 'Switch Workspace')}
               </Button>
             </div>
 
-            <div className="mt-2 grid gap-1">
+            <div className="mt-1.5 grid gap-0.5">
               {MORE_ITEMS.map(({ id, labelKey, fallback, icon: Icon }) => (
                 <Button
                   key={id}
                   type="button"
                   variant="ghost"
-                  className="justify-start gap-2 rounded-xl px-3"
+                  className="h-9 justify-start gap-2 rounded-lg px-2.5 text-sm font-medium text-foreground/90 hover:bg-muted/55"
                   onClick={() => openDefaultMoreDestination(id)}
                 >
                   <Icon className="h-4 w-4 text-muted-foreground" />

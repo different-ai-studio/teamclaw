@@ -505,9 +505,12 @@ function AppContent() {
   const { state, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
   const hasActiveFileTab = !!useTabsStore(selectActiveTab);
   const hasHiddenTabs = useTabsStore(selectHasHiddenTabs);
-  /** Shortcuts always dock left; Files dock left only in default variant (workspace uses the right panel for Files). */
+  /** In the workspace shell, shortcuts/knowledge can temporarily own the left dock.
+   * The default shell keeps the sidebar visible and routes those tabs to the right panel. */
   const leftDockActive =
-    isPanelOpen && (activeTab === "shortcuts" || activeTab === "knowledge");
+    isWorkspaceUIVariant() &&
+    isPanelOpen &&
+    (activeTab === "shortcuts" || activeTab === "knowledge");
   const showRightWorkspacePanel = isPanelOpen && !leftDockActive;
   const isCollapsed = state === "collapsed";
   /** Native traffic lights sit over the left column; spare inset header when left dock owns that strip. */
