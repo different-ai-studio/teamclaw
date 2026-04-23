@@ -104,6 +104,22 @@ vi.mock('@/stores/suggestions', () => ({
     selector({ customSuggestions: [] }),
 }));
 
+vi.mock('@/hooks/useAppInit', () => ({
+  SKILLS_CHANGED_EVENT: 'skills-files-changed',
+}));
+
+vi.mock('@/stores/shortcuts', () => ({
+  useShortcutsStore: Object.assign(
+    (selector: (s: unknown) => unknown) =>
+      selector({ setTeamNodes: vi.fn() }),
+    {
+      getState: () => ({
+        setTeamNodes: vi.fn(),
+      }),
+    },
+  ),
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, fallback?: string, options?: Record<string, unknown>) => {
@@ -313,7 +329,11 @@ describe('ChatPanel submission flow', () => {
         fireEvent.click(submitBtn);
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith('[Skill: superpowers/brainstorming]', undefined, undefined);
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '[Skill: superpowers/brainstorming|instruction:You must call skill({ name: "superpowers/brainstorming" })]',
+        undefined,
+        undefined,
+      );
     });
 
     it('serializes role mentions into role directives on submit', async () => {
@@ -328,7 +348,7 @@ describe('ChatPanel submission flow', () => {
       });
 
       expect(mockSendMessage).toHaveBeenCalledWith(
-        '[Role: accounting-dimensions]\n\nFirst tool call: role_load({ name: "accounting-dimensions" }).',
+        '[Role: accounting-dimensions|instruction:You must call role_load({ name: "accounting-dimensions" })]',
         undefined,
         undefined,
       );
