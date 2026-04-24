@@ -14,7 +14,6 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -224,8 +223,8 @@ export function ShortcutsPanel() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <ScrollArea className="flex-1">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="p-1.5">
           <SectionHeader
             label={t("shortcuts.personal", "Personal")}
@@ -282,7 +281,7 @@ export function ShortcutsPanel() {
             </>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }
