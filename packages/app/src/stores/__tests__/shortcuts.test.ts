@@ -123,4 +123,72 @@ describe('shortcuts store', () => {
     expect(useShortcutsStore.getState().teamNodes).toHaveLength(1)
     expect(useShortcutsStore.getState().teamLoaded).toBe(true)
   })
+
+  it('keeps unrestricted team shortcuts visible when current shortcut roles are empty', () => {
+    useShortcutsStore.setState({
+      nodes: [],
+      teamNodes: [
+        { id: 'missing-role', label: 'Docs', order: 0, parentId: null, type: 'link', target: 'https://docs.example.com' },
+        { id: 'empty-role', label: 'Wiki', order: 1, parentId: null, type: 'link', target: 'https://wiki.example.com', role: [] },
+      ],
+      teamLoaded: true,
+    })
+    useShortcutsStore.getState().setCurrentShortcutRoles([])
+
+    const tree = useShortcutsStore.getState().getTeamTree()
+
+    expect(tree.map((node) => node.id)).toEqual(['missing-role', 'empty-role'])
+  })
+
+  it('filters restricted team shortcuts by current member shortcut roles', () => {
+    useShortcutsStore.setState({
+      nodes: [],
+      teamNodes: [
+        { id: 'sales', label: 'Sales CRM', order: 0, parentId: null, type: 'link', target: 'https://sales.example.com', role: ['sales'] },
+        { id: 'support', label: 'Support Queue', order: 1, parentId: null, type: 'link', target: 'https://support.example.com', role: ['support'] },
+        { id: 'public', label: 'Handbook', order: 2, parentId: null, type: 'link', target: 'https://handbook.example.com' },
+      ],
+      teamLoaded: true,
+    })
+    useShortcutsStore.getState().setCurrentShortcutRoles(['sales'])
+
+    const tree = useShortcutsStore.getState().getTeamTree()
+
+    expect(tree.map((node) => node.id)).toEqual(['sales', 'public'])
+  })
+
+  it('hides restricted team shortcuts when no current member shortcut role matches', () => {
+    useShortcutsStore.setState({
+      nodes: [],
+      teamNodes: [
+        { id: 'sales', label: 'Sales CRM', order: 0, parentId: null, type: 'link', target: 'https://sales.example.com', role: ['sales'] },
+        { id: 'support', label: 'Support Queue', order: 1, parentId: null, type: 'link', target: 'https://support.example.com', role: ['support'] },
+      ],
+      teamLoaded: true,
+    })
+    useShortcutsStore.getState().setCurrentShortcutRoles(['ops'])
+
+    const tree = useShortcutsStore.getState().getTeamTree()
+
+    expect(tree).toEqual([])
+  })
+
+  it('keeps a restricted folder when a visible child remains', () => {
+    useShortcutsStore.setState({
+      nodes: [],
+      teamNodes: [
+        { id: 'folder', label: 'Team Tools', order: 0, parentId: null, type: 'folder', target: '', role: ['admin'] },
+        { id: 'sales-child', label: 'Sales CRM', order: 0, parentId: 'folder', type: 'link', target: 'https://sales.example.com', role: ['sales'] },
+        { id: 'support-child', label: 'Support Queue', order: 1, parentId: 'folder', type: 'link', target: 'https://support.example.com', role: ['support'] },
+      ],
+      teamLoaded: true,
+    })
+    useShortcutsStore.getState().setCurrentShortcutRoles(['sales'])
+
+    const tree = useShortcutsStore.getState().getTeamTree()
+
+    expect(tree).toHaveLength(1)
+    expect(tree[0].id).toBe('folder')
+    expect(tree[0].children?.map((node) => node.id)).toEqual(['sales-child'])
+  })
 })
