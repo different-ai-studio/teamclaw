@@ -1,43 +1,67 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { MessageSquareText, Sparkles, Save } from 'lucide-react'
+import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { SettingCard, SectionHeader } from './shared'
 import { toast } from 'sonner'
 import { appShortName } from '@/lib/build-config'
+import { isTauri } from '@/lib/utils'
+import { useWorkspaceStore } from '@/stores/workspace'
 
-const STORAGE_KEY = `${appShortName}-system-prompt`
-
-function loadSystemPrompt(): string {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return stored || ''
-  } catch {
-    return ''
-  }
-}
-
-function saveSystemPrompt(prompt: string): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, prompt)
-  } catch (error) {
-    console.error('Failed to save system prompt:', error)
-    throw error
-  }
-}
+// Legacy global storage key — kept only for one-time migration into
+// per-workspace teamclaw.json.
+const LEGACY_STORAGE_KEY = `${appShortName}-system-prompt`
 
 export const PromptSection = React.memo(function PromptSection() {
   const { t } = useTranslation()
-  const [systemPrompt, setSystemPrompt] = React.useState(() => loadSystemPrompt())
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const [systemPrompt, setSystemPrompt] = React.useState('')
 
-  const handleSave = React.useCallback(() => {
+  React.useEffect(() => {
+    if (!isTauri() || !workspacePath) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const stored = await invoke<string>('load_system_prompt')
+        if (cancelled) return
+        if (stored) {
+          setSystemPrompt(stored)
+          return
+        }
+        // One-time migration: seed from legacy global localStorage into
+        // the current workspace, then clear the legacy entry.
+        const legacy =
+          typeof localStorage !== 'undefined' ? localStorage.getItem(LEGACY_STORAGE_KEY) : null
+        if (legacy) {
+          setSystemPrompt(legacy)
+          try {
+            await invoke('save_system_prompt', { prompt: legacy })
+            localStorage.removeItem(LEGACY_STORAGE_KEY)
+          } catch (err) {
+            console.error('[PromptSection] Legacy prompt migration failed:', err)
+          }
+        } else {
+          setSystemPrompt('')
+        }
+      } catch (err) {
+        console.error('[PromptSection] Failed to load system prompt:', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [workspacePath])
+
+  const handleSave = React.useCallback(async () => {
     try {
-      saveSystemPrompt(systemPrompt)
+      await invoke('save_system_prompt', { prompt: systemPrompt })
       toast.success(
         t('settings.prompt.saveSuccess', 'System prompt saved successfully'),
         { duration: 2000 }
       )
-    } catch {
+    } catch (err) {
+      console.error('[PromptSection] Failed to save system prompt:', err)
       toast.error(
         t('settings.prompt.saveError', 'Failed to save system prompt'),
         { duration: 3000 }

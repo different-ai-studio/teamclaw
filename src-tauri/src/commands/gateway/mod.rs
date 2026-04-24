@@ -2236,3 +2236,32 @@ pub fn save_shortcuts(
         .insert("shortcuts".to_string(), serde_json::json!(nodes));
     write_config(&workspace_path, &config)
 }
+
+/// Load the per-workspace system prompt from teamclaw.json. Returns "" if unset.
+#[tauri::command]
+pub fn load_system_prompt(
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+) -> Result<String, String> {
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let config = read_config(&workspace_path)?;
+    Ok(config
+        .other
+        .get("systemPrompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string())
+}
+
+/// Save the per-workspace system prompt to teamclaw.json.
+#[tauri::command]
+pub fn save_system_prompt(
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    prompt: String,
+) -> Result<(), String> {
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let mut config = read_config(&workspace_path)?;
+    config
+        .other
+        .insert("systemPrompt".to_string(), serde_json::json!(prompt));
+    write_config(&workspace_path, &config)
+}

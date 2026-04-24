@@ -377,6 +377,8 @@ pub fn run() {
             commands::gateway::test_wechat_connection,
             commands::gateway::load_shortcuts,
             commands::gateway::save_shortcuts,
+            commands::gateway::load_system_prompt,
+            commands::gateway::save_system_prompt,
             commands::cron::cron_init,
             commands::cron::cron_list_jobs,
             commands::cron::cron_add_job,
