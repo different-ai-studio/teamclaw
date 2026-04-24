@@ -40,7 +40,7 @@ describe('team-shortcuts loader', () => {
     const mockData = {
       version: 1,
       shortcuts: [
-        { id: 'team-1', label: 'API Docs', type: 'link', target: 'https://api.example.com', order: 0, parentId: null }
+        { id: 'team-1', label: 'API Docs', type: 'link', target: 'https://api.example.com', order: 0, parentId: null, role: ['sales'] }
       ]
     }
     mockExists.mockResolvedValue(true)
@@ -51,6 +51,7 @@ describe('team-shortcuts loader', () => {
     
     expect(result).toHaveLength(1)
     expect(result![0].label).toBe('API Docs')
+    expect(result![0].role).toEqual(['sales'])
   })
 
   it('returns null for malformed JSON', async () => {
@@ -67,14 +68,21 @@ describe('team-shortcuts loader', () => {
     mockExists.mockResolvedValue(false)
 
     const { saveTeamShortcutsFile } = await import('@/lib/team-shortcuts')
-    const ok = await saveTeamShortcutsFile('/workspace', [])
+    const ok = await saveTeamShortcutsFile('/workspace', [
+      { id: 'team-1', label: 'Team', order: 0, parentId: null, type: 'link', target: 'https://team.example.com', role: ['sales'] },
+    ])
 
     expect(ok).toBe(true)
     expect(mockExists).toHaveBeenCalledWith(`/workspace/${TEAM_REPO_DIR}/_meta`)
     expect(mockMkdir).toHaveBeenCalledWith(`/workspace/${TEAM_REPO_DIR}/_meta`, { recursive: true })
     expect(mockWriteTextFile).toHaveBeenCalledWith(
       `/workspace/${TEAM_REPO_DIR}/_meta/shortcuts.json`,
-      JSON.stringify({ version: 1, shortcuts: [] }, null, 2),
+      JSON.stringify({
+        version: 1,
+        shortcuts: [
+          { id: 'team-1', label: 'Team', order: 0, parentId: null, type: 'link', target: 'https://team.example.com', role: ['sales'] },
+        ],
+      }, null, 2),
     )
   })
 })
