@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockInvoke = vi.fn()
+const mockSyncTeamProviderToOpenCode = vi.fn()
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
@@ -16,8 +17,23 @@ vi.mock('@/lib/opencode/config', () => ({
   removeCustomProviderFromConfig: vi.fn(),
 }))
 
+vi.mock('@/lib/team-provider', () => ({
+  TEAM_SHARED_PROVIDER_ID: 'team',
+  syncTeamProviderToOpenCode: mockSyncTeamProviderToOpenCode,
+}))
+
 vi.mock('@/stores/provider', () => ({
-  useProviderStore: { getState: () => ({}) },
+  useProviderStore: {
+    getState: () => ({
+      currentModelKey: null,
+      selectModel: vi.fn().mockResolvedValue(undefined),
+      refreshConfiguredProviders: vi.fn().mockResolvedValue(undefined),
+    }),
+  },
+}))
+
+vi.mock('@/lib/opencode/sdk-client', () => ({
+  initOpenCodeClient: vi.fn(),
 }))
 
 vi.mock('@/lib/build-config', () => ({
@@ -28,6 +44,8 @@ vi.mock('@/lib/build-config', () => ({
 
 beforeEach(() => {
   mockInvoke.mockReset()
+  mockSyncTeamProviderToOpenCode.mockReset()
+  mockSyncTeamProviderToOpenCode.mockResolvedValue(null)
 })
 
 describe('loadTeamGitFileSyncStatus', () => {
@@ -80,5 +98,45 @@ describe('loadTeamGitFileSyncStatus', () => {
     useTeamModeStore.setState({ teamGitFileSyncStatusMap: { 'x.md': 'modified' } })
     await useTeamModeStore.getState().clearTeamMode()
     expect(useTeamModeStore.getState().teamGitFileSyncStatusMap).toEqual({})
+  })
+
+  it('applies provider.json when present before falling back to legacy llm config', async () => {
+    mockSyncTeamProviderToOpenCode.mockResolvedValueOnce({
+      version: 1,
+      provider: {
+        id: 'team',
+        name: 'Team',
+        baseURL: 'https://ai.ucar.cc',
+        apiKey: '${tc_api_key}',
+        defaultModel: 'pro',
+        models: [
+          { id: 'default', name: 'Default' },
+          { id: 'pro', name: 'Pro' },
+        ],
+      },
+    })
+
+    const { useTeamModeStore } = await import('@/stores/team-mode')
+    useTeamModeStore.setState({
+      teamModelConfig: {
+        baseUrl: 'https://legacy.example.com',
+        model: 'legacy',
+        modelName: 'Legacy',
+      },
+      teamModelOptions: [],
+    })
+
+    await useTeamModeStore.getState().applyTeamModelToOpenCode('/ws')
+
+    expect(mockSyncTeamProviderToOpenCode).toHaveBeenCalledWith('/ws')
+    expect(useTeamModeStore.getState().teamModelConfig).toEqual({
+      baseUrl: 'https://ai.ucar.cc',
+      model: 'pro',
+      modelName: 'Pro',
+    })
+    expect(useTeamModeStore.getState().teamModelOptions).toEqual([
+      { id: 'default', name: 'Default' },
+      { id: 'pro', name: 'Pro' },
+    ])
   })
 })

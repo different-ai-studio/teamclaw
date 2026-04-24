@@ -4,12 +4,13 @@ import {
   getCustomProviderConfig,
   removeCustomProviderFromConfig,
 } from '@/lib/opencode/config'
+import { syncTeamProviderToOpenCode, TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 import { useProviderStore } from './provider'
 import { isTauri } from '@/lib/utils'
 import { appShortName, buildConfig, TEAM_REPO_DIR, type TeamModelOption } from '@/lib/build-config'
 
 
-const TEAM_PROVIDER_ID = 'team'
+const TEAM_PROVIDER_ID = TEAM_SHARED_PROVIDER_ID
 
 /**
  * Upgrade `http://` → `https://` for remote LLM hosts.
@@ -146,7 +147,18 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         // Fire-and-forget; errors swallowed inside action
         get().loadTeamGitFileSyncStatus(_workspacePath)
       }
-      if (status?.llm) {
+      const providerFile = _workspacePath ? await syncTeamProviderToOpenCode(_workspacePath).catch(() => null) : null
+      if (providerFile?.provider) {
+        const teamModels = providerFile.provider.models
+        const defaultModelId = providerFile.provider.defaultModel || teamModels[0]?.id || ''
+        const defaultModel = teamModels.find((model) => model.id === defaultModelId) || teamModels[0]
+        const config: TeamModelConfig = {
+          baseUrl: normalizeLlmBaseUrl(providerFile.provider.baseURL),
+          model: defaultModel?.id || '',
+          modelName: defaultModel?.name || defaultModel?.id || '',
+        }
+        set({ teamModelConfig: config, teamModelOptions: teamModels })
+      } else if (status?.llm) {
         // Use models from team config (stored in teamclaw.json), fallback to build config
         const teamModels = status.llm.models && status.llm.models.length > 0
           ? status.llm.models
@@ -192,6 +204,21 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   },
 
   applyTeamModelToOpenCode: async (workspacePath: string, force?: boolean) => {
+    const syncedProviderFile = await syncTeamProviderToOpenCode(workspacePath).catch(() => null)
+    if (syncedProviderFile?.provider) {
+      const syncedModels = syncedProviderFile.provider.models
+      const defaultModelId = syncedProviderFile.provider.defaultModel || syncedModels[0]?.id || ''
+      const defaultModel = syncedModels.find((model) => model.id === defaultModelId) || syncedModels[0]
+      set({
+        teamModelConfig: {
+          baseUrl: normalizeLlmBaseUrl(syncedProviderFile.provider.baseURL),
+          model: defaultModel?.id || '',
+          modelName: defaultModel?.name || defaultModel?.id || '',
+        },
+        teamModelOptions: syncedModels,
+      })
+    }
+
     const { teamModelConfig, _appliedConfigKey } = get()
     if (!teamModelConfig) return
 

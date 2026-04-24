@@ -31,6 +31,7 @@ import { HostLlmConfig } from './HostLlmConfig'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { buildConfig, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
+import { buildTeamProviderConfig, loadTeamProviderFormState, saveTeamProviderFile } from '@/lib/team-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -252,17 +253,26 @@ export function TeamGitConfig() {
   // Load current LLM config when connected
   React.useEffect(() => {
     if ((state === 'connected' || state === 'syncing') && !llmLoaded && isTauri()) {
-      tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', workspaceArgs)
-        .then((status) => {
-          if (status.llm?.baseUrl) {
-            setHostLlm(true)
-            setLlmUrl(status.llm.baseUrl)
-            if (status.llm.models?.length) {
-              setLlmModels(status.llm.models)
-            } else if (status.llm.model) {
-              setLlmModels([{ id: status.llm.model, name: status.llm.modelName || status.llm.model }])
-            }
+      loadTeamProviderFormState(workspacePath!)
+        .then((providerState) => {
+          if (providerState) {
+            setHostLlm(providerState.enabled)
+            setLlmUrl(providerState.baseUrl)
+            setLlmModels(providerState.models)
+            return
           }
+          return tauriInvoke<{ active: boolean; llm?: { baseUrl: string; model?: string; modelName?: string; models?: Array<{ id: string; name: string }> } }>('get_team_status', workspaceArgs)
+            .then((status) => {
+              if (status.llm?.baseUrl) {
+                setHostLlm(true)
+                setLlmUrl(status.llm.baseUrl)
+                if (status.llm.models?.length) {
+                  setLlmModels(status.llm.models)
+                } else if (status.llm.model) {
+                  setLlmModels([{ id: status.llm.model, name: status.llm.modelName || status.llm.model }])
+                }
+              }
+            })
         })
         .catch(() => {})
       setLlmLoaded(true)
@@ -289,6 +299,9 @@ export function TeamGitConfig() {
         llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
         ...workspaceArgs,
       })
+      if (workspacePath) {
+        await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err))
     } finally {
@@ -331,6 +344,9 @@ export function TeamGitConfig() {
         ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
       await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
+      if (workspacePath) {
+        await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
+      }
 
       setTeamConfig(newConfig)
       setState('connected')
@@ -399,6 +415,9 @@ export function TeamGitConfig() {
         ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
       await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
+      if (workspacePath) {
+        await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
+      }
       setTeamConfig(newConfig)
       setCreatedTeamId(result.teamId)
       setCreatedTeamSecret(result.teamSecret)
@@ -479,6 +498,9 @@ export function TeamGitConfig() {
         ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
       await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
+      if (workspacePath) {
+        await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
+      }
       setTeamConfig(newConfig)
       setState('connected')
 

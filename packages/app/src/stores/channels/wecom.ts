@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { useWorkspaceStore } from '@/stores/workspace'
 import type {
   WeComConfig,
   WeComGatewayStatusResponse,
@@ -10,13 +11,18 @@ import { defaultWeComConfig } from '../channels-types'
 
 type ChannelsSet = (fn: ((state: ChannelsState) => Partial<ChannelsState>) | Partial<ChannelsState>) => void
 
+function getWorkspaceArgs() {
+  const workspacePath = useWorkspaceStore.getState().workspacePath
+  return workspacePath ? { workspacePath } : {}
+}
+
 export function createWecomActions(set: ChannelsSet) {
   return {
     loadWecomConfig: async () => {
       set({ wecomIsLoading: true })
       try {
-        const config = await invoke<WeComConfig | null>('get_wecom_config')
-        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status')
+        const config = await invoke<WeComConfig | null>('get_wecom_config', getWorkspaceArgs())
+        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
         set({
           wecom: config || defaultWeComConfig,
           wecomGatewayStatus: status,
@@ -30,7 +36,7 @@ export function createWecomActions(set: ChannelsSet) {
 
     saveWecomConfig: async (config: WeComConfig) => {
       try {
-        await invoke('save_wecom_config', { wecom: config })
+        await invoke('save_wecom_config', { wecom: config, ...getWorkspaceArgs() })
         set({ wecom: config, wecomHasChanges: false })
       } catch (e) {
         console.error('[WeCom] Failed to save config:', e)
@@ -39,8 +45,8 @@ export function createWecomActions(set: ChannelsSet) {
 
     startWecomGateway: async () => {
       try {
-        await invoke('start_wecom_gateway')
-        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status')
+        await invoke('start_wecom_gateway', getWorkspaceArgs())
+        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
         set({ wecomGatewayStatus: status })
       } catch (e) {
         console.error('[WeCom] Failed to start gateway:', e)
@@ -50,7 +56,7 @@ export function createWecomActions(set: ChannelsSet) {
 
     stopWecomGateway: async () => {
       try {
-        await invoke('stop_wecom_gateway')
+        await invoke('stop_wecom_gateway', getWorkspaceArgs())
         set({ wecomGatewayStatus: { status: 'disconnected' } })
       } catch (e) {
         console.error('[WeCom] Failed to stop gateway:', e)
@@ -59,7 +65,7 @@ export function createWecomActions(set: ChannelsSet) {
 
     refreshWecomStatus: async () => {
       try {
-        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status')
+        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
         set({ wecomGatewayStatus: status })
       } catch (e) {
         console.error('[WeCom] Failed to refresh status:', e)
@@ -91,16 +97,16 @@ export function createWecomActions(set: ChannelsSet) {
     setWecomHasChanges: (hasChanges: boolean) => set({ wecomHasChanges: hasChanges }),
 
     toggleWecomEnabled: async (enabled: boolean, config: WeComConfig) => {
-      const updatedConfig = { ...config, enabled }
+        const updatedConfig = { ...config, enabled }
       try {
-        await invoke('save_wecom_config', { wecom: updatedConfig })
+        await invoke('save_wecom_config', { wecom: updatedConfig, ...getWorkspaceArgs() })
         set({ wecom: updatedConfig })
         if (enabled) {
           set({ wecomIsLoading: true })
           try {
-            await invoke('start_wecom_gateway')
+            await invoke('start_wecom_gateway', getWorkspaceArgs())
             await new Promise((resolve) => setTimeout(resolve, 1000))
-            const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status')
+            const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
             set({ wecomGatewayStatus: status, wecomIsLoading: false, wecomHasChanges: false })
           } catch (error) {
             console.error('[WeCom] Auto-start failed:', error)
@@ -108,7 +114,7 @@ export function createWecomActions(set: ChannelsSet) {
           }
         } else {
           try {
-            await invoke('stop_wecom_gateway')
+            await invoke('stop_wecom_gateway', getWorkspaceArgs())
             set({ wecomGatewayStatus: { status: 'disconnected' }, wecomHasChanges: false })
           } catch {
             // Ignore stop errors

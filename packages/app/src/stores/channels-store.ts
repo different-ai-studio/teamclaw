@@ -29,6 +29,12 @@ import { createEmailActions } from './channels/email'
 import { createKookActions } from './channels/kook'
 import { createWecomActions } from './channels/wecom'
 import { createWechatActions } from './channels/wechat'
+import { useWorkspaceStore } from './workspace'
+
+function getWorkspaceArgs() {
+  const workspacePath = useWorkspaceStore.getState().workspacePath
+  return workspacePath ? { workspacePath } : {}
+}
 
 export const useChannelsStore = create<ChannelsState>((set) => ({
   // Discord initial state
@@ -138,8 +144,8 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
       let wecomConfig: WeComConfig | null = null
       let wecomStatus: WeComGatewayStatusResponse = { status: 'disconnected' }
       try {
-        wecomConfig = await invoke<WeComConfig | null>('get_wecom_config')
-        wecomStatus = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status')
+        wecomConfig = await invoke<WeComConfig | null>('get_wecom_config', getWorkspaceArgs())
+        wecomStatus = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
       } catch {
         // WeCom config may not exist yet
       }
@@ -220,7 +226,7 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
 
     if (state.wecomGatewayStatus.status !== 'disconnected') {
       try {
-        await invoke('stop_wecom_gateway')
+        await invoke('stop_wecom_gateway', getWorkspaceArgs())
       } catch (e) {
         console.warn('[Channels] Failed to stop WeCom gateway:', e)
       }
@@ -322,9 +328,9 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
     if (state.wecom?.enabled && state.wecomGatewayStatus.status === 'disconnected') {
       console.log('[AutoStart] Starting WeCom gateway...')
       try {
-        await invoke('start_wecom_gateway')
+        await invoke('start_wecom_gateway', getWorkspaceArgs())
         await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status')
+        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
         set({ wecomGatewayStatus: status })
       } catch (error) {
         console.error('[AutoStart] WeCom start failed:', error)
@@ -367,7 +373,7 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
         invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status').catch(() => null),
         invoke<EmailGatewayStatusResponse>('get_email_gateway_status').catch(() => null),
         invoke<KookGatewayStatusResponse>('get_kook_gateway_status').catch(() => null),
-        invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status').catch(() => null),
+        invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs()).catch(() => null),
         invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status').catch(() => null),
       ])
       if (discordStatus) set({ gatewayStatus: discordStatus })
@@ -465,11 +471,11 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
     ) {
       console.log('[KeepAlive] WeCom is enabled but status=', updated.wecomGatewayStatus.status, '- restarting...')
       try {
-        await invoke('stop_wecom_gateway').catch(() => {})
+        await invoke('stop_wecom_gateway', getWorkspaceArgs()).catch(() => {})
         await new Promise((resolve) => setTimeout(resolve, 500))
-        await invoke('start_wecom_gateway')
+        await invoke('start_wecom_gateway', getWorkspaceArgs())
         await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status')
+        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
         set({ wecomGatewayStatus: status })
         console.log('[KeepAlive] WeCom restarted, status=', status.status)
       } catch (error) {
