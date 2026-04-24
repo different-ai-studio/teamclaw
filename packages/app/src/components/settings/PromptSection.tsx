@@ -23,7 +23,7 @@ export const PromptSection = React.memo(function PromptSection() {
     let cancelled = false
     ;(async () => {
       try {
-        const stored = await invoke<string>('load_system_prompt')
+        const stored = await invoke<string>('load_system_prompt', { workspacePath })
         if (cancelled) return
         if (stored) {
           setSystemPrompt(stored)
@@ -36,7 +36,7 @@ export const PromptSection = React.memo(function PromptSection() {
         if (legacy) {
           setSystemPrompt(legacy)
           try {
-            await invoke('save_system_prompt', { prompt: legacy })
+            await invoke('save_system_prompt', { prompt: legacy, workspacePath })
             localStorage.removeItem(LEGACY_STORAGE_KEY)
           } catch (err) {
             console.error('[PromptSection] Legacy prompt migration failed:', err)
@@ -55,7 +55,7 @@ export const PromptSection = React.memo(function PromptSection() {
 
   const handleSave = React.useCallback(async () => {
     try {
-      await invoke('save_system_prompt', { prompt: systemPrompt })
+      await invoke('save_system_prompt', { prompt: systemPrompt, workspacePath: workspacePath ?? undefined })
       toast.success(
         t('settings.prompt.saveSuccess', 'System prompt saved successfully'),
         { duration: 2000 }

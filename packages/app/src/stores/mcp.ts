@@ -3,6 +3,12 @@ import { invoke } from '@tauri-apps/api/core'
 import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 import type { MCPRuntimeStatus } from '@/lib/opencode/sdk-types'
 import { withAsync } from '@/lib/store-utils'
+import { useWorkspaceStore } from './workspace'
+
+function getWorkspaceArgs() {
+  const workspacePath = useWorkspaceStore.getState().workspacePath
+  return workspacePath ? { workspacePath } : {}
+}
 
 // MCP Server configuration types
 export interface MCPServerConfig {
@@ -61,7 +67,7 @@ export const useMCPStore = create<MCPState>((set) => ({
 
   loadConfig: async () => {
     await withAsync(set, async () => {
-      const config = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
+      const config = await invoke<Record<string, MCPServerConfig>>('get_mcp_config', getWorkspaceArgs())
       set({ servers: config })
     })
   },
@@ -94,32 +100,32 @@ export const useMCPStore = create<MCPState>((set) => ({
 
   addServer: async (name: string, config: MCPServerConfig) => {
     await withAsync(set, async () => {
-      await invoke('add_mcp_server', { name, serverConfig: config })
-      const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
+      await invoke('add_mcp_server', { name, serverConfig: config, ...getWorkspaceArgs() })
+      const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config', getWorkspaceArgs())
       set({ servers: updatedConfig })
     }, { rethrow: true })
   },
 
   updateServer: async (name: string, config: MCPServerConfig) => {
     await withAsync(set, async () => {
-      await invoke('update_mcp_server', { name, serverConfig: config })
-      const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
+      await invoke('update_mcp_server', { name, serverConfig: config, ...getWorkspaceArgs() })
+      const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config', getWorkspaceArgs())
       set({ servers: updatedConfig })
     }, { rethrow: true })
   },
 
   removeServer: async (name: string) => {
     await withAsync(set, async () => {
-      await invoke('remove_mcp_server', { name })
-      const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
+      await invoke('remove_mcp_server', { name, ...getWorkspaceArgs() })
+      const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config', getWorkspaceArgs())
       set({ servers: updatedConfig })
     }, { rethrow: true })
   },
 
   toggleServer: async (name: string, enabled: boolean) => {
     await withAsync(set, async () => {
-      await invoke('toggle_mcp_server', { name, enabled })
-      const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
+      await invoke('toggle_mcp_server', { name, enabled, ...getWorkspaceArgs() })
+      const updatedConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config', getWorkspaceArgs())
       set({ servers: updatedConfig })
     }, { rethrow: true })
   },
@@ -129,7 +135,7 @@ export const useMCPStore = create<MCPState>((set) => ({
       testingServers: { ...state.testingServers, [name]: true },
     }))
     try {
-      const result = await invoke<MCPTestResult>('test_mcp_server', { name })
+      const result = await invoke<MCPTestResult>('test_mcp_server', { name, ...getWorkspaceArgs() })
       set((state) => ({
         testingServers: { ...state.testingServers, [name]: false },
         testResults: { ...state.testResults, [name]: result },

@@ -2,6 +2,12 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
 import { appShortName } from '@/lib/build-config'
+import { useWorkspaceStore } from './workspace'
+
+function getWorkspaceArgs() {
+  const workspacePath = useWorkspaceStore.getState().workspacePath
+  return workspacePath ? { workspacePath } : {}
+}
 
 export interface ShortcutNode {
   id: string
@@ -43,7 +49,7 @@ function loadPersistedNodes(): ShortcutNode[] {
 
 async function loadPersistedNodesAsync(): Promise<ShortcutNode[]> {
   try {
-    const nodes = await invoke<ShortcutNode[]>('load_shortcuts')
+    const nodes = await invoke<ShortcutNode[]>('load_shortcuts', getWorkspaceArgs())
     if (nodes && nodes.length > 0) {
       return nodes
     }
@@ -57,7 +63,7 @@ function persistNodes(nodes: ShortcutNode[]): void {
   // Write to localStorage for backwards compatibility
   saveToStorage(STORAGE_KEY, { nodes, version: 1 })
   // Also persist to file so the MCP server can read/write shortcuts
-  invoke('save_shortcuts', { nodes }).catch(() => {
+  invoke('save_shortcuts', { nodes, ...getWorkspaceArgs() }).catch(() => {
     // Ignore errors — file write is best-effort (no workspace may be set yet)
   })
 }

@@ -2258,8 +2258,10 @@ pub async fn test_wechat_connection(bot_token: String) -> Result<String, String>
 #[tauri::command]
 pub fn load_shortcuts(
     opencode_state: State<'_, super::opencode::OpenCodeState>,
+    workspace_path: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
     let config = read_config(&workspace_path)?;
     let shortcuts = config
         .other
@@ -2274,8 +2276,10 @@ pub fn load_shortcuts(
 pub fn save_shortcuts(
     opencode_state: State<'_, super::opencode::OpenCodeState>,
     nodes: Vec<serde_json::Value>,
+    workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
     let mut config = read_config(&workspace_path)?;
     config
         .other
@@ -2287,8 +2291,10 @@ pub fn save_shortcuts(
 #[tauri::command]
 pub fn load_system_prompt(
     opencode_state: State<'_, super::opencode::OpenCodeState>,
+    workspace_path: Option<String>,
 ) -> Result<String, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
     let config = read_config(&workspace_path)?;
     Ok(config
         .other
@@ -2303,8 +2309,10 @@ pub fn load_system_prompt(
 pub fn save_system_prompt(
     opencode_state: State<'_, super::opencode::OpenCodeState>,
     prompt: String,
+    workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
     let mut config = read_config(&workspace_path)?;
     config
         .other
