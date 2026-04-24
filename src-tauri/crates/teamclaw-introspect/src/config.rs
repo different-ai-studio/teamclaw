@@ -35,6 +35,13 @@ fn team_members_path(workspace: &str) -> PathBuf {
         .join("members.json")
 }
 
+fn team_shortcuts_path(workspace: &str) -> PathBuf {
+    Path::new(workspace)
+        .join(TEAM_REPO_DIR)
+        .join("_meta")
+        .join("shortcuts.json")
+}
+
 fn roles_dir(workspace: &str) -> PathBuf {
     teamclaw_dir(workspace).join("roles")
 }
@@ -133,6 +140,35 @@ pub fn read_team_members(workspace: &str) -> Result<Value, String> {
         &team_members_path(workspace),
         Value::Object(Default::default()),
     )
+}
+
+/// Read `{workspace}/teamclaw-team/_meta/shortcuts.json`. Returns `[]` (as
+/// the nested shortcuts array) if the file is missing or malformed.
+/// Returns the `shortcuts` array directly, not the `{version, shortcuts}` wrapper.
+pub fn read_team_shortcuts(workspace: &str) -> Result<Vec<Value>, String> {
+    let path = team_shortcuts_path(workspace);
+    let raw = read_json_file_or_default(&path, Value::Object(Default::default()))?;
+    Ok(raw
+        .get("shortcuts")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Recursively count all nodes in a tree-shaped shortcuts array where each node
+/// may have `children: ShortcutNode[]` (the team shortcuts schema).
+pub fn count_tree_nodes(nodes: &[Value]) -> usize {
+    nodes
+        .iter()
+        .map(|node| {
+            let child_count = node
+                .get("children")
+                .and_then(|v| v.as_array())
+                .map(|c| count_tree_nodes(c))
+                .unwrap_or(0);
+            1 + child_count
+        })
+        .sum()
 }
 
 // ---------------------------------------------------------------------------
