@@ -269,6 +269,68 @@ describe('useGitReposInit', () => {
       expect(mockLoadMembers).toHaveBeenCalled()
     })
   })
+
+  it('refreshes current member shortcut roles when member manifest files change', async () => {
+    mockIsTauri.mockReturnValue(true)
+    workspaceState.workspacePath = '/workspace-team'
+    workspaceState.openCodeReady = true
+
+    const { useGitReposInit } = await import('@/hooks/useAppInit')
+    renderHook(() => useGitReposInit())
+
+    await waitFor(() => {
+      expect(mockListen).toHaveBeenCalledWith('file-change', expect.any(Function))
+    })
+
+    mockLoadCurrentNodeId.mockClear()
+    mockLoadMembers.mockClear()
+    vi.useFakeTimers()
+
+    const fileChangeCallback = mockListen.mock.calls.find(
+      ([eventName]) => eventName === 'file-change',
+    )?.[1] as ((event: { payload: { path: string; kind: string } }) => void) | undefined
+
+    expect(fileChangeCallback).toBeDefined()
+    fileChangeCallback?.({
+      payload: {
+        path: '/workspace-team/teamclaw-team/_meta/members.json',
+        kind: 'modify',
+      },
+    })
+
+    await vi.advanceTimersByTimeAsync(600)
+
+    expect(mockLoadCurrentNodeId).toHaveBeenCalled()
+    expect(mockLoadMembers).toHaveBeenCalled()
+  })
+
+  it('refreshes current member shortcut roles when team members change', async () => {
+    mockIsTauri.mockReturnValue(true)
+    workspaceState.workspacePath = '/workspace-team'
+    workspaceState.openCodeReady = true
+
+    const { useGitReposInit } = await import('@/hooks/useAppInit')
+    renderHook(() => useGitReposInit())
+
+    await waitFor(() => {
+      expect(mockListen).toHaveBeenCalledWith('team:members-changed', expect.any(Function))
+    })
+
+    mockLoadCurrentNodeId.mockClear()
+    mockLoadMembers.mockClear()
+
+    const membersChangedCallback = mockListen.mock.calls.find(
+      ([eventName]) => eventName === 'team:members-changed',
+    )?.[1] as (() => void) | undefined
+
+    expect(membersChangedCallback).toBeDefined()
+    membersChangedCallback?.()
+
+    await waitFor(() => {
+      expect(mockLoadCurrentNodeId).toHaveBeenCalled()
+      expect(mockLoadMembers).toHaveBeenCalled()
+    })
+  })
 })
 
 describe('useP2pAutoReconnect', () => {
