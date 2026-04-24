@@ -79,7 +79,7 @@ export function DefaultBottomNav() {
       const selected = await open({
         directory: true,
         multiple: false,
-        title: t('workspace.openInNewWindow', '在新窗口打开工作区'),
+        title: t('workspace.openInNewWindow', 'Open in New Window'),
       })
       if (!selected || typeof selected !== 'string') return
       const { invoke } = await import('@tauri-apps/api/core')
@@ -174,7 +174,7 @@ export function DefaultBottomNav() {
               ) : (
                 <SquarePlus className="h-4 w-4 text-muted-foreground" />
               )}
-              <span>{t('workspace.openInNewWindow', '在新窗口打开工作区')}</span>
+              <span>{t('workspace.openInNewWindow', 'Open in New Window')}</span>
             </Button>
 
             <div className="mx-1 my-1 h-px bg-border/60" />

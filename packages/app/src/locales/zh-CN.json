@@ -243,6 +243,8 @@
     "selectProject": "选择项目文件夹",
     "noProject": "无项目",
     "selectWorkspace": "选择工作区",
+    "switchWorkspace": "切换工作区",
+    "openInNewWindow": "在新窗口打开工作区",
     "createWorkspace": "创建工作区",
     "createWorkspaceDesc": "选择路径并创建一个新的空工作区。",
     "newWorkspaceName": "新建工作区",

@@ -241,6 +241,8 @@
     "selectProject": "Select Project Folder",
     "noProject": "No Project",
     "selectWorkspace": "Select Workspace",
+    "switchWorkspace": "Switch Workspace",
+    "openInNewWindow": "Open in New Window",
     "createWorkspace": "Create Workspace",
     "createWorkspaceDesc": "Pick a path and create a new empty workspace.",
     "newWorkspaceName": "New Workspace",
