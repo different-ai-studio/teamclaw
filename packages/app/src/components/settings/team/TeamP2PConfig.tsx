@@ -142,6 +142,7 @@ export function TeamP2PConfig() {
 
   const allowedMembers = syncStatus?.members ?? []
   const isOwner = syncStatus?.role === 'owner'
+  const canManageServiceConfig = isOwner || syncStatus?.role === 'manager'
   const isConnected = engineSnapshot?.status === 'connected' || (syncStatus?.connected ?? false)
   const docTicket = syncStatus?.docTicket ?? null
 
@@ -657,8 +658,8 @@ export function TeamP2PConfig() {
             </div>
           </SettingCard>
 
-          {/* LLM Service Config — owner only */}
-          {isOwner && (
+          {/* LLM Service Config — owner / manager only */}
+          {canManageServiceConfig && (
             <SettingCard>
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
