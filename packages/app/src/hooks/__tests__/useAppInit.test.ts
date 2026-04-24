@@ -2,13 +2,28 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 
 // --- Hoist mocks ---
-const { mockSetWorkspace, mockSetOpenCodeBootstrapped, mockSetOpenCodeReady, mockIsTauri, mockExists, mockInvoke } = vi.hoisted(() => ({
+const {
+  mockSetWorkspace,
+  mockSetOpenCodeBootstrapped,
+  mockSetOpenCodeReady,
+  mockIsTauri,
+  mockExists,
+  mockInvoke,
+  mockListen,
+  mockLoadTeamShortcutsFile,
+  mockLoadCurrentNodeId,
+  mockLoadMembers,
+} = vi.hoisted(() => ({
   mockSetWorkspace: vi.fn(),
   mockSetOpenCodeBootstrapped: vi.fn(),
   mockSetOpenCodeReady: vi.fn(),
   mockIsTauri: vi.fn(() => false),
   mockExists: vi.fn(),
   mockInvoke: vi.fn(),
+  mockListen: vi.fn(),
+  mockLoadTeamShortcutsFile: vi.fn(),
+  mockLoadCurrentNodeId: vi.fn(),
+  mockLoadMembers: vi.fn(),
 }))
 
 vi.mock('@/lib/utils', () => ({
@@ -23,6 +38,10 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
+}))
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: mockListen,
 }))
 
 const workspaceState = {
@@ -88,6 +107,19 @@ vi.mock('@/stores/git-repos', () => ({
   }),
 }))
 
+vi.mock('@/stores/team-members', () => ({
+  useTeamMembersStore: {
+    getState: () => ({
+      loadCurrentNodeId: mockLoadCurrentNodeId,
+      loadMembers: mockLoadMembers,
+    }),
+  },
+}))
+
+vi.mock('@/lib/team-shortcuts', () => ({
+  loadTeamShortcutsFile: mockLoadTeamShortcutsFile,
+}))
+
 vi.mock('@/stores/ui', () => ({
   useUIStore: (selector: (s: Record<string, unknown>) => unknown) =>
     selector({
@@ -131,6 +163,10 @@ beforeEach(() => {
   mockIsTauri.mockReturnValue(false)
   mockExists.mockResolvedValue(true)
   mockInvoke.mockResolvedValue(null)
+  mockListen.mockResolvedValue(vi.fn())
+  mockLoadTeamShortcutsFile.mockResolvedValue([])
+  mockLoadCurrentNodeId.mockResolvedValue(undefined)
+  mockLoadMembers.mockResolvedValue(undefined)
   workspaceState.workspacePath = null
   workspaceState.openCodeBootstrapped = false
   workspaceState.openCodeReady = false
@@ -216,6 +252,22 @@ describe('useTelemetryConsent', () => {
     const { useTelemetryConsent } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useTelemetryConsent(false))
     expect(result.current.showConsentDialog).toBe(false)
+  })
+})
+
+describe('useGitReposInit', () => {
+  it('hydrates current member roles when loading team shortcuts on startup', async () => {
+    mockIsTauri.mockReturnValue(true)
+    workspaceState.workspacePath = '/workspace-team'
+    workspaceState.openCodeReady = true
+
+    const { useGitReposInit } = await import('@/hooks/useAppInit')
+    renderHook(() => useGitReposInit())
+
+    await waitFor(() => {
+      expect(mockLoadCurrentNodeId).toHaveBeenCalled()
+      expect(mockLoadMembers).toHaveBeenCalled()
+    })
   })
 })
 

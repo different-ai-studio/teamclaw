@@ -70,6 +70,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
       set({ currentNodeId: info.nodeId })
       syncCurrentShortcutRoles(get().members, info.nodeId)
     } catch {
+      useShortcutsStore.getState().setCurrentShortcutRoles([])
       // P2P node not running yet — will retry next call
     }
   },
@@ -81,6 +82,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
       set({ members, loading: false })
       syncCurrentShortcutRoles(members, get().currentNodeId)
     } catch (e) {
+      useShortcutsStore.getState().setCurrentShortcutRoles([])
       set({ error: String(e), loading: false })
     }
   },

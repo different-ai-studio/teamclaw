@@ -22,6 +22,7 @@ import { useDepsStore, getSetupDecision, markSetupCompleted } from "@/stores/dep
 import { useTelemetryStore } from "@/stores/telemetry";
 import { useTeamModeStore } from "@/stores/team-mode";
 import { useTeamOssStore } from "@/stores/team-oss";
+import { useTeamMembersStore } from "@/stores/team-members";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { useCronStore } from "@/stores/cron";
 import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
@@ -506,6 +507,20 @@ export function useGitReposInit() {
       .catch((err: unknown) => {
         console.warn("[App] Failed to load team shortcuts (non-critical):", err);
       });
+
+    void (async () => {
+      try {
+        await useTeamMembersStore.getState().loadCurrentNodeId();
+      } catch (err: unknown) {
+        console.warn("[App] Failed to load current team member identity (non-critical):", err);
+      }
+
+      try {
+        await useTeamMembersStore.getState().loadMembers();
+      } catch (err: unknown) {
+        console.warn("[App] Failed to load team members for shortcut roles (non-critical):", err);
+      }
+    })();
 
     return () => {
       if (teamSyncIntervalRef.current) {

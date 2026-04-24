@@ -72,4 +72,41 @@ describe('team members shortcut role sync', () => {
 
     expect(useShortcutsStore.getState().currentShortcutRoles).toEqual([])
   })
+
+  it('clears current shortcut roles when loading team members fails', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'unified_team_get_members') {
+        throw new Error('members unavailable')
+      }
+      return null
+    })
+
+    const { useShortcutsStore } = await import('@/stores/shortcuts')
+    const { useTeamMembersStore } = await import('@/stores/team-members')
+
+    useShortcutsStore.getState().setCurrentShortcutRoles(['sales'])
+    useTeamMembersStore.setState({ currentNodeId: 'node-1' })
+
+    await useTeamMembersStore.getState().loadMembers()
+
+    expect(useShortcutsStore.getState().currentShortcutRoles).toEqual([])
+  })
+
+  it('clears current shortcut roles when loading the current node id fails', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'get_device_info') {
+        throw new Error('device unavailable')
+      }
+      return null
+    })
+
+    const { useShortcutsStore } = await import('@/stores/shortcuts')
+    const { useTeamMembersStore } = await import('@/stores/team-members')
+
+    useShortcutsStore.getState().setCurrentShortcutRoles(['sales'])
+
+    await useTeamMembersStore.getState().loadCurrentNodeId()
+
+    expect(useShortcutsStore.getState().currentShortcutRoles).toEqual([])
+  })
 })
