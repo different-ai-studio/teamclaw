@@ -20,7 +20,6 @@ import {
   X,
   Loader2,
   Bot,
-  BookOpen,
   ChevronDown,
   Plus,
   Bookmark,
@@ -558,7 +557,6 @@ function AppContent() {
   const setFileModeRightTab = useUIStore((s) => s.setFileModeRightTab);
   const mainContentLayout = useUIStore((s) => s.mainContentLayout);
   const toggleMainContentLayout = useUIStore((s) => s.toggleMainContentLayout);
-  const advancedMode = useUIStore((s) => s.advancedMode);
   const openSettings = useUIStore((s) => s.openSettings);
   const embeddedSettingsSection = useUIStore((s) => s.embeddedSettingsSection);
   const closeEmbeddedSettingsSection = useUIStore(
@@ -1160,20 +1158,6 @@ function AppContent() {
                   <AppWindow className="h-4 w-4" />
                 </button>
               )}
-              <HeaderPanelTab
-                icon={FolderTree}
-                label={t("navigation.files", "Files")}
-                count={0}
-                isActive={isPanelOpen && activeTab === "files"}
-                onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
-              />
-              <HeaderPanelTab
-                icon={BookOpen}
-                label={t("navigation.knowledge", "Knowledge")}
-                count={0}
-                isActive={isPanelOpen && activeTab === "knowledge"}
-                onClick={() => isPanelOpen && activeTab === "knowledge" ? closePanel() : openPanel("knowledge")}
-              />
               <HeaderPanelTab
                 icon={FolderGit}
                 label={t("navigation.changes", "Changes")}

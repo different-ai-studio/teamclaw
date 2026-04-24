@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, Settings, Pin, Shapes, SquarePlus, GitBranch, ChevronsDownUp, X, RefreshCw } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, BookOpen, Settings, Pin, Shapes, SquarePlus, GitBranch, ChevronsDownUp, X, RefreshCw } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -909,7 +909,30 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           {/* Flexible drag region */}
           <div className="flex-1" data-tauri-drag-region />
           {isWorkspaceUIVariant() ? (
-            <SidebarCollapseToggle />
+            <>
+              <SidebarCollapseToggle />
+              <button
+                type="button"
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded text-xs transition-colors",
+                  isPanelOpen && activeWorkspacePanelTab === "knowledge"
+                    ? "bg-muted px-2 text-foreground"
+                    : "w-7 justify-center text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+                onClick={() =>
+                  isPanelOpen && activeWorkspacePanelTab === "knowledge"
+                    ? closePanel()
+                    : openPanel("knowledge")
+                }
+                title={t("navigation.knowledge", "Knowledge")}
+                aria-label={t("navigation.knowledge", "Knowledge")}
+              >
+                <BookOpen className="h-4 w-4" />
+                {isPanelOpen && activeWorkspacePanelTab === "knowledge" && (
+                  <span>{t("navigation.knowledge", "Knowledge")}</span>
+                )}
+              </button>
+            </>
           ) : defaultSidebarContent === 'knowledge' ? (
             <DefaultKnowledgeHeaderControls
               onSearchExpandedChange={setKnowledgeSearchExpanded}
