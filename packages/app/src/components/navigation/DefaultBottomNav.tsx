@@ -169,7 +169,7 @@ export function DefaultBottomNav() {
               type="button"
               disabled={!isTauri() || workspaceBusy}
               onClick={() => void handleSwitchWorkspace()}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60 disabled:opacity-60 disabled:hover:bg-transparent"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60 focus:outline-none focus-visible:outline-none disabled:opacity-60 disabled:hover:bg-transparent"
             >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground">
                 {workspaceBusy ? (
