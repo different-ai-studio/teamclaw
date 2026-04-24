@@ -92,7 +92,7 @@ function canSeeTeamShortcut(node: ShortcutNode, currentRoles: string[]): boolean
 function filterTeamTreeForRoles(tree: ShortcutNode[], currentRoles: string[]): ShortcutNode[] {
   return tree.flatMap((node) => {
     const filteredChildren = filterTeamTreeForRoles(node.children ?? [], currentRoles)
-    if (!canSeeTeamShortcut(node, currentRoles) && filteredChildren.length === 0) {
+    if (!canSeeTeamShortcut(node, currentRoles) && (node.type !== 'folder' || filteredChildren.length === 0)) {
       return []
     }
     return [{ ...node, children: filteredChildren }]

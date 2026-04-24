@@ -208,4 +208,20 @@ describe('shortcuts store', () => {
     expect(tree[0].id).toBe('folder')
     expect(tree[0].children?.map((node) => node.id)).toEqual(['sales-child'])
   })
+
+  it('hides a restricted non-folder parent even when a visible child remains', () => {
+    useShortcutsStore.setState({
+      nodes: [],
+      teamNodes: [
+        { id: 'admin-link', label: 'Admin Console', order: 0, parentId: null, type: 'link', target: 'https://admin.example.com', role: ['admin'] },
+        { id: 'sales-child', label: 'Sales CRM', order: 0, parentId: 'admin-link', type: 'link', target: 'https://sales.example.com', role: ['sales'] },
+      ],
+      teamLoaded: true,
+    })
+    useShortcutsStore.getState().setCurrentShortcutRoles(['sales'])
+
+    const tree = useShortcutsStore.getState().getTeamTree()
+
+    expect(tree).toEqual([])
+  })
 })
