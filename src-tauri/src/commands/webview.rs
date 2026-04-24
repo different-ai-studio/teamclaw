@@ -70,11 +70,31 @@ fn build_teamclaw_identity_script(
       enumerable: false,
       configurable: true
     }});
+    // Capture native Storage methods before any page script can monkey-patch them.
+    // Pages that detect window.teamclaw sometimes wrap localStorage in a way that
+    // breaks keys containing hyphens (e.g. "active-eruda"). Binding to
+    // Storage.prototype here — at document start — preserves the original behaviour.
+    var __nativeStorage;
+    try {{
+      var __si = Storage.prototype.setItem;
+      var __gi = Storage.prototype.getItem;
+      var __ri = Storage.prototype.removeItem;
+      var __cl = Storage.prototype.clear;
+      __nativeStorage = Object.freeze({{
+        setItem:    function(k, v) {{ return __si.call(localStorage, k, v); }},
+        getItem:    function(k)    {{ return __gi.call(localStorage, k);    }},
+        removeItem: function(k)    {{ return __ri.call(localStorage, k);    }},
+        clear:      function()     {{ return __cl.call(localStorage);       }},
+      }});
+    }} catch(_) {{
+      __nativeStorage = null;
+    }}
     Object.defineProperty(window, 'teamclaw', {{
       value: Object.freeze({{
         get deviceNo() {{ return __state.deviceNo; }},
         get deviceName() {{ return __state.deviceName; }},
-        get deviceToken() {{ return __state.deviceToken; }}
+        get deviceToken() {{ return __state.deviceToken; }},
+        get nativeStorage() {{ return __nativeStorage; }},
       }}),
       writable: false,
       enumerable: true,
