@@ -95,7 +95,7 @@ export function DefaultBottomNav() {
   const workspaceBusy = isLoadingWorkspace || isSwitchingWorkspace
 
   return (
-    <div className="border-t border-border/50 pb-1.5 pt-1">
+    <div className="pb-1.5 pt-1">
       <div className="grid grid-cols-4">
         {PRIMARY_TABS.map(({ id, labelKey, fallback, icon: Icon }) => {
           const isActive = activeTab === id
@@ -112,7 +112,7 @@ export function DefaultBottomNav() {
               onClick={() => selectDefaultPrimaryTab(id)}
             >
               {isActive && (
-                <span className="pointer-events-none absolute inset-x-3 -top-px h-0.5 rounded-full bg-foreground" />
+                <span className="pointer-events-none absolute inset-x-3 top-0 h-0.5 rounded-full bg-foreground" />
               )}
               <Icon className={cn('h-4 w-4 shrink-0', isActive && 'stroke-[2.5]')} />
               <span className={cn('truncate text-[11px]', isActive ? 'font-semibold' : 'font-medium')}>
@@ -134,7 +134,7 @@ export function DefaultBottomNav() {
               )}
             >
               {moreOpen && (
-                <span className="pointer-events-none absolute inset-x-3 -top-px h-0.5 rounded-full bg-foreground" />
+                <span className="pointer-events-none absolute inset-x-3 top-0 h-0.5 rounded-full bg-foreground" />
               )}
               <Ellipsis className={cn('h-4 w-4 shrink-0', moreOpen && 'stroke-[2.5]')} />
               <span className={cn('truncate text-[11px]', moreOpen ? 'font-semibold' : 'font-medium')}>
