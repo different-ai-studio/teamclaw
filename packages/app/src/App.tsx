@@ -20,6 +20,7 @@ import {
   X,
   Loader2,
   Bot,
+  BookOpen,
   ChevronDown,
   Plus,
   Bookmark,
@@ -1159,6 +1160,20 @@ function AppContent() {
                   <AppWindow className="h-4 w-4" />
                 </button>
               )}
+              <HeaderPanelTab
+                icon={FolderTree}
+                label={t("navigation.files", "Files")}
+                count={0}
+                isActive={isPanelOpen && activeTab === "files"}
+                onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
+              />
+              <HeaderPanelTab
+                icon={BookOpen}
+                label={t("navigation.knowledge", "Knowledge")}
+                count={0}
+                isActive={isPanelOpen && activeTab === "knowledge"}
+                onClick={() => isPanelOpen && activeTab === "knowledge" ? closePanel() : openPanel("knowledge")}
+              />
               {advancedMode && (
                 <HeaderPanelTab
                   icon={FolderGit}
