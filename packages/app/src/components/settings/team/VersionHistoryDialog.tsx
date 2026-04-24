@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useVersionHistoryStore } from '@/stores/version-history'
@@ -13,6 +14,7 @@ interface VersionHistoryDialogProps {
 }
 
 export function VersionHistoryDialog({ file, onClose }: VersionHistoryDialogProps) {
+  const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const {
@@ -72,7 +74,7 @@ export function VersionHistoryDialog({ file, onClose }: VersionHistoryDialogProp
           <div>
             <h3 className="text-sm font-semibold">{fileName}</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {file.versionCount} 个历史版本
+              {t('settings.team.historicalVersions', { count: file.versionCount })}
             </p>
           </div>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
@@ -86,7 +88,7 @@ export function VersionHistoryDialog({ file, onClose }: VersionHistoryDialogProp
           <div className="w-[240px] shrink-0 border-r overflow-hidden">
             {loading && fileVersions.length === 0 ? (
               <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                加载中...
+                {t('common.loading')}
               </div>
             ) : (
               <VersionList

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { UserMinus, Shield, Pencil, Eye, UserPlus, Clock, UserCheck, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -86,6 +87,7 @@ function LocalDeviceBadge() {
 }
 
 export function TeamMemberList() {
+  const { t } = useTranslation()
   const {
     members,
     myRole,
@@ -131,9 +133,9 @@ export function TeamMemberList() {
     setApprovingId(app.nodeId)
     try {
       await approveApplication(app)
-      toast.success(`已通过 ${app.name} 的申请`)
+      toast.success(t('settings.team.approvedNotice', { name: app.name }))
     } catch (e) {
-      toast.error(`审批失败: ${e}`)
+      toast.error(t('settings.team.approveFailed', { error: e }))
     } finally {
       setApprovingId(null)
     }
@@ -166,7 +168,7 @@ export function TeamMemberList() {
           <div className="flex items-center gap-1.5">
             <Clock className="h-3.5 w-3.5 text-amber-500" />
             <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">
-              待审批 ({applications.length})
+              {t('settings.team.pendingReview')} ({applications.length})
             </span>
           </div>
           {applications.map((app) => (
@@ -178,7 +180,7 @@ export function TeamMemberList() {
                 <p className="text-sm font-medium">{app.name}</p>
                 <p className="text-xs text-muted-foreground">{app.email}</p>
                 {app.note && (
-                  <p className="text-xs text-muted-foreground mt-0.5">备注: {app.note}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t('settings.team.noteLabel')}: {app.note}</p>
                 )}
                 <p className="text-[10px] text-muted-foreground">
                   {app.platform} · {app.arch} · {new Date(app.appliedAt).toLocaleDateString()}
@@ -196,7 +198,7 @@ export function TeamMemberList() {
                 ) : (
                   <UserCheck className="mr-1 h-3.5 w-3.5" />
                 )}
-                通过
+                {t('settings.team.approveApplication')}
               </Button>
             </div>
           ))}

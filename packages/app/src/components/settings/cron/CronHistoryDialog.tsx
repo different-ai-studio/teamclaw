@@ -122,7 +122,7 @@ function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSessi
           onClick={() => onViewSession(run.sessionId!)}
         >
           <MessageSquare className="h-3 w-3 mr-1" />
-          查看对话
+          {t('settings.cron.viewConversation')}
         </Button>
       )}
     </div>

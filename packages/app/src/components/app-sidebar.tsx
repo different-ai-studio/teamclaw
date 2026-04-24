@@ -888,8 +888,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     <Sidebar variant="sidebar" {...props}>
       <div className="flex h-full flex-col" data-onboarding-id="main-sidebar">
         {/* Header: custom traffic lights (Tauri) or spacer + icon group */}
-        <SidebarHeader 
-          className="flex-row items-center px-2 pt-1 pb-2"
+        <SidebarHeader
+          className="flex-row items-center h-12 shrink-0 px-2 pt-0 pb-0"
           data-tauri-drag-region
         >
           <TrafficLights />

@@ -2,6 +2,7 @@ import { useGitStatus } from '@/hooks/use-git-status'
 import { GitStatus } from '@/lib/git/service'
 import { cn } from '@/lib/utils'
 import { useEffect } from 'react'
+import i18n from '@/lib/i18n'
 
 /**
  * Git状态增强的文件树节点组件
@@ -175,22 +176,22 @@ export function getGitStatusTreeStyles() {
 export function getGitStatusText(status: GitStatus): string {
   switch (status) {
     case GitStatus.MODIFIED:
-      return '已修改'
+      return i18n.t('git.modified')
     case GitStatus.ADDED:
-      return '已添加'
+      return i18n.t('git.added')
     case GitStatus.DELETED:
-      return '已删除'
+      return i18n.t('git.deleted')
     case GitStatus.UNTRACKED:
-      return '未跟踪'
+      return i18n.t('git.untracked')
     case GitStatus.STAGED:
-      return '已暂存'
+      return i18n.t('git.staged')
     case GitStatus.RENAMED:
-      return '重命名'
+      return i18n.t('git.renamed')
     case GitStatus.COPIED:
-      return '已复制'
+      return i18n.t('git.copied')
     case GitStatus.IGNORED:
-      return '已忽略'
+      return i18n.t('git.ignored')
     default:
-      return '未知状态'
+      return i18n.t('git.unknown')
   }
 }

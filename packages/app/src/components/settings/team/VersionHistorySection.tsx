@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useVersionHistoryStore } from '@/stores/version-history'
@@ -14,21 +15,22 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   meta: 'Meta',
 }
 
-const FILTER_OPTIONS: { label: string; value: string | null }[] = [
-  { label: '全部', value: null },
-  { label: 'Skills', value: 'skill' },
-  { label: 'MCP', value: 'mcp' },
-  { label: 'Knowledge', value: 'knowledge' },
-  { label: 'Meta', value: 'meta' },
-]
-
 function getFileName(filePath: string): string {
   return filePath.split('/').pop() ?? filePath
 }
 
 export function VersionHistorySection() {
+  const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const { versionedFiles, loading, loadVersionedFiles } = useVersionHistoryStore()
+
+  const filterOptions: { label: string; value: string | null }[] = [
+    { label: t('settings.team.filterAll'), value: null },
+    { label: 'Skills', value: 'skill' },
+    { label: 'MCP', value: 'mcp' },
+    { label: 'Knowledge', value: 'knowledge' },
+    { label: 'Meta', value: 'meta' },
+  ]
 
   const [docTypeFilter, setDocTypeFilter] = useState<string | null>(null)
   const [dialogFile, setDialogFile] = useState<VersionedFileInfo | null>(null)
@@ -60,12 +62,12 @@ export function VersionHistorySection() {
     <div className="rounded-xl border border-border/40 bg-card/30 p-5 backdrop-blur-sm">
       <div className="mb-4 flex items-center gap-2">
         <History className="h-4 w-4 text-muted-foreground" />
-        <h4 className="text-sm font-semibold text-foreground/90">文件版本历史</h4>
+        <h4 className="text-sm font-semibold text-foreground/90">{t('settings.team.versionHistory')}</h4>
       </div>
 
       {/* Filter chips */}
       <div className="mb-3 flex flex-wrap gap-1.5">
-        {FILTER_OPTIONS.map(({ label, value }) => (
+        {filterOptions.map(({ label, value }) => (
           <button
             key={label}
             onClick={() => handleFilterChange(value)}
@@ -83,9 +85,9 @@ export function VersionHistorySection() {
 
       {/* File list */}
       {loading && filteredFiles.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-2">加载中...</p>
+        <p className="text-xs text-muted-foreground py-2">{t('common.loading')}</p>
       ) : filteredFiles.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-2">暂无文件版本记录</p>
+        <p className="text-xs text-muted-foreground py-2">{t('settings.team.noVersionHistory')}</p>
       ) : (
         <>
           <div className="space-y-1.5">
@@ -113,7 +115,7 @@ export function VersionHistorySection() {
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      {file.versionCount} 个版本
+                      {t('settings.team.versions', { count: file.versionCount })}
                       {file.latestUpdateBy && ` · ${file.latestUpdateBy}`}
                     </div>
                   </div>
@@ -123,7 +125,7 @@ export function VersionHistorySection() {
                     className="ml-3 h-7 shrink-0 text-xs"
                     onClick={() => setDialogFile(file)}
                   >
-                    查看历史
+                    {t('settings.team.viewHistory')}
                   </Button>
                 </div>
               )
@@ -131,7 +133,7 @@ export function VersionHistorySection() {
           </div>
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
-              <span>{filteredFiles.length} 个文件</span>
+              <span>{t('settings.team.fileCount', { count: filteredFiles.length })}</span>
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
@@ -140,7 +142,7 @@ export function VersionHistorySection() {
                   disabled={page === 0}
                   onClick={() => setPage((p) => p - 1)}
                 >
-                  上一页
+                  {t('settings.team.prevPage')}
                 </Button>
                 <span>{page + 1} / {totalPages}</span>
                 <Button
@@ -150,7 +152,7 @@ export function VersionHistorySection() {
                   disabled={page >= totalPages - 1}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  下一页
+                  {t('settings.team.nextPage')}
                 </Button>
               </div>
             </div>
