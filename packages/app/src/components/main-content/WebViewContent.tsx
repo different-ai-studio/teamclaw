@@ -5,6 +5,7 @@ import { normalizeUrl, urlToLabel } from "@/lib/webview-utils"
 import { useTabsStore } from "@/stores/tabs"
 import { useTeamModeStore } from "@/stores/team-mode"
 import { useTeamMembersStore } from "@/stores/team-members"
+import type { DeviceInfo } from "@/lib/git/types"
 
 interface WebViewContentProps {
   url: string
@@ -143,7 +144,7 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
               if (useTeamModeStore.getState().teamMode) {
                 try {
                   const info = await Promise.race([
-                    invoke<{ nodeId: string }>("get_device_info"),
+                    invoke<DeviceInfo>("get_device_info"),
                     new Promise<never>((_, reject) =>
                       setTimeout(() => reject(new Error("timeout")), 500),
                     ),
@@ -151,14 +152,20 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
                   deviceNo = info.nodeId
                   const members = useTeamMembersStore.getState().members
                   const me = members.find((m) => m.nodeId === deviceNo)
-                  deviceName = me?.name ?? ""
+                  deviceName = me?.name || info.hostname || ""
                 } catch {
                   // P2P not running — fall through to persistent ID below
                 }
               }
               if (!deviceNo) {
                 deviceNo = await invoke<string>("get_persistent_device_id")
-                deviceName = deviceName ?? ""
+              }
+              if (!deviceName) {
+                try {
+                  deviceName = await invoke<string>("get_device_hostname")
+                } catch {
+                  deviceName = ""
+                }
               }
             } catch {
               // Non-critical: webview works without identity
