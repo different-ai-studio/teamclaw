@@ -105,7 +105,6 @@
     },
     "todo": {
       "summary": "{{count}} tasks, {{completed}} completed",
-      "activeSummary": "In progress: {{task}}",
       "allCompleted": "All tasks completed",
       "collapseAria": "Collapse todo panel",
       "expandAria": "Expand todo panel",

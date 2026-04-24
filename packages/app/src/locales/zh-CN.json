@@ -106,7 +106,6 @@
     },
     "todo": {
       "summary": "共 {{count}} 个任务，已经完成 {{completed}} 个",
-      "activeSummary": "进行中：{{task}}",
       "allCompleted": "任务已全部完成",
       "collapseAria": "收起待办面板",
       "expandAria": "展开待办面板",
