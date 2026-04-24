@@ -128,14 +128,11 @@ export function DefaultBottomNav() {
               type="button"
               variant="ghost"
               className={cn(
-                'relative flex h-auto min-w-0 flex-col items-center justify-center gap-1 rounded-none px-1 py-2.5 transition-colors',
+                'flex h-auto min-w-0 flex-col items-center justify-center gap-1 rounded-none px-1 py-2.5 transition-colors',
                 'text-muted-foreground hover:bg-transparent hover:text-foreground',
                 moreOpen && 'text-foreground hover:text-foreground',
               )}
             >
-              {moreOpen && (
-                <span className="pointer-events-none absolute inset-x-3 top-0 h-0.5 rounded-full bg-foreground" />
-              )}
               <Ellipsis className={cn('h-4 w-4 shrink-0', moreOpen && 'stroke-[2.5]')} />
               <span className={cn('truncate text-[11px]', moreOpen ? 'font-semibold' : 'font-medium')}>
                 {t('common.more', 'More')}
