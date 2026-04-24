@@ -735,6 +735,7 @@ pub async fn create_team(
         node_id: node_id.clone(),
         name: owner_name.unwrap_or_default(),
         role: MemberRole::Owner,
+        shortcuts_role: Vec::new(),
         label: info.hostname.clone(),
         platform: info.platform,
         arch: info.arch,

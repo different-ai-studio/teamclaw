@@ -251,6 +251,7 @@ pub async fn team_add_member(
         node_id,
         name,
         role: member_role,
+        shortcuts_role: Vec::new(),
         label: String::new(),
         platform: String::new(),
         arch: String::new(),
