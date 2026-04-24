@@ -94,9 +94,22 @@ export function DefaultBottomNav() {
 
   const workspaceBusy = isLoadingWorkspace || isSwitchingWorkspace
 
+  const activePrimaryIndex = Math.max(
+    PRIMARY_TABS.findIndex((tab) => tab.id === activeTab),
+    0,
+  )
+
   return (
     <div className="pb-1.5 pt-1">
-      <div className="grid grid-cols-4">
+      <div className="relative grid grid-cols-4">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-0 h-0.5 rounded-full bg-foreground transition-[left,opacity] duration-300 ease-out"
+          style={{
+            width: 'calc(25% - 24px)',
+            left: `calc(${activePrimaryIndex * 25}% + 12px)`,
+          }}
+        />
         {PRIMARY_TABS.map(({ id, labelKey, fallback, icon: Icon }) => {
           const isActive = activeTab === id
           return (
@@ -105,17 +118,19 @@ export function DefaultBottomNav() {
               type="button"
               variant="ghost"
               className={cn(
-                'relative flex h-auto min-w-0 flex-col items-center justify-center gap-1 rounded-none px-1 py-2.5 transition-colors',
+                'flex h-auto min-w-0 flex-col items-center justify-center gap-1 rounded-none px-1 py-2.5 transition-colors',
                 'text-muted-foreground hover:bg-transparent hover:text-foreground',
                 isActive && 'text-foreground hover:text-foreground',
               )}
               onClick={() => selectDefaultPrimaryTab(id)}
             >
-              {isActive && (
-                <span className="pointer-events-none absolute inset-x-3 top-0 h-0.5 rounded-full bg-foreground" />
-              )}
-              <Icon className={cn('h-4 w-4 shrink-0', isActive && 'stroke-[2.5]')} />
-              <span className={cn('truncate text-[11px]', isActive ? 'font-semibold' : 'font-medium')}>
+              <Icon
+                className={cn(
+                  'h-4 w-4 shrink-0 transition-transform duration-200 ease-out',
+                  isActive && 'scale-110 stroke-[2.5]',
+                )}
+              />
+              <span className={cn('truncate text-[11px] transition-colors', isActive ? 'font-semibold' : 'font-medium')}>
                 {t(labelKey, fallback)}
               </span>
             </Button>
@@ -133,8 +148,13 @@ export function DefaultBottomNav() {
                 moreOpen && 'text-foreground hover:text-foreground',
               )}
             >
-              <Ellipsis className={cn('h-4 w-4 shrink-0', moreOpen && 'stroke-[2.5]')} />
-              <span className={cn('truncate text-[11px]', moreOpen ? 'font-semibold' : 'font-medium')}>
+              <Ellipsis
+                className={cn(
+                  'h-4 w-4 shrink-0 transition-transform duration-200 ease-out',
+                  moreOpen && 'scale-110 stroke-[2.5]',
+                )}
+              />
+              <span className={cn('truncate text-[11px] transition-colors', moreOpen ? 'font-semibold' : 'font-medium')}>
                 {t('common.more', 'More')}
               </span>
             </Button>
