@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next'
 import {
   BookOpen,
   Bookmark,
+  ChevronsUpDown,
+  Clock,
   Ellipsis,
   FolderOpen,
   Loader2,
   MessageSquare,
   Settings,
-  Clock,
   Shapes,
 } from 'lucide-react'
 
@@ -70,7 +71,7 @@ export function DefaultBottomNav() {
   const workspaceBusy = isLoadingWorkspace || isSwitchingWorkspace
 
   return (
-    <div className="border-t border-border/50 pb-1 pt-0.5">
+    <div className="border-t border-border/50 pb-1.5 pt-1">
       <div className="grid grid-cols-4">
         {PRIMARY_TABS.map(({ id, labelKey, fallback, icon: Icon }) => (
           <Button
@@ -78,81 +79,77 @@ export function DefaultBottomNav() {
             type="button"
             variant="ghost"
             className={cn(
-              'flex h-auto min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-0.5 py-1.5 transition-colors',
-              'text-muted-foreground/50 hover:bg-transparent hover:text-foreground',
-              activeTab === id && 'text-primary hover:bg-transparent hover:text-primary',
+              'flex h-auto min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 transition-colors',
+              'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+              activeTab === id && 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary',
             )}
             onClick={() => selectDefaultPrimaryTab(id)}
           >
             <Icon className="h-4 w-4 shrink-0" />
-            <span className="truncate text-[10px] font-medium">{t(labelKey, fallback)}</span>
+            <span className="truncate text-[11px] font-medium">{t(labelKey, fallback)}</span>
           </Button>
         ))}
 
         <Popover open={moreOpen} onOpenChange={setDefaultMoreOpen}>
           <PopoverTrigger asChild>
             <Button
-            type="button"
-            variant="ghost"
-            className={cn(
-                'flex h-auto min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-0.5 py-1.5 transition-colors',
-                'text-muted-foreground/50 hover:bg-transparent hover:text-foreground',
-                moreOpen && 'text-primary hover:bg-transparent hover:text-primary',
+              type="button"
+              variant="ghost"
+              className={cn(
+                'flex h-auto min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 transition-colors',
+                'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                moreOpen && 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary',
               )}
             >
               <Ellipsis className="h-4 w-4 shrink-0" />
-              <span className="truncate text-[10px] font-medium">{t('common.more', 'More')}</span>
+              <span className="truncate text-[11px] font-medium">{t('common.more', 'More')}</span>
             </Button>
           </PopoverTrigger>
           <PopoverContent
             side="top"
             align="end"
             sideOffset={8}
-            className="w-52 rounded-xl border border-border/80 bg-popover/98 p-1 shadow-lg backdrop-blur"
+            className="w-60 rounded-xl border border-border/80 bg-popover p-1.5 shadow-lg"
           >
-            <div className="rounded-lg bg-muted/25 p-2">
-              <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                {t('workspace.currentWorkspace', 'Workspace')}
-              </div>
-              <div className="mt-1.5 flex items-center gap-2">
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background/90 text-muted-foreground">
-                  <FolderOpen className="h-3 w-3" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-medium text-foreground" data-testid="default-more-workspace-name">
-                    {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {t('workspace.switchWorkspaceHint', 'Choose a different workspace')}
-                  </div>
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="mt-1.5 h-7 w-full justify-start gap-1.5 rounded-md border-border/70 bg-background/80 px-2 text-[11px] font-medium shadow-none hover:bg-background"
-                disabled={!isTauri() || workspaceBusy}
-                onClick={() => void handleSwitchWorkspace()}
-              >
+            <button
+              type="button"
+              disabled={!isTauri() || workspaceBusy}
+              onClick={() => void handleSwitchWorkspace()}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60 disabled:opacity-60 disabled:hover:bg-transparent"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground">
                 {workspaceBusy ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <FolderOpen className="h-3 w-3" />
+                  <FolderOpen className="h-3.5 w-3.5" />
                 )}
-                {t('workspace.switchWorkspace', 'Switch Workspace')}
-              </Button>
-            </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div
+                  className="truncate text-xs font-medium text-foreground"
+                  data-testid="default-more-workspace-name"
+                >
+                  {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
+                </div>
+                <div className="truncate text-[10px] text-muted-foreground">
+                  {t('workspace.switchWorkspace', 'Switch Workspace')}
+                </div>
+              </div>
+              <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </button>
 
-            <div className="mt-1 grid gap-0.5">
+            <div className="mx-1 my-1 h-px bg-border/60" />
+
+            <div className="grid gap-0.5">
               {MORE_ITEMS.map(({ id, labelKey, fallback, icon: Icon }) => (
                 <Button
                   key={id}
                   type="button"
                   variant="ghost"
-                  className="h-7 justify-start gap-1.5 rounded-md px-2 text-xs font-medium text-foreground/85 hover:bg-muted/55"
+                  className="h-8 justify-start gap-2 rounded-md px-2 text-xs font-medium text-foreground/90 hover:bg-muted/60"
                   onClick={() => openDefaultMoreDestination(id)}
                 >
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Icon className="h-4 w-4 text-muted-foreground" />
                   <span>{t(labelKey, fallback)}</span>
                 </Button>
               ))}
