@@ -1174,15 +1174,13 @@ function AppContent() {
                 isActive={isPanelOpen && activeTab === "knowledge"}
                 onClick={() => isPanelOpen && activeTab === "knowledge" ? closePanel() : openPanel("knowledge")}
               />
-              {advancedMode && (
-                <HeaderPanelTab
-                  icon={FolderGit}
-                  label={t("navigation.changes", "Changes")}
-                  count={sessionDiff.length}
-                  isActive={isPanelOpen && activeTab === "diff"}
-                  onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
-                />
-              )}
+              <HeaderPanelTab
+                icon={FolderGit}
+                label={t("navigation.changes", "Changes")}
+                count={sessionDiff.length}
+                isActive={isPanelOpen && activeTab === "diff"}
+                onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
+              />
               {!workspaceUIVariant && (
                 <button
                   className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
