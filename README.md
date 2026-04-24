@@ -8,6 +8,11 @@ Local AI agents built on OpenCode — your AI Ally for every role
 
 > **Your Ally. Together.**
 
+- **👥 Built for teams** — share Skills, Knowledge, and Shortcuts across the whole team via Git or S3/OSS sync; each member keeps their own private context
+- **🎭 Skills × Roles** — a composable role library lets the same agent specialize for sales, support, ops, engineering, or whatever your team needs
+- **🔋 Batteries included** — built-in RAG knowledge base, Auto UI understanding, Browser control, and six channel gateways (WeCom, Feishu, Discord, Kook, WeChat, Email) — no glue code
+- **🧑‍💻 Solo builders to SMBs** — local-first, private by default, zero-ops deployment; scales from a single user to a small company
+
 English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 ## UI Screenshots
