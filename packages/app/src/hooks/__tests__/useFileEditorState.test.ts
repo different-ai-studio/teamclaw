@@ -61,6 +61,7 @@ describe('useResizablePanels', () => {
     const { useResizablePanels } = await import('@/hooks/useFileEditorState')
     const { result } = renderHook(() => useResizablePanels())
     expect(result.current.rightPanelWidth).toBe(400)
+    expect(result.current.mainSplitLeftWidth).toBe(560)
   })
 
   it('clamps panel width within min/max bounds', async () => {
@@ -77,6 +78,32 @@ describe('useResizablePanels', () => {
       result.current.handleRightPanelResize(1000)
     })
     expect(result.current.rightPanelWidth).toBe(280) // min
+
+    act(() => {
+      result.current.handleMainSplitResize(-1000)
+    })
+    expect(result.current.mainSplitLeftWidth).toBe(360) // min
+
+    act(() => {
+      result.current.handleMainSplitResize(1000)
+    })
+    expect(result.current.mainSplitLeftWidth).toBe(900) // max
+  })
+
+  it('uses a dynamic max width for the main split pane when provided', async () => {
+    const { useResizablePanels } = await import('@/hooks/useFileEditorState')
+    const { result, rerender } = renderHook(
+      ({ maxWidth }) => useResizablePanels({ mainSplitLeftMaxWidth: maxWidth }),
+      { initialProps: { maxWidth: 720 } },
+    )
+
+    act(() => {
+      result.current.handleMainSplitResize(1000)
+    })
+    expect(result.current.mainSplitLeftWidth).toBe(720)
+
+    rerender({ maxWidth: 640 })
+    expect(result.current.mainSplitLeftWidth).toBe(640)
   })
 })
 

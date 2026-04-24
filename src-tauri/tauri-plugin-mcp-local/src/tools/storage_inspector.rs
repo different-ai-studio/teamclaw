@@ -132,7 +132,7 @@ pub struct StorageInspectorRequest {
     pub key_pattern: Option<String>, // regex or substring for filtering
     pub page: Option<usize>,
     pub page_size: Option<usize>,
-    pub db_name: Option<String>, // for IndexedDB operations
+    pub db_name: Option<String>,    // for IndexedDB operations
     pub store_name: Option<String>, // for IndexedDB operations
 }
 
@@ -142,8 +142,9 @@ pub async fn handle_get_storage_inspector<R: Runtime>(
     payload: Value,
 ) -> Result<SocketResponse, Error> {
     // Parse params from payload
-    let params: StorageInspectorRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for storage inspector: {}", e)))?;
+    let params: StorageInspectorRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for storage inspector: {}", e))
+    })?;
 
     // Validate input parameters
     match params.action.as_str() {
@@ -173,7 +174,10 @@ pub async fn handle_get_storage_inspector<R: Runtime>(
                 return Ok(SocketResponse {
                     success: false,
                     data: None,
-                    error: Some("db_name and store_name are required for query_indexeddb action".to_string()),
+                    error: Some(
+                        "db_name and store_name are required for query_indexeddb action"
+                            .to_string(),
+                    ),
                 });
             }
         }
@@ -181,7 +185,10 @@ pub async fn handle_get_storage_inspector<R: Runtime>(
             return Ok(SocketResponse {
                 success: false,
                 data: None,
-                error: Some(format!("Unsupported storage inspector action: {}", params.action)),
+                error: Some(format!(
+                    "Unsupported storage inspector action: {}",
+                    params.action
+                )),
             });
         }
     }
@@ -202,10 +209,9 @@ pub async fn handle_get_storage_inspector<R: Runtime>(
     match result {
         Ok(data) => Ok(SocketResponse {
             success: true,
-            data: Some(
-                serde_json::to_value(data)
-                    .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?,
-            ),
+            data: Some(serde_json::to_value(data).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?),
             error: None,
         }),
         Err(e) => Ok(SocketResponse {
@@ -229,7 +235,9 @@ async fn perform_storage_inspector_operation<R: Runtime>(
 
     // Emit event to the window
     app.emit_to(&window_label, "inspect-storage", &params)
-        .map_err(|e| StorageInspectorError::WebviewOperation(format!("Failed to emit event: {}", e)))?;
+        .map_err(|e| {
+            StorageInspectorError::WebviewOperation(format!("Failed to emit event: {}", e))
+        })?;
 
     // Set up channel for response
     let (tx, rx) = mpsc::channel();
@@ -251,7 +259,9 @@ async fn perform_storage_inspector_operation<R: Runtime>(
             // Check if result contains an error
             if let Some(error) = response.get("error") {
                 if let Some(error_str) = error.as_str() {
-                    return Err(StorageInspectorError::JavaScriptError(error_str.to_string()));
+                    return Err(StorageInspectorError::JavaScriptError(
+                        error_str.to_string(),
+                    ));
                 } else {
                     return Err(StorageInspectorError::JavaScriptError(
                         "Unknown error".to_string(),

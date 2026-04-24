@@ -55,7 +55,7 @@ describe('mcp store', () => {
 
     await useMCPStore.getState().loadConfig()
 
-    expect(mockInvoke).toHaveBeenCalledWith('get_mcp_config')
+    expect(mockInvoke).toHaveBeenCalledWith('get_mcp_config', expect.any(Object))
     expect(useMCPStore.getState().servers).toEqual(mockConfig)
   })
 

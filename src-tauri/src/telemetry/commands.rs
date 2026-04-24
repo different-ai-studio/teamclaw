@@ -360,8 +360,7 @@ pub async fn telemetry_export_team_feedback(
 pub async fn telemetry_get_team_feedback_summary(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<TeamFeedbackSummary, String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let feedback_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join("_feedback");
@@ -497,15 +496,13 @@ pub async fn telemetry_export_leaderboard(
                 e
             )
         })?;
-        serde_json::from_str::<crate::commands::local_stats::LocalStats>(&content).map_err(
-            |e| {
-                format!(
-                    "Failed to parse {}/stats.json: {}",
-                    crate::commands::TEAMCLAW_DIR,
-                    e
-                )
-            },
-        )?
+        serde_json::from_str::<crate::commands::local_stats::LocalStats>(&content).map_err(|e| {
+            format!(
+                "Failed to parse {}/stats.json: {}",
+                crate::commands::TEAMCLAW_DIR,
+                e
+            )
+        })?
     } else {
         // If stats.json doesn't exist, use default
         crate::commands::local_stats::LocalStats::default()
@@ -614,8 +611,7 @@ fn aggregate_workspace_stats(
 pub async fn telemetry_get_team_leaderboard(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<TeamLeaderboard, String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join(".leaderboard");
@@ -647,8 +643,7 @@ pub async fn telemetry_get_member_aggregated_stats(
     member_name: String,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
 ) -> Result<LeaderboardStats, String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join(".leaderboard");

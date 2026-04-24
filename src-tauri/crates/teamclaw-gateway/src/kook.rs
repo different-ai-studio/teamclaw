@@ -10,8 +10,8 @@ use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 use crate::kook_config::{KookConfig, KookGatewayStatus, KookGatewayStatusResponse};
 use crate::session::SessionMapping;
 
-use crate::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 use crate::i18n;
+use crate::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 
 /// Maximum number of buffered out-of-order messages
 const MAX_BUFFER_SIZE: usize = 100;

@@ -10,7 +10,7 @@ const COMMANDS: &[&str] = &[
     "ping",
     "set_element_value",
     "take_screenshot",
-    "type_text"
+    "type_text",
 ];
 
 fn main() {

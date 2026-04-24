@@ -74,7 +74,9 @@ pub enum NetworkInspectorError {
 impl fmt::Display for NetworkInspectorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NetworkInspectorError::WebviewOperation(s) => write!(f, "Network operation error: {}", s),
+            NetworkInspectorError::WebviewOperation(s) => {
+                write!(f, "Network operation error: {}", s)
+            }
             NetworkInspectorError::TimeoutError(s) => write!(f, "Operation timed out: {}", s),
             NetworkInspectorError::ParseError(s) => write!(f, "Parse error: {}", s),
         }
@@ -163,8 +165,9 @@ pub async fn handle_network_inspector<R: Runtime>(
     app: &AppHandle<R>,
     payload: Value,
 ) -> Result<SocketResponse, Error> {
-    let request: NetworkInspectorRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for network inspector: {}", e)))?;
+    let request: NetworkInspectorRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for network inspector: {}", e))
+    })?;
 
     // Get the window label or use "main" as default
     let window_label = request
@@ -192,8 +195,9 @@ pub async fn handle_network_inspector<R: Runtime>(
     // Handle the result
     match result {
         Ok(response) => {
-            let data = serde_json::to_value(response)
-                .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+            let data = serde_json::to_value(response).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?;
 
             Ok(SocketResponse {
                 success: true,
@@ -222,9 +226,7 @@ pub async fn handle_inject_network_capture<R: Runtime>(
     let request: InjectionRequest = serde_json::from_value(payload)
         .map_err(|e| Error::serialization_error(format!("Invalid payload for injection: {}", e)))?;
 
-    let window_label = request
-        .window_label
-        .unwrap_or_else(|| "main".to_string());
+    let window_label = request.window_label.unwrap_or_else(|| "main".to_string());
 
     // Verify the window exists
     let window = app
@@ -232,12 +234,12 @@ pub async fn handle_inject_network_capture<R: Runtime>(
         .ok_or_else(|| Error::window_not_found(&window_label))?;
 
     // Send injection event to the window
-    window
-        .emit("inject-network-capture", ())
-        .map_err(|e| Error::communication_error_with_context(
+    window.emit("inject-network-capture", ()).map_err(|e| {
+        Error::communication_error_with_context(
             "Failed to emit injection event",
             format!("window: {}, error: {}", window_label, e),
-        ))?;
+        )
+    })?;
 
     Ok(SocketResponse {
         success: true,
@@ -283,7 +285,9 @@ async fn retrieve_network_requests<R: Runtime>(
 
     // Emit event to retrieve network requests from webview
     app.emit_to(&window_label, "get-network-requests", filter_payload)
-        .map_err(|e| NetworkInspectorError::WebviewOperation(format!("Failed to emit event: {}", e)))?;
+        .map_err(|e| {
+            NetworkInspectorError::WebviewOperation(format!("Failed to emit event: {}", e))
+        })?;
 
     // Set up channel for response
     let (tx, rx) = mpsc::channel::<String>();
@@ -298,13 +302,16 @@ async fn retrieve_network_requests<R: Runtime>(
     match rx.recv_timeout(Duration::from_secs(15)) {
         Ok(result_string) => {
             // Parse the response
-            let response: Value = serde_json::from_str(&result_string)
-                .map_err(|e| NetworkInspectorError::ParseError(format!("Failed to parse response: {}", e)))?;
+            let response: Value = serde_json::from_str(&result_string).map_err(|e| {
+                NetworkInspectorError::ParseError(format!("Failed to parse response: {}", e))
+            })?;
 
             // Check if result contains an error
             if let Some(error) = response.get("error") {
                 if let Some(error_str) = error.as_str() {
-                    return Err(NetworkInspectorError::WebviewOperation(error_str.to_string()));
+                    return Err(NetworkInspectorError::WebviewOperation(
+                        error_str.to_string(),
+                    ));
                 }
             }
 
@@ -350,7 +357,9 @@ async fn clear_network_requests<R: Runtime>(
 
     // Emit event to clear network requests
     app.emit_to(&window_label, "clear-network-requests", ())
-        .map_err(|e| NetworkInspectorError::WebviewOperation(format!("Failed to emit event: {}", e)))?;
+        .map_err(|e| {
+            NetworkInspectorError::WebviewOperation(format!("Failed to emit event: {}", e))
+        })?;
 
     Ok(NetworkInspectorResponse {
         requests: vec![],
@@ -372,7 +381,9 @@ async fn start_network_capture<R: Runtime>(
 
     // Emit event to start capture
     app.emit_to(&window_label, "start-network-capture", ())
-        .map_err(|e| NetworkInspectorError::WebviewOperation(format!("Failed to emit event: {}", e)))?;
+        .map_err(|e| {
+            NetworkInspectorError::WebviewOperation(format!("Failed to emit event: {}", e))
+        })?;
 
     Ok(NetworkInspectorResponse {
         requests: vec![],
@@ -394,7 +405,9 @@ async fn stop_network_capture<R: Runtime>(
 
     // Emit event to stop capture
     app.emit_to(&window_label, "stop-network-capture", ())
-        .map_err(|e| NetworkInspectorError::WebviewOperation(format!("Failed to emit event: {}", e)))?;
+        .map_err(|e| {
+            NetworkInspectorError::WebviewOperation(format!("Failed to emit event: {}", e))
+        })?;
 
     Ok(NetworkInspectorResponse {
         requests: vec![],

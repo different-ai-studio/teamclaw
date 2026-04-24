@@ -69,11 +69,14 @@ fn build_overview(workspace: &str) -> Result<Value, String> {
         }
     }
 
-    let shortcuts = config
+    let personal_shortcuts_count = config
         .get("shortcuts")
         .and_then(|v| v.as_array())
         .map(|a| a.len())
         .unwrap_or(0);
+    let team_shortcuts_tree = crate::config::read_team_shortcuts(workspace).unwrap_or_default();
+    let team_shortcuts_count = crate::config::count_tree_nodes(&team_shortcuts_tree);
+    let shortcuts_total = personal_shortcuts_count + team_shortcuts_count;
 
     let env_vars = config
         .get("envVars")
@@ -82,17 +85,17 @@ fn build_overview(workspace: &str) -> Result<Value, String> {
         .unwrap_or(0);
 
     let team = config.get("team").cloned().unwrap_or(json!(null));
-    let team_enabled = team.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let team_enabled = team
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let team_mode = if team_enabled { "git" } else { "none" };
 
     let roles = crate::config::read_roles(workspace).unwrap_or_default();
     let role_count = roles.len();
 
     let members = crate::config::read_team_members(workspace).unwrap_or(json!({}));
-    let member_count = members
-        .as_object()
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let member_count = members.as_object().map(|m| m.len()).unwrap_or(0);
 
     let cron_jobs = crate::config::read_cron_jobs(workspace).unwrap_or(json!([]));
     let cron_total = cron_jobs.as_array().map(|a| a.len()).unwrap_or(0);
@@ -114,7 +117,9 @@ fn build_overview(workspace: &str) -> Result<Value, String> {
             "count": role_count
         },
         "shortcuts": {
-            "count": shortcuts
+            "count": shortcuts_total,
+            "personal_count": personal_shortcuts_count,
+            "team_count": team_shortcuts_count
         },
         "team_members": {
             "count": member_count
@@ -246,12 +251,22 @@ fn build_role(workspace: &str) -> Result<Value, String> {
 
 fn build_shortcuts(workspace: &str) -> Result<Value, String> {
     let config = crate::config::read_teamclaw_config(workspace)?;
-    let shortcuts = config
+    let personal = config
         .get("shortcuts")
+        .and_then(|v| v.as_array())
         .cloned()
-        .unwrap_or(json!([]));
+        .unwrap_or_default();
+    let team = crate::config::read_team_shortcuts(workspace).unwrap_or_default();
+    let team_total = crate::config::count_tree_nodes(&team);
     Ok(json!({
-        "shortcuts": shortcuts
+        "personal": {
+            "count": personal.len(),
+            "items": personal
+        },
+        "team": {
+            "count": team_total,
+            "items": team
+        }
     }))
 }
 
@@ -367,7 +382,17 @@ fn build_cron_jobs(workspace: &str) -> Result<Value, String> {
         .iter()
         .map(|job| {
             let mut out = serde_json::Map::new();
-            for field in &["id", "name", "description", "enabled", "schedule", "lastRunAt", "nextRunAt", "last_run_at", "next_run_at"] {
+            for field in &[
+                "id",
+                "name",
+                "description",
+                "enabled",
+                "schedule",
+                "lastRunAt",
+                "nextRunAt",
+                "last_run_at",
+                "next_run_at",
+            ] {
                 if let Some(v) = job.get(*field) {
                     // Normalize field names to snake_case for output
                     let key = match *field {

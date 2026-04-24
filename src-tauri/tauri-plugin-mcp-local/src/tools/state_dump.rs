@@ -1,6 +1,6 @@
-use serde_json::{json, Value};
-use tauri::{AppHandle, Runtime, Manager, Emitter, Listener};
 use log::info;
+use serde_json::{Value, json};
+use tauri::{AppHandle, Emitter, Listener, Manager, Runtime};
 
 use crate::error::Error;
 use crate::socket_server::SocketResponse;
@@ -35,8 +35,9 @@ pub async fn handle_state_dump<R: Runtime>(
     app: &AppHandle<R>,
     payload: Value,
 ) -> Result<SocketResponse, Error> {
-    let request: StateDumpRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for state_dump: {}", e)))?;
+    let request: StateDumpRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for state_dump: {}", e))
+    })?;
 
     // Get the window label or use "main" as default
     let window_label = request
@@ -50,19 +51,18 @@ pub async fn handle_state_dump<R: Runtime>(
         .ok_or_else(|| Error::window_not_found(&window_label))?;
 
     // Generate the introspection JavaScript code
-    let js_code = generate_state_dump_code(
-        request.max_depth.unwrap_or(10),
-        request.path.clone(),
-    );
+    let js_code = generate_state_dump_code(request.max_depth.unwrap_or(10), request.path.clone());
 
     // Execute the JavaScript in the window
     let (tx, rx) = std::sync::mpsc::channel();
 
     app.emit_to(&window_label, "execute-js", &js_code)
-        .map_err(|e| Error::communication_error_with_context(
-            "Failed to emit execute-js event",
-            format!("window: {}, error: {}", window_label, e),
-        ))?;
+        .map_err(|e| {
+            Error::communication_error_with_context(
+                "Failed to emit execute-js event",
+                format!("window: {}, error: {}", window_label, e),
+            )
+        })?;
 
     // Listen for response
     app.once("execute-js-response", move |event| {
@@ -72,13 +72,14 @@ pub async fn handle_state_dump<R: Runtime>(
 
     // Wait for the response with timeout
     let timeout = std::time::Duration::from_millis(request.timeout_ms.unwrap_or(5000));
-    let result_string = rx
-        .recv_timeout(timeout)
-        .map_err(|_| Error::timeout_error("state dump execution", request.timeout_ms.unwrap_or(5000)))?;
+    let result_string = rx.recv_timeout(timeout).map_err(|_| {
+        Error::timeout_error("state dump execution", request.timeout_ms.unwrap_or(5000))
+    })?;
 
     // Parse the response
-    let response_value: Value = serde_json::from_str(&result_string)
-        .map_err(|e| Error::serialization_error(format!("Failed to parse state dump response: {}", e)))?;
+    let response_value: Value = serde_json::from_str(&result_string).map_err(|e| {
+        Error::serialization_error(format!("Failed to parse state dump response: {}", e))
+    })?;
 
     // Check if result contains an error
     if let Some(error) = response_value.get("error") {
@@ -97,8 +98,9 @@ pub async fn handle_state_dump<R: Runtime>(
             // Parse the state dump result
             match serde_json::from_str::<Value>(result_str) {
                 Ok(dump) => {
-                    let data = serde_json::to_value(dump)
-                        .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+                    let data = serde_json::to_value(dump).map_err(|e| {
+                        Error::serialization_error(format!("Failed to serialize response: {}", e))
+                    })?;
 
                     Ok(SocketResponse {
                         success: true,
@@ -373,7 +375,7 @@ fn generate_state_dump_code(max_depth: usize, path: Option<String>) -> String {
             }
         }));
     }
-})();"#
+})();"#,
     );
 
     code

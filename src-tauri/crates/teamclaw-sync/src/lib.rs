@@ -8,8 +8,8 @@
 //!
 //! Tauri command wrappers remain in the main crate.
 
-pub mod oss_types;
 pub mod oss_sync;
+pub mod oss_types;
 pub mod team_webdav;
 pub mod version_types;
 

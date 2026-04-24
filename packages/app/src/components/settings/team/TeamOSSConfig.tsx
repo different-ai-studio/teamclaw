@@ -373,6 +373,7 @@ export function TeamOSSConfig() {
   }, [])
 
   const isOwner = myRole === 'owner'
+  const canManageServiceConfig = isOwner || myRole === 'manager'
 
   return (
     <div className="space-y-4">
@@ -641,7 +642,7 @@ export function TeamOSSConfig() {
             </div>
           </SettingCard>
 
-          {isOwner && (
+          {canManageServiceConfig && (
             <SettingCard title="服务配置" icon={Settings}>
               <div className="space-y-3">
                 <div>

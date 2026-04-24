@@ -54,7 +54,8 @@ pub fn run_pipeline_streaming_from_rx(
         segment_window.extend(chunk);
         while segment_window.len() >= n_samples_window {
             let window: Vec<f32> = segment_window.drain(..n_samples_window).collect();
-            let text = transcribe_audio(on_event, models_dir, &window, WHISPER_SAMPLE_RATE, language);
+            let text =
+                transcribe_audio(on_event, models_dir, &window, WHISPER_SAMPLE_RATE, language);
             if !text.is_empty() {
                 segments.push(text);
             }
@@ -73,7 +74,13 @@ pub fn run_pipeline_streaming_from_rx(
         for _ in 0..pad {
             segment_window.push(0.0);
         }
-        let text = transcribe_audio(on_event, models_dir, &segment_window, WHISPER_SAMPLE_RATE, language);
+        let text = transcribe_audio(
+            on_event,
+            models_dir,
+            &segment_window,
+            WHISPER_SAMPLE_RATE,
+            language,
+        );
         if !text.is_empty() {
             segments.push(text);
         }

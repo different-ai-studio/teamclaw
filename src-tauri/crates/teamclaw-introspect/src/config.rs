@@ -23,7 +23,9 @@ fn cron_jobs_path(workspace: &str) -> PathBuf {
 }
 
 fn cron_runs_path(workspace: &str, job_id: &str) -> PathBuf {
-    teamclaw_dir(workspace).join("cron-runs").join(format!("{job_id}.jsonl"))
+    teamclaw_dir(workspace)
+        .join("cron-runs")
+        .join(format!("{job_id}.jsonl"))
 }
 
 fn team_members_path(workspace: &str) -> PathBuf {
@@ -31,6 +33,13 @@ fn team_members_path(workspace: &str) -> PathBuf {
         .join(TEAM_REPO_DIR)
         .join("_team")
         .join("members.json")
+}
+
+fn team_shortcuts_path(workspace: &str) -> PathBuf {
+    Path::new(workspace)
+        .join(TEAM_REPO_DIR)
+        .join("_meta")
+        .join("shortcuts.json")
 }
 
 fn roles_dir(workspace: &str) -> PathBuf {
@@ -47,8 +56,7 @@ fn read_json_file_or_default(path: &Path, default: Value) -> Result<Value, Strin
     }
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
-    serde_json::from_str(&raw)
-        .map_err(|e| format!("Failed to parse {}: {e}", path.display()))
+    serde_json::from_str(&raw).map_err(|e| format!("Failed to parse {}: {e}", path.display()))
 }
 
 fn write_json_file(path: &Path, value: &Value) -> Result<(), String> {
@@ -59,8 +67,7 @@ fn write_json_file(path: &Path, value: &Value) -> Result<(), String> {
     let mut content = serde_json::to_string_pretty(value)
         .map_err(|e| format!("Failed to serialize JSON: {e}"))?;
     content.push('\n');
-    std::fs::write(path, content)
-        .map_err(|e| format!("Failed to write {}: {e}", path.display()))
+    std::fs::write(path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +124,10 @@ pub fn read_cron_runs(workspace: &str, job_id: &str, limit: usize) -> Result<Vec
         match serde_json::from_str::<Value>(line) {
             Ok(v) => result.push(v),
             Err(e) => {
-                eprintln!("Warning: skipping malformed JSONL line in {}: {e}", path.display());
+                eprintln!(
+                    "Warning: skipping malformed JSONL line in {}: {e}",
+                    path.display()
+                );
             }
         }
     }
@@ -130,6 +140,35 @@ pub fn read_team_members(workspace: &str) -> Result<Value, String> {
         &team_members_path(workspace),
         Value::Object(Default::default()),
     )
+}
+
+/// Read `{workspace}/teamclaw-team/_meta/shortcuts.json`. Returns `[]` (as
+/// the nested shortcuts array) if the file is missing or malformed.
+/// Returns the `shortcuts` array directly, not the `{version, shortcuts}` wrapper.
+pub fn read_team_shortcuts(workspace: &str) -> Result<Vec<Value>, String> {
+    let path = team_shortcuts_path(workspace);
+    let raw = read_json_file_or_default(&path, Value::Object(Default::default()))?;
+    Ok(raw
+        .get("shortcuts")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Recursively count all nodes in a tree-shaped shortcuts array where each node
+/// may have `children: ShortcutNode[]` (the team shortcuts schema).
+pub fn count_tree_nodes(nodes: &[Value]) -> usize {
+    nodes
+        .iter()
+        .map(|node| {
+            let child_count = node
+                .get("children")
+                .and_then(|v| v.as_array())
+                .map(|c| count_tree_nodes(c))
+                .unwrap_or(0);
+            1 + child_count
+        })
+        .sum()
 }
 
 // ---------------------------------------------------------------------------
@@ -161,11 +200,7 @@ pub fn read_roles(workspace: &str) -> Result<Vec<Value>, String> {
         }
 
         // Only process directories
-        if !entry
-            .file_type()
-            .map(|t| t.is_dir())
-            .unwrap_or(false)
-        {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
             continue;
         }
 
@@ -230,9 +265,7 @@ fn parse_role_md(path: &Path) -> Result<Value, String> {
     if let Some(start) = lower.find(section_marker) {
         let after_section = &rest[start + section_marker.len()..];
         // Content runs until the next `##` heading or end of file
-        let end = after_section
-            .find("\n##")
-            .unwrap_or(after_section.len());
+        let end = after_section.find("\n##").unwrap_or(after_section.len());
         working_style = after_section[..end].trim().to_string();
     }
 

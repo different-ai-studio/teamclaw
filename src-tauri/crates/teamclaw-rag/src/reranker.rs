@@ -388,8 +388,7 @@ pub fn create_reranker(
     match provider.to_lowercase().as_str() {
         "jina" => Ok(Box::new(JinaReranker::new(api_key, model))),
         "compass" => {
-            let url = base_url
-                .unwrap_or_default();
+            let url = base_url.unwrap_or_default();
             Ok(Box::new(CompassReranker::new(api_key, url)))
         }
         "langsearch" => Ok(Box::new(LangSearchReranker::new(api_key, model, base_url))),
@@ -421,10 +420,7 @@ mod tests {
             Some("test-key".to_string()),
             "https://example.com/api/v1".to_string(),
         );
-        assert_eq!(
-            reranker.base_url,
-            "https://example.com/api/v1"
-        );
+        assert_eq!(reranker.base_url, "https://example.com/api/v1");
     }
 
     #[test]

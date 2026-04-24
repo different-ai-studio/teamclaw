@@ -100,6 +100,8 @@ export interface TeamMember {
   name: string
   /** Member role: owner, manager, editor, or viewer */
   role?: 'owner' | 'manager' | 'editor' | 'viewer'
+  /** Shortcut visibility roles used to filter team shortcuts */
+  shortcutsRole?: string[]
   /** Human-readable label */
   label: string
   /** OS name */

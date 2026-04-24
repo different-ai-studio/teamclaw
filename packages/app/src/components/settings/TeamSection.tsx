@@ -133,7 +133,7 @@ export function TeamSection() {
       <SectionHeader
         icon={Users}
         title={t('settings.team.title', 'Team')}
-        description={t('settings.team.description', '连接云存储以与团队共享技能、MCP 配置和知识库')}
+        description={t('settings.team.description', 'Connect cloud storage or Git to share skills, MCP configs, and knowledge with your team')}
         iconColor="text-violet-500"
       />
 

@@ -54,10 +54,7 @@ fn action_create(workspace: &str, args: &Value) -> Result<Value, String> {
 
     job.insert("enabled".to_string(), Value::Bool(true));
     job.insert("schedule".to_string(), schedule.clone());
-    job.insert(
-        "payload".to_string(),
-        json!({ "message": message }),
-    );
+    job.insert("payload".to_string(), json!({ "message": message }));
 
     if let Some(d) = delivery {
         if !d.is_null() {
@@ -150,11 +147,7 @@ fn action_delete(workspace: &str, args: &Value) -> Result<Value, String> {
 
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
-async fn action_run(
-    workspace: &str,
-    api_port: u16,
-    args: &Value,
-) -> Result<Value, String> {
+async fn action_run(workspace: &str, api_port: u16, args: &Value) -> Result<Value, String> {
     let job_id = require_job_id(args)?;
 
     // Verify the job exists
@@ -171,9 +164,7 @@ async fn action_run(
         .json(&json!({"job_id": job_id}))
         .send()
         .await
-        .map_err(|e| {
-            format!("Cron run request failed: {e}. Is the TeamClaw app running?")
-        })?;
+        .map_err(|e| format!("Cron run request failed: {e}. Is the TeamClaw app running?"))?;
 
     if !resp.status().is_success() {
         let status = resp.status();

@@ -27,6 +27,8 @@ pub struct TeamMember {
     #[serde(default)]
     pub role: MemberRole,
     #[serde(default)]
+    pub shortcuts_role: Vec<String>,
+    #[serde(default)]
     pub label: String,
     #[serde(default)]
     pub platform: String,
@@ -125,7 +127,6 @@ pub enum SyncHealth {
     Error,
     Offline,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -280,4 +281,51 @@ pub struct SyncCursor {
     /// Current generation ID per DocType (updated after each compaction)
     #[serde(default)]
     pub generation: HashMap<String, String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn team_member_deserializes_missing_shortcuts_role_as_empty() {
+        let member: TeamMember = serde_json::from_value(json!({
+            "nodeId": "node-1",
+            "name": "Alice",
+            "role": "editor",
+            "label": "",
+            "platform": "darwin",
+            "arch": "arm64",
+            "hostname": "alice-mac",
+            "addedAt": "2026-04-24T00:00:00Z"
+        }))
+        .expect("member without shortcutsRole should deserialize");
+
+        assert!(member.shortcuts_role.is_empty());
+
+        let value = serde_json::to_value(member).expect("member should serialize");
+        assert_eq!(value["shortcutsRole"], json!([]));
+    }
+
+    #[test]
+    fn team_member_round_trips_shortcuts_role() {
+        let member: TeamMember = serde_json::from_value(json!({
+            "nodeId": "node-1",
+            "name": "Alice",
+            "role": "editor",
+            "shortcutsRole": ["sales", "support"],
+            "label": "",
+            "platform": "darwin",
+            "arch": "arm64",
+            "hostname": "alice-mac",
+            "addedAt": "2026-04-24T00:00:00Z"
+        }))
+        .expect("member with shortcutsRole should deserialize");
+
+        assert_eq!(
+            member.shortcuts_role,
+            vec!["sales".to_string(), "support".to_string()]
+        );
+    }
 }

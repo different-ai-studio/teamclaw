@@ -1,6 +1,6 @@
+use log::info;
 use serde_json::Value;
 use tauri::{AppHandle, Runtime};
-use log::info;
 
 use crate::shared::commands;
 use crate::socket_server::SocketResponse;
@@ -27,13 +27,15 @@ pub mod window_manager;
 // Re-export command handler functions
 pub use console_logs::{handle_get_console_logs, handle_inject_console_capture};
 pub use devtools_bridge::handle_devtools_bridge;
-pub use error_tracker::{handle_get_exceptions, handle_inject_error_tracker, handle_clear_exceptions};
+pub use error_tracker::{
+    handle_clear_exceptions, handle_get_exceptions, handle_inject_error_tracker,
+};
 pub use execute_js::handle_execute_js;
 pub use health_check::handle_health_check;
 pub use hot_reload::handle_hot_reload;
 pub use local_storage::handle_get_local_storage;
 pub use mouse_movement::handle_simulate_mouse_movement;
-pub use network_inspector::{handle_network_inspector, handle_inject_network_capture};
+pub use network_inspector::{handle_inject_network_capture, handle_network_inspector};
 pub use performance::handle_get_performance_metrics;
 pub use ping::handle_ping;
 pub use state_dump::handle_state_dump;
@@ -122,10 +124,7 @@ pub async fn handle_command<R: Runtime>(
             info!("[TAURI_MCP] Error: {}", err);
         }
     } else if let Err(ref e) = result {
-        info!(
-            "[TAURI_MCP] Command {} failed with error: {}",
-            command, e
-        );
+        info!("[TAURI_MCP] Command {} failed with error: {}", command, e);
     }
 
     result

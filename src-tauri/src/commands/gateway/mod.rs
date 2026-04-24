@@ -2,7 +2,6 @@
 // `crate::commands::gateway::*` paths throughout the main crate continue to work.
 pub use teamclaw_gateway::*;
 
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -1153,8 +1152,7 @@ pub(crate) fn write_config(
 pub async fn get_channel_config(
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<ChannelsConfig, String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     let config = read_config(&workspace_path)?;
     Ok(config.channels.unwrap_or_default())
@@ -1166,8 +1164,7 @@ pub async fn save_channel_config(
     channels: ChannelsConfig,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     config.channels = Some(channels);
@@ -1190,8 +1187,7 @@ pub async fn save_discord_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -1219,8 +1215,7 @@ pub async fn set_config_locale(
     opencode_state: State<'_, OpenCodeState>,
     locale: String,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
     let mut config = read_config(&workspace_path)?;
     config.locale = Some(locale);
     write_config(&workspace_path, &config)
@@ -1334,8 +1329,7 @@ pub async fn save_feishu_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -1484,8 +1478,7 @@ pub async fn save_email_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -1597,8 +1590,7 @@ pub async fn gmail_authorize(
     email: String,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<String, String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     EmailGateway::gmail_authorize(&client_id, &client_secret, &email, &workspace_path).await
 }
@@ -1606,8 +1598,7 @@ pub async fn gmail_authorize(
 /// Check if Gmail OAuth2 tokens exist
 #[tauri::command]
 pub async fn check_gmail_auth(opencode_state: State<'_, OpenCodeState>) -> Result<bool, String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     Ok(EmailGateway::check_gmail_auth(&workspace_path).await)
 }
@@ -1630,8 +1621,7 @@ pub async fn save_kook_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -2079,8 +2069,7 @@ pub async fn save_wechat_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -2269,9 +2258,10 @@ pub async fn test_wechat_connection(bot_token: String) -> Result<String, String>
 #[tauri::command]
 pub fn load_shortcuts(
     opencode_state: State<'_, super::opencode::OpenCodeState>,
+    workspace_path: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
     let config = read_config(&workspace_path)?;
     let shortcuts = config
         .other
@@ -2286,12 +2276,46 @@ pub fn load_shortcuts(
 pub fn save_shortcuts(
     opencode_state: State<'_, super::opencode::OpenCodeState>,
     nodes: Vec<serde_json::Value>,
+    workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::opencode::current_workspace_path(&opencode_state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
     let mut config = read_config(&workspace_path)?;
     config
         .other
         .insert("shortcuts".to_string(), serde_json::json!(nodes));
+    write_config(&workspace_path, &config)
+}
+
+/// Load the per-workspace system prompt from teamclaw.json. Returns "" if unset.
+#[tauri::command]
+pub fn load_system_prompt(
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    workspace_path: Option<String>,
+) -> Result<String, String> {
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
+    let config = read_config(&workspace_path)?;
+    Ok(config
+        .other
+        .get("systemPrompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string())
+}
+
+/// Save the per-workspace system prompt to teamclaw.json.
+#[tauri::command]
+pub fn save_system_prompt(
+    opencode_state: State<'_, super::opencode::OpenCodeState>,
+    prompt: String,
+    workspace_path: Option<String>,
+) -> Result<(), String> {
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &opencode_state)?;
+    let mut config = read_config(&workspace_path)?;
+    config
+        .other
+        .insert("systemPrompt".to_string(), serde_json::json!(prompt));
     write_config(&workspace_path, &config)
 }

@@ -45,18 +45,42 @@ let currentConfig: OpenCodeConfig | null = null
 // ---------------------------------------------------------------------------
 
 /**
+ * Produce a human-readable message from an OpenCode SDK error object,
+ * prioritising structured fields (name, data.path, data.message) and
+ * never stringifying the raw payload — stringifying would leak secrets
+ * like provider.options.apiKey that backends sometimes echo back.
+ */
+function formatOpenCodeError(error: unknown): string {
+  if (typeof error === 'string') return error
+  if (!error || typeof error !== 'object') return 'Unknown error'
+
+  const obj = error as Record<string, unknown>
+  const name = typeof obj.name === 'string' ? obj.name : null
+  const data =
+    obj.data && typeof obj.data === 'object' ? (obj.data as Record<string, unknown>) : null
+  const path = data && typeof data.path === 'string' ? data.path : null
+  const inner = data && typeof data.message === 'string' ? data.message : null
+
+  if (name === 'ConfigJsonError') {
+    const loc = inner ? inner.match(/at line (\d+), column (\d+)/) : null
+    const where = loc ? ` (line ${loc[1]}, column ${loc[2]})` : ''
+    return path
+      ? `opencode.json has a syntax error${where}: ${path}`
+      : `opencode.json has a syntax error${where}`
+  }
+
+  if (typeof obj.message === 'string') return obj.message
+  if (name) return name
+  return 'Unknown error'
+}
+
+/**
  * Unwrap an SDK response, throwing on error.
  * SDK methods return `{ data, error, request, response }` in "fields" mode.
  */
 function unwrap<T>(result: { data: T | undefined; error: unknown }): T {
   if (result.error !== undefined) {
-    const msg =
-      typeof result.error === 'string'
-        ? result.error
-        : result.error && typeof result.error === 'object' && 'message' in result.error
-          ? String((result.error as { message: string }).message)
-          : JSON.stringify(result.error)
-    throw new Error(`OpenCode API Error: ${msg}`)
+    throw new Error(`OpenCode API Error: ${formatOpenCodeError(result.error)}`)
   }
   return result.data as T
 }

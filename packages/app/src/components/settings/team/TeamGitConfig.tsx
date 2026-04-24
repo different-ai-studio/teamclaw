@@ -137,6 +137,8 @@ function SettingCard({ children, className }: { children: React.ReactNode; class
 export function TeamGitConfig() {
   const { t } = useTranslation()
   const teamMembersStore = useTeamMembersStore()
+  const myRole = useTeamMembersStore((s) => s.myRole)
+  const canManageServiceConfig = myRole === 'owner' || myRole === 'manager'
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady)
   const workspaceArgs = React.useMemo<{ workspacePath?: string }>(
@@ -172,7 +174,7 @@ export function TeamGitConfig() {
   const [loadedTeamSecret, setLoadedTeamSecret] = React.useState('')
 
   // Managed Git state
-  const [managedGit, setManagedGit] = React.useState(true)
+  const [managedGit, setManagedGit] = React.useState(false)
   const [createdInviteCode, setCreatedInviteCode] = React.useState('')
   const [inviteCodeInput, setInviteCodeInput] = React.useState('')
   const [inviteCodeError, setInviteCodeError] = React.useState('')
@@ -1126,37 +1128,39 @@ export function TeamGitConfig() {
             </SettingCard>
           )}
 
-          {/* LLM Service Config */}
-          <SettingCard>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-slate-100 dark:bg-slate-900/30">
-                  <Settings className="h-5 w-5 text-slate-700 dark:text-slate-400" />
+          {/* LLM Service Config — owner / manager only */}
+          {canManageServiceConfig && (
+            <SettingCard>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-slate-100 dark:bg-slate-900/30">
+                    <Settings className="h-5 w-5 text-slate-700 dark:text-slate-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{t('settings.team.serviceConfig', 'Service Config')}</p>
+                    <p className="text-xs text-muted-foreground">{t('settings.team.serviceConfigDesc', 'LLM hosting settings for this team')}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium">{t('settings.team.serviceConfig', 'Service Config')}</p>
-                  <p className="text-xs text-muted-foreground">{t('settings.team.serviceConfigDesc', 'LLM hosting settings for this team')}</p>
-                </div>
+                <HostLlmConfig
+                  enabled={hostLlm}
+                  onEnabledChange={setHostLlm}
+                  baseUrl={llmUrl}
+                  onBaseUrlChange={setLlmUrl}
+                  models={llmModels}
+                  onModelsChange={setLlmModels}
+                />
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={handleSaveLlmConfig}
+                  disabled={llmSaving}
+                >
+                  {llmSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  {llmSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
+                </Button>
               </div>
-              <HostLlmConfig
-                enabled={hostLlm}
-                onEnabledChange={setHostLlm}
-                baseUrl={llmUrl}
-                onBaseUrlChange={setLlmUrl}
-                models={llmModels}
-                onModelsChange={setLlmModels}
-              />
-              <Button
-                size="sm"
-                className="gap-1.5"
-                onClick={handleSaveLlmConfig}
-                disabled={llmSaving}
-              >
-                {llmSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                {llmSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
-              </Button>
-            </div>
-          </SettingCard>
+            </SettingCard>
+          )}
 
           {/* Team Members */}
           <SettingCard>

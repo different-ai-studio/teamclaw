@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 
 const uiVariantMocks = vi.hoisted(() => ({ workspaceShell: false }))
 
 const uiStoreMocks = vi.hoisted(() => ({
   advancedMode: true,
+  defaultNavTab: 'session',
   openSettings: vi.fn(),
   closeSettings: vi.fn(),
   embeddedSettingsSection: null as string | null,
@@ -27,7 +28,9 @@ const workspaceStoreMocks = vi.hoisted(() => ({
 
 const teamModeStoreMocks = vi.hoisted(() => ({
   teamMode: false,
+  teamModeType: null as string | null,
   p2pConnected: false,
+  loadTeamGitFileSyncStatus: vi.fn(),
 }))
 
 const teamOssStoreMocks = vi.hoisted(() => ({
@@ -180,6 +183,20 @@ vi.mock('@/components/NodeStatusPopover', () => ({
   NodeStatusPopover: ({ children }: any) => <div>{children}</div>,
 }))
 
+vi.mock('@/components/navigation/DefaultBottomNav', () => ({
+  DefaultBottomNav: () => <div data-testid="default-bottom-nav">default-bottom-nav</div>,
+}))
+
+vi.mock('@/components/panel/ShortcutsPanel', () => ({
+  ShortcutsPanel: () => <div data-testid="shortcuts-panel">shortcuts-panel</div>,
+}))
+
+vi.mock('@/components/panel/RightPanel', () => ({
+  RightPanel: ({ defaultTab }: { defaultTab?: string }) => (
+    <div data-testid="right-panel">{defaultTab}</div>
+  ),
+}))
+
 import { AppSidebar } from '@/components/app-sidebar'
 
 describe('AppSidebar', () => {
@@ -195,6 +212,7 @@ describe('AppSidebar', () => {
     sessionStoreMocks.pendingPermissions = []
     sessionStoreMocks.pendingQuestions = []
     uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'session'
     uiStoreMocks.embeddedSettingsSection = null
     uiStoreMocks.openSettings = vi.fn()
     uiStoreMocks.closeSettings = vi.fn()
@@ -282,13 +300,92 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Roles & Skills')).toBeDefined()
   })
 
-  it('default mode renders Quick Access section with merged roles and skills entry', () => {
+  it('default mode renders the default bottom navigation instead of the mixed quick access list', () => {
     uiVariantMocks.workspaceShell = false
     render(<AppSidebar />)
-    expect(screen.getByText('Shortcuts')).toBeDefined()
-    expect(screen.getByText('Automation')).toBeDefined()
-    expect(screen.getByText('Roles & Skills')).toBeDefined()
-    expect(screen.getByText('Knowledge')).toBeDefined()
+    expect(screen.getByTestId('default-bottom-nav')).toBeDefined()
+    expect(screen.queryByText('Automation')).toBeNull()
+    expect(screen.queryByText('Roles & Skills')).toBeNull()
+  })
+
+  it('default mode replaces the session list with the shortcuts content', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'shortcuts'
+    render(<AppSidebar />)
+    expect(screen.getByTestId('shortcuts-panel')).toBeDefined()
+    expect(screen.queryByText('Session One')).toBeNull()
+  })
+
+  it('default mode replaces the session list with the knowledge content', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'knowledge'
+    render(<AppSidebar />)
+    expect(screen.getByTestId('right-panel').textContent).toBe('knowledge')
+    expect(screen.queryByText('Session One')).toBeNull()
+  })
+
+  it('default mode uses the session header controls for the session tab', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'session'
+
+    render(<AppSidebar />)
+
+    expect(screen.getByTitle('Collapse sidebar')).toBeDefined()
+    expect(screen.getByTitle('Search (⌘K)')).toBeDefined()
+    expect(screen.getByTitle('Show scheduled sessions')).toBeDefined()
+    expect(screen.getByTitle('New Chat')).toBeDefined()
+  })
+
+  it('default mode uses the knowledge header controls for the knowledge tab', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'knowledge'
+
+    const { container } = render(<AppSidebar />)
+
+    expect(screen.getByTitle('Collapse sidebar')).toBeDefined()
+    expect(screen.getByTitle('Filter files...')).toBeDefined()
+    expect(screen.getByTitle('Show git changed files only')).toBeDefined()
+    expect(screen.getByTitle('Collapse All')).toBeDefined()
+    expect(screen.queryByTitle('New Chat')).toBeNull()
+    expect(screen.queryByTitle('Search (⌘K)')).toBeNull()
+    expect(container.querySelector('.border-t.border-border\\/60')).toBeNull()
+  })
+
+  it('default mode knowledge search opens a floating search bar below the topbar', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'knowledge'
+
+    render(<AppSidebar />)
+
+    expect(screen.queryByPlaceholderText('Filter files...')).toBeNull()
+    fireEvent.click(screen.getByTitle('Filter files...'))
+    expect(screen.getByPlaceholderText('Filter files...')).toBeDefined()
+    expect(screen.getByTitle('Show git changed files only')).toBeDefined()
+    expect(screen.getByTitle('Collapse All')).toBeDefined()
+  })
+
+  it('default mode uses only the collapse control for the shortcuts tab', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'shortcuts'
+
+    const { container } = render(<AppSidebar />)
+
+    expect(screen.getByTitle('Collapse sidebar')).toBeDefined()
+    expect(screen.getByTitle('New Shortcut')).toBeDefined()
+    expect(screen.queryByTitle('New Chat')).toBeNull()
+    expect(screen.queryByTitle('Search (⌘K)')).toBeNull()
+    expect(screen.queryByTitle('Filter files...')).toBeNull()
+    expect(container.querySelector('.border-t.border-border\\/60')).toBeNull()
+  })
+
+  it('default mode shortcuts new button opens the shortcuts settings page', () => {
+    uiVariantMocks.workspaceShell = false
+    uiStoreMocks.defaultNavTab = 'shortcuts'
+
+    render(<AppSidebar />)
+
+    fireEvent.click(screen.getByTitle('New Shortcut'))
+    expect(uiStoreMocks.openSettings).toHaveBeenCalledWith('shortcuts')
   })
 
   it('workspace mode does not render bottom Knowledge entry', () => {
@@ -305,40 +402,14 @@ describe('AppSidebar', () => {
     expect(screen.queryByText('设置')).toBeNull()
   })
 
-  it('clicking Shortcuts in Quick Access calls openPanel with "shortcuts"', () => {
-    uiVariantMocks.workspaceShell = false
+  it('workspace variant preserves the settings footer row', () => {
+    uiVariantMocks.workspaceShell = true
     render(<AppSidebar />)
-    screen.getByText('Shortcuts').closest('button')!.click()
-    expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('shortcuts')
-  })
-
-  it('clicking Knowledge in Quick Access calls openPanel with "knowledge"', () => {
-    uiVariantMocks.workspaceShell = false
-    render(<AppSidebar />)
-    screen.getByText('Knowledge').closest('button')!.click()
-    expect(workspaceStoreMocks.openPanel).toHaveBeenCalledWith('knowledge')
-  })
-
-  it('clicking active Automation in Quick Access closes it', () => {
-    uiVariantMocks.workspaceShell = false
-    uiStoreMocks.embeddedSettingsSection = 'automation'  // already active
-    render(<AppSidebar />)
-    screen.getByText('Automation').closest('button')!.click()
-    expect(uiStoreMocks.closeEmbeddedSettingsSection).toHaveBeenCalled()
-  })
-
-  it('clicking active Knowledge in Quick Access closes the panel', () => {
-    uiVariantMocks.workspaceShell = false
-    const closePanelFn = vi.fn()
-    workspaceStoreMocks.isPanelOpen = true
-    workspaceStoreMocks.activeTab = 'knowledge'
-    workspaceStoreMocks.closePanel = closePanelFn
-    render(<AppSidebar />)
-    screen.getByText('Knowledge').closest('button')!.click()
-    expect(closePanelFn).toHaveBeenCalled()
+    expect(screen.getByText('Settings')).toBeDefined()
   })
 
   it('shows connected P2P icon state from engine snapshot', () => {
+    uiVariantMocks.workspaceShell = true
     teamModeStoreMocks.teamMode = true
     p2pEngineStoreMocks.snapshot = {
       status: 'connected',
@@ -353,6 +424,7 @@ describe('AppSidebar', () => {
   })
 
   it('shows degraded P2P icon state from engine snapshot', () => {
+    uiVariantMocks.workspaceShell = true
     teamModeStoreMocks.teamMode = true
     p2pEngineStoreMocks.snapshot = {
       status: 'connected',
@@ -367,6 +439,7 @@ describe('AppSidebar', () => {
   })
 
   it('shows disconnected P2P icon state when engine is disconnected', () => {
+    uiVariantMocks.workspaceShell = true
     teamModeStoreMocks.teamMode = true
     p2pEngineStoreMocks.snapshot = {
       status: 'disconnected',

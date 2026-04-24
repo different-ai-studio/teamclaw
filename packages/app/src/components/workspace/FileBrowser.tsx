@@ -48,9 +48,17 @@ interface FileBrowserProps {
   rootCreating?: 'file' | 'folder' | null
   onRootCreateConfirm?: (name: string) => void
   onRootCreateCancel?: () => void
+  /** Hide the built-in toolbar/header row, for callers rendering external controls. */
+  hideToolbar?: boolean
+  filterText?: string
+  onFilterTextChange?: (value: string) => void
+  gitChangedOnly?: boolean
+  onGitChangedOnlyChange?: (value: boolean) => void
+  searchExpanded?: boolean
+  onSearchExpandedChange?: (value: boolean) => void
 }
 
-export function FileBrowser({ className, variant = 'default', rootPath, rootPaths, rootLabels, hideGitStatus = false, actionIcons, rootCreating, onRootCreateConfirm, onRootCreateCancel }: FileBrowserProps) {
+export function FileBrowser({ className, variant = 'default', rootPath, rootPaths, rootLabels, hideGitStatus = false, actionIcons, rootCreating, onRootCreateConfirm, onRootCreateCancel, hideToolbar = false, filterText: controlledFilterText, onFilterTextChange, gitChangedOnly: controlledGitChangedOnly, onGitChangedOnlyChange, searchExpanded: controlledSearchExpanded, onSearchExpandedChange }: FileBrowserProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const isPanelOpen = useWorkspaceStore(s => s.isPanelOpen)
@@ -59,10 +67,16 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
   const collapseAll = useWorkspaceStore(s => s.collapseAll)
   const undo = useWorkspaceStore(s => s.undo)
   const undoStack = useWorkspaceStore(s => s.undoStack)
-  const [filterText, setFilterText] = React.useState('')
+  const [internalFilterText, setInternalFilterText] = React.useState('')
+  const filterText = controlledFilterText ?? internalFilterText
+  const setFilterText = onFilterTextChange ?? setInternalFilterText
   const deferredFilterText = React.useDeferredValue(filterText)
-  const [gitChangedOnly, setGitChangedOnly] = React.useState(false)
-  const [searchExpanded, setSearchExpanded] = React.useState(false)
+  const [internalGitChangedOnly, setInternalGitChangedOnly] = React.useState(false)
+  const gitChangedOnly = controlledGitChangedOnly ?? internalGitChangedOnly
+  const setGitChangedOnly = onGitChangedOnlyChange ?? setInternalGitChangedOnly
+  const [internalSearchExpanded, setInternalSearchExpanded] = React.useState(false)
+  const searchExpanded = controlledSearchExpanded ?? internalSearchExpanded
+  const setSearchExpanded = onSearchExpandedChange ?? setInternalSearchExpanded
 
   const isCustomRoot = !!rootPath || !!rootPaths
 
@@ -176,7 +190,7 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
   return (
     <div className={cn('flex flex-col h-full', className)} data-file-browser data-testid="file-browser">
 
-      {variant === 'panel' ? (
+      {!hideToolbar && variant === 'panel' ? (
         /* Panel variant: single merged toolbar row with collapsible search */
         <div className="flex items-center gap-0.5 px-2 py-1 border-b">
           {searchExpanded ? (
@@ -282,7 +296,7 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
             </>
           )}
         </div>
-      ) : (
+      ) : !hideToolbar ? (
         /* Default variant: original two-row layout (filter bar with all controls) */
         <div className="px-2 py-1.5 border-b">
           <div className="flex items-center gap-1">
@@ -364,7 +378,7 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
             )}
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* File tree - supports horizontal and vertical scroll */}
       <ScrollAreaPrimitive.Root className="flex-1 relative overflow-hidden">

@@ -2,6 +2,12 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
 import { appShortName } from '@/lib/build-config'
+import { useWorkspaceStore } from './workspace'
+
+function getWorkspaceArgs() {
+  const workspacePath = useWorkspaceStore.getState().workspacePath
+  return workspacePath ? { workspacePath } : {}
+}
 
 export interface ShortcutNode {
   id: string
@@ -11,6 +17,7 @@ export interface ShortcutNode {
   parentId: string | null
   type: 'native' | 'link' | 'folder'
   target: string
+  role?: string[]
   children?: ShortcutNode[]
 }
 
@@ -18,6 +25,7 @@ interface ShortcutsState {
   nodes: ShortcutNode[]
   teamNodes: ShortcutNode[]
   teamLoaded: boolean
+  currentShortcutRoles: string[]
 
   addNode: (node: Omit<ShortcutNode, 'id'>) => string
   updateNode: (id: string, updates: Partial<ShortcutNode>) => void
@@ -29,6 +37,7 @@ interface ShortcutsState {
   getTeamTree: () => ShortcutNode[]
   getChildren: (parentId: string | null) => ShortcutNode[]
   setTeamNodes: (nodes: ShortcutNode[]) => void
+  setCurrentShortcutRoles: (roles: string[] | null | undefined) => void
 }
 
 const STORAGE_KEY = `${appShortName}-shortcuts`
@@ -40,7 +49,7 @@ function loadPersistedNodes(): ShortcutNode[] {
 
 async function loadPersistedNodesAsync(): Promise<ShortcutNode[]> {
   try {
-    const nodes = await invoke<ShortcutNode[]>('load_shortcuts')
+    const nodes = await invoke<ShortcutNode[]>('load_shortcuts', getWorkspaceArgs())
     if (nodes && nodes.length > 0) {
       return nodes
     }
@@ -54,7 +63,7 @@ function persistNodes(nodes: ShortcutNode[]): void {
   // Write to localStorage for backwards compatibility
   saveToStorage(STORAGE_KEY, { nodes, version: 1 })
   // Also persist to file so the MCP server can read/write shortcuts
-  invoke('save_shortcuts', { nodes }).catch(() => {
+  invoke('save_shortcuts', { nodes, ...getWorkspaceArgs() }).catch(() => {
     // Ignore errors — file write is best-effort (no workspace may be set yet)
   })
 }
@@ -73,6 +82,29 @@ function buildTree(nodes: ShortcutNode[], parentId: string | null): ShortcutNode
     }))
 }
 
+function normalizeRoles(roles: string[] | null | undefined): string[] {
+  if (!Array.isArray(roles)) return []
+  return roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
+}
+
+function canSeeTeamShortcut(node: ShortcutNode, currentRoles: string[]): boolean {
+  const shortcutRoles = normalizeRoles(node.role)
+  if (shortcutRoles.length === 0) return true
+  if (currentRoles.length === 0) return false
+  const currentRoleSet = new Set(currentRoles)
+  return shortcutRoles.some((role) => currentRoleSet.has(role))
+}
+
+function filterTeamTreeForRoles(tree: ShortcutNode[], currentRoles: string[]): ShortcutNode[] {
+  return tree.flatMap((node) => {
+    const filteredChildren = filterTeamTreeForRoles(node.children ?? [], currentRoles)
+    if (!canSeeTeamShortcut(node, currentRoles) && (node.type !== 'folder' || filteredChildren.length === 0)) {
+      return []
+    }
+    return [{ ...node, children: filteredChildren }]
+  })
+}
+
 export const useShortcutsStore = create<ShortcutsState>((set, get) => {
   // Kick off async load from file; update store when result arrives
   loadPersistedNodesAsync().then((nodes) => {
@@ -89,6 +121,7 @@ export const useShortcutsStore = create<ShortcutsState>((set, get) => {
   nodes: loadPersistedNodes(),
   teamNodes: [],
   teamLoaded: false,
+  currentShortcutRoles: [],
 
   addNode: (node) => {
     const id = generateId()
@@ -155,9 +188,9 @@ export const useShortcutsStore = create<ShortcutsState>((set, get) => {
   },
 
   getTree: () => {
-    const { nodes, teamNodes } = get()
+    const { nodes, teamNodes, currentShortcutRoles } = get()
     const personalTree = buildTree(nodes, null)
-    const teamTree = buildTree(teamNodes, null)
+    const teamTree = filterTeamTreeForRoles(buildTree(teamNodes, null), currentShortcutRoles)
     return [...personalTree, ...teamTree]
   },
 
@@ -167,8 +200,8 @@ export const useShortcutsStore = create<ShortcutsState>((set, get) => {
   },
 
   getTeamTree: () => {
-    const { teamNodes } = get()
-    return buildTree(teamNodes, null)
+    const { teamNodes, currentShortcutRoles } = get()
+    return filterTeamTreeForRoles(buildTree(teamNodes, null), currentShortcutRoles)
   },
 
   getChildren: (parentId) => {
@@ -180,6 +213,10 @@ export const useShortcutsStore = create<ShortcutsState>((set, get) => {
 
   setTeamNodes: (nodes) => {
     set({ teamNodes: nodes, teamLoaded: true })
+  },
+
+  setCurrentShortcutRoles: (roles) => {
+    set({ currentShortcutRoles: normalizeRoles(roles) })
   },
   }
 })

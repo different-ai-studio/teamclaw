@@ -105,9 +105,13 @@ import { useState } from "react";
 
 const RIGHT_PANEL_MIN = 280;
 const RIGHT_PANEL_MAX = 600;
+const MAIN_SPLIT_LEFT_MIN = 360;
+const MAIN_SPLIT_LEFT_MAX = 900;
 
-export function useResizablePanels() {
+export function useResizablePanels(options?: { mainSplitLeftMaxWidth?: number }) {
   const [rightPanelWidth, setRightPanelWidth] = useState(400);
+  const [mainSplitLeftWidth, setMainSplitLeftWidth] = useState(560);
+  const mainSplitLeftMaxWidth = options?.mainSplitLeftMaxWidth ?? MAIN_SPLIT_LEFT_MAX;
 
   const handleRightPanelResize = useCallback((delta: number) => {
     setRightPanelWidth((prev) =>
@@ -115,5 +119,22 @@ export function useResizablePanels() {
     );
   }, []);
 
-  return { rightPanelWidth, handleRightPanelResize };
+  const handleMainSplitResize = useCallback((delta: number) => {
+    setMainSplitLeftWidth((prev) =>
+      Math.min(mainSplitLeftMaxWidth, Math.max(MAIN_SPLIT_LEFT_MIN, prev + delta)),
+    );
+  }, [mainSplitLeftMaxWidth]);
+
+  useEffect(() => {
+    setMainSplitLeftWidth((prev) =>
+      Math.min(mainSplitLeftMaxWidth, Math.max(MAIN_SPLIT_LEFT_MIN, prev)),
+    );
+  }, [mainSplitLeftMaxWidth]);
+
+  return {
+    rightPanelWidth,
+    handleRightPanelResize,
+    mainSplitLeftWidth,
+    handleMainSplitResize,
+  };
 }

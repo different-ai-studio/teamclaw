@@ -10,15 +10,17 @@ pub async fn handle_manage_window<R: Runtime>(
     app: &AppHandle<R>,
     payload: Value,
 ) -> Result<SocketResponse, Error> {
-    let payload: WindowManagerRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for manageWindow: {}", e)))?;
+    let payload: WindowManagerRequest = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for manageWindow: {}", e))
+    })?;
 
     // Call the async method
     let result = app.tauri_mcp().manage_window_async(payload).await;
     match result {
         Ok(response) => {
-            let data = serde_json::to_value(response)
-                .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+            let data = serde_json::to_value(response).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?;
             Ok(SocketResponse {
                 success: true,
                 data: Some(data),

@@ -257,10 +257,7 @@ mod tests {
         )
         .await
         .expect("first update ok");
-        assert_eq!(
-            stats.skill_usage.get("superpowers:brainstorming"),
-            Some(&1)
-        );
+        assert_eq!(stats.skill_usage.get("superpowers:brainstorming"), Some(&1));
 
         let stats = update_local_stats(
             ws_path.clone(),
@@ -271,10 +268,7 @@ mod tests {
         )
         .await
         .expect("second update ok");
-        assert_eq!(
-            stats.skill_usage.get("superpowers:brainstorming"),
-            Some(&2)
-        );
+        assert_eq!(stats.skill_usage.get("superpowers:brainstorming"), Some(&2));
 
         let stats = update_local_stats(
             ws_path.clone(),
@@ -286,10 +280,7 @@ mod tests {
         .await
         .expect("third update ok");
         assert_eq!(stats.skill_usage.get("sentry-fix"), Some(&1));
-        assert_eq!(
-            stats.skill_usage.get("superpowers:brainstorming"),
-            Some(&2)
-        );
+        assert_eq!(stats.skill_usage.get("superpowers:brainstorming"), Some(&2));
     }
 
     #[tokio::test]

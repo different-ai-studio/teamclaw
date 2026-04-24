@@ -1,7 +1,7 @@
 use crate::models::ScreenshotResponse;
 use crate::{Error, Result};
 use image;
-use log::{debug, info, error};
+use log::{debug, error, info};
 use tauri::Runtime;
 
 // Import shared functionality
@@ -22,9 +22,12 @@ pub async fn take_screenshot<R: Runtime>(
         .window_label
         .clone()
         .unwrap_or_else(|| "main".to_string());
-    
+
     // Get application name from params or use a default
-    let application_name = params.application_name.clone().unwrap_or_else(|| "".to_string());
+    let application_name = params
+        .application_name
+        .clone()
+        .unwrap_or_else(|| "".to_string());
 
     handle_screenshot_task(move || {
         // Get the window title to help identify the right window
@@ -67,7 +70,11 @@ pub async fn take_screenshot<R: Runtime>(
 }
 
 // Helper function to find the window in the xcap window list - optimized version
-fn find_window(xcap_windows: &[xcap::Window], window_title: &str, application_name: &str) -> Option<xcap::Window> {
+fn find_window(
+    xcap_windows: &[xcap::Window],
+    window_title: &str,
+    application_name: &str,
+) -> Option<xcap::Window> {
     let application_name_lower = application_name.to_lowercase();
 
     debug!(
@@ -96,7 +103,6 @@ fn find_window(xcap_windows: &[xcap::Window], window_title: &str, application_na
             }
 
             let app_name = window.app_name().to_lowercase();
-            
 
             // Direct match for application name - highest priority
             if app_name.contains(&application_name_lower) {

@@ -6,6 +6,7 @@ import { KnowledgeBrowser } from '@/components/knowledge/KnowledgeBrowser'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useSessionStore } from '@/stores/session'
 import type { FileDiff } from '@/lib/opencode/sdk-types'
+import type { ComponentProps } from 'react'
 
 interface RightPanelProps {
   diff?: FileDiff[]
@@ -13,9 +14,10 @@ interface RightPanelProps {
   defaultTab?: 'diff' | 'files' | 'session' | 'shortcuts' | 'knowledge'
   // Compact mode for file mode layout
   compact?: boolean
+  knowledgeBrowserProps?: ComponentProps<typeof KnowledgeBrowser>
 }
 
-export function RightPanel({ diff, defaultTab, compact }: RightPanelProps) {
+export function RightPanel({ diff, defaultTab, compact, knowledgeBrowserProps }: RightPanelProps) {
   const storeActiveTab = useWorkspaceStore(s => s.activeTab)
   const sessionDiff = useSessionStore(s => s.sessionDiff)
 
@@ -38,7 +40,7 @@ export function RightPanel({ diff, defaultTab, compact }: RightPanelProps) {
         <SessionList compact={compact} />
       )}
       {activeTab === 'knowledge' && (
-        <KnowledgeBrowser />
+        <KnowledgeBrowser {...knowledgeBrowserProps} />
       )}
     </div>
   )

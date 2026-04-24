@@ -120,10 +120,9 @@ fn compute_secret_verify(team_secret: &str) -> Result<String, String> {
     use hmac::{Hmac, Mac};
     type HmacSha256 = Hmac<sha2::Sha256>;
 
-    let secret_bytes =
-        hex::decode(team_secret).map_err(|e| format!("Invalid hex secret: {e}"))?;
-    let mut mac = HmacSha256::new_from_slice(&secret_bytes)
-        .map_err(|e| format!("HMAC init failed: {e}"))?;
+    let secret_bytes = hex::decode(team_secret).map_err(|e| format!("Invalid hex secret: {e}"))?;
+    let mut mac =
+        HmacSha256::new_from_slice(&secret_bytes).map_err(|e| format!("HMAC init failed: {e}"))?;
     mac.update(b"teamclaw-verify");
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
@@ -327,7 +326,14 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let dirs = ["skills", ".mcp", "knowledge", "_feedback", "_meta", "_secrets"];
+    let dirs = [
+        "skills",
+        ".mcp",
+        "knowledge",
+        "_feedback",
+        "_meta",
+        "_secrets",
+    ];
     for d in &dirs {
         std::fs::create_dir_all(team_path.join(d))
             .map_err(|e| format!("Failed to create {}: {}", d, e))?;
@@ -900,7 +906,7 @@ pub async fn team_init_repo(
     // Ensure _meta/members.json exists (create with self as owner if missing)
     let meta_path = Path::new(&team_dir).join("_meta").join("members.json");
     if !meta_path.exists() {
-        use crate::commands::team_unified::{TeamManifest, TeamMember, MemberRole};
+        use crate::commands::team_unified::{MemberRole, TeamManifest, TeamMember};
         let node_id = crate::commands::oss_commands::get_device_id()?;
         let manifest = TeamManifest {
             owner_node_id: node_id.clone(),
@@ -908,6 +914,7 @@ pub async fn team_init_repo(
                 node_id,
                 name: String::new(),
                 role: MemberRole::Owner,
+                shortcuts_role: Vec::new(),
                 label: String::new(),
                 platform: std::env::consts::OS.to_string(),
                 arch: std::env::consts::ARCH.to_string(),
@@ -1014,7 +1021,14 @@ pub async fn team_git_create(
 
     // Scaffold standard team directories
     let team_path = Path::new(&team_dir);
-    for d in &["skills", ".mcp", "knowledge", "_feedback", "_meta", "_secrets"] {
+    for d in &[
+        "skills",
+        ".mcp",
+        "knowledge",
+        "_feedback",
+        "_meta",
+        "_secrets",
+    ] {
         std::fs::create_dir_all(team_path.join(d))
             .map_err(|e| format!("Failed to create {}: {}", d, e))?;
     }
@@ -1045,7 +1059,10 @@ pub async fn team_git_create(
         .map_err(|e| format!("Failed to serialize team.json: {}", e))?;
     std::fs::write(&team_meta_path, team_meta_json)
         .map_err(|e| format!("Failed to write team.json: {}", e))?;
-    println!("[Team Create] Wrote _meta/team.json with team_id={}", team_id);
+    println!(
+        "[Team Create] Wrote _meta/team.json with team_id={}",
+        team_id
+    );
 
     // Write _meta/members.json with self as owner
     let git_user_name = member_name.clone();
@@ -1057,6 +1074,7 @@ pub async fn team_git_create(
                 node_id: node_id.clone(),
                 name: member_name,
                 role: MemberRole::Owner,
+                shortcuts_role: Vec::new(),
                 label: String::new(),
                 platform: std::env::consts::OS.to_string(),
                 arch: std::env::consts::ARCH.to_string(),
@@ -1082,7 +1100,17 @@ pub async fn team_git_create(
     }
     // Set git user identity for this repo (so commits show the member's name)
     let _ = run_git(&["config", "user.name", &git_user_name], &team_dir);
-    let _ = run_git(&["config", "user.email", &format!("{}@teamclaw.local", node_id.chars().take(8).collect::<String>())], &team_dir);
+    let _ = run_git(
+        &[
+            "config",
+            "user.email",
+            &format!(
+                "{}@teamclaw.local",
+                node_id.chars().take(8).collect::<String>()
+            ),
+        ],
+        &team_dir,
+    );
     let (ok, _, stderr) = run_git(&["commit", "-m", "chore: initialize team"], &team_dir)?;
     if !ok {
         println!("[Team Create] git commit warning: {}", stderr.trim());
@@ -1094,18 +1122,13 @@ pub async fn team_git_create(
     let (ok, _, stderr) = run_git(&["push", "origin", branch], &team_dir)?;
     if !ok {
         // Try pushing to current HEAD branch if specified branch fails
-        let (ok2, head_out, _) =
-            run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)?;
+        let (ok2, head_out, _) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)?;
         if ok2 {
             let head_branch = head_out.trim();
             if head_branch != branch {
-                let (ok3, _, stderr3) =
-                    run_git(&["push", "origin", head_branch], &team_dir)?;
+                let (ok3, _, stderr3) = run_git(&["push", "origin", head_branch], &team_dir)?;
                 if !ok3 {
-                    println!(
-                        "[Team Create] git push warning: {}",
-                        stderr3.trim()
-                    );
+                    println!("[Team Create] git push warning: {}", stderr3.trim());
                 }
             } else {
                 println!("[Team Create] git push warning: {}", stderr.trim());
@@ -1127,11 +1150,7 @@ pub async fn team_git_create(
     println!("[Team Create] Saved team_secret to keychain");
 
     // Init shared secrets
-    crate::commands::shared_secrets::init_shared_secrets(
-        &secrets_state,
-        &team_secret,
-        team_path,
-    )?;
+    crate::commands::shared_secrets::init_shared_secrets(&secrets_state, &team_secret, team_path)?;
     println!("[Team Create] Initialized shared secrets");
 
     // Sync MCP configs
@@ -1150,8 +1169,15 @@ pub async fn team_git_create(
 
     // Fire-and-forget: bootstrap LiteLLM team + owner key via FC.
     // Only runs for managed-Git (frontend passes fc_endpoint when managedGit=true).
-    if let Some(endpoint) = fc_endpoint.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        let url = format!("{}/managed-git/setup-litellm", endpoint.trim_end_matches('/'));
+    if let Some(endpoint) = fc_endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let url = format!(
+            "{}/managed-git/setup-litellm",
+            endpoint.trim_end_matches('/')
+        );
         let body = serde_json::json!({
             "teamId": team_id,
             "teamSecret": team_secret,
@@ -1170,9 +1196,9 @@ pub async fn team_git_create(
                     "[Team Create] LiteLLM via FC: setup-litellm HTTP status={}",
                     r.status()
                 ),
-                Err(e) => eprintln!(
-                    "[Team Create] LiteLLM via FC: setup-litellm request failed: {e}"
-                ),
+                Err(e) => {
+                    eprintln!("[Team Create] LiteLLM via FC: setup-litellm request failed: {e}")
+                }
             }
         });
     }
@@ -1316,6 +1342,7 @@ pub async fn team_git_join(
             node_id: node_id.clone(),
             name: member_name.clone(),
             role: MemberRole::Editor,
+            shortcuts_role: Vec::new(),
             label: String::new(),
             platform: std::env::consts::OS.to_string(),
             arch: std::env::consts::ARCH.to_string(),
@@ -1325,11 +1352,10 @@ pub async fn team_git_join(
     }
 
     // 8. Write updated members.json
-    let members_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| {
-            let _ = std::fs::remove_dir_all(&team_dir);
-            format!("Failed to serialize members.json: {}", e)
-        })?;
+    let members_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+        let _ = std::fs::remove_dir_all(&team_dir);
+        format!("Failed to serialize members.json: {}", e)
+    })?;
     if let Err(e) = std::fs::write(&members_path, members_json) {
         let _ = std::fs::remove_dir_all(&team_dir);
         return Err(format!("Failed to write members.json: {}", e));
@@ -1337,15 +1363,24 @@ pub async fn team_git_join(
 
     // 9. Set git user identity for this repo (so commits show the member's name)
     let _ = run_git(&["config", "user.name", &member_name], &team_dir);
-    let _ = run_git(&["config", "user.email", &format!("{}@teamclaw.local", node_id.chars().take(8).collect::<String>())], &team_dir);
+    let _ = run_git(
+        &[
+            "config",
+            "user.email",
+            &format!(
+                "{}@teamclaw.local",
+                node_id.chars().take(8).collect::<String>()
+            ),
+        ],
+        &team_dir,
+    );
 
     // 10. Git add, commit, push
     let (ok, _, stderr) = run_git(&["add", "-A"], &team_dir)?;
     if !ok {
         println!("[Team Join] git add warning: {}", stderr.trim());
     }
-    let (ok, _, stderr) =
-        run_git(&["commit", "-m", "chore: member joined team"], &team_dir)?;
+    let (ok, _, stderr) = run_git(&["commit", "-m", "chore: member joined team"], &team_dir)?;
     if !ok {
         println!("[Team Join] git commit warning: {}", stderr.trim());
     }
@@ -1355,13 +1390,11 @@ pub async fn team_git_join(
         .unwrap_or("main");
     let (ok, _, stderr) = run_git(&["push", "origin", branch], &team_dir)?;
     if !ok {
-        let (ok2, head_out, _) =
-            run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)?;
+        let (ok2, head_out, _) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)?;
         if ok2 {
             let head_branch = head_out.trim();
             if head_branch != branch {
-                let (ok3, _, stderr3) =
-                    run_git(&["push", "origin", head_branch], &team_dir)?;
+                let (ok3, _, stderr3) = run_git(&["push", "origin", head_branch], &team_dir)?;
                 if !ok3 {
                     println!("[Team Join] git push warning: {}", stderr3.trim());
                 }
@@ -1385,11 +1418,7 @@ pub async fn team_git_join(
     println!("[Team Join] Saved team_secret to keychain");
 
     // 12. Init shared secrets
-    crate::commands::shared_secrets::init_shared_secrets(
-        &secrets_state,
-        &team_secret,
-        team_path,
-    )?;
+    crate::commands::shared_secrets::init_shared_secrets(&secrets_state, &team_secret, team_path)?;
     println!("[Team Join] Initialized shared secrets");
 
     // 13. Sync MCP configs
@@ -1408,7 +1437,11 @@ pub async fn team_git_join(
 
     // Fire-and-forget: register joining member's LiteLLM key via FC.
     // Only runs for managed-Git (frontend passes fc_endpoint when managedGit=true).
-    if let Some(endpoint) = fc_endpoint.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(endpoint) = fc_endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let url = format!("{}/ai/add-member", endpoint.trim_end_matches('/'));
         let body = serde_json::json!({
             "teamId": team_id,
@@ -1427,9 +1460,7 @@ pub async fn team_git_join(
                     "[Team Join] LiteLLM via FC: add-member HTTP status={}",
                     r.status()
                 ),
-                Err(e) => eprintln!(
-                    "[Team Join] LiteLLM via FC: add-member request failed: {e}"
-                ),
+                Err(e) => eprintln!("[Team Join] LiteLLM via FC: add-member request failed: {e}"),
             }
         });
     }
@@ -1646,7 +1677,10 @@ pub async fn team_sync_repo(
                     let _ = std::fs::copy(&src, &dest);
                 }
             }
-            println!("[Team Sync] conflict detected, backed up local files to .trash/{}", ts);
+            println!(
+                "[Team Sync] conflict detected, backed up local files to .trash/{}",
+                ts
+            );
         }
 
         // Force reset to remote
@@ -1683,7 +1717,10 @@ pub async fn team_sync_repo(
 
     // Reload shared secrets from disk (other members may have added/updated secrets)
     if let Err(e) = crate::commands::shared_secrets::load_all_secrets(&secrets_state) {
-        println!("[Team Sync] Warning: Failed to reload shared secrets: {}", e);
+        println!(
+            "[Team Sync] Warning: Failed to reload shared secrets: {}",
+            e
+        );
     }
 
     // Persist last sync timestamp to teamclaw.json so the UI can display it
@@ -1693,9 +1730,15 @@ pub async fn team_sync_repo(
     }
 
     let sync_detail = if conflict_resolved {
-        format!("Synced with origin/{} (conflict resolved, local backup in .trash/){}", branch, mcp_msg)
+        format!(
+            "Synced with origin/{} (conflict resolved, local backup in .trash/){}",
+            branch, mcp_msg
+        )
     } else if had_local_changes {
-        format!("Synced with origin/{} (local changes pushed){}", branch, mcp_msg)
+        format!(
+            "Synced with origin/{} (local changes pushed){}",
+            branch, mcp_msg
+        )
     } else {
         format!("Synced with origin/{}{}", branch, mcp_msg)
     };
@@ -1750,15 +1793,10 @@ pub async fn init_git_team_secrets(
         return Ok(()); // No team metadata yet, skip
     }
 
-    let team_secret =
-        crate::commands::oss_sync::load_team_secret(&workspace_path, &team_id)
-            .map_err(|e| format!("Failed to load team secret: {e}"))?;
+    let team_secret = crate::commands::oss_sync::load_team_secret(&workspace_path, &team_id)
+        .map_err(|e| format!("Failed to load team secret: {e}"))?;
 
-    crate::commands::shared_secrets::init_shared_secrets(
-        &secrets_state,
-        &team_secret,
-        team_path,
-    )?;
+    crate::commands::shared_secrets::init_shared_secrets(&secrets_state, &team_secret, team_path)?;
 
     Ok(())
 }
@@ -1820,7 +1858,10 @@ mod sync_precheck_tests {
     fn test_parse_untracked_paths_basic() {
         let input = b"?? new.txt\x00 M modified.txt\x00?? subdir/other.bin\x00";
         let paths = parse_untracked_paths(input);
-        assert_eq!(paths, vec!["new.txt".to_string(), "subdir/other.bin".to_string()]);
+        assert_eq!(
+            paths,
+            vec!["new.txt".to_string(), "subdir/other.bin".to_string()]
+        );
     }
 
     #[test]
@@ -1866,8 +1907,7 @@ mod sync_precheck_tests {
         );
         drop(instances);
 
-        let resolved =
-            resolve_workspace_path(Some("/workspace-b".to_string()), &state).unwrap();
+        let resolved = resolve_workspace_path(Some("/workspace-b".to_string()), &state).unwrap();
 
         assert_eq!(resolved, "/workspace-b");
     }

@@ -88,10 +88,14 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
                 ("POST", "/send-wecom") => handle_send_wecom(&app_clone, body_bytes).await,
                 ("POST", "/cron-run") => handle_cron_run(&app_clone, body_bytes).await,
                 ("POST", "/team-sync-all") => handle_team_sync_all(&app_clone, body_bytes).await,
-                ("POST", "/knowledge-search") => handle_knowledge_search(&app_clone, body_bytes).await,
+                ("POST", "/knowledge-search") => {
+                    handle_knowledge_search(&app_clone, body_bytes).await
+                }
                 ("POST", "/knowledge-add") => handle_knowledge_add(&app_clone, body_bytes).await,
                 ("POST", "/knowledge-list") => handle_knowledge_list(&app_clone, body_bytes).await,
-                ("POST", "/knowledge-delete") => handle_knowledge_delete(&app_clone, body_bytes).await,
+                ("POST", "/knowledge-delete") => {
+                    handle_knowledge_delete(&app_clone, body_bytes).await
+                }
                 ("POST", "/env-var-set") => handle_env_var_set(&app_clone, body_bytes).await,
                 ("POST", "/env-var-delete") => handle_env_var_delete(&app_clone, body_bytes).await,
                 ("POST", "/channel-set") => handle_channel_set(&app_clone, body_bytes).await,
@@ -172,8 +176,8 @@ async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, Strin
 }
 
 async fn handle_team_sync_all(app: &AppHandle, _body: &[u8]) -> Result<String, String> {
-    use super::team::get_workspace_path;
     use super::opencode::OpenCodeState;
+    use super::team::get_workspace_path;
 
     let opencode_state = app.state::<OpenCodeState>();
     let workspace = get_workspace_path(&opencode_state)?;
@@ -312,8 +316,13 @@ async fn handle_knowledge_add(app: &AppHandle, body: &[u8]) -> Result<String, St
     );
 
     let rag_state = app.state::<super::knowledge::RagState>();
-    super::knowledge::rag_save_memory(workspace_path, safe_filename.clone(), file_content, rag_state)
-        .await?;
+    super::knowledge::rag_save_memory(
+        workspace_path,
+        safe_filename.clone(),
+        file_content,
+        rag_state,
+    )
+    .await?;
 
     Ok(format!(r#"{{"ok":true,"filename":"{}"}}"#, safe_filename))
 }

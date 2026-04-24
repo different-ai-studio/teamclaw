@@ -1,15 +1,17 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
-import { TEAMCLAW_DIR, CONFIG_FILE_NAME } from '@/lib/build-config'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 type View = 'chat' | 'settings'
 
 // Layout mode: 'task' for agent-centric, 'file' for file-centric
 export type LayoutMode = 'task' | 'file'
+export type MainContentLayout = 'stacked' | 'split'
 
 // Right panel tab in file mode
 export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
+export type DefaultPrimaryTab = 'session' | 'knowledge' | 'shortcuts'
+export type DefaultMoreDestination = 'automation' | 'rolesSkills' | 'settings'
 
 export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
@@ -19,18 +21,25 @@ export type EmbeddedSidebarSettingsSection = 'automation' | 'rolesSkills'
 interface UIState {
   currentView: View
   layoutMode: LayoutMode
+  mainContentLayout: MainContentLayout
   fileModeRightTab: FileModeRightTab
+  defaultNavTab: DefaultPrimaryTab
+  defaultMoreOpen: boolean
   spotlightMode: boolean
   settingsInitialSection: SettingsSection | null
   /** When set, main column shows this settings section (workspace UI variant only). */
   embeddedSettingsSection: EmbeddedSidebarSettingsSection | null
   setView: (view: View) => void
+  setDefaultMoreOpen: (open: boolean) => void
+  selectDefaultPrimaryTab: (tab: DefaultPrimaryTab) => void
+  openDefaultMoreDestination: (destination: DefaultMoreDestination) => Promise<void> | void
   openSettings: (section?: SettingsSection) => void
   closeSettings: () => void
   openEmbeddedSettingsSection: (section: EmbeddedSidebarSettingsSection) => void
   closeEmbeddedSettingsSection: () => void
   setLayoutMode: (mode: LayoutMode) => void
   toggleLayoutMode: () => void
+  toggleMainContentLayout: () => void
   setFileModeRightTab: (tab: FileModeRightTab) => void
   setSpotlightMode: (mode: boolean) => void
   advancedMode: boolean
@@ -43,12 +52,57 @@ interface UIState {
 export const useUIStore = create<UIState>((set, get) => ({
   currentView: 'chat',
   layoutMode: 'task',
+  mainContentLayout: 'stacked',
   fileModeRightTab: 'agent',
+  defaultNavTab: 'session',
+  defaultMoreOpen: false,
   spotlightMode: false,
   settingsInitialSection: null,
   embeddedSettingsSection: null,
 
   setView: (view) => set({ currentView: view }),
+
+  setDefaultMoreOpen: (open) => set({ defaultMoreOpen: open }),
+
+  selectDefaultPrimaryTab: (tab) => {
+    const ws = useWorkspaceStore.getState()
+
+    set({
+      defaultNavTab: tab,
+      defaultMoreOpen: false,
+      currentView: 'chat',
+      settingsInitialSection: null,
+      embeddedSettingsSection: null,
+    })
+
+    if (tab === 'session') {
+      ws.clearSelection()
+      ws.closePanel()
+      return
+    }
+
+    ws.clearSelection()
+    ws.closePanel()
+  },
+
+  openDefaultMoreDestination: (destination) => {
+    set({ defaultMoreOpen: false })
+
+    if (destination === 'settings') {
+      get().openSettings()
+      return
+    }
+
+    if (destination === 'automation') {
+      get().openSettings('automation')
+      return
+    }
+
+    if (destination === 'rolesSkills') {
+      get().openSettings('rolesSkills')
+      return
+    }
+  },
 
   openSettings: (section) => set({
     currentView: 'settings',
@@ -129,93 +183,22 @@ export const useUIStore = create<UIState>((set, get) => ({
     layoutMode: state.layoutMode === 'task' ? 'file' : 'task'
   })),
 
+  toggleMainContentLayout: () => set((state) => ({
+    mainContentLayout: state.mainContentLayout === 'stacked' ? 'split' : 'stacked'
+  })),
+
   setFileModeRightTab: (tab) => set({ fileModeRightTab: tab }),
 
   setSpotlightMode: (mode) => set({ spotlightMode: mode }),
 
-  advancedMode: false,
+  advancedMode: true,
 
-  setAdvancedMode: (value, workspacePath) => {
-    set({ advancedMode: value })
-
-    // If switching to normal mode, reset layout/tabs
-    if (!value) {
-      const state = get()
-      if (state.layoutMode === 'file') {
-        set({ layoutMode: 'task' })
-      }
-      set({ fileModeRightTab: 'shortcuts' })
-
-      // Reset workspace activeTab if on hidden tabs
-      const wsState = useWorkspaceStore.getState()
-      if (wsState.activeTab === 'diff' || wsState.activeTab === 'files') {
-        wsState.openPanel('shortcuts')
-      }
-    }
-
-    // Persist to teamclaw.json
-    if (workspacePath) {
-      import('@tauri-apps/api/path').then(({ join }) =>
-        join(workspacePath, TEAMCLAW_DIR, CONFIG_FILE_NAME).then((configPath) =>
-          import('@tauri-apps/plugin-fs').then(({ readTextFile, writeTextFile, exists, mkdir }) =>
-            join(workspacePath, TEAMCLAW_DIR).then((teamclawDir) =>
-              exists(teamclawDir).then((dirExists) => {
-                const writeConfig = () =>
-                  exists(configPath).then((fileExists) => {
-                    if (fileExists) {
-                      return readTextFile(configPath).then((content) => {
-                        try {
-                          const config = JSON.parse(content)
-                          config.advancedMode = value
-                          return writeTextFile(configPath, JSON.stringify(config, null, 2))
-                        } catch {
-                          return writeTextFile(configPath, JSON.stringify({ advancedMode: value }, null, 2))
-                        }
-                      })
-                    } else {
-                      return writeTextFile(configPath, JSON.stringify({ advancedMode: value }, null, 2))
-                    }
-                  })
-
-                if (!dirExists) {
-                  return mkdir(teamclawDir, { recursive: true }).then(writeConfig)
-                }
-                return writeConfig()
-              })
-            )
-          )
-        )
-      ).catch((err) => console.warn('[UI] Failed to persist advancedMode:', err))
-    }
+  setAdvancedMode: (_value, _workspacePath) => {
+    set({ advancedMode: true })
   },
 
-  loadAdvancedMode: async (workspacePath) => {
-    try {
-      const { join } = await import('@tauri-apps/api/path')
-      const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
-      const configPath = await join(workspacePath, TEAMCLAW_DIR, CONFIG_FILE_NAME)
-      const fileExists = await exists(configPath)
-      if (!fileExists) {
-        set({ advancedMode: false })
-        return
-      }
-      const content = await readTextFile(configPath)
-      try {
-        const config = JSON.parse(content)
-        const value = config.advancedMode === true
-
-        // Guard against stale workspace switch
-        if (useWorkspaceStore.getState().workspacePath !== workspacePath) return
-
-        set({ advancedMode: value })
-      } catch {
-        console.warn('[UI] Failed to parse teamclaw.json, defaulting advancedMode to false')
-        set({ advancedMode: false })
-      }
-    } catch (err) {
-      console.warn('[UI] Failed to load advancedMode:', err)
-      set({ advancedMode: false })
-    }
+  loadAdvancedMode: async (_workspacePath) => {
+    set({ advancedMode: true })
   },
 }))
 

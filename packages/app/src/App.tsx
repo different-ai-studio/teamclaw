@@ -26,7 +26,7 @@ import {
   RotateCw,
   MessageSquarePlus,
   AppWindow,
-  BookOpen,
+  Columns2,
 } from "lucide-react";
 // Spotlight window - lazy loaded for spotlight window label
 const SpotlightWindow = lazy(() =>
@@ -62,7 +62,6 @@ import {
   useResizablePanels,
 } from "@/hooks/useFileEditorState";
 import { useMCPFileWatcher } from "@/hooks/useMCPFileWatcher";
-import { useTeamModeStore } from "@/stores/team-mode";
 
 import {
   AppSidebar,
@@ -197,6 +196,14 @@ function useWebviewShortcuts() {
 // ChatPanel is always mounted to preserve state, hidden when a tab is active
 function MainContent() {
   const activeTab = useTabsStore(selectActiveTab);
+  const mainContentLayout = useUIStore((s) => s.mainContentLayout);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  const [splitContainerWidth, setSplitContainerWidth] = useState(0);
+  const mainSplitLeftMaxWidth =
+    splitContainerWidth > 0 ? Math.max(360, splitContainerWidth - 280) : undefined;
+  const { mainSplitLeftWidth, handleMainSplitResize } = useResizablePanels({
+    mainSplitLeftMaxWidth,
+  });
   const selectedFile = useWorkspaceStore((s) => s.selectedFile);
   const fileContent = useWorkspaceStore((s) => s.fileContent);
   const isLoadingFile = useWorkspaceStore((s) => s.isLoadingFile);
@@ -236,12 +243,30 @@ function MainContent() {
     }
   }, [selectedFile]);
 
-  return (
-    <div className="relative h-full flex flex-col">
-      {/* Tab bar — shown when tabs exist */}
-      <TabBar />
+  useEffect(() => {
+    if (mainContentLayout !== "split") return;
+    const container = splitContainerRef.current;
+    if (!container) return;
 
-      {/* WebView toolbar — shown only when active tab is a webview */}
+    const updateWidth = () => {
+      setSplitContainerWidth(container.getBoundingClientRect().width);
+    };
+
+    updateWidth();
+
+    const observer = new ResizeObserver(() => {
+      updateWidth();
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [mainContentLayout]);
+
+  const fileArea = (
+    <div className="relative h-full flex flex-col">
+      <TabBar />
       {hasActiveTab && activeTab.type === "webview" && (
         <WebViewToolbar
           url={activeTab.target}
@@ -255,21 +280,10 @@ function MainContent() {
           onClose={() => useWebviewUIStore.getState().setShowFind(false)}
         />
       )}
-
       <div className="relative flex-1">
-        {/* ChatPanel - always mounted, hidden when a tab is active */}
-        <div
-          className={`absolute inset-0 ${hasActiveTab ? "invisible" : "visible"}`}
-        >
-          <ErrorBoundary scope="Chat" inline>
-            <ChatPanel />
-          </ErrorBoundary>
-        </div>
-
-        {/* Tab content overlay - shown when a tab is active */}
-        {hasActiveTab && (
+        {hasActiveTab ? (
           <div className={cn(
-            "absolute inset-0 z-10",
+            "absolute inset-0",
             activeTab.type === "webview" ? "bg-transparent pointer-events-none" : "bg-background"
           )}>
             {activeTab.type === "file" ? (
@@ -286,7 +300,51 @@ function MainContent() {
               <TabContentRenderer />
             )}
           </div>
+        ) : (
+          mainContentLayout === "split" ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Select a file or web tab
+            </div>
+          ) : null
         )}
+      </div>
+    </div>
+  );
+
+  if (mainContentLayout === "split") {
+    return (
+      <div
+        ref={splitContainerRef}
+        className="flex h-full min-h-0 overflow-hidden bg-background"
+        data-testid="main-content-split"
+      >
+        <div
+          className="min-w-0 shrink-0 overflow-hidden border-r border-border bg-background"
+          style={{ width: mainSplitLeftWidth }}
+        >
+          {fileArea}
+        </div>
+        <ResizeHandle
+          onResize={handleMainSplitResize}
+          className="bg-border/60 hover:bg-primary/50"
+          testId="main-content-split-resize-handle"
+        />
+        <div className="relative min-w-0 flex-1 overflow-hidden bg-background">
+          <ErrorBoundary scope="Chat" inline>
+            <ChatPanel />
+          </ErrorBoundary>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full flex flex-col">
+      {fileArea}
+      <div className={`absolute inset-0 ${hasActiveTab ? "invisible" : "visible"}`}>
+        <ErrorBoundary scope="Chat" inline>
+          <ChatPanel />
+        </ErrorBoundary>
       </div>
     </div>
   );
@@ -408,10 +466,12 @@ function ResizeHandle({
   onResize,
   direction = "horizontal",
   className = "",
+  testId,
 }: {
   onResize: (delta: number) => void;
   direction?: "horizontal" | "vertical";
   className?: string;
+  testId?: string;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const startPosRef = useRef(0);
@@ -452,6 +512,7 @@ function ResizeHandle({
         transition-colors duration-150 flex-shrink-0 z-20
         ${className}
       `}
+      data-testid={testId}
       onMouseDown={handleMouseDown}
     >
       {/* Larger hit area */}
@@ -494,7 +555,8 @@ function AppContent() {
   const layoutMode = useUIStore((s) => s.layoutMode);
   const fileModeRightTab = useUIStore((s) => s.fileModeRightTab);
   const setFileModeRightTab = useUIStore((s) => s.setFileModeRightTab);
-  const advancedMode = useUIStore((s) => s.advancedMode);
+  const mainContentLayout = useUIStore((s) => s.mainContentLayout);
+  const toggleMainContentLayout = useUIStore((s) => s.toggleMainContentLayout);
   const openSettings = useUIStore((s) => s.openSettings);
   const embeddedSettingsSection = useUIStore((s) => s.embeddedSettingsSection);
   const closeEmbeddedSettingsSection = useUIStore(
@@ -505,9 +567,12 @@ function AppContent() {
   const { state, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
   const hasActiveFileTab = !!useTabsStore(selectActiveTab);
   const hasHiddenTabs = useTabsStore(selectHasHiddenTabs);
-  /** Shortcuts always dock left; Files dock left only in default variant (workspace uses the right panel for Files). */
+  const workspaceUIVariant = isWorkspaceUIVariant();
+  /** Shortcuts/knowledge open in the left dock for both shells.
+   * Only the workspace shell temporarily replaces the sidebar with that dock. */
   const leftDockActive =
-    isPanelOpen && (activeTab === "shortcuts" || activeTab === "knowledge");
+    isPanelOpen &&
+    (activeTab === "shortcuts" || activeTab === "knowledge");
   const showRightWorkspacePanel = isPanelOpen && !leftDockActive;
   const isCollapsed = state === "collapsed";
   /** Native traffic lights sit over the left column; spare inset header when left dock owns that strip. */
@@ -603,7 +668,7 @@ function AppContent() {
   /** When left dock opens, hide the main sidebar; restore prior expansion when it closes. */
   const restoreSidebarAfterLeftDockRef = useRef<boolean | null>(null);
   useEffect(() => {
-    if (leftDockActive) {
+    if (leftDockActive && workspaceUIVariant) {
       if (restoreSidebarAfterLeftDockRef.current === null) {
         restoreSidebarAfterLeftDockRef.current = sidebarOpen;
         if (sidebarOpen) {
@@ -620,7 +685,7 @@ function AppContent() {
         setSidebarOpen(true);
       }
     }
-  }, [leftDockActive, sidebarOpen, setSidebarOpen, closePanel]);
+  }, [leftDockActive, workspaceUIVariant, sidebarOpen, setSidebarOpen, closePanel]);
 
   // Remove HTML skeleton once OpenCode server is bootstrapped (sessions can load)
   // Also remove when workspace resolution completes with no workspace — otherwise
@@ -1072,7 +1137,7 @@ function AppContent() {
 
             {/* Panel tabs - right side of header */}
             <div className="ml-auto flex shrink-0 items-center gap-0.5" data-onboarding-id="workspace-panel-tabs">
-              {(hasActiveFileTab || hasHiddenTabs) && (
+              {mainContentLayout === "stacked" && (hasActiveFileTab || hasHiddenTabs) && (
                 <button
                   className={cn(
                     "rounded p-1 transition-colors hover:bg-muted hover:text-foreground",
@@ -1093,21 +1158,25 @@ function AppContent() {
                   <AppWindow className="h-4 w-4" />
                 </button>
               )}
-              {advancedMode && (
-                <HeaderPanelTab
-                  icon={FolderGit}
-                  label={t("navigation.changes", "Changes")}
-                  count={sessionDiff.length}
-                  isActive={isPanelOpen && activeTab === "diff"}
-                  onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
-                />
-              )}
               <HeaderPanelTab
-                icon={BookOpen}
-                label={t("navigation.knowledge", "Knowledge")}
-                isActive={isPanelOpen && activeTab === "knowledge"}
-                onClick={() => isPanelOpen && activeTab === "knowledge" ? closePanel() : openPanel("knowledge")}
+                icon={FolderGit}
+                label={t("navigation.changes", "Changes")}
+                count={sessionDiff.length}
+                isActive={isPanelOpen && activeTab === "diff"}
+                onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
               />
+              {!workspaceUIVariant && (
+                <button
+                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  onClick={toggleMainContentLayout}
+                  title={mainContentLayout === "stacked"
+                    ? t("app.switchToSplitLayout", "Switch to split layout")
+                    : t("app.switchToStackedLayout", "Switch to stacked layout")
+                  }
+                >
+                  <Columns2 className="h-4 w-4" />
+                </button>
+              )}
               {showRightWorkspacePanel && (
                 <button
                   className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -1193,7 +1262,6 @@ function App() {
   const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
   const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide(openCodeReady);
   const { showConsentDialog, setShowConsentDialog } = useTelemetryConsent(showSetupGuide);
-  const devUnlocked = useTeamModeStore(s => s.devUnlocked)
 
   const spotlightContent = (
     <Suspense fallback={<div className="h-screen w-screen rounded-2xl overflow-hidden" />}>
@@ -1250,11 +1318,6 @@ function App() {
       <div style={{ display: spotlightMode ? 'none' : 'contents' }}>
         {mainContent}
       </div>
-      {devUnlocked && (
-        <div className="fixed bottom-2 right-2 z-50 text-[10px] font-mono font-bold text-orange-500 bg-orange-500/10 border border-orange-500/30 px-1.5 py-0.5 rounded pointer-events-none">
-          DEV
-        </div>
-      )}
     </div>
   ) : (
     <>

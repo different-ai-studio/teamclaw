@@ -22,6 +22,7 @@ import { useDepsStore, getSetupDecision, markSetupCompleted } from "@/stores/dep
 import { useTelemetryStore } from "@/stores/telemetry";
 import { useTeamModeStore } from "@/stores/team-mode";
 import { useTeamOssStore } from "@/stores/team-oss";
+import { useTeamMembersStore } from "@/stores/team-members";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { useCronStore } from "@/stores/cron";
 import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
@@ -31,7 +32,7 @@ import {
   waitForOpenCodeBootstrapped,
 } from "@/lib/opencode/preloader";
 import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
-import { appShortName, TEAM_REPO_DIR } from "@/lib/build-config";
+import { appShortName, TEAMCLAW_DIR, TEAM_REPO_DIR } from "@/lib/build-config";
 
 export const SKILLS_CHANGED_EVENT = "skills-files-changed";
 
@@ -507,6 +508,20 @@ export function useGitReposInit() {
         console.warn("[App] Failed to load team shortcuts (non-critical):", err);
       });
 
+    void (async () => {
+      try {
+        await useTeamMembersStore.getState().loadCurrentNodeId();
+      } catch (err: unknown) {
+        console.warn("[App] Failed to load current team member identity (non-critical):", err);
+      }
+
+      try {
+        await useTeamMembersStore.getState().loadMembers();
+      } catch (err: unknown) {
+        console.warn("[App] Failed to load team members for shortcut roles (non-critical):", err);
+      }
+    })();
+
     return () => {
       if (teamSyncIntervalRef.current) {
         clearInterval(teamSyncIntervalRef.current);
@@ -515,19 +530,44 @@ export function useGitReposInit() {
     };
   }, [workspacePath, openCodeReady]);
 
-  // Real-time: refresh team-git file status when files inside teamclaw-team/ change
+  // Real-time: refresh team-git file status and member roles when team files change
   useEffect(() => {
     if (!workspacePath || !isTauri()) return;
-    let unlisten: (() => void) | undefined;
+    let unlistenFileChange: (() => void) | undefined;
+    let unlistenMembersChanged: (() => void) | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let cancelled = false;
 
+    const normalizePath = (value: string) => value.replace(/\\/g, "/").replace(/\/$/, "");
     const teamDirPrefix = `${workspacePath}/${TEAM_REPO_DIR}/`;
+    const memberManifestPaths = new Set([
+      `${workspacePath}/${TEAM_REPO_DIR}/_meta/members.json`,
+      `${workspacePath}/${TEAM_REPO_DIR}/_team/members.json`,
+      `${workspacePath}/${TEAMCLAW_DIR}/_team/members.json`,
+    ].map(normalizePath));
+
+    const refreshCurrentMemberShortcutRoles = async () => {
+      try {
+        await useTeamMembersStore.getState().loadCurrentNodeId();
+      } catch (err: unknown) {
+        console.warn("[App] Failed to refresh current team member identity (non-critical):", err);
+      }
+
+      try {
+        await useTeamMembersStore.getState().loadMembers();
+      } catch (err: unknown) {
+        console.warn("[App] Failed to refresh team members for shortcut roles (non-critical):", err);
+      }
+    };
 
     import("@tauri-apps/api/event").then(({ listen }) => {
       if (cancelled) return;
       listen<{ path: string; kind: string }>("file-change", (event) => {
-        const path = event.payload.path.replace(/\\/g, "/");
+        const path = normalizePath(event.payload.path);
+        if (memberManifestPaths.has(path)) {
+          void refreshCurrentMemberShortcutRoles();
+        }
+
         if (!path.startsWith(teamDirPrefix)) return;
         // Skip churn inside .git/
         if (path.includes(`/${TEAM_REPO_DIR}/.git/`)) return;
@@ -538,14 +578,29 @@ export function useGitReposInit() {
           useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath);
         }, 500);
       }).then((fn) => {
-        unlisten = fn;
+        if (cancelled) {
+          fn();
+          return;
+        }
+        unlistenFileChange = fn;
+      });
+
+      listen("team:members-changed", () => {
+        void refreshCurrentMemberShortcutRoles();
+      }).then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
+        unlistenMembersChanged = fn;
       });
     });
 
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
-      unlisten?.();
+      unlistenFileChange?.();
+      unlistenMembersChanged?.();
     };
   }, [workspacePath]);
 }

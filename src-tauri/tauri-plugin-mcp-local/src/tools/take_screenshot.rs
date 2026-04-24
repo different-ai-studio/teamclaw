@@ -1,13 +1,13 @@
+use crate::TauriMcpExt;
 use crate::error::{Error, Result};
+use crate::models::ScreenshotRequest;
 use crate::shared::ScreenshotParams;
+use crate::socket_server::SocketResponse;
 use base64;
 use image::DynamicImage;
+use log::info;
 use serde_json::Value;
 use tauri::{AppHandle, Runtime};
-use log::info;
-use crate::TauriMcpExt;
-use crate::models::ScreenshotRequest;
-use crate::socket_server::SocketResponse;
 
 /// Common function to process and compress an image - used by platform implementations
 pub fn process_image(mut dynamic_image: DynamicImage, params: &ScreenshotParams) -> Result<String> {
@@ -154,15 +154,18 @@ pub async fn handle_take_screenshot<R: Runtime>(
     app: &AppHandle<R>,
     payload: Value,
 ) -> Result<SocketResponse> {
-    let payload: ScreenshotRequest = serde_json::from_value(payload)
-        .map_err(|e| Error::Anyhow { message: format!("Invalid payload for takeScreenshot: {}", e) })?;
+    let payload: ScreenshotRequest =
+        serde_json::from_value(payload).map_err(|e| Error::Anyhow {
+            message: format!("Invalid payload for takeScreenshot: {}", e),
+        })?;
 
     // Call the async method
     let result = app.tauri_mcp().take_screenshot_async(payload).await;
     match result {
         Ok(response) => {
-            let data = serde_json::to_value(response)
-                .map_err(|e| Error::Anyhow { message: format!("Failed to serialize response: {}", e) })?;
+            let data = serde_json::to_value(response).map_err(|e| Error::Anyhow {
+                message: format!("Failed to serialize response: {}", e),
+            })?;
             Ok(SocketResponse {
                 success: true,
                 data: Some(data),

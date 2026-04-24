@@ -42,7 +42,15 @@ vi.mock('@/components/panel/ShortcutsPanel', () => ({
 }));
 
 vi.mock('@/components/knowledge/KnowledgeBrowser', () => ({
-  KnowledgeBrowser: () => React.createElement('div', { 'data-testid': 'knowledge-browser' }),
+  KnowledgeBrowser: (props: Record<string, unknown>) =>
+    React.createElement(
+      'div',
+      {
+        'data-testid': 'knowledge-browser',
+        'data-hide-toolbar': String(Boolean(props.hidePanelToolbar)),
+        'data-filter-text': String(props.filterText ?? ''),
+      },
+    ),
 }));
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -120,6 +128,20 @@ describe('RightPanel interactions', () => {
       const { RightPanel } = await import('@/components/panel/RightPanel');
       render(React.createElement(RightPanel));
       expect(screen.getByTestId('shortcuts-panel')).toBeDefined();
+    });
+
+    it('passes knowledge browser props through to KnowledgeBrowser', async () => {
+      mockStoreState.activeTab = 'knowledge';
+      const { RightPanel } = await import('@/components/panel/RightPanel');
+      render(React.createElement(RightPanel, {
+        knowledgeBrowserProps: {
+          hidePanelToolbar: true,
+          filterText: 'knowledge',
+        },
+      }));
+      const browser = screen.getByTestId('knowledge-browser');
+      expect(browser.getAttribute('data-hide-toolbar')).toBe('true');
+      expect(browser.getAttribute('data-filter-text')).toBe('knowledge');
     });
   });
 

@@ -11,7 +11,9 @@ where
     // Execute the platform-specific screenshot function in a blocking task
     let result = tokio::task::spawn_blocking(screenshot_fn)
         .await
-        .map_err(|e| Error::window_operation_failed("screenshot task", format!("Task join error: {}", e)))?;
+        .map_err(|e| {
+            Error::window_operation_failed("screenshot task", format!("Task join error: {}", e))
+        })?;
 
     // Handle the result consistently across platforms
     match result {

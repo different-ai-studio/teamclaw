@@ -15,8 +15,9 @@ pub fn handle_ping<R: Runtime>(
 
     match app.tauri_mcp().ping(payload) {
         Ok(response) => {
-            let data = serde_json::to_value(response)
-                .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+            let data = serde_json::to_value(response).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?;
             Ok(SocketResponse {
                 success: true,
                 data: Some(data),

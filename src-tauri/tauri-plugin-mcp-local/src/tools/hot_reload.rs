@@ -25,8 +25,9 @@ pub async fn handle_hot_reload<R: Runtime>(
     payload: Value,
 ) -> Result<SocketResponse, Error> {
     // Parse the payload
-    let payload: HotReloadPayload = serde_json::from_value(payload)
-        .map_err(|e| Error::serialization_error(format!("Invalid payload for hot_reload: {}", e)))?;
+    let payload: HotReloadPayload = serde_json::from_value(payload).map_err(|e| {
+        Error::serialization_error(format!("Invalid payload for hot_reload: {}", e))
+    })?;
 
     let window_label = payload.window_label.unwrap_or_else(|| "main".to_string());
 
@@ -37,9 +38,9 @@ pub async fn handle_hot_reload<R: Runtime>(
 
     // Get the current URL and reload by navigating to it
     // This is the safest cross-platform approach using Tauri's public API
-    let current_url = window.url().map_err(|e| {
-        Error::window_operation_failed("get window URL", format!("{}", e))
-    })?;
+    let current_url = window
+        .url()
+        .map_err(|e| Error::window_operation_failed("get window URL", format!("{}", e)))?;
 
     let reload_result = window.navigate(current_url);
 
@@ -51,8 +52,9 @@ pub async fn handle_hot_reload<R: Runtime>(
                 message: format!("Successfully reloaded window: {}", window_label),
             };
 
-            let data = serde_json::to_value(result)
-                .map_err(|e| Error::serialization_error(format!("Failed to serialize response: {}", e)))?;
+            let data = serde_json::to_value(result).map_err(|e| {
+                Error::serialization_error(format!("Failed to serialize response: {}", e))
+            })?;
 
             Ok(SocketResponse {
                 success: true,

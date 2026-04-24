@@ -18,7 +18,10 @@ use std::io::{BufRead, BufReader, Write};
 // ---------------------------------------------------------------------------
 
 #[derive(Parser, Debug)]
-#[command(name = "teamclaw-introspect", about = "TeamClaw MCP introspection server")]
+#[command(
+    name = "teamclaw-introspect",
+    about = "TeamClaw MCP introspection server"
+)]
 struct Args {
     /// Path to the TeamClaw workspace directory
     #[arg(long, default_value = ".")]
@@ -356,10 +359,7 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
             ))
         }
 
-        "tools/list" => Some(mcp_result(
-            &id,
-            json!({ "tools": tool_definitions() }),
-        )),
+        "tools/list" => Some(mcp_result(&id, json!({ "tools": tool_definitions() }))),
 
         "tools/call" => {
             let params = match req.get("params") {
@@ -373,15 +373,13 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
             let tool_result = match tool_name {
-                "get_my_capabilities" => {
-                    match capabilities::handle(workspace, &arguments).await {
-                        Ok(v) => {
-                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
-                            tool_ok(&text)
-                        }
-                        Err(e) => tool_err(&e),
+                "get_my_capabilities" => match capabilities::handle(workspace, &arguments).await {
+                    Ok(v) => {
+                        let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                        tool_ok(&text)
                     }
-                }
+                    Err(e) => tool_err(&e),
+                },
                 "send_channel_message" => {
                     match send::handle(workspace, api_port, &arguments).await {
                         Ok(v) => {
@@ -391,33 +389,27 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
                         Err(e) => tool_err(&e),
                     }
                 }
-                "manage_cron_job" => {
-                    match cron::handle(workspace, api_port, &arguments).await {
-                        Ok(v) => {
-                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
-                            tool_ok(&text)
-                        }
-                        Err(e) => tool_err(&e),
+                "manage_cron_job" => match cron::handle(workspace, api_port, &arguments).await {
+                    Ok(v) => {
+                        let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                        tool_ok(&text)
                     }
-                }
-                "manage_shortcuts" => {
-                    match shortcuts::handle(workspace, &arguments).await {
-                        Ok(v) => {
-                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
-                            tool_ok(&text)
-                        }
-                        Err(e) => tool_err(&e),
+                    Err(e) => tool_err(&e),
+                },
+                "manage_shortcuts" => match shortcuts::handle(workspace, &arguments).await {
+                    Ok(v) => {
+                        let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                        tool_ok(&text)
                     }
-                }
-                "sync_team_dir" => {
-                    match sync::handle(workspace, api_port, &arguments).await {
-                        Ok(v) => {
-                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
-                            tool_ok(&text)
-                        }
-                        Err(e) => tool_err(&e),
+                    Err(e) => tool_err(&e),
+                },
+                "sync_team_dir" => match sync::handle(workspace, api_port, &arguments).await {
+                    Ok(v) => {
+                        let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                        tool_ok(&text)
                     }
-                }
+                    Err(e) => tool_err(&e),
+                },
                 "manage_knowledge" => {
                     match knowledge::handle(workspace, api_port, &arguments).await {
                         Ok(v) => {
@@ -427,15 +419,13 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
                         Err(e) => tool_err(&e),
                     }
                 }
-                "manage_roles" => {
-                    match roles::handle(workspace, &arguments).await {
-                        Ok(v) => {
-                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
-                            tool_ok(&text)
-                        }
-                        Err(e) => tool_err(&e),
+                "manage_roles" => match roles::handle(workspace, &arguments).await {
+                    Ok(v) => {
+                        let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                        tool_ok(&text)
                     }
-                }
+                    Err(e) => tool_err(&e),
+                },
                 "manage_env_vars" => {
                     match env_vars::handle(workspace, api_port, &arguments).await {
                         Ok(v) => {
@@ -462,7 +452,11 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
 
         unknown => {
             eprintln!("[introspect] Unknown method: {unknown}");
-            Some(mcp_error(&id, -32601, &format!("Method not found: {unknown}")))
+            Some(mcp_error(
+                &id,
+                -32601,
+                &format!("Method not found: {unknown}"),
+            ))
         }
     }
 }
