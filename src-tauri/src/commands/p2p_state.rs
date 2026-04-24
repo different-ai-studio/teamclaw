@@ -25,11 +25,29 @@ impl Default for IrohState {
 }
 
 #[cfg(not(feature = "p2p"))]
+impl std::ops::Deref for IrohState {
+    type Target = Arc<Mutex<Option<()>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(not(feature = "p2p"))]
 pub struct SyncEngineState(pub Arc<Mutex<Option<()>>>);
 
 #[cfg(not(feature = "p2p"))]
 impl Default for SyncEngineState {
     fn default() -> Self {
         Self(Arc::new(Mutex::new(None)))
+    }
+}
+
+#[cfg(not(feature = "p2p"))]
+impl std::ops::Deref for SyncEngineState {
+    type Target = Arc<Mutex<Option<()>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
