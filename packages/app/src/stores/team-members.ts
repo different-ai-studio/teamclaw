@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import type { TeamMember } from '../lib/git/types'
+import { useShortcutsStore } from './shortcuts'
 
 type MemberRole = 'owner' | 'manager' | 'editor' | 'viewer'
 
@@ -39,6 +40,20 @@ interface TeamMembersState {
   reset: () => void
 }
 
+function normalizeShortcutRoles(roles: string[] | null | undefined): string[] {
+  if (!Array.isArray(roles)) return []
+  return roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
+}
+
+function syncCurrentShortcutRoles(members: TeamMember[], currentNodeId: string | null): void {
+  const currentMember = currentNodeId
+    ? members.find((member) => member.nodeId === currentNodeId)
+    : undefined
+  useShortcutsStore.getState().setCurrentShortcutRoles(
+    normalizeShortcutRoles(currentMember?.shortcutsRole),
+  )
+}
+
 export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
   members: [],
   myRole: null,
@@ -53,6 +68,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
     try {
       const info = await invoke<{ nodeId: string }>('get_device_info')
       set({ currentNodeId: info.nodeId })
+      syncCurrentShortcutRoles(get().members, info.nodeId)
     } catch {
       // P2P node not running yet — will retry next call
     }
@@ -63,6 +79,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
     try {
       const members = await invoke<TeamMember[]>('unified_team_get_members')
       set({ members, loading: false })
+      syncCurrentShortcutRoles(members, get().currentNodeId)
     } catch (e) {
       set({ error: String(e), loading: false })
     }
@@ -140,6 +157,7 @@ export const useTeamMembersStore = create<TeamMembersState>((set, get) => ({
     if (_unlistenApplications) {
       _unlistenApplications()
     }
+    useShortcutsStore.getState().setCurrentShortcutRoles([])
     set({
       members: [],
       myRole: null,
