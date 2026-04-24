@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Settings,
   Shapes,
+  SquarePlus,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -44,6 +45,7 @@ export function DefaultBottomNav() {
   const isLoadingWorkspace = useWorkspaceStore((s) => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace)
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = React.useState(false)
+  const [isOpeningNewWindow, setIsOpeningNewWindow] = React.useState(false)
 
   const handleSwitchWorkspace = async () => {
     if (!isTauri()) return
@@ -65,6 +67,28 @@ export function DefaultBottomNav() {
       console.error('[DefaultBottomNav] Failed to switch workspace:', error)
     } finally {
       setIsSwitchingWorkspace(false)
+    }
+  }
+
+  const handleOpenInNewWindow = async () => {
+    if (!isTauri()) return
+
+    setIsOpeningNewWindow(true)
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: t('workspace.openInNewWindow', '在新窗口打开工作区'),
+      })
+      if (!selected || typeof selected !== 'string') return
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('create_workspace_window', { workspacePath: selected })
+      setDefaultMoreOpen(false)
+    } catch (error) {
+      console.error('[DefaultBottomNav] Failed to open workspace in new window:', error)
+    } finally {
+      setIsOpeningNewWindow(false)
     }
   }
 
@@ -137,6 +161,21 @@ export function DefaultBottomNav() {
               </div>
               <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             </button>
+
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 justify-start gap-2 rounded-md px-2 text-xs font-medium text-foreground/90 hover:bg-muted/60"
+              disabled={!isTauri() || isOpeningNewWindow}
+              onClick={() => void handleOpenInNewWindow()}
+            >
+              {isOpeningNewWindow ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : (
+                <SquarePlus className="h-4 w-4 text-muted-foreground" />
+              )}
+              <span>{t('workspace.openInNewWindow', '在新窗口打开工作区')}</span>
+            </Button>
 
             <div className="mx-1 my-1 h-px bg-border/60" />
 
