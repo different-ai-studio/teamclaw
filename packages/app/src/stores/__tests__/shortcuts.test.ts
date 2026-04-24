@@ -10,7 +10,7 @@ import { useShortcutsStore } from '@/stores/shortcuts'
 describe('shortcuts store', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useShortcutsStore.setState({ nodes: [], teamNodes: [], teamLoaded: false })
+    useShortcutsStore.setState({ nodes: [], teamNodes: [], teamLoaded: false, currentShortcutRoles: [] })
   })
 
   it('starts with empty nodes', () => {
@@ -114,6 +114,23 @@ describe('shortcuts store', () => {
     expect(tree).toHaveLength(2)
     expect(tree[0].id).toBe('personal-1')
     expect(tree[1].id).toBe('team-1')
+  })
+
+  it('getTree keeps personal shortcuts while filtering team shortcuts by role', () => {
+    useShortcutsStore.setState({
+      nodes: [{ id: 'personal-1', label: 'P', order: 0, parentId: null, type: 'link', target: 'https://p.com' }],
+      teamNodes: [
+        { id: 'sales', label: 'Sales CRM', order: 0, parentId: null, type: 'link', target: 'https://sales.example.com', role: ['sales'] },
+        { id: 'support', label: 'Support Queue', order: 1, parentId: null, type: 'link', target: 'https://support.example.com', role: ['support'] },
+        { id: 'public', label: 'Handbook', order: 2, parentId: null, type: 'link', target: 'https://handbook.example.com' },
+      ],
+      teamLoaded: true,
+    })
+    useShortcutsStore.getState().setCurrentShortcutRoles(['sales'])
+
+    const tree = useShortcutsStore.getState().getTree()
+
+    expect(tree.map((node) => node.id)).toEqual(['personal-1', 'sales', 'public'])
   })
 
   it('setTeamNodes updates team shortcuts', () => {
