@@ -171,7 +171,7 @@ export function TeamGitConfig() {
   const [loadedTeamSecret, setLoadedTeamSecret] = React.useState('')
 
   // Managed Git state
-  const [managedGit, setManagedGit] = React.useState(true)
+  const [managedGit, setManagedGit] = React.useState(false)
   const [createdInviteCode, setCreatedInviteCode] = React.useState('')
   const [inviteCodeInput, setInviteCodeInput] = React.useState('')
   const [inviteCodeError, setInviteCodeError] = React.useState('')
