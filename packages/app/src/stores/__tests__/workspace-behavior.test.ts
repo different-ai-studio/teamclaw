@@ -12,8 +12,9 @@ vi.mock('@/components/viewers/UnsupportedFileViewer', () => ({
 }));
 
 // Import after mocks
-import { useWorkspaceStore } from '../workspace';
+import { shouldHideFileTreeEntry, useWorkspaceStore } from '../workspace';
 import type { FileNode } from '../workspace';
+import { TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config';
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -162,6 +163,60 @@ describe('workspace store: behavioral tests', () => {
       ];
       const flat = useWorkspaceStore.getState().flattenVisibleFileTree(tree);
       expect(flat).toContain('/a/b/c/deep.ts');
+    });
+  });
+
+  describe('advanced mode file tree hiding', () => {
+    const workspacePath = '/workspace';
+
+    it('hides workspace system directories and files when advanced mode is off', () => {
+      const hiddenEntries: FileNode[] = [
+        { name: TEAMCLAW_DIR, path: `${workspacePath}/${TEAMCLAW_DIR}`, type: 'directory' },
+        { name: '.opencode', path: `${workspacePath}/.opencode`, type: 'directory' },
+        { name: 'opencode.json', path: `${workspacePath}/opencode.json`, type: 'file' },
+        { name: 'config.json', path: `${workspacePath}/config.json`, type: 'file' },
+      ];
+
+      for (const entry of hiddenEntries) {
+        expect(shouldHideFileTreeEntry(entry, workspacePath, false)).toBe(true);
+      }
+    });
+
+    it('hides team internal directories when advanced mode is off', () => {
+      const hiddenEntries: FileNode[] = [
+        { name: '_feedback', path: `${workspacePath}/${TEAM_REPO_DIR}/_feedback`, type: 'directory' },
+        { name: '_meta', path: `${workspacePath}/${TEAM_REPO_DIR}/_meta`, type: 'directory' },
+        { name: '_secrets', path: `${workspacePath}/${TEAM_REPO_DIR}/_secrets`, type: 'directory' },
+        { name: '.git', path: `${workspacePath}/${TEAM_REPO_DIR}/.git`, type: 'directory' },
+        { name: '.leaderboard', path: `${workspacePath}/${TEAM_REPO_DIR}/.leaderboard`, type: 'directory' },
+      ];
+
+      for (const entry of hiddenEntries) {
+        expect(shouldHideFileTreeEntry(entry, workspacePath, false)).toBe(true);
+      }
+    });
+
+    it('does not hide normal files or similarly named nested files in basic mode', () => {
+      const visibleEntries: FileNode[] = [
+        { name: TEAM_REPO_DIR, path: `${workspacePath}/${TEAM_REPO_DIR}`, type: 'directory' },
+        { name: 'README.md', path: `${workspacePath}/${TEAM_REPO_DIR}/README.md`, type: 'file' },
+        { name: 'config.json', path: `${workspacePath}/${TEAM_REPO_DIR}/config.json`, type: 'file' },
+        { name: '_meta', path: `${workspacePath}/src/_meta`, type: 'directory' },
+      ];
+
+      for (const entry of visibleEntries) {
+        expect(shouldHideFileTreeEntry(entry, workspacePath, false)).toBe(false);
+      }
+    });
+
+    it('shows advanced entries when advanced mode is on', () => {
+      const entry: FileNode = {
+        name: '_secrets',
+        path: `${workspacePath}/${TEAM_REPO_DIR}/_secrets`,
+        type: 'directory',
+      };
+
+      expect(shouldHideFileTreeEntry(entry, workspacePath, true)).toBe(false);
     });
   });
 

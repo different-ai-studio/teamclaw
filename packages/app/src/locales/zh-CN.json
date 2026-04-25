@@ -558,7 +558,7 @@
       "noCustomSuggestions": "暂无自定义建议",
       "builtInSuggestions": "内置建议",
       "advancedMode": "高级模式",
-      "advancedModeDesc": "启用 Code 模式、Changes 和 Files 面板",
+      "advancedModeDesc": "在文件树显示系统和团队内部文件，并启用 Code 模式",
       "notifAll": "全部",
       "notifImportant": "仅重要通知",
       "notifMute": "静音"

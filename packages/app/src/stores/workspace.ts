@@ -5,8 +5,56 @@ import { ensureGitignoreEntries } from '@/lib/gitignore-manager'
 import { appShortName, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from './team-mode'
 
-// Directories to hide from file tree (system directories)
-const HIDDEN_DIRECTORIES = new Set([TEAMCLAW_DIR, '.opencode'])
+const ROOT_ADVANCED_MODE_DIRECTORIES = new Set([TEAMCLAW_DIR, '.opencode'])
+const ROOT_ADVANCED_MODE_FILES = new Set(['opencode.json', 'config.json'])
+const TEAM_REPO_ADVANCED_MODE_DIRECTORIES = new Set([
+  '_feedback',
+  '_meta',
+  '_secrets',
+  '.git',
+  '.leaderboard',
+])
+
+function normalizeFileTreePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
+function relativeWorkspacePath(path: string, workspacePath: string): string {
+  const normalizedPath = normalizeFileTreePath(path)
+  const normalizedWorkspace = normalizeFileTreePath(workspacePath)
+  if (normalizedPath === normalizedWorkspace) return ''
+  if (!normalizedPath.startsWith(`${normalizedWorkspace}/`)) return normalizedPath
+  return normalizedPath.slice(normalizedWorkspace.length + 1)
+}
+
+export function shouldHideFileTreeEntry(
+  node: Pick<FileNode, 'name' | 'path' | 'type'>,
+  workspacePath: string,
+  advancedMode: boolean,
+): boolean {
+  if (advancedMode) return false
+
+  const relPath = relativeWorkspacePath(node.path, workspacePath)
+  const isRootEntry = !relPath.includes('/')
+  if (isRootEntry && node.type === 'directory' && ROOT_ADVANCED_MODE_DIRECTORIES.has(node.name)) {
+    return true
+  }
+  if (isRootEntry && node.type === 'file' && ROOT_ADVANCED_MODE_FILES.has(node.name)) {
+    return true
+  }
+
+  const teamInternalDirPrefix = `${TEAM_REPO_DIR}/`
+  if (
+    node.type === 'directory' &&
+    relPath.startsWith(teamInternalDirPrefix) &&
+    !relPath.slice(teamInternalDirPrefix.length).includes('/') &&
+    TEAM_REPO_ADVANCED_MODE_DIRECTORIES.has(node.name)
+  ) {
+    return true
+  }
+
+  return false
+}
 
 // Start watching a directory for file changes
 async function startWatching(path: string): Promise<boolean> {
@@ -573,13 +621,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const entries = await readDir(fullPath);
       console.log("[Workspace] Found", entries.length, "entries");
 
-      const visibleEntries = entries.filter(
-        (entry) =>
-          useTeamModeStore.getState().devUnlocked || !HIDDEN_DIRECTORIES.has(entry.name),
-      );
+      let advancedMode = false;
+      try {
+        const { useUIStore } = await import('./ui');
+        advancedMode = useUIStore.getState().advancedMode;
+      } catch { /* keep basic mode */ }
 
       const nodes: FileNode[] = await Promise.all(
-        visibleEntries.map(async (entry) => {
+        entries.map(async (entry) => {
           const entryPath = `${fullPath}/${entry.name}`;
           let isDirectory = entry.isDirectory;
           const needsStatResolution = !entry.isDirectory && !entry.isFile;
@@ -600,8 +649,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           } as FileNode;
         }),
       );
+      const visibleNodes = nodes.filter(
+        (node) => !shouldHideFileTreeEntry(node, workspacePath, advancedMode),
+      );
 
-      nodes.sort((a, b) => {
+      visibleNodes.sort((a, b) => {
         // Always put teamclaw-team first
         if (a.name === TEAM_REPO_DIR && b.name !== TEAM_REPO_DIR) return -1;
         if (b.name === TEAM_REPO_DIR && a.name !== TEAM_REPO_DIR) return 1;
@@ -615,7 +667,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         return a.name.localeCompare(b.name);
       });
 
-      return nodes;
+      return visibleNodes;
     } catch (error) {
       console.error("[Workspace] Failed to load directory:", error);
       return [];
