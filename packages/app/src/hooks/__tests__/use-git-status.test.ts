@@ -32,7 +32,16 @@ vi.mock('@/stores/git-settings', () => ({
   useGitSettingsStore: (sel: (s: any) => any) => sel({ pollingInterval: 999999999 }),
 }))
 
+// isTauri() returns false in jsdom — web mode branch is exercised
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false }))
+vi.mock('@/lib/git/manager', () => ({ gitManager: { status: vi.fn() } }))
+vi.mock('@/lib/build-config', () => ({ TEAM_REPO_DIR: 'teamclaw-team' }))
+
 import { useGitStatus } from '@/hooks/use-git-status'
+
+// In web mode the hook filters to only files under <workspace>/teamclaw-team/
+const TEAM_FILE = 'teamclaw-team/src/file.ts'
+const TEAM_FILE_ABS = '/workspace/teamclaw-team/src/file.ts'
 
 describe('useGitStatus', () => {
   beforeEach(() => {
@@ -49,26 +58,27 @@ describe('useGitStatus', () => {
     expect(result.current.error).toBeNull()
   })
 
-  it('loads git statuses from service', async () => {
+  it('loads git statuses from service (only teamclaw-team files)', async () => {
     mockGetGitStatus.mockResolvedValue([
-      { path: 'src/file.ts', status: 'modified' },
+      { path: TEAM_FILE, status: 'modified' },
+      { path: 'other/file.ts', status: 'modified' }, // outside teamclaw-team — filtered out
     ])
     const { result } = renderHook(() => useGitStatus())
     await waitFor(() => {
       expect(result.current.gitStatuses.size).toBe(1)
     })
-    expect(result.current.gitStatuses.has('/workspace/src/file.ts')).toBe(true)
+    expect(result.current.gitStatuses.has(TEAM_FILE_ABS)).toBe(true)
   })
 
   it('hasFileChanged returns true for modified files', async () => {
     mockGetGitStatus.mockResolvedValue([
-      { path: 'src/file.ts', status: 'modified' },
+      { path: TEAM_FILE, status: 'modified' },
     ])
     const { result } = renderHook(() => useGitStatus())
     await waitFor(() => {
       expect(result.current.gitStatuses.size).toBe(1)
     })
-    expect(result.current.hasFileChanged('/workspace/src/file.ts')).toBe(true)
-    expect(result.current.hasFileChanged('/workspace/src/other.ts')).toBe(false)
+    expect(result.current.hasFileChanged(TEAM_FILE_ABS)).toBe(true)
+    expect(result.current.hasFileChanged('/workspace/teamclaw-team/src/other.ts')).toBe(false)
   })
 })
