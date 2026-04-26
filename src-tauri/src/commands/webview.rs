@@ -6,6 +6,123 @@ use tauri::{Manager, Runtime};
 /// Chrome UA causes blank pages — servers may return Chrome-specific responses
 /// (e.g. Brotli encoding, different JS bundles) that WKWebView can't handle.
 const WEBVIEW_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15";
+const EXTERNAL_WEBVIEW_INIT_SCRIPT: &str = r#"(function(){
+  // Tauri notification plugin defines Notification.permission as readonly and throws
+  // on direct assignment. Some external sites attempt this write and would otherwise
+  // surface noisy unhandled rejections inside embedded webviews.
+  function suppressReadonlyPermissionError(evt) {
+    try {
+      var reason = evt && evt.reason;
+      var message = reason && reason.message ? String(reason.message) : String(reason || '');
+      if (message !== 'Readonly property' && message !== 'Error: Readonly property') {
+        return;
+      }
+      var stack = reason && reason.stack ? String(reason.stack) : '';
+      if (stack && stack.indexOf('notification') === -1 && stack.indexOf('user-script') === -1) {
+        return;
+      }
+      evt.preventDefault();
+    } catch (_) {}
+  }
+
+  window.addEventListener('unhandledrejection', suppressReadonlyPermissionError, true);
+
+  function installSafeNotificationWrapper() {
+    try {
+      if (!window.Notification) return;
+
+      function wrapNotification(candidate) {
+        if (typeof candidate !== 'function' || candidate.__TEAMCLAW_SAFE_NOTIFICATION__) {
+          return candidate;
+        }
+
+        var permission = 'default';
+        try {
+          permission = candidate.permission == null ? 'default' : String(candidate.permission);
+        } catch (_) {}
+
+        function SafeNotification(title, options) {
+          try {
+            return new candidate(title, options);
+          } catch (_) {
+            return candidate.apply(this, arguments);
+          }
+        }
+
+        try { SafeNotification.prototype = candidate.prototype; } catch (_) {}
+        try {
+          Object.getOwnPropertyNames(candidate).forEach(function(key) {
+            if (key === 'permission' || key === 'prototype' || key === 'length' || key === 'name') {
+              return;
+            }
+            try {
+              Object.defineProperty(SafeNotification, key, Object.getOwnPropertyDescriptor(candidate, key));
+            } catch (_) {}
+          });
+        } catch (_) {}
+
+        Object.defineProperty(SafeNotification, 'permission', {
+          enumerable: true,
+          configurable: true,
+          get: function() { return permission; },
+          set: function(next) {
+            permission = next == null ? 'default' : String(next);
+            try { candidate.permission = next; } catch (_) {}
+          }
+        });
+        Object.defineProperty(SafeNotification, '__TEAMCLAW_SAFE_NOTIFICATION__', {
+          value: true,
+          configurable: false
+        });
+        return SafeNotification;
+      }
+
+      var currentNotification = wrapNotification(window.Notification);
+      Object.defineProperty(window, 'Notification', {
+        enumerable: true,
+        configurable: true,
+        get: function() { return currentNotification; },
+        set: function(next) { currentNotification = wrapNotification(next); }
+      });
+    } catch (_) {}
+  }
+
+  installSafeNotificationWrapper();
+
+  function navigateHere(href) {
+    try {
+      window.top.location.href = href;
+    } catch (_) {
+      window.location.href = href;
+    }
+  }
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest && e.target.closest('a');
+    if (!a) return;
+    var t = a.getAttribute('target');
+    if (t && t !== '_self') {
+      var href = a.href || a.getAttribute('href');
+      if (href && /^https?:\/\//.test(href)) {
+        e.preventDefault();
+        e.stopPropagation();
+        navigateHere(href);
+      }
+    }
+  }, true);
+  var _open = window.open;
+  var _interceptOpen = function(url) {
+    if (url && /^https?:\/\//.test(String(url))) {
+      navigateHere(String(url));
+      return window;
+    }
+    return _open.apply(this, arguments);
+  };
+  try {
+    Object.defineProperty(window, 'open', {
+      value: _interceptOpen, writable: true, configurable: true
+    });
+  } catch (_) {}
+})();"#;
 
 /// Send-safe wrapper around a retained ObjC WKWebViewConfiguration pointer.
 #[cfg(target_os = "macos")]
@@ -180,7 +297,7 @@ fn add_document_start_script<R: Runtime>(_webview: &tauri::Webview<R>, _script: 
 #[cfg(target_os = "macos")]
 pub fn init_shared_config(manager: &mut WebviewManager) {
     use objc2::runtime::AnyObject;
-    use objc2::{class, msg_send, MainThreadMarker};
+    use objc2::{MainThreadMarker, class, msg_send};
     use objc2_web_kit::{WKWebViewConfiguration, WKWebsiteDataStore};
 
     let mtm =
@@ -213,7 +330,9 @@ pub fn init_shared_config(manager: &mut WebviewManager) {
         objc2::ffi::objc_retain(raw as *mut _);
         manager.shared_config = Some(SharedConfig(raw));
     }
-    eprintln!("[Webview] Shared WKWebViewConfiguration initialized on main thread (defaultDataStore + shared pool, devtools enabled by default)");
+    eprintln!(
+        "[Webview] Shared WKWebViewConfiguration initialized on main thread (defaultDataStore + shared pool, devtools enabled by default)"
+    );
 }
 
 /// Execute JavaScript in the main webview and return the stringified result.
@@ -378,43 +497,8 @@ pub async fn webview_create(
     // Intercept target="_blank" links and window.open() so OAuth popups
     // remain in the same native webview. Run in all frames because OAuth
     // widgets often live inside iframes.
-    webview_builder = webview_builder.initialization_script_for_all_frames(
-        r#"(function(){
-  function navigateHere(href) {
-    try {
-      window.top.location.href = href;
-    } catch (_) {
-      window.location.href = href;
-    }
-  }
-  document.addEventListener('click', function(e) {
-    var a = e.target.closest && e.target.closest('a');
-    if (!a) return;
-    var t = a.getAttribute('target');
-    if (t && t !== '_self') {
-      var href = a.href || a.getAttribute('href');
-      if (href && /^https?:\/\//.test(href)) {
-        e.preventDefault();
-        e.stopPropagation();
-        navigateHere(href);
-      }
-    }
-  }, true);
-  var _open = window.open;
-  var _interceptOpen = function(url) {
-    if (url && /^https?:\/\//.test(String(url))) {
-      navigateHere(String(url));
-      return window;
-    }
-    return _open.apply(this, arguments);
-  };
-  try {
-    Object.defineProperty(window, 'open', {
-      value: _interceptOpen, writable: true, configurable: true
-    });
-  } catch (_) {}
-})();"#,
-    );
+    webview_builder =
+        webview_builder.initialization_script_for_all_frames(EXTERNAL_WEBVIEW_INIT_SCRIPT);
 
     // Native fallback for popup requests that bypass our JS hook.
     {
@@ -794,5 +878,19 @@ mod tests {
         assert!(script.contains("device\\\"quoted"));
         assert!(script.contains("name\\nline"));
         assert!(script.contains("deviceToken: null"));
+    }
+
+    #[test]
+    fn external_webview_init_script_suppresses_notification_readonly_rejection() {
+        assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("unhandledrejection"));
+        assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("Readonly property"));
+        assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("evt.preventDefault()"));
+    }
+
+    #[test]
+    fn external_webview_init_script_wraps_notification_permission_setter() {
+        assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("__TEAMCLAW_SAFE_NOTIFICATION__"));
+        assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("function SafeNotification"));
+        assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("set: function(next)"));
     }
 }
