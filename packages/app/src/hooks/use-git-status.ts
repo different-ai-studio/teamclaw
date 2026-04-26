@@ -8,6 +8,23 @@ import {
 import { useState, useEffect, useCallback } from "react";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useGitSettingsStore } from "@/stores/git-settings";
+import { isTauri } from "@tauri-apps/api/core";
+import { gitManager } from "@/lib/git/manager";
+import { TEAM_REPO_DIR } from "@/lib/build-config";
+
+function toGitStatus(status: string): GitStatus {
+  switch (status) {
+    case "modified": return GitStatus.MODIFIED;
+    case "added": return GitStatus.ADDED;
+    case "deleted": return GitStatus.DELETED;
+    case "untracked": return GitStatus.UNTRACKED;
+    case "renamed": return GitStatus.RENAMED;
+    case "copied": return GitStatus.COPIED;
+    case "staged": return GitStatus.STAGED;
+    case "ignored": return GitStatus.IGNORED;
+    default: return GitStatus.MODIFIED;
+  }
+}
 
 /**
  * Git状态Hook - 管理文件树的Git状态显示
@@ -34,19 +51,38 @@ export function useGitStatus() {
     setIsLoading(true);
     setError(null);
 
-    try {
-      const statuses = await gitService.getGitStatus();
-      const statusMap = new Map<string, GitFileStatus>();
-      const normalizedWorkspace = normalizePath(workspacePath);
+    const teamRepoPath = `${workspacePath}/${TEAM_REPO_DIR}`;
+    const normalizedTeamRepo = normalizePath(teamRepoPath);
 
-      statuses.forEach((status) => {
-        const statusPath = normalizePath(status.path);
-        // API returns relative paths; convert to absolute for matching with file tree
-        const absolutePath = statusPath.startsWith("/")
-          ? statusPath
-          : `${normalizedWorkspace}/${statusPath}`;
-        statusMap.set(absolutePath, { ...status, path: absolutePath });
-      });
+    try {
+      const statusMap = new Map<string, GitFileStatus>();
+
+      if (isTauri()) {
+        const result = await gitManager.status(teamRepoPath);
+        result.files.forEach((file) => {
+          const statusPath = normalizePath(file.path);
+          const absolutePath = statusPath.startsWith("/")
+            ? statusPath
+            : `${normalizedTeamRepo}/${statusPath}`;
+          statusMap.set(absolutePath, {
+            path: absolutePath,
+            status: toGitStatus(file.status),
+            staged: file.staged,
+          });
+        });
+      } else {
+        const statuses = await gitService.getGitStatus();
+        const normalizedWorkspace = normalizePath(workspacePath);
+        statuses.forEach((status) => {
+          const statusPath = normalizePath(status.path);
+          const absolutePath = statusPath.startsWith("/")
+            ? statusPath
+            : `${normalizedWorkspace}/${statusPath}`;
+          if (absolutePath.startsWith(normalizedTeamRepo + "/")) {
+            statusMap.set(absolutePath, { ...status, path: absolutePath });
+          }
+        });
+      }
 
       // Only update state if the map actually changed, to avoid unnecessary re-renders
       setGitStatuses((prev) => {

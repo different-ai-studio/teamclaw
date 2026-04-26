@@ -32,7 +32,6 @@ import { useSessionStore } from "@/stores/session";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useTeamModeStore } from "@/stores/team-mode";
-import { useGitStatus } from "@/hooks/use-git-status";
 import { gitManager } from "@/lib/git/manager";
 import { Button } from "@/components/ui/button";
 import {
@@ -96,6 +95,7 @@ export function ImageViewer({
   const [zoom, setZoom] = useState(100);
   const [rotation, setRotation] = useState(0);
   const isSvg = filename.toLowerCase().endsWith(".svg");
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 25, 300));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 25, 25));
@@ -105,6 +105,11 @@ export function ImageViewer({
     setRotation(0);
   };
 
+  const displayPath =
+    workspacePath && filePath.startsWith(workspacePath + "/")
+      ? filePath.slice(workspacePath.length + 1)
+      : filePath;
+
   return (
     <div className="flex flex-col h-full" data-testid="file-editor">
       {/* Header - simple and clean */}
@@ -112,7 +117,7 @@ export function ImageViewer({
         {/* Full file path */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Image className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="text-xs text-muted-foreground truncate">{filePath}</span>
+          <span className="text-xs text-muted-foreground truncate">{displayPath}</span>
         </div>
 
         {/* Zoom controls */}
@@ -391,38 +396,37 @@ export function FileEditor({
     enabled: isMarkdown,
   });
 
-  // Git status integration (hook called for side effects)
-  useGitStatus();
-
   // Git HEAD content for git gutter decorations
   const [gitHeadContent, setGitHeadContent] = useState<string | null>(null);
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
+  const displayPath =
+    workspacePath && filePath && filePath.startsWith(workspacePath + "/")
+      ? filePath.slice(workspacePath.length + 1)
+      : (filePath ?? "");
 
-  // Fetch the file's content from git HEAD for gutter decorations
+  // Fetch the file's content from git HEAD for gutter decorations (team files only)
   useEffect(() => {
-    if (!isTauri() || !workspacePath || !filePath) return;
+    if (!isTauri() || !workspacePath || !filePath || !isTeamFile) {
+      setGitHeadContent(null);
+      return;
+    }
 
     let cancelled = false;
 
     (async () => {
       try {
-        // Compute relative path within workspace
-        const normalizedWorkspace = workspacePath.replace(/\/+$/, "");
+        const teamRepoPath = `${workspacePath.replace(/\/+$/, "")}/${TEAM_REPO_DIR}`;
         const normalizedFile = filePath.replace(/\/+$/, "");
         let relativePath = normalizedFile;
-        if (normalizedFile.startsWith(normalizedWorkspace + "/")) {
-          relativePath = normalizedFile.slice(normalizedWorkspace.length + 1);
+        if (normalizedFile.startsWith(teamRepoPath + "/")) {
+          relativePath = normalizedFile.slice(teamRepoPath.length + 1);
         }
 
-        const headContent = await gitManager.showFile(
-          normalizedWorkspace,
-          relativePath,
-        );
+        const headContent = await gitManager.showFile(teamRepoPath, relativePath);
         if (!cancelled) {
           setGitHeadContent(headContent);
         }
       } catch {
-        // Not a git repo, file not tracked, etc.
         if (!cancelled) {
           setGitHeadContent(null);
         }
@@ -432,7 +436,7 @@ export function FileEditor({
     return () => {
       cancelled = true;
     };
-  }, [workspacePath, filePath]);
+  }, [workspacePath, filePath, isTeamFile]);
 
   // Check if this file supports preview
   const previewType = supportsPreview(filename);
@@ -699,7 +703,7 @@ export function FileEditor({
         {/* Full file path with status indicator */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="text-xs text-muted-foreground truncate">{filePath}</span>
+          <span className="text-xs text-muted-foreground truncate">{displayPath}</span>
           {isMarkdown ? (
             renderSaveStatusIndicator()
           ) : (

@@ -12,8 +12,9 @@
 
 import { useEffect, useRef } from 'react';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection } from '@codemirror/view';
-import { EditorState, type Extension } from '@codemirror/state';
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { EditorState, Transaction, type Extension } from '@codemirror/state';
+import { defaultKeymap, history, historyKeymap, toggleComment } from '@codemirror/commands';
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { search, searchKeymap } from '@codemirror/search';
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter, indentOnInput } from '@codemirror/language';
 import { oneDark } from '@codemirror/theme-one-dark';
@@ -127,8 +128,15 @@ export function CodeEditor({
         foldGutter(),
         indentOnInput(),
         history(),
+        closeBrackets(),
         search(),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+        keymap.of([
+          ...closeBracketsKeymap,
+          ...defaultKeymap,
+          ...historyKeymap,
+          ...searchKeymap,
+          { key: 'Mod-/', run: toggleComment },
+        ]),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
@@ -298,11 +306,11 @@ export function CodeEditor({
     if (currentDoc !== content) {
       isExternalUpdate.current = true;
       view.dispatch({
-        changes: {
-          from: 0,
-          to: currentDoc.length,
-          insert: content,
-        },
+        changes: { from: 0, to: currentDoc.length, insert: content },
+        // Don't pollute the undo history with external content syncs.
+        // Without this, React re-renders triggered by undo/redo can insert
+        // a "sync" transaction into the history stack, breaking further undos.
+        annotations: Transaction.addToHistory.of(false),
       });
       isExternalUpdate.current = false;
     }
