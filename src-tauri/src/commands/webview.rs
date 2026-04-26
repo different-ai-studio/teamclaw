@@ -432,11 +432,12 @@ pub async fn webview_create(
         });
     }
 
-    let identity = if let (Some(dno), Some(dname)) = (&device_no, &device_name) {
-        Some((dno.clone(), dname.clone()))
-    } else {
-        None
-    };
+    // Inject as long as we have a device ID. Device name is a display-only
+    // string — empty is fine and must not block the JWT/storage shim.
+    let identity = device_no
+        .as_deref()
+        .filter(|dno| !dno.is_empty())
+        .map(|dno| (dno.to_string(), device_name.clone().unwrap_or_default()));
     let initial_identity_script = identity
         .as_ref()
         .map(|(dno, dname)| build_teamclaw_identity_script_with_fresh_token(dno, dname));

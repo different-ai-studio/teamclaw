@@ -42,17 +42,37 @@ describe("WebViewContent", () => {
     vi.unstubAllGlobals()
   })
 
+  it("uses team member display name when teamMode is on and member matches", async () => {
+    useTeamMembersStore.setState({
+      members: [{ nodeId: "node-123", name: "Matt", role: "owner" } as never],
+    })
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "webview_set_bounds") return Promise.resolve()
+      if (command === "get_persistent_device_id") return Promise.resolve("node-123")
+      if (command === "get_device_hostname") return Promise.resolve("matts-mac")
+      if (command === "webview_create") return Promise.resolve()
+      if (command === "webview_hide") return Promise.resolve()
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    render(<WebViewContent url="https://example.test/team-member-name" />)
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith(
+        "webview_create",
+        expect.objectContaining({
+          deviceNo: "node-123",
+          deviceName: "Matt",
+        }),
+      )
+    })
+  })
+
   it("falls back to device hostname when team member name is unavailable", async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "webview_set_bounds") return Promise.resolve()
-      if (command === "get_device_info") {
-        return Promise.resolve({
-          nodeId: "node-123",
-          platform: "macos",
-          arch: "aarch64",
-          hostname: "matts-mac",
-        })
-      }
+      if (command === "get_persistent_device_id") return Promise.resolve("node-123")
+      if (command === "get_device_hostname") return Promise.resolve("matts-mac")
       if (command === "webview_create") return Promise.resolve()
       if (command === "webview_hide") return Promise.resolve()
       throw new Error(`unexpected command: ${command}`)
@@ -90,6 +110,30 @@ describe("WebViewContent", () => {
         expect.objectContaining({
           deviceNo: "persisted-node",
           deviceName: "standalone-mac",
+        }),
+      )
+    })
+  })
+
+  it("still passes deviceNo when get_device_hostname fails (does not gate injection on name)", async () => {
+    useTeamModeStore.setState({ teamMode: false })
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "webview_set_bounds") return Promise.resolve()
+      if (command === "get_persistent_device_id") return Promise.resolve("persisted-node")
+      if (command === "get_device_hostname") return Promise.reject(new Error("hostname failed"))
+      if (command === "webview_create") return Promise.resolve()
+      if (command === "webview_hide") return Promise.resolve()
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    render(<WebViewContent url="https://example.test/no-hostname" />)
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith(
+        "webview_create",
+        expect.objectContaining({
+          deviceNo: "persisted-node",
+          deviceName: "",
         }),
       )
     })
