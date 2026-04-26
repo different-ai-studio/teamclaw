@@ -194,24 +194,26 @@ pub fn init_shared_config(manager: &mut WebviewManager) {
         let data_store = WKWebsiteDataStore::defaultDataStore(mtm);
         config.setWebsiteDataStore(&data_store);
 
-        // Disable "Inspect Element" in the native context menu.
-        // The docked Web Inspector breaks our layout because it attempts to
-        // resize the WKWebView to accommodate itself, overflowing outside the
-        // panel bounds we set via webview_set_bounds. Users who need devtools
-        // can use Tauri's own devtools (Cmd+Option+I on the main window).
+        // Keep Safari Web Inspector available in release builds too.
+        // If this causes layout issues in specific scenarios, users can disable
+        // it via TEAMCLAW_DISABLE_WEBVIEW_DEVTOOLS=1 when launching the app.
         let prefs = config.preferences();
         let prefs_ptr: *mut AnyObject = objc2::rc::Retained::as_ptr(&prefs) as *mut AnyObject;
-        let ns_false: *mut AnyObject = msg_send![class!(NSNumber), numberWithBool: false];
+        let disable_devtools = std::env::var("TEAMCLAW_DISABLE_WEBVIEW_DEVTOOLS")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
+        let ns_bool: *mut AnyObject =
+            msg_send![class!(NSNumber), numberWithBool: !disable_devtools];
         let key_str = std::ffi::CString::new("developerExtrasEnabled").unwrap();
         let key_ns: *mut AnyObject =
             msg_send![class!(NSString), stringWithUTF8String: key_str.as_ptr()];
-        let _: () = msg_send![prefs_ptr, setValue: ns_false, forKey: key_ns];
+        let _: () = msg_send![prefs_ptr, setValue: ns_bool, forKey: key_ns];
 
         let raw = objc2::rc::Retained::as_ptr(&config) as *const std::ffi::c_void;
         objc2::ffi::objc_retain(raw as *mut _);
         manager.shared_config = Some(SharedConfig(raw));
     }
-    eprintln!("[Webview] Shared WKWebViewConfiguration initialized on main thread (defaultDataStore + shared pool, devtools disabled)");
+    eprintln!("[Webview] Shared WKWebViewConfiguration initialized on main thread (defaultDataStore + shared pool, devtools enabled by default)");
 }
 
 /// Execute JavaScript in the main webview and return the stringified result.
