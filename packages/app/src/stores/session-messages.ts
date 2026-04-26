@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
 import type { SendMessageFilePart, SessionErrorEvent } from "@/lib/opencode/sdk-types";
 import type {
@@ -23,7 +24,7 @@ import {
 import { trackEvent } from "@/stores/telemetry";
 import { syncSetSessionId } from "@/lib/opencode/sdk-sse";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
-import { appShortName } from "@/lib/build-config";
+import { useWorkspaceStore } from "@/stores/workspace";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -279,7 +280,8 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
           : undefined;
         let systemPrompt: string | undefined;
         try {
-          const stored = localStorage.getItem(`${appShortName}-system-prompt`);
+          const workspacePath = useWorkspaceStore.getState().workspacePath ?? undefined;
+          const stored = await invoke<string>('load_system_prompt', { workspacePath });
           if (stored && stored.trim()) {
             systemPrompt = stored.trim();
           }
