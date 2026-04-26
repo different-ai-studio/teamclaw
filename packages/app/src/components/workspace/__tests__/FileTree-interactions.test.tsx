@@ -141,8 +141,15 @@ vi.mock('@/components/ui/context-menu', () => ({
   ContextMenu: ({ children }: any) => <div>{children}</div>,
   ContextMenuTrigger: ({ children }: any) => <div>{children}</div>,
   ContextMenuContent: ({ children }: any) => <div data-testid="context-menu">{children}</div>,
-  ContextMenuItem: ({ children, onClick, variant }: any) => (
-    <button onClick={onClick} data-variant={variant} data-testid="context-menu-item">
+  ContextMenuItem: ({ children, onClick, onSelect, variant }: any) => (
+    <button
+      onClick={(e) => {
+        onClick?.(e);
+        onSelect?.(e.nativeEvent);
+      }}
+      data-variant={variant}
+      data-testid="context-menu-item"
+    >
       {children}
     </button>
   ),
@@ -411,6 +418,22 @@ describe('FileTree interactions', () => {
       await vi.waitFor(() => {
         expect(mockDuplicateItem).toHaveBeenCalled();
       });
+    });
+
+    it('immediate click after opening context menu does not trigger actions', () => {
+      render(<FileTree />);
+      const fileItems = screen.getAllByTestId('file-tree-item');
+      fireEvent.contextMenu(fileItems[0]);
+
+      const menuItems = screen.getAllByTestId('context-menu-item');
+      const copyBtn = menuItems.find(el => {
+        const text = el.textContent || '';
+        return text.includes('Copy') && text.includes('⌘C');
+      });
+      expect(copyBtn).toBeDefined();
+      fireEvent.click(copyBtn!);
+
+      expect(mockSetClipboard).not.toHaveBeenCalled();
     });
 
     it('clicking Copy calls setClipboard with copy mode', () => {
