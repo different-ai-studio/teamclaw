@@ -259,8 +259,14 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   const isViewerRestricted = isTeamFile && myRole === 'viewer'
   const isCutTarget = clipboardPaths?.includes(node.path) && isClipboardCut;
   const displayName = compactName || node.name;
+  const contextMenuOpenedAtRef = useRef(0);
 
   const handleClick = (e: React.MouseEvent) => {
+    // Ignore click events that are part of opening the context menu
+    // (e.g. ctrl+click on macOS, or synthetic click after right-click gesture).
+    if (Date.now() - contextMenuOpenedAtRef.current < 220) {
+      return;
+    }
     if (isDirectory) {
       if (isExpanded) {
         if (compactedPaths && compactedPaths.length > 1) {
@@ -281,6 +287,17 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       }
     }
   };
+
+  const guardedMenuAction = useCallback((action: () => void) => {
+    return (event: Event) => {
+      // Prevent accidental immediate selection caused by the opening pointer gesture.
+      if (Date.now() - contextMenuOpenedAtRef.current < 140) {
+        event.preventDefault();
+        return;
+      }
+      action();
+    };
+  }, []);
 
   const fileIconInfo = !isDirectory ? getFileIcon(node.name) : null;
   const FileIcon = fileIconInfo?.icon || File;
@@ -315,6 +332,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       onDragLeave={(e) => isDirectory ? onDragLeave(e) : undefined}
       onDrop={(e) => isDirectory ? onDrop(e, node.path) : undefined}
       onContextMenu={() => {
+        contextMenuOpenedAtRef.current = Date.now();
         window.getSelection()?.removeAllRanges();
       }}
       data-path={node.path}
@@ -429,61 +447,61 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       <ContextMenuContent className="w-56">
         {isDirectory && !isViewerRestricted && (
           <>
-            <ContextMenuItem onClick={() => onNewFile(node.path)}>
+            <ContextMenuItem onSelect={guardedMenuAction(() => onNewFile(node.path))}>
               <FilePlus className="h-4 w-4" />
               {t("fileExplorer.newFile", "New File")}
               <ContextMenuShortcut>⌘N</ContextMenuShortcut>
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => onNewFolder(node.path)}>
+            <ContextMenuItem onSelect={guardedMenuAction(() => onNewFolder(node.path))}>
               <FolderPlus className="h-4 w-4" />
               {t("fileExplorer.newFolder", "New Folder")}
             </ContextMenuItem>
             <ContextMenuSeparator />
           </>
         )}
-        <ContextMenuItem onClick={() => onAddToAgent(node.path)}>
+        <ContextMenuItem onSelect={guardedMenuAction(() => onAddToAgent(node.path))}>
           <MessageSquarePlus className="h-4 w-4" />
           {t("fileExplorer.addToAgent", "Add to Agent")}
         </ContextMenuItem>
         {!isDirectory && (
-          <ContextMenuItem onClick={() => onOpenDefault(node.path)}>
+          <ContextMenuItem onSelect={guardedMenuAction(() => onOpenDefault(node.path))}>
             <AppWindow className="h-4 w-4" />
             {t("fileExplorer.openWithDefault", "Open with Default App")}
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onCopyPath(node.path)}>
+        <ContextMenuItem onSelect={guardedMenuAction(() => onCopyPath(node.path))}>
           <Copy className="h-4 w-4" />
           {t("fileExplorer.copyPath", "Copy Path")}
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => onCopyRelativePath(node.path)}>
+        <ContextMenuItem onSelect={guardedMenuAction(() => onCopyRelativePath(node.path))}>
           <Copy className="h-4 w-4" />
           {t("fileExplorer.copyRelativePath", "Copy Relative Path")}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onCopy([node.path])}>
+        <ContextMenuItem onSelect={guardedMenuAction(() => onCopy([node.path]))}>
           <Copy className="h-4 w-4" />
           {t("fileExplorer.copyFile", "Copy")}
           <ContextMenuShortcut>⌘C</ContextMenuShortcut>
         </ContextMenuItem>
         {!isViewerRestricted && (
-          <ContextMenuItem onClick={() => onCut([node.path])}>
+          <ContextMenuItem onSelect={guardedMenuAction(() => onCut([node.path]))}>
             <Scissors className="h-4 w-4" />
             {t("fileExplorer.cutFile", "Cut")}
             <ContextMenuShortcut>⌘X</ContextMenuShortcut>
           </ContextMenuItem>
         )}
         {!isViewerRestricted && hasClipboard && (
-          <ContextMenuItem onClick={() => onPaste(
+          <ContextMenuItem onSelect={guardedMenuAction(() => onPaste(
             isDirectory ? node.path : node.path.substring(0, node.path.lastIndexOf("/"))
-          )}>
+          ))}>
             <ClipboardPaste className="h-4 w-4" />
             {t("fileExplorer.pasteFile", "Paste")}
             <ContextMenuShortcut>⌘V</ContextMenuShortcut>
           </ContextMenuItem>
         )}
         {!isViewerRestricted && (
-          <ContextMenuItem onClick={() => onDuplicate(node.path)}>
+          <ContextMenuItem onSelect={guardedMenuAction(() => onDuplicate(node.path))}>
             <CopyPlus className="h-4 w-4" />
             {t("fileExplorer.duplicate", "Duplicate")}
             <ContextMenuShortcut>⌘D</ContextMenuShortcut>
@@ -491,13 +509,13 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         )}
         {!isDirectory && (
           <ContextMenuItem
-            onClick={() => {
+            onSelect={guardedMenuAction(() => {
               useTabsStore.getState().openTab({
                 type: "native",
                 target: "version-history",
                 label: "版本历史",
               })
-            }}
+            })}
           >
             <History className="h-4 w-4" />
             版本历史
@@ -505,7 +523,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         )}
         <ContextMenuSeparator />
         {!isViewerRestricted && (
-          <ContextMenuItem onClick={() => onRename(node.path)}>
+          <ContextMenuItem onSelect={guardedMenuAction(() => onRename(node.path))}>
             <Pencil className="h-4 w-4" />
             {t("fileExplorer.rename", "Rename")}
             <ContextMenuShortcut>F2</ContextMenuShortcut>
@@ -514,7 +532,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         {!isViewerRestricted && (
           <ContextMenuItem
             variant="destructive"
-            onClick={() => onDelete(node.path, isDirectory)}
+            onSelect={guardedMenuAction(() => onDelete(node.path, isDirectory))}
           >
             <Trash2 className="h-4 w-4" />
             {t("fileExplorer.delete", "Delete")}
@@ -522,11 +540,11 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onOpenTerminal(terminalPath)}>
+        <ContextMenuItem onSelect={guardedMenuAction(() => onOpenTerminal(terminalPath))}>
           <Terminal className="h-4 w-4" />
           {t("fileExplorer.openInTerminal", "Open in Terminal")}
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => onReveal(node.path)}>
+        <ContextMenuItem onSelect={guardedMenuAction(() => onReveal(node.path))}>
           <ExternalLink className="h-4 w-4" />
           {t("fileExplorer.revealInFinder", "Reveal in Finder")}
         </ContextMenuItem>
