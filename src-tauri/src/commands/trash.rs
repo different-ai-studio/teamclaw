@@ -31,34 +31,6 @@ pub fn trash_file(team_dir: &Path, rel_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Trash all user-content files under `team_dir` (skips `.trash` itself and hidden dirs).
-pub fn trash_all_files(team_dir: &Path) -> Result<(), String> {
-    if !team_dir.exists() {
-        return Ok(());
-    }
-
-    let walker = walkdir::WalkDir::new(team_dir)
-        .min_depth(1)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            // Skip .trash dir and other dotfiles/dirs at top level
-            !(e.depth() == 1 && name.starts_with('.'))
-        });
-
-    for entry in walker.flatten() {
-        if entry.file_type().is_file() {
-            if let Ok(rel) = entry.path().strip_prefix(team_dir) {
-                if let Err(e) = trash_file(team_dir, &rel.to_string_lossy()) {
-                    log::warn!("[trash] Failed to trash {}: {e}", rel.display());
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// Keep only the newest `max` versions of a trashed file.
 fn prune_old_versions(base_path: &Path, max: usize) {
     let Some(parent) = base_path.parent() else {

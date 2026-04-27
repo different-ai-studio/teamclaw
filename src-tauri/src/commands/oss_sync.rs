@@ -846,7 +846,7 @@ mod tests {
         entry.insert("updatedAt", "2026-01-01T00:00:00Z").unwrap();
 
         // Write to disk
-        let absorbed = mgr.write_doc_to_disk(DocType::Skills).unwrap();
+        mgr.write_doc_to_disk(DocType::Skills).unwrap();
 
         // Verify file was created
         let skills_dir = ws
