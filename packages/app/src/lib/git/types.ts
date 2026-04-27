@@ -21,6 +21,17 @@ export interface GitStatusResult {
   clean: boolean
 }
 
+/** A single commit entry from `git log --follow` for a file */
+export interface GitLogEntry {
+  sha: string
+  /** First-parent SHA. Empty string for the initial commit. */
+  parentSha: string
+  author: string
+  /** Strict ISO 8601 (e.g. "2026-04-27T10:00:00+00:00"). */
+  isoTime: string
+  subject: string
+}
+
 // ─── Repository Types ──────────────────────────────────────────────────────
 
 /** Source type of a git-managed repository */
