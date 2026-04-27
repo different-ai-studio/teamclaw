@@ -1,10 +1,9 @@
 import { create } from 'zustand'
 import {
-  addCustomProviderToConfig,
   getCustomProviderConfig,
   removeCustomProviderFromConfig,
 } from '@/lib/opencode/config'
-import { syncTeamProviderToOpenCode, TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
+import { loadTeamProviderFile, TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 import { useProviderStore } from './provider'
 import { isTauri } from '@/lib/utils'
 import { appShortName, buildConfig, TEAM_REPO_DIR, type TeamModelOption } from '@/lib/build-config'
@@ -147,7 +146,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         // Fire-and-forget; errors swallowed inside action
         get().loadTeamGitFileSyncStatus(_workspacePath)
       }
-      const providerFile = _workspacePath ? await syncTeamProviderToOpenCode(_workspacePath).catch(() => null) : null
+      const providerFile = _workspacePath ? await loadTeamProviderFile(_workspacePath).catch(() => null) : null
       if (providerFile?.provider) {
         const teamModels = providerFile.provider.models
         const defaultModelId = providerFile.provider.defaultModel || teamModels[0]?.id || ''
@@ -204,14 +203,17 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   },
 
   applyTeamModelToOpenCode: async (workspacePath: string, force?: boolean) => {
-    const syncedProviderFile = await syncTeamProviderToOpenCode(workspacePath).catch(() => null)
-    if (syncedProviderFile?.provider) {
-      const syncedModels = syncedProviderFile.provider.models
-      const defaultModelId = syncedProviderFile.provider.defaultModel || syncedModels[0]?.id || ''
+    // Refresh in-memory state from `_meta/provider.json`. Disk → opencode.json
+    // sync is owned by Rust `ensure_team_provider`, which runs inside every
+    // start_opencode — we never write opencode.json from here.
+    const providerFile = await loadTeamProviderFile(workspacePath).catch(() => null)
+    if (providerFile?.provider) {
+      const syncedModels = providerFile.provider.models
+      const defaultModelId = providerFile.provider.defaultModel || syncedModels[0]?.id || ''
       const defaultModel = syncedModels.find((model) => model.id === defaultModelId) || syncedModels[0]
       set({
         teamModelConfig: {
-          baseUrl: normalizeLlmBaseUrl(syncedProviderFile.provider.baseURL),
+          baseUrl: normalizeLlmBaseUrl(providerFile.provider.baseURL),
           model: defaultModel?.id || '',
           modelName: defaultModel?.name || defaultModel?.id || '',
         },
@@ -235,71 +237,24 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         } catch { /* ignore */ }
       }
 
-      // Build model configs — use models from team config (state), fallback to build config
-      const teamModels = get().teamModelOptions.length > 0 ? get().teamModelOptions : buildConfig.team.llm.models
-      const modelConfigs: any[] = teamModels && teamModels.length > 0
-        ? teamModels.map((m) => {
-            const mc: any = {
-              modelId: m.id,
-              modelName: m.name,
-              limit: { context: 256000, output: 16000 },
-            }
-            if (buildConfig.team.llm.supportsVision) {
-              mc.modalities = { input: ['text', 'image'], output: ['text'] }
-            }
-            return mc
-          })
-        : [{
-            modelId: teamModelConfig.model,
-            modelName: teamModelConfig.modelName,
-            limit: { context: 256000, output: 16000 },
-            ...(buildConfig.team.llm.supportsVision
-              ? { modalities: { input: ['text', 'image'], output: ['text'] } }
-              : {}),
-          }]
-
-      // Check if the provider config already exists in opencode.json with matching values.
-      // If so, skip the disruptive restart — the sidecar already loaded the correct config.
-      const existingConfig = await getCustomProviderConfig(workspacePath, TEAM_PROVIDER_ID)
-      const expectedModelIds = modelConfigs.map((m) => m.modelId).sort()
+      // Skip the restart if the running sidecar's opencode.json already matches what
+      // we want — Rust `ensure_team_provider` writes it on cold start, so post-boot
+      // applyTeamModelToOpenCode calls are usually no-ops.
+      const teamModels = get().teamModelOptions.length > 0 ? get().teamModelOptions : (buildConfig.team.llm.models ?? [])
+      const expectedModelIds = teamModels.map((m) => m.id).sort()
+      const existingConfig = await getCustomProviderConfig(workspacePath, TEAM_PROVIDER_ID).catch(() => null)
       const existingModelIds = existingConfig?.models.map((m) => m.modelId).sort() ?? []
-      const configAlreadyMatches = existingConfig
+      const configAlreadyMatches = !!existingConfig
         && existingConfig.baseURL === teamModelConfig.baseUrl
         && JSON.stringify(expectedModelIds) === JSON.stringify(existingModelIds)
 
-      if (!configAlreadyMatches) {
-        await addCustomProviderToConfig(workspacePath, {
-          name: 'Team',
-          baseURL: teamModelConfig.baseUrl,
-          apiKey: '${tc_api_key}',
-          models: modelConfigs,
-        })
-
-        // Restart OpenCode to pick up new provider config
-        if (isTauri()) {
-          const { invoke } = await import('@tauri-apps/api/core')
-          const { initOpenCodeClient } = await import('@/lib/opencode/sdk-client')
-
-          await invoke('stop_opencode')
-          await new Promise((r) => setTimeout(r, 500))
-          const status = await invoke<{ url: string }>('start_opencode', {
-            config: { workspace_path: workspacePath },
-          })
-          initOpenCodeClient({ baseUrl: status.url, workspacePath })
-
-          const { useWorkspaceStore } = await import('./workspace')
-          useWorkspaceStore.getState().setOpenCodeReady(true, status.url)
-
-          await new Promise((r) => setTimeout(r, 500))
-        }
-      } else {
-        console.log('[TeamMode] Provider config already in opencode.json, skipping restart')
+      if (!configAlreadyMatches && isTauri()) {
+        const { restartOpencode } = await import('@/lib/opencode/restart')
+        await restartOpencode(workspacePath)
       }
 
       await providerStore.selectModel(TEAM_PROVIDER_ID, teamModelConfig.model, teamModelConfig.modelName)
       await providerStore.refreshConfiguredProviders()
-
-      console.log('[TeamMode] Applied team model config:', teamModelConfig)
     } catch (err) {
       console.error('[TeamMode] Failed to apply team model to OpenCode:', err)
     }

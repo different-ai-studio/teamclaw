@@ -79,7 +79,7 @@ describe('team provider file helpers', () => {
     )
   })
 
-  it('syncs provider.json into workspace opencode.json', async () => {
+  it('loads provider.json into a TeamProviderFile', async () => {
     mockExists.mockImplementation(async (path: string) => path === '/workspace/teamclaw-team/_meta/provider.json')
     mockReadTextFile.mockResolvedValue(JSON.stringify({
       version: 1,
@@ -96,26 +96,20 @@ describe('team provider file helpers', () => {
       },
     }))
 
-    const { syncTeamProviderToOpenCode } = await import('@/lib/team-provider')
-    const result = await syncTeamProviderToOpenCode('/workspace')
+    const { loadTeamProviderFile } = await import('@/lib/team-provider')
+    const result = await loadTeamProviderFile('/workspace')
 
     expect(result?.provider.baseURL).toBe('https://ai.ucar.cc')
-    expect(mockAddCustomProviderToConfig).toHaveBeenCalledWith('/workspace', {
-      name: 'Team',
-      baseURL: 'https://ai.ucar.cc',
-      apiKey: '${tc_api_key}',
-      models: [
-        { modelId: 'default', modelName: 'Default', limit: { context: 256000, output: 16000 } },
-        { modelId: 'pro', modelName: 'Pro', limit: { context: 256000, output: 16000 } },
-      ],
-    })
+    expect(result?.provider.models).toHaveLength(2)
+    expect(mockAddCustomProviderToConfig).not.toHaveBeenCalled()
   })
 
-  it('removes the shared provider from opencode.json when provider.json is absent', async () => {
-    const { syncTeamProviderToOpenCode } = await import('@/lib/team-provider')
-    const result = await syncTeamProviderToOpenCode('/workspace')
+  it('returns null when provider.json is absent and never writes opencode.json', async () => {
+    const { loadTeamProviderFile } = await import('@/lib/team-provider')
+    const result = await loadTeamProviderFile('/workspace')
 
     expect(result).toBeNull()
-    expect(mockRemoveCustomProviderFromConfig).toHaveBeenCalledWith('/workspace', 'team')
+    expect(mockAddCustomProviderToConfig).not.toHaveBeenCalled()
+    expect(mockRemoveCustomProviderFromConfig).not.toHaveBeenCalled()
   })
 })

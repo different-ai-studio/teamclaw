@@ -1,9 +1,6 @@
 import { exists, mkdir, readTextFile, remove, writeTextFile } from '@tauri-apps/plugin-fs'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
-import {
-  addCustomProviderToConfig,
-  type CustomProviderConfig,
-} from '@/lib/opencode/config'
+import type { CustomProviderConfig } from '@/lib/opencode/config'
 
 export const TEAM_SHARED_PROVIDER_ID = 'team'
 
@@ -101,28 +98,6 @@ export async function saveTeamProviderFile(
   }
 
   await writeTextFile(path, JSON.stringify(file, null, 2))
-}
-
-// Additive only: never removes provider.team. Removal is owned by the Rust
-// `ensure_team_provider` reconcile that runs at sidecar startup, where disk
-// state is trusted. A transient miss here (file-watcher firing mid-git-sync,
-// parse race) used to silently yank the team provider out of opencode.json.
-export async function syncTeamProviderToOpenCode(workspacePath: string): Promise<TeamProviderFile | null> {
-  const providerFile = await loadTeamProviderFile(workspacePath)
-  if (!providerFile) return null
-
-  await addCustomProviderToConfig(workspacePath, {
-    name: providerFile.provider.name,
-    baseURL: providerFile.provider.baseURL,
-    apiKey: providerFile.provider.apiKey,
-    models: providerFile.provider.models.map((model) => ({
-      modelId: model.id,
-      modelName: model.name,
-      limit: { context: 256000, output: 16000 },
-    })),
-  })
-
-  return providerFile
 }
 
 export async function loadTeamProviderFormState(workspacePath: string): Promise<TeamProviderFormState | null> {

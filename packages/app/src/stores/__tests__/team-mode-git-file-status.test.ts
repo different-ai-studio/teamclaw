@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockInvoke = vi.fn()
-const mockSyncTeamProviderToOpenCode = vi.fn()
+const mockLoadTeamProviderFile = vi.fn()
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
@@ -12,14 +12,13 @@ vi.mock('@/lib/utils', () => ({
 }))
 
 vi.mock('@/lib/opencode/config', () => ({
-  addCustomProviderToConfig: vi.fn(),
-  getCustomProviderConfig: vi.fn(),
-  removeCustomProviderFromConfig: vi.fn(),
+  getCustomProviderConfig: vi.fn().mockResolvedValue(null),
+  removeCustomProviderFromConfig: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/team-provider', () => ({
   TEAM_SHARED_PROVIDER_ID: 'team',
-  syncTeamProviderToOpenCode: mockSyncTeamProviderToOpenCode,
+  loadTeamProviderFile: mockLoadTeamProviderFile,
 }))
 
 vi.mock('@/stores/provider', () => ({
@@ -36,6 +35,19 @@ vi.mock('@/lib/opencode/sdk-client', () => ({
   initOpenCodeClient: vi.fn(),
 }))
 
+vi.mock('@/lib/opencode/restart', () => ({
+  restartOpencode: vi.fn().mockResolvedValue({ url: 'http://test' }),
+}))
+
+vi.mock('@/stores/workspace', () => ({
+  useWorkspaceStore: {
+    getState: () => ({
+      setOpenCodeBootstrapped: vi.fn(),
+      setOpenCodeReady: vi.fn(),
+    }),
+  },
+}))
+
 vi.mock('@/lib/build-config', () => ({
   appShortName: 'teamclaw',
   TEAM_REPO_DIR: 'teamclaw-team',
@@ -44,8 +56,8 @@ vi.mock('@/lib/build-config', () => ({
 
 beforeEach(() => {
   mockInvoke.mockReset()
-  mockSyncTeamProviderToOpenCode.mockReset()
-  mockSyncTeamProviderToOpenCode.mockResolvedValue(null)
+  mockLoadTeamProviderFile.mockReset()
+  mockLoadTeamProviderFile.mockResolvedValue(null)
 })
 
 describe('loadTeamGitFileSyncStatus', () => {
@@ -101,7 +113,7 @@ describe('loadTeamGitFileSyncStatus', () => {
   })
 
   it('applies provider.json when present before falling back to legacy llm config', async () => {
-    mockSyncTeamProviderToOpenCode.mockResolvedValueOnce({
+    mockLoadTeamProviderFile.mockResolvedValueOnce({
       version: 1,
       provider: {
         id: 'team',
@@ -128,7 +140,7 @@ describe('loadTeamGitFileSyncStatus', () => {
 
     await useTeamModeStore.getState().applyTeamModelToOpenCode('/ws')
 
-    expect(mockSyncTeamProviderToOpenCode).toHaveBeenCalledWith('/ws')
+    expect(mockLoadTeamProviderFile).toHaveBeenCalledWith('/ws')
     expect(useTeamModeStore.getState().teamModelConfig).toEqual({
       baseUrl: 'https://ai.ucar.cc',
       model: 'pro',

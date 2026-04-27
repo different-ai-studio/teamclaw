@@ -289,6 +289,14 @@ export function TeamGitConfig() {
                 buildTeamProviderConfig(pending.hostLlm, pending.llmUrl, pending.llmModels),
                 pending.hostLlm ? pending.llmModels[0]?.id : undefined,
               )
+              // Push the new team provider into the running sidecar without
+              // waiting for the 1s file-watcher debounce.
+              const { useTeamModeStore } = await import('@/stores/team-mode')
+              const store = useTeamModeStore.getState()
+              await store.loadTeamConfig(pending.workspacePath)
+              if (useTeamModeStore.getState().teamMode) {
+                await store.applyTeamModelToOpenCode(pending.workspacePath, true)
+              }
             } catch (err) {
               console.warn('[Team Join] Deferred provider save failed:', err)
             }
@@ -651,6 +659,14 @@ export function TeamGitConfig() {
       await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
       if (workspacePath) {
         await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
+        // Push the new team provider into the running sidecar without
+        // waiting for the 1s file-watcher debounce.
+        const { useTeamModeStore } = await import('@/stores/team-mode')
+        const store = useTeamModeStore.getState()
+        await store.loadTeamConfig(workspacePath)
+        if (useTeamModeStore.getState().teamMode) {
+          await store.applyTeamModelToOpenCode(workspacePath, true)
+        }
       }
       setTeamConfig(newConfig)
       setState('connected')
