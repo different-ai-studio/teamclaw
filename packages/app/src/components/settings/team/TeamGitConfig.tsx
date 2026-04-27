@@ -1065,7 +1065,7 @@ export function TeamGitConfig() {
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamId', 'Team ID')}</label>
                     <div className="flex items-center gap-1.5">
-                      <code className="flex-1 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">{teamConfig.teamId}</code>
+                      <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">{teamConfig.teamId}</code>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1079,7 +1079,7 @@ export function TeamGitConfig() {
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamSecret', 'Team Secret')}</label>
                     <div className="flex items-center gap-1.5">
-                      <code className="flex-1 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">
+                      <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">
                         {showTeamSecret && loadedTeamSecret ? loadedTeamSecret : '••••••••••••••••'}
                       </code>
                       <Button
@@ -1250,7 +1250,7 @@ export function TeamGitConfig() {
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">{t('settings.team.inviteCode', 'Invite Code')}</label>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-3 py-2 text-xs font-mono break-all max-h-20 overflow-y-auto">
+                  <code className="flex-1 min-w-0 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-3 py-2 text-xs font-mono break-all max-h-20 overflow-y-auto">
                     {createdInviteCode}
                   </code>
                   <Button
@@ -1269,7 +1269,7 @@ export function TeamGitConfig() {
             <div className="space-y-1.5">
               <label className="text-sm font-medium">{t('settings.team.teamId', 'Team ID')}</label>
               <div className="flex items-center gap-2">
-                <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
+                <code className="flex-1 min-w-0 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
                   {createdTeamId}
                 </code>
                 <Button
@@ -1286,7 +1286,7 @@ export function TeamGitConfig() {
             <div className="space-y-1.5">
               <label className="text-sm font-medium">{t('settings.team.teamSecret', 'Team Secret')}</label>
               <div className="flex items-center gap-2">
-                <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
+                <code className="flex-1 min-w-0 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
                   {showCreatedSecret ? createdTeamSecret : createdTeamSecret.replace(/./g, '*')}
                 </code>
                 <Button

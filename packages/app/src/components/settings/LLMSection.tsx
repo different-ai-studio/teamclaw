@@ -168,6 +168,11 @@ export const LLMSection = React.memo(function LLMSection() {
       setOpenCodeBootstrapped(true, status.url)
       setOpenCodeReady(true, status.url)
       await initAll()
+      // Sidecar restart drops team provider state; ChatPanel's apply-effect doesn't re-fire (no openCodeReady transition).
+      const { teamMode: inTeamMode, applyTeamModelToOpenCode } = useTeamModeStore.getState()
+      if (inTeamMode) {
+        await applyTeamModelToOpenCode(workspacePath, true)
+      }
     } catch (err) {
       console.error('Failed to restart OpenCode after provider connect:', err)
       setOpenCodeBootstrapped(false)
