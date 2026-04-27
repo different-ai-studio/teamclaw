@@ -26,4 +26,18 @@ describe("tool call locale resources", () => {
     expect(en.chat.toolCall.skill.title).toBe("Skill");
     expect(en.chat.toolCall.roleLoad.title).toBe("Role Load");
   });
+
+  it("keeps shared question controls localized", () => {
+    expect(zhCN.common.skip).toBe("跳过");
+    expect(zhCN.common.continue).toBe("继续");
+    expect(zhCN.common.previous).toBe("上一个");
+    expect(zhCN.common.next).toBe("下一个");
+    expect(zhCN.common.recommended).toBe("推荐");
+
+    expect(en.common.skip).toBe("Skip");
+    expect(en.common.continue).toBe("Continue");
+    expect(en.common.previous).toBe("Previous");
+    expect(en.common.next).toBe("Next");
+    expect(en.common.recommended).toBe("Recommended");
+  });
 });
