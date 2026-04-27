@@ -199,7 +199,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const openCodeBootstrapped = useWorkspaceStore(s => s.openCodeBootstrapped);
   const openCodeReady = useWorkspaceStore(s => s.openCodeReady);
   const setOpenCodeBootstrapped = useWorkspaceStore(s => s.setOpenCodeBootstrapped);
-  const setOpenCodeReady = useWorkspaceStore(s => s.setOpenCodeReady);
 
   // ── Local state ───────────────────────────────────────────────────────
   const inputValue = draftInput;
@@ -712,17 +711,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const handleRestartSkillsRuntime = React.useCallback(async () => {
     if (!workspacePath) return;
     setIsRestartingSkillsRuntime(true);
-    setOpenCodeBootstrapped(false);
     try {
-      await invoke("stop_opencode");
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const status = await invoke<{ url: string }>("start_opencode", {
-        config: { workspace_path: workspacePath },
-      });
-      const { initOpenCodeClient } = await import("@/lib/opencode/sdk-client");
-      initOpenCodeClient({ baseUrl: status.url, workspacePath });
-      setOpenCodeBootstrapped(true, status.url);
-      setOpenCodeReady(true, status.url);
+      const { restartOpencode } = await import("@/lib/opencode/restart");
+      await restartOpencode(workspacePath);
       setHasSkillRestartPrompt(false);
     } catch (error) {
       console.error("[ChatPanel] Failed to restart OpenCode for skills:", error);
@@ -731,7 +722,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     } finally {
       setIsRestartingSkillsRuntime(false);
     }
-  }, [workspacePath, setOpenCodeBootstrapped, setOpenCodeReady, setError]);
+  }, [workspacePath, setOpenCodeBootstrapped, setError]);
 
   // ── Empty state with suggestions ──────────────────────────────────────
   const emptyState = React.useMemo(() => (

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { restartOpencode } from '@/lib/opencode/restart'
 import { cn, isTauri } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -218,14 +219,8 @@ export const PermissionManagementSection = React.memo(function PermissionManagem
       setConfigModified(false)
       invalidatePermissionConfigCache()
 
-      // Restart OpenCode so the new permission config takes effect immediately
       try {
-        await invoke('stop_opencode')
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        await invoke('start_opencode', {
-          config: { workspace_path: workspacePath },
-        })
-        console.log('[PermissionManagement] OpenCode restarted with new permissions')
+        await restartOpencode(workspacePath)
       } catch (restartErr) {
         console.error('[PermissionManagement] Failed to restart OpenCode:', restartErr)
       }

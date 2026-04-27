@@ -1,7 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, AlertCircle, RefreshCw, Loader2, Users, User, Lock, Copy, Check } from 'lucide-react'
-import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -20,7 +19,7 @@ import { useTeamMembersStore } from '@/stores/team-members'
 // `myRole` is null until the user joins a team; gate team-shared UI on it so
 // users without a team don't hit the backend's `secrets not initialized` error.
 import { useWorkspaceStore } from '@/stores/workspace'
-import { initOpenCodeClient } from '@/lib/opencode/sdk-client'
+import { restartOpencode } from '@/lib/opencode/restart'
 import { listen } from '@tauri-apps/api/event'
 
 // ─── Unified type for the combined list ─────────────────────────────────
@@ -616,12 +615,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     setIsRestarting(true)
     setRestartError(null)
     try {
-      await invoke('stop_opencode')
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const status = await invoke<{ url: string }>('start_opencode', {
-        config: { workspace_path: workspacePath },
-      })
-      initOpenCodeClient({ baseUrl: status.url })
+      await restartOpencode(workspacePath)
       setHasChanges(false)
       setDirtyKeys(new Set())
     } catch (err) {

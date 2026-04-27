@@ -30,7 +30,7 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import { SKILLS_CHANGED_EVENT } from '@/hooks/useAppInit'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { initOpenCodeClient } from '@/lib/opencode/sdk-client'
+import { restartOpencode } from '@/lib/opencode/restart'
 import { cn } from '@/lib/utils'
 import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
@@ -301,14 +301,7 @@ export const SkillsSection = React.memo(function SkillsSection({
   const restartOpenCodeInstance = React.useCallback(
     async (options?: RestartOptions) => {
       if (!workspacePath) return
-
-      await invoke('stop_opencode')
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const status = await invoke<{ url: string }>('start_opencode', {
-        config: { workspace_path: workspacePath },
-      })
-      initOpenCodeClient({ baseUrl: status.url, workspacePath })
-
+      await restartOpencode(workspacePath)
       if (!options?.preserveChangeFlag) {
         setHasChanges(false)
       }

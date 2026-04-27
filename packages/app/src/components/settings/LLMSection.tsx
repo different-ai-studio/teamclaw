@@ -19,11 +19,10 @@ import {
   Copy,
   Check,
 } from 'lucide-react'
-import { invoke } from '@tauri-apps/api/core'
 import { useProviderStore } from '@/stores/provider'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamModeStore } from '@/stores/team-mode'
-import { initOpenCodeClient } from '@/lib/opencode/sdk-client'
+import { restartOpencode } from '@/lib/opencode/restart'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -153,30 +152,14 @@ export const LLMSection = React.memo(function LLMSection() {
     }
   }, [openCodeReady])
 
-  // Restart OpenCode sidecar so newly connected providers take effect
   const restartOpenCodeAndRefresh = async () => {
     if (!workspacePath) return
-    const { setOpenCodeBootstrapped, setOpenCodeReady } = useWorkspaceStore.getState()
     try {
-      setOpenCodeBootstrapped(false)
-      await invoke('stop_opencode')
-      const status = await invoke<{ url: string }>('start_opencode', {
-        config: { workspace_path: workspacePath },
-      })
-      // Pass workspacePath so API requests include the directory param
-      initOpenCodeClient({ baseUrl: status.url, workspacePath })
-      setOpenCodeBootstrapped(true, status.url)
-      setOpenCodeReady(true, status.url)
+      await restartOpencode(workspacePath)
       await initAll()
-      // Sidecar restart drops team provider state; ChatPanel's apply-effect doesn't re-fire (no openCodeReady transition).
-      const { teamMode: inTeamMode, applyTeamModelToOpenCode } = useTeamModeStore.getState()
-      if (inTeamMode) {
-        await applyTeamModelToOpenCode(workspacePath, true)
-      }
     } catch (err) {
       console.error('Failed to restart OpenCode after provider connect:', err)
-      setOpenCodeBootstrapped(false)
-      // Fallback: just refresh without restart
+      useWorkspaceStore.getState().setOpenCodeBootstrapped(false)
       await Promise.all([refreshProviders(), refreshConfiguredProviders()])
     }
   }
