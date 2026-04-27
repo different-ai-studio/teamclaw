@@ -505,6 +505,12 @@ pub async fn start_opencode_inner(
                     e
                 );
             }
+            if let Err(e) = ensure_team_provider(&ws_for_config) {
+                eprintln!(
+                    "[OpenCode] Warning: failed to ensure team provider: {}",
+                    e
+                );
+            }
             if let Err(e) = resolve_sidecar_binary_paths(&ws_for_config) {
                 eprintln!("[OpenCode] Warning: failed to resolve binary paths: {}", e);
             }
@@ -1103,9 +1109,11 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
         }
     }
 
-    // Provider section is NOT auto-populated.
-    // Team provider is added only when creating/joining a team (via team-mode store).
     // Personal providers are added manually by the user in Settings > LLM.
+    // The `team` provider is reconciled separately by `ensure_team_provider`
+    // against teamclaw-team/_meta/provider.json — that's the only path that
+    // adds OR removes it, so transient frontend reads can't accidentally
+    // delete it on a bad cycle.
 
     if changed {
         let mut new_content = serde_json::to_string_pretty(&config)
@@ -1119,6 +1127,139 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
             "[Config] Updated opencode.json with inherent configs in {}",
             config_path.display()
         );
+    }
+
+    Ok(())
+}
+
+/// Reconcile `provider.team` in opencode.json against teamclaw-team/_meta/provider.json.
+///
+/// Sidecar startup is the only point where disk state is trusted enough to remove:
+/// no in-flight git sync, no concurrent file readers, no UI race. So this is the only
+/// path that DELETES `provider.team`. Runtime sync (frontend file-watcher etc.) only
+/// adds; that protects against a transient `_meta/provider.json` miss yanking the
+/// provider mid-session.
+///
+/// Behavior:
+/// - `_meta/provider.json` exists, `opencode.json` lacks `provider.team` → ADD
+/// - `_meta/provider.json` missing/invalid, `opencode.json` has `provider.team` → REMOVE
+/// - Both present → leave existing entry alone (frontend owns field-level updates,
+///   so we don't strip richer metadata like modalities/limit if the user added it)
+/// - Neither → no-op
+fn ensure_team_provider(workspace_path: &str) -> Result<(), String> {
+    let config_path = super::mcp::get_config_path(workspace_path);
+    let provider_meta_path = std::path::Path::new(workspace_path)
+        .join(super::TEAM_REPO_DIR)
+        .join("_meta")
+        .join("provider.json");
+
+    let mut config: serde_json::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read opencode.json: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse opencode.json: {}", e))?
+    } else {
+        serde_json::json!({ "$schema": "https://opencode.ai/config.json" })
+    };
+    let obj = config
+        .as_object_mut()
+        .ok_or("opencode.json root is not an object")?;
+
+    let provider_meta: Option<serde_json::Value> = if provider_meta_path.exists() {
+        std::fs::read_to_string(&provider_meta_path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .filter(|v| v.get("provider").and_then(|p| p.get("baseURL")).is_some())
+    } else {
+        None
+    };
+
+    let has_team_in_opencode = obj
+        .get("provider")
+        .and_then(|p| p.as_object())
+        .map(|p| p.contains_key("team"))
+        .unwrap_or(false);
+
+    let mut changed = false;
+
+    match (provider_meta, has_team_in_opencode) {
+        // ADD: meta exists, opencode.json lacks the entry
+        (Some(meta), false) => {
+            let p = meta.get("provider").ok_or("provider field missing")?;
+            let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("Team");
+            let base_url = p
+                .get("baseURL")
+                .and_then(|v| v.as_str())
+                .ok_or("provider.baseURL missing")?;
+            let api_key = p
+                .get("apiKey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("${tc_api_key}");
+            let models_in = p
+                .get("models")
+                .and_then(|v| v.as_array())
+                .ok_or("provider.models missing or not an array")?;
+
+            let mut models_out = serde_json::Map::new();
+            for m in models_in {
+                let id = match m.get("id").and_then(|v| v.as_str()) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let mname = m.get("name").and_then(|v| v.as_str()).unwrap_or(id);
+                models_out.insert(
+                    id.to_string(),
+                    serde_json::json!({
+                        "name": mname,
+                        "limit": { "context": 256000, "output": 16000 }
+                    }),
+                );
+            }
+
+            let providers = obj
+                .entry("provider")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or("provider is not an object")?;
+            providers.insert(
+                "team".to_string(),
+                serde_json::json!({
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": name,
+                    "options": { "baseURL": base_url, "apiKey": api_key },
+                    "models": models_out,
+                }),
+            );
+            changed = true;
+            println!(
+                "[Config] Added provider.team to opencode.json (synced from {})",
+                provider_meta_path.display()
+            );
+        }
+        // REMOVE: meta missing, opencode.json still has stale entry
+        (None, true) => {
+            if let Some(providers) = obj.get_mut("provider").and_then(|p| p.as_object_mut()) {
+                providers.remove("team");
+                if providers.is_empty() {
+                    obj.remove("provider");
+                }
+                changed = true;
+                println!("[Config] Removed stale provider.team from opencode.json");
+            }
+        }
+        // Both present: leave alone. Frontend owns field-level updates.
+        // Neither: no-op.
+        _ => {}
+    }
+
+    if changed {
+        let mut new_content = serde_json::to_string_pretty(&config)
+            .map_err(|e| format!("Failed to serialize opencode.json: {}", e))?;
+        if !new_content.ends_with('\n') {
+            new_content.push('\n');
+        }
+        std::fs::write(&config_path, &new_content)
+            .map_err(|e| format!("Failed to write opencode.json: {}", e))?;
     }
 
     Ok(())

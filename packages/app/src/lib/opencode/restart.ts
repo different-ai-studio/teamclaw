@@ -1,17 +1,15 @@
 import { invoke } from '@tauri-apps/api/core'
 import { initOpenCodeClient } from './sdk-client'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useTeamModeStore } from '@/stores/team-mode'
 
 export interface RestartResult {
   url: string
 }
 
-// Stop+start the OpenCode sidecar and restore everything callers tend to forget:
-// the SDK client URL, bootstrapped/ready flags, and the team LLM provider config
-// (which the sidecar drops on stop, and which ChatPanel's apply-effect can't
-// recover without an openCodeReady transition). Throws on failure; caller decides
-// how to surface it. Set bootstrapped=false in the catch path if you need it.
+// Stop+start the OpenCode sidecar and restore the SDK client URL and ready flags.
+// Provider state (including the team provider) is reconciled by the Rust
+// `ensure_team_provider` step inside `start_opencode` itself, so callers don't
+// need to re-apply team config here.
 export async function restartOpencode(workspacePath: string): Promise<RestartResult> {
   const { setOpenCodeBootstrapped, setOpenCodeReady } = useWorkspaceStore.getState()
   setOpenCodeBootstrapped(false)
@@ -23,11 +21,5 @@ export async function restartOpencode(workspacePath: string): Promise<RestartRes
   initOpenCodeClient({ baseUrl: status.url, workspacePath })
   setOpenCodeBootstrapped(true, status.url)
   setOpenCodeReady(true, status.url)
-
-  const { teamMode, applyTeamModelToOpenCode } = useTeamModeStore.getState()
-  if (teamMode) {
-    await applyTeamModelToOpenCode(workspacePath, true)
-  }
-
   return { url: status.url }
 }
