@@ -633,8 +633,9 @@ mod tests {
     use super::*;
     use crate::commands::team_p2p::{
         add_member_to_team, create_team, get_node_id, join_team_drive, read_members_manifest,
-        IrohNode, SyncEngine,
+        IrohNode,
     };
+    use teamclaw_p2p::SyncEngine;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::{Duration, Instant};

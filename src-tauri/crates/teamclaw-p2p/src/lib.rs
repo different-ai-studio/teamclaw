@@ -3475,7 +3475,6 @@ pub async fn get_files_sync_status(
         .active_doc
         .as_ref()
         .ok_or_else(|| "No active team document".to_string())?;
-    let blobs_store: iroh_blobs::api::Store = node.store.clone().into();
 
     let query = iroh_docs::store::Query::single_latest_per_key().build();
     let entries = doc

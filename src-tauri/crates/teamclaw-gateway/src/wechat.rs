@@ -188,7 +188,7 @@ pub async fn poll_qr_status(
 // ---------------------------------------------------------------------------
 
 /// Long-poll for new messages
-pub async fn get_updates(
+pub(crate) async fn get_updates(
     client: &reqwest::Client,
     base_url: &str,
     token: &str,
