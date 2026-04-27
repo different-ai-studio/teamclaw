@@ -303,17 +303,41 @@ export function CodeEditor({
     if (!view) return;
 
     const currentDoc = view.state.doc.toString();
-    if (currentDoc !== content) {
-      isExternalUpdate.current = true;
-      view.dispatch({
-        changes: { from: 0, to: currentDoc.length, insert: content },
-        // Don't pollute the undo history with external content syncs.
-        // Without this, React re-renders triggered by undo/redo can insert
-        // a "sync" transaction into the history stack, breaking further undos.
-        annotations: Transaction.addToHistory.of(false),
-      });
-      isExternalUpdate.current = false;
+    if (currentDoc === content) return;
+
+    // Use a minimal diff (common prefix + common suffix) instead of a wholesale
+    // replacement. Even with `Transaction.addToHistory.of(false)`, the history
+    // extension calls `state.addMapping(tr.changes.desc)` which maps every prior
+    // undo/redo entry through this transaction's changes. A wholesale replace of
+    // the entire document collapses every prior entry to an empty change, so
+    // `addMappingToBranch` drops them all — leaving only one step of undo
+    // available after any external sync. Narrowing the change to just the
+    // differing region preserves history outside that region.
+    let prefix = 0;
+    const minLen = Math.min(currentDoc.length, content.length);
+    while (
+      prefix < minLen &&
+      currentDoc.charCodeAt(prefix) === content.charCodeAt(prefix)
+    ) {
+      prefix++;
     }
+    let oldEnd = currentDoc.length;
+    let newEnd = content.length;
+    while (
+      oldEnd > prefix &&
+      newEnd > prefix &&
+      currentDoc.charCodeAt(oldEnd - 1) === content.charCodeAt(newEnd - 1)
+    ) {
+      oldEnd--;
+      newEnd--;
+    }
+
+    isExternalUpdate.current = true;
+    view.dispatch({
+      changes: { from: prefix, to: oldEnd, insert: content.slice(prefix, newEnd) },
+      annotations: Transaction.addToHistory.of(false),
+    });
+    isExternalUpdate.current = false;
   }, [content]);
 
   // Update git gutter when originalContent changes
