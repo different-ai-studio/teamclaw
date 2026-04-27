@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense, useCallback } from 'react'
+import { useEffect, useState, lazy, Suspense, useCallback, useMemo, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { gitManager } from '@/lib/git/manager'
 import type { GitLogEntry } from '@/lib/git/types'
@@ -7,8 +7,10 @@ import { CommitList } from './CommitList'
 const LazyDiffRenderer = lazy(() => import('@/components/diff/DiffRenderer'))
 
 const PAGE_SIZE = 50
-const MAX_DIFF_BYTES = 256 * 1024
-const NULL_SCAN_BYTES = 8192
+// Heuristic: code-unit count, not byte count. Big-enough strings are slow
+// regardless of encoding, so a code-unit ceiling is sufficient as a sanity guard.
+const MAX_DIFF_CHARS = 256 * 1024
+const NULL_SCAN_CHARS = 8192
 
 interface FileHistoryViewProps {
   repoPath: string
@@ -18,8 +20,8 @@ interface FileHistoryViewProps {
 }
 
 function isBinaryOrTooLarge(text: string): boolean {
-  if (text.length > MAX_DIFF_BYTES) return true
-  const sample = text.slice(0, NULL_SCAN_BYTES)
+  if (text.length > MAX_DIFF_CHARS) return true
+  const sample = text.slice(0, NULL_SCAN_CHARS)
   for (let i = 0; i < sample.length; i++) {
     if (sample.charCodeAt(i) === 0) return true
   }
@@ -43,9 +45,20 @@ export function FileHistoryView({
   const [listError, setListError] = useState<string | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
 
+  const loadMoreGenRef = useRef(0)
+
+  const selectedEntry = useMemo(
+    () => commits.find((c) => c.sha === selectedSha) ?? null,
+    [commits, selectedSha],
+  )
+
   const fetchInitial = useCallback(() => {
     setLoading(true)
     setListError(null)
+    setBefore(null)
+    setAfter(null)
+    setDiffError(null)
+    setLoadingDiff(false)
     return gitManager
       .logFile(repoPath, relativePath, PAGE_SIZE, 0)
       .then((entries) => {
@@ -69,19 +82,18 @@ export function FileHistoryView({
     setListError(null)
     setDiffError(null)
     setHasMore(false)
+    loadMoreGenRef.current++           // <-- add this
     void fetchInitial()
   }, [fetchInitial])
 
   // Fetch diff for selected commit.
   useEffect(() => {
-    if (!selectedSha) {
+    if (!selectedSha || !selectedEntry) {
       setBefore(null)
       setAfter(null)
       setDiffError(null)
       return
     }
-    const entry = commits.find((c) => c.sha === selectedSha)
-    if (!entry) return
 
     let cancelled = false
     setLoadingDiff(true)
@@ -89,9 +101,9 @@ export function FileHistoryView({
 
     const afterPromise = gitManager.showFile(repoPath, relativePath, selectedSha)
     const beforePromise: Promise<string | null> =
-      entry.parentSha === ''
+      selectedEntry.parentSha === ''
         ? Promise.resolve('')
-        : gitManager.showFile(repoPath, relativePath, entry.parentSha)
+        : gitManager.showFile(repoPath, relativePath, selectedEntry.parentSha)
 
     Promise.all([beforePromise, afterPromise])
       .then(([b, a]) => {
@@ -115,26 +127,31 @@ export function FileHistoryView({
     return () => {
       cancelled = true
     }
-  }, [selectedSha, repoPath, relativePath, commits])
+  }, [selectedSha, selectedEntry, repoPath, relativePath])
 
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
+    if (loadingMore) return
+    const gen = ++loadMoreGenRef.current
     setLoadingMore(true)
     gitManager
       .logFile(repoPath, relativePath, PAGE_SIZE, commits.length)
       .then((entries) => {
+        if (gen !== loadMoreGenRef.current) return
         setCommits((prev) => [...prev, ...entries])
         setHasMore(entries.length === PAGE_SIZE)
         setLoadingMore(false)
       })
       .catch((err: unknown) => {
+        if (gen !== loadMoreGenRef.current) return
         setListError(err instanceof Error ? err.message : String(err))
         setLoadingMore(false)
       })
-  }
+  }, [repoPath, relativePath, commits.length, loadingMore])
 
   const showEmpty = !loading && !listError && commits.length === 0
-  const showSizeGuard =
-    after !== null && (isBinaryOrTooLarge(after) || (before !== null && isBinaryOrTooLarge(before)))
+  const beforeTooLarge = before !== null && isBinaryOrTooLarge(before)
+  const afterTooLarge = after !== null && isBinaryOrTooLarge(after)
+  const showSizeGuard = afterTooLarge || beforeTooLarge
 
   return (
     <div className="flex h-full">
