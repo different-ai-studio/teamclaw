@@ -1,5 +1,6 @@
 import type { ToolCall } from "@/stores/session";
 import { useTranslation } from "react-i18next";
+import { ToolCallStatusGlyph } from "./ToolCallStatusGlyph";
 
 function getRoleName(toolCall: ToolCall, fallback: string): string {
   const args = toolCall.arguments as Record<string, unknown> | undefined;
@@ -52,16 +53,6 @@ function renderContextWithCodePill(context: string) {
   );
 }
 
-function StatusGlyph({ status }: { status: ToolCall["status"] }) {
-  if (status === "completed") {
-    return <span className="text-[13px] text-green-600 dark:text-green-400">✓</span>;
-  }
-  if (status === "failed") {
-    return <span className="text-[13px] text-red-600 dark:text-red-400">✕</span>;
-  }
-  return <span className="text-[12px] text-muted-foreground">●</span>;
-}
-
 export function RoleLoadToolCard({ toolCall }: { toolCall: ToolCall }) {
   const { t } = useTranslation();
   const roleName = getRoleName(toolCall, "unnamed-role");
@@ -91,7 +82,7 @@ export function RoleLoadToolCard({ toolCall }: { toolCall: ToolCall }) {
           {roleName}
         </span>
         <div className="ml-auto">
-          <StatusGlyph status={toolCall.status} />
+          <ToolCallStatusGlyph status={toolCall.status} />
         </div>
       </div>
 

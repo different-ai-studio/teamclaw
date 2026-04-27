@@ -2,16 +2,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { ToolCall, useSessionStore } from "@/stores/session";
-
-function StatusGlyph({ status }: { status: ToolCall["status"] }) {
-  if (status === "completed") {
-    return <span className="text-[13px] text-green-600 dark:text-green-400">✓</span>;
-  }
-  if (status === "failed") {
-    return <span className="text-[13px] text-red-600 dark:text-red-400">✕</span>;
-  }
-  return <span className="text-[12px] text-muted-foreground">●</span>;
-}
+import { ToolCallStatusGlyph } from "./ToolCallStatusGlyph";
 
 export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
   const { t } = useTranslation();
@@ -34,7 +25,7 @@ export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
           {skillName}
         </span>
         <div className="ml-auto">
-          <StatusGlyph status={toolCall.status} />
+          <ToolCallStatusGlyph status={toolCall.status} />
         </div>
       </div>
     </div>
@@ -61,7 +52,7 @@ export function RoleSkillToolCard({ toolCall }: { toolCall: ToolCall }) {
         <span className="ml-2 font-mono text-foreground/85">{skillName}</span>
       </div>
       <div className="text-right">
-        <StatusGlyph status={toolCall.status} />
+        <ToolCallStatusGlyph status={toolCall.status} />
       </div>
     </div>
   );
@@ -107,7 +98,7 @@ export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
           <span className="rounded-full border border-[#dbe4ea] px-2 py-0.5 text-[11px] text-[#475569] dark:border-border dark:text-foreground/80">
             {subagentType}
           </span>
-          <StatusGlyph status={toolCall.status} />
+          <ToolCallStatusGlyph status={toolCall.status} />
         </div>
         <div className="mt-[3px] truncate text-[12px] leading-5 text-[#475569] dark:text-foreground/80">
           {description}

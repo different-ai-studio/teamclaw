@@ -66,19 +66,3 @@ export function savePinnedSessionIds(
     // Ignore storage failures so session list still works in constrained envs.
   }
 }
-
-export function sanitizePinnedSessionIds(
-  pinnedIds: string[],
-  validSessionIds: Iterable<string>,
-): string[] {
-  const validSet = new Set(validSessionIds);
-  const uniquePinned: string[] = [];
-
-  for (const id of pinnedIds) {
-    if (validSet.has(id) && !uniquePinned.includes(id)) {
-      uniquePinned.push(id);
-    }
-  }
-
-  return uniquePinned;
-}

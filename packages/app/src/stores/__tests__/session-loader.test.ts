@@ -128,7 +128,7 @@ describe('session-loader: createLoaderActions', () => {
     expect(sessions[1].id).toBe('older')
   })
 
-  it('loadSessions removes pinned ids that no longer exist', async () => {
+  it('loadSessions preserves pinned ids that are temporarily missing', async () => {
     const now = Date.now()
     state.currentWorkspacePath = '/workspace'
     state.pinnedSessionIds = ['missing', 'active']
@@ -138,16 +138,8 @@ describe('session-loader: createLoaderActions', () => {
 
     await actions.loadSessions('/workspace')
 
-    const sessionsCall = set.mock.calls.find(
-      (c) => {
-        const arg = c[0]
-        return typeof arg === 'object' && arg !== null && 'pinnedSessionIds' in arg
-      }
-    )
-
-    expect(sessionsCall).toBeDefined()
-    expect(sessionsCall![0].pinnedSessionIds).toEqual(['active'])
-    expect(localStorage.setItem).toHaveBeenCalled()
+    expect(state.pinnedSessionIds).toEqual(['missing', 'active'])
+    expect(localStorage.setItem).not.toHaveBeenCalled()
   })
 
   it('loadSessions preserves pinned ids from other workspaces when switching', async () => {
@@ -166,13 +158,9 @@ describe('session-loader: createLoaderActions', () => {
 
     await actions.loadSessions('/workspace-b')
 
-    expect(localStorage.setItem).toHaveBeenCalledWith(
-      'teamclaw-pinned-sessions',
-      JSON.stringify({
-        '/workspace-a': ['a-pinned'],
-        '/workspace-b': ['b-pinned'],
-      }),
-    )
+    expect(state.pinnedSessionIds).toEqual(['b-pinned'])
+    expect(state.currentWorkspacePath).toBe('/workspace-b')
+    expect(localStorage.setItem).not.toHaveBeenCalled()
   })
 
   it('loadSessions filters out archived and child sessions', async () => {

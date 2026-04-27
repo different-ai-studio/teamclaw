@@ -16,23 +16,7 @@ import {
   resolveWorkspaceRelativePath,
   useToolCallFileOnDisk,
 } from "@/hooks/useToolCallFileOnDisk";
-
-function StatusGlyph({ status }: { status: ToolCall["status"] }) {
-  return (
-    <span
-      className={cn(
-        "text-[13px]",
-        status === "failed"
-          ? "text-red-600 dark:text-red-400"
-          : status === "completed"
-            ? "text-green-600 dark:text-green-400"
-            : "text-muted-foreground",
-      )}
-    >
-      {status === "failed" ? "✕" : status === "completed" ? "✓" : "●"}
-    </span>
-  );
-}
+import { ToolCallStatusGlyph } from "./ToolCallStatusGlyph";
 
 // Generate unified diff for new file (empty before)
 function generateNewFileDiff(content: string, filePath: string): string {
@@ -150,7 +134,7 @@ export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
         {diffData && diffData.additions > 0 && (
           <span className="text-[10px] text-green-600 dark:text-green-500">+{diffData.additions}</span>
         )}
-        <StatusGlyph status={toolCall.status} />
+        <ToolCallStatusGlyph status={toolCall.status} />
       </div>
 
       {diffData && diffData.lines.length > 0 && (

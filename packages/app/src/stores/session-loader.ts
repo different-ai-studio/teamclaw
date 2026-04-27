@@ -29,7 +29,6 @@ import { sessionDataCache } from "./session-data-cache";
 import {
   loadPinnedSessionIds,
   savePinnedSessionIds,
-  sanitizePinnedSessionIds,
 } from "./session-pins";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
@@ -125,16 +124,11 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         // Sort by updatedAt descending (most recently active first)
         newSessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
-        const rawPinnedSessionIds =
-          get().currentWorkspacePath === (workspacePath ?? null)
+        const nextWorkspacePath = workspacePath ?? null;
+        const pinnedSessionIds =
+          get().currentWorkspacePath === nextWorkspacePath
             ? get().pinnedSessionIds
-            : loadPinnedSessionIds(workspacePath ?? null);
-
-        const pinnedSessionIds = sanitizePinnedSessionIds(
-          rawPinnedSessionIds,
-          newSessions.map((session) => session.id),
-        );
-        savePinnedSessionIds(workspacePath ?? null, pinnedSessionIds);
+            : loadPinnedSessionIds(nextWorkspacePath);
 
         // UI-level pagination: initially show first PAGE_SIZE sessions
         const hasMore = newSessions.length > UI_PAGE_SIZE;
@@ -172,7 +166,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         set({
           sessions: merged,
           pinnedSessionIds,
-          currentWorkspacePath: workspacePath ?? null,
+          currentWorkspacePath: nextWorkspacePath,
           isLoading: false,
           hasMoreSessions: hasMore,
           visibleSessionCount: Math.min(newSessions.length, UI_PAGE_SIZE),
