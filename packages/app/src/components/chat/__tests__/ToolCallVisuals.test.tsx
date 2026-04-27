@@ -67,7 +67,7 @@ import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { ReadToolCard } from "@/components/chat/tool-calls/ReadToolCard";
 import { RoleLoadToolCard } from "@/components/chat/tool-calls/RoleLoadToolCard";
 import { EditToolCard } from "@/components/chat/tool-calls/EditToolCard";
-import { SkillToolCard, TaskToolCard } from "@/components/chat/tool-calls/TaskToolCard";
+import { RoleSkillToolCard, SkillToolCard, TaskToolCard } from "@/components/chat/tool-calls/TaskToolCard";
 import { WriteToolCard } from "@/components/chat/tool-calls/WriteToolCard";
 
 function makeToolCall(overrides: Partial<ToolCall>): ToolCall {
@@ -79,6 +79,12 @@ function makeToolCall(overrides: Partial<ToolCall>): ToolCall {
     startTime: new Date("2026-04-21T00:00:00Z"),
     ...overrides,
   };
+}
+
+function expectBreathingStatusLight() {
+  const status = screen.getByTestId("tool-call-breathing-status");
+  expect(status.textContent).not.toContain("●");
+  expect(status.querySelector(".animate-ping")).toBeTruthy();
 }
 
 describe("Tool call visual redesign", () => {
@@ -133,6 +139,16 @@ describe("Tool call visual redesign", () => {
     expect(screen.getByText("gws sheets values")).toBeTruthy();
     expect(screen.queryByText("Waiting for input")).toBeNull();
     expect(screen.queryByText("This command is waiting for confirmation or stdin.")).toBeNull();
+  });
+
+  it("renders a running bash command status as a breathing light", () => {
+    render(<ToolCallCard toolCall={makeToolCall({
+      name: "bash",
+      status: "calling",
+      arguments: { command: "pnpm test" },
+    })} />);
+
+    expectBreathingStatusLight();
   });
 
   it("renders bash output in a collapsible area with max height", () => {
@@ -366,6 +382,57 @@ describe("Tool call visual redesign", () => {
     expect(row.className).toContain("py-[6px]");
     expect(screen.getByText("Role skill")).toBeTruthy();
     expect(screen.getByText("recon-parse-config-authoring")).toBeTruthy();
+  });
+
+  it("renders running specialized tool statuses as breathing lights", () => {
+    const { rerender } = render(<SkillToolCard toolCall={makeToolCall({
+      name: "skill",
+      status: "calling",
+      arguments: { name: "using-superpowers" },
+    })} />);
+    expectBreathingStatusLight();
+
+    rerender(<RoleSkillToolCard toolCall={makeToolCall({
+      name: "role_skill",
+      status: "calling",
+      arguments: { name: "recon-parse-config-authoring" },
+    })} />);
+    expectBreathingStatusLight();
+
+    rerender(<RoleLoadToolCard toolCall={makeToolCall({
+      name: "role_load",
+      status: "calling",
+      arguments: { name: "recon-file-parse-config-operator" },
+    })} />);
+    expectBreathingStatusLight();
+
+    rerender(<WriteToolCard toolCall={makeToolCall({
+      name: "write",
+      status: "calling",
+      arguments: { path: "preview_parse_result_test.go" },
+    })} />);
+    expectBreathingStatusLight();
+
+    rerender(<EditToolCard toolCall={makeToolCall({
+      name: "edit",
+      status: "calling",
+      arguments: {
+        path: "preview_parse_result_test.go",
+        old_string: "old line",
+        new_string: "new line",
+      },
+    })} />);
+    expectBreathingStatusLight();
+
+    rerender(<TaskToolCard toolCall={makeToolCall({
+      name: "task",
+      status: "calling",
+      arguments: {
+        description: "Inspect parser config boundaries",
+        subagent_type: "explorer",
+      },
+    })} />);
+    expectBreathingStatusLight();
   });
 
   it("renders unknown tools with a compact expandable fallback card", () => {

@@ -16,6 +16,7 @@ import {
 import { getCommandText, getToolCallOutputText } from "@/lib/terminal-interaction";
 
 // Import sub-cards and utilities from tool-calls/
+import { ToolCallStatusGlyph } from "./tool-calls/ToolCallStatusGlyph";
 import { WriteToolCard } from "./tool-calls/WriteToolCard";
 import { EditToolCard } from "./tool-calls/EditToolCard";
 import { ReadToolCard } from "./tool-calls/ReadToolCard";
@@ -112,17 +113,6 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
     compactToolName === "glob" ||
     compactToolName === "find";
   const isTodo = isTodoTool(toolCall.name);
-  const statusGlyphClass =
-    toolCall.status === "completed"
-      ? "text-green-600 dark:text-green-400"
-      : toolCall.status === "failed"
-        ? "text-red-600 dark:text-red-400"
-        : "text-muted-foreground";
-  const statusGlyph = (() => {
-    if (toolCall.status === "completed") return "✓";
-    if (toolCall.status === "failed") return "✕";
-    return "●";
-  })();
 
   const renderExpandableHeaderSlot = (icon: React.ReactNode, testId?: string) => (
     <span className="relative h-[22px] w-[22px] shrink-0" aria-hidden="true">
@@ -325,7 +315,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
             {summary || commandText}
           </span>
           <span className="ml-auto" />
-          <span className={cn("shrink-0 text-[13px]", statusGlyphClass)}>{statusGlyph}</span>
+          <ToolCallStatusGlyph status={toolCall.status} className="shrink-0" />
         </button>
         {expanded ? (
           <div

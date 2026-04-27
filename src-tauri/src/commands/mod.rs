@@ -1,3 +1,4 @@
+pub mod app_settings;
 pub mod clawhub;
 pub mod cron;
 pub mod deps;

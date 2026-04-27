@@ -35,7 +35,7 @@
 
 use tauri::Manager;
 use tauri_plugin_aptabase::EventTracker;
-use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+use tauri_plugin_global_shortcut::ShortcutState;
 
 mod commands;
 pub mod sentry_utils;
@@ -248,42 +248,21 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         // NOTE: aptabase is registered in the setup() closure below so that
         // the Tokio runtime is available when its internal `tokio::spawn` runs.
-        .plugin({
-            // Configure global shortcuts for Spotlight.
-            // Errors in shortcut registration should not abort app startup, so we
-            // log in debug builds and fall back to a plugin without shortcuts.
-            let base = tauri_plugin_global_shortcut::Builder::new();
-            let builder = base
-                // Cross-platform Spotlight shortcut:
-                // - macOS: Option+Space
-                // - Windows/others: Alt+Space
-                .with_shortcuts(["alt+space"])
-                .unwrap_or_else(|err| {
-                    sentry_utils::capture_err("[global-shortcut] Failed to register Spotlight shortcuts", &err);
-                    #[cfg(debug_assertions)]
-                    eprintln!("[global-shortcut] Failed to register Spotlight shortcuts: {err}");
-                    tauri_plugin_global_shortcut::Builder::new()
-                });
-
-            builder
-                .with_handler(|app, shortcut, event| {
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
                     if event.state != ShortcutState::Pressed {
                         return;
                     }
 
-                    // Alt/Option + Space
-                    let is_alt_space = shortcut.matches(Modifiers::ALT, Code::Space);
-
-                    if is_alt_space {
-                        let app_clone = app.clone();
-                        let _ = app.run_on_main_thread(move || {
-                            let state = app_clone.state::<commands::spotlight::SpotlightState>();
-                            commands::spotlight::toggle_spotlight(app_clone.clone(), state);
-                        });
-                    }
+                    let app_clone = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        let state = app_clone.state::<commands::spotlight::SpotlightState>();
+                        commands::spotlight::toggle_spotlight(app_clone.clone(), state);
+                    });
                 })
                 .build()
-        })
+        )
         .plugin({
             #[cfg(debug_assertions)]
             {
@@ -316,6 +295,9 @@ pub fn run() {
         .manage(<commands::p2p_state::IrohState>::default())
         .manage(<commands::p2p_state::SyncEngineState>::default())
         .manage(commands::spotlight::SpotlightState::default())
+        .manage(commands::app_settings::SpotlightShortcutState::new(
+            commands::app_settings::read_spotlight_shortcut(),
+        ))
         .manage(tokio::sync::Mutex::new(commands::team_webdav::WebDavManagedState::default()))
         .manage(commands::oss_sync::OssSyncState::default())
         .manage(commands::version_commands::VersionStoreState::default())
@@ -594,6 +576,8 @@ pub fn run() {
             commands::webview::webview_set_zoom,
             commands::workspace_files::read_workspace_text_file,
             commands::workspace_files::read_workspace_binary_file,
+            commands::app_settings::get_spotlight_shortcut,
+            commands::app_settings::set_spotlight_shortcut,
             commands::spotlight::toggle_spotlight,
             commands::spotlight::set_spotlight_pin,
             commands::spotlight::show_main_window,
@@ -619,6 +603,18 @@ pub fn run() {
             // Register aptabase here (inside setup) so the Tokio runtime is available
             // for its internal `tokio::spawn` polling loop.
             app.handle().plugin(tauri_plugin_aptabase::Builder::new("A-US-9094113207").build())?;
+
+            let spotlight_shortcut = app
+                .handle()
+                .state::<commands::app_settings::SpotlightShortcutState>()
+                .current();
+            if let Err(err) =
+                commands::app_settings::register_spotlight_shortcut(app.handle(), &spotlight_shortcut)
+            {
+                sentry_utils::capture_err("[global-shortcut] Failed to register Spotlight shortcut", &err);
+                #[cfg(debug_assertions)]
+                eprintln!("[global-shortcut] Failed to register Spotlight shortcut: {err}");
+            }
 
             // Start RAG HTTP API server for MCP bridge
             let rag_state_handle = app.handle().state::<commands::knowledge::RagState>();

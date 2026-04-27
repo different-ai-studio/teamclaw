@@ -17,6 +17,7 @@ import {
   resolveWorkspaceRelativePath,
   useToolCallFileOnDisk,
 } from "@/hooks/useToolCallFileOnDisk";
+import { ToolCallStatusGlyph } from "./ToolCallStatusGlyph";
 
 function generateUnifiedDiff(before: string, after: string, filePath: string): string {
   const oldLines = before.split("\n");
@@ -30,23 +31,6 @@ function generateUnifiedDiff(before: string, after: string, filePath: string): s
   oldLines.forEach((line) => lines.push(`-${line}`));
   newLines.forEach((line) => lines.push(`+${line}`));
   return lines.join("\n");
-}
-
-function StatusGlyph({ status }: { status: ToolCall["status"] }) {
-  return (
-    <span
-      className={cn(
-        "text-[13px]",
-        status === "failed"
-          ? "text-red-600 dark:text-red-400"
-          : status === "completed"
-            ? "text-green-600 dark:text-green-400"
-            : "text-muted-foreground",
-      )}
-    >
-      {status === "failed" ? "✕" : status === "completed" ? "✓" : "●"}
-    </span>
-  );
 }
 
 export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
@@ -142,7 +126,7 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
             })}
           </span>
           <span className="flex-1" />
-          <StatusGlyph status={toolCall.status} />
+          <ToolCallStatusGlyph status={toolCall.status} />
         </div>
         <div className="border-t border-border/50 px-3 pb-2 pt-2 space-y-0.5">
           {deletedFiles.map((f, i) => (
@@ -194,7 +178,7 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
             {diffData.additions > 0 ? `+${diffData.additions}` : ""}
           </span>
         ) : null}
-        <StatusGlyph status={toolCall.status} />
+        <ToolCallStatusGlyph status={toolCall.status} />
       </div>
 
       {diffData?.lines.length ? (
