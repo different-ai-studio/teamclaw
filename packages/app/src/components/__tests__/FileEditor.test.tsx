@@ -9,8 +9,9 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
+const isTauriMock = vi.fn(() => false)
 vi.mock('@/lib/utils', () => ({
-  isTauri: () => false,
+  isTauri: () => isTauriMock(),
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }))
 
@@ -144,6 +145,7 @@ describe('FileEditor', () => {
   })
 
   it('renders the history button for team files and toggles history view', async () => {
+    isTauriMock.mockReturnValue(true)
     render(
       <FileEditor
         content=""
@@ -157,5 +159,6 @@ describe('FileEditor', () => {
     await waitFor(() =>
       expect(screen.getByText('该文件还没有提交历史')).toBeDefined(),
     )
+    isTauriMock.mockReturnValue(false)
   })
 })

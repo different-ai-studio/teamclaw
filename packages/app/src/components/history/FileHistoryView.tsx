@@ -82,7 +82,7 @@ export function FileHistoryView({
     setListError(null)
     setDiffError(null)
     setHasMore(false)
-    loadMoreGenRef.current++           // <-- add this
+    loadMoreGenRef.current++
     void fetchInitial()
   }, [fetchInitial])
 

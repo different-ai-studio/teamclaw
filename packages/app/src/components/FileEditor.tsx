@@ -800,7 +800,7 @@ export function FileEditor({
             </button>
           )}
 
-          {isTeamFile && (
+          {isTeamFile && isTauri() && (
             <button
               onClick={() => {
                 if (showHistory) {

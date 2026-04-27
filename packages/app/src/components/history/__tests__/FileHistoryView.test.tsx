@@ -148,7 +148,7 @@ describe('FileHistoryView', () => {
   it('appends results when "load more" is clicked', async () => {
     const page1 = Array.from({ length: 50 }, (_, i) => ({
       ...initial,
-      sha: `s1-${i}`.padEnd(40, '0'),
+      sha: `s1-${String(i).padStart(3, '0')}`.padEnd(40, '0'),
       subject: `c1-${i}`,
     }))
     const page2 = [
