@@ -1334,6 +1334,18 @@ async fn team_git_join_impl(
         ));
     }
 
+    // If the caller didn't pass an fc_endpoint (e.g. manual entry without an
+    // invite code), fall back to the team's persisted value from
+    // _meta/team.json so the FC `/ai/add-member` block below still fires.
+    // Invite-code joins already had FC called by the frontend and intentionally
+    // pass None to avoid duplicate registration — that path is unaffected.
+    let fc_endpoint = fc_endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| team_meta.fc_endpoint.clone());
+
     // 5. Verify team_secret via HMAC comparison
     let computed_verify = match compute_secret_verify(&team_secret) {
         Ok(v) => v,
