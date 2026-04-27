@@ -4,6 +4,7 @@ import { mkdir, exists } from '@tauri-apps/plugin-fs'
 import type {
   GitCommandResult,
   GitStatusResult,
+  GitLogEntry,
   GitRepo,
   GitRepoConfig,
   RepoSource,
@@ -172,6 +173,24 @@ export class GitManager {
       // File doesn't exist at this ref (new file) or not a git repo
       return null
     }
+  }
+
+  /**
+   * Read commit history for a single file (paginated).
+   * Returns entries newest-first. Empty array means "no commits touched this file".
+   */
+  async logFile(
+    localPath: string,
+    file: string,
+    limit: number,
+    skip: number,
+  ): Promise<GitLogEntry[]> {
+    return invoke<GitLogEntry[]>('git_log_file', {
+      path: localPath,
+      file,
+      limit,
+      skip,
+    })
   }
 
   // ─── Repository Management ─────────────────────────────────────────────

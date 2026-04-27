@@ -318,3 +318,214 @@ pub fn git_show_file(
     let spec = format!("{}:{}", r, file);
     run_git(&["show", &spec], &path)
 }
+
+/// 1.11 - Read commit history for a single file.
+///
+/// Runs `git log --follow ...` and returns parsed entries newest-first.
+/// `limit` defaults to 50, `skip` defaults to 0.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLogEntry {
+    pub sha: String,
+    /// First-parent SHA. Empty string for the initial commit.
+    pub parent_sha: String,
+    pub author: String,
+    /// Strict ISO 8601 (`%aI`).
+    pub iso_time: String,
+    pub subject: String,
+}
+
+#[tauri::command]
+pub fn git_log_file(
+    path: String,
+    file: String,
+    limit: Option<u32>,
+    skip: Option<u32>,
+) -> Result<Vec<GitLogEntry>, String> {
+    let limit = limit.unwrap_or(50);
+    let skip = skip.unwrap_or(0);
+    let max_count_arg = format!("--max-count={}", limit);
+    let skip_arg = format!("--skip={}", skip);
+    let pretty = "--pretty=format:%H%x09%P%x09%an%x09%aI%x09%s";
+
+    // --first-parent keeps the log consistent with parent_sha (which is always first-parent).
+    let result = run_git(
+        &[
+            "log",
+            "--follow",
+            "--first-parent",
+            &max_count_arg,
+            &skip_arg,
+            pretty,
+            "--",
+            &file,
+        ],
+        &path,
+    )?;
+
+    if !result.success {
+        return Err(format!("git log failed: {}", result.stderr.trim()));
+    }
+
+    let mut entries = Vec::new();
+    for line in result.stdout.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(5, '\t');
+        let sha = parts.next().unwrap_or("").to_string();
+        let parents = parts.next().unwrap_or("");
+        let author = parts.next().unwrap_or("").to_string();
+        let iso_time = parts.next().unwrap_or("").to_string();
+        let subject = parts.next().unwrap_or("").to_string();
+
+        if sha.is_empty() {
+            continue;
+        }
+
+        let parent_sha = parents.split_whitespace().next().unwrap_or("").to_string();
+
+        entries.push(GitLogEntry {
+            sha,
+            parent_sha,
+            author,
+            iso_time,
+            subject,
+        });
+    }
+
+    Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    fn run(repo: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .status()
+            .expect("git command should run");
+        assert!(status.success(), "git {:?} failed", args);
+    }
+
+    fn init_repo() -> TempDir {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path();
+        run(path, &["init", "-q", "-b", "main"]);
+        run(path, &["config", "user.email", "t@t.t"]);
+        run(path, &["config", "user.name", "Test"]);
+        run(path, &["config", "commit.gpgsign", "false"]);
+        dir
+    }
+
+    fn commit_file(repo: &TempDir, file: &str, content: &str, msg: &str) {
+        let p = repo.path().join(file);
+        if let Some(parent) = p.parent() {
+            fs::create_dir_all(parent).expect("create parent dir");
+        }
+        fs::write(&p, content).expect("write file");
+        run(repo.path(), &["add", file]);
+        run(repo.path(), &["commit", "-q", "-m", msg]);
+    }
+
+    fn repo_path(dir: &TempDir) -> String {
+        dir.path().to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn returns_commits_newest_first_with_all_fields() {
+        let repo = init_repo();
+        commit_file(&repo, "a.txt", "v1", "first");
+        commit_file(&repo, "a.txt", "v2", "second");
+        commit_file(&repo, "a.txt", "v3", "third");
+
+        let entries = git_log_file(repo_path(&repo), "a.txt".into(), Some(50), Some(0))
+            .expect("git_log_file ok");
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].subject, "third");
+        assert_eq!(entries[1].subject, "second");
+        assert_eq!(entries[2].subject, "first");
+        for e in &entries {
+            assert_eq!(e.author, "Test");
+            assert!(!e.sha.is_empty());
+            assert!(!e.iso_time.is_empty());
+        }
+        assert_eq!(entries[0].parent_sha, entries[1].sha);
+        assert_eq!(entries[1].parent_sha, entries[2].sha);
+        assert_eq!(entries[2].parent_sha, "");
+    }
+
+    #[test]
+    fn initial_commit_has_empty_parent_sha() {
+        let repo = init_repo();
+        commit_file(&repo, "a.txt", "v1", "first");
+
+        let entries =
+            git_log_file(repo_path(&repo), "a.txt".into(), None, None).expect("git_log_file ok");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].parent_sha, "");
+    }
+
+    #[test]
+    fn follows_renames() {
+        let repo = init_repo();
+        commit_file(&repo, "old.txt", "v1", "orig");
+        run(repo.path(), &["mv", "old.txt", "new.txt"]);
+        run(repo.path(), &["commit", "-q", "-m", "rename"]);
+        commit_file(&repo, "new.txt", "v2", "after rename");
+
+        let entries =
+            git_log_file(repo_path(&repo), "new.txt".into(), None, None).expect("git_log_file ok");
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].subject, "after rename");
+        assert_eq!(entries[1].subject, "rename");
+        assert_eq!(entries[2].subject, "orig");
+    }
+
+    #[test]
+    fn limit_and_skip_honored() {
+        let repo = init_repo();
+        for i in 0..5 {
+            commit_file(&repo, "a.txt", &format!("v{}", i), &format!("c{}", i));
+        }
+
+        let entries = git_log_file(repo_path(&repo), "a.txt".into(), Some(2), Some(2))
+            .expect("git_log_file ok");
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].subject, "c2");
+        assert_eq!(entries[1].subject, "c1");
+    }
+
+    #[test]
+    fn never_committed_file_returns_empty_vec() {
+        let repo = init_repo();
+        commit_file(&repo, "a.txt", "v1", "first");
+
+        let entries = git_log_file(repo_path(&repo), "ghost.txt".into(), None, None)
+            .expect("git_log_file ok");
+
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn subject_with_tab_survives_parsing() {
+        let repo = init_repo();
+        commit_file(&repo, "a.txt", "v1", "msg with\ttab inside");
+
+        let entries =
+            git_log_file(repo_path(&repo), "a.txt".into(), None, None).expect("git_log_file ok");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].subject, "msg with\ttab inside");
+    }
+}
