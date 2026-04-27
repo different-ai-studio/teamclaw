@@ -11754,7 +11754,7 @@ dependencies = [
 
 [[package]]
 name = "teamclaw"
-version = "0.1.71"
+version = "0.1.72"
 dependencies = [
  "aes-gcm",
  "anyhow",
