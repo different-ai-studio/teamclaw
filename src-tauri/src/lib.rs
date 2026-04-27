@@ -164,6 +164,40 @@ fn fix_path_env() {
     }
 }
 
+// Foreground-activation heartbeat for Aptabase DAU.
+// `app_started` only fires on cold start; on macOS users who keep the app
+// running for days would otherwise show as DAU only on day 1. Firing
+// `app_active` on focus / Reopen (rate-limited) closes that gap.
+static LAST_ACTIVE_AT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+const APP_ACTIVE_THRESHOLD_SECS: i64 = 4 * 3600;
+
+fn now_unix_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn record_activity() {
+    LAST_ACTIVE_AT.store(now_unix_secs(), std::sync::atomic::Ordering::Relaxed);
+}
+
+fn maybe_emit_app_active(app: &tauri::AppHandle) {
+    let now = now_unix_secs();
+    let last = LAST_ACTIVE_AT.load(std::sync::atomic::Ordering::Relaxed);
+    if last != 0 && now - last < APP_ACTIVE_THRESHOLD_SECS {
+        return;
+    }
+    LAST_ACTIVE_AT.store(now, std::sync::atomic::Ordering::Relaxed);
+    let _ = app.track_event(
+        "app_active",
+        Some(serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "platform": std::env::consts::OS,
+        })),
+    );
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let startup_t0 = std::time::Instant::now();
@@ -853,6 +887,11 @@ pub fn run() {
                                 commands::spotlight::reposition_traffic_lights(&main_win_clone);
                             }
                         }
+                        // DAU heartbeat: fires `app_active` once the app
+                        // returns to focus after >=4h idle.
+                        tauri::WindowEvent::Focused(true) => {
+                            maybe_emit_app_active(&close_app_handle);
+                        }
                         _ => {}
                     }
                 });
@@ -972,6 +1011,7 @@ pub fn run() {
                 "version": env!("CARGO_PKG_VERSION"),
                 "platform": std::env::consts::OS,
             })));
+            record_activity();
 
             Ok(())
         })
@@ -987,6 +1027,7 @@ pub fn run() {
                     // unconditionally bring the window back.
                     let state = app.state::<commands::spotlight::SpotlightState>();
                     commands::spotlight::show_main_window(app.clone(), state);
+                    maybe_emit_app_active(app);
                 }
                 tauri::RunEvent::Exit => {
                     // Kill the OpenCode sidecar synchronously.
