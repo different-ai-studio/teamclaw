@@ -26,7 +26,7 @@ impl Drop for SharedConfig {
 
 /// State to track child webview labels.
 pub struct WebviewManager {
-    labels: Mutex<HashMap<String, ()>>,
+    pub labels: Mutex<HashMap<String, ()>>,
     /// Shared WKWebViewConfiguration so all external webviews share the same
     /// WKProcessPool (in-memory cookies) and WKWebsiteDataStore (persistent cookies).
     #[cfg(target_os = "macos")]
