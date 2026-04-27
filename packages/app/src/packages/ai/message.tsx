@@ -577,6 +577,75 @@ function CodeBlock({ language, children }: { language: string; children: string 
   )
 }
 
+function MermaidBlock({ children }: { children: string }) {
+  const [svg, setSvg] = React.useState<string | null>(null)
+  const [hasError, setHasError] = React.useState(false)
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const diagramId = React.useId().replace(/:/g, '')
+  const source = React.useMemo(() => String(children).trim(), [children])
+
+  React.useEffect(() => {
+    let cancelled = false
+    setSvg(null)
+    setHasError(false)
+
+    async function renderDiagram() {
+      try {
+        const { default: mermaid } = await import('mermaid')
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
+        })
+
+        const rendered = await mermaid.render(`mermaid-${diagramId}`, source)
+        if (cancelled) return
+
+        setSvg(rendered.svg)
+
+        requestAnimationFrame(() => {
+          if (cancelled || !containerRef.current) return
+          rendered.bindFunctions?.(containerRef.current)
+        })
+      } catch (error) {
+        if (cancelled) return
+        console.warn('[MessageResponse] Mermaid render failed, falling back to code block', error)
+        setHasError(true)
+      }
+    }
+
+    void renderDiagram()
+
+    return () => {
+      cancelled = true
+    }
+  }, [diagramId, source])
+
+  if (hasError) {
+    return <CodeBlock language="mermaid">{source}</CodeBlock>
+  }
+
+  return (
+    <div
+      data-testid="mermaid-block"
+      className="my-2 overflow-x-auto rounded-lg border border-border bg-background px-3 py-3"
+    >
+      {svg ? (
+        <div
+          ref={containerRef}
+          className="[&_svg]:h-auto [&_svg]:max-w-full"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      ) : (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span>Rendering Mermaid diagram...</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // --- Stable ReactMarkdown components (no closure over basePath) ---
 // Hoisted to module level so the object reference never changes between renders.
 // The `img` component needs basePath, so it's added per-render via useMemo.
@@ -623,6 +692,9 @@ const markdownComponentsBase = {
       )
     }
     const language = className?.replace('language-', '') || ''
+    if (language === 'mermaid') {
+      return <MermaidBlock>{String(children)}</MermaidBlock>
+    }
     return <CodeBlock language={language}>{String(children)}</CodeBlock>
   },
   a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
