@@ -146,6 +146,73 @@ impl Default for SpotlightState {
 
 // --- Helper Functions ---
 
+/// Whether the given logical rect overlaps a connected display by a meaningful margin.
+/// Used to detect saved geometry that points at a monitor that's no longer attached
+/// (e.g. external display unplugged between hide and show), which would otherwise
+/// place the window in the void.
+fn rect_visible_on_any_monitor(win: &tauri::WebviewWindow, x: f64, y: f64, w: f64, h: f64) -> bool {
+    let Ok(monitors) = win.available_monitors() else {
+        return false;
+    };
+    for m in monitors {
+        let scale = m.scale_factor();
+        let pos = m.position();
+        let size = m.size();
+        let mx = pos.x as f64 / scale;
+        let my = pos.y as f64 / scale;
+        let mw = size.width as f64 / scale;
+        let mh = size.height as f64 / scale;
+        let visible_w = (x + w).min(mx + mw) - x.max(mx);
+        let visible_h = (y + h).min(my + mh) - y.max(my);
+        // 50px threshold so a one-pixel sliver isn't treated as "visible".
+        if visible_w > 50.0 && visible_h > 50.0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Hide every child webview owned by `WebviewManager` so the spotlight UI
+/// isn't obscured. Child webviews are NSView subviews of contentView and sit
+/// above wry's render layer; without this they cover the spotlight at their
+/// last main-mode size.
+fn hide_child_webviews(app: &AppHandle) {
+    let Some(state) = app.try_state::<super::webview::WebviewManager>() else {
+        return;
+    };
+    let labels: Vec<String> = state
+        .labels
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .keys()
+        .cloned()
+        .collect();
+    for label in labels {
+        if let Some(webview) = app.get_webview(&label) {
+            let _ = webview.hide();
+        }
+    }
+}
+
+/// Restore previously hidden child webviews when returning to Main mode.
+fn show_child_webviews(app: &AppHandle) {
+    let Some(state) = app.try_state::<super::webview::WebviewManager>() else {
+        return;
+    };
+    let labels: Vec<String> = state
+        .labels
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .keys()
+        .cloned()
+        .collect();
+    for label in labels {
+        if let Some(webview) = app.get_webview(&label) {
+            let _ = webview.show();
+        }
+    }
+}
+
 /// Save the current position of the window as the spotlight position (physical -> logical).
 fn save_spotlight_position(win: &tauri::WebviewWindow, state: &SpotlightState) {
     if let Ok(pos) = win.outer_position() {
@@ -178,17 +245,29 @@ fn default_spotlight_position(win: &tauri::WebviewWindow) -> (f64, f64) {
 }
 
 /// Restore the saved spotlight position, or default to top-right of the current monitor.
+/// Falls back to the default position when the saved coords no longer correspond
+/// to any connected display (e.g. external monitor unplugged).
 fn restore_spotlight_position(win: &tauri::WebviewWindow, state: &SpotlightState) {
-    let last_pos = state
+    let last_pos = *state
         .spotlight_position
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if let Some((x, y)) = *last_pos {
-        let _ = win.set_position(LogicalPosition::new(x, y));
-    } else {
-        let (x, y) = default_spotlight_position(win);
-        let _ = win.set_position(LogicalPosition::new(x, y));
-    }
+    let target = match last_pos {
+        Some((x, y))
+            if rect_visible_on_any_monitor(win, x, y, SPOTLIGHT_WIDTH, SPOTLIGHT_HEIGHT) =>
+        {
+            (x, y)
+        }
+        Some((x, y)) => {
+            eprintln!(
+                "[Spotlight] Saved position ({}, {}) is off-screen, falling back to default",
+                x, y
+            );
+            default_spotlight_position(win)
+        }
+        None => default_spotlight_position(win),
+    };
+    let _ = win.set_position(LogicalPosition::new(target.0, target.1));
 }
 
 /// Configure the window as Spotlight mode.
@@ -196,6 +275,10 @@ fn restore_spotlight_position(win: &tauri::WebviewWindow, state: &SpotlightState
 fn configure_as_spotlight(win: &tauri::WebviewWindow, state: &SpotlightState) {
     #[cfg(target_os = "macos")]
     hide_traffic_lights(win);
+
+    // Child webviews would otherwise sit on top of the spotlight UI at their
+    // last (main-mode) bounds. Hide them while spotlight is active.
+    hide_child_webviews(win.app_handle());
 
     let _ = win.set_min_size(Some(LogicalSize::new(320.0, 300.0)));
     let _ = win.set_size(LogicalSize::new(SPOTLIGHT_WIDTH, SPOTLIGHT_HEIGHT));
@@ -211,18 +294,32 @@ fn configure_as_main(win: &tauri::WebviewWindow, state: &SpotlightState) {
     let _ = win.set_skip_taskbar(false);
     let _ = win.set_min_size(Some(LogicalSize::new(800.0, 600.0)));
 
-    // Restore saved main geometry or center at default size
-    let geom = state
+    // Restore saved main geometry; recenter if it points at a now-disconnected display.
+    let geom = *state
         .main_geometry
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if let Some((x, y, w, h)) = *geom {
-        let _ = win.set_size(LogicalSize::new(w, h));
-        let _ = win.set_position(LogicalPosition::new(x, y));
-    } else {
+    let restored = match geom {
+        Some((x, y, w, h)) if rect_visible_on_any_monitor(win, x, y, w, h) => {
+            let _ = win.set_size(LogicalSize::new(w, h));
+            let _ = win.set_position(LogicalPosition::new(x, y));
+            true
+        }
+        Some((x, y, w, h)) => {
+            eprintln!(
+                "[Spotlight] Saved main geometry ({}, {}, {}, {}) is off-screen, recentering",
+                x, y, w, h
+            );
+            false
+        }
+        None => false,
+    };
+    if !restored {
         let _ = win.set_size(LogicalSize::new(MAIN_WIDTH, MAIN_HEIGHT));
         let _ = win.center();
     }
+
+    show_child_webviews(win.app_handle());
 
     #[cfg(target_os = "macos")]
     show_traffic_lights(win);
@@ -429,13 +526,16 @@ pub fn expand_to_main(app: AppHandle, state: State<'_, SpotlightState>) -> Resul
     let start_w = start_size.width as f64 / scale;
     let start_h = start_size.height as f64 / scale;
 
-    // Determine target geometry
-    let (target_x, target_y, target_w, target_h) = {
-        let geom = state.main_geometry.lock().map_err(|e| e.to_string())?;
-        if let Some((x, y, w, h)) = *geom {
-            (x, y, w, h)
-        } else {
-            // Center on screen
+    // Determine target geometry. Recompute a centered fallback when the saved
+    // geometry no longer maps to any connected display, otherwise the animation
+    // would slide the window off-screen.
+    let saved_geom = *state.main_geometry.lock().map_err(|e| e.to_string())?;
+    let (target_x, target_y, target_w, target_h) = match saved_geom {
+        Some((x, y, w, h)) if rect_visible_on_any_monitor(&win, x, y, w, h) => (x, y, w, h),
+        _ => {
+            if matches!(saved_geom, Some(_)) {
+                eprintln!("[Spotlight] expand_to_main: saved geometry off-screen, centering");
+            }
             if let Some(monitor) = win.current_monitor().ok().flatten() {
                 let screen = monitor.size();
                 let sx = (screen.width as f64 / scale - MAIN_WIDTH) / 2.0;
@@ -481,6 +581,9 @@ pub fn expand_to_main(app: AppHandle, state: State<'_, SpotlightState>) -> Resul
 
     // Apply final main mode settings AFTER animation.
     let _ = win.set_min_size(Some(LogicalSize::new(800.0, 600.0)));
+
+    // Restore child webviews now that the window is at full size.
+    show_child_webviews(&app);
 
     // Show and position traffic lights
     #[cfg(target_os = "macos")]
