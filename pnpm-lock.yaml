@@ -289,8 +289,8 @@ importers:
         specifier: ^4.1.18
         version: 4.2.2
       '@tailwindcss/oxide-win32-x64-msvc':
-        specifier: ^4.1.18
-        version: 4.2.2
+        specifier: ^4.2.4
+        version: 4.2.4
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.2.2(vite@6.4.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0))
@@ -2294,6 +2294,12 @@ packages:
 
   '@tailwindcss/oxide-win32-x64-msvc@4.2.2':
     resolution: {integrity: sha512-1T/37VvI7WyH66b+vqHj/cLwnCxt7Qt3WFu5Q8hk65aOvlwAhs7rAp1VkulBJw/N4tMirXjVnylTR72uI0HGcA==}
+    engines: {node: '>= 20'}
+    cpu: [x64]
+    os: [win32]
+
+  '@tailwindcss/oxide-win32-x64-msvc@4.2.4':
+    resolution: {integrity: sha512-ESlKG0EpVJQwRjXDDa9rLvhEAh0mhP1sF7sap9dNZT0yyl9SAG6T7gdP09EH0vIv0UNTlo6jPWyujD6559fZvw==}
     engines: {node: '>= 20'}
     cpu: [x64]
     os: [win32]
@@ -7628,7 +7634,10 @@ snapshots:
 
   '@tailwindcss/oxide-win32-arm64-msvc@4.2.2': {}
 
-  '@tailwindcss/oxide-win32-x64-msvc@4.2.2': {}
+  '@tailwindcss/oxide-win32-x64-msvc@4.2.2':
+    optional: true
+
+  '@tailwindcss/oxide-win32-x64-msvc@4.2.4': {}
 
   '@tailwindcss/oxide@4.2.2':
     optionalDependencies:
