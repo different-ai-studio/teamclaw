@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import React from 'react'
 
 // Mock all heavy dependencies
@@ -41,7 +41,10 @@ vi.mock('@/hooks/use-git-status', () => ({
 }))
 
 vi.mock('@/lib/git/manager', () => ({
-  gitManager: { showFile: vi.fn().mockRejectedValue(new Error('not tracked')) },
+  gitManager: {
+    showFile: vi.fn().mockRejectedValue(new Error('not tracked')),
+    logFile: vi.fn().mockResolvedValue([]),
+  },
 }))
 
 vi.mock('@/components/editors/utils', () => ({
@@ -67,7 +70,7 @@ vi.mock('@/components/viewers/UnsupportedFileViewer', () => ({
   UNSUPPORTED_BINARY_EXTENSIONS: new Set(['exe', 'dll']),
 }))
 
-import { getFileType, FileContentViewer } from '@/components/FileEditor'
+import { getFileType, FileContentViewer, FileEditor } from '@/components/FileEditor'
 
 describe('FileEditor', () => {
   it('getFileType classifies images correctly', () => {
@@ -126,5 +129,33 @@ describe('FileEditor', () => {
     const iframe = container.querySelector('iframe[title="logo.svg"]')
     expect(iframe).toBeTruthy()
     expect(iframe?.getAttribute('src')).toBe(svgDataUrl)
+  })
+
+  it('does not render the history button for non-team files', () => {
+    render(
+      <FileEditor
+        content=""
+        filename="note.md"
+        filePath="/workspace/note.md"
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.queryByTitle(/查看历史|View history|历史/i)).toBeNull()
+  })
+
+  it('renders the history button for team files and toggles history view', async () => {
+    render(
+      <FileEditor
+        content=""
+        filename="note.md"
+        filePath="/workspace/teamclaw-team/skills/note.md"
+        onClose={() => {}}
+      />,
+    )
+    const button = await screen.findByTitle(/查看历史|View history|历史/i)
+    fireEvent.click(button)
+    await waitFor(() =>
+      expect(screen.getByText('该文件还没有提交历史')).toBeDefined(),
+    )
   })
 })

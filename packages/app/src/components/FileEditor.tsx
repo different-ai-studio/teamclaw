@@ -20,6 +20,7 @@ import {
   RotateCw,
   Files,
   Eye,
+  History,
 } from "lucide-react";
 import { cn, isTauri } from "@/lib/utils";
 import { TEAM_REPO_DIR } from "@/lib/build-config";
@@ -51,6 +52,7 @@ const LazyTiptapMarkdownEditor = lazy(
 );
 const LazyCodeEditor = lazy(() => import("@/components/editors/CodeEditor"));
 const LazyDiffRenderer = lazy(() => import("@/components/diff/DiffRenderer"));
+const LazyFileHistoryView = lazy(() => import("@/components/history/FileHistoryView"));
 
 // Viewers - lazy loaded
 const LazyPDFViewer = lazy(
@@ -373,6 +375,7 @@ export function FileEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [showPreview, setShowPreview] = useState(supportsPreview(filename) === "html");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [externalUpdateType, setExternalUpdateType] = useState<
@@ -404,9 +407,22 @@ export function FileEditor({
       ? filePath.slice(workspacePath.length + 1)
       : (filePath ?? "");
 
+  const teamRepoPath = useMemo(
+    () =>
+      workspacePath ? `${workspacePath.replace(/\/+$/, '')}/${TEAM_REPO_DIR}` : null,
+    [workspacePath],
+  )
+
+  const relativeTeamPath = useMemo(() => {
+    if (!teamRepoPath || !filePath) return null
+    const norm = filePath.replace(/\/+$/, '')
+    if (!norm.startsWith(teamRepoPath + '/')) return null
+    return norm.slice(teamRepoPath.length + 1)
+  }, [teamRepoPath, filePath])
+
   // Fetch the file's content from git HEAD for gutter decorations (team files only)
   useEffect(() => {
-    if (!isTauri() || !workspacePath || !filePath || !isTeamFile) {
+    if (!isTauri() || !teamRepoPath || !relativeTeamPath || !isTeamFile) {
       setGitHeadContent(null);
       return;
     }
@@ -415,14 +431,7 @@ export function FileEditor({
 
     (async () => {
       try {
-        const teamRepoPath = `${workspacePath.replace(/\/+$/, "")}/${TEAM_REPO_DIR}`;
-        const normalizedFile = filePath.replace(/\/+$/, "");
-        let relativePath = normalizedFile;
-        if (normalizedFile.startsWith(teamRepoPath + "/")) {
-          relativePath = normalizedFile.slice(teamRepoPath.length + 1);
-        }
-
-        const headContent = await gitManager.showFile(teamRepoPath, relativePath);
+        const headContent = await gitManager.showFile(teamRepoPath, relativeTeamPath);
         if (!cancelled) {
           setGitHeadContent(headContent);
         }
@@ -436,7 +445,7 @@ export function FileEditor({
     return () => {
       cancelled = true;
     };
-  }, [workspacePath, filePath, isTeamFile]);
+  }, [teamRepoPath, relativeTeamPath, isTeamFile]);
 
   // Check if this file supports preview
   const previewType = supportsPreview(filename);
@@ -764,7 +773,14 @@ export function FileEditor({
           {/* Diff toggle - icon only */}
           {hasChanges && (
             <button
-              onClick={() => setShowDiff(!showDiff)}
+              onClick={() => {
+                if (showDiff) {
+                  setShowDiff(false);
+                } else {
+                  setShowDiff(true);
+                  setShowHistory(false);
+                }
+              }}
               className={`p-1.5 rounded transition-colors ${
                 showDiff
                   ? "text-primary bg-primary/10"
@@ -781,6 +797,27 @@ export function FileEditor({
               ) : (
                 <GitCompare className="h-4 w-4" />
               )}
+            </button>
+          )}
+
+          {isTeamFile && (
+            <button
+              onClick={() => {
+                if (showHistory) {
+                  setShowHistory(false);
+                } else {
+                  setShowHistory(true);
+                  setShowDiff(false);
+                }
+              }}
+              className={`p-1.5 rounded transition-colors ${
+                showHistory
+                  ? "text-primary bg-primary/10"
+                  : "text-muted-foreground hover:bg-muted"
+              }`}
+              title={t("app.viewHistory", "View history")}
+            >
+              <History className="h-4 w-4" />
             </button>
           )}
 
@@ -852,8 +889,23 @@ export function FileEditor({
 
       {/* Editor / Diff / Preview - file-type-routed */}
       <div className="flex-1 overflow-hidden">
-        {/* Conflict diff view for markdown */}
-        {isMarkdown && showConflictDiff && conflictAgentContent !== null ? (
+        {/* History view */}
+        {showHistory && teamRepoPath && relativeTeamPath ? (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            }
+          >
+            <LazyFileHistoryView
+              repoPath={teamRepoPath}
+              relativePath={relativeTeamPath}
+              filePath={filePath}
+              isDark={isDark}
+            />
+          </Suspense>
+        ) : isMarkdown && showConflictDiff && conflictAgentContent !== null ? (
           <Suspense
             fallback={
               <div className="flex items-center justify-center h-full">
