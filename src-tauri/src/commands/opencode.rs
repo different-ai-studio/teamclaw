@@ -517,6 +517,9 @@ pub async fn start_opencode_inner(
             if let Err(e) = refresh_npm_plugins_if_needed(&ws_for_config) {
                 eprintln!("[OpenCode] Warning: failed to refresh npm plugins: {}", e);
             }
+            if let Err(e) = sync_global_auth_to_workspace(&ws_for_config) {
+                eprintln!("[OpenCode] Warning: failed to sync global auth: {}", e);
+            }
         }),
         // Branch 2: inherent skills (writes to .opencode/skills/, no opencode.json conflict)
         tokio::task::spawn_blocking(move || {
@@ -1347,6 +1350,87 @@ fn refresh_npm_plugins_if_needed(workspace_path: &str) -> Result<(), String> {
     }
 
     write_plugin_update_state(&state_path)?;
+    Ok(())
+}
+
+/// Mirror OAuth credentials from the user's global opencode auth.json into the
+/// workspace's isolated auth.json. Without this, OAuth-based providers
+/// (Anthropic, OpenAI sign-in, Copilot, etc.) and plugins like
+/// opencode-claude-auth that branch on `auth.type === "oauth"` see no
+/// credentials in teamclaw's sidecar because XDG_DATA_HOME is redirected to
+/// `<workspace>/.opencode/data`.
+///
+/// Only OAuth entries are copied. API-key entries stay per-workspace.
+/// Existing workspace entries are never overwritten.
+fn sync_global_auth_to_workspace(workspace_path: &str) -> Result<(), String> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(());
+    };
+    let global_auth_path = home.join(".local/share/opencode/auth.json");
+    if !global_auth_path.exists() {
+        return Ok(());
+    }
+
+    let global_content = std::fs::read_to_string(&global_auth_path)
+        .map_err(|e| format!("read global auth.json: {}", e))?;
+    let global: serde_json::Value = serde_json::from_str(&global_content)
+        .map_err(|e| format!("parse global auth.json: {}", e))?;
+    let Some(global_obj) = global.as_object() else {
+        return Ok(());
+    };
+
+    let workspace_auth_path = std::path::PathBuf::from(workspace_path)
+        .join(".opencode")
+        .join("data")
+        .join("opencode")
+        .join("auth.json");
+    if let Some(parent) = workspace_auth_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create workspace auth dir: {}", e))?;
+    }
+
+    let workspace_content =
+        std::fs::read_to_string(&workspace_auth_path).unwrap_or_else(|_| "{}".to_string());
+    let mut workspace_value: serde_json::Value =
+        serde_json::from_str(&workspace_content).unwrap_or_else(|_| serde_json::json!({}));
+    let workspace_obj = workspace_value
+        .as_object_mut()
+        .ok_or_else(|| "workspace auth.json root is not an object".to_string())?;
+
+    let mut added = Vec::new();
+    for (provider_id, entry) in global_obj {
+        if entry.get("type").and_then(|t| t.as_str()) != Some("oauth") {
+            continue;
+        }
+        if workspace_obj.contains_key(provider_id) {
+            continue;
+        }
+        workspace_obj.insert(provider_id.clone(), entry.clone());
+        added.push(provider_id.clone());
+    }
+
+    if added.is_empty() {
+        return Ok(());
+    }
+
+    let new_content = serde_json::to_string_pretty(&workspace_value)
+        .map_err(|e| format!("serialize workspace auth.json: {}", e))?;
+    std::fs::write(&workspace_auth_path, new_content)
+        .map_err(|e| format!("write workspace auth.json: {}", e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(
+            &workspace_auth_path,
+            std::fs::Permissions::from_mode(0o600),
+        );
+    }
+
+    println!(
+        "[OpenCode] Synced OAuth providers from global auth.json: {:?}",
+        added
+    );
     Ok(())
 }
 
