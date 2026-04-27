@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::mcp::{self, MCPServerConfig};
 use crate::commands::opencode::OpenCodeState;
@@ -26,6 +26,11 @@ pub struct TeamConfig {
     /// Team ID for shared secrets (generated on create, provided on join)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team_id: Option<String>,
+    /// LiteLLM/FC endpoint for this team (cached from invite code or _meta/team.json).
+    /// When set, this client knows the team is registered with cloud LiteLLM and can
+    /// re-trigger background clone or sync member operations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fc_endpoint: Option<String>,
 }
 
 /// A single model entry in the team LLM configuration.
@@ -105,6 +110,11 @@ pub struct TeamMeta {
     pub secret_verify: String,
     pub created_at: String,
     pub owner_node_id: String,
+    /// LiteLLM/FC endpoint URL. When set, joining members register their key
+    /// via this endpoint. Older team repos without this field default to no
+    /// LiteLLM (joiners can still join, but won't get a cloud key issued).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fc_endpoint: Option<String>,
 }
 
 /// Result of team git create
@@ -1057,12 +1067,18 @@ pub async fn team_git_create(
     let node_id = crate::commands::oss_commands::get_device_id()?;
 
     // Write _meta/team.json
+    let normalized_fc_endpoint = fc_endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_end_matches('/').to_string());
     let team_meta = TeamMeta {
         team_id: team_id.clone(),
         team_name: team_name.clone(),
         secret_verify,
         created_at: chrono::Utc::now().to_rfc3339(),
         owner_node_id: node_id.clone(),
+        fc_endpoint: normalized_fc_endpoint,
     };
     let team_meta_path = team_path.join("_meta").join("team.json");
     let team_meta_json = serde_json::to_string_pretty(&team_meta)
@@ -1219,9 +1235,8 @@ pub async fn team_git_create(
     })
 }
 
-/// Join an existing team repo: clone, verify HMAC secret, add self as member.
-#[tauri::command]
-pub async fn team_git_join(
+/// Inputs to the team-join clone & member-registration work.
+struct TeamGitJoinArgs {
     git_url: String,
     git_token: Option<String>,
     git_branch: Option<String>,
@@ -1233,11 +1248,30 @@ pub async fn team_git_join(
     llm_model_name: Option<String>,
     llm_models: Option<String>,
     fc_endpoint: Option<String>,
-    workspace_path: Option<String>,
-    opencode_state: State<'_, OpenCodeState>,
-    secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
+    workspace_path: String,
+}
+
+/// Shared body for both the synchronous (`team_git_join`) and background
+/// (`team_git_join_background`) commands. Looks up `SharedSecretsState` from
+/// the AppHandle so it can run inside a `tokio::spawn` future.
+async fn team_git_join_impl(
+    app: AppHandle,
+    args: TeamGitJoinArgs,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let TeamGitJoinArgs {
+        git_url,
+        git_token,
+        git_branch,
+        team_id,
+        team_secret,
+        member_name,
+        llm_base_url,
+        llm_model,
+        llm_model_name,
+        llm_models,
+        fc_endpoint,
+        workspace_path,
+    } = args;
     let team_dir = get_team_repo_path(&workspace_path);
 
     // 1. Validate team_dir doesn't exist
@@ -1428,7 +1462,14 @@ pub async fn team_git_join(
     println!("[Team Join] Saved team_secret to keychain");
 
     // 12. Init shared secrets
-    crate::commands::shared_secrets::init_shared_secrets(&secrets_state, &team_secret, team_path)?;
+    {
+        let secrets_state = app.state::<crate::commands::shared_secrets::SharedSecretsState>();
+        crate::commands::shared_secrets::init_shared_secrets(
+            secrets_state.inner(),
+            &team_secret,
+            team_path,
+        )?;
+    }
     println!("[Team Join] Initialized shared secrets");
 
     // 13. Sync MCP configs
@@ -1481,6 +1522,123 @@ pub async fn team_git_join(
         message: format!("Joined team '{}' successfully", team_meta.team_name),
         ..Default::default()
     })
+}
+
+/// Join an existing team repo synchronously: clone, verify HMAC secret,
+/// add self as member. Used by the slow path (manual entry without invite code).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn team_git_join(
+    app: AppHandle,
+    git_url: String,
+    git_token: Option<String>,
+    git_branch: Option<String>,
+    team_id: String,
+    team_secret: String,
+    member_name: String,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
+    llm_models: Option<String>,
+    fc_endpoint: Option<String>,
+    workspace_path: Option<String>,
+    opencode_state: State<'_, OpenCodeState>,
+) -> Result<TeamGitResult, String> {
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    team_git_join_impl(
+        app,
+        TeamGitJoinArgs {
+            git_url,
+            git_token,
+            git_branch,
+            team_id,
+            team_secret,
+            member_name,
+            llm_base_url,
+            llm_model,
+            llm_model_name,
+            llm_models,
+            fc_endpoint,
+            workspace_path,
+        },
+    )
+    .await
+}
+
+/// Join an existing team repo in the background. Returns immediately after
+/// scheduling the work; the caller (frontend) is expected to have already
+/// verified the team secret + registered its LiteLLM key out-of-band (via FC
+/// `/ai/add-member`) so the user can be told "joined" before clone finishes.
+///
+/// Emits `team:git-join-clone-completed` (with TeamGitResult) on success and
+/// `team:git-join-clone-failed` (with `{ error: String }`) on failure. On
+/// failure also pushes a tray notification with the error message.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn team_git_join_background(
+    app: AppHandle,
+    git_url: String,
+    git_token: Option<String>,
+    git_branch: Option<String>,
+    team_id: String,
+    team_secret: String,
+    member_name: String,
+    llm_base_url: Option<String>,
+    llm_model: Option<String>,
+    llm_model_name: Option<String>,
+    llm_models: Option<String>,
+    fc_endpoint: Option<String>,
+    workspace_path: Option<String>,
+    opencode_state: State<'_, OpenCodeState>,
+) -> Result<(), String> {
+    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let app_for_spawn = app.clone();
+    let args = TeamGitJoinArgs {
+        git_url,
+        git_token,
+        git_branch,
+        team_id: team_id.clone(),
+        team_secret,
+        member_name,
+        llm_base_url,
+        llm_model,
+        llm_model_name,
+        llm_models,
+        fc_endpoint,
+        workspace_path,
+    };
+    tokio::spawn(async move {
+        match team_git_join_impl(app_for_spawn.clone(), args).await {
+            Ok(result) => {
+                println!("[Team Join Background] completed: {}", result.message);
+                let _ = app_for_spawn.emit(
+                    "team:git-join-clone-completed",
+                    serde_json::json!({
+                        "teamId": team_id,
+                        "message": result.message,
+                    }),
+                );
+            }
+            Err(err) => {
+                eprintln!("[Team Join Background] failed: {err}");
+                let _ = app_for_spawn.emit(
+                    "team:git-join-clone-failed",
+                    serde_json::json!({
+                        "teamId": team_id,
+                        "error": err,
+                    }),
+                );
+                use tauri_plugin_notification::NotificationExt;
+                let _ = app_for_spawn
+                    .notification()
+                    .builder()
+                    .title("Team sync failed")
+                    .body(format!("Could not finish syncing team repo: {err}"))
+                    .show();
+            }
+        }
+    });
+    Ok(())
 }
 
 /// 1.4 - Ensure .gitignore in team repo dir has all required rules.

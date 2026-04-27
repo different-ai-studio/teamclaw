@@ -58,6 +58,7 @@ interface TeamConfig {
   gitToken?: string | null
   gitBranch?: string | null
   teamId?: string | null
+  fcEndpoint?: string | null
 }
 
 interface GitCheckResult {
@@ -100,6 +101,7 @@ interface InviteCodeData {
   r: string  // repoUrl
   p: string  // pat
   u: string  // bot username
+  e?: string // fcEndpoint (LiteLLM/FC base URL); legacy codes default to MANAGED_GIT_FC_ENDPOINT
 }
 
 function encodeInviteCode(data: InviteCodeData): string {
@@ -112,7 +114,11 @@ function decodeInviteCode(code: string): InviteCodeData | null {
     const raw = code.replace(/^tclaw:\/\/join\?code=/, '').trim()
     const json = atob(raw)
     const data = JSON.parse(json)
-    if (data.t && data.s && data.r && data.p) return data
+    if (data.t && data.s && data.r && data.p) {
+      // Backfill fcEndpoint for legacy codes (pre-fcEndpoint).
+      if (!data.e || typeof data.e !== 'string') data.e = MANAGED_GIT_FC_ENDPOINT
+      return data
+    }
     return null
   } catch {
     return null
@@ -191,6 +197,17 @@ export function TeamGitConfig() {
   // Detect if current URL is HTTPS (needs token auth)
   const isHttpsUrl = gitUrl.trim().startsWith('https://') || gitUrl.trim().startsWith('http://')
 
+  // Provider config queued during fast-path join — written only after the
+  // background clone completes, otherwise saveTeamProviderFile would
+  // mkdir teamclaw-team/_meta and break the subsequent git clone.
+  type PendingProviderSave = {
+    workspacePath: string
+    hostLlm: boolean
+    llmUrl: string
+    llmModels: { id: string; name: string }[]
+  }
+  const pendingProviderSaveRef = React.useRef<PendingProviderSave | null>(null)
+
   // ─── Initialize: check git + load config ─────────────────────────────────
 
   const initialize = React.useCallback(async () => {
@@ -251,6 +268,48 @@ export function TeamGitConfig() {
   React.useEffect(() => {
     initialize()
   }, [initialize])
+
+  // Listen for background-clone results (fired by team_git_join_background).
+  React.useEffect(() => {
+    if (!isTauri()) return
+    let unlistenCompleted: (() => void) | null = null
+    let unlistenFailed: (() => void) | null = null
+    void (async () => {
+      const { listen } = await import('@tauri-apps/api/event')
+      unlistenCompleted = await listen<{ teamId: string; message: string }>(
+        'team:git-join-clone-completed',
+        async () => {
+          // Now that teamclaw-team/_meta/ exists, flush any queued provider save.
+          const pending = pendingProviderSaveRef.current
+          if (pending) {
+            pendingProviderSaveRef.current = null
+            try {
+              await saveTeamProviderFile(
+                pending.workspacePath,
+                buildTeamProviderConfig(pending.hostLlm, pending.llmUrl, pending.llmModels),
+                pending.hostLlm ? pending.llmModels[0]?.id : undefined,
+              )
+            } catch (err) {
+              console.warn('[Team Join] Deferred provider save failed:', err)
+            }
+          }
+          teamMembersStore.loadMembers()
+          teamMembersStore.loadMyRole()
+        },
+      )
+      unlistenFailed = await listen<{ teamId: string; error: string }>(
+        'team:git-join-clone-failed',
+        (evt) => {
+          pendingProviderSaveRef.current = null
+          setErrorMessage(evt.payload?.error || 'Background sync failed')
+        },
+      )
+    })()
+    return () => {
+      unlistenCompleted?.()
+      unlistenFailed?.()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load current LLM config when connected
   React.useEffect(() => {
@@ -413,6 +472,7 @@ export function TeamGitConfig() {
         enabled: true,
         lastSyncAt: now,
         teamId: result.teamId,
+        ...(managedGit ? { fcEndpoint: MANAGED_GIT_FC_ENDPOINT } : {}),
         ...(effectiveGitToken ? { gitToken: effectiveGitToken } : {}),
         ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
@@ -432,6 +492,7 @@ export function TeamGitConfig() {
           r: effectiveGitUrl,
           p: managedPat,
           u: managedBotUsername,
+          e: MANAGED_GIT_FC_ENDPOINT,
         })
         setCreatedInviteCode(code)
       }
@@ -470,34 +531,122 @@ export function TeamGitConfig() {
     setState('connecting')
     setErrorMessage(null)
     try {
-      setConnectStep('Joining team...')
       const effectiveGitToken = gitToken.trim() || null
-      // Joining via invite code implies the team was created via managed-Git,
-      // so its LiteLLM team is registered on the managed FC endpoint.
-      const joinedViaInvite = !!decodeInviteCode(inviteCodeInput)
+      const inviteData = decodeInviteCode(inviteCodeInput)
+      const fcEndpoint = inviteData?.e ?? null
+      const teamIdTrim = teamIdInput.trim()
+      const teamSecretTrim = teamSecretInput.trim()
+      const memberNameTrim = memberName.trim()
+      const gitBranchTrim = gitBranch.trim()
+      const gitUrlTrim = gitUrl.trim()
+
+      // Fast path: invite code → register LiteLLM key via FC first, surface
+      // success to the user immediately, then run the slow clone in background.
+      if (fcEndpoint) {
+        setConnectStep('Registering with team service...')
+        const nodeId = await tauriInvoke<string>('get_device_node_id')
+        const fcUrl = `${fcEndpoint.replace(/\/+$/, '')}/ai/add-member`
+        const fcResp = await fetch(fcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            teamId: teamIdTrim,
+            teamSecret: teamSecretTrim,
+            nodeId,
+            memberName: memberNameTrim,
+          }),
+        })
+        if (!fcResp.ok) {
+          // 502 with "alias already exists" means this nodeId already has a key
+          // for some team — likely a previous join attempt or rejoin. The clone
+          // step still proceeds below; the existing key will keep working.
+          let detail = ''
+          try {
+            const data = await fcResp.json()
+            detail = data?.detail?.error?.message || data?.error || ''
+          } catch {
+            detail = await fcResp.text()
+          }
+          const aliasConflict = /already exists/i.test(detail)
+          if (!aliasConflict) {
+            throw new Error(`Failed to register team key: ${detail || fcResp.statusText}`)
+          }
+          console.warn('[Team Join] /ai/add-member alias conflict (proceeding):', detail)
+        }
+
+        // Persist config + kick off background clone (returns immediately).
+        setConnectStep('Saving configuration...')
+        const now = new Date().toISOString()
+        const newConfig: TeamConfig = {
+          gitUrl: gitUrlTrim,
+          enabled: true,
+          lastSyncAt: now,
+          teamId: teamIdTrim,
+          fcEndpoint,
+          ...(effectiveGitToken ? { gitToken: effectiveGitToken } : {}),
+          ...(gitBranchTrim ? { gitBranch: gitBranchTrim } : {}),
+        }
+        await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
+        // Defer saveTeamProviderFile until the background clone finishes — it
+        // would otherwise mkdir teamclaw-team/_meta and break git clone's
+        // empty-target requirement.
+        if (workspacePath) {
+          pendingProviderSaveRef.current = {
+            workspacePath,
+            hostLlm,
+            llmUrl,
+            llmModels,
+          }
+        }
+        setTeamConfig(newConfig)
+
+        // Fire-and-forget: Tauri command spawns its own task and returns Ok(()).
+        await tauriInvoke('team_git_join_background', {
+          gitUrl: gitUrlTrim,
+          gitToken: effectiveGitToken,
+          gitBranch: gitBranchTrim || null,
+          teamId: teamIdTrim,
+          teamSecret: teamSecretTrim,
+          memberName: memberNameTrim,
+          llmBaseUrl: hostLlm ? (llmUrl || null) : null,
+          llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
+          llmModelName: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
+          llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
+          // Frontend already called /ai/add-member; backend should not duplicate.
+          fcEndpoint: null,
+          ...workspaceArgs,
+        })
+
+        setState('connected')
+        return
+      }
+
+      // Slow path: manual entry without invite code → run the full sync clone
+      // in the foreground so verification errors surface inline.
+      setConnectStep('Joining team...')
       await tauriInvoke<{ success: boolean; message: string }>('team_git_join', {
-        gitUrl: gitUrl.trim(),
+        gitUrl: gitUrlTrim,
         gitToken: effectiveGitToken,
-        gitBranch: gitBranch.trim() || null,
-        teamId: teamIdInput.trim(),
-        teamSecret: teamSecretInput.trim(),
-        memberName: memberName.trim(),
+        gitBranch: gitBranchTrim || null,
+        teamId: teamIdTrim,
+        teamSecret: teamSecretTrim,
+        memberName: memberNameTrim,
         llmBaseUrl: hostLlm ? (llmUrl || null) : null,
         llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
         llmModelName: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
         llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
-        fcEndpoint: joinedViaInvite ? MANAGED_GIT_FC_ENDPOINT : null,
+        fcEndpoint: null,
         ...workspaceArgs,
       })
       setConnectStep('Saving configuration...')
       const now = new Date().toISOString()
       const newConfig: TeamConfig = {
-        gitUrl: gitUrl.trim(),
+        gitUrl: gitUrlTrim,
         enabled: true,
         lastSyncAt: now,
-        teamId: teamIdInput.trim(),
+        teamId: teamIdTrim,
         ...(effectiveGitToken ? { gitToken: effectiveGitToken } : {}),
-        ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
+        ...(gitBranchTrim ? { gitBranch: gitBranchTrim } : {}),
       }
       await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
       if (workspacePath) {
