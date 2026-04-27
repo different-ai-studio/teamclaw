@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0",
-    "shadcn": "^3.7.0",
+    "shadcn": "^4.5.0",
     "vitest": "^2.1.0"
   },
   "packageManager": "pnpm@10.33.0",
