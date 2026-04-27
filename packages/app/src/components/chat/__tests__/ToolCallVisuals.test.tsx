@@ -396,4 +396,55 @@ describe("Tool call visual redesign", () => {
     expect(screen.getByText("Arguments")).toBeTruthy();
     expect(screen.getByText("Result")).toBeTruthy();
   });
+
+  it("renders question tools as a minimal summary card with only the question count", () => {
+    render(<ToolCallCard toolCall={makeToolCall({
+      name: "question",
+      status: "completed",
+      arguments: {
+        questions: [
+          { id: "q-1", question: "First?", options: [] },
+          { id: "q-2", question: "Second?", options: [] },
+          { id: "q-3", question: "Third?", options: [] },
+        ],
+      },
+    })} />);
+
+    const row = screen.getByTestId("tool-row-question");
+    expect(row.textContent).toContain("Question");
+    expect(row.textContent).toContain("3 questions");
+    expect(row.textContent).not.toContain("args");
+    expect(row.className).not.toContain("border");
+    expect(row.className).not.toContain("bg-card");
+    expect(screen.queryByText("Arguments")).toBeNull();
+    expect(screen.queryByText("First?")).toBeNull();
+  });
+
+  it("shows a loading indicator while a question tool is preparing questions", () => {
+    render(<ToolCallCard toolCall={makeToolCall({
+      name: "question",
+      status: "calling",
+      arguments: {},
+    })} />);
+
+    const row = screen.getByTestId("tool-row-question");
+    expect(row.textContent).toContain("Question");
+    expect(row.textContent).not.toContain("0 questions");
+    expect(screen.getByTestId("question-tool-loading").className.baseVal).toContain("animate-spin");
+  });
+
+  it("stops showing the question loading indicator once question data is available", () => {
+    render(<ToolCallCard toolCall={makeToolCall({
+      name: "question",
+      status: "calling",
+      arguments: {
+        questions: [
+          { id: "q-1", question: "First?", options: [] },
+        ],
+      },
+    })} />);
+
+    expect(screen.getByTestId("tool-row-question").textContent).toContain("1 question");
+    expect(screen.queryByTestId("question-tool-loading")).toBeNull();
+  });
 });

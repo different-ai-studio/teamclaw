@@ -191,6 +191,8 @@
       },
       "question": {
         "title": "问题",
+        "count": "{{count}} 个问题",
+        "countOne": "{{count}} 个问题",
         "answered": "已回答",
         "processingAnswer": "正在处理回答...",
         "waitingForResponse": "等待响应中...",

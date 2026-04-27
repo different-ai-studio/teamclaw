@@ -190,6 +190,8 @@
       },
       "question": {
         "title": "Question",
+        "count": "{{count}} questions",
+        "countOne": "{{count}} question",
         "answered": "Answered",
         "processingAnswer": "Processing answer...",
         "waitingForResponse": "Waiting for response...",

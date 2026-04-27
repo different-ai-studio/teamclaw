@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
+  HelpCircle,
+  Loader2,
   Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,7 +13,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { QuestionCard } from "./QuestionCard";
 import { getCommandText, getToolCallOutputText } from "@/lib/terminal-interaction";
 
 // Import sub-cards and utilities from tool-calls/
@@ -186,6 +187,12 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
         ? t("chat.toolCall.status.waiting", "Waiting")
         : null;
 
+  const getQuestionCount = () => {
+    if (Array.isArray(toolCall.questions)) return toolCall.questions.length;
+    const args = toolCall.arguments as { questions?: unknown } | undefined;
+    return Array.isArray(args?.questions) ? args.questions.length : 0;
+  };
+
   const getCompactPrimary = () => {
     if (isCompactSearchTool) {
       return summary || "";
@@ -257,28 +264,39 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
     return <TaskToolCard toolCall={toolCall} />;
   }
 
-  // If this is a question tool with questions, render the QuestionCard
   if (isQuestionTool(toolCall.name)) {
-    // Extract questions from arguments
-    const args = toolCall.arguments as {
-      questions?: Array<{
-        question: string;
-        header?: string;
-        options: Array<{ id?: string; label: string; value?: string }>;
-      }>;
-    };
-    const rawQuestions = toolCall.questions ?? args?.questions;
-    const questions = Array.isArray(rawQuestions) ? rawQuestions : [];
+    const questionCount = getQuestionCount();
+    const isQuestionLoading = questionCount === 0 && (toolCall.status === "calling" || toolCall.status === "waiting");
+    const questionCountText = t(
+      questionCount === 1 ? "chat.toolCall.question.countOne" : "chat.toolCall.question.count",
+      questionCount === 1 ? "{{count}} question" : "{{count}} questions",
+      { count: questionCount },
+    );
 
-    if (questions.length > 0) {
-      return (
-        <QuestionCard
-          toolCallId={toolCall.id}
-          questions={questions}
-          isCompleted={toolCall.status === "completed"}
-        />
-      );
-    }
+    return (
+      <div
+        data-testid="tool-row-question"
+        className="flex items-center gap-1.5 px-[10px] py-[4px] text-[12px] text-muted-foreground"
+      >
+        <HelpCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="font-medium text-foreground/80">
+          {t("chat.toolCall.question.title", "Question")}
+        </span>
+        {questionCount > 0 ? (
+          <>
+            <span className="text-muted-foreground">·</span>
+            <span>{questionCountText}</span>
+          </>
+        ) : null}
+        {isQuestionLoading ? (
+          <Loader2
+            data-testid="question-tool-loading"
+            className="h-3 w-3 animate-spin text-muted-foreground"
+            aria-hidden="true"
+          />
+        ) : null}
+      </div>
+    );
   }
 
   if (isCommand) {
@@ -490,13 +508,6 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
         </div>
       </Collapsible>
 
-      {!!toolCall.questions?.length && (
-        <QuestionCard
-          toolCallId={toolCall.id}
-          questions={toolCall.questions}
-          isCompleted={toolCall.status === "completed"}
-        />
-      )}
     </div>
   );
 });

@@ -3,10 +3,12 @@ import { createQuestionActions } from "@/stores/session-questions";
 import { sessionDataCache } from "@/stores/session-data-cache";
 
 const mockReplyQuestion = vi.fn();
+const mockRejectQuestion = vi.fn();
 
 vi.mock("@/lib/opencode/sdk-client", () => ({
   getOpenCodeClient: () => ({
     replyQuestion: mockReplyQuestion,
+    rejectQuestion: mockRejectQuestion,
   }),
 }));
 
@@ -123,5 +125,14 @@ describe("session-questions", () => {
 
     expect(mockReplyQuestion).toHaveBeenCalledWith("event-1", [["cancel"]]);
     expect((state as any).pendingQuestions).toEqual([]);
+  });
+
+  it("rejects OpenCode questions when skipped and clears pending state", async () => {
+    await actions.skipQuestion("event-1");
+
+    expect(mockRejectQuestion).toHaveBeenCalledWith("event-1");
+    expect((state as any).pendingQuestions).toEqual([]);
+    const toolCall = (state as any).sessions[0].messages[0].toolCalls[0];
+    expect(toolCall.status).toBe("completed");
   });
 });
