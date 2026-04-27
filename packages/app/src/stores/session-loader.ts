@@ -27,6 +27,7 @@ import {
 import { trackEvent } from "@/stores/telemetry";
 import { sessionDataCache } from "./session-data-cache";
 import {
+  loadPinnedSessionIds,
   savePinnedSessionIds,
   sanitizePinnedSessionIds,
 } from "./session-pins";
@@ -44,6 +45,8 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
       useStreamingStore.getState().clearStreaming();
       set({
         sessions: [],
+        pinnedSessionIds: [],
+        currentWorkspacePath: null,
         activeSessionId: null,
         messageQueue: [],
         pendingPermissions: [],
@@ -122,11 +125,16 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         // Sort by updatedAt descending (most recently active first)
         newSessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
+        const rawPinnedSessionIds =
+          get().currentWorkspacePath === (workspacePath ?? null)
+            ? get().pinnedSessionIds
+            : loadPinnedSessionIds(workspacePath ?? null);
+
         const pinnedSessionIds = sanitizePinnedSessionIds(
-          get().pinnedSessionIds,
+          rawPinnedSessionIds,
           newSessions.map((session) => session.id),
         );
-        savePinnedSessionIds(pinnedSessionIds);
+        savePinnedSessionIds(workspacePath ?? null, pinnedSessionIds);
 
         // UI-level pagination: initially show first PAGE_SIZE sessions
         const hasMore = newSessions.length > UI_PAGE_SIZE;
@@ -164,6 +172,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         set({
           sessions: merged,
           pinnedSessionIds,
+          currentWorkspacePath: workspacePath ?? null,
           isLoading: false,
           hasMoreSessions: hasMore,
           visibleSessionCount: Math.min(newSessions.length, UI_PAGE_SIZE),
@@ -557,7 +566,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         set((state) => {
           const newSessions = state.sessions.filter((s) => s.id !== id);
           const pinnedSessionIds = state.pinnedSessionIds.filter((sessionId) => sessionId !== id);
-          savePinnedSessionIds(pinnedSessionIds);
+          savePinnedSessionIds(state.currentWorkspacePath ?? directory ?? null, pinnedSessionIds);
           updateSessionCache(newSessions);
 
           return {

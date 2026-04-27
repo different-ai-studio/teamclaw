@@ -161,6 +161,7 @@ export interface SessionState {
   // State
   sessions: Session[];
   pinnedSessionIds: string[];
+  currentWorkspacePath: string | null;
   activeSessionId: string | null;
   isLoading: boolean;
   isLoadingMore: boolean; // Loading more sessions (UI pagination)

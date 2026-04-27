@@ -12,7 +12,6 @@ import { createSSEHandlers } from "./session-sse-handlers";
 import { createPermissionActions } from "./session-permissions";
 import { createQuestionActions } from "./session-questions";
 import {
-  loadPinnedSessionIds,
   savePinnedSessionIds,
 } from "./session-pins";
 import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
@@ -21,7 +20,8 @@ import { convertMessage } from "./session-converters";
 export const useSessionStore = create<SessionState>((set, get) => ({
   // Initial state
   sessions: [],
-  pinnedSessionIds: loadPinnedSessionIds(),
+  pinnedSessionIds: [],
+  currentWorkspacePath: null,
   activeSessionId: null,
   isLoading: false,
   isLoadingMore: false,
@@ -64,7 +64,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         ? state.pinnedSessionIds.filter((sessionId) => sessionId !== id)
         : [id, ...state.pinnedSessionIds];
 
-      savePinnedSessionIds(pinnedSessionIds);
+      savePinnedSessionIds(state.currentWorkspacePath, pinnedSessionIds);
       return { pinnedSessionIds };
     });
   },

@@ -130,6 +130,7 @@ describe('session-loader: createLoaderActions', () => {
 
   it('loadSessions removes pinned ids that no longer exist', async () => {
     const now = Date.now()
+    state.currentWorkspacePath = '/workspace'
     state.pinnedSessionIds = ['missing', 'active']
     mockListSessions.mockResolvedValue([
       { id: 'active', title: 'Active', time: { created: now, updated: now } },
@@ -147,6 +148,31 @@ describe('session-loader: createLoaderActions', () => {
     expect(sessionsCall).toBeDefined()
     expect(sessionsCall![0].pinnedSessionIds).toEqual(['active'])
     expect(localStorage.setItem).toHaveBeenCalled()
+  })
+
+  it('loadSessions preserves pinned ids from other workspaces when switching', async () => {
+    const now = Date.now()
+    vi.mocked(localStorage.getItem).mockReturnValue(
+      JSON.stringify({
+        '/workspace-a': ['a-pinned'],
+        '/workspace-b': ['b-pinned'],
+      }),
+    )
+
+    mockListSessions.mockResolvedValue([
+      { id: 'b-pinned', title: 'Pinned in B', time: { created: now, updated: now } },
+      { id: 'b-other', title: 'Other in B', time: { created: now - 1000, updated: now - 1000 } },
+    ])
+
+    await actions.loadSessions('/workspace-b')
+
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      'teamclaw-pinned-sessions',
+      JSON.stringify({
+        '/workspace-a': ['a-pinned'],
+        '/workspace-b': ['b-pinned'],
+      }),
+    )
   })
 
   it('loadSessions filters out archived and child sessions', async () => {
