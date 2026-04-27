@@ -420,6 +420,7 @@ pub fn run() {
             commands::git::git_diff,
             commands::git::git_checkout_file,
             commands::git::git_show_file,
+            commands::git::git_log_file,
             commands::team::get_team_status,
             commands::team::update_team_llm_config,
             commands::team::team_check_git_installed,
