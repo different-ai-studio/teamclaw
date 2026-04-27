@@ -197,6 +197,17 @@ export function TeamGitConfig() {
   // Detect if current URL is HTTPS (needs token auth)
   const isHttpsUrl = gitUrl.trim().startsWith('https://') || gitUrl.trim().startsWith('http://')
 
+  // Provider config queued during fast-path join — written only after the
+  // background clone completes, otherwise saveTeamProviderFile would
+  // mkdir teamclaw-team/_meta and break the subsequent git clone.
+  type PendingProviderSave = {
+    workspacePath: string
+    hostLlm: boolean
+    llmUrl: string
+    llmModels: { id: string; name: string }[]
+  }
+  const pendingProviderSaveRef = React.useRef<PendingProviderSave | null>(null)
+
   // ─── Initialize: check git + load config ─────────────────────────────────
 
   const initialize = React.useCallback(async () => {
@@ -267,7 +278,21 @@ export function TeamGitConfig() {
       const { listen } = await import('@tauri-apps/api/event')
       unlistenCompleted = await listen<{ teamId: string; message: string }>(
         'team:git-join-clone-completed',
-        () => {
+        async () => {
+          // Now that teamclaw-team/_meta/ exists, flush any queued provider save.
+          const pending = pendingProviderSaveRef.current
+          if (pending) {
+            pendingProviderSaveRef.current = null
+            try {
+              await saveTeamProviderFile(
+                pending.workspacePath,
+                buildTeamProviderConfig(pending.hostLlm, pending.llmUrl, pending.llmModels),
+                pending.hostLlm ? pending.llmModels[0]?.id : undefined,
+              )
+            } catch (err) {
+              console.warn('[Team Join] Deferred provider save failed:', err)
+            }
+          }
           teamMembersStore.loadMembers()
           teamMembersStore.loadMyRole()
         },
@@ -275,6 +300,7 @@ export function TeamGitConfig() {
       unlistenFailed = await listen<{ teamId: string; error: string }>(
         'team:git-join-clone-failed',
         (evt) => {
+          pendingProviderSaveRef.current = null
           setErrorMessage(evt.payload?.error || 'Background sync failed')
         },
       )
@@ -561,8 +587,16 @@ export function TeamGitConfig() {
           ...(gitBranchTrim ? { gitBranch: gitBranchTrim } : {}),
         }
         await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
+        // Defer saveTeamProviderFile until the background clone finishes — it
+        // would otherwise mkdir teamclaw-team/_meta and break git clone's
+        // empty-target requirement.
         if (workspacePath) {
-          await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
+          pendingProviderSaveRef.current = {
+            workspacePath,
+            hostLlm,
+            llmUrl,
+            llmModels,
+          }
         }
         setTeamConfig(newConfig)
 
@@ -1180,7 +1214,7 @@ export function TeamGitConfig() {
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamId', 'Team ID')}</label>
                     <div className="flex items-center gap-1.5">
-                      <code className="flex-1 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">{teamConfig.teamId}</code>
+                      <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">{teamConfig.teamId}</code>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1194,7 +1228,7 @@ export function TeamGitConfig() {
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamSecret', 'Team Secret')}</label>
                     <div className="flex items-center gap-1.5">
-                      <code className="flex-1 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">
+                      <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">
                         {showTeamSecret && loadedTeamSecret ? loadedTeamSecret : '••••••••••••••••'}
                       </code>
                       <Button
@@ -1365,7 +1399,7 @@ export function TeamGitConfig() {
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">{t('settings.team.inviteCode', 'Invite Code')}</label>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-3 py-2 text-xs font-mono break-all max-h-20 overflow-y-auto">
+                  <code className="flex-1 min-w-0 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-3 py-2 text-xs font-mono break-all max-h-20 overflow-y-auto">
                     {createdInviteCode}
                   </code>
                   <Button
@@ -1384,7 +1418,7 @@ export function TeamGitConfig() {
             <div className="space-y-1.5">
               <label className="text-sm font-medium">{t('settings.team.teamId', 'Team ID')}</label>
               <div className="flex items-center gap-2">
-                <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
+                <code className="flex-1 min-w-0 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
                   {createdTeamId}
                 </code>
                 <Button
@@ -1401,7 +1435,7 @@ export function TeamGitConfig() {
             <div className="space-y-1.5">
               <label className="text-sm font-medium">{t('settings.team.teamSecret', 'Team Secret')}</label>
               <div className="flex items-center gap-2">
-                <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
+                <code className="flex-1 min-w-0 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
                   {showCreatedSecret ? createdTeamSecret : createdTeamSecret.replace(/./g, '*')}
                 </code>
                 <Button
