@@ -1019,7 +1019,11 @@ pub async fn team_git_create(
         .map_err(|e| format!("Failed to generate random secret: {e}"))?;
     let team_secret = hex::encode(secret_bytes);
 
-    // Scaffold standard team directories
+    // Scaffold standard team directories. Git doesn't track empty
+    // directories, so we drop a .gitkeep placeholder in each one — otherwise
+    // members cloning the repo only see whichever folders happened to receive
+    // a tracked file (e.g. _meta got team.json/members.json) and miss the
+    // rest of the layout.
     let team_path = Path::new(&team_dir);
     for d in &[
         "skills",
@@ -1029,8 +1033,14 @@ pub async fn team_git_create(
         "_meta",
         "_secrets",
     ] {
-        std::fs::create_dir_all(team_path.join(d))
+        let dir_path = team_path.join(d);
+        std::fs::create_dir_all(&dir_path)
             .map_err(|e| format!("Failed to create {}: {}", d, e))?;
+        let gitkeep_path = dir_path.join(".gitkeep");
+        if !gitkeep_path.exists() {
+            std::fs::write(&gitkeep_path, "")
+                .map_err(|e| format!("Failed to write {}/.gitkeep: {}", d, e))?;
+        }
     }
 
     // Write README.md if missing
