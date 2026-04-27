@@ -72,8 +72,8 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0(zod@3.25.76)
       '@json-render/react':
-        specifier: ^0.2.0
-        version: 0.2.0(react@19.2.5)(zod@3.25.76)
+        specifier: ^0.18.0
+        version: 0.18.0(react@19.2.5)(zod@3.25.76)
       '@opencode-ai/sdk':
         specifier: ^1.4.0
         version: 1.14.18
@@ -1067,8 +1067,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@json-render/core@0.2.0':
-    resolution: {integrity: sha512-LBKv4M5skz7JRpTn53g6qF/zj5u/xUhuCp6WtJn/ZTIxGEAogH8sn3Ql/Nk/O0sgbQHtriRmoJuI23/5fGCXPw==}
+  '@json-render/core@0.18.0':
+    resolution: {integrity: sha512-zm0K9cgxZLGshw5TmdKe3Xc6fpjbONdlj3v+Er+HhCYZ9fSJpv32d9VzQds4bDW36vPfdieAOcsPR9+EcTff7Q==}
     peerDependencies:
       zod: ^4.0.0
 
@@ -1077,10 +1077,10 @@ packages:
     peerDependencies:
       zod: ^4.0.0
 
-  '@json-render/react@0.2.0':
-    resolution: {integrity: sha512-4tdoMfc3t0Je+DMNsyJguz7aJkqfLhEY8/mvBchL9kweRfJHAZocT7doyqRCGAnCBtIXCKQ8YAbm0sb0Qr9OFw==}
+  '@json-render/react@0.18.0':
+    resolution: {integrity: sha512-rT0hJ9mK2BGfLxZ/ztS4UF1XqAz/o+FNtFgii7hea7VjD4u0wJYyRphe4a5DetS/dSMZFECXkmida+xi3wKl9A==}
     peerDependencies:
-      react: ^19.0.0
+      react: ^19.2.3
 
   '@lezer/common@1.5.2':
     resolution: {integrity: sha512-sxQE460fPZyU3sdc8lafxiPwJHBzZRy/udNFynGQky1SePYBdhkBl1kOagA9uT3pxR8K09bOrmTUqA9wb/PjSQ==}
@@ -6444,7 +6444,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@json-render/core@0.2.0(zod@3.25.76)':
+  '@json-render/core@0.18.0(zod@3.25.76)':
     dependencies:
       zod: 3.25.76
 
@@ -6452,9 +6452,9 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@json-render/react@0.2.0(react@19.2.5)(zod@3.25.76)':
+  '@json-render/react@0.18.0(react@19.2.5)(zod@3.25.76)':
     dependencies:
-      '@json-render/core': 0.2.0(zod@3.25.76)
+      '@json-render/core': 0.18.0(zod@3.25.76)
       react: 19.2.5
     transitivePeerDependencies:
       - zod
