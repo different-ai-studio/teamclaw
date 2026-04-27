@@ -277,12 +277,28 @@ jobs:
           if target != 'aarch64-apple-darwin':
               sys.exit(0)
 
-          bucket.put_object('releases/latest.txt', version.encode())
+          # These are mutable "pointer" objects that change every release.
+          # Without an explicit Cache-Control header, Alibaba CDN applies its
+          # default TTL (hours), so users keep installing the previous version
+          # until the cached entry expires. Tell the CDN to re-validate.
+          short_cache = {
+              'Cache-Control': 'max-age=60, must-revalidate',
+          }
+
+          bucket.put_object(
+              'releases/latest.txt',
+              version.encode(),
+              headers={**short_cache, 'Content-Type': 'text/plain; charset=utf-8'},
+          )
           print(f'✅ {oss_base}/releases/latest.txt -> {version}')
 
           with open('scripts/install-mac-cn.sh', 'r') as f:
               script = f.read()
-          bucket.put_object('install-mac-cn.sh', script.encode())
+          bucket.put_object(
+              'install-mac-cn.sh',
+              script.encode(),
+              headers={**short_cache, 'Content-Type': 'text/x-shellscript; charset=utf-8'},
+          )
           print(f'✅ {oss_base}/install-mac-cn.sh')
           EOF
 
@@ -530,7 +546,16 @@ jobs:
               json.dump(manifest, f, indent=2)
               f.write('\n')
 
-          bucket.put_object_from_file('releases/latest.json', mirrored_manifest_path)
+          # Root pointer: must re-validate so the Tauri updater sees new releases.
+          # Per-version archive: immutable, default long cache is fine.
+          bucket.put_object_from_file(
+              'releases/latest.json',
+              mirrored_manifest_path,
+              headers={
+                  'Cache-Control': 'max-age=60, must-revalidate',
+                  'Content-Type': 'application/json; charset=utf-8',
+              },
+          )
           bucket.put_object_from_file(f'releases/{version}/latest.json', mirrored_manifest_path)
           print(f'Mirrored latest.json -> {oss_base}/releases/latest.json')
           print(f'Also archived -> {oss_base}/releases/{version}/latest.json')
