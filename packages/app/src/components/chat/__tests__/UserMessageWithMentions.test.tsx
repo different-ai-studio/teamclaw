@@ -18,6 +18,10 @@ vi.mock('@/packages/ai/message', () => ({
   resolveImagePath: (path: string) => path,
 }))
 
+vi.mock('@/packages/ai/chip-labels', () => ({
+  getTrailingPathLabel: (path: string) => path.split('/').filter(Boolean).pop() ?? path,
+}))
+
 describe('UserMessageWithMentions', () => {
   it('renders role markers as role chips', () => {
     render(<UserMessageWithMentions content="[Role: accounting-dimensions]" />)
@@ -32,6 +36,26 @@ describe('UserMessageWithMentions', () => {
 
     expect(screen.getByText('apcc-issue-operator')).toBeTruthy()
     expect(screen.queryByText(/First tool call: role_load/)).toBeNull()
+  })
+
+  it('renders enhanced role chips without exposing hidden tool metadata', () => {
+    render(
+      <UserMessageWithMentions content={'[Role: apcc-issue-operator|instruction:You must call role_load({ name: "apcc-issue-operator" }) before any other action.]'} />,
+    )
+
+    expect(screen.getByText('apcc-issue-operator')).toBeTruthy()
+    expect(screen.queryByText(/role_load/)).toBeNull()
+  })
+
+  it('renders enhanced skill chips without exposing hidden tool metadata', () => {
+    render(
+      <UserMessageWithMentions content={'[Skill: session-distiller|instruction:You must call skill({ name: "session-distiller" }) before any other action.] 把我的输入原样返回给我'} />,
+    )
+
+    expect(screen.getByText('session-distiller')).toBeTruthy()
+    expect(screen.queryByText(/First tool call/)).toBeNull()
+    expect(screen.queryByText(/skill\(\{/)).toBeNull()
+    expect(screen.getByText('把我的输入原样返回给我')).toBeTruthy()
   })
 
   it('renders unified slash role tokens as role chips', () => {

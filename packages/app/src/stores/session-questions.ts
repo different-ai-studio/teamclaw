@@ -25,6 +25,46 @@ type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partia
 type SessionGet = () => SessionState;
 
 export function createQuestionActions(set: SessionSet, get: SessionGet) {
+  const clearPendingQuestion = (pendingQuestion: PendingQuestionState) => {
+    const { activeSessionId } = get();
+    const toolCallId = pendingQuestion.toolCallId;
+
+    if (activeSessionId) {
+      const cached = sessionDataCache.get(activeSessionId);
+      if (cached) {
+        const qs = (cached.pendingQuestions || []).filter(
+          (q) => q.questionId !== pendingQuestion.questionId,
+        );
+        sessionDataCache.set(activeSessionId, {
+          ...cached,
+          pendingQuestions: qs,
+        });
+      }
+    }
+
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === activeSessionId
+          ? {
+              ...s,
+              messages: s.messages.map((m) => ({
+                ...m,
+                toolCalls: m.toolCalls?.map((tc) =>
+                  tc.id === toolCallId
+                    ? { ...tc, status: "completed" as const }
+                    : tc,
+                ),
+              })),
+              updatedAt: new Date(),
+            }
+          : s,
+      ),
+      pendingQuestions: state.pendingQuestions.filter(
+        (q) => q.questionId !== pendingQuestion.questionId,
+      ),
+    }));
+  };
+
   return {
     // Answer question tool
     answerQuestion: async (answers: Record<string, string>, questionId?: string) => {
@@ -66,48 +106,53 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
           throw replyError;
         }
 
-        const toolCallId = pendingQuestion.toolCallId;
-
-        // Clear this pending question from both state and cache
-        if (activeSessionId) {
-          const cached = sessionDataCache.get(activeSessionId);
-          if (cached) {
-            const qs = (cached.pendingQuestions || []).filter(
-              (q) => q.questionId !== pendingQuestion.questionId,
-            );
-            sessionDataCache.set(activeSessionId, {
-              ...cached,
-              pendingQuestions: qs,
-            });
-          }
-        }
-
-        set((state) => ({
-          sessions: state.sessions.map((s) =>
-            s.id === activeSessionId
-              ? {
-                  ...s,
-                  messages: s.messages.map((m) => ({
-                    ...m,
-                    toolCalls: m.toolCalls?.map((tc) =>
-                      tc.id === toolCallId
-                        ? { ...tc, status: "completed" as const }
-                        : tc,
-                    ),
-                  })),
-                  updatedAt: new Date(),
-                }
-              : s,
-          ),
-          pendingQuestions: state.pendingQuestions.filter(
-            (q) => q.questionId !== pendingQuestion.questionId,
-          ),
-        }));
+        clearPendingQuestion(pendingQuestion);
       } catch (error) {
         useStreamingStore.getState().clearStreaming();
         set((state) => ({
           error:
             error instanceof Error ? error.message : "Failed to answer question",
+          pendingQuestions: state.pendingQuestions.filter(
+            (q) => q.questionId !== pendingQuestion.questionId,
+          ),
+        }));
+      }
+    },
+
+    skipQuestion: async (questionId?: string) => {
+      const { pendingQuestions, activeSessionId } = get();
+      if (!activeSessionId) return;
+      const pendingQuestion = questionId
+        ? pendingQuestions.find((q) => q.questionId === questionId)
+        : pendingQuestions[0];
+      if (!pendingQuestion) return;
+      if (!pendingQuestion.questionId) {
+        console.warn("[Question] Cannot skip — questionId not yet set (waiting for question.asked SSE event)");
+        return;
+      }
+
+      try {
+        const client = getOpenCodeClient();
+
+        console.log(
+          "[Question] Rejecting question:",
+          pendingQuestion.questionId,
+        );
+
+        try {
+          await client.rejectQuestion(pendingQuestion.questionId);
+          console.log("[Question] Reject sent successfully");
+        } catch (rejectError) {
+          console.error("[Question] Reject API error:", rejectError);
+          throw rejectError;
+        }
+
+        clearPendingQuestion(pendingQuestion);
+      } catch (error) {
+        useStreamingStore.getState().clearStreaming();
+        set((state) => ({
+          error:
+            error instanceof Error ? error.message : "Failed to skip question",
           pendingQuestions: state.pendingQuestions.filter(
             (q) => q.questionId !== pendingQuestion.questionId,
           ),

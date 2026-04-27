@@ -13,6 +13,8 @@ const mockClearSessionError = vi.fn();
 const mockSetError = vi.fn();
 const mockSetDraftInput = vi.fn();
 const mockSetSelectedModel = vi.fn();
+const mockAnswerQuestion = vi.fn(() => Promise.resolve());
+const mockSkipQuestion = vi.fn(() => Promise.resolve());
 const workspaceState = {
   workspacePath: '/test',
   openCodeBootstrapped: true,
@@ -30,6 +32,17 @@ const mockSessionState = {
   inactivityWarning: false,
   draftInput: '',
   pendingPermissions: [] as Array<unknown>,
+  pendingQuestions: [] as Array<{
+    questionId: string;
+    toolCallId: string;
+    messageId: string;
+    questions: Array<{
+      id?: string;
+      header?: string;
+      question: string;
+      options: Array<{ label: string; value?: string }>;
+    }>;
+  }>,
   todos: [] as Array<unknown>,
   sessions: [
     {
@@ -49,6 +62,8 @@ const mockSessionState = {
   setError: mockSetError,
   setSelectedModel: mockSetSelectedModel,
   setDraftInput: mockSetDraftInput,
+  answerQuestion: mockAnswerQuestion,
+  skipQuestion: mockSkipQuestion,
   pollPermissions: vi.fn(),
 };
 
@@ -102,6 +117,22 @@ vi.mock('@/stores/team-mode', () => ({
 vi.mock('@/stores/suggestions', () => ({
   useSuggestionsStore: (selector: (s: unknown) => unknown) =>
     selector({ customSuggestions: [] }),
+}));
+
+vi.mock('@/hooks/useAppInit', () => ({
+  SKILLS_CHANGED_EVENT: 'skills-files-changed',
+}));
+
+vi.mock('@/stores/shortcuts', () => ({
+  useShortcutsStore: Object.assign(
+    (selector: (s: unknown) => unknown) =>
+      selector({ setTeamNodes: vi.fn() }),
+    {
+      getState: () => ({
+        setTeamNodes: vi.fn(),
+      }),
+    },
+  ),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -234,7 +265,9 @@ describe('ChatPanel submission flow', () => {
     mockSessionState.sessionError = null;
     mockSessionState.draftInput = '';
     mockSessionState.pendingPermissions = [];
+    mockSessionState.pendingQuestions = [];
     mockSessionState.todos = [];
+    mockSkipQuestion.mockClear();
     mockSessionState.sessions = [
       {
         id: 'sess-1',
@@ -313,7 +346,11 @@ describe('ChatPanel submission flow', () => {
         fireEvent.click(submitBtn);
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith('[Skill: superpowers/brainstorming]', undefined, undefined);
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '[Skill: superpowers/brainstorming|instruction:You must call skill({ name: "superpowers/brainstorming" }) before any other action.]',
+        undefined,
+        undefined,
+      );
     });
 
     it('serializes role mentions into role directives on submit', async () => {
@@ -328,7 +365,7 @@ describe('ChatPanel submission flow', () => {
       });
 
       expect(mockSendMessage).toHaveBeenCalledWith(
-        '[Role: accounting-dimensions]\n\nFirst tool call: role_load({ name: "accounting-dimensions" }).',
+        '[Role: accounting-dimensions|instruction:You must call role_load({ name: "accounting-dimensions" }) before any other action.]',
         undefined,
         undefined,
       );
@@ -440,6 +477,135 @@ describe('ChatPanel submission flow', () => {
       expect(screen.queryByTestId('todo-list-inline')).toBeNull();
       expect(screen.getByTestId('pending-permission-inline')).toBeTruthy();
       expect(screen.queryByText('1 messages queued')).toBeNull();
+    });
+  });
+
+  describe('question input takeover', () => {
+    it('replaces the whole input dock when a question is pending', async () => {
+      mockSessionState.todos = [
+        { id: 'todo-1', content: 'Inspect parser config', status: 'in_progress', priority: 'high' },
+      ];
+      mockSessionState.messageQueue = [
+        { id: 'queued-1', content: 'run follow-up check', timestamp: new Date() },
+      ];
+      mockSessionState.pendingPermissions = [{ permission: { id: 'perm-1' } }];
+      mockSessionState.pendingQuestions = [
+        {
+          questionId: 'question-event-1',
+          toolCallId: 'tool-call-1',
+          messageId: 'message-1',
+          questions: [
+            {
+              id: 'q-1',
+              header: '下一步',
+              question: '你希望我接下来做什么？',
+              options: [
+                { label: '继续测试', value: 'continue' },
+                { label: '结束即可', value: 'finish' },
+              ],
+            },
+          ],
+        },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(screen.queryByTestId('chat-input-area')).toBeNull();
+      expect(screen.queryByTestId('todo-list-inline')).toBeNull();
+      expect(screen.queryByTestId('pending-permission-inline')).toBeNull();
+      expect(screen.queryByText('1 messages queued')).toBeNull();
+      expect(screen.getByTestId('question-input-dock')).toBeTruthy();
+      expect(screen.getByText('你希望我接下来做什么？')).toBeTruthy();
+      expect(screen.getByText('继续测试')).toBeTruthy();
+    });
+
+    it('skips the active question from the question dock', async () => {
+      mockSessionState.pendingQuestions = [
+        {
+          questionId: 'question-event-1',
+          toolCallId: 'tool-call-1',
+          messageId: 'message-1',
+          questions: [
+            {
+              id: 'q-1',
+              header: '下一步',
+              question: '你希望我接下来做什么？',
+              options: [
+                { label: '继续测试', value: 'continue' },
+                { label: '结束即可', value: 'finish' },
+              ],
+            },
+          ],
+        },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      fireEvent.click(screen.getByRole('button', { name: /skip/i }));
+
+      await waitFor(() => {
+        expect(mockSkipQuestion).toHaveBeenCalledWith('question-event-1');
+      });
+    });
+
+    it('advances to the next question after selecting a preset answer', async () => {
+      mockSessionState.pendingQuestions = [
+        {
+          questionId: 'question-event-1',
+          toolCallId: 'tool-call-1',
+          messageId: 'message-1',
+          questions: [
+            {
+              id: 'q-1',
+              header: '第一题',
+              question: '先做什么？',
+              options: [{ label: '先看全局', value: 'overview' }],
+            },
+            {
+              id: 'q-2',
+              header: '第二题',
+              question: '然后做什么？',
+              options: [{ label: '继续推进', value: 'continue' }],
+            },
+          ],
+        },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      fireEvent.click(screen.getByRole('button', { name: /先看全局/i }));
+
+      expect(screen.getByText('然后做什么？')).toBeTruthy();
+      expect(mockAnswerQuestion).not.toHaveBeenCalled();
+    });
+
+    it('selects the last preset answer without auto-submitting', async () => {
+      mockSessionState.pendingQuestions = [
+        {
+          questionId: 'question-event-1',
+          toolCallId: 'tool-call-1',
+          messageId: 'message-1',
+          questions: [
+            {
+              id: 'q-1',
+              header: '唯一问题',
+              question: '最后怎么做？',
+              options: [{ label: '结束即可', value: 'finish' }],
+            },
+          ],
+        },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      fireEvent.click(screen.getByRole('button', { name: /结束即可/i }));
+
+      expect(screen.getByText('最后怎么做？')).toBeTruthy();
+      expect(mockAnswerQuestion).not.toHaveBeenCalled();
     });
   });
 

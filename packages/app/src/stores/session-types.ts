@@ -252,6 +252,7 @@ export interface SessionState {
 
   // Actions - Question
   answerQuestion: (answers: Record<string, string>, questionId?: string) => Promise<void>;
+  skipQuestion: (questionId?: string) => Promise<void>;
   setPendingQuestion: (
     question: PendingQuestionState | null,
   ) => void;

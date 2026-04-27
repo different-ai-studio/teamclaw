@@ -13,6 +13,9 @@ interface TodoListProps {
   variant?: "sidebar" | "inline";
 }
 
+const inlineDockScrollbarClass =
+  "[scrollbar-width:thin] [scrollbar-color:rgba(113,113,122,0.42)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/55";
+
 function getTodoStatusIcon(status: Todo["status"], className?: string) {
   switch (status) {
     case "completed":
@@ -24,15 +27,6 @@ function getTodoStatusIcon(status: Todo["status"], className?: string) {
     default:
       return <Circle className={cn("shrink-0 text-muted-foreground", className)} />;
   }
-}
-
-function getActiveTodo(todos: Todo[]) {
-  return (
-    todos.find((todo) => todo.status === "in_progress") ||
-    todos.find((todo) => todo.status === "pending") ||
-    todos[0] ||
-    null
-  );
 }
 
 function SidebarTodoList({ todos }: { todos: Todo[] }) {
@@ -87,7 +81,7 @@ function SectionHeader({
     <div
       className={cn(
         "flex items-center gap-2.5 px-4 text-[12px] font-medium text-muted-foreground",
-        isTop ? "rounded-t-[24px] py-3" : "py-2.5",
+        isTop ? "rounded-t-[24px] py-2" : "py-2",
       )}
     >
       {icon}
@@ -99,7 +93,7 @@ function SectionHeader({
         onClick={onToggleCollapsed}
         className="inline-flex h-5 w-5 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
       >
-        {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+        {collapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
     </div>
   );
@@ -119,7 +113,6 @@ function InlineTodoList({
   const allCompleted = todos.length > 0 && completedCount === todos.length;
   const [todoCollapsed, setTodoCollapsed] = React.useState(allCompleted);
   const [queueCollapsed, setQueueCollapsed] = React.useState(false);
-  const activeTodo = getActiveTodo(todos);
   const hasTodos = todos.length > 0;
   const hasQueue = queue.length > 0;
   const hasAnyContent = hasTodos || hasQueue;
@@ -162,8 +155,7 @@ function InlineTodoList({
 
   const topSection = hasTodos ? "todo" : "queue";
   const dockCollapsed = (!hasTodos || todoCollapsed) && (!hasQueue || queueCollapsed);
-  const showCollapsedTodoSummary = todoCollapsed && !allCompleted && (!hasQueue || !queueCollapsed);
-  const headerOnlyCollapsed = dockCollapsed && !showCollapsedTodoSummary && (!hasQueue || queueCollapsed);
+  const headerOnlyCollapsed = dockCollapsed && (!hasQueue || queueCollapsed);
 
   return (
     <div
@@ -175,7 +167,7 @@ function InlineTodoList({
     >
       <div
         className={cn(
-          "overflow-hidden rounded-[24px] border border-[rgba(214,219,228,0.42)] bg-[rgba(255,255,255,0.02)] shadow-[0_1px_2px_rgba(15,23,42,0.018)] backdrop-blur-[9px] supports-[backdrop-filter]:bg-[rgba(255,255,255,0.5)] dark:border-white/10 dark:bg-[rgba(15,23,42,0.08)] dark:supports-[backdrop-filter]:bg-[rgba(15,23,42,0.055)]",
+          "overflow-hidden rounded-[24px] border border-[rgba(214,219,228,0.42)] bg-[rgba(255,255,255,0.02)] shadow-[0_1px_2px_rgba(15,23,42,0.018)] backdrop-blur-[9px] supports-[backdrop-filter]:bg-[rgba(255,255,255,0.6)] dark:border-white/10 dark:bg-[rgba(15,23,42,0.08)] dark:supports-[backdrop-filter]:bg-[rgba(15,23,42,0.055)]",
           dockCollapsed ? "pb-1" : "pb-10",
           headerOnlyCollapsed && "rounded-b-none pb-0",
         )}
@@ -200,10 +192,13 @@ function InlineTodoList({
                 aria-hidden={todoCollapsed}
                 className={cn(
                   "overflow-hidden transition-[max-height,opacity,padding] duration-200 ease-in-out",
-                  !todoCollapsed ? "max-h-[11rem] opacity-100 px-4 pt-3 pb-0" : "max-h-0 opacity-0 px-4 py-0",
+                  !todoCollapsed ? "max-h-[11rem] opacity-100 px-4 pt-0 pb-0" : "max-h-0 opacity-0 px-4 py-0",
                 )}
               >
-                <div data-testid="todo-list-inline-scroll" className="space-y-2 overflow-y-auto max-h-[8.75rem]">
+                <div
+                  data-testid="todo-list-inline-scroll"
+                  className={cn("space-y-2 overflow-y-auto max-h-[8.75rem]", inlineDockScrollbarClass)}
+                >
                   {todos.map((todo, index) => (
                     <div
                       key={todo.id}
@@ -226,13 +221,6 @@ function InlineTodoList({
                   ))}
                 </div>
               </div>
-              {showCollapsedTodoSummary ? (
-                <div className="px-4 pb-0 text-[12px] leading-4 text-foreground/90">
-                  {activeTodo
-                    ? t("chat.todo.activeSummary", "In progress: {{task}}", { task: activeTodo.content })
-                    : null}
-                </div>
-              ) : null}
             </section>
           ) : null}
 
@@ -252,10 +240,16 @@ function InlineTodoList({
                 aria-hidden={queueCollapsed}
                 className={cn(
                   "overflow-hidden transition-[max-height,opacity,padding] duration-200 ease-in-out",
-                  !queueCollapsed ? "max-h-[10rem] opacity-100 px-4 pt-3 pb-0" : "max-h-0 opacity-0 px-4 py-0",
+                  !queueCollapsed ? "max-h-[10rem] opacity-100 px-4 pt-0 pb-0" : "max-h-0 opacity-0 px-4 py-0",
                 )}
               >
-                <div className="space-y-1.5 overflow-y-auto max-h-[8.5rem]" data-testid="todo-list-inline-queue-body">
+                <div
+                  className={cn(
+                    "space-y-1.5 overflow-y-auto max-h-[8.5rem] pr-2 pb-1.5 [scrollbar-gutter:stable]",
+                    inlineDockScrollbarClass,
+                  )}
+                  data-testid="todo-list-inline-queue-body"
+                >
                   {queue.map((msg, index) => (
                     <div
                       key={msg.id}

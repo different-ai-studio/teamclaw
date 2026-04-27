@@ -29,6 +29,11 @@
     "deleting": "Deleting...",
     "default": "Default",
     "copy": "Copy",
+    "skip": "Skip",
+    "continue": "Continue",
+    "previous": "Previous",
+    "next": "Next",
+    "recommended": "Recommended",
     "never": "Never",
     "justNow": "Just now",
     "minutesAgo": "{{count}} minute ago",
@@ -105,7 +110,6 @@
     },
     "todo": {
       "summary": "{{count}} tasks, {{completed}} completed",
-      "activeSummary": "In progress: {{task}}",
       "allCompleted": "All tasks completed",
       "collapseAria": "Collapse todo panel",
       "expandAria": "Expand todo panel",
@@ -191,6 +195,8 @@
       },
       "question": {
         "title": "Question",
+        "count": "{{count}} questions",
+        "countOne": "{{count}} question",
         "answered": "Answered",
         "processingAnswer": "Processing answer...",
         "waitingForResponse": "Waiting for response...",

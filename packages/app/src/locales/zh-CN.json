@@ -29,6 +29,11 @@
     "deleting": "删除中...",
     "default": "默认",
     "copy": "复制",
+    "skip": "跳过",
+    "continue": "继续",
+    "previous": "上一个",
+    "next": "下一个",
+    "recommended": "推荐",
     "never": "从未",
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",
@@ -106,7 +111,6 @@
     },
     "todo": {
       "summary": "共 {{count}} 个任务，已经完成 {{completed}} 个",
-      "activeSummary": "进行中：{{task}}",
       "allCompleted": "任务已全部完成",
       "collapseAria": "收起待办面板",
       "expandAria": "展开待办面板",
@@ -192,6 +196,8 @@
       },
       "question": {
         "title": "问题",
+        "count": "{{count}} 个问题",
+        "countOne": "{{count}} 个问题",
         "answered": "已回答",
         "processingAnswer": "正在处理回答...",
         "waitingForResponse": "等待响应中...",

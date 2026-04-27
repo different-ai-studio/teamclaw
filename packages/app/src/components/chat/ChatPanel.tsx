@@ -27,6 +27,7 @@ import { MessageList, type MessageListHandle } from "./MessageList";
 import { SessionErrorAlert } from "./SessionErrorAlert";
 import { PendingPermissionInline, hasVisiblePendingPermissions } from "./PermissionCard";
 import { TodoList } from "./TodoList";
+import { QuestionInputDock } from "./QuestionInputDock";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -72,6 +73,18 @@ function parseSlashToken(body: string): { type: "role" | "skill" | "command"; na
   return { type: "skill", name: body };
 }
 
+function buildEnhancedChip(
+  type: "role" | "skill",
+  name: string,
+): string {
+  const label = type === "role" ? "Role" : "Skill";
+  const toolCall =
+    type === "role"
+      ? `role_load({ name: "${name}" })`
+      : `skill({ name: "${name}" })`;
+  return `[${label}: ${name}|instruction:You must call ${toolCall} before any other action.]`;
+}
+
 // ─── Main component ────────────────────────────────────────────────────────
 
 interface ChatPanelProps {
@@ -101,6 +114,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const draftInput = useSessionStore(s => s.draftInput);
   const todos = useSessionStore(s => s.todos);
   const pendingPermissions = useSessionStore(s => s.pendingPermissions);
+  const pendingQuestions = useSessionStore(s => s.pendingQuestions);
   const sessions = useSessionStore(s => s.sessions);
 
   // ── Child session viewing ──────────────────────────────────────────
@@ -158,6 +172,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       },
     ];
   }, [childSessionMessages, childStreamingContent, viewingChildSessionId]);
+  const activeInputQuestion = React.useMemo(() => {
+    if (isViewingChild) return null;
+    return (
+      pendingQuestions.find((question) => !question.sessionId || question.sessionId === activeSessionId) ||
+      pendingQuestions[0] ||
+      null
+    );
+  }, [activeSessionId, isViewingChild, pendingQuestions]);
 
   // Actions — accessed via getState() to avoid creating subscriptions.
   // Zustand actions are stable references; subscribing to them wastes equality checks.
@@ -601,13 +623,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     // Build final content preserving the order
     let processedText = text;
-    const selectedRoles = Array.from(new Set([
-      ...[...processedText.matchAll(/\/\{([^}]+)\}/g)]
-        .map((match) => parseSlashToken(match[1]))
-        .filter((token) => token.type === "role")
-        .map((token) => token.name),
-      ...[...processedText.matchAll(/\/<([a-z0-9]+(?:-[a-z0-9]+)*)>/g)].map((match) => match[1]),
-    ]));
 
     // Replace @{filepath} with [File: filepath] inline
     processedText = processedText.replace(/@\{([^}]+)\}/g, '[File: $1]');
@@ -615,11 +630,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     // Replace unified /{type:name} inline, while keeping legacy formats readable.
     processedText = processedText.replace(/\/\{([^}]+)\}/g, (_full, body) => {
       const token = parseSlashToken(body);
-      if (token.type === "role") return `[Role: ${token.name}]`;
+      if (token.type === "role") return buildEnhancedChip("role", token.name);
       if (token.type === "command") return `[Command: ${token.name}]`;
-      return `[Skill: ${token.name}]`;
+      return buildEnhancedChip("skill", token.name);
     });
-    processedText = processedText.replace(/\/<([a-z0-9]+(?:-[a-z0-9]+)*)>/g, '[Role: $1]');
+    processedText = processedText.replace(/\/<([a-z0-9]+(?:-[a-z0-9]+)*)>/g, (_full, roleName) =>
+      buildEnhancedChip("role", roleName),
+    );
     processedText = processedText.replace(/\/\[([^\]]+)\]/g, '[Command: $1]');
 
     const parts: string[] = [];
@@ -639,12 +656,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     // Add the processed text (with inline [File: ...] replacements)
     if (processedText.trim()) {
       parts.push(processedText.trim());
-    }
-
-    if (selectedRoles.length > 0) {
-      for (const roleName of selectedRoles) {
-        parts.push(`First tool call: role_load({ name: "${roleName}" }).`);
-      }
     }
 
     finalContent = parts.join("\n\n");
@@ -900,48 +911,56 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
       {/* ─── Input Area (with Permission & Error UI above it) ─────────── */}
       {!isViewingChild && (
-        <ChatInputArea
-          compact={compact}
-          inputValue={inputValue}
-          onInputChange={handleInputChange}
-          attachedFiles={attachedFiles}
-              onFilesChange={handleFilesChange}
-          onRemoveFile={removeFile}
-          imageFiles={imageFiles}
-          onImageFilesChange={handleImageFilesChange}
-          onRemoveImageFile={removeImageFile}
-          onSubmit={handleSubmit}
-          isStreaming={isStreaming}
-          onAbort={abortSession}
-          messageQueue={messageQueue}
-          onRemoveFromQueue={removeFromQueue}
-          onHeightChange={handleInputHeightChange}
-          headerContent={
-            <>
-              {showInlineTodo ? (
-                <TodoList
-                  todos={todos}
-                  queue={messageQueue}
-                  onRemoveFromQueue={removeFromQueue}
-                  variant="inline"
-                />
-              ) : null}
-              <PendingPermissionInline />
-              {sessionError && (
-                <SessionErrorAlert
-                  error={sessionError}
-                  onDismiss={clearSessionError}
-                />
-              )}
-              {error && !sessionError && (
-                <SessionErrorAlert
-                  error={error}
-                  onDismiss={() => setError(null)}
-                />
-              )}
-            </>
-          }
-        />
+        activeInputQuestion ? (
+          <QuestionInputDock
+            compact={compact}
+            pendingQuestion={activeInputQuestion}
+            onHeightChange={handleInputHeightChange}
+          />
+        ) : (
+          <ChatInputArea
+            compact={compact}
+            inputValue={inputValue}
+            onInputChange={handleInputChange}
+            attachedFiles={attachedFiles}
+            onFilesChange={handleFilesChange}
+            onRemoveFile={removeFile}
+            imageFiles={imageFiles}
+            onImageFilesChange={handleImageFilesChange}
+            onRemoveImageFile={removeImageFile}
+            onSubmit={handleSubmit}
+            isStreaming={isStreaming}
+            onAbort={abortSession}
+            messageQueue={messageQueue}
+            onRemoveFromQueue={removeFromQueue}
+            onHeightChange={handleInputHeightChange}
+            headerContent={
+              <>
+                {showInlineTodo ? (
+                  <TodoList
+                    todos={todos}
+                    queue={messageQueue}
+                    onRemoveFromQueue={removeFromQueue}
+                    variant="inline"
+                  />
+                ) : null}
+                <PendingPermissionInline />
+                {sessionError && (
+                  <SessionErrorAlert
+                    error={sessionError}
+                    onDismiss={clearSessionError}
+                  />
+                )}
+                {error && !sessionError && (
+                  <SessionErrorAlert
+                    error={error}
+                    onDismiss={() => setError(null)}
+                  />
+                )}
+              </>
+            }
+          />
+        )
       )}
     </div>
   );

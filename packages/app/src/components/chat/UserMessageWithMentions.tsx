@@ -37,6 +37,12 @@ function parseSlashToken(body: string): { type: "role" | "skill" | "command"; na
   return { type: "skill", name: body };
 }
 
+function stripChipMetadata(content: string): string {
+  const trimmed = content.trim();
+  const separatorIndex = trimmed.indexOf("|instruction:");
+  return separatorIndex >= 0 ? trimmed.slice(0, separatorIndex).trim() : trimmed;
+}
+
 export function UserMessageWithMentions({ content, basePath }: { content: string; basePath?: string }) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = React.useState(false);
@@ -46,6 +52,7 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
     () =>
       content
         .replace(/(?:\r?\n){0,2}First tool call:\s*role_load\(\{\s*name:\s*"[^"]+"\s*\}\)\.\s*/g, "")
+        .replace(/(?:\r?\n){0,2}First tool call:\s*skill\(\{\s*name:\s*"[^"]+"\s*\}\)\.\s*/g, "")
         .trim(),
     [content],
   )
@@ -98,13 +105,13 @@ export function UserMessageWithMentions({ content, basePath }: { content: string
         const people = match[5].split(',').map(p => p.trim());
         result.push({ type: "mentioned", content: match[5], people });
       } else if (match[6]) {
-        result.push({ type: "role", content: match[6] });
+        result.push({ type: "role", content: stripChipMetadata(match[6]) });
       } else if (match[7]) {
         // [File: filepath] format (sent to LLM)
         result.push({ type: "file", content: match[7] });
       } else if (match[8]) {
         // [Skill: skillname] format (sent to LLM)
-        result.push({ type: "skill", content: match[8] });
+        result.push({ type: "skill", content: stripChipMetadata(match[8]) });
       } else if (match[9]) {
         // [Command: commandname] format (sent to LLM)
         result.push({ type: "command", content: match[9] });
