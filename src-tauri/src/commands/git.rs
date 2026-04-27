@@ -348,10 +348,12 @@ pub fn git_log_file(
     let skip_arg = format!("--skip={}", skip);
     let pretty = "--pretty=format:%H%x09%P%x09%an%x09%aI%x09%s";
 
+    // --first-parent keeps the log consistent with parent_sha (which is always first-parent).
     let result = run_git(
         &[
             "log",
             "--follow",
+            "--first-parent",
             &max_count_arg,
             &skip_arg,
             pretty,
