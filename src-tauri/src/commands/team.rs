@@ -1725,12 +1725,76 @@ pub async fn team_sync_repo(
     let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
-    let git_dir = Path::new(&team_dir).join(".git");
-    if !git_dir.exists() {
-        return Err(format!(
-            "Team directory '{}' is not a git repository. Please clone or initialize it first.",
-            team_dir
-        ));
+    // Read saved config up-front: needed for the recovery re-clone below
+    // and for the auth/branch resolution further down.
+    let saved_config = read_team_config_from_file(&workspace_path).ok().flatten();
+
+    // Self-heal: re-clone if the team directory is missing, has no .git
+    // (user manually deleted it), or holds a corrupt/incomplete .git from
+    // a clone that was interrupted by a crash. Without this, the user gets
+    // stuck — saved config keeps the frontend in "connected" state so it
+    // never offers to re-join, but sync refuses to run.
+    let team_path = Path::new(&team_dir);
+    let git_dir = team_path.join(".git");
+    let needs_reclone = if !git_dir.exists() {
+        true
+    } else {
+        // .git exists; verify the repo can resolve HEAD. A clone interrupted
+        // before any refs are written leaves a partially-populated .git that
+        // makes every subsequent git command fail. rev-parse is cheap.
+        let (ok, _, _) = run_git(&["rev-parse", "--verify", "HEAD"], &team_dir)
+            .unwrap_or((false, String::new(), String::new()));
+        !ok
+    };
+    if needs_reclone {
+        let Some(config) = saved_config.as_ref() else {
+            return Err(format!(
+                "Team directory '{}' is not a usable git repository, and no saved team config is available to re-clone from. Please join the team again from settings.",
+                team_dir
+            ));
+        };
+        if config.git_url.is_empty() {
+            return Err(format!(
+                "Team directory '{}' is not a usable git repository, and the saved team config has no git URL to re-clone from. Please join the team again from settings.",
+                team_dir
+            ));
+        }
+
+        // Wipe any stale remnants so `git clone <target>` doesn't trip on a
+        // non-empty target directory.
+        if team_path.exists() {
+            std::fs::remove_dir_all(team_path).map_err(|e| {
+                format!("Failed to clean stale team dir before re-clone: {}", e)
+            })?;
+        }
+
+        let remote_url = match &config.git_token {
+            Some(token) if !token.is_empty() && is_https_url(&config.git_url) => {
+                embed_token_in_url(&config.git_url, token)
+            }
+            _ => config.git_url.clone(),
+        };
+        let branch = config
+            .git_branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|b| !b.is_empty());
+        let clone_args: Vec<&str> = if let Some(b) = branch {
+            vec!["clone", "-b", b, &remote_url, TEAM_REPO_DIR]
+        } else {
+            vec!["clone", &remote_url, TEAM_REPO_DIR]
+        };
+        let (ok, _, stderr) = run_git(&clone_args, &workspace_path)?;
+        if !ok {
+            // Best-effort cleanup so a future sync attempt sees an empty
+            // target and re-tries the clone instead of getting stuck on a
+            // half-cloned repo.
+            let _ = std::fs::remove_dir_all(&team_dir);
+            return Err(format!(
+                "git clone failed while re-cloning team repo (check URL and authentication): {}",
+                stderr.trim()
+            ));
+        }
     }
 
     // Pre-sync guard: block when untracked files breach thresholds, unless forced.
@@ -1746,8 +1810,6 @@ pub async fn team_sync_repo(
         }
     }
 
-    // Read saved config for token and branch
-    let saved_config = read_team_config_from_file(&workspace_path).ok().flatten();
     if let Some(ref config) = saved_config {
         if let Some(ref token) = config.git_token {
             if !token.is_empty() && is_https_url(&config.git_url) {
