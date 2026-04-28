@@ -34,6 +34,8 @@ import {
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
 
+const MAX_BULK_MESSAGE_SESSION_LOAD = 30;
+
 export function createLoaderActions(set: SessionSet, get: SessionGet) {
   return {
     // Reset sessions (clear all session data and cache)
@@ -636,6 +638,16 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         const total = activeSessions.length;
         let loaded = total - sessionsNeedingMessages.length;
         set({ dashboardLoadProgress: { loaded, total } });
+
+        if (sessionsNeedingMessages.length > MAX_BULK_MESSAGE_SESSION_LOAD) {
+          const message = `Skipped loading historical messages: ${sessionsNeedingMessages.length} sessions need messages, above the safe limit of ${MAX_BULK_MESSAGE_SESSION_LOAD}.`;
+          console.warn(`[Session] ${message}`);
+          set({
+            dashboardLoading: false,
+            dashboardLoadError: message,
+          });
+          return;
+        }
 
         const CONCURRENCY = 5;
         const errors: string[] = [];

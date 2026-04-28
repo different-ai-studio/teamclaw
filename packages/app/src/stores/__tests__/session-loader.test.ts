@@ -265,4 +265,24 @@ describe('session-loader: createLoaderActions', () => {
     expect(localStorage.setItem).toHaveBeenCalled()
     expect(state.activeSessionId).toBeNull()
   })
+
+  it('loadAllSessionMessages refuses to fetch when too many sessions need messages', async () => {
+    const now = Date.now()
+    mockListSessions.mockResolvedValue(
+      Array.from({ length: 31 }, (_, index) => ({
+        id: `session-${index}`,
+        title: `Session ${index}`,
+        time: { created: now - index, updated: now - index },
+        directory: '/workspace',
+      })),
+    )
+
+    await actions.loadAllSessionMessages('/workspace')
+
+    expect(mockListSessions).toHaveBeenCalledWith({ directory: '/workspace', roots: true })
+    expect(mockGetMessages).not.toHaveBeenCalled()
+    expect(state.dashboardLoading).toBe(false)
+    expect(state.dashboardLoadProgress).toEqual({ loaded: 0, total: 31 })
+    expect(state.dashboardLoadError).toContain('31 sessions')
+  })
 })

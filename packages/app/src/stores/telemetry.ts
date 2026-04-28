@@ -148,13 +148,8 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         isInitialized: true,
       })
 
-      // Generate session reports after a short delay to avoid blocking init
-      if (consent === 'granted') {
-        setTimeout(async () => {
-          const workspacePath = (await import('@/stores/workspace')).useWorkspaceStore.getState().workspacePath
-          get().generateAllSessionReports(workspacePath ?? undefined)
-        }, 5000) // 5 seconds delay
-      }
+      // Keep startup lightweight: historical reports can still be generated
+      // explicitly, but init must not bulk-load all session history into WebView.
     } catch (err) {
       console.error('[telemetry] Failed to initialize:', err)
       set({ isInitialized: true })
