@@ -552,7 +552,10 @@ export function TeamGitConfig() {
       // success to the user immediately, then run the slow clone in background.
       if (fcEndpoint) {
         setConnectStep('Registering with team service...')
-        const nodeId = await tauriInvoke<string>('get_device_node_id')
+        // `get_persistent_device_id` returns the same iroh node_id but is
+        // registered on every platform; `get_device_node_id` lives in the
+        // p2p-gated module and is missing on Windows builds.
+        const nodeId = await tauriInvoke<string>('get_persistent_device_id')
         const fcUrl = `${fcEndpoint.replace(/\/+$/, '')}/ai/add-member`
         const fcResp = await fetch(fcUrl, {
           method: 'POST',
