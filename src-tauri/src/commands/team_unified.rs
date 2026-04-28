@@ -189,31 +189,17 @@ fn git_manifest_path(workspace_path: &str) -> std::path::PathBuf {
         .join("members.json")
 }
 
-/// Read manifest, auto-creating with self as owner if missing.
+/// Read the Git team manifest without creating files.
+///
+/// Git clone requires the target `teamclaw-team` path to be absent or empty.
+/// During invite-code joins the UI can briefly mark team mode as enabled while
+/// the clone is still running in the background; member reads must not create
+/// `_meta/members.json` in that window.
 fn read_git_manifest(workspace_path: &str) -> Result<TeamManifest, String> {
     let path = git_manifest_path(workspace_path);
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        return serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse members.json: {}", e));
-    }
-    // Auto-create with self as owner
-    let node_id = super::oss_commands::get_device_id()?;
-    let manifest = TeamManifest {
-        owner_node_id: node_id.clone(),
-        members: vec![TeamMember {
-            node_id,
-            name: String::new(),
-            role: MemberRole::Owner,
-            shortcuts_role: Vec::new(),
-            label: String::new(),
-            platform: std::env::consts::OS.to_string(),
-            arch: std::env::consts::ARCH.to_string(),
-            hostname: gethostname::gethostname().to_string_lossy().to_string(),
-            added_at: chrono::Utc::now().to_rfc3339(),
-        }],
-    };
-    write_git_manifest(workspace_path, &manifest)?;
-    Ok(manifest)
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read _meta/members.json: {}", e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse members.json: {}", e))
 }
 
 fn write_git_manifest(workspace_path: &str, manifest: &TeamManifest) -> Result<(), String> {
@@ -224,6 +210,23 @@ fn write_git_manifest(workspace_path: &str, manifest: &TeamManifest) -> Result<(
     let json = serde_json::to_string_pretty(manifest)
         .map_err(|e| format!("Failed to serialize members.json: {}", e))?;
     std::fs::write(&path, json).map_err(|e| format!("Failed to write members.json: {}", e))
+}
+
+#[cfg(test)]
+mod git_manifest_tests {
+    use super::*;
+
+    #[test]
+    fn read_git_manifest_does_not_create_team_dir_when_missing() {
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+        let team_dir = workspace_dir.path().join(crate::commands::TEAM_REPO_DIR);
+
+        let result = read_git_manifest(&workspace_path);
+
+        assert!(result.is_err());
+        assert!(!team_dir.exists());
+    }
 }
 
 /// Get the list of team members from the active sync mode.

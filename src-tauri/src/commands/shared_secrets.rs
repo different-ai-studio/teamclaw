@@ -67,8 +67,15 @@ pub fn validate_key_id(key_id: &str) -> Result<(), String> {
 // File I/O helpers
 // ---------------------------------------------------------------------------
 
-/// Returns the `_secrets/` directory inside `team_dir`, creating it if needed.
+/// Returns the `_secrets/` directory inside an existing `team_dir`, creating the
+/// subdirectory if needed.
 pub fn secrets_dir(team_dir: &Path) -> Result<PathBuf, String> {
+    if !team_dir.exists() {
+        return Err(format!(
+            "secrets_dir: team dir does not exist: {}",
+            team_dir.display()
+        ));
+    }
     let dir = team_dir.join(SECRETS_DIR);
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("secrets_dir: failed to create {}: {}", dir.display(), e))?;
@@ -153,7 +160,20 @@ pub fn load_all_secrets(state: &SharedSecretsState) -> Result<(), String> {
         dk.ok_or_else(|| "load_all_secrets: derived_key not set".to_string())?
     };
 
-    let dir = secrets_dir(&team_dir)?;
+    let dir = team_dir.join(SECRETS_DIR);
+
+    if !dir.exists() {
+        let mut secrets = state
+            .secrets
+            .lock()
+            .map_err(|e| format!("load_all_secrets: lock secrets: {e}"))?;
+        secrets.clear();
+        log::info!(
+            "shared_secrets: no secrets directory at {}, treating as empty",
+            dir.display()
+        );
+        return Ok(());
+    }
 
     let mut new_map: HashMap<String, SecretEntry> = HashMap::new();
 
@@ -435,4 +455,22 @@ pub async fn shared_secret_list(
     let mut list: Vec<SecretMeta> = secrets.values().map(SecretMeta::from).collect();
     list.sort_by(|a, b| a.key_id.cmp(&b.key_id));
     Ok(list)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_shared_secrets_does_not_create_missing_team_dir() {
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let team_dir = workspace_dir.path().join(crate::commands::TEAM_REPO_DIR);
+        let state = SharedSecretsState::default();
+        let team_secret = "00".repeat(32);
+
+        let result = init_shared_secrets(&state, &team_secret, &team_dir);
+
+        assert!(result.is_ok());
+        assert!(!team_dir.exists());
+    }
 }
