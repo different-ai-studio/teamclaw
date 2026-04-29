@@ -219,10 +219,10 @@ async fn retrieve_console_logs<R: Runtime>(
             })?;
 
             // Check if result contains an error
-            if let Some(error) = response.get("error") {
-                if let Some(error_str) = error.as_str() {
-                    return Err(ConsoleLogsError::WebviewOperation(error_str.to_string()));
-                }
+            if let Some(error) = response.get("error")
+                && let Some(error_str) = error.as_str()
+            {
+                return Err(ConsoleLogsError::WebviewOperation(error_str.to_string()));
             }
 
             // Extract logs array from response

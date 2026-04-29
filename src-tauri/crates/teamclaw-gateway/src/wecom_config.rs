@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WeComConfig {
     #[serde(default)]
@@ -15,18 +15,6 @@ pub struct WeComConfig {
     /// Auto-recorded from the first DM received by the gateway.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<String>,
-}
-
-impl Default for WeComConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            bot_id: String::new(),
-            secret: String::new(),
-            encoding_aes_key: None,
-            owner_id: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

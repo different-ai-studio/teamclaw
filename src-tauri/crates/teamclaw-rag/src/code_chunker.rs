@@ -176,7 +176,7 @@ fn extract_chunks(
             let capture_name = &capture_names[capture.index as usize];
             let node = capture.node;
 
-            match capture_name.as_ref() {
+            match *capture_name {
                 "function" | "class" | "struct" | "impl" | "interface" | "method" => {
                     chunk_type = capture_name.to_string();
                     start_byte = node.start_byte();

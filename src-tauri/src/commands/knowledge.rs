@@ -228,7 +228,7 @@ pub async fn rag_search(
     let instance = instance.lock().await;
 
     let top_k = top_k.unwrap_or(5);
-    let mode = teamclaw_rag::hybrid_search::SearchMode::from_str(
+    let mode = teamclaw_rag::hybrid_search::SearchMode::parse_or_hybrid(
         search_mode.as_deref().unwrap_or("hybrid"),
     );
 
@@ -237,10 +237,12 @@ pub async fn rag_search(
         &instance.embedding,
         instance.bm25_index.as_ref(),
         &instance.config,
-        &query,
-        top_k,
-        mode,
-        min_score,
+        teamclaw_rag::search::SearchParams {
+            query: &query,
+            top_k,
+            mode,
+            min_score,
+        },
     )
     .await
     .map_err(|e| format!("Search failed: {}", e))

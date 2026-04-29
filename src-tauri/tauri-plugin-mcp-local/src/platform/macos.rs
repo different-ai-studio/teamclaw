@@ -27,7 +27,7 @@ pub async fn take_screenshot<R: Runtime>(
     let application_name = params
         .application_name
         .clone()
-        .unwrap_or_else(|| "".to_string());
+        .unwrap_or_default();
 
     handle_screenshot_task(move || {
         // Get the window title to help identify the right window

@@ -24,16 +24,6 @@ const { mockLoadRolesSkillsWorkspaceState } = vi.hoisted(() => ({
   })),
 }))
 
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t, i18n: { language: 'en', changeLanguage: vi.fn() } }),
 }))
@@ -220,7 +210,7 @@ describe('SkillsSection', () => {
   it('exposes the installed and marketplace switch as tabs in embedded mode', async () => {
     workspaceState.workspacePath = '/workspace/project'
 
-    const { container } = render(<SkillsSection embeddedConsole />)
+    render(<SkillsSection embeddedConsole />)
 
     expect(screen.queryByText('Skill library')).toBeNull()
     expect(screen.getByRole('tab', { name: 'Installed' })).toBeTruthy()
@@ -230,7 +220,7 @@ describe('SkillsSection', () => {
   it('orders the embedded toolbar from tabs to source to search and actions', async () => {
     workspaceState.workspacePath = '/workspace/project'
 
-    const { container } = render(<SkillsSection embeddedConsole />)
+    render(<SkillsSection embeddedConsole />)
 
     const installedTab = screen.getByRole('tab', { name: 'Installed' })
     const marketplaceTab = screen.getByRole('tab', { name: 'Marketplace' })

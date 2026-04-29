@@ -92,7 +92,7 @@ async fn handle_search(
 
     let instance = instance.lock().await;
 
-    let mode = SearchMode::from_str(req.search_mode.as_deref().unwrap_or("hybrid"));
+    let mode = SearchMode::parse_or_hybrid(req.search_mode.as_deref().unwrap_or("hybrid"));
     let top_k = req.top_k.unwrap_or(5);
 
     match search::search(
@@ -100,10 +100,12 @@ async fn handle_search(
         &instance.embedding,
         instance.bm25_index.as_ref(),
         &instance.config,
-        &req.query,
-        top_k,
-        mode,
-        req.min_score,
+        search::SearchParams {
+            query: &req.query,
+            top_k,
+            mode,
+            min_score: req.min_score,
+        },
     )
     .await
     {

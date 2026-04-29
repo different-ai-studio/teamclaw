@@ -3,13 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
 
+pub type RerankScores = Vec<(usize, f64)>;
+pub type RerankFuture<'a> = Pin<Box<dyn Future<Output = Result<RerankScores>> + Send + 'a>>;
+
 /// Trait for reranking providers
 pub trait Reranker: Send + Sync {
-    fn rerank<'a>(
-        &'a self,
-        query: &'a str,
-        documents: Vec<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<(usize, f64)>>> + Send + 'a>>;
+    fn rerank<'a>(&'a self, query: &'a str, documents: Vec<&'a str>) -> RerankFuture<'a>;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,10 +171,9 @@ impl CompassReranker {
             .as_deref()
             .filter(|k| !k.is_empty())
             .with_context(|| {
-                format!(
-            "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=compass). \
+                "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=compass). \
                  Set it in .teamclaw/rag-config.json or opencode.json mcp.rag.environment."
-        )
+                    .to_string()
             })
     }
 
@@ -221,7 +219,6 @@ impl CompassReranker {
             .results
             .into_iter()
             .enumerate()
-            .map(|(idx, score)| (idx, score))
             .collect())
     }
 }
@@ -303,10 +300,9 @@ impl LangSearchReranker {
             .as_deref()
             .filter(|k| !k.is_empty())
             .with_context(|| {
-                format!(
-            "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=langsearch). \
+                "RAG_RERANK_API_KEY is required when RAG_RERANK_ENABLED=true (provider=langsearch). \
                  Set it in .teamclaw/rag-config.json or opencode.json mcp.rag.environment."
-        )
+                    .to_string()
             })
     }
 

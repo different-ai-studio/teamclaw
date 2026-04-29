@@ -1324,7 +1324,7 @@ impl KookGateway {
         msg: &KookMessageData,
     ) -> Result<(), String> {
         let locale = i18n::get_locale(&self.workspace_path);
-        let parts: Vec<&str> = content.trim().split_whitespace().collect();
+        let parts: Vec<&str> = content.split_whitespace().collect();
         let command = parts.first().map(|s| s.to_lowercase()).unwrap_or_default();
         let arg = parts.get(1..).map(|s| s.join(" ")).unwrap_or_default();
 

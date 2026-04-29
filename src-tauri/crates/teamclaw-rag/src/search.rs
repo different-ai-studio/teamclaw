@@ -36,17 +36,27 @@ pub struct SearchResultItem {
     pub end_line: Option<i64>,
 }
 
+pub struct SearchParams<'a> {
+    pub query: &'a str,
+    pub top_k: usize,
+    pub mode: SearchMode,
+    pub min_score: Option<f64>,
+}
+
 pub async fn search(
     db: &Database,
     embedding_provider: &Arc<dyn embedding::EmbeddingProvider>,
     bm25_index: Option<&BM25Index>,
     config: &RagConfig,
-    query: &str,
-    top_k: usize,
-    mode: SearchMode,
-    min_score: Option<f64>,
+    params: SearchParams<'_>,
 ) -> Result<SearchResponse> {
     let start = std::time::Instant::now();
+    let SearchParams {
+        query,
+        top_k,
+        mode,
+        min_score,
+    } = params;
 
     let total_indexed = db.get_total_chunk_count().await?;
 

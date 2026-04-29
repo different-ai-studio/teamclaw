@@ -15,7 +15,7 @@ pub enum SearchMode {
 }
 
 impl SearchMode {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_or_hybrid(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "semantic" => Self::Semantic,
             "bm25" => Self::BM25,
@@ -53,7 +53,7 @@ pub async fn hybrid_search(
                         .map(|(chunk_id, score)| HybridSearchResult {
                             chunk_id,
                             // Clamp to ensure 0-1 range (should already be in range from cosine similarity)
-                            score: score.min(1.0).max(0.0),
+                            score: score.clamp(0.0, 1.0),
                         })
                         .collect())
                 }
@@ -261,7 +261,7 @@ async fn hybrid_search_weighted(
     // Semantic scores (cosine similarity) are already in [0,1] — use as-is
     let semantic_scores: HashMap<i64, f64> = semantic_results
         .iter()
-        .map(|(chunk_id, score)| (*chunk_id, score.min(1.0).max(0.0)))
+        .map(|(chunk_id, score)| (*chunk_id, score.clamp(0.0, 1.0)))
         .collect();
 
     // BM25 scores are unbounded — map to [0,1) via saturation: score / (score + k)
@@ -289,7 +289,7 @@ async fn hybrid_search_weighted(
         .into_iter()
         .map(|(chunk_id, score)| HybridSearchResult {
             chunk_id,
-            score: score.min(1.0).max(0.0),
+            score: score.clamp(0.0, 1.0),
         })
         .collect();
 
@@ -309,9 +309,9 @@ mod tests {
 
     #[test]
     fn test_search_mode_from_str() {
-        assert_eq!(SearchMode::from_str("semantic"), SearchMode::Semantic);
-        assert_eq!(SearchMode::from_str("bm25"), SearchMode::BM25);
-        assert_eq!(SearchMode::from_str("hybrid"), SearchMode::Hybrid);
-        assert_eq!(SearchMode::from_str("unknown"), SearchMode::Hybrid);
+        assert_eq!(SearchMode::parse_or_hybrid("semantic"), SearchMode::Semantic);
+        assert_eq!(SearchMode::parse_or_hybrid("bm25"), SearchMode::BM25);
+        assert_eq!(SearchMode::parse_or_hybrid("hybrid"), SearchMode::Hybrid);
+        assert_eq!(SearchMode::parse_or_hybrid("unknown"), SearchMode::Hybrid);
     }
 }

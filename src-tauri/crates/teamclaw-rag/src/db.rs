@@ -22,6 +22,17 @@ pub struct DocumentRecord {
     pub updated_at: String,
 }
 
+pub type ChunkInsert = (
+    String,
+    i32,
+    Option<String>,
+    Vec<f32>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+);
+
 impl Database {
     pub async fn new(db_path: &Path) -> Result<Self> {
         // Ensure parent directory exists
@@ -266,16 +277,7 @@ impl Database {
     pub async fn insert_chunks(
         &self,
         doc_id: i64,
-        chunks: &[(
-            String,
-            i32,
-            Option<String>,
-            Vec<f32>,
-            Option<String>,
-            Option<String>,
-            Option<i64>,
-            Option<i64>,
-        )],
+        chunks: &[ChunkInsert],
     ) -> Result<()> {
         for batch in chunks.chunks(100) {
             let conn = self.conn.lock().await;

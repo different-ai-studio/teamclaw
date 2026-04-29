@@ -258,7 +258,7 @@ async fn retrieve_network_requests<R: Runtime>(
         .clone()
         .unwrap_or_else(|| "main".to_string());
 
-    let filter = request.filter.unwrap_or_else(|| NetworkRequestFilter {
+    let filter = request.filter.unwrap_or(NetworkRequestFilter {
         url_pattern: None,
         method: None,
         status_code: None,
@@ -307,12 +307,12 @@ async fn retrieve_network_requests<R: Runtime>(
             })?;
 
             // Check if result contains an error
-            if let Some(error) = response.get("error") {
-                if let Some(error_str) = error.as_str() {
-                    return Err(NetworkInspectorError::WebviewOperation(
-                        error_str.to_string(),
-                    ));
-                }
+            if let Some(error) = response.get("error")
+                && let Some(error_str) = error.as_str()
+            {
+                return Err(NetworkInspectorError::WebviewOperation(
+                    error_str.to_string(),
+                ));
             }
 
             // Extract requests array from response

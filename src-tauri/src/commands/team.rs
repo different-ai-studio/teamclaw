@@ -1046,8 +1046,7 @@ pub async fn team_git_create(
         "_secrets",
     ] {
         let dir_path = team_path.join(d);
-        std::fs::create_dir_all(&dir_path)
-            .map_err(|e| format!("Failed to create {}: {}", d, e))?;
+        std::fs::create_dir_all(&dir_path).map_err(|e| format!("Failed to create {}: {}", d, e))?;
         let gitkeep_path = dir_path.join(".gitkeep");
         if !gitkeep_path.exists() {
             std::fs::write(&gitkeep_path, "")
@@ -1745,8 +1744,11 @@ pub async fn team_sync_repo(
         // .git exists; verify the repo can resolve HEAD. A clone interrupted
         // before any refs are written leaves a partially-populated .git that
         // makes every subsequent git command fail. rev-parse is cheap.
-        let (ok, _, _) = run_git(&["rev-parse", "--verify", "HEAD"], &team_dir)
-            .unwrap_or((false, String::new(), String::new()));
+        let (ok, _, _) = run_git(&["rev-parse", "--verify", "HEAD"], &team_dir).unwrap_or((
+            false,
+            String::new(),
+            String::new(),
+        ));
         !ok
     };
     if needs_reclone {
@@ -1766,9 +1768,8 @@ pub async fn team_sync_repo(
         // Wipe any stale remnants so `git clone <target>` doesn't trip on a
         // non-empty target directory.
         if team_path.exists() {
-            std::fs::remove_dir_all(team_path).map_err(|e| {
-                format!("Failed to clean stale team dir before re-clone: {}", e)
-            })?;
+            std::fs::remove_dir_all(team_path)
+                .map_err(|e| format!("Failed to clean stale team dir before re-clone: {}", e))?;
         }
 
         let remote_url = match &config.git_token {

@@ -8,7 +8,7 @@ pub enum Locale {
 }
 
 impl Locale {
-    pub fn from_str(s: &str) -> Locale {
+    pub fn parse_or_default(s: &str) -> Locale {
         match s {
             "zh-CN" | "zh" | "zh-cn" => Locale::ZhCN,
             _ => Locale::En,
@@ -21,7 +21,7 @@ pub fn get_locale(workspace_path: &str) -> Locale {
     read_config(workspace_path)
         .ok()
         .and_then(|c| c.locale)
-        .map(|s| Locale::from_str(&s))
+        .map(|s| Locale::parse_or_default(&s))
         .unwrap_or(Locale::En)
 }
 

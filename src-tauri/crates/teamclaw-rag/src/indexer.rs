@@ -10,7 +10,7 @@ use crate::bm25::BM25Index;
 use crate::chunker;
 use crate::code_chunker;
 use crate::config::RagConfig;
-use crate::db::Database;
+use crate::db::{ChunkInsert, Database};
 use crate::embedding;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -236,16 +236,7 @@ impl Indexer {
             let embeddings = self.embedding.embed(texts).await?;
 
             // Store chunks
-            let chunk_data: Vec<(
-                String,
-                i32,
-                Option<String>,
-                Vec<f32>,
-                Option<String>,
-                Option<String>,
-                Option<i64>,
-                Option<i64>,
-            )> = chunks
+            let chunk_data: Vec<ChunkInsert> = chunks
                 .iter()
                 .zip(embeddings.iter())
                 .map(|(chunk, emb)| {
@@ -317,16 +308,7 @@ impl Indexer {
                 .await?;
 
             // Store chunks
-            let chunk_data: Vec<(
-                String,
-                i32,
-                Option<String>,
-                Vec<f32>,
-                Option<String>,
-                Option<String>,
-                Option<i64>,
-                Option<i64>,
-            )> = chunks
+            let chunk_data: Vec<ChunkInsert> = chunks
                 .iter()
                 .zip(embeddings.iter())
                 .map(|(chunk, emb)| {

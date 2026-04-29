@@ -10,6 +10,9 @@ const MAX_QUEUE_SIZE: usize = 5;
 const MESSAGE_TIMEOUT: Duration = Duration::from_secs(180);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
+type QueueFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
+type RejectNotifyFn = Box<dyn FnOnce(RejectReason) -> QueueFuture + Send>;
+
 pub enum RejectReason {
     Timeout,
     QueueFull,
@@ -25,8 +28,7 @@ pub enum EnqueueResult {
 pub struct QueuedMessage {
     pub enqueued_at: Instant,
     pub process_fn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
-    pub notify_fn:
-        Option<Box<dyn FnOnce(RejectReason) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    pub notify_fn: Option<RejectNotifyFn>,
 }
 
 struct SessionQueueState {
@@ -112,6 +114,12 @@ impl SessionQueue {
         let mut queues = self.queues.write().await;
         queues.clear();
         println!("[SessionQueue] All queues shut down");
+    }
+}
+
+impl Default for SessionQueue {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

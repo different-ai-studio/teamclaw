@@ -19,7 +19,7 @@ pub struct ChannelsConfig {
 }
 
 /// Discord channel configuration (mirrors OpenClaw structure)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscordConfig {
     /// Whether Discord integration is enabled
@@ -41,18 +41,6 @@ pub struct DiscordConfig {
     /// Retry configuration for API calls
     #[serde(default)]
     pub retry: Option<RetryConfig>,
-}
-
-impl Default for DiscordConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            token: String::new(),
-            dm: DmConfig::default(),
-            guilds: HashMap::new(),
-            retry: None,
-        }
-    }
 }
 
 /// Direct message configuration
@@ -125,7 +113,7 @@ impl Default for GuildConfig {
 }
 
 /// Channel-specific rules
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelRule {
     /// Whether this channel is allowed
@@ -143,17 +131,6 @@ pub struct ChannelRule {
     /// Optional system prompt for this channel
     #[serde(default)]
     pub system_prompt: Option<String>,
-}
-
-impl Default for ChannelRule {
-    fn default() -> Self {
-        Self {
-            allow: false,
-            require_mention: None,
-            users: Vec::new(),
-            system_prompt: None,
-        }
-    }
 }
 
 /// Retry configuration for Discord API calls
@@ -189,19 +166,14 @@ impl Default for RetryConfig {
 }
 
 /// Gateway status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum GatewayStatus {
+    #[default]
     Disconnected,
     Connecting,
     Connected,
     Error,
-}
-
-impl Default for GatewayStatus {
-    fn default() -> Self {
-        Self::Disconnected
-    }
 }
 
 /// Gateway status response

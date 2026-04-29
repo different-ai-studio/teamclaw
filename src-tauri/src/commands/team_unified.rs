@@ -101,14 +101,13 @@ async fn p2p_update_member_role_and_sync(
     }
 
     let previous_role = super::team_p2p::read_members_manifest(&team_dir)?
-        .map(|manifest| {
+        .and_then(|manifest| {
             manifest
                 .members
                 .into_iter()
                 .find(|member| member.node_id == node_id)
                 .map(|member| member.role)
         })
-        .flatten()
         .or_else(|| {
             super::team_p2p::read_p2p_config(
                 workspace_path,
@@ -638,10 +637,10 @@ mod tests {
         add_member_to_team, create_team, get_node_id, join_team_drive, read_members_manifest,
         IrohNode,
     };
-    use teamclaw_p2p::SyncEngine;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
+    use teamclaw_p2p::SyncEngine;
     use tokio::sync::Mutex;
 
     struct TestPeer {

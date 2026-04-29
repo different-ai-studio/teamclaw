@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Feishu channel configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FeishuConfig {
     /// Whether Feishu integration is enabled
@@ -22,19 +22,8 @@ pub struct FeishuConfig {
     pub chats: HashMap<String, FeishuChatConfig>,
 }
 
-impl Default for FeishuConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            app_id: String::new(),
-            app_secret: String::new(),
-            chats: HashMap::new(),
-        }
-    }
-}
-
 /// Feishu chat-level configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FeishuChatConfig {
     /// Whether this chat is allowed
@@ -46,29 +35,15 @@ pub struct FeishuChatConfig {
     pub users: Vec<String>,
 }
 
-impl Default for FeishuChatConfig {
-    fn default() -> Self {
-        Self {
-            allow: false,
-            users: Vec::new(),
-        }
-    }
-}
-
 /// Feishu gateway status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum FeishuGatewayStatus {
+    #[default]
     Disconnected,
     Connecting,
     Connected,
     Error,
-}
-
-impl Default for FeishuGatewayStatus {
-    fn default() -> Self {
-        Self::Disconnected
-    }
 }
 
 /// Feishu gateway status response

@@ -297,7 +297,7 @@ fn add_document_start_script<R: Runtime>(_webview: &tauri::Webview<R>, _script: 
 #[cfg(target_os = "macos")]
 pub fn init_shared_config(manager: &mut WebviewManager) {
     use objc2::runtime::AnyObject;
-    use objc2::{MainThreadMarker, class, msg_send};
+    use objc2::{class, msg_send, MainThreadMarker};
     use objc2_web_kit::{WKWebViewConfiguration, WKWebsiteDataStore};
 
     let mtm =

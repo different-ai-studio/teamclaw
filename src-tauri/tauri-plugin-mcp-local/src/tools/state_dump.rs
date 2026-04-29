@@ -82,14 +82,14 @@ pub async fn handle_state_dump<R: Runtime>(
     })?;
 
     // Check if result contains an error
-    if let Some(error) = response_value.get("error") {
-        if let Some(error_str) = error.as_str() {
-            return Ok(SocketResponse {
-                success: false,
-                data: None,
-                error: Some(error_str.to_string()),
-            });
-        }
+    if let Some(error) = response_value.get("error")
+        && let Some(error_str) = error.as_str()
+    {
+        return Ok(SocketResponse {
+            success: false,
+            data: None,
+            error: Some(error_str.to_string()),
+        });
     }
 
     // Extract and process the result
@@ -139,7 +139,7 @@ pub async fn handle_state_dump<R: Runtime>(
 
 /// Generate the JavaScript code to introspect application state
 fn generate_state_dump_code(max_depth: usize, path: Option<String>) -> String {
-    let path_str = path.unwrap_or_else(String::new);
+    let path_str = path.unwrap_or_default();
 
     // Note: We use raw string with careful escaping to avoid double-brace issues
     let mut code = format!(

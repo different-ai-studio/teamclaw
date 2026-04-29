@@ -289,10 +289,10 @@ impl<R: Runtime> TauriMcp<R> {
 
 impl<R: Runtime> Drop for TauriMcp<R> {
     fn drop(&mut self) {
-        if let Some(server) = &self.socket_server {
-            if let Ok(server) = server.lock() {
-                let _ = server.stop();
-            }
+        if let Some(server) = &self.socket_server
+            && let Ok(server) = server.lock()
+        {
+            let _ = server.stop();
         }
     }
 }

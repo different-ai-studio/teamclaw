@@ -119,14 +119,14 @@ pub async fn handle_devtools_bridge<R: Runtime>(
     })?;
 
     // Check if result contains an error
-    if let Some(error) = response_value.get("error") {
-        if let Some(error_str) = error.as_str() {
-            return Ok(SocketResponse {
-                success: false,
-                data: None,
-                error: Some(error_str.to_string()),
-            });
-        }
+    if let Some(error) = response_value.get("error")
+        && let Some(error_str) = error.as_str()
+    {
+        return Ok(SocketResponse {
+            success: false,
+            data: None,
+            error: Some(error_str.to_string()),
+        });
     }
 
     // Extract and process the result

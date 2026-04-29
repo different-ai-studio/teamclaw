@@ -508,10 +508,7 @@ pub async fn start_opencode_inner(
                 );
             }
             if let Err(e) = ensure_team_provider(&ws_for_config) {
-                eprintln!(
-                    "[OpenCode] Warning: failed to ensure team provider: {}",
-                    e
-                );
+                eprintln!("[OpenCode] Warning: failed to ensure team provider: {}", e);
             }
             if let Err(e) = resolve_sidecar_binary_paths(&ws_for_config) {
                 eprintln!("[OpenCode] Warning: failed to resolve binary paths: {}", e);
@@ -1387,8 +1384,7 @@ fn sync_global_auth_to_workspace(workspace_path: &str) -> Result<(), String> {
         .join("opencode")
         .join("auth.json");
     if let Some(parent) = workspace_auth_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create workspace auth dir: {}", e))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("create workspace auth dir: {}", e))?;
     }
 
     let workspace_content =
@@ -1423,10 +1419,8 @@ fn sync_global_auth_to_workspace(workspace_path: &str) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(
-            &workspace_auth_path,
-            std::fs::Permissions::from_mode(0o600),
-        );
+        let _ =
+            std::fs::set_permissions(&workspace_auth_path, std::fs::Permissions::from_mode(0o600));
     }
 
     println!(
@@ -2211,7 +2205,10 @@ async fn kill_process_on_port_windows(port: u16) -> bool {
             continue;
         }
         println!("[OpenCode] Killing zombie process {} on port {}", pid, port);
-        let _ = Command::new("taskkill").no_window().args(["/PID", pid, "/F"]).output();
+        let _ = Command::new("taskkill")
+            .no_window()
+            .args(["/PID", pid, "/F"])
+            .output();
         killed_any = true;
     }
 

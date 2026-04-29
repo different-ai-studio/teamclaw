@@ -30,7 +30,7 @@ impl KnowledgeWatcher {
         // Ensure all directories exist
         for knowledge_dir in &knowledge_dirs {
             if !knowledge_dir.exists() {
-                std::fs::create_dir_all(&knowledge_dir).with_context(|| {
+                std::fs::create_dir_all(knowledge_dir).with_context(|| {
                     format!("Failed to create knowledge directory: {:?}", knowledge_dir)
                 })?;
             }
@@ -54,7 +54,7 @@ impl KnowledgeWatcher {
         // Watch all knowledge directories
         for knowledge_dir in &knowledge_dirs {
             debouncer
-                .watch(&knowledge_dir, RecursiveMode::Recursive)
+                .watch(knowledge_dir, RecursiveMode::Recursive)
                 .with_context(|| {
                     format!("Failed to watch knowledge directory: {:?}", knowledge_dir)
                 })?;
@@ -130,10 +130,10 @@ async fn handle_file_event(
     if matches!(
         event.event.kind,
         EventKind::Create(_) | EventKind::Modify(_)
-    ) {
-        if path.is_file() && !is_supported_file(path) {
-            return Ok(false);
-        }
+    ) && path.is_file()
+        && !is_supported_file(path)
+    {
+        return Ok(false);
     }
 
     // Find which knowledge directory this path belongs to

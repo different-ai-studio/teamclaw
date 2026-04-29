@@ -13,6 +13,14 @@ interface QuestionInputDockProps {
   onHeightChange?: (height: number) => void;
 }
 
+function getOptionValue(option: { label: string; value?: string }) {
+  return option.value ?? option.label;
+}
+
+function getQuestionId(question: { id?: string }, index: number) {
+  return question.id || String(index);
+}
+
 export function QuestionInputDock({
   pendingQuestion,
   compact = false,
@@ -69,16 +77,12 @@ export function QuestionInputDock({
   const canSkip = !!pendingQuestion.questionId && !isSubmitting && !hasSubmitted;
   const questionTitle = currentQuestion?.header || t("chat.toolCall.question.title", "Question");
 
-  const getOptionValue = (option: { label: string; value?: string }) => option.value ?? option.label;
-
-  const getQuestionId = (question: { id?: string }, index: number) => question.id || String(index);
-
-  const hasAnswerForQuestion = (question: { id?: string }, index: number) => {
+  const hasAnswerForQuestion = React.useCallback((question: { id?: string }, index: number) => {
     const questionId = getQuestionId(question, index);
     return !!customInputs[questionId]?.trim() || Object.prototype.hasOwnProperty.call(answers, questionId);
-  };
+  }, [answers, customInputs]);
 
-  const buildFinalAnswers = () => {
+  const buildFinalAnswers = React.useCallback(() => {
     const finalAnswers: Record<string, string> = {};
     questions.forEach((question, index) => {
       const questionId = getQuestionId(question, index);
@@ -86,13 +90,16 @@ export function QuestionInputDock({
       finalAnswers[questionId] = custom || (answers[questionId] ?? "");
     });
     return finalAnswers;
-  };
+  }, [answers, customInputs, questions]);
 
-  const shouldSubmitEmptyAnswerOnSkip =
-    isLastQuestion &&
-    questions.length > 1 &&
-    questions.slice(0, -1).every(hasAnswerForQuestion) &&
-    !!currentQuestion?.options?.some((option) => getOptionValue(option) === "");
+  const shouldSubmitEmptyAnswerOnSkip = React.useMemo(
+    () =>
+      isLastQuestion &&
+      questions.length > 1 &&
+      questions.slice(0, -1).every(hasAnswerForQuestion) &&
+      !!currentQuestion?.options?.some((option) => getOptionValue(option) === ""),
+    [currentQuestion?.options, hasAnswerForQuestion, isLastQuestion, questions],
+  );
 
   const handleOptionSelect = (value: string) => {
     setAnswers((prev) => ({ ...prev, [currentQuestionId]: value }));
@@ -122,7 +129,7 @@ export function QuestionInputDock({
     }
   };
 
-  const handleSkip = async () => {
+  const handleSkip = React.useCallback(async () => {
     if (!canSkip) return;
     setIsSubmitting(true);
     try {
@@ -137,7 +144,15 @@ export function QuestionInputDock({
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [
+    answerQuestion,
+    buildFinalAnswers,
+    canSkip,
+    currentQuestionId,
+    pendingQuestion.questionId,
+    shouldSubmitEmptyAnswerOnSkip,
+    skipQuestion,
+  ]);
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
