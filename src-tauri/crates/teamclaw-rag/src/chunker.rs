@@ -102,13 +102,16 @@ pub fn extract_title(text: &str) -> Option<String> {
 
     for event in parser {
         match event {
-            Event::Start(Tag::Heading { level, .. }) if level == HeadingLevel::H1 => {
+            Event::Start(Tag::Heading {
+                level: HeadingLevel::H1,
+                ..
+            }) => {
                 in_h1 = true;
             }
             Event::Text(text) if in_h1 => {
                 title.push_str(&text);
             }
-            Event::End(TagEnd::Heading(level)) if level == HeadingLevel::H1 => {
+            Event::End(TagEnd::Heading(HeadingLevel::H1)) => {
                 if !title.is_empty() {
                     return Some(title.trim().to_string());
                 }

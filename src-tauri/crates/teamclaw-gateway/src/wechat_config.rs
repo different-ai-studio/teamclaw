@@ -34,19 +34,14 @@ impl Default for WeChatConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum WeChatGatewayStatus {
+    #[default]
     Disconnected,
     Connecting,
     Connected,
     Error,
-}
-
-impl Default for WeChatGatewayStatus {
-    fn default() -> Self {
-        Self::Disconnected
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -89,7 +89,7 @@ vi.stubGlobal('document', { ...document, hasFocus: () => true })
 import { createLifecycleHandlers } from '@/stores/session-sse-lifecycle-handlers'
 import { selfCreatedSessionIds, busySessions, debouncedRefreshSessions } from '@/stores/session-internals'
 import { sessionLookupCache } from '@/stores/session-cache'
-import { cleanupChildSession, useStreamingStore } from '@/stores/streaming'
+import { useStreamingStore } from '@/stores/streaming'
 
 describe('session-sse-lifecycle-handlers', () => {
   let state: Record<string, any>

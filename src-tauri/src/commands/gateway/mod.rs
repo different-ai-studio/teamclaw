@@ -814,10 +814,8 @@ pub async fn start_wecom_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let (workspace_path, port) = crate::commands::opencode::resolve_workspace(
-        &opencode_state,
-        workspace_path.as_deref(),
-    )?;
+    let (workspace_path, port) =
+        crate::commands::opencode::resolve_workspace(&opencode_state, workspace_path.as_deref())?;
 
     println!(
         "[Gateway] start_wecom_gateway called, workspace={}",

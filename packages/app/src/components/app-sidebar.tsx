@@ -325,9 +325,23 @@ export function SidebarIconGroup({ className }: { className?: string }) {
 }
 
 function DefaultShortcutsHeaderControls() {
+  const { t } = useTranslation()
+  const openSettings = useUIStore(s => s.openSettings)
+  const newShortcutLabel = t('shortcuts.newShortcut', 'New Shortcut')
+
   return (
     <div className="flex items-center gap-0.5">
       <SidebarCollapseToggle />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+        onClick={() => openSettings('shortcuts')}
+        title={newShortcutLabel}
+        aria-label={newShortcutLabel}
+      >
+        <SquarePlus className="h-4 w-4" />
+      </Button>
     </div>
   )
 }

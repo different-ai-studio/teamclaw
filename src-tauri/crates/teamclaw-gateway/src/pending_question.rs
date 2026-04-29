@@ -108,6 +108,12 @@ impl PendingQuestionStore {
     }
 }
 
+impl Default for PendingQuestionStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ==================== SSE Event Parsing ====================
 
 pub fn parse_question_event(event: &serde_json::Value) -> Vec<QuestionInfo> {

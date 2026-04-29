@@ -1350,8 +1350,8 @@ fn check_email_filter(config: &EmailConfig, email: &EmailMessage) -> FilterResul
         let sender = email.from.to_lowercase();
         let is_allowed = config.allowed_senders.iter().any(|pattern| {
             let p = pattern.to_lowercase();
-            if p.starts_with('*') {
-                sender.ends_with(&p[1..])
+            if let Some(suffix) = p.strip_prefix('*') {
+                sender.ends_with(suffix)
             } else {
                 sender == p
             }
@@ -1863,7 +1863,7 @@ fn ensure_references_brackets(references: &str) -> String {
     // Split by whitespace and ensure each ID is bracketed
     references
         .split_whitespace()
-        .map(|id| ensure_angle_brackets(id))
+        .map(ensure_angle_brackets)
         .filter(|id| !id.is_empty())
         .collect::<Vec<_>>()
         .join(" ")

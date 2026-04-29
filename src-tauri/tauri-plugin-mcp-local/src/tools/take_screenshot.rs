@@ -10,6 +10,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Runtime};
 
 /// Common function to process and compress an image - used by platform implementations
+#[allow(dead_code)]
 pub fn process_image(mut dynamic_image: DynamicImage, params: &ScreenshotParams) -> Result<String> {
     // Extract parameters from the shared struct
     let quality = params.quality.unwrap_or(85) as u8;

@@ -309,7 +309,7 @@ mod tests {
                         }
                         contents.push((k.clone(), v.len()));
                     }
-                    contents.sort_by(|a, b| a.0.cmp(&b.0));
+                    contents.sort_by_key(|content| content.0.clone());
 
                     let mut xml = String::from(
                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\

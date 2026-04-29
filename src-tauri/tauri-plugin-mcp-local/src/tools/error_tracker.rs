@@ -302,10 +302,10 @@ async fn retrieve_exceptions<R: Runtime>(
             })?;
 
             // Check if result contains an error
-            if let Some(error) = response.get("error") {
-                if let Some(error_str) = error.as_str() {
-                    return Err(ErrorTrackerError::WebviewOperation(error_str.to_string()));
-                }
+            if let Some(error) = response.get("error")
+                && let Some(error_str) = error.as_str()
+            {
+                return Err(ErrorTrackerError::WebviewOperation(error_str.to_string()));
             }
 
             // Extract exceptions array from response

@@ -249,14 +249,14 @@ pub(crate) fn snapshot_env_blob_to_disk() {
         Err(_) => return,
     };
     if let Ok(json_str) = entry.get_password() {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            if let serde_json::Value::Object(map) = val {
-                write_env_blob_to_disk(&map);
-                println!(
-                    "[EnvVars] Snapshot {} keychain entries to disk before update",
-                    map.len()
-                );
-            }
+        if let Ok(serde_json::Value::Object(map)) =
+            serde_json::from_str::<serde_json::Value>(&json_str)
+        {
+            write_env_blob_to_disk(&map);
+            println!(
+                "[EnvVars] Snapshot {} keychain entries to disk before update",
+                map.len()
+            );
         }
     }
 }

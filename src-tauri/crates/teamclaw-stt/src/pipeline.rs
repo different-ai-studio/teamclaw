@@ -71,9 +71,7 @@ pub fn run_pipeline_streaming_from_rx(
         } else {
             0
         };
-        for _ in 0..pad {
-            segment_window.push(0.0);
-        }
+        segment_window.extend(std::iter::repeat_n(0.0, pad));
         let text = transcribe_audio(
             on_event,
             models_dir,

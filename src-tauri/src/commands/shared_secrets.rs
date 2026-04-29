@@ -453,7 +453,7 @@ pub async fn shared_secret_list(
         .map_err(|e| format!("shared_secret_list: lock secrets: {e}"))?;
 
     let mut list: Vec<SecretMeta> = secrets.values().map(SecretMeta::from).collect();
-    list.sort_by(|a, b| a.key_id.cmp(&b.key_id));
+    list.sort_by_key(|secret| secret.key_id.clone());
     Ok(list)
 }
 

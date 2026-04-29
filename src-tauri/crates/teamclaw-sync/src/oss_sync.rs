@@ -2635,7 +2635,7 @@ impl OssSyncManager {
 
             // Import in key order (keys are sorted by timestamp)
             let mut sorted_results = download_results;
-            sorted_results.sort_by(|a, b| a.0.cmp(&b.0));
+            sorted_results.sort_by_key(|result| result.0.clone());
 
             let mut cumulative_bytes: u64 = 0;
             for (key, result) in sorted_results {
@@ -3193,7 +3193,7 @@ impl OssSyncManager {
         }
 
         // Sort by latest_update_at descending
-        result.sort_by(|a, b| b.latest_update_at.cmp(&a.latest_update_at));
+        result.sort_by_key(|entry| std::cmp::Reverse(entry.latest_update_at.clone()));
         result
     }
 

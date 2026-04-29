@@ -180,7 +180,7 @@ impl<R: Runtime> SocketServer<R> {
                     .map_err(|e| {
                         info!("[TAURI_MCP] Error creating IPC socket listener: {}", e);
                         if e.kind() == std::io::ErrorKind::AddrInUse {
-                            Error::Io { message: format!("Socket address already in use. If the socket file exists, it may be a stale socket. Try removing it manually.") }
+                            Error::Io { message: "Socket address already in use. If the socket file exists, it may be a stale socket. Try removing it manually.".to_string() }
                         } else {
                             Error::Io { message: format!("Failed to create local socket: {}", e) }
                         }

@@ -9,6 +9,7 @@
 //! - Trash file management
 //!
 //! Tauri command wrappers remain in the main crate.
+#![allow(clippy::too_many_arguments)]
 
 pub mod trash;
 
@@ -743,7 +744,7 @@ pub async fn create_team(
         added_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    write_members_manifest(team_dir, &node_id, &[owner_member.clone()])?;
+    write_members_manifest(team_dir, &node_id, std::slice::from_ref(&owner_member))?;
 
     // Create a new iroh-docs document
     let doc = node
@@ -2359,9 +2360,8 @@ async fn disk_to_doc_watcher(
                             }
 
                             if rel_path == "_team/members.json" {
-                                let is_owner = owner_node_id
-                                    .as_deref()
-                                    .map_or(false, |owner| owner == my_node_id);
+                                let is_owner =
+                                    owner_node_id.as_deref().is_some_and(|owner| owner == my_node_id);
                                 if !is_owner {
                                     continue;
                                 }
@@ -2385,7 +2385,7 @@ async fn disk_to_doc_watcher(
                                 }
                                 if path
                                     .file_name()
-                                    .map_or(false, |n| n.eq_ignore_ascii_case("SKILL.md"))
+                                    .is_some_and(|n| n.eq_ignore_ascii_case("SKILL.md"))
                                 {
                                     increment_skills_count(&doc, &blobs_store, author).await;
                                 }
@@ -3248,7 +3248,7 @@ pub async fn reconnect_team_for_workspace(
     let is_owner = config
         .owner_node_id
         .as_deref()
-        .map_or(false, |owner| owner == my_node_id);
+        .is_some_and(|owner| owner == my_node_id);
 
     let ticket_str = config.doc_ticket.as_ref().ok_or_else(|| {
         "No saved ticket \u{2014} cannot reconnect. Please rejoin the team.".to_string()
@@ -3280,7 +3280,7 @@ pub async fn reconnect_team_for_workspace(
         }
     }
 
-    let my_role = config.role.clone().unwrap_or_else(|| {
+    let my_role = config.role.clone().unwrap_or({
         if is_owner {
             MemberRole::Owner
         } else {
@@ -3460,7 +3460,7 @@ pub async fn query_skills_leaderboard(node: &IrohNode) -> Result<Vec<SkillsContr
         }
     }
 
-    results.sort_by(|a, b| b.edit_count.cmp(&a.edit_count));
+    results.sort_by_key(|result| std::cmp::Reverse(result.edit_count));
     Ok(results)
 }
 

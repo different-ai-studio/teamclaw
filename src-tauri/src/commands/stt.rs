@@ -257,13 +257,7 @@ pub fn stt_download_model(app_handle: tauri::AppHandle, model_id: String) -> Res
                 bytes_downloaded += n as u64;
 
                 let pct = total_bytes
-                    .and_then(|t| {
-                        if t > 0 {
-                            Some((bytes_downloaded * 100).min(100) / t)
-                        } else {
-                            None
-                        }
-                    })
+                    .and_then(|t| (bytes_downloaded * 100).min(100).checked_div(t))
                     .unwrap_or(0);
                 let emit_by_interval =
                     bytes_downloaded.saturating_sub(last_emit_bytes) >= PROGRESS_EMIT_INTERVAL;

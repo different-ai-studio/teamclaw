@@ -6,12 +6,11 @@ use std::sync::Arc;
 
 use crate::config::RagConfig;
 
+pub type EmbeddingFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<Vec<f32>>>> + Send + 'a>>;
+
 /// Trait for embedding providers (online API or future offline model)
 pub trait EmbeddingProvider: Send + Sync {
-    fn embed(
-        &self,
-        texts: Vec<String>,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<Vec<f32>>>> + Send + '_>>;
+    fn embed(&self, texts: Vec<String>) -> EmbeddingFuture<'_>;
 
     #[allow(dead_code)]
     fn dimensions(&self) -> usize;

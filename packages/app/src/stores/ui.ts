@@ -279,11 +279,19 @@ export const useUIStore = create<UIState>((set, get) => ({
 // Listen for Tauri spotlight-mode-changed event at module level
 if (typeof window !== 'undefined') {
   const isTauriEnv = isTauri()
-  if (isTauriEnv) {
-    import('@tauri-apps/api/event').then(({ listen }) => {
-      listen<boolean>('spotlight-mode-changed', (event) => {
+  const tauriInternals = (window as unknown as {
+    __TAURI_INTERNALS__?: { transformCallback?: unknown }
+  }).__TAURI_INTERNALS__
+  const canListenForTauriEvents =
+    isTauriEnv && typeof tauriInternals?.transformCallback === 'function'
+
+  if (canListenForTauriEvents) {
+    void import('@tauri-apps/api/event').then(({ listen }) => {
+      return listen<boolean>('spotlight-mode-changed', (event) => {
         useUIStore.setState({ spotlightMode: event.payload })
       })
+    }).catch((error) => {
+      console.warn('[UI] Failed to listen for spotlight mode changes:', error)
     })
   }
 }

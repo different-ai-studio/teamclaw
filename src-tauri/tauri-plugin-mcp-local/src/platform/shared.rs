@@ -23,6 +23,7 @@ where
 }
 
 // Helper function to get window title - used by multiple platforms
+#[allow(dead_code)]
 pub fn get_window_title<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Result<String> {
     match window.title() {
         Ok(title) => Ok(title),

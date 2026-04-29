@@ -1274,8 +1274,6 @@ fn slug_from_zip_filename(zip_path: &Path) -> String {
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' {
                 c
-            } else if c.is_whitespace() || c == '_' {
-                '-'
             } else {
                 '-'
             }

@@ -24,6 +24,7 @@ pub struct ScreenshotContext<R: Runtime> {
 }
 
 /// Create a success response with data
+#[allow(dead_code)]
 pub fn create_success_response(data_url: String) -> ScreenshotResponse {
     ScreenshotResponse {
         data: Some(data_url),
@@ -289,10 +290,10 @@ impl<R: Runtime> TauriMcp<R> {
 
 impl<R: Runtime> Drop for TauriMcp<R> {
     fn drop(&mut self) {
-        if let Some(server) = &self.socket_server {
-            if let Ok(server) = server.lock() {
-                let _ = server.stop();
-            }
+        if let Some(server) = &self.socket_server
+            && let Ok(server) = server.lock()
+        {
+            let _ = server.stop();
         }
     }
 }

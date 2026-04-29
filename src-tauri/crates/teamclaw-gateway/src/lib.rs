@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 pub mod config;
 pub mod discord;
 pub mod email;
@@ -365,14 +367,16 @@ async fn poll_for_message_with_approval_from_stream(
                             .and_then(|p| p.get("info").and_then(|i| i.get("parentID")))
                             .and_then(|p| p.as_str());
 
-                        if parent_id == Some(session_id) && new_session_id.is_some() {
-                            let child_id = new_session_id.unwrap().to_string();
-                            if tracked_sessions.insert(child_id.clone()) {
-                                println!(
-                                    "[Gateway-{}] Detected child session: {}",
-                                    &session_id[..session_id.len().min(8)],
-                                    child_id
-                                );
+                        if parent_id == Some(session_id) {
+                            if let Some(new_session_id) = new_session_id {
+                                let child_id = new_session_id.to_string();
+                                if tracked_sessions.insert(child_id.clone()) {
+                                    println!(
+                                        "[Gateway-{}] Detected child session: {}",
+                                        &session_id[..session_id.len().min(8)],
+                                        child_id
+                                    );
+                                }
                             }
                         }
                         continue;
@@ -478,14 +482,15 @@ async fn poll_for_message_with_approval_from_stream(
                                 .and_then(|c| c.as_u64());
                             let message_id = info.get("id").and_then(|id| id.as_str());
 
-                            if role == Some("assistant")
-                                && created_time.is_some()
-                                && created_time.unwrap() >= send_timestamp_ms
-                                && message_id.is_some()
-                            {
-                                let msg_id = message_id.unwrap();
+                            if role == Some("assistant") {
+                                if let (Some(created_time), Some(msg_id)) =
+                                    (created_time, message_id)
+                                {
+                                    if created_time < send_timestamp_ms {
+                                        continue;
+                                    }
 
-                                if completed_time.is_some() {
+                                    if completed_time.is_some() {
                                     let finish_reason = info.get("finish").and_then(|f| f.as_str());
 
                                     if finish_reason != Some("tool-calls") {
@@ -501,6 +506,7 @@ async fn poll_for_message_with_approval_from_stream(
                                     if new_message_id.is_none() {
                                         new_message_id = Some(msg_id.to_string());
                                     }
+                                }
                                 }
                             }
                         }
@@ -698,7 +704,7 @@ pub fn format_model_list(
     for m in models {
         provider_groups
             .entry(m.provider.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(m);
     }
 
@@ -856,7 +862,7 @@ pub async fn opencode_list_sessions(port: u16) -> Result<Vec<SessionInfo>, Strin
         None => return Err("Unexpected session list format".to_string()),
     };
 
-    sessions.sort_by(|a, b| b.updated.cmp(&a.updated));
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.updated));
     sessions.truncate(MAX_SESSIONS_LIST);
 
     Ok(sessions)

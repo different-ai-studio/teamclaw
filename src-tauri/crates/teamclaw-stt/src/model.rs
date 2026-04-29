@@ -32,7 +32,7 @@ pub fn list_models(models_dir: &Path) -> Result<Vec<String>, String> {
     for entry in std::fs::read_dir(models_dir).map_err(|e| format!("Read models dir: {}", e))? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path: PathBuf = entry.path();
-        if path.extension().map_or(false, |e| e == "bin") && path.is_file() {
+        if path.extension().is_some_and(|e| e == "bin") && path.is_file() {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 names.push(name.to_string());
             }

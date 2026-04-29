@@ -91,14 +91,14 @@ pub async fn handle_get_performance_metrics<R: Runtime>(
     })?;
 
     // Check if result contains an error
-    if let Some(error) = response_value.get("error") {
-        if let Some(error_str) = error.as_str() {
-            return Ok(SocketResponse {
-                success: false,
-                data: None,
-                error: Some(error_str.to_string()),
-            });
-        }
+    if let Some(error) = response_value.get("error")
+        && let Some(error_str) = error.as_str()
+    {
+        return Ok(SocketResponse {
+            success: false,
+            data: None,
+            error: Some(error_str.to_string()),
+        });
     }
 
     // Extract and process the result
@@ -256,42 +256,43 @@ fn generate_performance_metrics_code(
         );
 
         // Add resource filtering logic if provided
-        if let Some(filter) = resource_filter {
-            if filter.resource_type.is_some() || filter.min_duration_ms.is_some() {
-                code.push_str(
-                    r#"
+        if let Some(filter) = resource_filter
+            && (filter.resource_type.is_some() || filter.min_duration_ms.is_some())
+        {
+            code.push_str(
+                r#"
                     // Apply filters
                     const resourceTypeFilter = ["#,
-                );
+            );
 
-                if let Some(types) = filter.resource_type {
-                    code.push_str(&format!("\"{}\"", types.join("\", \"")));
-                }
+            if let Some(types) = filter.resource_type {
+                code.push_str(&format!("\"{}\"", types.join("\", \"")));
+            }
 
-                code.push_str(
-                    r#"];
+            code.push_str(
+                r#"];
                     const minDurationMs = "#,
-                );
+            );
 
-                if let Some(min_dur) = filter.min_duration_ms {
-                    code.push_str(&min_dur.to_string());
-                } else {
-                    code.push_str("0");
-                }
+            if let Some(min_dur) = filter.min_duration_ms {
+                code.push_str(&min_dur.to_string());
+            } else {
+                code.push('0');
+            }
 
-                code.push_str(
-                    r#";
+            code.push_str(
+                r#";
                     const maxDurationMs = "#,
-                );
+            );
 
-                if let Some(max_dur) = filter.max_duration_ms {
-                    code.push_str(&max_dur.to_string());
-                } else {
-                    code.push_str("Infinity");
-                }
+            if let Some(max_dur) = filter.max_duration_ms {
+                code.push_str(&max_dur.to_string());
+            } else {
+                code.push_str("Infinity");
+            }
 
-                code.push_str(
-                    r#";
+            code.push_str(
+                r#";
 
                     if (resourceTypeFilter.length > 0 && !resourceTypeFilter.includes(resourceType)) {
                         return;
@@ -302,8 +303,7 @@ fn generate_performance_metrics_code(
                         return;
                     }
 "#,
-                );
-            }
+            );
         }
 
         code.push_str(

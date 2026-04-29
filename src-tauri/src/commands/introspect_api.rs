@@ -1,17 +1,17 @@
-/// Internal HTTP API server for the teamclaw-introspect MCP binary.
-///
-/// Listens on 127.0.0.1:13144 and handles:
-///   POST /send-wecom        — send a proactive WeCom message
-///   POST /cron-run          — manually trigger a cron job
-///   POST /team-sync-all     — trigger team sync
-///   POST /knowledge-search  — semantic search in knowledge base
-///   POST /knowledge-add     — save a memory entry
-///   POST /knowledge-list    — list memory entries
-///   POST /knowledge-delete  — delete a memory entry
-///   POST /env-var-set       — create or update an env var
-///   POST /env-var-delete    — delete an env var
-///
-/// Uses raw TCP + manual HTTP parsing to stay minimal (no axum state needed).
+// Internal HTTP API server for the teamclaw-introspect MCP binary.
+//
+// Listens on 127.0.0.1:13144 and handles:
+//   POST /send-wecom        — send a proactive WeCom message
+//   POST /cron-run          — manually trigger a cron job
+//   POST /team-sync-all     — trigger team sync
+//   POST /knowledge-search  — semantic search in knowledge base
+//   POST /knowledge-add     — save a memory entry
+//   POST /knowledge-list    — list memory entries
+//   POST /knowledge-delete  — delete a memory entry
+//   POST /env-var-set       — create or update an env var
+//   POST /env-var-delete    — delete an env var
+//
+// Uses raw TCP + manual HTTP parsing to stay minimal (no axum state needed).
 
 pub const INTROSPECT_API_PORT: u16 = 13144;
 

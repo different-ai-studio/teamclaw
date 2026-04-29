@@ -186,10 +186,10 @@ async fn execute_js_in_window<R: Runtime>(
                 ))
             })?;
 
-            if let Some(error) = response.get("error") {
-                if let Some(error_str) = error.as_str() {
-                    return Err(ExecuteJsError::JavaScriptError(error_str.to_string()));
-                }
+            if let Some(error) = response.get("error")
+                && let Some(error_str) = error.as_str()
+            {
+                return Err(ExecuteJsError::JavaScriptError(error_str.to_string()));
             }
 
             let result = response
@@ -209,8 +209,8 @@ async fn execute_js_in_window<R: Runtime>(
                 result_type,
             })
         }
-        Err(_) => Err(ExecuteJsError::Timeout(format!(
-            "Timeout waiting for execute-js response"
-        ))),
+        Err(_) => Err(ExecuteJsError::Timeout(
+            "Timeout waiting for execute-js response".to_string(),
+        )),
     }
 }

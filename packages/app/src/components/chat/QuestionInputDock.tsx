@@ -13,6 +13,14 @@ interface QuestionInputDockProps {
   onHeightChange?: (height: number) => void;
 }
 
+function getOptionValue(option: { label: string; value?: string }) {
+  return option.value ?? option.label;
+}
+
+function getQuestionId(question: { id?: string }, index: number) {
+  return question.id || String(index);
+}
+
 export function QuestionInputDock({
   pendingQuestion,
   compact = false,
@@ -56,13 +64,42 @@ export function QuestionInputDock({
 
   const currentQuestion = questions[questionIndex];
   const currentQuestionId = currentQuestion?.id || String(questionIndex);
-  const selectedAnswer = answers[currentQuestionId] || "";
+  const hasSelectedAnswer = Object.prototype.hasOwnProperty.call(answers, currentQuestionId);
+  const selectedAnswer = hasSelectedAnswer ? answers[currentQuestionId] : "";
   const customAnswer = customInputs[currentQuestionId] || "";
-  const currentAnswer = customAnswer.trim() || selectedAnswer;
+  const trimmedCustomAnswer = customAnswer.trim();
   const isLastQuestion = questionIndex >= questions.length - 1;
-  const canContinue = !!currentAnswer && !!pendingQuestion.questionId && !isSubmitting && !hasSubmitted;
+  const canContinue =
+    (!!trimmedCustomAnswer || hasSelectedAnswer) &&
+    !!pendingQuestion.questionId &&
+    !isSubmitting &&
+    !hasSubmitted;
   const canSkip = !!pendingQuestion.questionId && !isSubmitting && !hasSubmitted;
   const questionTitle = currentQuestion?.header || t("chat.toolCall.question.title", "Question");
+
+  const hasAnswerForQuestion = React.useCallback((question: { id?: string }, index: number) => {
+    const questionId = getQuestionId(question, index);
+    return !!customInputs[questionId]?.trim() || Object.prototype.hasOwnProperty.call(answers, questionId);
+  }, [answers, customInputs]);
+
+  const buildFinalAnswers = React.useCallback(() => {
+    const finalAnswers: Record<string, string> = {};
+    questions.forEach((question, index) => {
+      const questionId = getQuestionId(question, index);
+      const custom = customInputs[questionId]?.trim();
+      finalAnswers[questionId] = custom || (answers[questionId] ?? "");
+    });
+    return finalAnswers;
+  }, [answers, customInputs, questions]);
+
+  const shouldSubmitEmptyAnswerOnSkip = React.useMemo(
+    () =>
+      isLastQuestion &&
+      questions.length > 1 &&
+      questions.slice(0, -1).every(hasAnswerForQuestion) &&
+      !!currentQuestion?.options?.some((option) => getOptionValue(option) === ""),
+    [currentQuestion?.options, hasAnswerForQuestion, isLastQuestion, questions],
+  );
 
   const handleOptionSelect = (value: string) => {
     setAnswers((prev) => ({ ...prev, [currentQuestionId]: value }));
@@ -85,29 +122,37 @@ export function QuestionInputDock({
 
     setIsSubmitting(true);
     try {
-      const finalAnswers: Record<string, string> = {};
-      questions.forEach((question, index) => {
-        const questionId = question.id || String(index);
-        const custom = customInputs[questionId]?.trim();
-        finalAnswers[questionId] = custom || answers[questionId] || "";
-      });
-      await answerQuestion(finalAnswers, pendingQuestion.questionId);
+      await answerQuestion(buildFinalAnswers(), pendingQuestion.questionId);
       setHasSubmitted(true);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleSkip = async () => {
+  const handleSkip = React.useCallback(async () => {
     if (!canSkip) return;
     setIsSubmitting(true);
     try {
-      await skipQuestion(pendingQuestion.questionId);
+      if (shouldSubmitEmptyAnswerOnSkip) {
+        const finalAnswers = buildFinalAnswers();
+        finalAnswers[currentQuestionId] = "";
+        await answerQuestion(finalAnswers, pendingQuestion.questionId);
+      } else {
+        await skipQuestion(pendingQuestion.questionId);
+      }
       setHasSubmitted(true);
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [
+    answerQuestion,
+    buildFinalAnswers,
+    canSkip,
+    currentQuestionId,
+    pendingQuestion.questionId,
+    shouldSubmitEmptyAnswerOnSkip,
+    skipQuestion,
+  ]);
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -180,8 +225,8 @@ export function QuestionInputDock({
 
             <div className="space-y-1">
               {currentQuestion.options?.map((option, optionIndex) => {
-                const optionValue = option.value || option.label;
-                const isSelected = selectedAnswer === optionValue && !customAnswer.trim();
+                const optionValue = getOptionValue(option);
+                const isSelected = hasSelectedAnswer && selectedAnswer === optionValue && !customAnswer.trim();
                 return (
                   <button
                     key={`${optionValue}-${optionIndex}`}

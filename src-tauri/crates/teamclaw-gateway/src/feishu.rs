@@ -833,7 +833,7 @@ async fn handle_ws_connection(
                                 handle_binary_frame(
                                     frame, config, session_mapping, opencode_port,
                                     token_manager, processed_messages, &send_tx,
-                                    session_queue, pending_questions, &workspace_path,
+                                    session_queue, pending_questions, workspace_path,
                                 ).await;
                             }
                             Err(e) => {
