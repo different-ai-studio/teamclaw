@@ -10,6 +10,7 @@ use super::delivery::DeliveryManager;
 use super::storage::CronStorage;
 use super::types::*;
 use crate::commands::gateway::SessionMapping;
+use crate::process_util::CommandNoWindow;
 
 /// The cron scheduler that runs as a background task
 #[derive(Debug)]
@@ -324,6 +325,7 @@ impl CronScheduler {
     /// Create a git worktree for isolated job execution.
     fn create_worktree(workspace: &str, worktree_path: &str, branch: &str) -> Result<(), String> {
         let output = std::process::Command::new("git")
+            .no_window()
             .current_dir(workspace)
             .args(["worktree", "add", "--detach", worktree_path, branch])
             .output()
@@ -344,6 +346,7 @@ impl CronScheduler {
     /// Remove a git worktree. Falls back to rm -rf + prune if git remove fails.
     fn remove_worktree(workspace: &str, worktree_path: &str) {
         let result = std::process::Command::new("git")
+            .no_window()
             .current_dir(workspace)
             .args(["worktree", "remove", "--force", worktree_path])
             .output();
@@ -359,6 +362,7 @@ impl CronScheduler {
                 );
                 let _ = std::fs::remove_dir_all(worktree_path);
                 let _ = std::process::Command::new("git")
+                    .no_window()
                     .current_dir(workspace)
                     .args(["worktree", "prune"])
                     .output();

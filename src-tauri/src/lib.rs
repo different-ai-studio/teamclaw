@@ -38,6 +38,7 @@ use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_global_shortcut::ShortcutState;
 
 mod commands;
+pub mod process_util;
 pub mod sentry_utils;
 mod telemetry;
 
@@ -124,7 +125,9 @@ fn fix_path_env() {
     }
 
     // Spawn a login shell to get the full PATH
+    use crate::process_util::CommandNoWindow;
     let output = std::process::Command::new(&shell)
+        .no_window()
         .args(["-l", "-c", "echo $PATH"])
         .output();
 

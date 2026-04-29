@@ -12,6 +12,7 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
 use super::opencode::OpenCodeState;
+use crate::process_util::CommandNoWindow;
 
 /// MCP Server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,6 +264,7 @@ async fn test_local_server(
 
     // Try to spawn the process
     let mut cmd = TokioCommand::new(program);
+    cmd.no_window();
     cmd.args(args);
     cmd.current_dir(workspace_path);
     cmd.stdin(Stdio::null());
@@ -519,6 +521,7 @@ async fn query_local_server_tools(
     let args = &command[1..];
 
     let mut cmd = TokioCommand::new(program);
+    cmd.no_window();
     cmd.args(args)
         .current_dir(workspace_path)
         .stdin(std::process::Stdio::piped())

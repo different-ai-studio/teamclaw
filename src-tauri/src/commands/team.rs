@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::mcp::{self, MCPServerConfig};
 use crate::commands::opencode::OpenCodeState;
+use crate::process_util::CommandNoWindow;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -156,6 +157,7 @@ pub struct WorkspaceGitCheckResult {
 /// Run a git command in a given directory
 fn run_git(args: &[&str], cwd: &str) -> Result<(bool, String, String), String> {
     let output = Command::new("git")
+        .no_window()
         .args(args)
         .current_dir(cwd)
         .env("GIT_TERMINAL_PROMPT", "0") // Never prompt for credentials interactively
@@ -808,7 +810,7 @@ pub fn update_team_llm_config(
 /// 1.1 - Check if git is installed on the system
 #[tauri::command]
 pub fn team_check_git_installed() -> Result<GitCheckResult, String> {
-    match Command::new("git").args(["--version"]).output() {
+    match Command::new("git").no_window().args(["--version"]).output() {
         Ok(output) => {
             let success = output.status.success();
             let version = if success {
@@ -1675,6 +1677,7 @@ pub async fn team_generate_gitignore(
 /// errors so the sync flow is never blocked by precheck telemetry.
 fn detect_precheck_breach(team_dir: &str) -> Option<(Vec<SyncPrecheckFile>, u64)> {
     let output = Command::new("git")
+        .no_window()
         .args(["status", "--porcelain", "-z", "-uall"])
         .current_dir(team_dir)
         .env("GIT_TERMINAL_PROMPT", "0")

@@ -38,6 +38,9 @@ pub mod webview;
 pub mod window;
 pub mod workspace_files;
 
+#[cfg(target_os = "windows")]
+use crate::process_util::CommandNoWindow;
+
 /// The short application name, injected at compile time via `build.rs`.
 #[allow(dead_code)]
 pub const APP_SHORT_NAME: &str = env!("APP_SHORT_NAME");
@@ -102,6 +105,7 @@ pub fn open_with_default_app(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
+            .no_window()
             .args(["/C", "start", "", &path])
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
@@ -131,7 +135,10 @@ pub fn open_in_terminal(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        // Hide the outer launcher's console; `start` spawns the user-visible
+        // terminal in its own new console as intended.
         std::process::Command::new("cmd")
+            .no_window()
             .args(["/C", "start", "cmd", "/K", &format!("cd /d {}", path)])
             .spawn()
             .map_err(|e| format!("Failed to open terminal: {}", e))?;

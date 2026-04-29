@@ -4,6 +4,8 @@ use tauri::{AppHandle, Emitter, Runtime};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command as AsyncCommand;
 
+use crate::process_util::CommandNoWindow;
+
 /// Installation commands for each platform
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformInstallCommands {
@@ -48,7 +50,7 @@ fn check_single_dependency(
     affected_features: Vec<String>,
     priority: u8,
 ) -> DependencyInfo {
-    let output = Command::new(name).args(version_args).output();
+    let output = Command::new(name).no_window().args(version_args).output();
 
     match output {
         Ok(o) if o.status.success() => {
@@ -262,7 +264,7 @@ pub async fn install_dependency<R: Runtime>(
 ) -> Result<bool, String> {
     // On macOS, if the dependency requires brew and brew is not installed, install brew first
     if requires_brew(&name) {
-        let brew_check = Command::new("brew").arg("--version").output();
+        let brew_check = Command::new("brew").no_window().arg("--version").output();
         let brew_installed = matches!(brew_check, Ok(o) if o.status.success());
         if !brew_installed {
             let brew_result = run_install(&app, "brew").await;
@@ -324,6 +326,7 @@ async fn run_install<R: Runtime>(app: &AppHandle<R>, name: &str) -> bool {
     };
 
     let child = AsyncCommand::new(shell)
+        .no_window()
         .args(&shell_args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

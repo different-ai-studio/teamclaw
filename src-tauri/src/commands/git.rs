@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
+use crate::process_util::CommandNoWindow;
+
 /// Result of a git command execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitCommandResult {
@@ -30,6 +32,7 @@ pub struct GitStatusResult {
 /// Run a git command in a given directory, returning structured output
 fn run_git(args: &[&str], cwd: &str) -> Result<GitCommandResult, String> {
     let output = Command::new("git")
+        .no_window()
         .args(args)
         .current_dir(cwd)
         .output()
@@ -62,6 +65,7 @@ fn run_git_checked(args: &[&str], cwd: &str) -> Result<String, String> {
 #[tauri::command]
 pub fn git_check_available() -> Result<GitCommandResult, String> {
     let output = Command::new("git")
+        .no_window()
         .args(["--version"])
         .output()
         .map_err(|e| format!("Git is not available: {}", e))?;

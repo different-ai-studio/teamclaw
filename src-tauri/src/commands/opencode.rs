@@ -8,6 +8,8 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
 
+use crate::process_util::CommandNoWindow;
+
 /// Default port for the OpenCode server.
 /// Used for the first/main workspace instance and for dev mode.
 pub const DEFAULT_PORT: u16 = 13141;
@@ -2177,7 +2179,7 @@ async fn kill_process_on_port(port: u16) -> bool {
 async fn kill_process_on_port_windows(port: u16) -> bool {
     use std::process::Command;
 
-    let output = Command::new("netstat").args(["-ano"]).output();
+    let output = Command::new("netstat").no_window().args(["-ano"]).output();
 
     let Ok(output) = output else {
         println!("[OpenCode] Failed to run netstat on port {}", port);
@@ -2209,7 +2211,7 @@ async fn kill_process_on_port_windows(port: u16) -> bool {
             continue;
         }
         println!("[OpenCode] Killing zombie process {} on port {}", pid, port);
-        let _ = Command::new("taskkill").args(["/PID", pid, "/F"]).output();
+        let _ = Command::new("taskkill").no_window().args(["/PID", pid, "/F"]).output();
         killed_any = true;
     }
 
@@ -2587,6 +2589,7 @@ pub async fn get_opencode_project_id(workspace_path: String) -> Result<String, S
     let normalized = workspace_path.trim_end_matches('/');
 
     let output = std::process::Command::new("sqlite3")
+        .no_window()
         .args([&db_path, "-json", "SELECT id, worktree FROM project;"])
         .output()
         .map_err(|e| format!("Failed to run sqlite3: {}", e))?;
@@ -2645,6 +2648,7 @@ pub async fn read_opencode_allowlist(workspace_path: String) -> Result<Vec<Allow
     let db_path = get_opencode_db_path(&workspace_path)?;
 
     let output = std::process::Command::new("sqlite3")
+        .no_window()
         .args([
             &db_path,
             "-json",
@@ -2707,6 +2711,7 @@ pub async fn write_opencode_allowlist(
 
     if rules.is_empty() {
         let output = std::process::Command::new("sqlite3")
+            .no_window()
             .args([
                 &db_path,
                 &format!(
@@ -2734,6 +2739,7 @@ pub async fn write_opencode_allowlist(
         );
 
         let output = std::process::Command::new("sqlite3")
+            .no_window()
             .args([&db_path, &sql])
             .output()
             .map_err(|e| format!("Failed to run sqlite3: {}", e))?;

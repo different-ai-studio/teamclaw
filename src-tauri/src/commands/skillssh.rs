@@ -33,6 +33,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::process_util::CommandNoWindow;
+
 const SKILLSSH_URL: &str = "https://skills.sh";
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 
@@ -1107,6 +1109,7 @@ pub async fn install_skill_from_git_url(
 
     // Clone repo with shallow depth
     let status = Command::new("git")
+        .no_window()
         .args(&[
             "clone",
             "--depth",
@@ -1613,6 +1616,7 @@ fn run_npx_skills(args: &[&str], cwd: Option<&str>) -> Result<String, String> {
     use std::process::Command;
 
     let mut cmd = Command::new("npx");
+    cmd.no_window();
     cmd.args(args);
     cmd.env("DISABLE_TELEMETRY", "1");
 
