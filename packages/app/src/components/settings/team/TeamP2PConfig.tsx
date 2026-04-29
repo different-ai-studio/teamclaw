@@ -24,7 +24,12 @@ import { HostLlmConfig } from './HostLlmConfig'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { toast } from 'sonner'
 import { buildConfig, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
-import { buildTeamProviderConfig, loadTeamProviderFormState, saveTeamProviderFile } from '@/lib/team-provider'
+import {
+  buildTeamProviderConfig,
+  loadTeamProviderFormState,
+  removeTeamProviderFile,
+  saveTeamProviderFile,
+} from '@/lib/team-provider'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useP2pEngineStore } from '@/stores/p2p-engine'
 import { useTeamMembersStore } from '@/stores/team-members'
@@ -431,11 +436,13 @@ export function TeamP2PConfig() {
         workspacePath,
       })
       if (workspacePath) {
-        await saveTeamProviderFile(
-          workspacePath,
-          buildTeamProviderConfig(cfgHostLlm, cfgLlmUrl, cfgLlmModels),
-          cfgHostLlm ? cfgLlmModels[0]?.id : undefined,
-        )
+        const providerConfig = buildTeamProviderConfig(cfgHostLlm, cfgLlmUrl, cfgLlmModels)
+        if (providerConfig) {
+          await saveTeamProviderFile(workspacePath, providerConfig, cfgLlmModels[0]?.id)
+        } else if (!cfgHostLlm) {
+          // Owner / manager explicitly turned off the team's shared LLM.
+          await removeTeamProviderFile(workspacePath)
+        }
       }
     } catch (err) {
       setP2pError(err instanceof Error ? err.message : String(err))
