@@ -171,6 +171,57 @@ fn run_git(args: &[&str], cwd: &str) -> Result<(bool, String, String), String> {
     ))
 }
 
+/// Run `git clone` with `--filter=blob:none` (partial clone) for speed —
+/// fetches the commit graph + trees but defers blobs until a working-tree
+/// file actually needs them. Keeps the per-file commit history viewer
+/// working (which `--depth=1` would break) while cutting initial clone
+/// time roughly in proportion to the size of historical blob churn.
+///
+/// If the server rejects the filter (old self-hosted GitLab/Gitea or
+/// `uploadpack.allowFilter=false`), retry as a plain full clone so the
+/// join flow still succeeds.
+///
+/// `base_args` must be the regular clone arg list, starting with "clone"
+/// and ending with the target dir (the same shape each call site builds).
+fn run_clone_with_partial_fallback(
+    base_args: &[&str],
+    cwd: &str,
+) -> Result<(bool, String, String), String> {
+    debug_assert_eq!(base_args.first().copied(), Some("clone"));
+    let mut filtered: Vec<&str> = Vec::with_capacity(base_args.len() + 1);
+    filtered.push("clone");
+    filtered.push("--filter=blob:none");
+    filtered.extend_from_slice(&base_args[1..]);
+
+    let first = run_git(&filtered, cwd)?;
+    if first.0 {
+        return Ok(first);
+    }
+
+    let stderr_lc = first.2.to_lowercase();
+    let filter_unsupported = stderr_lc.contains("filter")
+        && (stderr_lc.contains("not supported")
+            || stderr_lc.contains("unsupported")
+            || stderr_lc.contains("uploadpack.allowfilter")
+            || stderr_lc.contains("server does not support"));
+    if !filter_unsupported {
+        return Ok(first);
+    }
+
+    // Clean up any partial state from the failed filtered attempt before
+    // retrying as a plain full clone.
+    if let Some(target) = base_args.last() {
+        let target_path = Path::new(cwd).join(target);
+        if target_path.exists() {
+            let _ = std::fs::remove_dir_all(&target_path);
+        }
+    }
+    eprintln!(
+        "[team_git_clone] Server rejected --filter=blob:none, falling back to full clone"
+    );
+    run_git(base_args, cwd)
+}
+
 /// Parse the NUL-delimited output of `git status --porcelain -z -uall`
 /// and return only the paths of untracked entries (records starting with `?? `).
 fn parse_untracked_paths(porcelain_bytes: &[u8]) -> Vec<String> {
@@ -884,7 +935,7 @@ pub async fn team_init_repo(
     } else {
         vec!["clone", &remote_url, TEAM_REPO_DIR]
     };
-    let (ok, _, stderr) = run_git(&clone_args, &workspace_path)?;
+    let (ok, _, stderr) = run_clone_with_partial_fallback(&clone_args, &workspace_path)?;
     if !ok {
         let _ = std::fs::remove_dir_all(&team_dir);
         return Err(format!(
@@ -1013,7 +1064,7 @@ pub async fn team_git_create(
     } else {
         vec!["clone", &remote_url, TEAM_REPO_DIR]
     };
-    let (ok, _, stderr) = run_git(&clone_args, &workspace_path)?;
+    let (ok, _, stderr) = run_clone_with_partial_fallback(&clone_args, &workspace_path)?;
     if !ok {
         let _ = std::fs::remove_dir_all(&team_dir);
         return Err(format!(
@@ -1301,7 +1352,7 @@ async fn team_git_join_impl(
     } else {
         vec!["clone", &remote_url, TEAM_REPO_DIR]
     };
-    let (ok, _, stderr) = run_git(&clone_args, &workspace_path)?;
+    let (ok, _, stderr) = run_clone_with_partial_fallback(&clone_args, &workspace_path)?;
     if !ok {
         let _ = std::fs::remove_dir_all(&team_dir);
         return Err(format!(
@@ -1787,7 +1838,7 @@ pub async fn team_sync_repo(
         } else {
             vec!["clone", &remote_url, TEAM_REPO_DIR]
         };
-        let (ok, _, stderr) = run_git(&clone_args, &workspace_path)?;
+        let (ok, _, stderr) = run_clone_with_partial_fallback(&clone_args, &workspace_path)?;
         if !ok {
             // Best-effort cleanup so a future sync attempt sees an empty
             // target and re-tries the clone instead of getting stuck on a
