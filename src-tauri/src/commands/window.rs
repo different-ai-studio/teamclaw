@@ -66,6 +66,7 @@ pub async fn create_workspace_window(
 
     // Match the main window chrome: hidden title + overlay traffic lights on macOS,
     // so the workspace name shown inside the app remains the only label.
+    #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
         .title(&window_title)
         .inner_size(1200.0, 800.0)
