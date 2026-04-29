@@ -31,7 +31,12 @@ import { HostLlmConfig } from './HostLlmConfig'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { buildConfig, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
-import { buildTeamProviderConfig, loadTeamProviderFormState, saveTeamProviderFile } from '@/lib/team-provider'
+import {
+  buildTeamProviderConfig,
+  loadTeamProviderFormState,
+  removeTeamProviderFile,
+  saveTeamProviderFile,
+} from '@/lib/team-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -197,16 +202,11 @@ export function TeamGitConfig() {
   // Detect if current URL is HTTPS (needs token auth)
   const isHttpsUrl = gitUrl.trim().startsWith('https://') || gitUrl.trim().startsWith('http://')
 
-  // Provider config queued during fast-path join — written only after the
-  // background clone completes, otherwise saveTeamProviderFile would
-  // mkdir teamclaw-team/_meta and break the subsequent git clone.
-  type PendingProviderSave = {
-    workspacePath: string
-    hostLlm: boolean
-    llmUrl: string
-    llmModels: { id: string; name: string }[]
-  }
-  const pendingProviderSaveRef = React.useRef<PendingProviderSave | null>(null)
+  // Workspace path queued during fast-path join — used after the background
+  // clone completes to refresh in-memory team config from the freshly cloned
+  // _meta files. We no longer write provider.json here on the joining
+  // member's behalf (that used to silently delete the team's shared file).
+  const pendingProviderSaveRef = React.useRef<{ workspacePath: string } | null>(null)
 
   // ─── Initialize: check git + load config ─────────────────────────────────
 
@@ -279,26 +279,24 @@ export function TeamGitConfig() {
       unlistenCompleted = await listen<{ teamId: string; message: string }>(
         'team:git-join-clone-completed',
         async () => {
-          // Now that teamclaw-team/_meta/ exists, flush any queued provider save.
-          const pending = pendingProviderSaveRef.current
-          if (pending) {
-            pendingProviderSaveRef.current = null
+          // After clone completes, the cloned repo already contains the
+          // owner's _meta/provider.json (if any). A joining member must NOT
+          // overwrite it with their own (typically empty) form state — doing
+          // so would write a null provider, which used to silently delete the
+          // shared file for the entire team. Just refresh the in-memory team
+          // config from the freshly cloned files.
+          const ws = pendingProviderSaveRef.current?.workspacePath
+          pendingProviderSaveRef.current = null
+          if (ws) {
             try {
-              await saveTeamProviderFile(
-                pending.workspacePath,
-                buildTeamProviderConfig(pending.hostLlm, pending.llmUrl, pending.llmModels),
-                pending.hostLlm ? pending.llmModels[0]?.id : undefined,
-              )
-              // Push the new team provider into the running sidecar without
-              // waiting for the 1s file-watcher debounce.
               const { useTeamModeStore } = await import('@/stores/team-mode')
               const store = useTeamModeStore.getState()
-              await store.loadTeamConfig(pending.workspacePath)
+              await store.loadTeamConfig(ws)
               if (useTeamModeStore.getState().teamMode) {
-                await store.applyTeamModelToOpenCode(pending.workspacePath, true)
+                await store.applyTeamModelToOpenCode(ws, true)
               }
             } catch (err) {
-              console.warn('[Team Join] Deferred provider save failed:', err)
+              console.warn('[Team Join] Post-clone team config refresh failed:', err)
             }
           }
           teamMembersStore.loadMembers()
@@ -369,7 +367,17 @@ export function TeamGitConfig() {
         ...workspaceArgs,
       })
       if (workspacePath) {
-        await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
+        const providerConfig = buildTeamProviderConfig(hostLlm, llmUrl, llmModels)
+        if (providerConfig) {
+          await saveTeamProviderFile(workspacePath, providerConfig, llmModels[0]?.id)
+        } else if (!hostLlm) {
+          // Owner / manager explicitly turned off the team's shared LLM.
+          // This is the ONLY path that should remove the shared provider
+          // file — saveTeamProviderFile no longer auto-deletes on null.
+          await removeTeamProviderFile(workspacePath)
+        }
+        // Otherwise: hostLlm=true but URL/models incomplete → leave the
+        // existing provider.json intact instead of silently deleting it.
       }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err))
@@ -598,16 +606,9 @@ export function TeamGitConfig() {
           ...(gitBranchTrim ? { gitBranch: gitBranchTrim } : {}),
         }
         await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
-        // Defer saveTeamProviderFile until the background clone finishes — it
-        // would otherwise mkdir teamclaw-team/_meta and break git clone's
-        // empty-target requirement.
+        // Stash workspacePath so the post-clone hook can refresh team config.
         if (workspacePath) {
-          pendingProviderSaveRef.current = {
-            workspacePath,
-            hostLlm,
-            llmUrl,
-            llmModels,
-          }
+          pendingProviderSaveRef.current = { workspacePath }
         }
         setTeamConfig(newConfig)
 
@@ -661,9 +662,10 @@ export function TeamGitConfig() {
       }
       await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
       if (workspacePath) {
-        await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
-        // Push the new team provider into the running sidecar without
-        // waiting for the 1s file-watcher debounce.
+        // Member-side join: do NOT write provider.json — the cloned repo
+        // already contains the owner's shared provider config (if any).
+        // Writing the joining member's form state used to silently delete
+        // the team's provider.json when the form was empty.
         const { useTeamModeStore } = await import('@/stores/team-mode')
         const store = useTeamModeStore.getState()
         await store.loadTeamConfig(workspacePath)

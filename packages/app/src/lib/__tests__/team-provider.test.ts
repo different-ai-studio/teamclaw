@@ -112,4 +112,37 @@ describe('team provider file helpers', () => {
     expect(mockAddCustomProviderToConfig).not.toHaveBeenCalled()
     expect(mockRemoveCustomProviderFromConfig).not.toHaveBeenCalled()
   })
+
+  it('saveTeamProviderFile is a no-op on null provider (no implicit deletion)', async () => {
+    // Regression: previously, passing null deleted _meta/provider.json.
+    // That caused team-wide loss whenever a member joined with an empty form
+    // and the deletion got auto-committed by the next sync.
+    mockExists.mockResolvedValue(true) // provider.json exists on disk
+    const { saveTeamProviderFile } = await import('@/lib/team-provider')
+
+    await saveTeamProviderFile('/workspace', null)
+
+    expect(mockRemove).not.toHaveBeenCalled()
+    expect(mockWriteTextFile).not.toHaveBeenCalled()
+  })
+
+  it('removeTeamProviderFile deletes provider.json when present', async () => {
+    mockExists.mockImplementation(
+      async (path: string) => path === '/workspace/teamclaw-team/_meta/provider.json',
+    )
+    const { removeTeamProviderFile } = await import('@/lib/team-provider')
+
+    await removeTeamProviderFile('/workspace')
+
+    expect(mockRemove).toHaveBeenCalledWith('/workspace/teamclaw-team/_meta/provider.json')
+  })
+
+  it('removeTeamProviderFile is a no-op when provider.json is absent', async () => {
+    mockExists.mockResolvedValue(false)
+    const { removeTeamProviderFile } = await import('@/lib/team-provider')
+
+    await removeTeamProviderFile('/workspace')
+
+    expect(mockRemove).not.toHaveBeenCalled()
+  })
 })

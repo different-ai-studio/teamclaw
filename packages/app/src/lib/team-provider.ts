@@ -69,14 +69,15 @@ export async function saveTeamProviderFile(
   provider: CustomProviderConfig | null,
   defaultModel?: string,
 ): Promise<void> {
-  const path = teamProviderFilePath(workspacePath)
-  if (!provider) {
-    if (await exists(path)) {
-      await remove(path)
-    }
-    return
-  }
+  // No-op when provider is null. Earlier this function would silently delete
+  // _meta/provider.json on null, which caused the team's shared provider config
+  // to vanish whenever a member joined with an empty form (their default
+  // hostLlm=false → buildTeamProviderConfig → null → delete). Auto-sync then
+  // committed and pushed the deletion to the whole team. Use the explicit
+  // `removeTeamProviderFile` below when you actually mean to remove it.
+  if (!provider) return
 
+  const path = teamProviderFilePath(workspacePath)
   const metaDir = teamProviderMetaDir(workspacePath)
   if (!(await exists(metaDir))) {
     await mkdir(metaDir, { recursive: true })
@@ -98,6 +99,19 @@ export async function saveTeamProviderFile(
   }
 
   await writeTextFile(path, JSON.stringify(file, null, 2))
+}
+
+/**
+ * Explicitly remove the shared team provider file. Should only be called when
+ * an authorised user (owner / manager) deliberately turns off the team's
+ * shared LLM hosting from Service Config — never as a side-effect of joining
+ * or other implicit flows.
+ */
+export async function removeTeamProviderFile(workspacePath: string): Promise<void> {
+  const path = teamProviderFilePath(workspacePath)
+  if (await exists(path)) {
+    await remove(path)
+  }
 }
 
 export async function loadTeamProviderFormState(workspacePath: string): Promise<TeamProviderFormState | null> {

@@ -12,7 +12,12 @@ import { TeamMemberList } from '@/components/settings/TeamMemberList'
 import { VersionHistorySection } from './VersionHistorySection'
 import { invoke } from '@tauri-apps/api/core'
 import { buildConfig } from '@/lib/build-config'
-import { buildTeamProviderConfig, loadTeamProviderFormState, saveTeamProviderFile } from '@/lib/team-provider'
+import {
+  buildTeamProviderConfig,
+  loadTeamProviderFormState,
+  removeTeamProviderFile,
+  saveTeamProviderFile,
+} from '@/lib/team-provider'
 import type { DeviceInfo } from '@/lib/git/types'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { useProviderStore } from '@/stores/provider'
@@ -314,11 +319,13 @@ export function TeamOSSConfig() {
         llmModelName: cfgHostLlm ? (cfgLlmModels[0]?.name || undefined) : undefined,
         llmModels: cfgHostLlm && cfgLlmModels.length > 0 ? JSON.stringify(cfgLlmModels) : undefined,
       })
-      await saveTeamProviderFile(
-        workspacePath,
-        buildTeamProviderConfig(cfgHostLlm, cfgLlmUrl, cfgLlmModels),
-        cfgHostLlm ? cfgLlmModels[0]?.id : undefined,
-      )
+      const cfgProviderConfig = buildTeamProviderConfig(cfgHostLlm, cfgLlmUrl, cfgLlmModels)
+      if (cfgProviderConfig) {
+        await saveTeamProviderFile(workspacePath, cfgProviderConfig, cfgLlmModels[0]?.id)
+      } else if (!cfgHostLlm) {
+        // Owner / manager explicitly turned off the team's shared LLM.
+        await removeTeamProviderFile(workspacePath)
+      }
     } catch {
       // error is set in the store
     } finally {
