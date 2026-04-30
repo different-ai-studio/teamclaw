@@ -89,7 +89,7 @@ arboard = "3"
 futures-lite = "2"
 
 # axum: E2E test control server (debug builds only, lib.rs)
-axum = "0.7"
+axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
 gethostname = "1.1.0"
 ignore = "0.4"
