@@ -185,7 +185,10 @@ export function buildSessionListActivityMap({
   }
 
   for (const permission of pendingPermissions) {
-    mark(permission.childSessionId || activeSessionId, { state: "waiting", kind: "permission" });
+    mark(permission.childSessionId || permission.permission.sessionID || activeSessionId, {
+      state: "waiting",
+      kind: "permission",
+    });
   }
 
   if (streamingMessageId && activeSessionId) {

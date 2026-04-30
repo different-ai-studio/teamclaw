@@ -58,4 +58,34 @@ describe("session-list-activity", () => {
       }),
     );
   });
+
+  it("attributes parent permission activity to the permission session instead of the active session", () => {
+    const map = buildSessionListActivityMap({
+      sessions,
+      activeSessionId: "parent-1",
+      sessionStatuses: {},
+      pendingQuestionIdsBySession: {},
+      pendingQuestions: [],
+      pendingPermissions: [
+        {
+          childSessionId: null,
+          permission: {
+            id: "perm-1",
+            sessionID: "standalone",
+            permission: "bash",
+          },
+        },
+      ],
+      streamingMessageId: null,
+      streamingChildSessionIds: [],
+    });
+
+    expect(map.get("standalone")).toEqual(
+      expect.objectContaining({
+        state: "waiting",
+        kind: "permission",
+      }),
+    );
+    expect(map.get("parent-1")).toBeUndefined();
+  });
 });

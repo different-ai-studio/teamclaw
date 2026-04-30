@@ -225,18 +225,18 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
 
       const { isChild, childSessionId } = classifyPermissionSession(event.sessionID);
 
+      set((state) => ({
+        pendingPermissions: [
+          ...state.pendingPermissions.filter((e) => e.permission.id !== event.id),
+          { permission: event, childSessionId },
+        ].slice(-20), // Safety cap
+      }));
+
       if (event.tool?.callID && !isChild) {
         const attached = attachPermissionToToolCall(event);
         if (!attached) {
           pendingPermissionBuffer.set(event.tool.callID, event);
         }
-      } else {
-        set((state) => ({
-          pendingPermissions: [
-            ...state.pendingPermissions.filter((e) => e.permission.id !== event.id),
-            { permission: event, childSessionId },
-          ].slice(-20), // Safety cap
-        }));
       }
 
       // Send notification for permission requests

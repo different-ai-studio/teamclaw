@@ -8,6 +8,7 @@ const mockGetMessages = vi.fn()
 const mockGetSession = vi.fn()
 const mockGetTodos = vi.fn()
 const mockGetSessionDiff = vi.fn()
+const mockClearStreaming = vi.fn()
 
 vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
@@ -28,7 +29,7 @@ vi.mock('@/stores/streaming', () => ({
       getState: () => ({
         streamingMessageId: null,
         streamingContent: '',
-        clearStreaming: vi.fn(),
+        clearStreaming: mockClearStreaming,
         setStreaming: vi.fn(),
       }),
     },
@@ -74,6 +75,7 @@ describe('session-loader: createLoaderActions', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockClearStreaming.mockClear()
     vi.mocked(localStorage.getItem).mockReturnValue(null)
     sessionLookupCache.clear()
     sessionDataCache.clear()
@@ -279,6 +281,39 @@ describe('session-loader: createLoaderActions', () => {
     expect(state.pinnedSessionIds).toEqual([])
     expect(localStorage.setItem).toHaveBeenCalled()
     expect(state.activeSessionId).toBeNull()
+  })
+
+  it('archiveSession clears streaming state when archiving the active session', async () => {
+    const now = Date.now()
+    state.sessions = [
+      {
+        id: 'sess-1',
+        title: 'Question session',
+        messages: [],
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+        directory: '/workspace',
+      },
+      {
+        id: 'sess-2',
+        title: 'Next session',
+        messages: [],
+        createdAt: new Date(now - 1),
+        updatedAt: new Date(now - 1),
+        directory: '/workspace',
+      },
+    ]
+    state.activeSessionId = 'sess-1'
+    state.sessionStatus = { type: 'busy' }
+    state.pendingQuestionIdsBySession = { 'sess-1': ['question-1'] }
+    mockArchiveSession.mockResolvedValue(undefined)
+
+    await actions.archiveSession('sess-1')
+
+    expect(mockClearStreaming).toHaveBeenCalled()
+    expect(state.activeSessionId).toBe('sess-2')
+    expect(state.sessionStatus).toBeNull()
+    expect(state.pendingQuestionIdsBySession).toEqual({})
   })
 
   it('loadAllSessionMessages refuses to fetch when too many sessions need messages', async () => {

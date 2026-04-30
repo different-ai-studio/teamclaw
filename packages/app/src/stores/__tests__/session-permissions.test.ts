@@ -181,6 +181,42 @@ describe('createPermissionActions', () => {
     })
   })
 
+  it('queues parent tool permissions so sidebar activity can show waiting state', async () => {
+    const { createPermissionActions } = await import('@/stores/session-permissions')
+    const store = {
+      activeSessionId: 'session-1',
+      sessions: [{ id: 'session-1', title: 'S', messages: [] }],
+      pendingPermissions: [] as Array<{ permission: { id: string; sessionID: string }; childSessionId: string | null }>,
+      setActiveSession: vi.fn(),
+    }
+    const set = vi.fn((fn: unknown) => {
+      if (typeof fn === 'function') {
+        Object.assign(store, (fn as (s: typeof store) => Partial<typeof store>)(store))
+      } else {
+        Object.assign(store, fn)
+      }
+    })
+    const get = vi.fn(() => store)
+    const actions = createPermissionActions(set as any, get as any)
+
+    await actions.handlePermissionAsked({
+      id: 'perm-parent-tool',
+      sessionID: 'session-1',
+      permission: 'bash',
+      patterns: ['ls'],
+      tool: {
+        messageID: 'msg-1',
+        callID: 'tool-1',
+      },
+    } as any)
+
+    expect(store.pendingPermissions).toHaveLength(1)
+    expect(store.pendingPermissions[0]).toMatchObject({
+      childSessionId: null,
+      permission: { id: 'perm-parent-tool', sessionID: 'session-1' },
+    })
+  })
+
   it('pollPermissions queues all outstanding child permissions instead of only the first one', async () => {
     const { createPermissionActions } = await import('@/stores/session-permissions')
     const { getSessionById } = await import('@/stores/session-cache')

@@ -556,10 +556,15 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         const client = getOpenCodeClient();
         const session = get().sessions.find((s) => s.id === id);
         const directory = session?.directory;
+        const wasActiveSession = get().activeSessionId === id;
         await client.archiveSession(id, directory);
 
         // Clean up cache for archived session
         sessionDataCache.delete(id);
+        if (wasActiveSession) {
+          cleanupAllChildSessions();
+          useStreamingStore.getState().clearStreaming();
+        }
 
         set((state) => {
           const newSessions = state.sessions.filter((s) => s.id !== id);
@@ -575,9 +580,13 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
             sessions: newSessions,
             pinnedSessionIds,
             pendingQuestions: state.pendingQuestions.filter((q) => q.sessionId !== id),
-            pendingPermissions: state.pendingPermissions.filter((entry) => entry.childSessionId !== id),
+            pendingPermissions: state.pendingPermissions.filter(
+              (entry) => entry.childSessionId !== id && entry.permission.sessionID !== id,
+            ),
             pendingQuestionIdsBySession,
             sessionStatuses,
+            sessionStatus: wasActiveSession ? null : state.sessionStatus,
+            sessionError: wasActiveSession ? null : state.sessionError,
             activeSessionId:
               state.activeSessionId === id
                 ? (newSessions[0]?.id ?? null)
