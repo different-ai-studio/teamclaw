@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tantivy = "0.22"
+tantivy = "0.26"
 tree-sitter = "0.26"
 tree-sitter-rust = "0.23"
 tree-sitter-typescript = "0.23"
