@@ -105,7 +105,11 @@ fn compress_image(bytes: &[u8], max_bytes: usize) -> Result<Vec<u8>, String> {
     Err("Could not compress image small enough".into())
 }
 
-/// Detect MIME type from file magic bytes
+/// Detect MIME type from file magic bytes.
+///
+/// Returns `application/zip` for OOXML (xlsx/docx/pptx) since the magic alone
+/// cannot distinguish OOXML subtypes — callers should prefer the filename hint
+/// (see `resolve_mime`) to recover the precise OOXML type.
 fn detect_mime_from_magic(bytes: &[u8]) -> Option<String> {
     if bytes.len() < 4 {
         return None;
@@ -124,10 +128,74 @@ fn detect_mime_from_magic(bytes: &[u8]) -> Option<String> {
     // Documents
     } else if bytes.starts_with(b"%PDF") {
         Some("application/pdf".into())
-    // MS Office (OOXML: docx, xlsx, pptx are ZIP archives)
+    // ZIP archive — local file header (\x03\x04), empty archive (\x05\x06),
+    // or spanned archive (\x07\x08). All OOXML files (xlsx/docx/pptx) start
+    // with the local file header form.
+    } else if bytes.starts_with(&[0x50, 0x4B, 0x03, 0x04])
+        || bytes.starts_with(&[0x50, 0x4B, 0x05, 0x06])
+        || bytes.starts_with(&[0x50, 0x4B, 0x07, 0x08])
+    {
+        Some("application/zip".into())
+    // Compound File Binary Format (legacy MS Office: .xls / .doc / .ppt)
+    } else if bytes.len() >= 8 && bytes[..8] == [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1] {
+        Some("application/x-cfb".into())
     } else {
         None
     }
+}
+
+/// Decide the MIME type for a downloaded media payload.
+///
+/// Tries the filename hint first because it can distinguish OOXML subtypes
+/// (xlsx vs docx vs pptx) that share identical ZIP magic bytes. Falls back
+/// to magic-byte detection, then to `application/octet-stream` — never to
+/// `image/png`, which previously caused Excel files to be saved as `.png`.
+fn resolve_mime(bytes: &[u8], filename_hint: Option<&str>) -> String {
+    filename_hint
+        .and_then(detect_mime_from_filename)
+        .or_else(|| detect_mime_from_magic(bytes))
+        .unwrap_or_else(|| "application/octet-stream".into())
+}
+
+/// File extension (without dot) for a known MIME type. Returns `bin` for
+/// unknown types so saved filenames don't end in something like `.sheet`.
+fn mime_to_ext(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
+        "application/pdf" => "pdf",
+        "application/msword" => "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        "application/vnd.ms-excel" => "xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "xlsx",
+        "application/vnd.ms-powerpoint" => "ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => "pptx",
+        "text/csv" => "csv",
+        "text/plain" => "txt",
+        "application/json" => "json",
+        "application/xml" => "xml",
+        "text/html" => "html",
+        "text/markdown" => "md",
+        "application/zip" => "zip",
+        _ => "bin",
+    }
+}
+
+/// Extract the lowercase extension from a filename, rejecting dotfiles
+/// (`.hidden`), trailing dots (`name.`), and non-alphanumeric extensions.
+fn ext_from_filename(filename: &str) -> Option<String> {
+    let (stem, ext) = filename.rsplit_once('.')?;
+    if stem.is_empty() || ext.is_empty() {
+        return None;
+    }
+    if !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some(ext.to_ascii_lowercase())
 }
 
 /// Infer MIME type from filename extension
@@ -1204,10 +1272,10 @@ impl WeComGateway {
             raw_bytes.to_vec()
         };
 
-        // Detect MIME from magic bytes, then filename, then default to image/png
-        let content_type = detect_mime_from_magic(&bytes)
-            .or_else(|| filename_hint.and_then(detect_mime_from_filename))
-            .unwrap_or_else(|| "image/png".to_string());
+        // Resolve MIME: filename hint first (precise for OOXML), magic bytes second,
+        // application/octet-stream as last resort. Defaulting to image/png caused
+        // Excel/Office files to be silently saved as .png — see ext_from_filename.
+        let content_type = resolve_mime(&bytes, filename_hint);
 
         println!(
             "[WeCom] Downloaded file: {} bytes (raw {}), mime={}, filename={:?}",
@@ -1305,8 +1373,14 @@ impl WeComGateway {
                 .await
             {
                 Ok((data_url, mime, raw_bytes)) => {
-                    // Save image to workspace so the UI can display it
-                    let ext = mime.split('/').next_back().unwrap_or("png");
+                    // Save attachment to workspace so the UI can display it.
+                    // Prefer the original filename's extension (precise for OOXML —
+                    // an xlsx mime contains "...spreadsheetml.sheet" so naive
+                    // `mime.split('/').next_back()` would yield ".sheet"); fall
+                    // back to a mime->ext lookup, then "bin".
+                    let ext = filename_hint
+                        .and_then(ext_from_filename)
+                        .unwrap_or_else(|| mime_to_ext(&mime).to_string());
                     let ts = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
@@ -2738,4 +2812,115 @@ pub async fn upload_and_send_media(
     gateway
         .send_media_to_chat(chatid, chat_type, &media_id, media_type)
         .await
+}
+
+#[cfg(test)]
+mod mime_tests {
+    use super::*;
+
+    const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    #[test]
+    fn magic_detects_png() {
+        let bytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        assert_eq!(detect_mime_from_magic(&bytes).as_deref(), Some("image/png"));
+    }
+
+    #[test]
+    fn magic_detects_zip_for_ooxml_local_file_header() {
+        // Every xlsx/docx/pptx file starts with the ZIP local file header.
+        let bytes = [0x50, 0x4B, 0x03, 0x04, 0x14, 0x00];
+        assert_eq!(
+            detect_mime_from_magic(&bytes).as_deref(),
+            Some("application/zip")
+        );
+    }
+
+    #[test]
+    fn magic_detects_legacy_office_compound_doc() {
+        let bytes = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0x00, 0x00];
+        assert_eq!(
+            detect_mime_from_magic(&bytes).as_deref(),
+            Some("application/x-cfb")
+        );
+    }
+
+    #[test]
+    fn filename_detects_xlsx() {
+        assert_eq!(
+            detect_mime_from_filename("report.xlsx").as_deref(),
+            Some(XLSX_MIME)
+        );
+    }
+
+    #[test]
+    fn resolve_mime_xlsx_with_filename_returns_ooxml_subtype() {
+        // PK header + filename → filename wins so we get the precise OOXML mime.
+        let bytes = [0x50, 0x4B, 0x03, 0x04];
+        assert_eq!(resolve_mime(&bytes, Some("quarterly.xlsx")), XLSX_MIME);
+    }
+
+    #[test]
+    fn resolve_mime_xlsx_without_filename_returns_zip_not_png() {
+        // Regression: previously fell to "image/png" because magic byte detection
+        // had no ZIP rule and there was no filename to fall back on.
+        let bytes = [0x50, 0x4B, 0x03, 0x04];
+        let mime = resolve_mime(&bytes, None);
+        assert_eq!(mime, "application/zip");
+        assert_ne!(mime, "image/png");
+    }
+
+    #[test]
+    fn resolve_mime_unknown_bytes_no_filename_returns_octet_stream() {
+        // Regression: previously defaulted to image/png.
+        let bytes = [0x00, 0x01, 0x02, 0x03];
+        assert_eq!(resolve_mime(&bytes, None), "application/octet-stream");
+    }
+
+    #[test]
+    fn resolve_mime_filename_without_extension_falls_through_to_magic() {
+        let bytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        assert_eq!(resolve_mime(&bytes, Some("noext")), "image/png");
+    }
+
+    #[test]
+    fn mime_to_ext_xlsx() {
+        assert_eq!(mime_to_ext(XLSX_MIME), "xlsx");
+    }
+
+    #[test]
+    fn mime_to_ext_unknown_returns_bin() {
+        assert_eq!(mime_to_ext("application/x-totally-unknown"), "bin");
+    }
+
+    #[test]
+    fn ext_from_filename_xlsx_with_chinese_stem() {
+        assert_eq!(ext_from_filename("Q3 报表.xlsx"), Some("xlsx".to_string()));
+    }
+
+    #[test]
+    fn ext_from_filename_uppercase_normalized() {
+        assert_eq!(ext_from_filename("DOC.PDF"), Some("pdf".to_string()));
+    }
+
+    #[test]
+    fn ext_from_filename_no_dot_returns_none() {
+        assert_eq!(ext_from_filename("noext"), None);
+    }
+
+    #[test]
+    fn ext_from_filename_dotfile_returns_none() {
+        assert_eq!(ext_from_filename(".hidden"), None);
+    }
+
+    #[test]
+    fn ext_from_filename_trailing_dot_returns_none() {
+        assert_eq!(ext_from_filename("name."), None);
+    }
+
+    #[test]
+    fn ext_from_filename_non_alphanumeric_extension_returns_none() {
+        // Defends against weird extensions that could break filename construction.
+        assert_eq!(ext_from_filename("foo.tar/gz"), None);
+    }
 }

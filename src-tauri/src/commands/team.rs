@@ -216,9 +216,7 @@ fn run_clone_with_partial_fallback(
             let _ = std::fs::remove_dir_all(&target_path);
         }
     }
-    eprintln!(
-        "[team_git_clone] Server rejected --filter=blob:none, falling back to full clone"
-    );
+    eprintln!("[team_git_clone] Server rejected --filter=blob:none, falling back to full clone");
     run_git(base_args, cwd)
 }
 
