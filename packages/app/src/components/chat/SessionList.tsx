@@ -9,6 +9,10 @@ import { useUIStore } from '@/stores/ui'
 import { useCronStore } from '@/stores/cron'
 import { cn } from '@/lib/utils'
 import { formatRelativeDate } from '@/lib/date-format'
+import {
+  resolvePendingPermissionActivityOwner,
+  resolvePendingQuestionActivityOwner,
+} from '@/lib/session-list-activity'
 
 interface SessionListProps {
   compact?: boolean
@@ -26,14 +30,21 @@ interface SessionListItemProps {
   children?: React.ReactNode
 }
 
-function SessionStatusIndicator({ compact }: { compact?: boolean }) {
+function SessionStatusIndicator({ compact, sessionId }: { compact?: boolean; sessionId: string }) {
   const { t } = useTranslation()
+  const sessions = useSessionStore(s => s.sessions)
   const sessionStatus = useSessionStore(s => s.sessionStatus)
   const pendingPermissions = useSessionStore(s => s.pendingPermissions)
   const pendingQuestions = useSessionStore(s => s.pendingQuestions)
   const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
+  const hasPendingPermission = pendingPermissions.some(
+    (entry) => resolvePendingPermissionActivityOwner(entry, sessions, sessionId) === sessionId,
+  )
+  const hasPendingQuestion = pendingQuestions.some(
+    (question) => resolvePendingQuestionActivityOwner(question, sessions, sessionId) === sessionId,
+  )
 
-  if (pendingPermissions.length > 0 || pendingQuestions.length > 0) {
+  if (hasPendingPermission || hasPendingQuestion) {
     return (
       <span className="shrink-0 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
         {t('chat.waitingForConfirmationShort', 'Waiting')}
@@ -93,7 +104,7 @@ const SessionListItem = React.memo(function SessionListItem({
                 {session.title}
               </span>
               {isActive ? (
-                <SessionStatusIndicator compact={compact} />
+                <SessionStatusIndicator compact={compact} sessionId={session.id} />
               ) : isHighlighted ? (
                 <span className="shrink-0 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
                   {t('chat.newSessionBadge', 'NEW')}

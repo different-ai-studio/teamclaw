@@ -90,6 +90,11 @@
     "skillRestartTitle": "Detected new skills",
     "skillRestartBody": "New or updated skills were detected. Please wait until skill generation is complete before restarting OpenCode.",
     "planningMoves": "Planning next moves",
+    "loadEarlierMessages": "Load {{count}} earlier messages",
+    "compaction": {
+      "title": "Context automatically compacted",
+      "inProgressTitle": "Compacting context automatically..."
+    },
     "analyzing": "Agent is analyzing and planning...",
     "generatingComponents": "Generating... ({{count}} components)",
     "thinking": "Thinking...",
@@ -404,6 +409,8 @@
     "allSessions": "All sessions",
     "pinToTop": "Pin to top",
     "unpin": "Unpin",
+    "awaitingConfirmation": "Awaiting confirmation",
+    "sessionRunning": "Running",
     "loadMore": "Load More",
     "loadingMore": "Loading...",
     "settings": "Settings",

@@ -25,6 +25,10 @@ import { trackEvent } from "@/stores/telemetry";
 import { syncSetSessionId } from "@/lib/opencode/sdk-sse";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
 import { useWorkspaceStore } from "@/stores/workspace";
+import {
+  resolvePendingPermissionActivityOwner,
+  resolvePendingQuestionActivityOwner,
+} from "@/lib/session-list-activity";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -180,6 +184,8 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
       trackEvent('message_sent');
 
       const now = Date.now();
+      const userMessageTimestamp = new Date(now);
+      const pendingAssistantTimestamp = new Date(now + 1);
 
       // Add optimistic user message
       const userMessage: Message = {
@@ -188,7 +194,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         role: "user",
         content: content.trim(),
         parts: [{ id: `part-${now}`, type: "text", content: content.trim() }],
-        timestamp: new Date(),
+        timestamp: userMessageTimestamp,
       };
 
       // If the session is already in retry, don't create a pending assistant
@@ -238,7 +244,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         role: "assistant",
         content: "",
         parts: [],
-        timestamp: new Date(),
+        timestamp: pendingAssistantTimestamp,
         isStreaming: true,
       };
 
@@ -401,6 +407,21 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
       const childSessionIds = Object.entries(childSessionStreaming || {})
         .filter(([, state]) => state.isStreaming)
         .map(([sessionId]) => sessionId);
+      const abortedSessionIds = new Set([activeSessionId, ...childSessionIds]);
+      const removeAbortedPendingInteractions = (state: SessionState) => ({
+        pendingQuestions: state.pendingQuestions.filter((question) => {
+          const owner = resolvePendingQuestionActivityOwner(question, state.sessions, activeSessionId);
+          return !owner || !abortedSessionIds.has(owner);
+        }),
+        pendingPermissions: state.pendingPermissions.filter((entry) => {
+          const owner = resolvePendingPermissionActivityOwner(entry, state.sessions, activeSessionId);
+          return (
+            (!owner || !abortedSessionIds.has(owner)) &&
+            (!entry.childSessionId || !abortedSessionIds.has(entry.childSessionId)) &&
+            (!entry.permission.sessionID || !abortedSessionIds.has(entry.permission.sessionID))
+          );
+        }),
+      });
 
       // Fallback: even if streamingMessageId is null (e.g. cleared by a race condition),
       // still force-clear all streaming/UI state so the user isn't stuck with a red button.
@@ -409,8 +430,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         clearMessageTimeout();
         useStreamingStore.getState().clearStreaming();
         set((state) => ({
-          pendingQuestions: [],
-          pendingPermissions: [],
+          ...removeAbortedPendingInteractions(state),
           sessionError: null,
           sessions: state.sessions.map((s) => ({
             ...s,
@@ -447,8 +467,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         useStreamingStore.getState().clearStreaming();
         cleanupAllChildSessions();
         set((state) => ({
-          pendingQuestions: [],
-          pendingPermissions: [],
+          ...removeAbortedPendingInteractions(state),
           sessions: state.sessions.map((s) => ({
             ...s,
             messages: s.messages.map((m) =>

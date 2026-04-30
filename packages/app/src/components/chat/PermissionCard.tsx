@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { resolvePendingPermissionActivityOwner } from "@/lib/session-list-activity"
 import { useSessionStore } from "@/stores/session"
 import type { PendingPermissionEntry, Session, ToolCallPermission } from "@/stores/session-types"
 
@@ -168,7 +169,12 @@ export function collectVisiblePermissions(
     : null
 
   const toolPermissions = collectToolPendingPermissions(activeSession)
-  const merged = [...toolPermissions, ...pendingPermissions]
+  const visiblePendingPermissions = activeSessionId
+    ? pendingPermissions.filter(
+        (entry) => resolvePendingPermissionActivityOwner(entry, sessions) === activeSessionId,
+      )
+    : pendingPermissions
+  const merged = [...toolPermissions, ...visiblePendingPermissions]
   const seen = new Set<string>()
 
   return merged.filter((entry) => {

@@ -43,6 +43,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { TrafficLights } from "@/components/ui/traffic-lights"
+import { buildSessionListActivityMap, type SessionListActivity } from "@/lib/session-list-activity"
 import {
   CommandDialog,
   CommandInput,
@@ -65,29 +66,25 @@ const WORKSPACE_QUICK_SECTIONS: {
   { id: 'rolesSkills', labelKey: 'settings.nav.rolesSkills', fallback: 'Roles & Skills', icon: Shapes, color: 'text-foreground' },
 ]
 
-// Status indicator for the active session in the sidebar
-function SidebarSessionStatusIndicator() {
+function SessionActivityBadge({ activity }: { activity?: SessionListActivity }) {
   const { t } = useTranslation()
-  const sessionStatus = useSessionStore(s => s.sessionStatus)
-  const pendingPermissions = useSessionStore(s => s.pendingPermissions)
-  const pendingQuestions = useSessionStore(s => s.pendingQuestions)
-  const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
-
-  if (pendingPermissions.length > 0 || pendingQuestions.length > 0) {
+  if (!activity) return null
+  if (activity.state === "running") {
     return (
-      <span className="shrink-0 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
-        {t('chat.waitingForConfirmationShort', 'Waiting')}
+      <Loader2
+        className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
+        aria-label={t("sidebar.sessionRunning", "Running")}
+      />
+    )
+  }
+
+  return (
+    <span className="min-w-0 shrink rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold leading-4 text-emerald-600">
+      <span className="block truncate">
+        {t("sidebar.awaitingConfirmation", "Awaiting confirmation")}
       </span>
-    )
-  }
-
-  if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry' || streamingMessageId) {
-    return (
-      <Loader2 className="shrink-0 h-3 w-3 animate-spin text-muted-foreground/70" />
-    )
-  }
-
-  return null
+    </span>
+  )
 }
 
 // Session search dialog component
@@ -672,6 +669,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const hasMoreSessions = useSessionStore(s => s.hasMoreSessions)
   const visibleSessionCount = useSessionStore(s => s.visibleSessionCount)
   const highlightedSessionIds = useSessionStore(s => s.highlightedSessionIds)
+  const sessionStatuses = useSessionStore(s => s.sessionStatuses) || {}
+  const pendingQuestionIdsBySession = useSessionStore(s => s.pendingQuestionIdsBySession) || {}
+  const pendingQuestions = useSessionStore(s => s.pendingQuestions) || []
+  const pendingPermissions = useSessionStore(s => s.pendingPermissions) || []
+  const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
+  const childSessionStreaming = useStreamingStore(s => s.childSessionStreaming)
   const archiveSession = useSessionStore(s => s.archiveSession)
   const updateSessionTitle = useSessionStore(s => s.updateSessionTitle)
   const toggleSessionPinned = useSessionStore(s => s.toggleSessionPinned)
@@ -706,6 +709,31 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const unpinnedSessions = React.useMemo(
     () => sessions.filter((session) => !pinnedSessionIds.includes(session.id)),
     [sessions, pinnedSessionIds],
+  )
+  const sessionActivityMap = React.useMemo(
+    () =>
+      buildSessionListActivityMap({
+        sessions: allSessions,
+        activeSessionId,
+        sessionStatuses,
+        pendingQuestionIdsBySession,
+        pendingQuestions,
+        pendingPermissions,
+        streamingMessageId,
+        streamingChildSessionIds: Object.values(childSessionStreaming)
+          .filter((state) => state?.isStreaming)
+          .map((state) => state.sessionId),
+      }),
+    [
+      activeSessionId,
+      allSessions,
+      childSessionStreaming,
+      pendingPermissions,
+      pendingQuestionIdsBySession,
+      pendingQuestions,
+      sessionStatuses,
+      streamingMessageId,
+    ],
   )
   
   const openSettings = useUIStore(s => s.openSettings)
@@ -799,13 +827,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     const isHighlighted = highlightedSessionIds.includes(session.id)
     const isRenaming = renamingSessionId === session.id
     const isPinned = pinnedSessionIds.includes(session.id)
+    const activity = sessionActivityMap.get(session.id)
 
     return (
       <SidebarMenuItem key={session.id}>
         <SidebarMenuButton
           isActive={session.id === activeSessionId}
           className={cn(
-            "h-auto py-1.5 transition-all duration-300",
+            "h-auto py-2 pr-8 transition-all duration-300",
             isWorkspaceUIVariant() &&
               session.id === activeSessionId &&
               "relative z-0 data-[active=true]:!bg-muted/40 data-[active=true]:font-medium before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:z-10 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary before:content-['']",
@@ -823,7 +852,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             handleStartRename(e, session.id)
           }}
         >
-          <div className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
+          <div className="flex flex-col items-start gap-1 flex-1 min-w-0">
             <div className="flex items-center gap-1.5 w-full">
               {isRenaming ? (
                 <SessionRenameInput
@@ -848,18 +877,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               )}
             </div>
             {!isRenaming && (
-              <div className="flex items-center gap-1.5 w-full">
-                <span className="text-[10px] text-muted-foreground">
+              <div className="flex min-w-0 items-center gap-2 w-full">
+                <span className="shrink-0 text-[10px] text-muted-foreground">
                   {formatDate(session.updatedAt)}
                   {session.messageCount !== undefined && (
                     <> · {t('chat.messageCountShort', { count: session.messageCount })}</>
                   )}
                 </span>
-                {session.id === activeSessionId && (
-                  <span className="ml-auto">
-                    <SidebarSessionStatusIndicator />
-                  </span>
-                )}
+                <SessionActivityBadge activity={activity} />
               </div>
             )}
           </div>
@@ -869,7 +894,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-1 bottom-1 h-5 w-5 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
+              className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
               onClick={(e) => e.stopPropagation()}
             >
               <Ellipsis className="h-3 w-3" />

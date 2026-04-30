@@ -135,4 +135,66 @@ describe("session-questions", () => {
     const toolCall = (state as any).sessions[0].messages[0].toolCalls[0];
     expect(toolCall.status).toBe("completed");
   });
+
+  it("upgrades child session questions on the active parent session", () => {
+    state.activeSessionId = "parent-1";
+    state.pendingQuestions = [
+      {
+        questionId: "",
+        toolCallId: "tc-child",
+        messageId: "msg-child",
+        sessionId: "child-1",
+        questions: [
+          {
+            id: "q-1",
+            header: "Child question",
+            question: "Continue child task?",
+            options: [{ label: "Yes", value: "yes" }],
+          },
+        ],
+      },
+    ];
+    state.sessions = [
+      { id: "parent-1", title: "Parent", messages: [] },
+      { id: "child-1", title: "Child", parentID: "parent-1", messages: [] },
+    ];
+    sessionDataCache.set("parent-1", {
+      todos: [],
+      diff: [],
+      pendingQuestions: state.pendingQuestions as any,
+    });
+
+    actions.handleQuestionAsked({
+      id: "event-child",
+      sessionId: "child-1",
+      questions: [
+        {
+          id: "q-1",
+          header: "Child question",
+          question: "Continue child task?",
+          options: [{ label: "Yes", value: "yes" }],
+        },
+      ],
+      tool: {
+        callId: "tc-child",
+        messageId: "msg-child",
+      },
+    });
+
+    expect((state as any).pendingQuestions).toEqual([
+      expect.objectContaining({
+        questionId: "event-child",
+        toolCallId: "tc-child",
+        messageId: "msg-child",
+        sessionId: "child-1",
+      }),
+    ]);
+    expect(sessionDataCache.get("parent-1")?.pendingQuestions).toEqual([
+      expect.objectContaining({
+        questionId: "event-child",
+        toolCallId: "tc-child",
+        sessionId: "child-1",
+      }),
+    ]);
+  });
 });

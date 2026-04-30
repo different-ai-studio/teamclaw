@@ -387,6 +387,17 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
       onKeyDown?.(e)
     }, [handleInput, onKeyDown])
 
+    const handleBeforeInput = React.useCallback((e: React.FormEvent<HTMLDivElement>) => {
+      const inputEvent = e.nativeEvent as InputEvent;
+      const data = inputEvent.data;
+      if (!data) return;
+      // Some desktop/webview input methods can surface arrow-key escape bytes as
+      // insertText. Text editing keys should move the caret, never mutate content.
+      if (/[\u0000-\u001f\u007f\ufffd]/.test(data)) {
+        e.preventDefault();
+      }
+    }, [])
+
     React.useEffect(() => {
       if (autoFocus && editableRef.current) {
         editableRef.current.focus()
@@ -397,7 +408,14 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
       <div
         ref={editableRef}
         contentEditable={!disabled}
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        data-gramm="false"
+        data-gramm_editor="false"
+        data-enable-grammarly="false"
         onInput={handleInput}
+        onBeforeInput={handleBeforeInput}
         onKeyDown={handleKeyDown}
         onClick={(e) => {
           // Handle chip remove button clicks

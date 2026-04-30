@@ -304,6 +304,7 @@ export class OpenCodeSSE {
     'error',
     'permission.asked',
     'permission.replied',
+    'question.asked',
   ])
 
   private handleEvent(event: OpenCodeSSEEvent): void {
@@ -490,6 +491,9 @@ export class OpenCodeSSE {
           callID?: string
           state?: { status: string; input: Record<string, unknown>; raw?: string }
           time?: { start: number; end?: number }
+          auto?: boolean
+          overflow?: boolean
+          completed?: boolean
         }
 
         if (OpenCodeSSE.debug()) console.log('[SSE] message.part.updated:', {
@@ -527,6 +531,15 @@ export class OpenCodeSSE {
             messageId: part.messageID,
             partId: part.id,
             type: part.type as 'step-start' | 'step-finish',
+          })
+        } else if (part.type === 'compaction') {
+          this.handlers.onMessagePartCreated?.({
+            messageId: part.messageID,
+            partId: part.id,
+            type: 'compaction',
+            auto: part.auto,
+            overflow: part.overflow,
+            completed: part.completed ?? true,
           })
         } else if (part.type === 'tool' || part.type === 'tool-call') {
           // Tool call event

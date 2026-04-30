@@ -19,23 +19,50 @@ import {
 } from "@/stores/streaming";
 import { sessionDataCache } from "./session-data-cache";
 import {
-} from "@/lib/terminal-interaction";
+  addPendingQuestionActivity,
+  pendingQuestionActivityKey,
+  removePendingQuestionActivity,
+  resolveSessionActivityOwner,
+} from "@/lib/session-list-activity";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
 
+function isSamePendingQuestion(existing: PendingQuestionState, incoming: PendingQuestionState): boolean {
+  if (incoming.questionId && existing.questionId === incoming.questionId) return true;
+  if (incoming.toolCallId && existing.toolCallId === incoming.toolCallId) return true;
+  return false;
+}
+
+function upsertPendingQuestion(
+  questions: PendingQuestionState[] | undefined,
+  incoming: PendingQuestionState,
+): PendingQuestionState[] {
+  const existing = questions || [];
+  return [
+    ...existing.filter((question) => !isSamePendingQuestion(question, incoming)),
+    incoming,
+  ].slice(-20);
+}
+
 export function createQuestionActions(set: SessionSet, get: SessionGet) {
   const clearPendingQuestion = (pendingQuestion: PendingQuestionState) => {
-    const { activeSessionId } = get();
+    const { activeSessionId, sessions } = get();
     const toolCallId = pendingQuestion.toolCallId;
+    const sessionId = pendingQuestion.sessionId || activeSessionId;
+    const ownerSessionId = resolveSessionActivityOwner(sessionId, sessions, activeSessionId);
+    const questionKey = pendingQuestionActivityKey(pendingQuestion);
 
-    if (activeSessionId) {
-      const cached = sessionDataCache.get(activeSessionId);
+    const cacheSessionIds = Array.from(
+      new Set([sessionId, ownerSessionId].filter(Boolean) as string[]),
+    );
+    for (const cacheSessionId of cacheSessionIds) {
+      const cached = sessionDataCache.get(cacheSessionId);
       if (cached) {
         const qs = (cached.pendingQuestions || []).filter(
-          (q) => q.questionId !== pendingQuestion.questionId,
+          (q) => !isSamePendingQuestion(q, pendingQuestion),
         );
-        sessionDataCache.set(activeSessionId, {
+        sessionDataCache.set(cacheSessionId, {
           ...cached,
           pendingQuestions: qs,
         });
@@ -60,7 +87,12 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
           : s,
       ),
       pendingQuestions: state.pendingQuestions.filter(
-        (q) => q.questionId !== pendingQuestion.questionId,
+        (q) => !isSamePendingQuestion(q, pendingQuestion),
+      ),
+      pendingQuestionIdsBySession: removePendingQuestionActivity(
+        state.pendingQuestionIdsBySession || {},
+        sessionId,
+        questionKey,
       ),
     }));
   };
@@ -113,7 +145,7 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
           error:
             error instanceof Error ? error.message : "Failed to answer question",
           pendingQuestions: state.pendingQuestions.filter(
-            (q) => q.questionId !== pendingQuestion.questionId,
+            (q) => !isSamePendingQuestion(q, pendingQuestion),
           ),
         }));
       }
@@ -154,7 +186,7 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
           error:
             error instanceof Error ? error.message : "Failed to skip question",
           pendingQuestions: state.pendingQuestions.filter(
-            (q) => q.questionId !== pendingQuestion.questionId,
+            (q) => !isSamePendingQuestion(q, pendingQuestion),
           ),
         }));
       }
@@ -166,10 +198,12 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
         set({ pendingQuestions: [] });
       } else {
         set((state) => ({
-          pendingQuestions: [
-            ...state.pendingQuestions.filter((q) => q.questionId !== question.questionId),
-            question,
-          ].slice(-20),
+          pendingQuestions: upsertPendingQuestion(state.pendingQuestions, question),
+          pendingQuestionIdsBySession: addPendingQuestionActivity(
+            state.pendingQuestionIdsBySession || {},
+            question.sessionId || state.activeSessionId,
+            pendingQuestionActivityKey(question),
+          ),
         }));
       }
     },
@@ -183,9 +217,13 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
         setActiveSession: navigateToSession,
       } = get();
       const { streamingMessageId } = useStreamingStore.getState();
+      const ownerSessionId = resolveSessionActivityOwner(event.sessionId, currentSessions, event.sessionId);
 
       const existing =
-        pendingQuestions.find((q) => q.toolCallId === event.tool?.callId) || null;
+        pendingQuestions.find((q) => q.toolCallId === event.tool?.callId) ||
+        sessionDataCache.get(event.sessionId)?.pendingQuestions?.find((q) => q.toolCallId === event.tool?.callId) ||
+        (ownerSessionId ? sessionDataCache.get(ownerSessionId)?.pendingQuestions?.find((q) => q.toolCallId === event.tool?.callId) : undefined) ||
+        null;
 
       console.log("[Session] Question asked:", event.id);
 
@@ -225,37 +263,39 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
         source: "opencode" as const,
       };
 
-      if (event.sessionId !== activeSessionId) {
-        // Cache the question for non-active sessions so it's restored on switch
-        const cached = sessionDataCache.get(event.sessionId) || { todos: [], diff: [] };
-        const existingQuestions = cached.pendingQuestions || [];
-        sessionDataCache.set(event.sessionId, {
+      const cacheQuestion = (sessionId: string | null | undefined) => {
+        if (!sessionId) return;
+        const cached = sessionDataCache.get(sessionId) || { todos: [], diff: [] };
+        sessionDataCache.set(sessionId, {
           ...cached,
-          pendingQuestions: [
-            ...existingQuestions.filter((q) => q.questionId !== questionData.questionId),
-            questionData,
-          ],
+          pendingQuestions: upsertPendingQuestion(cached.pendingQuestions, questionData),
         });
+      };
+
+      cacheQuestion(event.sessionId);
+      if (ownerSessionId !== event.sessionId) {
+        cacheQuestion(ownerSessionId);
+      }
+
+      if (ownerSessionId !== activeSessionId) {
+        set((state) => ({
+          pendingQuestionIdsBySession: addPendingQuestionActivity(
+            state.pendingQuestionIdsBySession || {},
+            event.sessionId,
+            pendingQuestionActivityKey(questionData),
+          ),
+        }));
         return;
       }
 
       set((state) => ({
-        pendingQuestions: [
-          ...state.pendingQuestions.filter((q) => q.questionId !== questionData.questionId),
-          questionData,
-        ].slice(-20),
+        pendingQuestions: upsertPendingQuestion(state.pendingQuestions, questionData),
+        pendingQuestionIdsBySession: addPendingQuestionActivity(
+          state.pendingQuestionIdsBySession || {},
+          event.sessionId,
+          pendingQuestionActivityKey(questionData),
+        ),
       }));
-
-      // Also save to cache so it survives session switching
-      const cachedActive = sessionDataCache.get(activeSessionId!) || { todos: [], diff: [] };
-      const activeQuestions = cachedActive.pendingQuestions || [];
-      sessionDataCache.set(activeSessionId!, {
-        ...cachedActive,
-        pendingQuestions: [
-          ...activeQuestions.filter((q) => q.questionId !== questionData.questionId),
-          questionData,
-        ],
-      });
 
       // If we have tool info, also update the tool call in the message
       if (event.tool && streamingMessageId) {

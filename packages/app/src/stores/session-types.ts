@@ -35,6 +35,7 @@ export type { PermissionAskedEvent };
 export interface PendingPermissionEntry {
   permission: PermissionAskedEvent;
   childSessionId: string | null;
+  ownerSessionId?: string | null;
   sourceToolName?: string | null;
   sourceToolCallId?: string | null;
 }
@@ -89,6 +90,9 @@ export interface MessagePart {
   type: string;
   content?: string;
   text?: string; // For reasoning type
+  auto?: boolean;
+  overflow?: boolean;
+  completed?: boolean;
   tool?: {
     name: string;
     id: string;
@@ -122,6 +126,14 @@ export interface Message {
   providerID?: string;
   agent?: string; // Agent/skill name from OpenCode
   retrievedChunks?: SearchResult[]; // RAG 检索到的文档片段
+  displayKind?: "compaction" | "compaction-summary" | "synthetic";
+  hidden?: boolean;
+  parentID?: string;
+  compaction?: {
+    auto?: boolean;
+    overflow?: boolean;
+    completed?: boolean;
+  };
 }
 
 export interface Session {
@@ -184,6 +196,7 @@ export interface SessionState {
 
   // Pending questions (from question tool; multiple concurrent)
   pendingQuestions: PendingQuestionState[];
+  pendingQuestionIdsBySession: Record<string, string[] | undefined>;
 
   // Todo list (from todowrite tool)
   todos: Todo[];
@@ -196,6 +209,7 @@ export interface SessionState {
 
   // Session status (mirrors OpenCode's server-side session status)
   sessionStatus: SessionStatusInfo | null;
+  sessionStatuses: Record<string, SessionStatusInfo | undefined>;
 
   // childSessionStreaming — moved to streaming.ts (useStreamingStore)
 

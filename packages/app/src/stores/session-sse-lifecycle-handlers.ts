@@ -45,6 +45,12 @@ import {
   cleanupChildSession,
 } from "@/stores/streaming";
 import { workspacePathsMatch } from "./session-utils";
+import {
+  removeSessionActivityEntries,
+  resolvePendingPermissionActivityOwner,
+  resolvePendingQuestionActivityOwner,
+  updateSessionStatusEntry,
+} from "@/lib/session-list-activity";
 
 // --- Retry timeout ---
 // Safety net: if OpenCode keeps retrying beyond this duration,
@@ -58,6 +64,15 @@ const clearRetryTimeout = () => {
     retryTimeoutTimer = null;
   }
 };
+
+function isContextOverflowMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("input exceeds context window") ||
+    (lower.includes("context window") &&
+      (lower.includes("exceed") || lower.includes("overflow") || lower.includes("full")))
+  );
+}
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -290,6 +305,10 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         ...(event.status.type === 'retry' ? { attempt: event.status.attempt, message: event.status.message } : {}),
       });
 
+      set((state) => ({
+        sessionStatuses: updateSessionStatusEntry(state.sessionStatuses || {}, event.sessionId, event.status),
+      }));
+
       const isKnownChildSession =
         !!childSessionStreaming[event.sessionId] ||
         get().sessions.some((session) => session.id === event.sessionId && !!session.parentID);
@@ -322,6 +341,10 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
             pendingQuestions: state.pendingQuestions.filter(
               (q) => q.sessionId !== event.sessionId,
             ),
+            pendingQuestionIdsBySession: removeSessionActivityEntries(
+              state.pendingQuestionIdsBySession || {},
+              event.sessionId,
+            ),
           }));
           get().loadChildSessionMessages(event.sessionId);
         }
@@ -343,6 +366,18 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         // Check if this error is non-retryable (quota, plan limits, auth, etc.)
         // These will never succeed no matter how many times we retry.
         const retryMsg = (status.message || "").toLowerCase();
+        if (isContextOverflowMessage(retryMsg)) {
+          set((state) => ({
+            sessionStatus: status,
+            sessionError:
+              state.sessionError?.error?.data?.message &&
+              isContextOverflowMessage(String(state.sessionError.error.data.message))
+                ? null
+                : state.sessionError,
+          }));
+          return;
+        }
+
         const isNonRetryable =
           retryMsg.includes("quota") ||
           retryMsg.includes("not support model") ||
@@ -375,6 +410,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
             return {
               sessions: newSessions,
               sessionStatus: { type: 'idle' as const },
+              sessionStatuses: updateSessionStatusEntry(state.sessionStatuses || {}, event.sessionId, { type: 'idle' }),
               sessionError: {
                 sessionId: event.sessionId,
                 error: {
@@ -459,6 +495,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
                 return {
                   sessions: newSessions,
                   sessionStatus: { type: 'idle' as const },
+                  sessionStatuses: updateSessionStatusEntry(state.sessionStatuses || {}, event.sessionId, { type: 'idle' }),
                 };
               });
             }
@@ -489,24 +526,23 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
             if (activeSessionId) updateSessionCache(newSessions);
             return {
               sessionStatus: status,
+              sessionStatuses: updateSessionStatusEntry(state.sessionStatuses || {}, event.sessionId, status),
               sessionError: null,
               sessions: newSessions,
-              pendingPermissions: [],
-              pendingQuestions: [],
             };
           });
         } else {
           set((state) => ({
             sessionStatus: status,
+            sessionStatuses: updateSessionStatusEntry(state.sessionStatuses || {}, event.sessionId, status),
             sessionError: state.sessionError?.error?.name === 'RetryError' ? null : state.sessionError,
-            pendingPermissions: [],
-            pendingQuestions: [],
           }));
         }
       } else {
         clearRetryTimeout();
         set((state) => ({
           sessionStatus: status,
+          sessionStatuses: updateSessionStatusEntry(state.sessionStatuses || {}, event.sessionId, status),
           ...(state.sessionStatus?.type === 'retry' ? { sessionError: null } : {}),
         }));
       }
@@ -519,6 +555,9 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
     handleSessionIdle: (event: SessionIdleEvent) => {
       clearRetryTimeout();
       busySessions.delete(event.sessionId);
+      set((state) => ({
+        sessionStatuses: updateSessionStatusEntry(state.sessionStatuses || {}, event.sessionId, { type: "idle" }),
+      }));
 
       const { 
         activeSessionId, 
@@ -533,11 +572,25 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         // CRITICAL: Do NOT clear streaming if session is waiting for user interaction
         // When AI asks a question or requests permission, OpenCode sends session.idle
         // but the session is still active (waiting for user response)
-        if (pendingQuestions.length > 0 || pendingPermissions.length > 0) {
+        const hasPendingQuestionForActiveSession = pendingQuestions.some(
+          (question) =>
+            resolvePendingQuestionActivityOwner(question, currentSessions, activeSessionId) === activeSessionId,
+        );
+        const hasPendingPermissionForActiveSession = pendingPermissions.some(
+          (permission) =>
+            resolvePendingPermissionActivityOwner(permission, currentSessions, activeSessionId) === activeSessionId,
+        );
+        if (hasPendingQuestionForActiveSession || hasPendingPermissionForActiveSession) {
           console.log("[SessionIdle] Session waiting for user interaction, preserving streaming state:", {
             streamingMessageId,
-            pendingQuestionsCount: pendingQuestions.length,
-            pendingPermissionsCount: pendingPermissions.length,
+            pendingQuestionsCount: pendingQuestions.filter(
+              (question) =>
+                resolvePendingQuestionActivityOwner(question, currentSessions, activeSessionId) === activeSessionId,
+            ).length,
+            pendingPermissionsCount: pendingPermissions.filter(
+              (permission) =>
+                resolvePendingPermissionActivityOwner(permission, currentSessions, activeSessionId) === activeSessionId,
+            ).length,
           });
           // Keep streaming state active so:
           // 1. Typewriter continues if there's buffered content
@@ -656,6 +709,17 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
 
       const errorMsg = event.error?.data?.message || "";
       const errorName = event.error?.name || "";
+      if (isContextOverflowMessage(errorMsg)) {
+        console.log("[Session] Context overflow transition suppressed; OpenCode will compact and continue");
+        const errorSessionId = event.sessionId || activeSessionId;
+        set((state) => ({
+          sessionError: null,
+          sessionStatuses: errorSessionId
+            ? removeSessionActivityEntries(state.sessionStatuses || {}, errorSessionId)
+            : state.sessionStatuses,
+        }));
+        return;
+      }
       if (
         errorMsg.toLowerCase().includes("aborted") ||
         errorName === "AbortError"

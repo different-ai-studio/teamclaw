@@ -12,11 +12,21 @@ const mockClearSelection = vi.fn()
 const mockSetFileModeRightTab = vi.fn()
 
 // Mutable state refs for stores
-let mockSessions: Array<{ id: string; title: string; updatedAt: string | Date; messageCount?: number }> = []
+let mockSessions: Array<{ id: string; title: string; updatedAt: string | Date; messageCount?: number; parentID?: string }> = []
 let mockActiveSessionId: string | null = null
 let mockIsLoading = false
 let mockHighlightedSessionIds: string[] = []
 let mockLayoutMode = 'task'
+let mockPendingPermissions: Array<{
+  permission: { id: string; sessionID?: string; permission: string; patterns?: string[] }
+  childSessionId: string | null
+  ownerSessionId?: string | null
+}> = []
+let mockPendingQuestions: Array<{ questionId: string; toolCallId: string; messageId: string; sessionId?: string; questions: unknown[] }> = []
+let mockSessionStatus: { type: 'idle' | 'busy' | 'retry' } | null = null
+let mockStreamingMessageId: string | null = null
+let mockCronSessionIds = new Set<string>()
+let mockShowCronSessions = false
 
 vi.mock('@/stores/session', () => ({
   useSessionStore: (selector: (s: unknown) => unknown) =>
@@ -25,6 +35,9 @@ vi.mock('@/stores/session', () => ({
       activeSessionId: mockActiveSessionId,
       isLoading: mockIsLoading,
       highlightedSessionIds: mockHighlightedSessionIds,
+      pendingPermissions: mockPendingPermissions,
+      pendingQuestions: mockPendingQuestions,
+      sessionStatus: mockSessionStatus,
       setActiveSession: mockSetActiveSession,
     }),
 }))
@@ -64,12 +77,17 @@ vi.mock('@/stores/session', () => ({
         activeSessionId: mockActiveSessionId,
         isLoading: mockIsLoading,
         highlightedSessionIds: mockHighlightedSessionIds,
+        pendingPermissions: mockPendingPermissions,
+        pendingQuestions: mockPendingQuestions,
+        sessionStatus: mockSessionStatus,
         setActiveSession: mockSetActiveSession,
       }),
     {
       getState: () => ({
         activeSessionId: mockActiveSessionId,
         setActiveSession: mockSetActiveSession,
+        viewingChildSessionId: null,
+        setViewingChildSession: vi.fn(),
       }),
     },
   ),
@@ -88,6 +106,19 @@ vi.mock('@/stores/ui', () => ({
   ),
 }))
 
+vi.mock('@/stores/streaming', () => ({
+  useStreamingStore: (selector: (s: unknown) => unknown) =>
+    selector({ streamingMessageId: mockStreamingMessageId }),
+}))
+
+vi.mock('@/stores/cron', () => ({
+  useCronStore: (selector: (s: unknown) => unknown) =>
+    selector({
+      cronSessionIds: mockCronSessionIds,
+      showCronSessions: mockShowCronSessions,
+    }),
+}))
+
 describe('SessionList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -96,6 +127,12 @@ describe('SessionList', () => {
     mockIsLoading = false
     mockHighlightedSessionIds = []
     mockLayoutMode = 'task'
+    mockPendingPermissions = []
+    mockPendingQuestions = []
+    mockSessionStatus = null
+    mockStreamingMessageId = null
+    mockCronSessionIds = new Set<string>()
+    mockShowCronSessions = false
   })
 
   it('renders a list of sessions', () => {
@@ -121,5 +158,29 @@ describe('SessionList', () => {
     mockSessions = []
     render(<SessionList />)
     expect(screen.getByText('No conversations yet')).toBeTruthy()
+  })
+
+  it('does not show active waiting badge for pending approval owned by another session', () => {
+    mockSessions = [
+      { id: 'sess-1', title: 'Waiting Session', updatedAt: new Date().toISOString() },
+      { id: 'sess-2', title: 'Active Session', updatedAt: new Date().toISOString() },
+    ]
+    mockActiveSessionId = 'sess-2'
+    mockPendingPermissions = [
+      {
+        permission: {
+          id: 'perm-1',
+          sessionID: 'sess-1',
+          permission: 'bash',
+          patterns: ['ls'],
+        },
+        childSessionId: null,
+        ownerSessionId: 'sess-1',
+      },
+    ]
+
+    render(<SessionList />)
+
+    expect(screen.queryByText('Waiting')).toBeNull()
   })
 })

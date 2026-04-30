@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Copy, Loader2 } from "lucide-react";
+import { Check, Copy, Loader2, ScrollText } from "lucide-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { cn, copyToClipboard } from "@/lib/utils";
 import { type Message as StoreMessage, useSessionStore, getSessionById } from "@/stores/session";
@@ -169,6 +169,39 @@ export const ChatMessage = React.memo(function ChatMessage({
     !latestMessage.isStreaming &&
     Boolean(textContent) &&
     !(tokenGroupInfo?.hideTokenUsage ?? false);
+
+  if (latestMessage.hidden || latestMessage.displayKind === "synthetic" || latestMessage.displayKind === "compaction-summary") {
+    return null;
+  }
+
+  if (latestMessage.displayKind === "compaction") {
+    const completed = latestMessage.compaction?.completed !== false;
+    const title = completed
+      ? t("chat.compaction.title", "Context automatically compacted")
+      : t("chat.compaction.inProgressTitle", "Compacting context automatically...");
+
+    return (
+      <div
+        className="group/msg my-4 flex items-center gap-3 text-muted-foreground"
+        data-testid="chat-message"
+        data-message-role={message.role}
+        data-message-kind="compaction"
+      >
+        <div className="h-px min-w-8 flex-1 bg-border/80" />
+        <div className="flex min-w-0 max-w-[70%] items-center gap-2 text-sm font-medium text-muted-foreground">
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+            {completed ? (
+              <ScrollText className="h-4 w-4" />
+            ) : (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
+          </span>
+          <span className="truncate">{title}</span>
+        </div>
+        <div className="h-px min-w-8 flex-1 bg-border/80" />
+      </div>
+    );
+  }
 
   return (
     <div className={cn("group/msg", isToolCallOnly ? "mb-0.5" : "mb-1.5")} data-testid="chat-message" data-message-role={message.role}>

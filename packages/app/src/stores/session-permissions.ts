@@ -8,6 +8,8 @@ import { shouldAutoAuthorize } from "@/lib/permission-policy";
 import type { PermissionAskedEvent } from "@/lib/opencode/sdk-types";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type {
+  PendingPermissionEntry,
+  Session,
   ToolCallPermission,
   SessionState,
 } from "./session-types";
@@ -19,6 +21,9 @@ import {
   pendingPermissionBuffer,
   attachPermissionToToolCall,
 } from "./session-internals";
+import {
+  resolveSessionActivityOwner,
+} from "@/lib/session-list-activity";
 
 /**
  * Cache of permission config from opencode.json.
@@ -176,17 +181,165 @@ async function persistAllowlistRule(perm: PermissionAskedEvent): Promise<void> {
 }
 
 export function createPermissionActions(set: SessionSet, get: SessionGet) {
+  type PermissionSessionClassification = {
+    isChild: boolean;
+    childSessionId: string | null;
+    ownerSessionId: string | null;
+  };
+  type SessionLookupInfo = Pick<Session, "id" | "parentID"> & {
+    time?: { archived?: number | null };
+  };
+
+  const isArchivedSession = (session: SessionLookupInfo | null | undefined) =>
+    Boolean(session?.time?.archived);
+
+  const appendLookupSession = (
+    sessions: Pick<Session, "id" | "parentID">[],
+    session: SessionLookupInfo | null | undefined,
+  ) => {
+    if (!session?.id || sessions.some((item) => item.id === session.id)) {
+      return sessions;
+    }
+    return [...sessions, { id: session.id, parentID: session.parentID }];
+  };
+
   const classifyPermissionSession = (sessionId: string | undefined | null) => {
     const { activeSessionId, sessions } = get();
     if (!sessionId || sessionId === activeSessionId) {
-      return { isChild: false, childSessionId: null as string | null };
+      return {
+        isChild: false,
+        childSessionId: null as string | null,
+        ownerSessionId: sessionId || activeSessionId,
+      };
     }
 
     const knownSession =
       sessions.find((session) => session.id === sessionId) ||
       getSessionById(sessionId);
-    const isChild = !knownSession || !!knownSession.parentID;
-    return { isChild, childSessionId: isChild ? sessionId : null };
+    if (knownSession?.parentID) {
+      const sessionsWithKnown = sessions.some((session) => session.id === knownSession.id)
+        ? sessions
+        : [...sessions, knownSession];
+      const ownerSessionId = resolveSessionActivityOwner(
+        sessionId,
+        sessionsWithKnown,
+        knownSession.parentID,
+      );
+      return { isChild: true, childSessionId: sessionId, ownerSessionId };
+    }
+    if (knownSession) {
+      return { isChild: false, childSessionId: null as string | null, ownerSessionId: sessionId };
+    }
+
+    return { isChild: true, childSessionId: sessionId, ownerSessionId: null };
+  };
+
+  const resolvePermissionSession = async (
+    sessionId: string | undefined | null,
+  ): Promise<PermissionSessionClassification> => {
+    const knownClassification = classifyPermissionSession(sessionId);
+    if (!sessionId || knownClassification.ownerSessionId) {
+      return knownClassification;
+    }
+
+    const client = getOpenCodeClient();
+    let sessionInfo: SessionLookupInfo | null = null;
+    try {
+      sessionInfo = await client.getSession(sessionId) as SessionLookupInfo;
+    } catch {
+      return knownClassification;
+    }
+
+    if (!sessionInfo || isArchivedSession(sessionInfo)) {
+      return knownClassification;
+    }
+
+    if (!sessionInfo.parentID) {
+      return { isChild: false, childSessionId: null, ownerSessionId: sessionId };
+    }
+
+    const { sessions } = get();
+    const cachedParent =
+      sessions.find((session) => session.id === sessionInfo.parentID) ||
+      getSessionById(sessionInfo.parentID);
+    let parentInfo = cachedParent as SessionLookupInfo | null | undefined;
+    if (!parentInfo) {
+      try {
+        parentInfo = await client.getSession(sessionInfo.parentID) as SessionLookupInfo;
+      } catch {
+        parentInfo = null;
+      }
+    }
+    if (!parentInfo || isArchivedSession(parentInfo)) {
+      return knownClassification;
+    }
+
+    const ownerSessions = appendLookupSession(
+      appendLookupSession(sessions, sessionInfo),
+      parentInfo,
+    );
+    const ownerSessionId = resolveSessionActivityOwner(
+      sessionId,
+      ownerSessions,
+      sessionInfo.parentID,
+    );
+    return { isChild: true, childSessionId: sessionId, ownerSessionId };
+  };
+
+  const queuePermission = (
+    event: PermissionAskedEvent,
+    classification: PermissionSessionClassification,
+  ) => {
+    if (!classification.ownerSessionId) return false;
+
+    const entry: PendingPermissionEntry = {
+      permission: event,
+      childSessionId: classification.childSessionId,
+      ownerSessionId: classification.ownerSessionId,
+    };
+
+    set((state) => ({
+      pendingPermissions: [
+        ...state.pendingPermissions.filter((e) => e.permission.id !== event.id),
+        entry,
+      ].slice(-20), // Safety cap
+    }));
+
+    if (event.tool?.callID && !classification.isChild) {
+      const attached = attachPermissionToToolCall(event);
+      if (!attached) {
+        pendingPermissionBuffer.set(event.tool.callID, event);
+      }
+    }
+
+    return true;
+  };
+
+  const sendPermissionNotification = (event: PermissionAskedEvent) => {
+    const {
+      sessions: currentSessions,
+      setActiveSession: navigateToSession,
+    } = get();
+    const session = currentSessions.find((s) => s.id === event.sessionID);
+    const sessionTitle = session?.title || "Session";
+    const permissionType = event.permission || "unknown";
+
+    notificationService.send(
+      "action_required",
+      `${buildConfig.app.name} - Authorization required`,
+      `${sessionTitle} \u2014 requesting ${permissionType} permission`,
+      event.sessionID,
+      async () => {
+        try {
+          await navigateToSession(event.sessionID);
+          const appWindow = getCurrentWindow();
+          await appWindow.setFocus();
+          await appWindow.unminimize();
+        } catch {
+          // Ignore focus errors
+        }
+      },
+    );
   };
 
   return {
@@ -218,50 +371,21 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
         return;
       }
 
-      const {
-        sessions: currentSessions,
-        setActiveSession: navigateToSession,
-      } = get();
-
-      const { isChild, childSessionId } = classifyPermissionSession(event.sessionID);
-
-      if (event.tool?.callID && !isChild) {
-        const attached = attachPermissionToToolCall(event);
-        if (!attached) {
-          pendingPermissionBuffer.set(event.tool.callID, event);
+      const { isChild, childSessionId, ownerSessionId } = classifyPermissionSession(event.sessionID);
+      if (ownerSessionId) {
+        if (queuePermission(event, { isChild, childSessionId, ownerSessionId })) {
+          sendPermissionNotification(event);
         }
-      } else {
-        set((state) => ({
-          pendingPermissions: [
-            ...state.pendingPermissions.filter((e) => e.permission.id !== event.id),
-            { permission: event, childSessionId },
-          ].slice(-20), // Safety cap
-        }));
+        return;
       }
 
-      // Send notification for permission requests
-      {
-        const session = currentSessions.find((s) => s.id === event.sessionID);
-        const sessionTitle = session?.title || "Session";
-        const permissionType = event.permission || "unknown";
-
-        notificationService.send(
-          "action_required",
-          `${buildConfig.app.name} - Authorization required`,
-          `${sessionTitle} \u2014 requesting ${permissionType} permission`,
-          event.sessionID,
-          async () => {
-            try {
-              await navigateToSession(event.sessionID);
-              const appWindow = getCurrentWindow();
-              await appWindow.setFocus();
-              await appWindow.unminimize();
-            } catch {
-              // Ignore focus errors
-            }
-          },
-        );
-      }
+      resolvePermissionSession(event.sessionID).then((resolved) => {
+        if (queuePermission(event, resolved)) {
+          sendPermissionNotification(event);
+        }
+      }).catch(() => {
+        // Ignore stale permission events for sessions that no longer exist.
+      });
     },
 
     replyPermission: async (
@@ -418,10 +542,15 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
           if (remaining.length === 0) return;
         }
 
+        const stalePermissionIds = new Set<string>();
         for (const permission of permissions) {
-          const { isChild, childSessionId } = classifyPermissionSession(permission.sessionID);
+          const classification = await resolvePermissionSession(permission.sessionID);
+          if (!classification.ownerSessionId) {
+            stalePermissionIds.add(permission.id);
+            continue;
+          }
 
-          if (permission.tool?.callID && !isChild) {
+          if (permission.tool?.callID && !classification.isChild) {
             const session = getSessionById(activeSessionId);
             const alreadyAttached = session?.messages.some((m) =>
               m.toolCalls?.some((tc) => tc.permission?.id === permission.id),
@@ -432,7 +561,6 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
                 pendingPermissionBuffer.set(permission.tool.callID, permission);
               }
             }
-            continue;
           }
 
           const { pendingPermissions } = get();
@@ -441,10 +569,22 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
             set((state) => ({
               pendingPermissions: [
                 ...state.pendingPermissions,
-                { permission, childSessionId },
+                {
+                  permission,
+                  childSessionId: classification.childSessionId,
+                  ownerSessionId: classification.ownerSessionId,
+                },
               ].slice(-20),
             }));
           }
+        }
+
+        if (stalePermissionIds.size > 0) {
+          set((state) => ({
+            pendingPermissions: state.pendingPermissions.filter(
+              (entry) => !stalePermissionIds.has(entry.permission.id),
+            ),
+          }));
         }
       } catch {
         // Silently ignore polling errors

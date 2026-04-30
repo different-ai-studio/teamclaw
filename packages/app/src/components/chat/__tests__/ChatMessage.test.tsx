@@ -182,4 +182,48 @@ describe('ChatMessage', () => {
     // First child should contain thinking-related content (Brain icon or "Thinking" text)
     expect(firstChild?.textContent).toMatch(/Thinking|analyzing/i);
   });
+
+  it('renders completed compaction messages as a divider row without copy actions', () => {
+    const message = makeMessage({
+      id: 'msg-compaction',
+      role: 'user',
+      content: '',
+      displayKind: 'compaction',
+      compaction: { auto: true, overflow: true, completed: true },
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+
+    expect(container.textContent).toContain('Context automatically compacted');
+    expect(container.textContent).not.toContain('Copy');
+    expect(container.querySelector('[data-message-kind="compaction"]')).toBeTruthy();
+  });
+
+  it('renders in-progress compaction messages with a pending title', () => {
+    const message = makeMessage({
+      id: 'msg-compaction-pending',
+      role: 'user',
+      content: '',
+      displayKind: 'compaction',
+      compaction: { auto: true, overflow: true, completed: false },
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+
+    expect(container.textContent).toContain('Compacting context automatically...');
+  });
+
+  it('does not render hidden synthetic messages', () => {
+    const message = makeMessage({
+      id: 'msg-hidden',
+      role: 'user',
+      content: 'hidden text',
+      displayKind: 'synthetic',
+      hidden: true,
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+
+    expect(container.textContent).toBe('');
+  });
 });

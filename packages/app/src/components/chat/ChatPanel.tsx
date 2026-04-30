@@ -15,6 +15,7 @@ import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
+import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
@@ -173,13 +174,19 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     ];
   }, [childSessionMessages, childStreamingContent, viewingChildSessionId]);
   const activeInputQuestion = React.useMemo(() => {
+    if (!activeSessionId) return null;
     if (isViewingChild) return null;
     return (
-      pendingQuestions.find((question) => !question.sessionId || question.sessionId === activeSessionId) ||
-      pendingQuestions[0] ||
+      pendingQuestions.find((question) => {
+        if (!question.sessionId) return true;
+        return (
+          resolveSessionActivityOwner(question.sessionId, sessions, question.sessionId) ===
+          activeSessionId
+        );
+      }) ||
       null
     );
-  }, [activeSessionId, isViewingChild, pendingQuestions]);
+  }, [activeSessionId, isViewingChild, pendingQuestions, sessions]);
 
   // Actions — accessed via getState() to avoid creating subscriptions.
   // Zustand actions are stable references; subscribing to them wastes equality checks.
@@ -773,14 +780,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         compact ? "h-full w-full relative" : "absolute inset-0",
       )}
     >
-      {/* Connection status indicator */}
-      {!isConnected && activeSessionId && (
-        <div className="absolute top-2 right-2 z-20 flex items-center gap-2 rounded-full bg-yellow-100 px-3 py-1 text-xs text-yellow-800">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          {t("chat.connecting", "Connecting...")}
-        </div>
-      )}
-
       {hasSkillRestartPrompt && (
         <div className="absolute top-2 left-1/2 z-20 flex w-[min(92vw,640px)] -translate-x-1/2 items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 shadow-sm">
           <AlertCircle className="h-4 w-4 shrink-0 text-sky-600" />

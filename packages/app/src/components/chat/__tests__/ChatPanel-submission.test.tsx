@@ -386,14 +386,14 @@ describe('ChatPanel submission flow', () => {
   });
 
   describe('connection status', () => {
-    it('shows connecting indicator when disconnected with active session', async () => {
+    it('does not show a connection indicator in the message area when disconnected', async () => {
       mockSessionState.isConnected = false;
       mockSessionState.activeSessionId = 'sess-1';
 
       const { ChatPanel } = await import('../ChatPanel');
       render(React.createElement(ChatPanel));
 
-      expect(screen.getByText('Connecting...')).toBeDefined();
+      expect(screen.queryByText('Connecting...')).toBeNull();
     });
 
     it('does not show connecting indicator when connected', async () => {
@@ -518,6 +518,50 @@ describe('ChatPanel submission flow', () => {
       expect(screen.getByTestId('question-input-dock')).toBeTruthy();
       expect(screen.getByText('你希望我接下来做什么？')).toBeTruthy();
       expect(screen.getByText('继续测试')).toBeTruthy();
+    });
+
+    it('renders a child session question dock while viewing the parent session', async () => {
+      mockSessionState.activeSessionId = 'parent-1';
+      mockSessionState.sessions = [
+        {
+          id: 'parent-1',
+          title: 'Parent session',
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'child-1',
+          title: 'Child session',
+          parentID: 'parent-1',
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+      mockSessionState.pendingQuestions = [
+        {
+          questionId: 'question-event-child',
+          toolCallId: 'tool-call-child',
+          messageId: 'message-child',
+          sessionId: 'child-1',
+          questions: [
+            {
+              id: 'q-1',
+              header: '子任务确认',
+              question: '子任务需要你确认什么？',
+              options: [{ label: '继续', value: 'continue' }],
+            },
+          ],
+        },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(screen.queryByTestId('chat-input-area')).toBeNull();
+      expect(screen.getByTestId('question-input-dock')).toBeTruthy();
+      expect(screen.getByText('子任务需要你确认什么？')).toBeTruthy();
     });
 
     it('skips the active question from the question dock', async () => {

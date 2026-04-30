@@ -242,13 +242,12 @@ describe('ChatPanel', () => {
     expect(container.firstChild).not.toBeNull();
   });
 
-  it('shows connection-related text when isConnected is false', () => {
+  it('does not render the transient connection badge inside the message area', () => {
     sessionState.isConnected = false;
     sessionState.activeSessionId = 'sess-1';
 
     const { container } = render(<ChatPanel />);
-    // When isConnected is false and there's an active session, the connecting indicator shows
-    expect(container.textContent).toContain('Connecting');
+    expect(container.textContent).not.toContain('Connecting');
   });
 
   it('renders streaming child session content before child messages finish loading', () => {
@@ -269,6 +268,6 @@ describe('ChatPanel', () => {
     const { container } = render(<ChatPanel />);
 
     expect(container.textContent).toContain('Child stream in progress');
-    expect(container.textContent).toContain('返回主会话');
+    expect(container.textContent).toContain('Back to main session');
   });
 });

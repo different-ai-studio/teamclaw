@@ -90,6 +90,11 @@
     "skillRestartTitle": "检测到新技能",
     "skillRestartBody": "检测到新增或更新的技能。请等待 skills 生成完成后再进行重启。",
     "planningMoves": "规划下一步",
+    "loadEarlierMessages": "加载前 {{count}} 条消息",
+    "compaction": {
+      "title": "已自动压缩上下文",
+      "inProgressTitle": "正在自动压缩上下文..."
+    },
     "analyzing": "助手正在分析规划...",
     "generatingComponents": "生成中... ({{count}} 个组件)",
     "thinking": "思考中...",
@@ -404,6 +409,8 @@
     "allSessions": "全部会话",
     "pinToTop": "固定到顶部",
     "unpin": "取消固定",
+    "awaitingConfirmation": "等待确认",
+    "sessionRunning": "运行中",
     "loadMore": "加载更多",
     "loadingMore": "加载中...",
     "settings": "设置",
