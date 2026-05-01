@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { TEAM_REPO_DIR } from "@/lib/build-config"
-import { buildSkillInvocationName, loadAllSkills, getSourceDirHint } from "../skill-loader"
+import { buildSkillInvocationName, loadAllSkills, getSourceDirHint, readConfigSkillPaths } from "../skill-loader"
 
 const mockExists = vi.fn()
 const mockReadDir = vi.fn()
@@ -89,6 +89,44 @@ describe("skill-loader dynamic team paths (from opencode.json)", () => {
     const teamSkills = skills.filter((s) => s.source === "team")
 
     expect(teamSkills.some((s) => s.filename === "home-skill")).toBe(true)
+  })
+
+  it("resolves Windows absolute skill paths without prefixing the workspace", async () => {
+    const workspacePath = "C:\\Users\\alice\\project"
+    const absoluteDir = "D:\\shared\\skills"
+
+    mockExists.mockImplementation((path: string) => {
+      if (path === `${workspacePath}/opencode.json`) return Promise.resolve(true)
+      return Promise.resolve(false)
+    })
+    mockReadTextFile.mockImplementation((path: string) => {
+      if (path === `${workspacePath}/opencode.json`) {
+        return Promise.resolve(opencodejson([absoluteDir]))
+      }
+      return Promise.resolve("")
+    })
+
+    await expect(readConfigSkillPaths(workspacePath)).resolves.toEqual([absoluteDir])
+  })
+
+  it("resolves Windows home-relative skill paths", async () => {
+    const workspacePath = "C:\\Users\\alice\\project"
+    mockHomeDir.mockResolvedValue("C:\\Users\\alice")
+
+    mockExists.mockImplementation((path: string) => {
+      if (path === `${workspacePath}/opencode.json`) return Promise.resolve(true)
+      return Promise.resolve(false)
+    })
+    mockReadTextFile.mockImplementation((path: string) => {
+      if (path === `${workspacePath}/opencode.json`) {
+        return Promise.resolve(opencodejson(["~\\shared-skills"]))
+      }
+      return Promise.resolve("")
+    })
+
+    await expect(readConfigSkillPaths(workspacePath)).resolves.toEqual([
+      "C:\\Users\\alice\\shared-skills",
+    ])
   })
 
   it("contributes zero team skills when opencode.json has no skills.paths", async () => {
@@ -201,6 +239,11 @@ describe("skill-loader dynamic team paths (from opencode.json)", () => {
   it("builds namespaced invocation names for bundled skills only", () => {
     expect(buildSkillInvocationName("/home/user/.agents/skills", "brainstorming")).toBe("brainstorming")
     expect(buildSkillInvocationName("/home/user/.agents/skills/superpowers", "brainstorming")).toBe("superpowers/brainstorming")
+  })
+
+  it("builds invocation names from Windows paths", () => {
+    expect(buildSkillInvocationName("C:\\Users\\alice\\.agents\\skills", "brainstorming")).toBe("brainstorming")
+    expect(buildSkillInvocationName("C:\\Users\\alice\\.agents\\skills\\superpowers", "brainstorming")).toBe("superpowers/brainstorming")
   })
 
   it("getSourceDirHint(team) shows opencode.json config reference", () => {

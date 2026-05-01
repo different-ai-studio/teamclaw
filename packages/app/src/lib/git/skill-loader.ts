@@ -21,7 +21,24 @@ function extractSkillName(content: string, fallback: string): string {
 }
 
 function getLastPathSegment(path: string): string {
-  return path.replace(/\/+$/, '').split('/').pop() || ''
+  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || ''
+}
+
+function trimTrailingPathSeparators(path: string): string {
+  return path.replace(/[\\/]+$/, '')
+}
+
+function trimLeadingPathSeparators(path: string): string {
+  return path.replace(/^[\\/]+/, '')
+}
+
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+function joinPath(parent: string, child: string): string {
+  const separator = parent.includes('\\') ? '\\' : '/'
+  return `${trimTrailingPathSeparators(parent)}${separator}${trimLeadingPathSeparators(child)}`
 }
 
 export function buildSkillInvocationName(parentDir: string, filename: string): string {
@@ -119,15 +136,16 @@ export async function readConfigSkillPaths(workspacePath: string): Promise<strin
     const config = JSON.parse(content)
     const rawPaths: unknown[] = config?.skills?.paths ?? []
     const home = await homeDir()
+    const normalizedHome = trimTrailingPathSeparators(home)
     return rawPaths
       .filter((p): p is string => typeof p === 'string')
-      .map((p) =>
-        p.startsWith('~/') || p === '~'
-          ? p.replace(/^~/, home.replace(/\/$/, ''))
-          : p.startsWith('/')
-            ? p
-            : `${workspacePath}/${p}`,
-      )
+      .map((p) => {
+        if (p === '~') return normalizedHome
+        if (/^~[\\/]/.test(p)) {
+          return joinPath(normalizedHome, p.slice(2))
+        }
+        return isAbsolutePath(p) ? p : joinPath(workspacePath, p)
+      })
   } catch {
     return []
   }
@@ -135,7 +153,7 @@ export async function readConfigSkillPaths(workspacePath: string): Promise<strin
 
 /** Return all known skill directories for the current workspace/user context. */
 export async function getSkillDirectories(workspacePath: string | null): Promise<string[]> {
-  const home = (await homeDir()).replace(/\/$/, '')
+  const home = trimTrailingPathSeparators(await homeDir())
   const dirs = new Set<string>([
     `${home}/.config/opencode/skills`,
     `${home}/.claude/skills`,
@@ -282,7 +300,13 @@ export async function loadAllSkills(
     for (const dirPath of configPaths) {
       const skills = await loadSkillsFromDir(dirPath, 'team')
       // Determine if path is global (starts with ~/ or absolute home path)
-      const isGlobalPath = dirPath.startsWith(home) || dirPath.includes('.config/opencode') || dirPath.includes('.claude') || dirPath.includes('.agents')
+      const normalizedDirPath = dirPath.replace(/\\/g, '/')
+      const normalizedHome = home.replace(/\\/g, '/')
+      const isGlobalPath =
+        normalizedDirPath.startsWith(normalizedHome) ||
+        normalizedDirPath.includes('.config/opencode') ||
+        normalizedDirPath.includes('.claude') ||
+        normalizedDirPath.includes('.agents')
       for (const s of skills) pushSkill({ ...s, isGlobal: isGlobalPath })
     }
   }
