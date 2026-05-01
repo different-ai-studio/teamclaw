@@ -9,6 +9,14 @@ function parseSlashToken(body: string): { type: 'role' | 'skill' | 'command'; na
   return { type: 'skill', name: body }
 }
 
+function containsControlInput(value: string) {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f || code === 0xfffd) return true
+  }
+  return false
+}
+
 interface EditableWithFileChipsProps {
   value?: string
   onChange?: (value: string) => void
@@ -393,7 +401,7 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
       if (!data) return;
       // Some desktop/webview input methods can surface arrow-key escape bytes as
       // insertText. Text editing keys should move the caret, never mutate content.
-      if (/[\u0000-\u001f\u007f\ufffd]/.test(data)) {
+      if (containsControlInput(data)) {
         e.preventDefault();
       }
     }, [])

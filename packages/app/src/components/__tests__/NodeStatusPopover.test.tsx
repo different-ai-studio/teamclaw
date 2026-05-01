@@ -25,6 +25,45 @@ const teamMembersStoreMock = vi.hoisted(() => ({
   loadCurrentNodeId: vi.fn(),
 }))
 
+vi.mock('react-i18next', () => ({
+  useTranslation: (() => {
+    const translations: Record<string, string> = {
+      'common.justNow': 'Just now',
+      'common.never': 'Never',
+      'nodeStatus.connected': 'Connected',
+      'nodeStatus.degraded': 'Degraded',
+      'nodeStatus.disconnected': 'Disconnected',
+      'nodeStatus.engine': 'Engine',
+      'nodeStatus.lastSync': 'Last sync',
+      'nodeStatus.online': 'Online',
+      'nodeStatus.pendingFiles': 'Pending files',
+      'nodeStatus.reconnecting': 'Reconnecting...',
+      'nodeStatus.restarts': 'Restarts',
+      'nodeStatus.syncedFiles': 'Synced files',
+      'nodeStatus.thisDevice': 'This device',
+      'nodeStatus.unknown': 'Unknown',
+    }
+    const t = (key: string, options?: string | { count?: number }) => {
+      const count = typeof options === 'object' ? options.count ?? 0 : 0
+      if (key === 'nodeStatus.teamMembers') return `Team Members (${count})`
+      if (key === 'nodeStatus.secondsAgo') return `${count}s ago`
+      if (key === 'nodeStatus.minutesAgoShort') return `${count}m ago`
+      if (key === 'nodeStatus.hoursAgoShort') return `${count}h ago`
+      if (key === 'nodeStatus.daysAgoShort') return `${count}d ago`
+      if (key === 'nodeStatus.staleSeconds') return `${count}s ago`
+      if (key === 'nodeStatus.staleMinutes') return `${count}m ago`
+      if (key === 'nodeStatus.offlineSeconds') return `${count}s offline`
+      if (key === 'nodeStatus.offlineMinutes') return `${count}m offline`
+      if (key === 'nodeStatus.offlineHours') return `${count}h offline`
+      return translations[key] ?? (typeof options === 'string' ? options : key)
+    }
+    return () => ({
+      i18n: { language: 'en' },
+      t,
+    })
+  })(),
+}))
+
 vi.mock('@/stores/p2p-engine', () => ({
   useP2pEngineStore: (sel: (s: Record<string, unknown>) => unknown) =>
     sel(p2pEngineStoreMock as unknown as Record<string, unknown>),

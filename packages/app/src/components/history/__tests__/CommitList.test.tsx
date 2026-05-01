@@ -3,6 +3,19 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { CommitList } from '../CommitList'
 import type { GitLogEntry } from '@/lib/git/types'
 
+vi.mock('react-i18next', () => ({
+  useTranslation: (() => {
+    const t = (key: string, fallback?: string) =>
+      ({
+        'sidebar.loadMore': '加载更多',
+      })[key] ?? fallback ?? key
+    return () => ({
+      i18n: { language: 'zh-CN' },
+      t,
+    })
+  })(),
+}))
+
 const sample: GitLogEntry[] = [
   {
     sha: 'a'.repeat(40),

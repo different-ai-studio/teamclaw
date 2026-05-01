@@ -9,6 +9,35 @@ const { mockListCommands, mockLoadAllSkills, mockReadSkillPermissions, mockLoadA
   mockLoadAllRoles: vi.fn(),
 }))
 
+vi.mock('react-i18next', () => ({
+  useTranslation: (() => {
+    const t = (key: string, options?: string | { count?: number; query?: string }) => {
+      if (key === 'chat.commandPopover.roles') {
+        return `Roles (${typeof options === 'object' ? options.count ?? 0 : 0})`
+      }
+      if (key === 'chat.commandPopover.skills') {
+        return `Skills (${typeof options === 'object' ? options.count ?? 0 : 0})`
+      }
+      if (key === 'chat.commandPopover.commands') {
+        return `Commands (${typeof options === 'object' ? options.count ?? 0 : 0})`
+      }
+      if (key === 'chat.commandPopover.itemCount') {
+        const count = typeof options === 'object' ? options.count ?? 0 : 0
+        return `${count} items`
+      }
+      if (key === 'chat.commandPopover.noMatch') {
+        const query = typeof options === 'object' ? options.query ?? '' : ''
+        return `No matches for "${query}"`
+      }
+      return typeof options === 'string' ? options : key
+    }
+    return () => ({
+      i18n: { language: 'en' },
+      t,
+    })
+  })(),
+}))
+
 vi.mock('@/lib/utils', async () => {
   const actual = await vi.importActual<typeof import('@/lib/utils')>('@/lib/utils')
   return {
