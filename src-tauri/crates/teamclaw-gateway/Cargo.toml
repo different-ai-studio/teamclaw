@@ -13,6 +13,7 @@ native-tls = "0.2"
 mail-parser = "0.9"
 lettre = { version = "0.11", features = ["native-tls", "smtp-transport"] }
 yup-oauth2 = "12"
+webbrowser = "1"
 flate2 = "1"
 
 # WebSocket-based gateways (Kook, Feishu, WeChat, WeCom)

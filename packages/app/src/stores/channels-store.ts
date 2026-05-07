@@ -96,6 +96,7 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
   emailHasChanges: false,
   emailIsTesting: false,
   emailTestResult: null,
+  gmailAuthUrl: null,
 
   // Compose all channel actions
   ...createDiscordActions(set),

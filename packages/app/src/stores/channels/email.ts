@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import type {
   EmailConfig,
   EmailGatewayStatusResponse,
@@ -125,11 +126,18 @@ export function createEmailActions(set: ChannelsSet) {
     },
 
     gmailAuthorize: async (clientId: string, clientSecret: string, email: string) => {
-      set({ emailIsLoading: true, emailTestResult: null })
+      set({ emailIsLoading: true, emailTestResult: null, gmailAuthUrl: null })
+      // The Rust command emits `gmail-auth-url` once yup_oauth2 has the auth URL.
+      // We surface it on state so the UI can show it for manual copy/paste in
+      // case the system browser fails to auto-open.
+      const unlisten = await listen<string>('gmail-auth-url', (event) => {
+        set({ gmailAuthUrl: event.payload })
+      })
       try {
         await invoke<string>('gmail_authorize', { clientId, clientSecret, email })
         set({
           emailIsLoading: false,
+          gmailAuthUrl: null,
           emailTestResult: {
             success: true,
             message: 'Gmail authorized successfully',
@@ -140,12 +148,15 @@ export function createEmailActions(set: ChannelsSet) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         set({
           emailIsLoading: false,
+          gmailAuthUrl: null,
           emailTestResult: {
             success: false,
             message: errorMessage,
           },
         })
         return false
+      } finally {
+        unlisten()
       }
     },
 

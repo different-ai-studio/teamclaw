@@ -92,6 +92,42 @@ const GMAIL_SCOPE: &str = "https://mail.google.com/";
 /// Token file name stored in workspace TEAMCLAW_DIR
 const TOKEN_FILE_NAME: &str = "email-tokens.json";
 
+// ==================== OAuth2 Flow Delegate ====================
+
+/// Type-erased callback for delivering the auth URL to the caller (e.g. so
+/// the UI can display it for manual copy/paste if `webbrowser::open` fails).
+pub type AuthUrlCallback = Box<dyn Fn(&str) + Send + Sync + 'static>;
+
+/// Custom `InstalledFlowDelegate` that opens the auth URL in the system
+/// browser AND forwards it to a caller-provided callback. The default
+/// delegate from yup-oauth2 only `println!`s the URL to stdout, which is
+/// invisible inside a packaged Tauri desktop app.
+struct BrowserOpenerDelegate {
+    on_url: AuthUrlCallback,
+}
+
+impl yup_oauth2::authenticator_delegate::InstalledFlowDelegate for BrowserOpenerDelegate {
+    fn present_user_url<'a>(
+        &'a self,
+        url: &'a str,
+        _need_code: bool,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<String, String>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            (self.on_url)(url);
+            // Best-effort browser open. If it fails (no default browser, sandbox,
+            // etc.), the URL is still surfaced via on_url for manual copy/paste.
+            if let Err(e) = webbrowser::open(url) {
+                eprintln!("[Gmail OAuth] Failed to open browser: {}", e);
+            }
+            // HTTPRedirect flow doesn't need a code from the user; the local
+            // listener captures the redirect.
+            Ok(String::new())
+        })
+    }
+}
+
 // ==================== OAuth2 Token Manager ====================
 
 /// Manages Gmail OAuth2 tokens with auto-refresh
@@ -130,14 +166,17 @@ impl GmailTokenManager {
         }
     }
 
-    /// Perform the OAuth2 authorization flow (opens browser)
-    async fn authorize(&self) -> Result<String, String> {
+    /// Perform the OAuth2 authorization flow. The provided callback receives
+    /// the auth URL when the flow is ready to present it; the default delegate
+    /// will also try to open it in the system browser.
+    async fn authorize(&self, on_url: AuthUrlCallback) -> Result<String, String> {
         let secret = self.build_secret();
         let auth = yup_oauth2::InstalledFlowAuthenticator::builder(
             secret,
             yup_oauth2::InstalledFlowReturnMethod::HTTPRedirect,
         )
         .persist_tokens_to_disk(&self.token_path)
+        .flow_delegate(Box::new(BrowserOpenerDelegate { on_url }))
         .build()
         .await
         .map_err(|e| format!("Failed to build authenticator: {}", e))?;
@@ -430,9 +469,10 @@ impl EmailGateway {
         client_secret: &str,
         email: &str,
         workspace_path: &str,
+        on_url: AuthUrlCallback,
     ) -> Result<String, String> {
         let token_manager = GmailTokenManager::new(client_id, client_secret, email, workspace_path);
-        token_manager.authorize().await
+        token_manager.authorize(on_url).await
     }
 
     pub async fn check_gmail_auth(workspace_path: &str) -> bool {

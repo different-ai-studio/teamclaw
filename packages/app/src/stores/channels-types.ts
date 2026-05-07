@@ -306,6 +306,10 @@ export interface ChannelsState {
   emailHasChanges: boolean
   emailIsTesting: boolean
   emailTestResult: { success: boolean; message: string } | null
+  /// Set when a Gmail OAuth flow is in progress and yup_oauth2 has produced
+  /// the auth URL. Surfaced so the UI can display it for manual copy/paste
+  /// when the system browser fails to auto-open. Cleared when the flow ends.
+  gmailAuthUrl: string | null
 
   // KOOK state
   kook: KookConfig | null

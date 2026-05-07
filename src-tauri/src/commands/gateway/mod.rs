@@ -5,7 +5,7 @@ pub use teamclaw_gateway::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::opencode::OpenCodeState;
 
@@ -558,17 +558,25 @@ pub async fn test_email_connection(email: email_config::EmailConfig) -> Result<S
     EmailGateway::test_connection(&email).await
 }
 
-/// Authorize Gmail OAuth2 (opens browser)
+/// Authorize Gmail OAuth2. Opens the auth URL in the system browser AND
+/// emits a `gmail-auth-url` event with the URL so the UI can display it
+/// for manual copy/paste (in case the browser auto-open fails).
 #[tauri::command]
 pub async fn gmail_authorize(
     client_id: String,
     client_secret: String,
     email: String,
+    app: AppHandle,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
 
-    EmailGateway::gmail_authorize(&client_id, &client_secret, &email, &workspace_path).await
+    let app_for_callback = app.clone();
+    let on_url: teamclaw_gateway::AuthUrlCallback = Box::new(move |url: &str| {
+        let _ = app_for_callback.emit("gmail-auth-url", url.to_string());
+    });
+
+    EmailGateway::gmail_authorize(&client_id, &client_secret, &email, &workspace_path, on_url).await
 }
 
 /// Check if Gmail OAuth2 tokens exist
