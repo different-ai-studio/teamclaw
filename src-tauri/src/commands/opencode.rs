@@ -877,6 +877,27 @@ const KNOWN_TRIPLES: &[&str] = &[
     "aarch64-pc-windows-msvc",
 ];
 
+/// Resolve a candidate executable path, checking with and (on Windows) without
+/// `.exe` extension. Returns the first variant that exists on disk.
+///
+/// Tauri's `externalBin` mechanism appends `.exe` on Windows when bundling, and
+/// `cargo build` outputs `<name>.exe` on Windows in dev. Path joins in this file
+/// generally omit the extension, so this helper bridges that.
+fn resolve_executable(path: std::path::PathBuf) -> Option<std::path::PathBuf> {
+    if path.exists() {
+        return Some(path);
+    }
+    if cfg!(windows) {
+        let mut with_exe = path.into_os_string();
+        with_exe.push(".exe");
+        let with_exe = std::path::PathBuf::from(with_exe);
+        if with_exe.exists() {
+            return Some(with_exe);
+        }
+    }
+    None
+}
+
 /// Ensure opencode.json exists and has a `permission` section with TeamClaw defaults.
 ///
 /// OpenCode's built-in default is `"*": "allow"` (everything auto-approved).
@@ -1011,18 +1032,18 @@ fn ensure_inherent_config(workspace_path: &str) -> Result<(), String> {
                     let dev_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                         .join("binaries")
                         .join(format!("teamclaw-introspect-{}", triple));
-                    if dev_path.exists() {
-                        return Some(dev_path.to_string_lossy().to_string());
+                    if let Some(p) = resolve_executable(dev_path) {
+                        return Some(p.to_string_lossy().to_string());
                     }
                     // Production: sidecar is next to the main exe
                     // Tauri may strip the triple suffix when bundling
                     let prod_path_with_triple = dir.join(format!("teamclaw-introspect-{}", triple));
-                    if prod_path_with_triple.exists() {
-                        return Some(prod_path_with_triple.to_string_lossy().to_string());
+                    if let Some(p) = resolve_executable(prod_path_with_triple) {
+                        return Some(p.to_string_lossy().to_string());
                     }
                     let prod_path = dir.join("teamclaw-introspect");
-                    if prod_path.exists() {
-                        return Some(prod_path.to_string_lossy().to_string());
+                    if let Some(p) = resolve_executable(prod_path) {
+                        return Some(p.to_string_lossy().to_string());
                     }
                     None
                 });
@@ -1866,8 +1887,8 @@ fn resolve_sidecar_binary_paths(workspace_path: &str) -> Result<(), String> {
                                     let abs_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                                         .join("binaries")
                                         .join(format!("teamclaw-introspect-{}", target_triple));
-                                    if abs_path.exists() {
-                                        let new_cmd = abs_path.to_string_lossy().to_string();
+                                    if let Some(resolved) = resolve_executable(abs_path) {
+                                        let new_cmd = resolved.to_string_lossy().to_string();
                                         println!(
                                             "[OpenCode] Resolved MCP '{}' binary: {} -> {}",
                                             name, cmd_str, new_cmd
