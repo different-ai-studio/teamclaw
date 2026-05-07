@@ -244,8 +244,8 @@ export function CommandPopover({
         e.preventDefault()
         e.stopPropagation()
         setHighlightedIndex(i => (i - 1 + allItems.length) % allItems.length)
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        if (e.isComposing || e.keyCode === 229) return
+      } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+        if (e.key === "Enter" && (e.isComposing || e.keyCode === 229)) return
         e.preventDefault()
         e.stopPropagation()
         const item = allItems[highlightedIndex]
@@ -409,7 +409,7 @@ export function CommandPopover({
         {/* Hint bar */}
         <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] text-muted-foreground/60 border-t">
           <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> {t('chat.commandPopover.navigate', 'navigate')}</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵</kbd> {t('chat.commandPopover.select', 'select')}</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵/Tab</kbd> {t('chat.commandPopover.select', 'select')}</span>
           <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Esc</kbd> {t('chat.commandPopover.close', 'close')}</span>
         </div>
       </div>

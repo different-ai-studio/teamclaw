@@ -107,6 +107,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Session store selectors (reactive state only) ────────────────────
   const activeSessionId = useSessionStore(s => s.activeSessionId);
   const error = useSessionStore(s => s.error);
+  const errorSessionId = useSessionStore(s => s.errorSessionId);
   const isConnected = useSessionStore(s => s.isConnected);
   const streamingMessageId = useStreamingStore(s => s.streamingMessageId);
   const messageQueue = useSessionStore(s => s.messageQueue);
@@ -812,6 +813,29 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     </div>
   ), [compact, t, suggestions, handleSuggestionClick]);
 
+  const visibleSessionError =
+    sessionError?.sessionId && sessionError.sessionId === displaySessionId
+      ? sessionError
+      : null;
+  const visibleError =
+    error && errorSessionId && errorSessionId === displaySessionId
+      ? error
+      : null;
+
+  const messageBottomContent = !isViewingChild ? (
+    visibleSessionError ? (
+      <SessionErrorAlert
+        error={visibleSessionError}
+        onDismiss={clearSessionError}
+      />
+    ) : visibleError ? (
+      <SessionErrorAlert
+        error={visibleError}
+        onDismiss={() => setError(null)}
+      />
+    ) : null
+  ) : null;
+
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
@@ -977,6 +1001,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             streamingMessageId={streamingMessageId}
             compact={compact}
             emptyState={emptyState}
+            bottomContent={messageBottomContent}
           />
         )}
       </div>
@@ -1036,18 +1061,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
                   />
                 ) : null}
                 <PendingPermissionInline />
-                {sessionError && (
-                  <SessionErrorAlert
-                    error={sessionError}
-                    onDismiss={clearSessionError}
-                  />
-                )}
-                {error && !sessionError && (
-                  <SessionErrorAlert
-                    error={error}
-                    onDismiss={() => setError(null)}
-                  />
-                )}
               </>
             }
           />

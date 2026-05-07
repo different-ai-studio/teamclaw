@@ -175,8 +175,8 @@ export function FileMentionPopover({
         e.preventDefault()
         e.stopPropagation()
         setHighlightedIndex(i => (i - 1 + filteredEntries.length) % filteredEntries.length)
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        if (e.isComposing || e.keyCode === 229) return
+      } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+        if (e.key === "Enter" && (e.isComposing || e.keyCode === 229)) return
         e.preventDefault()
         e.stopPropagation()
         const entry = filteredEntries[highlightedIndex]
@@ -257,7 +257,7 @@ export function FileMentionPopover({
       {/* Hint bar */}
       <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] text-muted-foreground/60 border-t">
         <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> navigate</span>
-        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵</kbd> select</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵/Tab</kbd> select</span>
         <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Esc</kbd> close</span>
       </div>
     </div>

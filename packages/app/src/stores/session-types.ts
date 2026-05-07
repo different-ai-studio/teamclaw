@@ -182,6 +182,7 @@ export interface SessionState {
   hasMoreSessions: boolean; // Whether there are more sessions to show
   visibleSessionCount: number; // How many sessions are currently visible in sidebar
   error: string | null;
+  errorSessionId: string | null;
   isConnected: boolean;
 
   // Selected model
@@ -323,7 +324,7 @@ export interface SessionState {
 
   // Actions - Connection
   setConnected: (connected: boolean) => void;
-  setError: (error: string | null) => void;
+  setError: (error: string | null, sessionId?: string | null) => void;
   setInactivityWarning: (active: boolean) => void;
 
   // Getters

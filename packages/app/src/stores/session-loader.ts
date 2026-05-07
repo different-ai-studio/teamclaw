@@ -90,7 +90,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
 
     // Load all sessions from OpenCode, filtered by workspace directory
     loadSessions: async (workspacePath?: string) => {
-      set({ isLoading: true, error: null, isLoadingMore: false });
+      set({ isLoading: true, error: null, errorSessionId: null, isLoadingMore: false });
       try {
         const client = getOpenCodeClient();
         const sessions = await client.listSessions(
@@ -351,7 +351,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         });
       }
 
-      set({ isLoading: true, error: null });
+      set({ isLoading: true, error: null, errorSessionId: null });
       try {
         const client = getOpenCodeClient();
         const newSession = await client.createSession();

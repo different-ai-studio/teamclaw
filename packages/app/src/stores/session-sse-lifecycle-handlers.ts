@@ -797,7 +797,7 @@ export function createLifecycleHandlers(set: SessionSet, get: SessionGet) {
         }
         useStreamingStore.getState().clearStreaming();
         return {
-          sessionError: event,
+          sessionError: { ...event, sessionId: errorSessionId },
           sessions: newSessions,
         };
       });

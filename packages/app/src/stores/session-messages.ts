@@ -393,6 +393,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
           return {
             error:
               error instanceof Error ? error.message : "Failed to send message",
+            errorSessionId: activeSessionId,
             sessions: newSessions,
           };
         });

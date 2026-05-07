@@ -46,6 +46,19 @@ vi.mock('@/lib/utils', async () => {
   }
 })
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, fallbackOrOptions?: string | { count?: number }) => {
+      if (typeof fallbackOrOptions === 'string') return fallbackOrOptions
+      if (key === 'chat.commandPopover.roles') return `Roles (${fallbackOrOptions?.count})`
+      if (key === 'chat.commandPopover.skills') return `Skills (${fallbackOrOptions?.count})`
+      if (key === 'chat.commandPopover.commands') return `Commands (${fallbackOrOptions?.count})`
+      if (key === 'chat.commandPopover.itemCount') return `${fallbackOrOptions?.count} items`
+      return key
+    },
+  }),
+}))
+
 vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
     listCommands: mockListCommands,
@@ -117,6 +130,35 @@ describe('CommandPopover', () => {
         description: 'Brainstorm first',
       }),
     )
+  })
+
+  it('selects the highlighted item with Tab', async () => {
+    const onSelect = vi.fn()
+    const onOpenChange = vi.fn()
+
+    render(
+      <CommandPopover
+        open={true}
+        onOpenChange={onOpenChange}
+        searchQuery="brain"
+        onSelect={onSelect}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('brainstorming')).toBeTruthy()
+    })
+
+    fireEvent.keyDown(document, { key: 'Tab' })
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'superpowers/brainstorming',
+        description: 'Brainstorm first',
+        _type: 'skill',
+      }),
+    )
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('shows roles in a dedicated group and selects a role mention', async () => {

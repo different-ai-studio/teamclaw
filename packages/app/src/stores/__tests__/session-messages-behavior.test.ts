@@ -225,6 +225,7 @@ describe('session store: message behavior', () => {
       const state = useSessionStore.getState();
       // Error should be set
       expect(state.error).toBe('Network failure');
+      expect(state.errorSessionId).toBe('sess-1');
       // Pending assistant message should be removed
       const session = state.sessions.find((s) => s.id === 'sess-1');
       const assistantMsgs = session!.messages.filter((m) => m.role === 'assistant');
@@ -358,9 +359,11 @@ describe('session store: message behavior', () => {
     it('setError sets and clears error', () => {
       useSessionStore.getState().setError('Something went wrong');
       expect(useSessionStore.getState().error).toBe('Something went wrong');
+      expect(useSessionStore.getState().errorSessionId).toBe('sess-1');
 
       useSessionStore.getState().setError(null);
       expect(useSessionStore.getState().error).toBeNull();
+      expect(useSessionStore.getState().errorSessionId).toBeNull();
     });
 
     it('setInactivityWarning toggles warning state', () => {

@@ -31,6 +31,8 @@ export interface MessageListProps {
   sessionDirectory?: string;
   /** Optional empty-state content rendered when there are no messages (not loading) */
   emptyState?: React.ReactNode;
+  /** Optional content rendered at the bottom of the scrollable message area. */
+  bottomContent?: React.ReactNode;
 }
 
 export interface MessageListHandle {
@@ -50,6 +52,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       compact = false,
       sessionDirectory,
       emptyState,
+      bottomContent,
     },
     ref,
   ) {
@@ -189,6 +192,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     const [inputAreaHeight, setInputAreaHeight] = React.useState(160);
     const [messageAreaWidth, setMessageAreaWidth] = React.useState(0);
+    const hasBottomContent = Boolean(bottomContent);
 
     // ── Refs ─────────────────────────────────────────────────────────────
     const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -361,6 +365,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       messageQueue.length,
       streamingContentLength,
       streamingUpdateTrigger,
+      hasBottomContent,
     ]);
 
     // Auto-scroll when streaming ends (to show token usage and final content)
@@ -688,6 +693,12 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                     })
                   );
                 })()}
+              </div>
+            )}
+
+            {bottomContent && (
+              <div className="pt-3">
+                {bottomContent}
               </div>
             )}
           </div>
