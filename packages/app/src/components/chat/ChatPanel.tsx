@@ -11,21 +11,18 @@ import { useVoiceInputStore } from "@/stores/voice-input";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useProviderStore, type ModelOption } from "@/stores/provider";
 import { useTeamModeStore } from "@/stores/team-mode";
-import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
 import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
-import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
 import { Button } from "@/components/ui/button";
 
-import type { Message } from "@/stores/session";
 import { ChatInputArea } from "./ChatInputArea";
 import { getFileName } from "./utils/fileUtils";
-import { MessageList, type MessageListHandle } from "./MessageList";
-import { SessionErrorAlert } from "./SessionErrorAlert";
+import { type MessageListHandle } from "./MessageList";
+import { ActorMessageList } from "./ActorMessageList";
 import { PendingPermissionInline, hasVisiblePendingPermissions } from "./PermissionCard";
 import { TodoList } from "./TodoList";
 import { QuestionInputDock } from "./QuestionInputDock";
@@ -65,8 +62,6 @@ async function saveImageToWorkspace(
   }
 }
 
-const EMPTY_MESSAGES: Message[] = [];
-
 function parseSlashToken(body: string): { type: "role" | "skill" | "command"; name: string } {
   if (body.startsWith("role:")) return { type: "role", name: body.slice("role:".length) };
   if (body.startsWith("skill:")) return { type: "skill", name: body.slice("skill:".length) };
@@ -95,14 +90,6 @@ interface ChatPanelProps {
 
 export function ChatPanel({ compact = false }: ChatPanelProps) {
   const { t } = useTranslation();
-
-  const customSuggestions = useSuggestionsStore(s => s.customSuggestions);
-  const builtInSuggestions = [
-    t("chat.suggestions.analyze", "Analyze data"),
-    t("chat.suggestions.report", "Write a report"),
-    t("chat.suggestions.skill", "Add a new skill"),
-  ];
-  const suggestions = [...builtInSuggestions, ...customSuggestions];
 
   // ── Session store selectors (reactive state only) ────────────────────
   // @ts-expect-error Phase 1E removal
@@ -134,13 +121,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Archived session viewing ────────────────────────────────────────
   // @ts-expect-error Phase 1E removal
   const viewingArchivedSessionId = useSessionStore(s => s.viewingArchivedSessionId);
-  const archivedSessionMessages = useSessionStore(s =>
-    // @ts-expect-error Phase 1E removal
-    s.viewingArchivedSessionId
-      // @ts-expect-error Phase 1E removal
-      ? (s.archivedSessionMessages[s.viewingArchivedSessionId] || EMPTY_MESSAGES)
-      : EMPTY_MESSAGES
-  );
   const archivedSession = useSessionStore(s =>
     // @ts-expect-error Phase 1E removal
     s.viewingArchivedSessionId
@@ -155,13 +135,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Child session viewing ──────────────────────────────────────────
   // @ts-expect-error Phase 1E removal
   const viewingChildSessionId = useSessionStore(s => s.viewingChildSessionId);
-  const childSessionMessages = useSessionStore(s =>
-    // @ts-expect-error Phase 1E removal
-    s.viewingChildSessionId && !s.viewingArchivedSessionId
-      // @ts-expect-error Phase 1E removal
-      ? (s.childSessionMessages[s.viewingChildSessionId] || EMPTY_MESSAGES)
-      : EMPTY_MESSAGES
-  );
   // @ts-expect-error Phase 1E removal
   const isLoadingChildMessages = useSessionStore(s => s.isLoadingChildMessages);
   const childStreamingContent = useStreamingStore(s =>
@@ -176,45 +149,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (todos.length === 0 && messageQueue.length === 0) return false;
     return !hasVisiblePendingPermissions(activeSessionId, sessions, pendingPermissions);
   }, [activeSessionId, isViewingArchived, isViewingChild, messageQueue.length, pendingPermissions, sessions, todos]);
-  const displayedChildSessionMessages = React.useMemo(() => {
-    if (!isViewingChild || !viewingChildSessionId) return EMPTY_MESSAGES;
-
-    const hasLiveChildStreaming =
-      !!childStreamingContent &&
-      (childStreamingContent.isStreaming ||
-        !!childStreamingContent.text ||
-        !!childStreamingContent.reasoning);
-
-    if (!hasLiveChildStreaming) {
-      return childSessionMessages;
-    }
-
-    // @ts-expect-error Phase 1E removal
-    const hasStreamingPlaceholder = childSessionMessages.some((message) => message.isStreaming);
-    if (hasStreamingPlaceholder) {
-      return childSessionMessages;
-    }
-
-    const lastTimestamp = childSessionMessages[childSessionMessages.length - 1]?.timestamp;
-    const placeholderTimestamp =
-      lastTimestamp instanceof Date
-        ? new Date(lastTimestamp.getTime() + 1)
-        : new Date();
-
-    return [
-      ...childSessionMessages,
-      {
-        id: `child-streaming-${viewingChildSessionId}`,
-        sessionId: viewingChildSessionId,
-        role: "assistant" as const,
-        content: childStreamingContent?.text || "",
-        parts: [],
-        toolCalls: [],
-        isStreaming: true,
-        timestamp: placeholderTimestamp,
-      },
-    ];
-  }, [childSessionMessages, childStreamingContent, isViewingChild, viewingChildSessionId]);
   const activeInputQuestion = React.useMemo(() => {
     if (!activeSessionId) return null;
     if (isViewingArchived) return null;
@@ -360,12 +294,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
   /** Shown messages lag store during fade so old session can fade out before swap */
   const [displaySessionId, setDisplaySessionId] = React.useState<string | null>(activeSessionId);
-  const [sessionFadeOpacity, setSessionFadeOpacity] = React.useState(1);
-
-  const displayMessages = useSessionStore((s) =>
-    // @ts-expect-error Phase 1E removal
-    displaySessionId ? s.sessions.find((ss) => ss.id === displaySessionId)?.messages : undefined,
-  );
+  const [_sessionFadeOpacity, setSessionFadeOpacity] = React.useState(1);
 
   const SESSION_FADE_MS = 150;
 
@@ -774,14 +703,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     setImageFiles([]);
   };
 
-  const handleSuggestionClick = React.useCallback(
-    (suggestion: string) => {
-      // Keep all quick suggestions visually consistent with slash skill selection.
-      setInputValue(`/{${suggestion}} `);
-    },
-    [setInputValue],
-  );
-
   const handleRestartSkillsRuntime = React.useCallback(async () => {
     if (!workspacePath) return;
     setIsRestartingSkillsRuntime(true);
@@ -815,68 +736,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     }
   }, [restoreSession, viewingArchivedSessionId]);
 
-  // ── Empty state with suggestions ──────────────────────────────────────
-  const emptyState = React.useMemo(() => (
-    <div
-      className={cn(
-        "flex flex-col items-center justify-center text-center",
-        compact ? "py-8 px-2" : "py-20",
-      )}
-    >
-      <h2
-        className={cn(
-          "mb-1 font-semibold",
-          compact ? "text-sm" : "text-xl",
-        )}
-      >
-        {compact ? t("chat.agent", "Agent") : t("chat.startNewChat", "Start a New Chat")}
-      </h2>
-      <p
-        className={cn(
-          "text-muted-foreground",
-          compact ? "text-xs mb-2" : "text-sm mb-6",
-        )}
-      >
-        {compact
-          ? t("chat.askAboutFile", "Ask questions about the file")
-          : t("chat.askAnything", "Ask me anything, or choose a suggestion below")}
-      </p>
-      {!compact && (
-        <Suggestions>
-          {suggestions.map((suggestion) => (
-            <Suggestion
-              key={suggestion}
-              suggestion={suggestion}
-              onClick={() => handleSuggestionClick(suggestion)}
-            />
-          ))}
-        </Suggestions>
-      )}
-    </div>
-  ), [compact, t, suggestions, handleSuggestionClick]);
-
-  const visibleSessionError =
-    sessionError?.sessionId && sessionError.sessionId === displaySessionId
-      ? sessionError
-      : null;
-  const visibleError =
-    error && errorSessionId && errorSessionId === displaySessionId
-      ? error
-      : null;
-
-  const messageBottomContent = !isViewingChild ? (
-    visibleSessionError ? (
-      <SessionErrorAlert
-        error={visibleSessionError}
-        onDismiss={clearSessionError}
-      />
-    ) : visibleError ? (
-      <SessionErrorAlert
-        error={visibleError}
-        onDismiss={() => setError(null)}
-      />
-    ) : null
-  ) : null;
 
   // ── Render ────────────────────────────────────────────────────────────
 
@@ -1002,51 +861,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         </div>
       )}
 
-      {/* ─── Message List (fade on session switch; input stays stable) ─── */}
-      <div
-        className={cn(
-          "flex-1 min-h-0 flex flex-col overflow-hidden",
-          "transition-opacity duration-150 ease-in-out motion-reduce:transition-none",
-        )}
-        style={{ opacity: isViewingArchived || isViewingChild ? 1 : sessionFadeOpacity }}
-      >
-        {isViewingArchived ? (
-          <MessageList
-            ref={messageListRef}
-            messages={archivedSessionMessages}
-            activeSessionId={viewingArchivedSessionId}
-            isStreaming={false}
-            streamingMessageId={null}
-            compact={compact}
-            sessionDirectory={archivedSession?.directory}
-          />
-        ) : isViewingChild ? (
-          isLoadingChildMessages ? (
-            <div className="flex items-center justify-center flex-1">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <MessageList
-              ref={messageListRef}
-              messages={displayedChildSessionMessages}
-              activeSessionId={viewingChildSessionId}
-              isStreaming={!!childStreamingContent?.isStreaming}
-              streamingMessageId={null}
-              compact={compact}
-            />
-          )
-        ) : (
-          <MessageList
-            ref={messageListRef}
-            messages={displayMessages ?? []}
-            activeSessionId={displaySessionId}
-            isStreaming={isStreaming}
-            streamingMessageId={streamingMessageId}
-            compact={compact}
-            emptyState={emptyState}
-            bottomContent={messageBottomContent}
-          />
-        )}
+      {/* ─── Message List — Phase 1: actor-model render ────────────────── */}
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <ActorMessageList />
       </div>
 
       {/* ─── Input Area (with Permission & Error UI above it) ─────────── */}
