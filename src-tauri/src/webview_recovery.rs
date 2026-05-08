@@ -28,10 +28,7 @@ pub fn probe_main_webview(app: &tauri::AppHandle) -> MainWebviewProbe {
     }
 }
 
-pub fn request_restart_if_main_webview_unhealthy(
-    app: &tauri::AppHandle,
-    reason: &str,
-) -> bool {
+pub fn request_restart_if_main_webview_unhealthy(app: &tauri::AppHandle, reason: &str) -> bool {
     let probe = probe_main_webview(app);
     if !should_restart_for_probe(probe) {
         return false;

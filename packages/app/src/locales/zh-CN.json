@@ -262,6 +262,7 @@
       "commands": "{{count}} 个命令",
       "commands_plural": "{{count}} 个命令",
       "navigate": "导航",
+      "enterOrTab": "↵/Tab",
       "select": "选择",
       "close": "关闭",
       "description": "说明"
@@ -1403,6 +1404,8 @@
         "gmailAddressPlaceholder": "your-email@gmail.com",
         "authorizeGmail": "授权 Gmail",
         "reauthorize": "重新授权",
+        "gmailAuthUrlHint": "在浏览器中打开此授权链接，然后粘贴返回的授权码。",
+        "copy": "复制",
         "authorized": "已授权",
         "imapHost": "IMAP 服务器",
         "imapPort": "IMAP 端口",

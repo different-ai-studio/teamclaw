@@ -262,6 +262,7 @@
       "commands": "{{count}} command",
       "commands_plural": "{{count}} commands",
       "navigate": "navigate",
+      "enterOrTab": "↵/Tab",
       "select": "select",
       "close": "close",
       "description": "Description"
@@ -1403,6 +1404,8 @@
         "gmailAddressPlaceholder": "your-email@gmail.com",
         "authorizeGmail": "Authorize Gmail",
         "reauthorize": "Re-authorize",
+        "gmailAuthUrlHint": "Open this authorization URL in your browser, then paste the returned code.",
+        "copy": "Copy",
         "authorized": "Authorized",
         "imapHost": "IMAP Host",
         "imapPort": "IMAP Port",

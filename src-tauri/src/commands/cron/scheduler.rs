@@ -112,10 +112,6 @@ impl CronScheduler {
         }
     }
 
-    pub(crate) fn normalize_legacy_timeout_record(record: &mut CronRunRecord) {
-        normalize_legacy_timeout_status(record);
-    }
-
     pub(crate) fn reconcile_interrupted_run(
         mut record: CronRunRecord,
         assistant_text: Option<String>,
@@ -1316,7 +1312,7 @@ mod tests {
             Some("partial output\n\n---\n⚠️ AI response was cut short after 180s timeout."),
         );
 
-        CronScheduler::normalize_legacy_timeout_record(&mut record);
+        normalize_legacy_timeout_status(&mut record);
 
         assert_eq!(record.status, RunStatus::Timeout);
     }
