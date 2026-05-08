@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { AuthGate } from './components/auth/AuthGate'
 import './styles/globals.css'
 import './stores/dev-expose'
 import './lib/i18n'; // Initialize i18n
@@ -47,7 +48,9 @@ performance.mark('react-mount')
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary scope="TeamClaw">
-      <App />
+      <AuthGate>
+        <App />
+      </AuthGate>
     </ErrorBoundary>
   </StrictMode>,
 )
