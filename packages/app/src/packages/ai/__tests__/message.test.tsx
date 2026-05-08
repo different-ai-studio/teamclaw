@@ -37,14 +37,15 @@ vi.mock('react-markdown', () => ({
       throw new Error('Invalid regular expression: invalid group specifier name')
     }
 
-    const mermaidMatch = children.match(/^```(\w+)\n([\s\S]*?)\n```$/)
-    if (mermaidMatch && components?.code) {
+    const fencedCodeMatch = children.match(/^```([^\n]*)\n([\s\S]*?)\n```$/)
+    if (fencedCodeMatch && components?.code) {
+      const language = fencedCodeMatch[1].trim()
       return React.createElement(
         'div',
         { 'data-testid': 'markdown' },
         components.code({
-          className: `language-${mermaidMatch[1]}`,
-          children: mermaidMatch[2],
+          className: language ? `language-${language}` : undefined,
+          children: fencedCodeMatch[2],
         }),
       )
     }
@@ -178,6 +179,61 @@ describe('image preview rendering', () => {
 })
 
 describe('MessageResponse', () => {
+  it('normalizes bare unicode box diagrams into text code fences', async () => {
+    const { normalizeAssistantMarkdownForDisplay } = await import('@/packages/ai/message')
+
+    const source = [
+      '4.2 数据流：从管理后台到存储',
+      '┌─────────────────────────────┐',
+      '│ ACCOUNTING_ADMIN_PORTAL      │',
+      '├─────────────────────────────┤',
+      '│ /adminv2/api/grpc-proxy      │',
+      '└─────────────────────────────┘',
+      '',
+      '下一段内容',
+    ].join('\n')
+
+    expect(normalizeAssistantMarkdownForDisplay(source)).toBe([
+      '4.2 数据流：从管理后台到存储',
+      '',
+      '```text',
+      '┌─────────────────────────────┐',
+      '│ ACCOUNTING_ADMIN_PORTAL      │',
+      '├─────────────────────────────┤',
+      '│ /adminv2/api/grpc-proxy      │',
+      '└─────────────────────────────┘',
+      '```',
+      '',
+      '下一段内容',
+    ].join('\n'))
+  })
+
+  it('normalizes bare ascii box diagrams without changing markdown tables', async () => {
+    const { normalizeAssistantMarkdownForDisplay } = await import('@/packages/ai/message')
+
+    const source = [
+      '+----------------------+',
+      '| service | database   |',
+      '+----------------------+',
+      '',
+      '| col | value |',
+      '| --- | ----- |',
+      '| a   | b     |',
+    ].join('\n')
+
+    expect(normalizeAssistantMarkdownForDisplay(source)).toBe([
+      '```text',
+      '+----------------------+',
+      '| service | database   |',
+      '+----------------------+',
+      '```',
+      '',
+      '| col | value |',
+      '| --- | ----- |',
+      '| a   | b     |',
+    ].join('\n'))
+  })
+
   it('falls back to plain text when markdown rendering throws', async () => {
     shouldThrowMarkdown = true
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -286,7 +342,24 @@ describe('MessageResponse', () => {
 
     expect(container.querySelector('[data-testid="mermaid-block"]')).toBeNull()
     expect(container.querySelector('pre')).toBeTruthy()
+    expect(container.querySelector('pre')?.className).toContain('[overflow-wrap:normal]')
     expect(screen.getByText('const answer = 42')).toBeTruthy()
     expect(mermaidRenderMock).not.toHaveBeenCalled()
+  })
+
+  it('renders fenced code without a language as a block', async () => {
+    const { Message, MessageContent, MessageResponse } = await import('@/packages/ai/message')
+
+    const { container } = render(
+      React.createElement(Message, { from: 'assistant' },
+        React.createElement(MessageContent, null,
+          React.createElement(MessageResponse, null, '```\n┌────┐\n│ UI │\n└────┘\n```')
+        )
+      )
+    )
+
+    expect(container.querySelector('pre')).toBeTruthy()
+    expect(container.querySelector('pre')?.textContent).toContain('┌────┐')
+    expect(container.querySelector('code')?.className).not.toContain('[overflow-wrap:anywhere]')
   })
 })

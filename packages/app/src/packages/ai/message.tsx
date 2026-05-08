@@ -207,6 +207,66 @@ function isSvgImageSource(src: string): boolean {
   return src.startsWith('data:image/svg+xml') || /\.svg(?:$|[?#])/i.test(src)
 }
 
+const boxDrawingPattern = /[┌┐└┘├┤┬┴┼─│╭╮╰╯╔╗╚╝╠╣╦╩╬═║]/
+const asciiBoxBorderPattern = /^\s*\+[+=\- ]+\+\s*$/
+
+function isFenceLine(line: string): boolean {
+  return /^\s*```/.test(line)
+}
+
+function isBareDiagramStart(line: string): boolean {
+  return boxDrawingPattern.test(line) || asciiBoxBorderPattern.test(line)
+}
+
+function isBareDiagramContinuation(line: string): boolean {
+  if (!line.trim() || isFenceLine(line)) return false
+  return (
+    boxDrawingPattern.test(line) ||
+    asciiBoxBorderPattern.test(line) ||
+    (line.includes('|') && line.indexOf('|') !== line.lastIndexOf('|'))
+  )
+}
+
+export function normalizeAssistantMarkdownForDisplay(content: string): string {
+  const lines = content.split('\n')
+  const normalized: string[] = []
+  let inFence = false
+  let index = 0
+
+  while (index < lines.length) {
+    const line = lines[index]
+
+    if (isFenceLine(line)) {
+      inFence = !inFence
+      normalized.push(line)
+      index += 1
+      continue
+    }
+
+    if (!inFence && isBareDiagramStart(line)) {
+      let end = index
+      while (end < lines.length && isBareDiagramContinuation(lines[end])) {
+        end += 1
+      }
+
+      const diagramLines = lines.slice(index, end)
+      if (diagramLines.length >= 2) {
+        if (normalized.length > 0 && normalized[normalized.length - 1] !== '') {
+          normalized.push('')
+        }
+        normalized.push('```text', ...diagramLines, '```')
+        index = end
+        continue
+      }
+    }
+
+    normalized.push(line)
+    index += 1
+  }
+
+  return normalized.join('\n')
+}
+
 function PreviewImage({
   src,
   alt,
@@ -530,6 +590,10 @@ function CodeBlock({ language, children }: { language: string; children: string 
 
   React.useEffect(() => {
     let cancelled = false
+    if (!language || language === 'text') {
+      setHighlightedHtml(null)
+      return () => { cancelled = true }
+    }
     import('@/components/diff/shiki-renderer').then(async ({ getHighlighter, mapLanguage }) => {
       if (cancelled) return
       try {
@@ -553,7 +617,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
   }
 
   return (
-    <div className="w-full rounded-lg bg-foreground/[0.02] overflow-hidden my-2">
+    <div className="not-prose my-2 w-full overflow-hidden rounded-lg bg-foreground/[0.02] [overflow-wrap:normal]">
       <div className="flex items-center justify-between px-3 py-1.5">
         <span className="text-xs text-muted-foreground font-mono">{language}</span>
         <button
@@ -565,12 +629,12 @@ function CodeBlock({ language, children }: { language: string; children: string 
       </div>
       {highlightedHtml ? (
         <div
-          className="px-3 pb-3 overflow-x-auto text-sm [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!bg-transparent [&_code]:!p-0"
+          className="overflow-x-auto px-3 pb-3 text-sm [overflow-wrap:normal] [&_code]:!bg-transparent [&_code]:!p-0 [&_code]:[overflow-wrap:normal] [&_code]:whitespace-pre [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:[overflow-wrap:normal] [&_pre]:whitespace-pre"
           dangerouslySetInnerHTML={{ __html: highlightedHtml }}
         />
       ) : (
-        <pre className="px-3 pb-3 overflow-x-auto">
-          <code className="font-mono text-sm text-foreground">{code}</code>
+        <pre className="overflow-x-auto whitespace-pre px-3 pb-3 [overflow-wrap:normal]">
+          <code className="font-mono text-sm text-foreground [overflow-wrap:normal]">{code}</code>
         </pre>
       )}
     </div>
@@ -680,7 +744,8 @@ const markdownComponentsBase = {
   ),
   pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   code: ({ className, children, ...codeProps }: { className?: string; children?: React.ReactNode }) => {
-    const isInline = !className
+    const codeText = String(children)
+    const isInline = !className && !codeText.includes('\n')
     if (isInline) {
       return (
         <code
@@ -691,11 +756,11 @@ const markdownComponentsBase = {
         </code>
       )
     }
-    const language = className?.replace('language-', '') || ''
+    const language = className?.replace('language-', '') || 'text'
     if (language === 'mermaid') {
-      return <MermaidBlock>{String(children)}</MermaidBlock>
+      return <MermaidBlock>{codeText}</MermaidBlock>
     }
-    return <CodeBlock language={language}>{String(children)}</CodeBlock>
+    return <CodeBlock language={language}>{codeText}</CodeBlock>
   },
   a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
     <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#5a7a64] hover:underline">{children}</a>
@@ -823,7 +888,7 @@ export function MessageResponse({
                 remarkPlugins={remarkPluginsStable}
                 components={markdownComponents}
               >
-                {part.content}
+                {normalizeAssistantMarkdownForDisplay(part.content)}
               </ReactMarkdown>
             </MarkdownRenderBoundary>
           </div>
