@@ -15,20 +15,3 @@ export const supabase = createClient(url, anonKey, {
   },
 });
 
-export interface SessionRow {
-  id: string;
-  title: string;
-  created_by_actor_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export async function listSessionsForUser(userId: string): Promise<SessionRow[]> {
-  const { data, error } = await supabase
-    .from("sessions")
-    .select("id, title, created_by_actor_id, created_at, updated_at")
-    .eq("created_by_actor_id", userId)
-    .order("updated_at", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
-}
