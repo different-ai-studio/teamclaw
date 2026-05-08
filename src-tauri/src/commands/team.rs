@@ -280,24 +280,34 @@ fn is_https_url(url: &str) -> bool {
     url.starts_with("https://") || url.starts_with("http://")
 }
 
-/// Get the workspace path from OpenCodeState (back-compat single-instance path).
-///
-/// Phase 1 scaffolding: delegates to `current_workspace_path`, which errors if
-/// 0 or 2+ instances exist. Phase 2 callers will gain a workspace-aware variant.
-pub fn get_workspace_path(opencode_state: &OpenCodeState) -> Result<String, String> {
-    crate::commands::opencode::current_workspace_path(opencode_state)
+/// Get the workspace path for the calling window. Looks up the window's label
+/// in `WindowRegistry`; falls back to single-instance inference for any window
+/// that hasn't been registered yet (e.g. very early startup).
+pub fn get_workspace_path(
+    window: &tauri::WebviewWindow,
+    registry: &crate::commands::window::WindowRegistry,
+    opencode_state: &OpenCodeState,
+) -> Result<String, String> {
+    crate::commands::window::current_workspace_for_window(window, registry, opencode_state)
 }
 
 /// Resolve a workspace path from an explicit frontend argument when provided,
-/// otherwise fall back to the legacy single-instance OpenCode selection.
+/// otherwise fall back to the calling window's registered workspace.
+///
+/// In multi-window mode, the frontend should always pass `workspacePath`.
+/// The fallback exists so single-window flows (and frontends that haven't
+/// been migrated yet) keep working — the window-label lookup means even
+/// secondary windows resolve to *their* workspace, not the main window's.
 pub fn resolve_workspace_path(
     workspace_path: Option<String>,
+    window: &tauri::WebviewWindow,
+    registry: &crate::commands::window::WindowRegistry,
     opencode_state: &OpenCodeState,
 ) -> Result<String, String> {
-    workspace_path
-        .filter(|path| !path.is_empty())
-        .or_else(|| get_workspace_path(opencode_state).ok())
-        .ok_or("No workspace path set. Please select a workspace first.".to_string())
+    if let Some(path) = workspace_path.filter(|path| !path.is_empty()) {
+        return Ok(path);
+    }
+    get_workspace_path(window, registry, opencode_state)
 }
 
 /// Read team config from teamclaw.json
@@ -832,8 +842,10 @@ fn convert_team_server_to_opencode(server: &TeamMCPServer) -> MCPServerConfig {
 pub fn get_team_status(
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamStatus, String> {
-    let ws = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let ws = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     Ok(check_team_status(&ws))
 }
 
@@ -847,8 +859,10 @@ pub fn update_team_llm_config(
     llm_models: Option<String>,
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     write_llm_config(&workspace_path, llm_config.as_ref())?;
     Ok(())
@@ -884,8 +898,10 @@ pub fn team_check_git_installed() -> Result<GitCheckResult, String> {
 pub async fn team_check_workspace_has_git(
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<WorkspaceGitCheckResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let git_dir = Path::new(&workspace_path).join(".git");
     Ok(WorkspaceGitCheckResult {
         has_git: git_dir.exists(),
@@ -904,8 +920,10 @@ pub async fn team_init_repo(
     llm_models: Option<String>,
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if Path::new(&team_dir).exists() {
@@ -1032,9 +1050,11 @@ pub async fn team_git_create(
     fc_endpoint: Option<String>,
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<TeamGitCreateResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if Path::new(&team_dir).exists() {
@@ -1605,8 +1625,10 @@ pub async fn team_git_join(
     fc_endpoint: Option<String>,
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     team_git_join_impl(
         app,
         TeamGitJoinArgs {
@@ -1652,8 +1674,10 @@ pub async fn team_git_join_background(
     fc_endpoint: Option<String>,
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let app_for_spawn = app.clone();
     let args = TeamGitJoinArgs {
         git_url,
@@ -1709,8 +1733,10 @@ pub async fn team_git_join_background(
 pub async fn team_generate_gitignore(
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
     ensure_gitignore_rules(&team_dir);
     Ok(TeamGitResult {
@@ -1773,7 +1799,15 @@ pub async fn team_sync_repo(
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
     force: Option<bool>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    // Note: this command is also called from the introspect_api HTTP path
+    // (`team_sync_all::sync_git`), which has no calling-window context.
+    // We keep the legacy single-instance fallback here. In multi-window mode
+    // the frontend should always pass `workspacePath`; if it doesn't, the
+    // single-instance fallback errors safely instead of silently routing wrong.
+    let workspace_path = workspace_path
+        .filter(|p| !p.is_empty())
+        .or_else(|| crate::commands::opencode::current_workspace_path(&opencode_state).ok())
+        .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     // Read saved config up-front: needed for the recovery re-clone below
@@ -2049,8 +2083,10 @@ pub async fn team_sync_repo(
 pub async fn team_disconnect_repo(
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if !Path::new(&team_dir).exists() {
@@ -2078,9 +2114,11 @@ pub async fn init_git_team_secrets(
     team_id: String,
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
     let team_path = Path::new(&team_dir);
 
@@ -2102,8 +2140,10 @@ pub async fn get_git_team_secret(
     team_id: String,
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<String, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     crate::commands::oss_sync::load_team_secret(&workspace_path, &team_id)
 }
 
@@ -2114,8 +2154,10 @@ pub async fn get_git_team_secret(
 pub async fn get_team_config(
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<Option<TeamConfig>, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     read_team_config_from_file(&workspace_path)
 }
 
@@ -2125,8 +2167,10 @@ pub async fn save_team_config(
     team: TeamConfig,
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     write_team_config_to_file(&workspace_path, Some(&team))
 }
 
@@ -2135,8 +2179,10 @@ pub async fn save_team_config(
 pub async fn clear_team_config(
     workspace_path: Option<String>,
     opencode_state: State<'_, OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &opencode_state)?;
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     write_team_config_to_file(&workspace_path, None)
 }
 
@@ -2147,7 +2193,6 @@ pub async fn clear_team_config(
 #[cfg(test)]
 mod sync_precheck_tests {
     use super::*;
-    use crate::commands::opencode::OpenCodeInner;
 
     #[test]
     fn test_parse_untracked_paths_basic() {
@@ -2178,32 +2223,7 @@ mod sync_precheck_tests {
         assert_eq!(paths, vec!["my new file.txt".to_string()]);
     }
 
-    #[test]
-    fn resolve_workspace_path_prefers_explicit_workspace_in_multi_instance_mode() {
-        let state = OpenCodeState::default();
-        let mut instances = state.instances.lock().unwrap();
-        instances.insert(
-            "/workspace-a".to_string(),
-            OpenCodeInner {
-                is_running: true,
-                port: 13141,
-                child_process: None,
-                reader_task: None,
-            },
-        );
-        instances.insert(
-            "/workspace-b".to_string(),
-            OpenCodeInner {
-                is_running: true,
-                port: 13142,
-                child_process: None,
-                reader_task: None,
-            },
-        );
-        drop(instances);
-
-        let resolved = resolve_workspace_path(Some("/workspace-b".to_string()), &state).unwrap();
-
-        assert_eq!(resolved, "/workspace-b");
-    }
+    // Note: `resolve_workspace_path` integration test removed. Constructing a
+    // `WebviewWindow` in a unit test is impractical, and the "explicit beats
+    // fallback" logic is now a trivial early-return inside the function.
 }

@@ -167,9 +167,17 @@ pub struct EarlyLaunchState {
 #[tauri::command]
 pub async fn start_opencode(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, OpenCodeState>,
+    registry: State<'_, super::window::WindowRegistry>,
     config: OpenCodeConfig,
 ) -> Result<OpenCodeStatus, String> {
+    // Bind the calling window's label to this workspace before any sidecar
+    // work happens. From this point on, `current_workspace_for_window(&window, ...)`
+    // can resolve the right workspace for any command invoked from this window
+    // — even if the sidecar start below fails.
+    super::window::register_window_workspace(&registry, window.label(), &config.workspace_path);
+
     // Check if early launch is in progress for this workspace
     {
         let mut early_guard = state.early_launch.lock().await;
@@ -206,10 +214,21 @@ pub async fn start_opencode(
         }
     }
 
-    start_opencode_inner(app, &state, config).await
+    // Only the main window's workspace is persisted as the "last workspace" for
+    // early launch on the next app start. Secondary windows must not overwrite
+    // this — otherwise reopening the app would resume a secondary workspace
+    // instead of the primary one.
+    let persist_as_last_workspace = window.label() == "main";
+
+    start_opencode_inner(app, &state, config, persist_as_last_workspace).await
 }
 
 /// Core sidecar startup logic, shared between the Tauri command and early launch.
+///
+/// `persist_as_last_workspace` controls whether this start writes the workspace
+/// path into `~/.teamclaw/last-workspace.json` for next-launch resume. The main
+/// window and the early launch path set this to true; secondary windows opened
+/// via `create_workspace_window` set it to false.
 ///
 /// Phase 1 scaffolding semantics:
 /// - Sidecar instances live in `state.instances`, keyed by workspace_path.
@@ -225,6 +244,7 @@ pub async fn start_opencode_inner(
     app: AppHandle,
     state: &OpenCodeState,
     config: OpenCodeConfig,
+    persist_as_last_workspace: bool,
 ) -> Result<OpenCodeStatus, String> {
     let inner_t0 = std::time::Instant::now();
 
@@ -241,11 +261,25 @@ pub async fn start_opencode_inner(
         inner_t0.elapsed().as_secs_f64() * 1000.0
     );
 
-    // Already running for this workspace? Return cached status.
+    // Already running for this workspace? Return cached status — but only if
+    // the caller didn't explicitly request a different port. A secondary window
+    // opened via `create_workspace_window` always passes its allocated port; if
+    // that doesn't match the cached instance, silently reusing the cache would
+    // hand the secondary window a sidecar URL pointing at the main window's
+    // port, and both windows would race on the same OpenCode DB.
     {
         let instances = state.instances.lock().map_err(|e| e.to_string())?;
         if let Some(inner) = instances.get(&workspace_key) {
             if inner.is_running {
+                if let Some(requested) = config.port {
+                    if requested != inner.port {
+                        return Err(format!(
+                            "Workspace {} already has a sidecar on port {}; \
+                             cannot serve it on the requested port {} from another window",
+                            workspace_key, inner.port, requested
+                        ));
+                    }
+                }
                 return Ok(OpenCodeStatus {
                     is_running: true,
                     port: inner.port,
@@ -842,8 +876,12 @@ pub async fn start_opencode_inner(
         inner_t0.elapsed().as_secs_f64() * 1000.0
     );
 
-    // Persist workspace for early launch on next startup
-    write_last_workspace(&workspace_path);
+    // Persist workspace for early launch on next startup. Only the main window
+    // (or the early launch path itself) writes this — secondary windows must
+    // not overwrite the marker with their own workspace.
+    if persist_as_last_workspace {
+        write_last_workspace(&workspace_path);
+    }
 
     Ok(OpenCodeStatus {
         is_running: true,
@@ -2566,10 +2604,21 @@ pub async fn shutdown_opencode(
     Ok(())
 }
 
-/// Stop OpenCode server (back-compat: shuts down all instances).
+/// Stop the OpenCode sidecar for a single workspace.
+///
+/// `workspace_path` is required: in multi-window mode, an unscoped stop would
+/// kill every window's sidecar (the old back-compat behavior). The full-shutdown
+/// path is only used by `RunEvent::Exit`, which walks `state.instances` directly
+/// without going through this command.
 #[tauri::command]
-pub async fn stop_opencode(state: State<'_, OpenCodeState>) -> Result<(), String> {
-    shutdown_opencode(&state, None).await
+pub async fn stop_opencode(
+    state: State<'_, OpenCodeState>,
+    workspace_path: String,
+) -> Result<(), String> {
+    if workspace_path.trim().is_empty() {
+        return Err("workspace_path is required".to_string());
+    }
+    shutdown_opencode(&state, Some(&workspace_path)).await
 }
 
 // ─── OpenCode DB allowlist commands ──────────────────────────────────

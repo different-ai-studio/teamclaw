@@ -307,6 +307,8 @@ pub fn try_lazy_init_from_workspace(
 #[tauri::command]
 pub async fn shared_secret_set(
     app_handle: AppHandle,
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, SharedSecretsState>,
     key_id: String,
     value: String,
@@ -319,7 +321,8 @@ pub async fn shared_secret_set(
     // Lazy-init from workspace config when not yet initialized (e.g. Git teams
     // whose TeamGitConfig panel hasn't been mounted yet this session).
     if let Some(opencode_state) = app_handle.try_state::<super::opencode::OpenCodeState>() {
-        let workspace_path = super::opencode::current_workspace_path(&opencode_state).ok();
+        let workspace_path =
+            super::window::current_workspace_for_window(&window, &registry, &opencode_state).ok();
         if let Some(wp) = workspace_path {
             if let Err(e) = try_lazy_init_from_workspace(&state, &wp) {
                 log::debug!("shared_secret_set: lazy init skipped: {e}");
@@ -386,6 +389,8 @@ pub async fn shared_secret_set(
 #[tauri::command]
 pub async fn shared_secret_delete(
     app_handle: AppHandle,
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, SharedSecretsState>,
     key_id: String,
     node_id: String,
@@ -395,7 +400,8 @@ pub async fn shared_secret_delete(
 
     // Same lazy-init as `shared_secret_set` — needed before the team_dir check below.
     if let Some(opencode_state) = app_handle.try_state::<super::opencode::OpenCodeState>() {
-        let workspace_path = super::opencode::current_workspace_path(&opencode_state).ok();
+        let workspace_path =
+            super::window::current_workspace_for_window(&window, &registry, &opencode_state).ok();
         if let Some(wp) = workspace_path {
             if let Err(e) = try_lazy_init_from_workspace(&state, &wp) {
                 log::debug!("shared_secret_delete: lazy init skipped: {e}");

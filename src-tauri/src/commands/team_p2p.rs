@@ -171,8 +171,14 @@ pub fn get_device_hostname() -> String {
 pub async fn p2p_leave_team(
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     leave_team_for_workspace(
         iroh_state.inner(),
         &workspace_path,
@@ -187,8 +193,14 @@ pub async fn p2p_leave_team(
 pub async fn p2p_disconnect_source(
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     disconnect_source_for_workspace(
         iroh_state.inner(),
         &workspace_path,
@@ -203,8 +215,14 @@ pub async fn p2p_disconnect_source(
 pub async fn p2p_dissolve_team(
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     dissolve_team_for_workspace(
         iroh_state.inner(),
         &workspace_path,
@@ -222,8 +240,14 @@ pub async fn team_add_member(
     role: Option<String>,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let guard = iroh_state.lock().await;
     let node = guard.as_ref().ok_or("P2P node not running")?;
@@ -290,8 +314,14 @@ pub async fn team_remove_member(
     node_id: String,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let guard = iroh_state.lock().await;
     let node = guard.as_ref().ok_or("P2P node not running")?;
@@ -339,8 +369,14 @@ pub async fn team_update_member_role(
     role: String,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let new_role = match role.as_str() {
         "viewer" => MemberRole::Viewer,
@@ -384,8 +420,14 @@ pub async fn team_update_member_role(
 #[tauri::command]
 pub async fn p2p_check_team_dir(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<serde_json::Value, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
     let exists = std::path::Path::new(&team_dir).exists();
@@ -413,8 +455,14 @@ pub async fn p2p_create_team(
     iroh_state: tauri::State<'_, IrohState>,
     engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<String, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let mut guard = iroh_state.lock().await;
     let node = ensure_p2p_node_started(&mut *guard, "team creation", IrohNode::new_default).await?;
@@ -451,8 +499,14 @@ pub async fn p2p_publish_drive(
     iroh_state: tauri::State<'_, IrohState>,
     engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<String, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let mut guard = iroh_state.lock().await;
     let node = ensure_p2p_node_started(
@@ -509,8 +563,14 @@ pub async fn p2p_join_drive(
     iroh_state: tauri::State<'_, IrohState>,
     engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<String, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let mut guard = iroh_state.lock().await;
     let node =
@@ -548,8 +608,14 @@ pub async fn p2p_reconnect(
     iroh_state: tauri::State<'_, IrohState>,
     engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let mut guard = iroh_state.lock().await;
     let node =
@@ -572,8 +638,14 @@ pub async fn p2p_rotate_ticket(
     iroh_state: tauri::State<'_, IrohState>,
     engine_state: tauri::State<'_, SyncEngineState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<String, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let mut guard = iroh_state.lock().await;
     let node = ensure_p2p_node_started(
@@ -599,8 +671,14 @@ pub async fn p2p_rotate_ticket(
 #[tauri::command]
 pub async fn get_p2p_config(
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<Option<P2pConfig>, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())
 }
 
@@ -608,8 +686,14 @@ pub async fn get_p2p_config(
 pub async fn save_p2p_config(
     config: P2pConfig,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     write_p2p_config(
         &workspace_path,
         Some(&config),
@@ -623,13 +707,16 @@ pub async fn p2p_node_status(
     engine_state: tauri::State<'_, SyncEngineState>,
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<EngineSnapshot, String> {
     let snapshot = {
         let eng = engine_state.lock().await;
         eng.snapshot()
     };
 
-    let Ok(workspace_path) = crate::commands::opencode::current_workspace_path(&opencode_state)
+    let Ok(workspace_path) =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)
     else {
         return Ok(disconnected_engine_snapshot(snapshot));
     };
@@ -660,10 +747,16 @@ pub async fn p2p_node_status(
 pub async fn p2p_sync_status(
     iroh_state: tauri::State<'_, IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<P2pSyncStatus, String> {
     use teamclaw_p2p::iroh_docs;
 
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let config =
         read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?.unwrap_or_default();
@@ -772,8 +865,14 @@ pub async fn p2p_sync_status(
 pub async fn p2p_get_files_sync_status(
     iroh_state: tauri::State<'_, crate::commands::p2p_state::IrohState>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<Vec<crate::commands::oss_types::FileSyncStatus>, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let team_dir = format!("{}/{}", workspace_path, team_repo_dir());
 
@@ -790,8 +889,14 @@ pub async fn p2p_save_seed_config(
     seed_url: Option<String>,
     team_secret: Option<String>,
     opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    window: tauri::WebviewWindow,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let mut config =
         read_p2p_config(&workspace_path, teamclaw_dir(), config_file_name())?.unwrap_or_default();

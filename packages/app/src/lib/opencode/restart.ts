@@ -13,7 +13,7 @@ export interface RestartResult {
 export async function restartOpencode(workspacePath: string): Promise<RestartResult> {
   const { setOpenCodeBootstrapped, setOpenCodeReady } = useWorkspaceStore.getState()
   setOpenCodeBootstrapped(false)
-  await invoke('stop_opencode')
+  await invoke('stop_opencode', { workspacePath })
   await new Promise((resolve) => setTimeout(resolve, 500))
   const status = await invoke<{ url: string }>('start_opencode', {
     config: { workspace_path: workspacePath },

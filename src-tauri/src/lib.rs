@@ -707,6 +707,9 @@ pub fn run() {
                             app_handle.clone(),
                             &state,
                             config,
+                            // Early launch is always the main window's resume —
+                            // it should keep the last-workspace marker in sync.
+                            true,
                         ).await;
                         let _ = tx.send(Some(result));
                     });

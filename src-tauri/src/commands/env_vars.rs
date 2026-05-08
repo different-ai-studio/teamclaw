@@ -456,27 +456,30 @@ fn set_env_vars_in_json(json: &mut serde_json::Value, entries: &[EnvVarEntry]) {
     }
 }
 
-/// Extract workspace_path from OpenCodeState (back-compat single-instance path).
-fn get_workspace_path(state: &State<'_, OpenCodeState>) -> Result<String, String> {
-    super::opencode::current_workspace_path(state)
+/// Resolve the workspace_path for the calling window. In multi-window mode this
+/// looks up the window label in `WindowRegistry`; in single-window mode it
+/// falls back to single-instance inference.
+fn get_workspace_path(
+    window: &tauri::WebviewWindow,
+    registry: &State<'_, super::window::WindowRegistry>,
+    state: &State<'_, OpenCodeState>,
+) -> Result<String, String> {
+    super::window::current_workspace_for_window(window, registry, state)
 }
 
 // ─── Tauri Commands ─────────────────────────────────────────────────────
 
-/// Store (or update) an environment variable in the local encrypted store and update the index in teamclaw.json.
-#[tauri::command]
-pub async fn env_var_set(
-    state: State<'_, OpenCodeState>,
+/// Internal: write env var to encrypted blob and update teamclaw.json index for a given workspace.
+/// Shared between the Tauri command (window-scoped) and `introspect_api` (HTTP path).
+pub(crate) async fn env_var_set_for_workspace(
+    workspace_path: &str,
     key: String,
     value: String,
     description: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&state)?;
-
-    // Read-modify-write atomically on a blocking thread
     let key_clone = key.clone();
     let value_clone = value.clone();
-    let wp = workspace_path.clone();
+    let wp = workspace_path.to_string();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut blob = read_env_blob(&wp)?;
         blob.insert(key_clone, serde_json::Value::String(value_clone));
@@ -485,8 +488,7 @@ pub async fn env_var_set(
     .await
     .map_err(|e| e.to_string())??;
 
-    // Update index in teamclaw.json (metadata only, no value)
-    let mut json = read_teamclaw_json(&workspace_path)?;
+    let mut json = read_teamclaw_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
     if let Some(existing) = entries.iter_mut().find(|e| e.key == key) {
@@ -500,13 +502,32 @@ pub async fn env_var_set(
     }
 
     set_env_vars_in_json(&mut json, &entries);
-    write_teamclaw_json(&workspace_path, &json)
+    write_teamclaw_json(workspace_path, &json)
+}
+
+/// Store (or update) an environment variable in the local encrypted store and update the index in teamclaw.json.
+#[tauri::command]
+pub async fn env_var_set(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
+    state: State<'_, OpenCodeState>,
+    key: String,
+    value: String,
+    description: Option<String>,
+) -> Result<(), String> {
+    let workspace_path = get_workspace_path(&window, &registry, &state)?;
+    env_var_set_for_workspace(&workspace_path, key, value, description).await
 }
 
 /// Retrieve an environment variable value from the local encrypted store.
 #[tauri::command]
-pub async fn env_var_get(state: State<'_, OpenCodeState>, key: String) -> Result<String, String> {
-    let workspace_path = get_workspace_path(&state)?;
+pub async fn env_var_get(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
+    state: State<'_, OpenCodeState>,
+    key: String,
+) -> Result<String, String> {
+    let workspace_path = get_workspace_path(&window, &registry, &state)?;
     let blob = tokio::task::spawn_blocking({
         let wp = workspace_path.clone();
         move || read_env_blob(&wp)
@@ -520,20 +541,15 @@ pub async fn env_var_get(state: State<'_, OpenCodeState>, key: String) -> Result
         .ok_or_else(|| format!("Key '{}' not found", key))
 }
 
-/// Delete an environment variable from both the local encrypted store and teamclaw.json index.
-#[tauri::command]
-pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&state)?;
-
-    // Read index once — used for both the guard check and the removal below.
-    // Note: concurrent deletes from multiple Tauri windows could race here (each reads,
-    // modifies, and writes the same json independently). In practice the settings UI is
-    // single-user sequential, so this is acceptable.
-    let mut json = read_teamclaw_json(&workspace_path)?;
+/// Internal: delete env var from blob + teamclaw.json index for a given workspace.
+/// Shared between the Tauri command (window-scoped) and `introspect_api` (HTTP path).
+pub(crate) async fn env_var_delete_for_workspace(
+    workspace_path: &str,
+    key: String,
+) -> Result<(), String> {
+    let mut json = read_teamclaw_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
-    // Check category — system / system-shared vars cannot be deleted from the index
-    // (they're auto-registered each launch by `ensure_system_env_vars`).
     if let Some(entry) = entries.iter().find(|e| e.key == key) {
         match entry.category.as_deref() {
             Some("system") | Some("system-shared") => {
@@ -543,9 +559,8 @@ pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Res
         }
     }
 
-    // Read-modify-write blob atomically on a blocking thread
     let key_clone = key.clone();
-    let wp = workspace_path.clone();
+    let wp = workspace_path.to_string();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut blob = read_env_blob(&wp)?;
         blob.remove(&key_clone);
@@ -554,16 +569,31 @@ pub async fn env_var_delete(state: State<'_, OpenCodeState>, key: String) -> Res
     .await
     .map_err(|e| e.to_string())??;
 
-    // Remove from teamclaw.json index (reuse the already-read json)
     entries.retain(|e| e.key != key);
     set_env_vars_in_json(&mut json, &entries);
-    write_teamclaw_json(&workspace_path, &json)
+    write_teamclaw_json(workspace_path, &json)
+}
+
+/// Delete an environment variable from both the local encrypted store and teamclaw.json index.
+#[tauri::command]
+pub async fn env_var_delete(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
+    state: State<'_, OpenCodeState>,
+    key: String,
+) -> Result<(), String> {
+    let workspace_path = get_workspace_path(&window, &registry, &state)?;
+    env_var_delete_for_workspace(&workspace_path, key).await
 }
 
 /// List all registered environment variable keys with descriptions (no values).
 #[tauri::command]
-pub async fn env_var_list(state: State<'_, OpenCodeState>) -> Result<Vec<EnvVarEntry>, String> {
-    let workspace_path = get_workspace_path(&state)?;
+pub async fn env_var_list(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
+    state: State<'_, OpenCodeState>,
+) -> Result<Vec<EnvVarEntry>, String> {
+    let workspace_path = get_workspace_path(&window, &registry, &state)?;
     let json = read_teamclaw_json(&workspace_path)?;
     Ok(get_env_vars_from_json(&json))
 }
@@ -576,11 +606,13 @@ pub async fn env_var_list(state: State<'_, OpenCodeState>) -> Result<Vec<EnvVarE
 ///   3. System environment variables (`std::env::var`)
 #[tauri::command]
 pub async fn env_var_resolve(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
     shared_secrets: State<'_, super::shared_secrets::SharedSecretsState>,
     input: String,
 ) -> Result<String, String> {
-    let workspace_path = get_workspace_path(&state)?;
+    let workspace_path = get_workspace_path(&window, &registry, &state)?;
     let re = regex::Regex::new(r"\$\{([^}]+)\}").map_err(|e| format!("Invalid regex: {}", e))?;
 
     let mut result = input.clone();

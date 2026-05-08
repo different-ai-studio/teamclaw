@@ -13,18 +13,53 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 
 use super::opencode::{find_available_port, shutdown_opencode, OpenCodeState};
 
-/// window_label → workspace_path mapping for active secondary workspace windows.
+/// window_label → workspace_path mapping for every workspace-owning window.
+///
+/// Both the main window (label `"main"`) and secondary windows opened via
+/// `create_workspace_window` register here. Commands resolve their workspace
+/// from the calling window's label so that, in multi-window mode, an event
+/// from window A never routes to window B's sidecar.
 #[derive(Default)]
 pub struct WindowRegistry {
     pub windows: Mutex<HashMap<String, String>>,
 }
 
+/// Insert or update the label → workspace mapping. Called from `start_opencode`
+/// for the main window and from `create_workspace_window` for secondary windows.
+pub fn register_window_workspace(registry: &WindowRegistry, label: &str, workspace_path: &str) {
+    if let Ok(mut windows) = registry.windows.lock() {
+        windows.insert(label.to_string(), workspace_path.to_string());
+    }
+}
+
 /// Look up the workspace path associated with a window label.
-/// Phase 2 commands routing per-window will read this; today's commands still
-/// rely on the single-instance fallback in `resolve_workspace`.
-#[allow(dead_code)]
 pub fn workspace_for_window(registry: &WindowRegistry, label: &str) -> Option<String> {
     registry.windows.lock().ok()?.get(label).cloned()
+}
+
+/// Resolve the workspace for the calling window.
+///
+/// Strategy:
+/// 1. Look up the window label in `WindowRegistry` — this is authoritative once
+///    `start_opencode` has run.
+/// 2. Fall back to single-instance inference via `current_workspace_path`. This
+///    keeps single-window flows working before the registry is populated and
+///    preserves existing behavior for any caller that doesn't own a sidecar.
+///
+/// In multi-window mode the registry lookup almost always succeeds; the
+/// fallback only fires during the brief window before the calling window's
+/// `start_opencode` has registered itself, in which case `current_workspace_path`
+/// errors with the existing "N instances active" message rather than silently
+/// routing to the wrong workspace.
+pub fn current_workspace_for_window(
+    window: &tauri::WebviewWindow,
+    registry: &WindowRegistry,
+    state: &OpenCodeState,
+) -> Result<String, String> {
+    if let Some(ws) = workspace_for_window(registry, window.label()) {
+        return Ok(ws);
+    }
+    super::opencode::current_workspace_path(state)
 }
 
 /// Open a new TeamClaw window for an additional workspace.

@@ -85,10 +85,12 @@ pub(crate) fn write_config(
 /// Get MCP configuration from the workspace
 #[tauri::command]
 pub async fn get_mcp_config(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
     workspace_path: Option<String>,
 ) -> Result<IndexMap<String, MCPServerConfig>, String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let config = read_config(&workspace_path)?;
     Ok(config.mcp.unwrap_or_default())
@@ -97,11 +99,13 @@ pub async fn get_mcp_config(
 /// Save complete MCP configuration to the workspace
 #[tauri::command]
 pub async fn save_mcp_config(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
     mcp_config: IndexMap<String, MCPServerConfig>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     config.mcp = if mcp_config.is_empty() {
@@ -115,12 +119,14 @@ pub async fn save_mcp_config(
 /// Add a new MCP server
 #[tauri::command]
 pub async fn add_mcp_server(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
     name: String,
     server_config: MCPServerConfig,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -137,12 +143,14 @@ pub async fn add_mcp_server(
 /// Update an existing MCP server
 #[tauri::command]
 pub async fn update_mcp_server(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
     name: String,
     server_config: MCPServerConfig,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -159,11 +167,13 @@ pub async fn update_mcp_server(
 /// Remove an MCP server
 #[tauri::command]
 pub async fn remove_mcp_server(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
     name: String,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -180,12 +190,14 @@ pub async fn remove_mcp_server(
 /// Toggle MCP server enabled/disabled
 #[tauri::command]
 pub async fn toggle_mcp_server(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
     name: String,
     enabled: bool,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -210,11 +222,13 @@ pub struct MCPTestResult {
 /// Test an MCP server configuration
 #[tauri::command]
 pub async fn test_mcp_server(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
     name: String,
     workspace_path: Option<String>,
 ) -> Result<MCPTestResult, String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let config = read_config(&workspace_path)?;
     let mcp = config.mcp.unwrap_or_default();
@@ -692,9 +706,11 @@ async fn read_jsonrpc_response(
 /// List tools for all enabled MCP servers by querying each one directly.
 #[tauri::command]
 pub async fn list_mcp_tools(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
     state: State<'_, OpenCodeState>,
 ) -> Result<HashMap<String, Vec<String>>, String> {
-    let workspace_path = super::opencode::current_workspace_path(&state)?;
+    let workspace_path = super::window::current_workspace_for_window(&window, &registry, &state)?;
 
     let config = read_config(&workspace_path)?;
     let servers = config.mcp.unwrap_or_default();
