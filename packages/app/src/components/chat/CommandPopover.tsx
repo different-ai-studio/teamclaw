@@ -409,7 +409,7 @@ export function CommandPopover({
         {/* Hint bar */}
         <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] text-muted-foreground/60 border-t">
           <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> {t('chat.commandPopover.navigate', 'navigate')}</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵/Tab</kbd> {t('chat.commandPopover.select', 'select')}</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">{t('chat.commandPopover.enterOrTab', '↵/Tab')}</kbd> {t('chat.commandPopover.select', 'select')}</span>
           <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Esc</kbd> {t('chat.commandPopover.close', 'close')}</span>
         </div>
       </div>

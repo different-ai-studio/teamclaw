@@ -34,14 +34,12 @@ fn resolve_updater_endpoint(config: &serde_json::Value) -> Option<String> {
         return Some(endpoint);
     }
 
-    updater["endpoints"]
-        .as_array()
-        .and_then(|endpoints| {
-            endpoints
-                .iter()
-                .filter_map(|endpoint| endpoint.as_str())
-                .find_map(resolve_updater_url)
-        })
+    updater["endpoints"].as_array().and_then(|endpoints| {
+        endpoints
+            .iter()
+            .filter_map(|endpoint| endpoint.as_str())
+            .find_map(resolve_updater_url)
+    })
 }
 
 fn main() {
