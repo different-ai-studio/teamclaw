@@ -26,7 +26,14 @@ vi.mock('@/lib/store-utils', () => ({
   },
 }))
 
-import { useCronStore, formatSchedule, formatRelativeTime, getRunStatusColor, getChannelDisplayName } from '@/stores/cron'
+import {
+  useCronStore,
+  formatSchedule,
+  formatRelativeTime,
+  getRunStatusColor,
+  getChannelDisplayName,
+  normalizeCronRunRecord,
+} from '@/stores/cron'
 
 describe('cron store', () => {
   beforeEach(() => {
@@ -93,6 +100,7 @@ describe('cron helpers', () => {
     expect(getRunStatusColor('failed')).toBe('text-red-500')
     expect(getRunStatusColor('timeout')).toBe('text-orange-500')
     expect(getRunStatusColor('running')).toBe('text-blue-500')
+    expect(getRunStatusColor('stale')).toBe('text-yellow-500')
   })
 
   it('getChannelDisplayName returns correct names', () => {
@@ -202,6 +210,20 @@ describe('formatRelativeTime – extended ranges', () => {
 describe('getRunStatusColor – edge cases', () => {
   it('returns muted color for unknown status', () => {
     expect(getRunStatusColor('unknown' as any)).toBe('text-muted-foreground')
+  })
+})
+
+describe('normalizeCronRunRecord', () => {
+  it('maps legacy success records with timeout cut-short summaries to timeout', () => {
+    const record = normalizeCronRunRecord({
+      runId: 'run-1',
+      jobId: 'job-1',
+      startedAt: new Date().toISOString(),
+      status: 'success',
+      responseSummary: 'partial output\n\n---\n⚠️ AI response was cut short after 180s timeout.',
+    })
+
+    expect(record.status).toBe('timeout')
   })
 })
 
@@ -319,6 +341,22 @@ describe('cron store actions', () => {
       limit: 50,
       workspacePath: '/test/workspace',
     })
+  })
+
+  it('loadRuns normalizes legacy timeout-success records before storing them', async () => {
+    mockInvoke.mockResolvedValueOnce([
+      {
+        runId: 'r1',
+        jobId: 'job-1',
+        startedAt: new Date().toISOString(),
+        status: 'success',
+        responseSummary: 'partial output\n\n---\n⚠️ AI response was cut short after 180s timeout.',
+      },
+    ])
+
+    await useCronStore.getState().loadRuns('job-1')
+
+    expect(useCronStore.getState().runs[0].status).toBe('timeout')
   })
 
   it('loadJobs sets jobs from backend', async () => {

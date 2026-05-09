@@ -97,8 +97,7 @@ export function CronJobDialog({
         setForm(next)
         setAdvancedOptionsOpen(
           next.deliveryEnabled ||
-            next.useWorktree ||
-            next.timeoutSeconds !== defaultFormState.timeoutSeconds,
+            next.useWorktree,
         )
       } else {
         setForm(defaultFormState)
@@ -501,21 +500,6 @@ export function CronJobDialog({
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 {t('settings.cron.execution', 'Execution')}
               </h4>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t('settings.cron.timeout', 'Timeout (seconds)')}</label>
-                <Input
-                  type="number"
-                  min={30}
-                  max={900}
-                  value={form.timeoutSeconds}
-                  onChange={(e) => update({ timeoutSeconds: Math.max(30, Math.min(900, Number(e.target.value) || 180)) })}
-                  className="w-32"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.cron.timeoutHint', 'Max time for AI to respond. Auto-aborts if exceeded (30-900s, default 180s).')}
-                </p>
-              </div>
-
               {/* Worktree isolation */}
               <div className="flex items-center justify-between">
                 <div>

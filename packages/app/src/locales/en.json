@@ -43,7 +43,11 @@
     "daysAgo": "{{count}} day ago",
     "daysAgo_plural": "{{count}} days ago",
     "refresh": "Refresh",
-    "or": "or"
+    "or": "or",
+    "dismiss": "Dismiss",
+    "more": "More",
+    "showLess": "Show less",
+    "showMore": "Show more"
   },
   "navigation": {
     "home": "Home",
@@ -56,7 +60,10 @@
     "changes": "Changes",
     "tasks": "Tasks",
     "session": "Session",
-    "shortcuts": "Shortcuts"
+    "shortcuts": "Shortcuts",
+    "knowledge": "Knowledge",
+    "hideTabs": "Hide files",
+    "restoreTabs": "Show files"
   },
   "panel": {
     "tasks": {
@@ -70,6 +77,11 @@
     "send": "Send",
     "clear": "Clear Chat",
     "newChat": "New Chat",
+    "backToActiveSession": "Back to active session",
+    "archivedSession": "Archived session",
+    "restoreSession": "Restore",
+    "archivedSessionLoadError": "Could not load archived session",
+    "restoreArchivedHint": "Restore this session to continue chatting",
     "agent": "Agent",
     "startNewChat": "Start a New Chat",
     "suggestions": {
@@ -83,6 +95,11 @@
     "skillRestartTitle": "Detected new skills",
     "skillRestartBody": "New or updated skills were detected. Please wait until skill generation is complete before restarting OpenCode.",
     "planningMoves": "Planning next moves",
+    "loadEarlierMessages": "Load {{count}} earlier messages",
+    "compaction": {
+      "title": "Context automatically compacted",
+      "inProgressTitle": "Compacting context automatically..."
+    },
     "analyzing": "Agent is analyzing and planning...",
     "generatingComponents": "Generating... ({{count}} components)",
     "thinking": "Thinking...",
@@ -206,14 +223,50 @@
         "submitting": "Submitting...",
         "preparing": "Preparing...",
         "submitAnswer": "Submit Answer"
-      }
+      },
+      "argCount": "{{count}} args"
     },
     "voiceInputStart": "Start voice input",
     "voiceInputStop": "Stop recording",
     "voiceInputUnsupported": "Voice input is not supported",
     "voiceInputPermissionDenied": "Microphone permission denied",
     "voiceInputNoSession": "Please select or create a session first",
-    "voiceInputInsertToChat": "Insert to chat"
+    "voiceInputInsertToChat": "Insert to chat",
+    "inputPlaceholderDescription": "Add a description...",
+    "inputPlaceholderMention": "Type @ to reference files...",
+    "inputPlaceholderQueue": "Type to queue message...",
+    "newSession": "New Session",
+    "refreshMessages": "Refresh messages",
+    "startingAgent": "Starting agent...",
+    "taskRunning": "Task running...",
+    "voiceInputChecking": "Checking microphone...",
+    "voiceInputDesktopNoTranscript": "Speech-to-text is not supported in the desktop app. Use the web version for voice input.",
+    "voiceInputNoMicrophone": "No microphone detected",
+    "voiceInputRecognizing": "Recognizing...",
+    "waitingForAgent": "Sessions are ready. Waiting for agent runtime to finish starting.",
+    "backToMainSession": "Back to main session",
+    "waitingForConfirmationShort": "Waiting",
+    "newSessionBadge": "NEW",
+    "messageCountShort": "{{count}} msg",
+    "messageCountShort_plural": "{{count}} msgs",
+    "commandPopover": {
+      "prompt": "Select role, skill, or command",
+      "itemCount": "{{count}} item",
+      "itemCount_plural": "{{count}} items",
+      "noMatch": "No match for \"{{query}}\"",
+      "empty": "No skills or commands found",
+      "roles": "{{count}} role",
+      "roles_plural": "{{count}} roles",
+      "skills": "{{count}} skill",
+      "skills_plural": "{{count}} skills",
+      "commands": "{{count}} command",
+      "commands_plural": "{{count}} commands",
+      "navigate": "navigate",
+      "enterOrTab": "↵/Tab",
+      "select": "select",
+      "close": "close",
+      "description": "Description"
+    }
   },
   "onboarding": {
     "common": {
@@ -308,8 +361,27 @@
     "pasteFailed": "Paste failed",
     "externalDropped": "Copied {{count}} file(s)",
     "externalDropFailed": "Failed to copy files",
+    "addToAgent": "Add to Agent",
+    "openWithDefault": "Open with Default App",
+    "duplicate": "Duplicate",
+    "openInTerminal": "Open in Terminal",
+    "noGitChanges": "No git changes",
+    "collapseAll": "Collapse All",
+    "showAll": "Show all files",
+    "showGitChanged": "Show git changed files only",
+    "undone": "Undone: {{desc}}",
+    "undoFailed": "Cannot undo this operation",
+    "confirmDeleteTitle": "Delete \"{{name}}\"?",
+    "confirmBatchDeleteTitle": "Delete {{count}} items?",
+    "confirmDeleteFileDesc": "This will permanently delete this file.",
+    "confirmDeleteDirDesc": "This will permanently delete this folder and all its contents.",
+    "confirmBatchDeleteDesc": "This will permanently delete all selected items. This action cannot be undone for directories.",
     "teamLastSyncTooltip": "Last sync: {{time}}",
-    "teamSyncing": "Syncing…"
+    "teamSyncing": "Syncing…",
+    "duplicateFailed": "Duplicate failed",
+    "duplicated": "Duplicated",
+    "pathCopied": "Path copied",
+    "undo": "Undo: {{desc}}"
   },
   "git": {
     "modified": "Modified",
@@ -327,6 +399,11 @@
     "searchSessions": "Search Sessions",
     "searchDescription": "Search and navigate to a session",
     "searchPlaceholder": "Search sessions...",
+    "searchActive": "Active",
+    "searchArchived": "Archived",
+    "searchAll": "All",
+    "archivedAt": "Archived {{date}}",
+    "loadingArchivedSessions": "Loading archived sessions...",
     "sessions": "Sessions",
     "active": "Active",
     "today": "Today",
@@ -343,9 +420,16 @@
     "allSessions": "All sessions",
     "pinToTop": "Pin to top",
     "unpin": "Unpin",
+    "awaitingConfirmation": "Awaiting confirmation",
+    "sessionRunning": "Running",
     "loadMore": "Load More",
     "loadingMore": "Loading...",
-    "settings": "Settings"
+    "settings": "Settings",
+    "archive": "Archive",
+    "rename": "Rename",
+    "showAllSessions": "Show all sessions",
+    "showCronSessions": "Show scheduled sessions",
+    "searchWithShortcut": "Search (⌘K)"
   },
   "setup": {
     "title": "Setup Required",
@@ -356,7 +440,24 @@
     "getStarted": "Get Started",
     "continue": "Continue",
     "intro": "TeamClaw needs a few tools to work properly. Please install the missing dependencies below.",
-    "optionalHint": "{{count}} optional {{singular}} missing. You can install {{pronoun}} later from Settings."
+    "optionalHint": "{{count}} optional {{singular}} missing. You can install {{pronoun}} later from Settings.",
+    "back": "Back",
+    "customize": "Customize",
+    "customizeIntro": "Choose which dependencies to install. Required tools are pre-selected.",
+    "customizeTitle": "Select Dependencies",
+    "installAllRequired": "Install All Required",
+    "installFailed": "{{count}} failed to install",
+    "installSelected": "Install Selected",
+    "installSuccess": "{{count}} installed successfully",
+    "installing": "Installing",
+    "installingIntro": "Please wait while dependencies are being installed...",
+    "installingTitle": "Installing Dependencies",
+    "passwordPrompt": "You may be prompted for your system password by macOS to complete the Homebrew installation.",
+    "resultsIntro": "Installation has finished. See the results below.",
+    "resultsTitle": "Installation Complete",
+    "retryFailed": "Retry Failed",
+    "skip": "Skip",
+    "waitingForOutput": "Waiting for output..."
   },
   "errors": {
     "somethingWentWrong": "Something went wrong",
@@ -370,7 +471,12 @@
     "recoveryHint": "An unexpected error occurred. You can try to recover or reload the application.",
     "fileNotFound": "File not found",
     "accessDenied": "Access denied",
-    "networkError": "Network error occurred"
+    "networkError": "Network error occurred",
+    "authenticationError": "Authentication Error",
+    "error": "Error",
+    "quotaExceeded": "Quota Exceeded",
+    "rateLimited": "Rate Limited",
+    "serverError": "Server Error"
   },
   "updater": {
     "available": "Update Available",
@@ -387,7 +493,8 @@
     "isAvailable": "is available.",
     "pleaseWait": "Please wait while the update is being downloaded.",
     "restartToApply": "The update has been installed. Restart to apply changes.",
-    "updateError": "An error occurred during the update process."
+    "updateError": "An error occurred during the update process.",
+    "retry": "Retry"
   },
   "detail": {
     "searchResults": "Search Results",
@@ -484,7 +591,15 @@
       "compiled": "Compiled file",
       "design": "Design file",
       "other": "Binary file"
-    }
+    },
+    "discardChanges": "Don't Save",
+    "saveAndClose": "Save",
+    "saving": "Saving...",
+    "switchToSplitLayout": "Switch to split layout",
+    "switchToStackedLayout": "Switch to stacked layout",
+    "unsavedChangesMessage": "You have unsaved changes in this file. Do you want to save before closing?",
+    "unsavedChangesTitle": "Unsaved Changes",
+    "viewHistory": "View history"
   },
   "settings": {
     "title": "Settings",
@@ -639,7 +754,20 @@
       "disconnecting": "Disconnecting...",
       "disconnect": "Disconnect",
       "managedByTeam": "Managed by team",
-      "managedByTeamDesc": "Model configuration is managed by team admin, no personal configuration needed."
+      "managedByTeamDesc": "Model configuration is managed by team admin, no personal configuration needed.",
+      "connectDescriptionOAuth": "Connect via your browser subscription or enter an API key.",
+      "copied": "Copied!",
+      "copyCode": "Copy code",
+      "loginWithBrowser": "Login with browser",
+      "oauthPolling": "Waiting for authorization...",
+      "oauthWaiting": "Browser opened. Complete authorization and return here.",
+      "or": "or",
+      "reopenBrowser": "Re-open browser",
+      "authorizationCode": "Authorization code",
+      "authorizationCodePlaceholder": "Paste authorization code",
+      "completeAuthorization": "Complete authorization",
+      "showLess": "Show Less",
+      "showMore": "Show More"
     },
     "prompt": {
       "title": "Prompt",
@@ -791,7 +919,9 @@
       "noWorkspace": "No workspace selected",
       "inherentMCP": "Built-in MCP",
       "managedByTeamClaw": "Managed by TeamClaw",
-      "customMCP": "Custom MCP"
+      "customMCP": "Custom MCP",
+      "inherentEnvHint": "Fill them in Settings → Environment Variables, then restart OpenCode to apply.",
+      "inherentEnvNotice": "This server's environment variables are managed in Environment Variables. Configure the following variables there:"
     },
     "skills": {
       "title": "Skills",
@@ -1007,7 +1137,12 @@
           "rerankModel": "Rerank Model",
           "rerankTopKDesc": "Number of initial results to retrieve before reranking"
         }
-      }
+      },
+      "autoIndexed": "Files auto-indexed to knowledge base",
+      "configChanged": "Index configuration changed",
+      "needsReindex": "Configuration changes detected (embedding model or chunking parameters). A full re-index is required for changes to take effect.",
+      "rebuildNow": "Rebuild Now",
+      "rebuilding": "Rebuilding..."
     },
     "channels": {
       "disconnected": "Disconnected",
@@ -1269,6 +1404,8 @@
         "gmailAddressPlaceholder": "your-email@gmail.com",
         "authorizeGmail": "Authorize Gmail",
         "reauthorize": "Re-authorize",
+        "gmailAuthUrlHint": "Open this authorization URL in your browser, then paste the returned code.",
+        "copy": "Copy",
         "authorized": "Authorized",
         "imapHost": "IMAP Host",
         "imapPort": "IMAP Port",
@@ -1412,7 +1549,34 @@
         "wizardVerifyTitle": "Connection Verified",
         "wizardVerifyDesc": "Your WeChat is connected.",
         "wizardCompleteTitle": "Setup Complete",
-        "wizardCompleteDesc": "Your WeChat channel is ready."
+        "wizardCompleteDesc": "Your WeChat channel is ready.",
+        "accountId": "Account ID",
+        "authExpired": "Login session expired",
+        "authExpiredDesc": "Please scan the QR code again to re-login.",
+        "baseUrl": "Base URL",
+        "clickToGetQr": "Click below to generate a QR code for WeChat login.",
+        "completeMessage": "Your WeChat connection is configured. Click \"Finish\" to save your settings and start using it.",
+        "connectDesc": "This wizard will connect your WeChat account via ClawBot. You'll scan a QR code with WeChat on your iPhone to log in.",
+        "connectTitle": "Connect WeChat to {{appName}}",
+        "connectionInfo": "Connection Info",
+        "gateway": "WeChat Gateway",
+        "getQrCode": "Get QR Code",
+        "iosRequired": "iPhone Required",
+        "iosRequiredDesc": "WeChat on iOS is required for QR code login",
+        "loadingQr": "Generating QR code...",
+        "loginSuccess": "Login Successful!",
+        "loginSuccessDesc": "Your WeChat account has been connected to ClawBot.",
+        "nextStepMessage": "Send a message in WeChat to test the connection!",
+        "quickSetupDesc": "Scan and connect in under a minute",
+        "reLogin": "Re-login",
+        "retry": "Retry",
+        "scanInstructions": "Open WeChat on your iPhone and scan this QR code to log in.",
+        "secure": "Secure Connection",
+        "secureDesc": "Credentials stored locally, never sent to our servers",
+        "setupDesc": "Connect your WeChat account by scanning a QR code.",
+        "setupTitle": "Set up WeChat Integration",
+        "waitingConfirm": "QR scanned — please confirm on your phone...",
+        "waitingScan": "Waiting for scan..."
       },
       "wecom": {
         "chooseMethod": "Choose Setup Method",
@@ -1431,7 +1595,30 @@
         "scanTimeout": "QR code expired. Please try again.",
         "scanError": "Failed to get QR code. Please try again or use manual input.",
         "retryQr": "Retry",
-        "switchToManual": "Switch to Manual Input"
+        "switchToManual": "Switch to Manual Input",
+        "activeSessions": "Active Sessions",
+        "botCredentials": "Bot Credentials",
+        "botId": "Bot ID",
+        "botIdPlaceholder": "Enter your WeCom bot ID",
+        "completeMessage": "Your WeCom bot is now configured. Click \"Finish\" to save your settings and start using the bot.",
+        "connectDesc": "This wizard will guide you through creating a WeCom AI bot and connecting it to {{appName}}. You'll be able to interact with AI directly from WeCom chats.",
+        "connectTitle": "Connect WeCom to {{appName}}",
+        "copyChatId": "Copy Chat ID",
+        "credentialsEntered": "Credentials entered",
+        "credentialsPortalHint": "In the WeCom Admin Console, go to your AI Bot settings:",
+        "credentialsSecretDesc": "Never share your Bot Secret. It is stored locally on your device.",
+        "credentialsSecretWarning": "Keep your credentials secret!",
+        "encodingAesKey": "Encoding AES Key",
+        "encodingAesKeyPlaceholder": "43-character key for attachment decryption",
+        "gateway": "WeCom Gateway",
+        "getQrCode": "Get QR Code",
+        "longConnection": "Long Connection",
+        "longConnectionDesc": "No public server needed, runs locally via WebSocket",
+        "nextStepMessage": "Send a message to your bot in WeCom to test!",
+        "secret": "Secret",
+        "secretPlaceholder": "Enter your WeCom bot secret",
+        "setupDesc": "Connect a WeCom AI bot to interact with AI from WeCom chats.",
+        "setupTitle": "Set up WeCom Integration"
       }
     },
     "cron": {
@@ -1509,7 +1696,13 @@
       "useWorktreeDesc": "Execute in a temporary git worktree copy",
       "worktreeBranch": "Branch",
       "worktreeBranchPlaceholder": "main",
-      "viewConversation": "View Conversation"
+      "viewConversation": "View Conversation",
+      "execution": "Execution",
+      "modelOverrideHint": "Select a model or use workspace default.",
+      "modelSelected": "Using: {{model}}",
+      "noModels": "No models configured. Please configure providers in LLM Settings first.",
+      "lastHeartbeat": "Last heartbeat",
+      "useDefaultModel": "Use default model"
     },
     "team": {
       "checkingWorkspace": "Checking workspace...",
@@ -1677,6 +1870,7 @@
       "syncPrecheckDesc": "About to sync {{count}} new files, {{size}} total. Confirm to continue.",
       "syncPrecheckMore": "… and {{count}} more files",
       "syncPrecheckTitle": "Large number of new files detected",
+      "syncPrecheckToast": "Detected {{count}} large new files to sync. Confirm in Settings > Team.",
       "teamCreatedDesc": "Share these credentials with your team members so they can join.",
       "teamCreatedDescInvite": "Share the invite code below with your team members — they just paste it to join.",
       "teamCreatedTitle": "Team Created Successfully",
@@ -1758,7 +1952,8 @@
       "approveFailed": "Approval failed: {{error}}",
       "restoreComplete": "Restore complete: {{count}} files restored",
       "restoreFailed": "Restore failed: {{error}}",
-      "noVersionHistory": "No file version records"
+      "noVersionHistory": "No file version records",
+      "p2pConfiguredNotConnected": "Team is configured but not connected. Peers may be offline or unreachable."
     },
     "deps": {
       "copied": "Copied!",
@@ -1771,7 +1966,11 @@
       "installedCount": "{{installed}}/{{total}} installed",
       "recheck": "Re-check",
       "required": "Required",
-      "optional": "Optional"
+      "optional": "Optional",
+      "install": "Install",
+      "installed": "Installed",
+      "installing": "Installing...",
+      "retry": "Retry"
     },
     "plugins": {
       "title": "Plugins",
@@ -1853,8 +2052,22 @@
       "error": {
         "keyRequired": "Key is required",
         "valueRequired": "Value is required",
-        "invalidKey": "Key must contain only letters, digits, and underscores"
-      }
+        "invalidKey": "Key must contain only letters, digits, and underscores",
+        "invalidKeyShared": "Shared key must be lowercase letters, digits, underscores (max 64 chars)"
+      },
+      "configChanged": "Environment Variables Changed",
+      "hideValue": "Hide value",
+      "hintTeam": "Team variables are encrypted and synced to all team members. They cannot be viewed after saving.",
+      "needRestart": "Need restart",
+      "notConfigured": "Not configured",
+      "restart": "Restart OpenCode",
+      "restartToApply": "Restart OpenCode to apply the new environment variables to MCP servers.",
+      "scopePersonal": "Personal",
+      "scopeSystem": "System",
+      "scopeTeam": "Team",
+      "shareHint": "This variable will be encrypted and synced to all team members.",
+      "shareWithTeam": "Share with team",
+      "showValue": "Show value"
     },
     "shortcuts": {
       "title": "Shortcuts",
@@ -1947,7 +2160,59 @@
       "totalSkills_other": "{{count}} skills",
       "topSkills": "Top Skills This Team",
       "calls": "calls",
-      "usedBy": "{{n}} members"
+      "usedBy": "{{n}} members",
+      "totalSkills": "{{count}} skills"
+    },
+    "permissions": {
+      "allow": "Allow",
+      "allowDesc": "Auto-approve without prompting",
+      "allowlist": "Command Allowlist",
+      "allowlistDesc": "Commands marked as \"Always Allow\". Takes effect after agent restart.",
+      "ask": "Ask",
+      "askDesc": "Prompt for approval each time",
+      "config": "Permission Configuration",
+      "configDesc": "Configure default permission policies for agent tools",
+      "configInfo": "Permission Actions",
+      "deny": "Deny",
+      "denyDesc": "Block the action",
+      "desc": "Manage agent permissions and command allowlist",
+      "noAllowlist": "No commands have been allowlisted yet",
+      "noWorkspace": "No workspace selected. Please select a workspace first.",
+      "saveAndApply": "Save & Apply",
+      "saving": "Applying...",
+      "title": "Permission Management"
+    },
+    "sharedSecrets": {
+      "add": "Add Secret",
+      "addDescription": "Add a new shared secret that will be encrypted and synced across your team.",
+      "addFirst": "Add Your First Secret",
+      "addTitle": "Add Shared Secret",
+      "category": "Category",
+      "count": "{{count}} secret(s) stored",
+      "delete": "Delete",
+      "deleteDescription": "Are you sure you want to delete \"{{key}}\"? This will remove the secret from disk and cannot be undone.",
+      "deleteTitle": "Delete Shared Secret",
+      "description": "Description",
+      "descriptionPlaceholder": "e.g. OpenAI API key for the team",
+      "edit": "Edit",
+      "editDescription": "Update the value for this shared secret. The new value will be synced to all team members.",
+      "editTitle": "Edit Shared Secret",
+      "emptyDescription": "Share encrypted secrets with your team. Values are encrypted using the team key and synced via P2P.",
+      "emptyTitle": "No shared secrets yet",
+      "error": {
+        "invalidKey": "Key ID must contain only lowercase letters, digits, and underscores",
+        "keyRequired": "Key ID is required",
+        "valueRequired": "Value is required"
+      },
+      "hintBody": "Secrets are encrypted using your team's shared key and stored as .enc.json files. They are synced to all team members via P2P and OSS. Values are write-only — they cannot be viewed after saving.",
+      "hintTitle": "How it works",
+      "keyId": "Key ID",
+      "on": "on",
+      "optional": "optional",
+      "sectionDescription": "Encrypted secrets shared across your team — synced via P2P and stored on disk",
+      "title": "Shared Secrets",
+      "updatedBy": "Updated by",
+      "value": "Value"
     }
   },
   "skillssh": {
@@ -1996,7 +2261,19 @@
     "installed": "Installed",
     "installSkill": "Install Skill",
     "installSkillDesc": "Choose where to install",
-    "viewOnGitHub": "View on GitHub"
+    "viewOnGitHub": "View on GitHub",
+    "allUpToDate": "All skills are up to date",
+    "checkUpdates": "Check Updates",
+    "installFromSource": "Install from Source",
+    "installFromSourceDesc": "Install skills via npx skills add — supports GitHub shorthand (owner/repo), full URLs, and direct skill paths",
+    "manageDesc": "Check for updates or update all installed skills via npx skills",
+    "manageInstalled": "Manage Installed Skills",
+    "reinstall": "Reinstall",
+    "sourcePlaceholder": "owner/repo or https://github.com/owner/repo",
+    "sourceRequired": "Please enter a source (owner/repo or URL)",
+    "supportedFormats": "Supported formats:",
+    "uninstall": "Uninstall",
+    "updateAll": "Update All"
   },
   "knowledge": {
     "stats": {
@@ -2051,13 +2328,152 @@
       "startWatcherFailed": "Failed to start file watcher",
       "watcherStopped": "File watcher stopped",
       "stopWatcherFailed": "Failed to stop file watcher"
+    },
+    "gitSync": "Sync Team"
+  },
+  "versionHistory": {
+    "title": "Version history",
+    "fileList": "File list",
+    "selectFilePrompt": "Select a file from the left",
+    "docType": {
+      "skill": "Skills",
+      "mcp": "MCP",
+      "knowledge": "Knowledge",
+      "meta": "Meta"
+    },
+    "filterAll": "All",
+    "noFiles": "No files",
+    "versionCount": "{{count}} version",
+    "versionCount_plural": "{{count}} versions",
+    "currentVersion": "Current version",
+    "currentFile": "Current file",
+    "historicalVersionsTitle": "Historical versions",
+    "noHistoricalVersions": "No historical versions",
+    "versionLabel": "Version {{number}}",
+    "selectVersionPrompt": "Select a historical version",
+    "contentTab": "Content",
+    "diffTab": "Compare with current",
+    "restoring": "Restoring...",
+    "restoreThisVersion": "Restore this version",
+    "restoreTitle": "Restore this version?",
+    "restoreDescription": "The file will be restored to the local draft and will not sync to the team immediately. This change will be pushed automatically on the next sync.",
+    "confirmRestore": "Restore",
+    "currentContentUnavailable": "Current content is unavailable"
+  },
+  "telemetry": {
+    "consent": {
+      "title": "Help improve {{appName}}",
+      "description": "Allow {{appName}} to collect anonymous usage data to help us improve agent quality.",
+      "collectTitle": "Collected",
+      "collectDescription": "Session duration, token usage, tool call statistics, feedback ratings, and model information",
+      "neverCollectTitle": "Never collected",
+      "neverCollectDescription": "Conversation content, code, file paths, project names, or personal information",
+      "changeAnytimeTitle": "Change anytime",
+      "changeAnytimeDescription": "You can turn this off anytime in Settings > System > Privacy & Telemetry",
+      "deny": "Not now",
+      "allow": "Allow analytics"
+    },
+    "rating": {
+      "question": "How was this result?",
+      "starLabel": "{{count}} star",
+      "starLabel_plural": "{{count}} stars"
     }
+  },
+  "nodeStatus": {
+    "connected": "Connected",
+    "degraded": "Degraded",
+    "reconnecting": "Reconnecting...",
+    "disconnected": "Disconnected",
+    "online": "Online",
+    "unknown": "Unknown",
+    "thisDevice": "This device",
+    "engine": "Engine",
+    "restarts": "Restarts",
+    "lastSync": "Last sync",
+    "syncedFiles": "Synced files",
+    "pendingFiles": "Pending files",
+    "teamMembers": "{{count}} team member",
+    "teamMembers_plural": "{{count}} team members",
+    "staleSeconds": "Stale {{count}}s",
+    "staleMinutes": "Stale {{count}}m",
+    "offlineSeconds": "Offline {{count}}s",
+    "offlineMinutes": "Offline {{count}}m",
+    "offlineHours": "Offline {{count}}h",
+    "secondsAgo": "{{count}}s ago",
+    "minutesAgoShort": "{{count}}m ago",
+    "hoursAgoShort": "{{count}}h ago",
+    "daysAgoShort": "{{count}}d ago"
   },
   "shortcuts": {
     "personal": "Personal",
     "team": "Team",
+    "newShortcut": "New Shortcut",
     "refreshTeam": "Refresh Team Shortcuts",
     "configure": "Configure Personal Shortcuts",
-    "configurePersonal": "Configure Personal Shortcuts"
+    "configurePersonal": "Configure Personal Shortcuts",
+    "backToSidebar": "Back to sidebar"
+  },
+  "clawhub": {
+    "author": "Author",
+    "changelog": "Changelog",
+    "downloads": "downloads",
+    "empty": "No skills available",
+    "emptyHint": "Check back later for new skills",
+    "install": "Install",
+    "installed": "Installed",
+    "loadMore": "Load More",
+    "malwareBlocked": "This skill is flagged as malware and cannot be installed.",
+    "noResults": "No skills found",
+    "noResultsHint": "Try different search terms",
+    "refresh": "Refresh",
+    "searchPlaceholder": "Search ClawHub skills...",
+    "stars": "stars",
+    "suspicious": "This skill is flagged as suspicious. Review carefully before installing.",
+    "uninstall": "Uninstall",
+    "update": "Update",
+    "updated": "Updated",
+    "version": "Version",
+    "viewOnClawHub": "View on ClawHub"
+  },
+  "diff": {
+    "agentActions": "Agent Actions",
+    "clickToCopy": "Click to copy path",
+    "collapseAll": "Collapse all",
+    "expandAll": "Expand all",
+    "explainChange": "Explain Change",
+    "generatePatch": "Generate Patch",
+    "openFile": "Open File",
+    "pathCopied": "Path copied",
+    "revertFailed": "Failed to revert file",
+    "revertFile": "Revert File",
+    "reverted": "File reverted",
+    "reviewCode": "Review Code",
+    "suggestRefactor": "Suggest Refactor"
+  },
+  "editor": {
+    "acceptAgent": "Accept Agent",
+    "conflictMessage": "Agent modified this file. You have unsaved changes.",
+    "documentRewrittenByAgent": "Document rewritten by agent",
+    "imagePasteFailed": "Failed to upload image",
+    "keepMine": "Keep Mine",
+    "uploadingImage": "Uploading image...",
+    "viewDiff": "View Diff"
+  },
+  "mainContent": {
+    "selectShortcut": "Select a shortcut to get started"
+  },
+  "history": {
+    "loadCommitContentFailed": "Unable to load content for this commit ({{sha}})",
+    "noFileHistory": "This file has no commit history yet",
+    "diffSkippedTooLarge": "File is too large or binary, skipping diff"
+  },
+  "dynamicUi": {
+    "generating": "Generating interface..."
+  },
+  "nativeContent": {
+    "notFound": "Component not found"
+  },
+  "team": {
+    "viewerReadOnly": "Read-only mode — you don't have edit permissions"
   }
 }

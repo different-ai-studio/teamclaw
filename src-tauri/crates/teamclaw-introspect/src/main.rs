@@ -103,16 +103,36 @@ fn tool_definitions() -> Value {
                         "description": "Human-readable description of what the job does."
                     },
                     "schedule": {
-                        "type": "string",
-                        "description": "Cron expression, e.g. '0 9 * * 1-5' (required for create)."
+                        "description": "Schedule for the job (required for create). A plain string is treated as a 5-field cron expression, e.g. '0 9 * * 1-5'. For one-time or interval jobs, pass an object such as {\"kind\":\"at\",\"at\":\"2026-05-07T09:00:00Z\"}, {\"kind\":\"every\",\"everyMs\":3600000}, or {\"kind\":\"cron\",\"expr\":\"0 9 * * 1-5\",\"tz\":\"Asia/Shanghai\"}.",
+                        "anyOf": [
+                            { "type": "string" },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "kind": { "type": "string", "enum": ["at", "every", "cron"] },
+                                    "at": { "type": "string" },
+                                    "everyMs": { "type": "integer" },
+                                    "expr": { "type": "string" },
+                                    "tz": { "type": "string" }
+                                },
+                                "required": ["kind"]
+                            }
+                        ]
                     },
                     "message": {
                         "type": "string",
                         "description": "Message or prompt to execute on each run (required for create)."
                     },
                     "delivery": {
-                        "type": "string",
-                        "description": "Optional delivery channel for cron results."
+                        "type": "object",
+                        "description": "Optional delivery settings for cron results.",
+                        "properties": {
+                            "mode": { "type": "string", "enum": ["announce", "none"] },
+                            "channel": { "type": "string", "enum": ["discord", "feishu", "email", "kook", "wechat", "wecom"] },
+                            "to": { "type": "string" },
+                            "bestEffort": { "type": "boolean" }
+                        },
+                        "required": ["mode", "channel", "to"]
                     }
                 },
                 "required": ["action"]

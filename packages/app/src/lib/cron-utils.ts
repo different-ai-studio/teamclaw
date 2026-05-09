@@ -279,7 +279,6 @@ export interface JobFormState {
   cronTz: string
   message: string
   model: string
-  timeoutSeconds: number
   deliveryEnabled: boolean
   deliveryChannel: DeliveryChannel
   deliveryTargetMode: string
@@ -302,7 +301,6 @@ export const defaultFormState: JobFormState = {
   cronTz: '',
   message: '',
   model: '',
-  timeoutSeconds: 180,
   deliveryEnabled: false,
   deliveryChannel: 'discord',
   deliveryTargetMode: 'dm',
@@ -349,7 +347,6 @@ export function jobToFormState(job: CronJob): JobFormState {
     cronTz: job.schedule.tz || '',
     message: job.payload.message,
     model: job.payload.model || '',
-    timeoutSeconds: job.payload.timeoutSeconds ?? 180,
     deliveryEnabled: !!job.delivery,
     deliveryChannel,
     deliveryTargetMode: parsed.mode,
@@ -399,7 +396,6 @@ export function formStateToPayload(form: JobFormState): CronPayload {
   return {
     message: form.message,
     model: form.model || undefined,
-    timeoutSeconds: form.timeoutSeconds !== 180 ? form.timeoutSeconds : undefined,
     useWorktree: form.useWorktree || undefined,
     worktreeBranch: form.useWorktree && form.worktreeBranch ? form.worktreeBranch : undefined,
   }

@@ -36,6 +36,7 @@ export type { PermissionAskedEvent };
 export interface PendingPermissionEntry {
   permission: PermissionAskedEvent;
   childSessionId: string | null;
+  ownerSessionId?: string | null;
   sourceToolName?: string | null;
   sourceToolCallId?: string | null;
   productionRisk?: Extract<CommandRisk, { level: "production_data" }>;
@@ -91,6 +92,9 @@ export interface MessagePart {
   type: string;
   content?: string;
   text?: string; // For reasoning type
+  auto?: boolean;
+  overflow?: boolean;
+  completed?: boolean;
   tool?: {
     name: string;
     id: string;
@@ -124,6 +128,14 @@ export interface Message {
   providerID?: string;
   agent?: string; // Agent/skill name from OpenCode
   retrievedChunks?: SearchResult[]; // RAG 检索到的文档片段
+  displayKind?: "compaction" | "compaction-summary" | "synthetic";
+  hidden?: boolean;
+  parentID?: string;
+  compaction?: {
+    auto?: boolean;
+    overflow?: boolean;
+    completed?: boolean;
+  };
 }
 
 export interface Session {
@@ -135,6 +147,8 @@ export interface Session {
   messageCount?: number;
   directory?: string; // Working directory for this session
   parentID?: string; // Parent session ID (for child/subagent sessions)
+  isArchived?: boolean;
+  archivedAt?: Date;
 }
 
 // Child session (subagent) streaming state
@@ -170,6 +184,7 @@ export interface SessionState {
   hasMoreSessions: boolean; // Whether there are more sessions to show
   visibleSessionCount: number; // How many sessions are currently visible in sidebar
   error: string | null;
+  errorSessionId: string | null;
   isConnected: boolean;
 
   // Selected model
@@ -186,6 +201,7 @@ export interface SessionState {
 
   // Pending questions (from question tool; multiple concurrent)
   pendingQuestions: PendingQuestionState[];
+  pendingQuestionIdsBySession: Record<string, string[] | undefined>;
 
   // Todo list (from todowrite tool)
   todos: Todo[];
@@ -198,6 +214,7 @@ export interface SessionState {
 
   // Session status (mirrors OpenCode's server-side session status)
   sessionStatus: SessionStatusInfo | null;
+  sessionStatuses: Record<string, SessionStatusInfo | undefined>;
 
   // childSessionStreaming — moved to streaming.ts (useStreamingStore)
 
@@ -215,12 +232,23 @@ export interface SessionState {
   childSessionMessages: Record<string, Message[]>;
   isLoadingChildMessages: boolean;
 
+  // Archived session viewing - separate from active session navigation
+  archivedSessions: Session[];
+  isLoadingArchivedSessions: boolean;
+  archivedSessionError: string | null;
+  viewingArchivedSessionId: string | null;
+  archivedSessionMessages: Record<string, Message[]>;
+
   // Actions - Session management
   loadSessions: (workspacePath?: string) => Promise<void>;
   loadMoreSessions: () => Promise<void>;
   createSession: (workspacePath?: string) => Promise<Session | null>;
   setActiveSession: (id: string) => Promise<void>;
   archiveSession: (id: string) => Promise<void>;
+  loadArchivedSessions: (workspacePath?: string) => Promise<void>;
+  openArchivedSession: (id: string) => Promise<void>;
+  closeArchivedSession: () => void;
+  restoreSession: (id: string) => Promise<void>;
   updateSessionTitle: (id: string, title: string) => Promise<void>;
   toggleSessionPinned: (id: string) => void;
   resetSessions: () => void;
@@ -298,7 +326,7 @@ export interface SessionState {
 
   // Actions - Connection
   setConnected: (connected: boolean) => void;
-  setError: (error: string | null) => void;
+  setError: (error: string | null, sessionId?: string | null) => void;
   setInactivityWarning: (active: boolean) => void;
 
   // Getters

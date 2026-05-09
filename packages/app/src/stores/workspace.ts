@@ -228,6 +228,14 @@ async function readWorkspaceBinaryFile(
   return new Uint8Array(bytes);
 }
 
+async function readWorkspaceDirectory(
+  workspacePath: string,
+  path: string,
+): Promise<FileNode[]> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<FileNode[]>("read_workspace_directory", { workspacePath, path });
+}
+
 // Update only the target node's children, creating new references only along
 // the path from root to target. Siblings and unrelated subtrees keep their
 // original references, preserving React.memo effectiveness.
@@ -615,11 +623,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     try {
-      const { readDir, stat } = await import("@tauri-apps/plugin-fs");
       const fullPath = path === "." ? workspacePath : path;
       console.log("[Workspace] Loading directory:", fullPath);
-      const entries = await readDir(fullPath);
-      console.log("[Workspace] Found", entries.length, "entries");
+      const nodes = await readWorkspaceDirectory(workspacePath, fullPath);
+      console.log("[Workspace] Found", nodes.length, "entries");
 
       let advancedMode = false;
       try {
@@ -627,28 +634,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         advancedMode = useUIStore.getState().advancedMode;
       } catch { /* keep basic mode */ }
 
-      const nodes: FileNode[] = await Promise.all(
-        entries.map(async (entry) => {
-          const entryPath = `${fullPath}/${entry.name}`;
-          let isDirectory = entry.isDirectory;
-          const needsStatResolution = !entry.isDirectory && !entry.isFile;
-
-          if (!isDirectory && needsStatResolution) {
-            try {
-              const resolved = await stat(entryPath);
-              isDirectory = resolved.isDirectory;
-            } catch (error) {
-              console.warn("[Workspace] Failed to resolve ambiguous file tree entry:", entryPath, error);
-            }
-          }
-
-          return {
-            name: entry.name,
-            path: entryPath,
-            type: isDirectory ? "directory" : "file",
-          } as FileNode;
-        }),
-      );
       const visibleNodes = nodes.filter(
         (node) => !shouldHideFileTreeEntry(node, workspacePath, advancedMode),
       );

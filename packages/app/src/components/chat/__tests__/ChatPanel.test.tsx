@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { fireEvent, render, waitFor } from '@testing-library/react';
 
 // ── Browser API polyfills ──────────────────────────────────────────────
 
@@ -51,6 +51,20 @@ const sessionState = {
   viewingChildSessionId: null as string | null,
   childSessionMessages: {} as Record<string, unknown[]>,
   isLoadingChildMessages: false,
+  archivedSessions: [] as Array<{
+    id: string;
+    title: string;
+    messages: unknown[];
+    createdAt: Date;
+    updatedAt: Date;
+    directory?: string;
+    isArchived?: boolean;
+    archivedAt?: Date;
+  }>,
+  viewingArchivedSessionId: null as string | null,
+  archivedSessionMessages: {} as Record<string, unknown[]>,
+  archivedSessionError: null as string | null,
+  isLoadingArchivedSessions: false,
   sessions: [] as unknown[],
   error: null as string | null,
   isConnected: true,
@@ -81,7 +95,10 @@ const sessionState = {
   pollPermissions: vi.fn(),
   createSession: vi.fn(),
   setActiveSession: vi.fn(),
+  setViewingChildSession: vi.fn(),
   archiveSession: vi.fn(),
+  closeArchivedSession: vi.fn(),
+  restoreSession: vi.fn(() => Promise.resolve()),
   updateSessionTitle: vi.fn(),
   loadMoreSessions: vi.fn(),
   replyPermission: vi.fn(),
@@ -209,6 +226,11 @@ describe('ChatPanel', () => {
     sessionState.viewingChildSessionId = null;
     sessionState.childSessionMessages = {};
     sessionState.isLoadingChildMessages = false;
+    sessionState.archivedSessions = [];
+    sessionState.viewingArchivedSessionId = null;
+    sessionState.archivedSessionMessages = {};
+    sessionState.archivedSessionError = null;
+    sessionState.isLoadingArchivedSessions = false;
     sessionState.isConnected = true;
     sessionState.error = null;
     sessionState.sessionError = null;
@@ -226,6 +248,9 @@ describe('ChatPanel', () => {
     sessionState.setSelectedModel = vi.fn();
     sessionState.setDraftInput = vi.fn();
     sessionState.pollPermissions = vi.fn();
+    sessionState.setViewingChildSession = vi.fn();
+    sessionState.closeArchivedSession = vi.fn();
+    sessionState.restoreSession = vi.fn(() => Promise.resolve());
     providerState.initAll = vi.fn();
     teamModeState.loadTeamConfig = vi.fn(() => Promise.resolve());
     teamModeState.applyTeamModelToOpenCode = vi.fn(() => Promise.resolve());
@@ -242,13 +267,12 @@ describe('ChatPanel', () => {
     expect(container.firstChild).not.toBeNull();
   });
 
-  it('shows connection-related text when isConnected is false', () => {
+  it('does not render the transient connection badge inside the message area', () => {
     sessionState.isConnected = false;
     sessionState.activeSessionId = 'sess-1';
 
     const { container } = render(<ChatPanel />);
-    // When isConnected is false and there's an active session, the connecting indicator shows
-    expect(container.textContent).toContain('Connecting');
+    expect(container.textContent).not.toContain('Connecting');
   });
 
   it('renders streaming child session content before child messages finish loading', () => {
@@ -269,6 +293,183 @@ describe('ChatPanel', () => {
     const { container } = render(<ChatPanel />);
 
     expect(container.textContent).toContain('Child stream in progress');
-    expect(container.textContent).toContain('返回主会话');
+    expect(container.textContent).toContain('Back to main session');
+  });
+
+  it('renders archived messages in read-only mode', () => {
+    sessionState.viewingArchivedSessionId = 'archived-1';
+    sessionState.archivedSessions = [
+      {
+        id: 'archived-1',
+        title: 'Archived Todo Chat',
+        messages: [],
+        createdAt: new Date('2026-05-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-05-01T11:00:00.000Z'),
+        isArchived: true,
+        archivedAt: new Date('2026-05-02T10:00:00.000Z'),
+      },
+    ];
+    sessionState.archivedSessionMessages = {
+      'archived-1': [
+        {
+          id: 'msg-1',
+          sessionId: 'archived-1',
+          role: 'user',
+          content: 'Archived hello',
+          parts: [],
+          timestamp: new Date('2026-05-01T10:05:00.000Z'),
+        },
+      ],
+    };
+
+    const { container } = render(<ChatPanel />);
+
+    expect(container.textContent).toContain('Archived Todo Chat');
+    expect(container.textContent).toContain('Archived hello');
+    expect(container.textContent).toContain('Restore');
+    expect(container.textContent).toContain('Restore this session to continue chatting');
+  });
+
+  it('prioritizes archived view over child session view', () => {
+    sessionState.viewingArchivedSessionId = 'archived-1';
+    sessionState.viewingChildSessionId = 'child-1';
+    sessionState.archivedSessions = [
+      {
+        id: 'archived-1',
+        title: 'Archived Todo Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isArchived: true,
+        archivedAt: new Date(),
+      },
+    ];
+    sessionState.archivedSessionMessages = {
+      'archived-1': [
+        {
+          id: 'archived-msg',
+          sessionId: 'archived-1',
+          role: 'user',
+          content: 'Archived message wins',
+          parts: [],
+          timestamp: new Date(),
+        },
+      ],
+    };
+    sessionState.childSessionMessages = {
+      'child-1': [
+        {
+          id: 'child-msg',
+          sessionId: 'child-1',
+          role: 'assistant',
+          content: 'Child message should be hidden',
+          parts: [],
+          timestamp: new Date(),
+        },
+      ],
+    };
+    streamingState.childSessionStreaming = {
+      'child-1': {
+        sessionId: 'child-1',
+        text: 'Child stream should be hidden',
+        reasoning: '',
+        isStreaming: true,
+      },
+    };
+
+    const { container, getByText } = render(<ChatPanel />);
+
+    expect(container.textContent).toContain('Archived Todo Chat');
+    expect(container.textContent).toContain('Archived message wins');
+    expect(container.textContent).not.toContain('Back to main session');
+    expect(container.textContent).not.toContain('Sub-agent');
+    expect(container.textContent).not.toContain('Child message should be hidden');
+    expect(container.textContent).not.toContain('Child stream should be hidden');
+
+    fireEvent.click(getByText('Back to active session'));
+
+    expect(sessionState.closeArchivedSession).toHaveBeenCalled();
+    expect(sessionState.setViewingChildSession).toHaveBeenCalledWith(null);
+  });
+
+  it('restores archived session from the read-only bar', async () => {
+    sessionState.viewingArchivedSessionId = 'archived-1';
+    sessionState.archivedSessions = [
+      {
+        id: 'archived-1',
+        title: 'Archived Todo Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isArchived: true,
+        archivedAt: new Date(),
+      },
+    ];
+
+    const { findByText } = render(<ChatPanel />);
+
+    fireEvent.click(await findByText('Restore'));
+
+    await waitFor(() => {
+      expect(sessionState.restoreSession).toHaveBeenCalledWith('archived-1');
+    });
+  });
+
+  it('shows archived message load errors in the read-only view', () => {
+    sessionState.viewingArchivedSessionId = 'archived-1';
+    sessionState.archivedSessionError = 'OpenCode API Error: unavailable';
+    sessionState.archivedSessions = [
+      {
+        id: 'archived-1',
+        title: 'Archived Todo Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isArchived: true,
+        archivedAt: new Date(),
+      },
+    ];
+
+    const { getByText } = render(<ChatPanel />);
+
+    expect(getByText('Could not load archived session')).toBeTruthy();
+    expect(getByText('OpenCode API Error: unavailable')).toBeTruthy();
+    expect(getByText('Restore this session to continue chatting')).toBeTruthy();
+  });
+
+  it('ignores duplicate restore clicks while restore is pending', async () => {
+    let resolveRestore: () => void = () => {};
+    sessionState.restoreSession = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRestore = resolve;
+        }),
+    );
+    sessionState.viewingArchivedSessionId = 'archived-1';
+    sessionState.archivedSessions = [
+      {
+        id: 'archived-1',
+        title: 'Archived Todo Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isArchived: true,
+        archivedAt: new Date(),
+      },
+    ];
+
+    const { findByRole } = render(<ChatPanel />);
+    const restoreButton = await findByRole('button', { name: /restore/i });
+
+    fireEvent.click(restoreButton);
+    fireEvent.click(restoreButton);
+
+    expect(sessionState.restoreSession).toHaveBeenCalledTimes(1);
+    expect((restoreButton as HTMLButtonElement).disabled).toBe(true);
+
+    resolveRestore();
+    await waitFor(() => {
+      expect((restoreButton as HTMLButtonElement).disabled).toBe(false);
+    });
   });
 });

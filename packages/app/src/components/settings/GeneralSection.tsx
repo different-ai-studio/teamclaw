@@ -36,7 +36,7 @@ import { useSuggestionsStore } from '@/stores/suggestions'
 import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { appShortName, buildConfig } from '@/lib/build-config'
-import { getPreferredLanguage, persistLanguage } from '@/lib/locale'
+import { LANGUAGE_OPTIONS, getPreferredLanguage, normalizeSupportedLanguage, persistLanguage } from '@/lib/locale'
 
 // Theme helpers
 const THEME_STORAGE_KEY = `${buildConfig.app.shortName ?? 'teamclaw'}-theme`
@@ -288,20 +288,24 @@ export const GeneralSection = React.memo(function GeneralSection() {
   <Select
     value={language}
     onValueChange={(value) => {
-      setLanguage(value);
-      i18next.changeLanguage(value);
-      persistLanguage(value);
+      const normalizedValue = normalizeSupportedLanguage(value);
+      setLanguage(normalizedValue);
+      i18next.changeLanguage(normalizedValue);
+      persistLanguage(normalizedValue);
       // Sync locale to config file for gateway i18n
-      invoke('set_config_locale', { locale: value }).catch(console.error);
+      invoke('set_config_locale', { locale: normalizedValue }).catch(console.error);
     }}
   >
     <SelectTrigger className="h-11">
       <SelectValue />
     </SelectTrigger>
     <SelectContent>
-      <SelectItem value="en">🇺🇸 {t('common.english', 'English')}</SelectItem>
-      <SelectItem value="zh-CN">🇨🇳 {t('common.chinese', '中文')}</SelectItem>
-      <SelectItem value="ja">🇯🇵 {t('common.japanese', '日本語')}</SelectItem>
+      {LANGUAGE_OPTIONS.map((option) => (
+        <SelectItem key={option.value} value={option.value}>
+          {option.value === 'en' ? '🇺🇸 ' : '🇨🇳 '}
+          {t(option.labelKey, option.fallback)}
+        </SelectItem>
+      ))}
     </SelectContent>
   </Select>
 </div>

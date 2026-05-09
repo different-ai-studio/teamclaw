@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Command as CommandIcon, Zap, Loader2, UserRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getOpenCodeClient, type Command as OpenCodeCommand } from '@/lib/opencode/sdk-client'
@@ -95,6 +96,7 @@ export function CommandPopover({
   searchQuery,
   onSelect,
 }: CommandPopoverProps) {
+  const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const [commands, setCommands] = React.useState<OpenCodeCommand[]>([])
   const [roles, setRoles] = React.useState<RoleEntry[]>([])
@@ -242,8 +244,8 @@ export function CommandPopover({
         e.preventDefault()
         e.stopPropagation()
         setHighlightedIndex(i => (i - 1 + allItems.length) % allItems.length)
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        if (e.isComposing || e.keyCode === 229) return
+      } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+        if (e.key === "Enter" && (e.isComposing || e.keyCode === 229)) return
         e.preventDefault()
         e.stopPropagation()
         const item = allItems[highlightedIndex]
@@ -267,7 +269,9 @@ export function CommandPopover({
       <div className="w-64 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2 text-[10px] text-muted-foreground border-b bg-muted/30">
-          <span className="font-medium">Select role, skill, or command</span>
+          <span className="font-medium">
+            {t('chat.commandPopover.prompt', 'Select role, skill, or command')}
+          </span>
           {searchQuery && (
             <span className="text-[9px] text-primary font-mono">
               {searchQuery}
@@ -275,7 +279,7 @@ export function CommandPopover({
           )}
           {!searchQuery && totalCount > 0 && (
             <span className="text-[9px]">
-              {totalCount} items
+              {t('chat.commandPopover.itemCount', { count: totalCount })}
             </span>
           )}
         </div>
@@ -285,20 +289,20 @@ export function CommandPopover({
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading...
+            {t('common.loading', 'Loading...')}
           </div>
         ) : totalCount === 0 ? (
           <div className="py-8 text-center text-xs text-muted-foreground">
             {searchQuery
-              ? `No match for "${searchQuery}"`
-              : "No skills or commands found"}
+              ? t('chat.commandPopover.noMatch', { query: searchQuery })
+              : t('chat.commandPopover.empty', 'No skills or commands found')}
           </div>
         ) : (
           <>
             {filteredRoles.length > 0 && (
               <>
                 <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground">
-                  Roles ({filteredRoles.length})
+                  {t('chat.commandPopover.roles', { count: filteredRoles.length })}
                 </div>
                 {filteredRoles.map((role) => {
                   const index = currentIndex++
@@ -335,7 +339,7 @@ export function CommandPopover({
             {filteredSkills.length > 0 && (
               <>
                 <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground">
-                  Skills ({filteredSkills.length})
+                  {t('chat.commandPopover.skills', { count: filteredSkills.length })}
                 </div>
                 {filteredSkills.map((skill) => {
                   const index = currentIndex++
@@ -372,7 +376,7 @@ export function CommandPopover({
             {filteredCommands.length > 0 && (
               <>
                 <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground">
-                  Commands ({filteredCommands.length})
+                  {t('chat.commandPopover.commands', { count: filteredCommands.length })}
                 </div>
                 {filteredCommands.map((cmd) => {
                   const index = currentIndex++
@@ -404,9 +408,9 @@ export function CommandPopover({
 
         {/* Hint bar */}
         <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] text-muted-foreground/60 border-t">
-          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> navigate</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵</kbd> select</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Esc</kbd> close</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> {t('chat.commandPopover.navigate', 'navigate')}</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">{t('chat.commandPopover.enterOrTab', '↵/Tab')}</kbd> {t('chat.commandPopover.select', 'select')}</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Esc</kbd> {t('chat.commandPopover.close', 'close')}</span>
         </div>
       </div>
 
@@ -414,7 +418,7 @@ export function CommandPopover({
       {highlightedItem && highlightedItem.description && (
         <div className="w-80 border-l bg-muted/20 flex flex-col">
           <div className="px-3 py-2 text-[10px] font-semibold text-muted-foreground border-b bg-muted/30">
-            Description
+            {t('chat.commandPopover.description', 'Description')}
           </div>
           <div className="p-3 text-[10px] text-muted-foreground leading-relaxed overflow-y-auto flex-1 max-h-80">
             {highlightedItem.description}

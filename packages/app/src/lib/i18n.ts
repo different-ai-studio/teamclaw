@@ -1,6 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import { getPreferredLanguage, normalizeSupportedLanguage, persistLanguage } from './locale';
+import { getPreferredLanguage, isSupportedLanguage, normalizeSupportedLanguage, persistLanguage } from './locale';
 
 // Import translation files
 import enTranslation from '../locales/en.json';
@@ -11,25 +11,29 @@ import zhCnTranslation from '../locales/zh-CN.json';
 //   'en'               → English only
 //   'zh-CN'            → Chinese only
 const FORCED_LOCALE = import.meta.env.VITE_LOCALE as string | undefined;
+const forcedSupportedLocale =
+  FORCED_LOCALE && FORCED_LOCALE !== 'all' && isSupportedLanguage(FORCED_LOCALE)
+    ? FORCED_LOCALE
+    : undefined;
 
 const allResources = {
   en: { translation: enTranslation },
   'zh-CN': { translation: zhCnTranslation },
 };
 
-const resources = FORCED_LOCALE && FORCED_LOCALE !== 'all'
-  ? { [FORCED_LOCALE]: allResources[FORCED_LOCALE as keyof typeof allResources] }
+const resources = forcedSupportedLocale
+  ? { [forcedSupportedLocale]: allResources[forcedSupportedLocale] }
   : allResources;
 
 const getUserLanguage = (): string => {
-  if (FORCED_LOCALE && FORCED_LOCALE !== 'all') {
-    return FORCED_LOCALE;
+  if (forcedSupportedLocale) {
+    return forcedSupportedLocale;
   }
 
   return normalizeSupportedLanguage(getPreferredLanguage());
 };
 
-const defaultLng = FORCED_LOCALE && FORCED_LOCALE !== 'all' ? FORCED_LOCALE : 'en';
+const defaultLng = forcedSupportedLocale ?? 'en';
 
 i18n
   .use(initReactI18next) // Passes i18n down to react-i18next

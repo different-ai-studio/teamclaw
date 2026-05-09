@@ -30,6 +30,7 @@ fn action_create(workspace: &str, args: &Value) -> Result<Value, String> {
     let schedule = args
         .get("schedule")
         .ok_or_else(|| "create requires 'schedule'".to_string())?;
+    let schedule = normalize_schedule(schedule)?;
 
     let message = args
         .get("message")
@@ -53,7 +54,7 @@ fn action_create(workspace: &str, args: &Value) -> Result<Value, String> {
     }
 
     job.insert("enabled".to_string(), Value::Bool(true));
-    job.insert("schedule".to_string(), schedule.clone());
+    job.insert("schedule".to_string(), schedule);
     job.insert("payload".to_string(), json!({ "message": message }));
 
     if let Some(d) = delivery {
@@ -70,7 +71,7 @@ fn action_create(workspace: &str, args: &Value) -> Result<Value, String> {
     // Read, append, write
     let mut jobs = read_jobs_array(workspace)?;
     jobs.push(new_job.clone());
-    crate::config::write_cron_jobs(workspace, &Value::Array(jobs))?;
+    write_jobs_array(workspace, jobs)?;
 
     Ok(json!({
         "action": "created",
@@ -102,7 +103,7 @@ fn action_set_enabled(workspace: &str, args: &Value, enabled: bool) -> Result<Va
         return Err(format!("Cron job not found: {job_id}"));
     }
 
-    crate::config::write_cron_jobs(workspace, &Value::Array(jobs))?;
+    write_jobs_array(workspace, jobs)?;
 
     let action = if enabled { "resumed" } else { "paused" };
     Ok(json!({
@@ -128,7 +129,7 @@ fn action_delete(workspace: &str, args: &Value) -> Result<Value, String> {
         return Err(format!("Cron job not found: {job_id}"));
     }
 
-    crate::config::write_cron_jobs(workspace, &Value::Array(updated))?;
+    write_jobs_array(workspace, updated)?;
 
     // Delete run history file if it exists
     let runs_dir = std::path::Path::new(workspace)
@@ -244,7 +245,34 @@ fn action_get_runs(workspace: &str, args: &Value) -> Result<Value, String> {
 
 fn read_jobs_array(workspace: &str) -> Result<Vec<Value>, String> {
     let data = crate::config::read_cron_jobs(workspace)?;
-    Ok(data.as_array().cloned().unwrap_or_default())
+    Ok(crate::config::cron_jobs_from_value(&data))
+}
+
+fn write_jobs_array(workspace: &str, jobs: Vec<Value>) -> Result<(), String> {
+    crate::config::write_cron_jobs(workspace, &json!({ "jobs": jobs }))
+}
+
+fn normalize_schedule(schedule: &Value) -> Result<Value, String> {
+    if let Some(expr) = schedule.as_str() {
+        let expr = expr.trim();
+        if expr.is_empty() {
+            return Err("schedule cron expression cannot be empty".to_string());
+        }
+        return Ok(json!({ "kind": "cron", "expr": expr }));
+    }
+
+    let Some(schedule_obj) = schedule.as_object() else {
+        return Err("schedule must be a cron expression string or schedule object".to_string());
+    };
+
+    if !matches!(
+        schedule_obj.get("kind").and_then(|v| v.as_str()),
+        Some("at" | "every" | "cron")
+    ) {
+        return Err("schedule.kind must be one of: at, every, cron".to_string());
+    }
+
+    Ok(Value::Object(schedule_obj.clone()))
 }
 
 fn require_job_id<'a>(args: &'a Value) -> Result<&'a str, String> {
@@ -288,4 +316,56 @@ fn safe_job_summary(job: &Value) -> Value {
         }
     }
     Value::Object(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_workspace() -> PathBuf {
+        std::env::temp_dir().join(format!("teamclaw-introspect-cron-{}", Uuid::new_v4()))
+    }
+
+    #[tokio::test]
+    async fn create_writes_native_cron_jobs_wrapper_for_cron_expression() {
+        let workspace = temp_workspace();
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let result = handle(
+            workspace.to_str().unwrap(),
+            1420,
+            &json!({
+                "action": "create",
+                "name": "Morning summary",
+                "schedule": "0 9 * * *",
+                "message": "Summarize yesterday's work"
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result["action"], "created");
+
+        let raw = std::fs::read_to_string(workspace.join(".teamclaw/cron-jobs.json")).unwrap();
+        let data: Value = serde_json::from_str(&raw).unwrap();
+        let jobs = data
+            .get("jobs")
+            .and_then(|v| v.as_array())
+            .expect("cron jobs file should use the native { jobs: [...] } shape");
+
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0]["name"], "Morning summary");
+        assert_eq!(jobs[0]["enabled"], true);
+        assert_eq!(
+            jobs[0]["schedule"],
+            json!({ "kind": "cron", "expr": "0 9 * * *" })
+        );
+        assert_eq!(
+            jobs[0]["payload"],
+            json!({ "message": "Summarize yesterday's work" })
+        );
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
 }

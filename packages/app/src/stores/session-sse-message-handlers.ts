@@ -296,6 +296,9 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
         type: event.type as MessagePart["type"],
         content: event.content,
         text: event.text || event.content,
+        auto: event.auto,
+        overflow: event.overflow,
+        completed: event.completed,
         tool: event.tool,
         result: event.result,
       };
@@ -329,6 +332,15 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
         }
       }
 
+      if (event.type === "compaction") {
+        msg.displayKind = "compaction";
+        msg.compaction = {
+          auto: event.auto,
+          overflow: event.overflow,
+          completed: event.completed ?? true,
+        };
+      }
+
       messages[msgIndex] = msg;
       const newSession = { ...session, messages };
 
@@ -344,7 +356,7 @@ export function createMessageHandlers(set: SessionSet, get: SessionGet) {
 
       // For tool_call parts, we need to update session store so ToolCallCard renders.
       // Text parts don't need this — they're displayed via streamingContent.
-      if (event.type === "tool_call" || event.type === "step-start" || event.type === "step-finish") {
+      if (event.type === "tool_call" || event.type === "step-start" || event.type === "step-finish" || event.type === "compaction") {
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === activeSessionId ? newSession : s,

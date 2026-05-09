@@ -5,7 +5,11 @@ import React from 'react'
 // Mock all heavy dependencies
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback: string) => fallback,
+    i18n: { language: 'zh-CN' },
+    t: (key: string, fallback: string) =>
+      ({
+        'history.noFileHistory': '该文件还没有提交历史',
+      })[key] ?? fallback,
   }),
 }))
 

@@ -28,21 +28,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   hasMoreSessions: false,
   visibleSessionCount: UI_PAGE_SIZE,
   error: null,
+  errorSessionId: null,
   isConnected: false,
   selectedModel: null,
   messageQueue: [],
   pendingPermissions: [],
   pendingQuestions: [],
+  pendingQuestionIdsBySession: {},
   todos: [],
   sessionDiff: [],
   sessionError: null,
   sessionStatus: null,
+  sessionStatuses: {},
   inactivityWarning: false,
   highlightedSessionIds: [],
   draftInput: "",
   viewingChildSessionId: null,
   childSessionMessages: {},
   isLoadingChildMessages: false,
+  archivedSessions: [],
+  isLoadingArchivedSessions: false,
+  archivedSessionError: null,
+  viewingArchivedSessionId: null,
+  archivedSessionMessages: {},
   dashboardLoading: false,
   dashboardLoadProgress: { loaded: 0, total: 0 },
   dashboardLoadError: undefined,
@@ -71,8 +79,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setConnected: (connected: boolean) => {
     set({ isConnected: connected });
   },
-  setError: (error: string | null) => {
-    set({ error });
+  setError: (error: string | null, sessionId?: string | null) => {
+    set((state) => ({
+      error,
+      errorSessionId: error ? (sessionId ?? state.activeSessionId) : null,
+    }));
   },
   setInactivityWarning: (active: boolean) => {
     set({ inactivityWarning: active });

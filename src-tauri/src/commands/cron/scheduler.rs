@@ -12,6 +12,11 @@ use super::types::*;
 use crate::commands::gateway::SessionMapping;
 use crate::process_util::CommandNoWindow;
 
+const CRON_RUN_HEARTBEAT_INTERVAL_SECS: u64 = 30;
+const OPENCODE_CONNECT_TIMEOUT_SECS: u64 = 30;
+const STALE_RUN_ERROR: &str =
+    "Cron run was interrupted before completion; open the session to inspect the latest state.";
+
 /// The cron scheduler that runs as a background task
 #[derive(Debug)]
 pub struct CronScheduler {
@@ -96,6 +101,85 @@ impl CronScheduler {
     async fn persist_run_and_notify_ui(&self, record: &CronRunRecord) {
         self.storage.update_last_run(record).await;
         self.emit_cron_sessions_updated();
+    }
+
+    fn truncate_response_summary(response: &str) -> String {
+        if response.chars().count() > 500 {
+            let truncated: String = response.chars().take(497).collect();
+            format!("{}...", truncated)
+        } else {
+            response.to_string()
+        }
+    }
+
+    pub(crate) fn reconcile_interrupted_run(
+        mut record: CronRunRecord,
+        assistant_text: Option<String>,
+        finished_at: DateTime<Utc>,
+    ) -> CronRunRecord {
+        if record.has_legacy_timeout_cut_short_text() {
+            record.status = RunStatus::Timeout;
+            record.finished_at = Some(finished_at);
+            return record;
+        }
+
+        if let Some(text) = assistant_text {
+            record.status = RunStatus::Success;
+            record.response_summary = Some(Self::truncate_response_summary(&text));
+            record.finished_at = Some(finished_at);
+            return record;
+        }
+
+        record.status = RunStatus::Stale;
+        record.finished_at = Some(finished_at);
+        record.error = Some(STALE_RUN_ERROR.to_string());
+        record
+    }
+
+    /// Reconcile runs left in `running` by a previous app/executor process.
+    pub async fn reconcile_interrupted_runs(&self) {
+        let running = self.storage.get_latest_running_runs().await;
+        if running.is_empty() {
+            return;
+        }
+
+        let port = *self.opencode_port.read().await;
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(
+                OPENCODE_CONNECT_TIMEOUT_SECS,
+            ))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        println!(
+            "[Cron] Reconciling {} interrupted run(s) from previous executor",
+            running.len()
+        );
+
+        for record in running {
+            let assistant_text = if record.has_legacy_timeout_cut_short_text() {
+                None
+            } else if let Some(session_id) = record.session_id.as_deref() {
+                let expected_prompt = self
+                    .storage
+                    .get_job(&record.job_id)
+                    .await
+                    .map(|job| job.payload.message);
+                Self::fetch_last_completed_assistant_text_since(
+                    &client,
+                    port,
+                    session_id,
+                    record.started_at,
+                    expected_prompt.as_deref(),
+                )
+                .await
+            } else {
+                None
+            };
+
+            let reconciled = Self::reconcile_interrupted_run(record, assistant_text, Utc::now());
+            self.persist_run_and_notify_ui(&reconciled).await;
+        }
     }
 
     /// Set the OpenCode server port
@@ -415,6 +499,7 @@ impl CronScheduler {
             started_at,
             finished_at: None,
             status: RunStatus::Running,
+            last_heartbeat_at: Some(started_at),
             session_id: None,
             response_summary: None,
             delivery_status: None,
@@ -443,7 +528,7 @@ impl CronScheduler {
             match Self::create_worktree(&my_workspace, &wt_path, branch) {
                 Ok(()) => {
                     record.worktree_path = Some(wt_path.clone());
-                    self.storage.append_run(&record).await;
+                    self.persist_run_and_notify_ui(&record).await;
                     wt_guard.activate(wt_path);
                 }
                 Err(e) => {
@@ -633,28 +718,30 @@ impl CronScheduler {
             }
         }
 
-        // Resolve timeout (user-configured or default, clamped to 30-900 range)
-        let timeout_secs = job
-            .payload
-            .timeout_seconds
-            .unwrap_or(super::types::DEFAULT_TIMEOUT_SECONDS)
-            .max(30)
-            .min(900);
-
         // Check before sending to OpenCode (workspace may have changed)
         check_generation!();
 
         // Step 2: Send message to OpenCode
-        let response = match self
-            .send_to_opencode(
-                port,
-                &session_id,
-                &job.payload.message,
-                model_param.clone(),
-                timeout_secs,
-            )
-            .await
-        {
+        let response_future =
+            self.send_to_opencode(port, &session_id, &job.payload.message, model_param.clone());
+        tokio::pin!(response_future);
+        let heartbeat_every = std::time::Duration::from_secs(CRON_RUN_HEARTBEAT_INTERVAL_SECS);
+        let mut heartbeat_interval = tokio::time::interval_at(
+            tokio::time::Instant::now() + heartbeat_every,
+            heartbeat_every,
+        );
+
+        let response_result = loop {
+            tokio::select! {
+                result = &mut response_future => break result,
+                _ = heartbeat_interval.tick() => {
+                    record.last_heartbeat_at = Some(Utc::now());
+                    self.persist_run_and_notify_ui(&record).await;
+                }
+            }
+        };
+
+        let response = match response_result {
             Ok(text) => text,
             Err(e) => {
                 // Fail immediately without retry. Previous retry logic was too aggressive:
@@ -672,14 +759,7 @@ impl CronScheduler {
             }
         };
 
-        // Truncate response for summary (max 500 characters, safe for multi-byte UTF-8)
-        let summary = if response.chars().count() > 500 {
-            let truncated: String = response.chars().take(497).collect();
-            format!("{}...", truncated)
-        } else {
-            response.clone()
-        };
-        record.response_summary = Some(summary);
+        record.response_summary = Some(Self::truncate_response_summary(&response));
 
         // Check before delivery (workspace may have changed)
         check_generation!();
@@ -981,34 +1061,28 @@ impl CronScheduler {
 
     /// Send a message to OpenCode and wait for the response.
     ///
-    /// Uses `tokio::time::timeout` to prevent indefinite blocking when the AI
-    /// enters an agentic loop. On timeout, aborts the session and fetches
-    /// whatever content was generated so far.
-    ///
     /// Response extraction strategy:
-    /// - **Normal**: parse the POST response (a single Message JSON) and extract
+    /// parse the POST response (a single Message JSON) and extract
     ///   all `type: "text"` parts. This is the complete response for this request.
-    /// - **Timeout**: abort, then GET `/session/{id}/message` and extract text
-    ///   from the **last** assistant message only.
     async fn send_to_opencode(
         &self,
         port: u16,
         session_id: &str,
         content: &str,
         model: Option<(String, String)>,
-        timeout_secs: u64,
     ) -> Result<String, String> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(timeout_secs + 60))
+            .connect_timeout(std::time::Duration::from_secs(
+                OPENCODE_CONNECT_TIMEOUT_SECS,
+            ))
             .build()
             .map_err(|e| format!("Failed to create client: {}", e))?;
 
         let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
         println!(
-            "[Cron] Sending to OpenCode: {} content length: {} (timeout: {}s)",
+            "[Cron] Sending to OpenCode: {} content length: {}",
             url,
-            content.len(),
-            timeout_secs
+            content.len()
         );
 
         let mut body = serde_json::json!({
@@ -1026,87 +1100,57 @@ impl CronScheduler {
             println!("[Cron] Using model override: {}/{}", provider_id, model_id);
         }
 
-        let post_future = client
+        let response = client
             .post(&url)
             .header("Content-Type", "application/json")
             .json(&body)
-            .send();
+            .send()
+            .await
+            .map_err(|e| format!("Failed to send message: {}", e))?;
 
-        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), post_future).await
-        {
-            Ok(Ok(response)) => {
-                // POST completed within timeout — extract text from the returned Message
-                let status = response.status();
-                if !status.is_success() {
-                    let error_body = response.text().await.unwrap_or_default();
-                    return Err(format!("HTTP {} - {}", status, error_body));
-                }
-
-                let response_text = response
-                    .text()
-                    .await
-                    .map_err(|e| format!("Failed to read response: {}", e))?;
-
-                if response_text.is_empty() {
-                    return Err("Empty response from OpenCode".to_string());
-                }
-
-                let response_json: serde_json::Value = serde_json::from_str(&response_text)
-                    .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-                // Check for error in the response
-                if let Some(error) = response_json["info"]["error"].as_object() {
-                    let error_name = error
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("UnknownError");
-                    let error_message = error
-                        .get("data")
-                        .and_then(|d| d.get("message"))
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Unknown error occurred");
-                    return Err(format!("{}: {}", error_name, error_message));
-                }
-
-                // Extract all text parts from the response Message
-                let text = Self::extract_text_parts(&response_json);
-                println!(
-                    "[Cron] POST completed, extracted {} chars from response",
-                    text.len()
-                );
-
-                if text.is_empty() {
-                    return Err("No text content in AI response".to_string());
-                }
-                Ok(text)
-            }
-            Ok(Err(e)) => Err(format!("Failed to send message: {}", e)),
-            Err(_) => {
-                // Timeout — abort and salvage whatever was generated
-                println!(
-                    "[Cron] Timeout after {}s, aborting session '{}'...",
-                    timeout_secs, session_id
-                );
-                Self::abort_session(&client, port, session_id).await;
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-                // Fetch the last assistant message from session history
-                let text = Self::fetch_last_assistant_text(&client, port, session_id).await;
-                match text {
-                    Some(t) if !t.is_empty() => {
-                        println!("[Cron] Salvaged {} chars after timeout", t.len());
-                        Ok(format!(
-                            "{}\n\n---\n⚠️ AI response was cut short after {}s timeout.",
-                            t, timeout_secs
-                        ))
-                    }
-                    _ => Err(format!(
-                        "AI agent timed out after {}s and no response content was captured",
-                        timeout_secs
-                    )),
-                }
-            }
+        let status = response.status();
+        if !status.is_success() {
+            let error_body = response.text().await.unwrap_or_default();
+            return Err(format!("HTTP {} - {}", status, error_body));
         }
+
+        let response_text = response
+            .text()
+            .await
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        if response_text.is_empty() {
+            return Err("Empty response from OpenCode".to_string());
+        }
+
+        let response_json: serde_json::Value = serde_json::from_str(&response_text)
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        // Check for error in the response
+        if let Some(error) = response_json["info"]["error"].as_object() {
+            let error_name = error
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("UnknownError");
+            let error_message = error
+                .get("data")
+                .and_then(|d| d.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error occurred");
+            return Err(format!("{}: {}", error_name, error_message));
+        }
+
+        // Extract all text parts from the response Message
+        let text = Self::extract_text_parts(&response_json);
+        println!(
+            "[Cron] POST completed, extracted {} chars from response",
+            text.len()
+        );
+
+        if text.is_empty() {
+            return Err("No text content in AI response".to_string());
+        }
+        Ok(text)
     }
 
     /// Extract all `type: "text"` parts from a Message JSON object.
@@ -1127,26 +1171,13 @@ impl CronScheduler {
         texts.join("\n\n")
     }
 
-    /// Abort an OpenCode session. Non-fatal — logs errors but does not propagate.
-    async fn abort_session(client: &reqwest::Client, port: u16, session_id: &str) {
-        let url = format!("http://127.0.0.1:{}/session/{}/abort", port, session_id);
-        match client.post(&url).send().await {
-            Ok(resp) => println!(
-                "[Cron] Abort session '{}': HTTP {}",
-                session_id,
-                resp.status()
-            ),
-            Err(e) => println!("[Cron] Failed to abort session '{}': {}", session_id, e),
-        }
-    }
-
-    /// After a timeout+abort, fetch the **last** assistant message from the
-    /// session and extract its text. Only looks at the final assistant message,
-    /// so it never leaks content from previous runs in reused sessions.
-    async fn fetch_last_assistant_text(
+    /// Fetch the last completed assistant message created after the run started.
+    async fn fetch_last_completed_assistant_text_since(
         client: &reqwest::Client,
         port: u16,
         session_id: &str,
+        started_at: DateTime<Utc>,
+        expected_prompt: Option<&str>,
     ) -> Option<String> {
         let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
         let response = client.get(&url).send().await.ok()?;
@@ -1156,11 +1187,54 @@ impl CronScheduler {
         let body = response.text().await.ok()?;
         let messages: Vec<serde_json::Value> = serde_json::from_str(&body).ok()?;
 
-        // Find the last assistant message and extract its text
+        Self::extract_completed_assistant_text_for_cron_run(&messages, started_at, expected_prompt?)
+    }
+
+    fn message_created_at_or_after(message: &serde_json::Value, started_at: DateTime<Utc>) -> bool {
+        let Some(created) = message["info"]["time"]["created"].as_i64() else {
+            return false;
+        };
+
+        if created > 10_000_000_000 {
+            created >= started_at.timestamp_millis()
+        } else {
+            created >= started_at.timestamp()
+        }
+    }
+
+    fn extract_completed_assistant_text_for_cron_run(
+        messages: &[serde_json::Value],
+        started_at: DateTime<Utc>,
+        expected_prompt: &str,
+    ) -> Option<String> {
+        let expected_prompt = expected_prompt.trim();
+        if expected_prompt.is_empty() {
+            return None;
+        }
+
+        let matching_user_ids: Vec<&str> = messages
+            .iter()
+            .filter(|m| {
+                m["info"]["role"].as_str() == Some("user")
+                    && Self::message_created_at_or_after(m, started_at)
+                    && Self::extract_text_parts(m).trim() == expected_prompt
+            })
+            .filter_map(|m| m["info"]["id"].as_str())
+            .collect();
+
+        let [user_id] = matching_user_ids.as_slice() else {
+            return None;
+        };
+
         messages
             .iter()
             .rev()
-            .find(|m| m["info"]["role"].as_str() == Some("assistant"))
+            .find(|m| {
+                m["info"]["role"].as_str() == Some("assistant")
+                    && m["info"]["parentID"].as_str() == Some(*user_id)
+                    && m["info"]["time"]["completed"].as_i64().is_some()
+                    && Self::message_created_at_or_after(m, started_at)
+            })
             .map(Self::extract_text_parts)
             .filter(|t| !t.is_empty())
     }
@@ -1210,6 +1284,170 @@ mod tests {
             to: to.to_string(),
             best_effort: false,
         }
+    }
+
+    fn make_run_record(status: RunStatus, summary: Option<&str>) -> CronRunRecord {
+        let now = Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap();
+        CronRunRecord {
+            run_id: "run-1".to_string(),
+            job_id: "job-1".to_string(),
+            started_at: now,
+            finished_at: None,
+            status,
+            session_id: Some("session-1".to_string()),
+            response_summary: summary.map(str::to_string),
+            delivery_status: None,
+            error: None,
+            worktree_path: None,
+            last_heartbeat_at: None,
+        }
+    }
+
+    // ── run reconciliation ──────────────────────────────────────────────────
+
+    #[test]
+    fn old_success_with_timeout_cut_short_summary_normalizes_to_timeout() {
+        let mut record = make_run_record(
+            RunStatus::Success,
+            Some("partial output\n\n---\n⚠️ AI response was cut short after 180s timeout."),
+        );
+
+        normalize_legacy_timeout_status(&mut record);
+
+        assert_eq!(record.status, RunStatus::Timeout);
+    }
+
+    #[test]
+    fn interrupted_running_run_with_timeout_cut_short_text_reconciles_to_timeout() {
+        let now = Utc.with_ymd_and_hms(2024, 6, 1, 12, 3, 0).unwrap();
+        let record = make_run_record(
+            RunStatus::Running,
+            Some("partial output\n\n---\n⚠️ AI response was cut short after 180s timeout."),
+        );
+
+        let reconciled = CronScheduler::reconcile_interrupted_run(record, None, now);
+
+        assert_eq!(reconciled.status, RunStatus::Timeout);
+        assert_eq!(reconciled.finished_at, Some(now));
+        assert_eq!(reconciled.session_id.as_deref(), Some("session-1"));
+    }
+
+    #[test]
+    fn interrupted_running_run_with_assistant_text_reconciles_to_success() {
+        let now = Utc.with_ymd_and_hms(2024, 6, 1, 12, 3, 0).unwrap();
+        let record = make_run_record(RunStatus::Running, None);
+
+        let reconciled =
+            CronScheduler::reconcile_interrupted_run(record, Some("complete result".into()), now);
+
+        assert_eq!(reconciled.status, RunStatus::Success);
+        assert_eq!(
+            reconciled.response_summary.as_deref(),
+            Some("complete result")
+        );
+        assert_eq!(reconciled.finished_at, Some(now));
+    }
+
+    #[test]
+    fn interrupted_running_run_without_confirmation_reconciles_to_stale() {
+        let now = Utc.with_ymd_and_hms(2024, 6, 1, 12, 3, 0).unwrap();
+        let record = make_run_record(RunStatus::Running, None);
+
+        let reconciled = CronScheduler::reconcile_interrupted_run(record, None, now);
+
+        assert_eq!(reconciled.status, RunStatus::Stale);
+        assert_eq!(reconciled.finished_at, Some(now));
+        assert_eq!(reconciled.session_id.as_deref(), Some("session-1"));
+        assert!(reconciled.error.unwrap().contains("interrupted"));
+    }
+
+    #[test]
+    fn legacy_payload_timeout_seconds_still_deserializes_for_compatibility() {
+        let payload: CronPayload = serde_json::from_str(
+            r#"{"message":"hello","timeoutSeconds":30,"model":"openai/gpt-4.1"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(payload.message, "hello");
+        assert_eq!(payload.timeout_seconds, Some(30));
+    }
+
+    #[test]
+    fn reconcile_ignores_unrelated_assistant_message_in_reused_session() {
+        let started_at = Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap();
+        let messages = vec![
+            serde_json::json!({
+                "info": {
+                    "id": "cron-user",
+                    "role": "user",
+                    "time": { "created": started_at.timestamp() + 1 }
+                },
+                "parts": [{ "type": "text", "text": "cron prompt" }]
+            }),
+            serde_json::json!({
+                "info": {
+                    "id": "other-user",
+                    "role": "user",
+                    "time": { "created": started_at.timestamp() + 2 }
+                },
+                "parts": [{ "type": "text", "text": "other prompt" }]
+            }),
+            serde_json::json!({
+                "info": {
+                    "id": "other-assistant",
+                    "role": "assistant",
+                    "parentID": "other-user",
+                    "time": {
+                        "created": started_at.timestamp() + 3,
+                        "completed": started_at.timestamp() + 4
+                    }
+                },
+                "parts": [{ "type": "text", "text": "other result" }]
+            }),
+        ];
+
+        let result = CronScheduler::extract_completed_assistant_text_for_cron_run(
+            &messages,
+            started_at,
+            "cron prompt",
+        );
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn reconcile_accepts_assistant_message_parented_to_matching_cron_prompt() {
+        let started_at = Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap();
+        let messages = vec![
+            serde_json::json!({
+                "info": {
+                    "id": "cron-user",
+                    "role": "user",
+                    "time": { "created": started_at.timestamp() + 1 }
+                },
+                "parts": [{ "type": "text", "text": "cron prompt" }]
+            }),
+            serde_json::json!({
+                "info": {
+                    "id": "cron-assistant",
+                    "role": "assistant",
+                    "parentID": "cron-user",
+                    "time": {
+                        "created": started_at.timestamp() + 2,
+                        "completed": started_at.timestamp() + 3
+                    }
+                },
+                "parts": [{ "type": "text", "text": "cron result" }]
+            }),
+        ];
+
+        let result = CronScheduler::extract_completed_assistant_text_for_cron_run(
+            &messages,
+            started_at,
+            "cron prompt",
+        );
+
+        assert_eq!(result.as_deref(), Some("cron result"));
     }
 
     // ── compute_next_run: At ─────────────────────────────────────────────────

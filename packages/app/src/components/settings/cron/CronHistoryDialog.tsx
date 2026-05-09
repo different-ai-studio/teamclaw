@@ -34,7 +34,7 @@ import {
   type CronRunRecord,
 } from '@/stores/cron'
 
-function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSession?: (sessionId: string) => void }) {
+export function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSession?: (sessionId: string) => void }) {
   const { t } = useTranslation()
   const [isHovered, setIsHovered] = React.useState(false)
   const statusColor = getRunStatusColor(run.status)
@@ -46,6 +46,7 @@ function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSessi
           1000
         ).toFixed(1) + 's'
       : '...'
+  const showHeartbeat = !!run.lastHeartbeatAt && (run.status === 'running' || run.status === 'stale')
 
   return (
     <div className="rounded-lg border p-3 space-y-1.5">
@@ -62,6 +63,9 @@ function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSessi
           )}
           {run.status === 'running' && (
             <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+          )}
+          {run.status === 'stale' && (
+            <AlertCircle className="h-4 w-4 text-yellow-500" />
           )}
           <span className={cn('text-sm font-medium capitalize', statusColor)}>
             {run.status}
@@ -97,6 +101,13 @@ function RunRecordCard({ run, onViewSession }: { run: CronRunRecord; onViewSessi
         <p className="text-xs text-muted-foreground">
           <Send className="h-3 w-3 inline mr-1" />
           {run.deliveryStatus}
+        </p>
+      )}
+
+      {showHeartbeat && (
+        <p className="text-xs text-muted-foreground">
+          <Clock className="h-3 w-3 inline mr-1" />
+          {t('settings.cron.lastHeartbeat', 'Last heartbeat')}: {formatRelativeTime(run.lastHeartbeatAt!)}
         </p>
       )}
 

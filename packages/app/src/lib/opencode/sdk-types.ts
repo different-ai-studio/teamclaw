@@ -182,6 +182,9 @@ export interface MessageInfo {
     }
   }
   finish?: string
+  summary?: boolean
+  synthetic?: boolean
+  metadata?: Record<string, unknown>
 }
 
 /**
@@ -221,6 +224,10 @@ export interface MessagePart {
       write: number
     }
   }
+  auto?: boolean
+  overflow?: boolean
+  completed?: boolean
+  tail_start_id?: string
 }
 
 export interface ToolCallInfo {
@@ -259,9 +266,12 @@ export interface MessageCreatedEvent {
 export interface MessagePartCreatedEvent {
   messageId: string
   partId: string
-  type: 'text' | 'tool_call' | 'tool_result' | 'text_delta' | 'reasoning' | 'step-start' | 'step-finish'
+  type: 'text' | 'tool_call' | 'tool_result' | 'text_delta' | 'reasoning' | 'step-start' | 'step-finish' | 'compaction'
   content?: string
   text?: string
+  auto?: boolean
+  overflow?: boolean
+  completed?: boolean
   tool?: ToolCallInfo
   result?: ToolResult
   duration?: number

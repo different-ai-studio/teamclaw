@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { BarChart3, Shield, Eye, EyeOff } from 'lucide-react'
 import {
   AlertDialog,
@@ -22,6 +23,7 @@ export function TelemetryConsentDialog({
   open,
   onComplete,
 }: TelemetryConsentDialogProps) {
+  const { t } = useTranslation()
   const setConsent = useTelemetryStore((s) => s.setConsent)
 
   const handleGrant = React.useCallback(async () => {
@@ -42,10 +44,10 @@ export function TelemetryConsentDialog({
             <BarChart3 className="h-6 w-6 text-primary" />
           </div>
           <AlertDialogTitle className="text-center">
-            {`帮助改善 ${buildConfig.app.name}`}
+            {t('telemetry.consent.title', { appName: buildConfig.app.name })}
           </AlertDialogTitle>
           <AlertDialogDescription className="text-center">
-            {`允许 ${buildConfig.app.name} 收集匿名使用数据，帮助我们改善 Agent 质量。`}
+            {t('telemetry.consent.description', { appName: buildConfig.app.name })}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -53,27 +55,27 @@ export function TelemetryConsentDialog({
           <div className="flex items-start gap-3 text-sm">
             <Eye className="h-4 w-4 mt-0.5 text-green-500 shrink-0" />
             <div>
-              <p className="font-medium text-foreground">收集内容</p>
+              <p className="font-medium text-foreground">{t('telemetry.consent.collectTitle')}</p>
               <p className="text-muted-foreground text-xs mt-0.5">
-                会话时长、Token 消耗、工具调用统计、反馈评分、模型信息
+                {t('telemetry.consent.collectDescription')}
               </p>
             </div>
           </div>
           <div className="flex items-start gap-3 text-sm">
             <EyeOff className="h-4 w-4 mt-0.5 text-red-500 shrink-0" />
             <div>
-              <p className="font-medium text-foreground">绝不收集</p>
+              <p className="font-medium text-foreground">{t('telemetry.consent.neverCollectTitle')}</p>
               <p className="text-muted-foreground text-xs mt-0.5">
-                对话内容、代码、文件路径、项目名称、个人信息
+                {t('telemetry.consent.neverCollectDescription')}
               </p>
             </div>
           </div>
           <div className="flex items-start gap-3 text-sm">
             <Shield className="h-4 w-4 mt-0.5 text-blue-500 shrink-0" />
             <div>
-              <p className="font-medium text-foreground">随时可改</p>
+              <p className="font-medium text-foreground">{t('telemetry.consent.changeAnytimeTitle')}</p>
               <p className="text-muted-foreground text-xs mt-0.5">
-                可在 Settings &gt; System &gt; Privacy &amp; Telemetry 中随时关闭
+                {t('telemetry.consent.changeAnytimeDescription')}
               </p>
             </div>
           </div>
@@ -81,10 +83,10 @@ export function TelemetryConsentDialog({
 
         <AlertDialogFooter>
           <AlertDialogCancel onClick={handleDeny}>
-            暂不开启
+            {t('telemetry.consent.deny')}
           </AlertDialogCancel>
           <AlertDialogAction onClick={handleGrant}>
-            允许分析
+            {t('telemetry.consent.allow')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

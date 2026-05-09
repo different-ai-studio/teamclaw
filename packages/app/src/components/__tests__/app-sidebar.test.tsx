@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import React from 'react'
 
 const uiVariantMocks = vi.hoisted(() => ({ workspaceShell: false }))
@@ -7,6 +7,7 @@ const uiVariantMocks = vi.hoisted(() => ({ workspaceShell: false }))
 const uiStoreMocks = vi.hoisted(() => ({
   advancedMode: true,
   defaultNavTab: 'session',
+  switchToSession: vi.fn(() => Promise.resolve()),
   openSettings: vi.fn(),
   closeSettings: vi.fn(),
   embeddedSettingsSection: null as string | null,
@@ -53,10 +54,13 @@ const sessionStoreMocks = vi.hoisted(() => ({
     { id: 's1', title: 'Session One', updatedAt: new Date('2025-01-01'), messages: [] },
     { id: 's2', title: 'Session Two', updatedAt: new Date('2025-01-02'), messages: [] },
   ],
+  archivedSessions: [] as unknown[],
   pinnedSessionIds: ['s1'],
   importedSessionIds: [],
   activeSessionId: 's1',
   isLoading: false,
+  isLoadingArchivedSessions: false,
+  archivedSessionError: null as string | null,
   isLoadingMore: false,
   hasMoreSessions: false,
   visibleSessionCount: 50,
@@ -68,6 +72,8 @@ const sessionStoreMocks = vi.hoisted(() => ({
   updateSessionTitle: vi.fn(),
   toggleSessionPinned: vi.fn(),
   loadMoreSessions: vi.fn(),
+  loadArchivedSessions: vi.fn(() => Promise.resolve()),
+  openArchivedSession: vi.fn(() => Promise.resolve()),
   createSession: vi.fn(),
   removeImportedSession: vi.fn(),
   exportSession: vi.fn(),
@@ -97,8 +103,11 @@ vi.mock('@/stores/session', () => ({
 }))
 
 vi.mock('@/stores/ui', () => ({
-  useUIStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel(uiStoreMocks as unknown as Record<string, unknown>),
+  useUIStore: Object.assign(
+    (sel: (s: Record<string, unknown>) => unknown) =>
+      sel(uiStoreMocks as unknown as Record<string, unknown>),
+    { getState: () => uiStoreMocks },
+  ),
 }))
 
 vi.mock('@/stores/workspace', () => ({
@@ -135,9 +144,13 @@ vi.mock('@/lib/ui-variant', () => ({
 
 vi.mock('@/components/ui/sidebar', () => ({
   Sidebar: ({ children, ...props }: any) => <div data-testid="sidebar" {...props}>{children}</div>,
-  SidebarContent: ({ children }: any) => <div>{children}</div>,
+  SidebarContent: ({ children, className }: any) => (
+    <div data-testid="sidebar-content" className={className}>
+      {children}
+    </div>
+  ),
   SidebarFooter: ({ children }: any) => <div>{children}</div>,
-  SidebarGroup: ({ children }: any) => <div>{children}</div>,
+  SidebarGroup: ({ children, className }: any) => <div className={className}>{children}</div>,
   SidebarHeader: ({ children }: any) => <div>{children}</div>,
   SidebarMenu: ({ children }: any) => <div>{children}</div>,
   SidebarMenuButton: ({ children, onClick, isActive: _isActive, ...props }: any) => (
@@ -171,12 +184,21 @@ vi.mock('@/components/ui/tooltip', () => ({
 }))
 
 vi.mock('@/components/ui/command', () => ({
-  CommandDialog: () => null,
-  CommandInput: () => null,
-  CommandList: () => null,
-  CommandEmpty: () => null,
-  CommandGroup: () => null,
-  CommandItem: () => null,
+  CommandDialog: ({ children, open }: any) => open ? <div data-testid="session-search-dialog">{children}</div> : null,
+  CommandInput: ({ placeholder }: any) => <input aria-label={placeholder} placeholder={placeholder} />,
+  CommandList: ({ children, className }: any) => <div className={className}>{children}</div>,
+  CommandEmpty: ({ children }: any) => <div>{children}</div>,
+  CommandGroup: ({ children, heading }: any) => (
+    <section aria-label={heading}>
+      <h2>{heading}</h2>
+      {children}
+    </section>
+  ),
+  CommandItem: ({ children, onSelect, value }: any) => (
+    <button type="button" data-value={value} onClick={() => onSelect?.(value)}>
+      {children}
+    </button>
+  ),
 }))
 
 vi.mock('@/components/NodeStatusPopover', () => ({
@@ -206,13 +228,19 @@ describe('AppSidebar', () => {
       { id: 's1', title: 'Session One', updatedAt: new Date('2025-01-01'), messages: [] },
       { id: 's2', title: 'Session Two', updatedAt: new Date('2025-01-02'), messages: [] },
     ]
+    sessionStoreMocks.archivedSessions = []
     sessionStoreMocks.pinnedSessionIds = ['s1']
     sessionStoreMocks.activeSessionId = 's1'
+    sessionStoreMocks.isLoadingArchivedSessions = false
+    sessionStoreMocks.archivedSessionError = null
     sessionStoreMocks.highlightedSessionIds = []
     sessionStoreMocks.pendingPermissions = []
     sessionStoreMocks.pendingQuestions = []
+    sessionStoreMocks.loadArchivedSessions = vi.fn(() => Promise.resolve())
+    sessionStoreMocks.openArchivedSession = vi.fn(() => Promise.resolve())
     uiVariantMocks.workspaceShell = false
     uiStoreMocks.defaultNavTab = 'session'
+    uiStoreMocks.switchToSession = vi.fn(() => Promise.resolve())
     uiStoreMocks.embeddedSettingsSection = null
     uiStoreMocks.openSettings = vi.fn()
     uiStoreMocks.closeSettings = vi.fn()
@@ -336,6 +364,137 @@ describe('AppSidebar', () => {
     expect(screen.getByTitle('New Chat')).toBeDefined()
   })
 
+  it("session search defaults to active sessions and can switch to archived results", async () => {
+    sessionStoreMocks.archivedSessions = [
+      {
+        id: "archived-1",
+        title: "Archived Todo Chat",
+        updatedAt: new Date("2026-05-01T10:00:00.000Z"),
+        archivedAt: new Date("2026-05-02T10:00:00.000Z"),
+        isArchived: true,
+        messages: [],
+      },
+    ]
+
+    render(<AppSidebar />)
+
+    fireEvent.click(screen.getByTitle("Search (⌘K)"))
+
+    const dialog = screen.getByTestId("session-search-dialog")
+    expect(dialog).toBeDefined()
+    expect(within(dialog).getByText("Session One")).toBeDefined()
+    expect(within(dialog).queryByText("Archived Todo Chat")).toBeNull()
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Archived" }))
+
+    expect(sessionStoreMocks.loadArchivedSessions).toHaveBeenCalledWith("/workspace")
+    expect(within(dialog).getByText("Archived Todo Chat")).toBeDefined()
+    expect(within(dialog).queryByText("Session One")).toBeNull()
+  })
+
+  it("selecting an archived search result opens archived read-only mode", async () => {
+    let resolveOpenArchivedSession: () => void
+    const openArchivedSessionPromise = new Promise<void>((resolve) => {
+      resolveOpenArchivedSession = resolve
+    })
+    sessionStoreMocks.openArchivedSession = vi.fn(() => openArchivedSessionPromise)
+    sessionStoreMocks.archivedSessions = [
+      {
+        id: "archived-1",
+        title: "Archived Todo Chat",
+        updatedAt: new Date("2026-05-01T10:00:00.000Z"),
+        archivedAt: new Date("2026-05-02T10:00:00.000Z"),
+        isArchived: true,
+        messages: [],
+      },
+    ]
+
+    render(<AppSidebar />)
+
+    fireEvent.click(screen.getByTitle("Search (⌘K)"))
+    const dialog = screen.getByTestId("session-search-dialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Archived" }))
+    fireEvent.click(within(dialog).getByText("Archived Todo Chat"))
+
+    expect(screen.queryByTestId("session-search-dialog")).toBeNull()
+    expect(sessionStoreMocks.openArchivedSession).toHaveBeenCalledWith("archived-1")
+    expect(uiStoreMocks.switchToSession).not.toHaveBeenCalledWith("archived-1")
+
+    resolveOpenArchivedSession!()
+    await waitFor(() => {
+      expect(sessionStoreMocks.openArchivedSession).toHaveBeenCalledWith("archived-1")
+    })
+  })
+
+  it("session search All mode shows active and archived sessions", () => {
+    sessionStoreMocks.archivedSessions = [
+      {
+        id: "archived-1",
+        title: "Archived Todo Chat",
+        updatedAt: new Date("2026-05-01T10:00:00.000Z"),
+        archivedAt: new Date("2026-05-02T10:00:00.000Z"),
+        isArchived: true,
+        messages: [],
+      },
+    ]
+
+    render(<AppSidebar />)
+
+    fireEvent.click(screen.getByTitle("Search (⌘K)"))
+    const dialog = screen.getByTestId("session-search-dialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "All" }))
+
+    expect(sessionStoreMocks.loadArchivedSessions).toHaveBeenCalledWith("/workspace")
+    expect(within(dialog).getByText("Session One")).toBeDefined()
+    expect(within(dialog).getByText("Archived Todo Chat")).toBeDefined()
+  })
+
+  it("selecting an active search result from All switches sessions without opening archived mode", () => {
+    sessionStoreMocks.archivedSessions = [
+      {
+        id: "archived-1",
+        title: "Archived Todo Chat",
+        updatedAt: new Date("2026-05-01T10:00:00.000Z"),
+        archivedAt: new Date("2026-05-02T10:00:00.000Z"),
+        isArchived: true,
+        messages: [],
+      },
+    ]
+
+    render(<AppSidebar />)
+
+    fireEvent.click(screen.getByTitle("Search (⌘K)"))
+    const dialog = screen.getByTestId("session-search-dialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "All" }))
+    fireEvent.click(within(dialog).getByText("Session One"))
+
+    expect(uiStoreMocks.switchToSession).toHaveBeenCalledWith("s1")
+    expect(sessionStoreMocks.openArchivedSession).not.toHaveBeenCalledWith("s1")
+  })
+
+  it("selecting an archived search result from All opens archived mode without switching active sessions", () => {
+    sessionStoreMocks.archivedSessions = [
+      {
+        id: "archived-1",
+        title: "Archived Todo Chat",
+        updatedAt: new Date("2026-05-01T10:00:00.000Z"),
+        archivedAt: new Date("2026-05-02T10:00:00.000Z"),
+        isArchived: true,
+        messages: [],
+      },
+    ]
+
+    render(<AppSidebar />)
+
+    fireEvent.click(screen.getByTitle("Search (⌘K)"))
+    const dialog = screen.getByTestId("session-search-dialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "All" }))
+    fireEvent.click(within(dialog).getByText("Archived Todo Chat"))
+
+    expect(sessionStoreMocks.openArchivedSession).toHaveBeenCalledWith("archived-1")
+    expect(uiStoreMocks.switchToSession).not.toHaveBeenCalledWith("archived-1")
+  })
+
   it('default mode uses the knowledge header controls for the knowledge tab', () => {
     uiVariantMocks.workspaceShell = false
     uiStoreMocks.defaultNavTab = 'knowledge'
@@ -400,6 +559,24 @@ describe('AppSidebar', () => {
     render(<AppSidebar />)
     expect(screen.getByText('Settings')).toBeDefined()
     expect(screen.queryByText('设置')).toBeNull()
+  })
+
+  it('workspace mode only scrolls the session list area', () => {
+    uiVariantMocks.workspaceShell = true
+
+    const { container } = render(<AppSidebar />)
+
+    expect(screen.getByTestId('sidebar-content').getAttribute('class')).toContain('overflow-hidden')
+
+    const sessionScrollRegion = container.querySelector('[data-testid="sidebar-session-scroll"]')
+    expect(sessionScrollRegion).not.toBeNull()
+    expect(sessionScrollRegion!.getAttribute('class')).toContain('overflow-y-auto')
+    expect(sessionScrollRegion!.textContent).toContain('Session One')
+    expect(sessionScrollRegion!.textContent).toContain('Session Two')
+    expect(sessionScrollRegion!.textContent).not.toContain('Shortcuts')
+    expect(sessionScrollRegion!.textContent).not.toContain('Automation')
+    expect(sessionScrollRegion!.textContent).not.toContain('Roles & Skills')
+    expect(sessionScrollRegion!.textContent).not.toContain('New Chat')
   })
 
   it('workspace variant preserves the settings footer row', () => {

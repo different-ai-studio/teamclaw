@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useVersionHistoryStore } from '@/stores/version-history'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { VersionedFileList } from '@/components/version/VersionedFileList'
@@ -6,6 +7,7 @@ import { VersionList } from '@/components/version/VersionList'
 import { VersionPreview } from '@/components/version/VersionPreview'
 
 export function VersionHistoryTab() {
+  const { t } = useTranslation()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const {
@@ -83,8 +85,8 @@ export function VersionHistoryTab() {
       {/* Left: Versioned file list */}
       <div className="w-[220px] shrink-0 border-r flex flex-col overflow-hidden">
         <div className="border-b px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          文件列表
-          {loading && <span className="ml-2 text-[10px] font-normal normal-case">加载中...</span>}
+          {t('versionHistory.fileList', 'File list')}
+          {loading && <span className="ml-2 text-[10px] font-normal normal-case">{t('common.loading', 'Loading...')}</span>}
         </div>
         <div className="flex-1 overflow-hidden">
           <VersionedFileList
@@ -101,7 +103,7 @@ export function VersionHistoryTab() {
       {/* Middle: Version list */}
       <div className="w-[200px] shrink-0 border-r flex flex-col overflow-hidden">
         <div className="border-b px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          版本历史
+          {t('versionHistory.title', 'Version history')}
         </div>
         <div className="flex-1 overflow-hidden">
           {selectedFile ? (
@@ -114,7 +116,7 @@ export function VersionHistoryTab() {
             />
           ) : (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground px-3 text-center">
-              请从左侧选择文件
+              {t('versionHistory.selectFilePrompt', 'Select a file from the left')}
             </div>
           )}
         </div>

@@ -5,11 +5,34 @@ import {
 } from '@/lib/opencode/config'
 import { loadTeamProviderFile, TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 import { useProviderStore } from './provider'
+import { useWorkspaceStore } from './workspace'
 import { isTauri } from '@/lib/utils'
+import { workspaceScopedKey } from '@/lib/storage'
 import { appShortName, buildConfig, TEAM_REPO_DIR, type TeamModelOption } from '@/lib/build-config'
 
 
 const TEAM_PROVIDER_ID = TEAM_SHARED_PROVIDER_ID
+
+const TEAM_MODEL_BASE = `${appShortName}-team-model`
+const PRE_TEAM_MODEL_BASE = `${appShortName}-pre-team-model`
+
+function teamModelKey(): string {
+  return workspaceScopedKey(TEAM_MODEL_BASE, useWorkspaceStore.getState().workspacePath)
+}
+
+function preTeamModelKey(): string {
+  return workspaceScopedKey(PRE_TEAM_MODEL_BASE, useWorkspaceStore.getState().workspacePath)
+}
+
+// Read with workspace-scoped key first, fall back to legacy unscoped key
+// for users upgrading from before workspace scoping.
+function readTeamModel(): string | null {
+  return localStorage.getItem(teamModelKey()) ?? localStorage.getItem(TEAM_MODEL_BASE)
+}
+
+function readPreTeamModel(): string | null {
+  return localStorage.getItem(preTeamModelKey()) ?? localStorage.getItem(PRE_TEAM_MODEL_BASE)
+}
 
 /**
  * Upgrade `http://` → `https://` for remote LLM hosts.
@@ -167,7 +190,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         let selectedModelName = status.llm.modelName || status.llm.model
         if (teamModels.length > 0) {
           try {
-            const savedModelId = localStorage.getItem(`${appShortName}-team-model`)
+            const savedModelId = readTeamModel()
             const match = savedModelId ? teamModels.find((m) => m.id === savedModelId) : null
             if (match) {
               selectedModel = match.id
@@ -233,7 +256,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       const currentModel = providerStore.currentModelKey
       if (currentModel && !currentModel.startsWith('team/')) {
         try {
-          localStorage.setItem(`${appShortName}-pre-team-model`, currentModel)
+          localStorage.setItem(preTeamModelKey(), currentModel)
         } catch { /* ignore */ }
       }
 
@@ -279,7 +302,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
     // Persist selection
     try {
-      localStorage.setItem(`${appShortName}-team-model`, modelId)
+      localStorage.setItem(teamModelKey(), modelId)
     } catch { /* ignore */ }
 
     console.log('[TeamMode] Switched team model to:', modelId)
@@ -351,7 +374,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
           const { invoke } = await import('@tauri-apps/api/core')
           const { initOpenCodeClient } = await import('@/lib/opencode/sdk-client')
 
-          await invoke('stop_opencode')
+          await invoke('stop_opencode', { workspacePath })
           await new Promise((r) => setTimeout(r, 500))
           const status = await invoke<{ url: string }>('start_opencode', {
             config: { workspace_path: workspacePath },
@@ -370,7 +393,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
     // Restore previous model if available
     try {
-      const preTeamModel = localStorage.getItem(`${appShortName}-pre-team-model`)
+      const preTeamModel = readPreTeamModel()
       const providerStore = useProviderStore.getState()
 
       // Force disconnect the team provider to remove it from the list immediately
@@ -408,7 +431,8 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
             await providerStore.refreshCurrentModel()
           }, 500)
         }
-        localStorage.removeItem(`${appShortName}-pre-team-model`)
+        localStorage.removeItem(preTeamModelKey())
+        localStorage.removeItem(PRE_TEAM_MODEL_BASE)
       } else {
         // If no valid previous model, try to select the first available one
         setTimeout(async () => {

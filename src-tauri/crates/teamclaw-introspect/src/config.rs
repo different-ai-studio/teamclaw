@@ -84,14 +84,27 @@ pub fn write_teamclaw_config(workspace: &str, config: &Value) -> Result<(), Stri
     write_json_file(&config_path(workspace), config)
 }
 
-/// Read `{workspace}/.teamclaw/cron-jobs.json`. Returns `[]` if missing.
+/// Read `{workspace}/.teamclaw/cron-jobs.json`. Returns `{ "jobs": [] }` if missing.
 pub fn read_cron_jobs(workspace: &str) -> Result<Value, String> {
-    read_json_file_or_default(&cron_jobs_path(workspace), Value::Array(vec![]))
+    read_json_file_or_default(
+        &cron_jobs_path(workspace),
+        serde_json::json!({ "jobs": [] }),
+    )
 }
 
 /// Write `{workspace}/.teamclaw/cron-jobs.json`.
 pub fn write_cron_jobs(workspace: &str, data: &Value) -> Result<(), String> {
     write_json_file(&cron_jobs_path(workspace), data)
+}
+
+/// Extract cron jobs from the native `{ jobs: [...] }` shape, while accepting the
+/// legacy bare-array shape written by older introspect versions.
+pub fn cron_jobs_from_value(data: &Value) -> Vec<Value> {
+    data.get("jobs")
+        .and_then(|v| v.as_array())
+        .or_else(|| data.as_array())
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Read last `limit` lines from `{workspace}/.teamclaw/cron-runs/{job_id}.jsonl`.

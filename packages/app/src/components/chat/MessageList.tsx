@@ -17,6 +17,8 @@ import { SAFE_BOTTOM_SPACING, NEAR_BOTTOM_THRESHOLD } from "./layout-constants";
 // The current virtualized path occasionally keeps stale row heights and causes
 // overlap, so we keep the stable non-virtualized path for normal conversations.
 const VIRTUAL_MSG_THRESHOLD = Number.MAX_SAFE_INTEGER;
+const INITIAL_VISIBLE_MESSAGE_COUNT = 80;
+const LOAD_EARLIER_MESSAGE_COUNT = 60;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,8 +28,11 @@ export interface MessageListProps {
   isStreaming: boolean;
   streamingMessageId: string | null;
   compact?: boolean;
+  sessionDirectory?: string;
   /** Optional empty-state content rendered when there are no messages (not loading) */
   emptyState?: React.ReactNode;
+  /** Optional content rendered at the bottom of the scrollable message area. */
+  bottomContent?: React.ReactNode;
 }
 
 export interface MessageListHandle {
@@ -45,7 +50,9 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       isStreaming,
       streamingMessageId: _streamingMessageId,
       compact = false,
+      sessionDirectory,
       emptyState,
+      bottomContent,
     },
     ref,
   ) {
@@ -73,9 +80,10 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     // Object references from .find() change on every sessions update → unnecessary re-renders.
     // Use `activeSessionId` prop (may lag store during ChatPanel fade) so paths match shown messages.
     const activeSessionDirectory = useSessionStore((s) =>
-      activeSessionId
+      sessionDirectory ??
+      (activeSessionId
         ? s.sessions.find((ss) => ss.id === activeSessionId)?.directory
-        : undefined,
+        : undefined),
     );
 
     // ── Sorted messages ──────────────────────────────────────────────────
@@ -88,6 +96,29 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
         return (a.id || "").localeCompare(b.id || "");
       });
     }, [rawMessages]);
+
+    const [visibleMessageCount, setVisibleMessageCount] = React.useState(INITIAL_VISIBLE_MESSAGE_COUNT);
+    React.useEffect(() => {
+      setVisibleMessageCount(INITIAL_VISIBLE_MESSAGE_COUNT);
+    }, [activeSessionId]);
+
+    React.useEffect(() => {
+      setVisibleMessageCount((count) => Math.max(INITIAL_VISIBLE_MESSAGE_COUNT, Math.min(count, messages.length)));
+    }, [messages.length]);
+
+    const hiddenMessageCount = Math.max(0, messages.length - visibleMessageCount);
+    const loadEarlierCount = Math.min(LOAD_EARLIER_MESSAGE_COUNT, hiddenMessageCount);
+    const loadEarlierLabel = React.useMemo(
+      () =>
+        t("chat.loadEarlierMessages", "Load {{count}} earlier messages", {
+          count: loadEarlierCount,
+        }).replace("{{count}}", String(loadEarlierCount)),
+      [loadEarlierCount, t],
+    );
+    const renderedMessages = React.useMemo(
+      () => messages.slice(Math.max(0, messages.length - visibleMessageCount)),
+      [messages, visibleMessageCount],
+    );
 
     // ── Token group info ─────────────────────────────────────────────────
     // Compute token group summaries: consecutive assistant messages are grouped.
@@ -106,30 +137,38 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
         }
       >();
       let groupStart = -1;
-      for (let i = 0; i <= messages.length; i++) {
-        const msg = messages[i];
+      for (let i = 0; i <= renderedMessages.length; i++) {
+        const msg = renderedMessages[i];
         const isAssistant = msg && msg.role !== "user";
-        if (!isAssistant || i === messages.length) {
+        if (!isAssistant || i === renderedMessages.length) {
           // End of a group — finalize
           if (groupStart !== -1) {
             const groupEnd = i - 1;
             const groupLen = groupEnd - groupStart + 1;
-            if (groupLen > 1) {
+            const groupHasStreaming = renderedMessages
+              .slice(groupStart, groupEnd + 1)
+              .some((groupMessage) => groupMessage.isStreaming);
+
+            if (groupHasStreaming) {
+              for (let j = groupStart; j <= groupEnd; j++) {
+                info.set(renderedMessages[j].id, { hideTokenUsage: true });
+              }
+            } else if (groupLen > 1) {
               let totalInput = 0,
                 totalOutput = 0,
                 totalCost = 0;
               for (let j = groupStart; j <= groupEnd; j++) {
-                const toks = messages[j].tokens;
+                const toks = renderedMessages[j].tokens;
                 if (toks) {
                   totalInput += toks.input;
                   totalOutput += toks.output;
                 }
-                if (messages[j].cost) totalCost += messages[j].cost!;
+                if (renderedMessages[j].cost) totalCost += renderedMessages[j].cost!;
               }
               for (let j = groupStart; j < groupEnd; j++) {
-                info.set(messages[j].id, { hideTokenUsage: true });
+                info.set(renderedMessages[j].id, { hideTokenUsage: true });
               }
-              info.set(messages[groupEnd].id, {
+              info.set(renderedMessages[groupEnd].id, {
                 hideTokenUsage: false,
                 groupSummary: {
                   steps: groupLen,
@@ -147,12 +186,13 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
         }
       }
       return info;
-    }, [messages]);
+    }, [renderedMessages]);
 
     // ── Local state ──────────────────────────────────────────────────────
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     const [inputAreaHeight, setInputAreaHeight] = React.useState(160);
     const [messageAreaWidth, setMessageAreaWidth] = React.useState(0);
+    const hasBottomContent = Boolean(bottomContent);
 
     // ── Refs ─────────────────────────────────────────────────────────────
     const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -208,7 +248,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     const useVirtualMessages = messages.length > VIRTUAL_MSG_THRESHOLD;
 
     const messageVirtualizer = useVirtualizer({
-      count: useVirtualMessages ? messages.length : 0,
+      count: useVirtualMessages ? renderedMessages.length : 0,
       getScrollElement: () => scrollRef.current,
       estimateSize: () => 150,
       overscan: 5,
@@ -325,6 +365,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       messageQueue.length,
       streamingContentLength,
       streamingUpdateTrigger,
+      hasBottomContent,
     ]);
 
     // Auto-scroll when streaming ends (to show token usage and final content)
@@ -549,12 +590,27 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
               )
             ) : (
               <div className="space-y-1">
+                {hiddenMessageCount > 0 && (
+                  <div className="flex justify-center pb-2">
+                    <button
+                      type="button"
+                      className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                      onClick={() =>
+                        setVisibleMessageCount((count) =>
+                          Math.min(messages.length, count + LOAD_EARLIER_MESSAGE_COUNT),
+                        )
+                      }
+                    >
+                      {loadEarlierLabel}
+                    </button>
+                  </div>
+                )}
                 {/* Find the last completed assistant message for star rating */}
                 {(() => {
                   // Star rating only on the last non-streaming assistant message with tokens
                   let lastCompletedAssistantIdx = -1;
-                  for (let i = messages.length - 1; i >= 0; i--) {
-                    const m = messages[i];
+                  for (let i = renderedMessages.length - 1; i >= 0; i--) {
+                    const m = renderedMessages[i];
                     if (m.role !== "user" && !m.isStreaming && m.tokens) {
                       lastCompletedAssistantIdx = i;
                       break;
@@ -572,9 +628,9 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                       {messageVirtualizer
                         .getVirtualItems()
                         .map((virtualItem) => {
-                          const message = messages[virtualItem.index];
+                          const message = renderedMessages[virtualItem.index];
                           const isLastMessage =
-                            virtualItem.index === messages.length - 1;
+                            virtualItem.index === renderedMessages.length - 1;
                           const shouldShowThinking =
                             isLastMessage && message.isStreaming;
 
@@ -611,8 +667,8 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                         })}
                     </div>
                   ) : (
-                    messages.map((message, index) => {
-                      const isLastMessage = index === messages.length - 1;
+                    renderedMessages.map((message, index) => {
+                      const isLastMessage = index === renderedMessages.length - 1;
                       const shouldShowThinking =
                         isLastMessage && message.isStreaming;
 
@@ -637,6 +693,12 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                     })
                   );
                 })()}
+              </div>
+            )}
+
+            {bottomContent && (
+              <div className="pt-3">
+                {bottomContent}
               </div>
             )}
           </div>

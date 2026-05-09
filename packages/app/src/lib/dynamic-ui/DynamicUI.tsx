@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import type { UITree } from "@json-render/core"
 import { JSONUIProvider, Renderer } from "@json-render/react"
 import { componentRegistry, fallbackComponent } from "./registry"
@@ -61,6 +62,7 @@ interface DynamicUIMessageProps {
 }
 
 export function DynamicUIMessage({ tree, loading = false }: DynamicUIMessageProps) {
+  const { t } = useTranslation()
   const [formData, setFormData] = React.useState<Record<string, unknown>>({})
 
   const handleDataChange = (path: string, value: unknown) => {
@@ -91,7 +93,7 @@ export function DynamicUIMessage({ tree, loading = false }: DynamicUIMessageProp
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span>正在生成界面...</span>
+          <span>{t("dynamicUi.generating", "Generating interface...")}</span>
         </div>
       )
     }

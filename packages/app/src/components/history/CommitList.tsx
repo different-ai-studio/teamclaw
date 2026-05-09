@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import type { GitLogEntry } from '@/lib/git/types'
 
@@ -10,12 +11,12 @@ interface CommitListProps {
   loadingMore: boolean
 }
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, language: string): string {
   const t = new Date(iso).getTime()
   if (Number.isNaN(t)) return iso
   const diffSec = Math.round((t - Date.now()) / 1000)
   const abs = Math.abs(diffSec)
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+  const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' })
   if (abs < 60) return rtf.format(diffSec, 'second')
   if (abs < 3600) return rtf.format(Math.round(diffSec / 60), 'minute')
   if (abs < 86400) return rtf.format(Math.round(diffSec / 3600), 'hour')
@@ -30,6 +31,8 @@ export function CommitList({
   hasMore,
   loadingMore,
 }: CommitListProps) {
+  const { t, i18n } = useTranslation()
+
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {commits.map((c) => {
@@ -44,7 +47,7 @@ export function CommitList({
             }`}
           >
             <div className="text-xs text-muted-foreground truncate">
-              {formatRelative(c.isoTime)} · {c.author}
+              {formatRelative(c.isoTime, i18n.language)} · {c.author}
             </div>
             <div className="text-sm truncate">{c.subject}</div>
           </button>
@@ -57,7 +60,7 @@ export function CommitList({
           disabled={loadingMore}
           className="px-3 py-2 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
         >
-          {loadingMore ? <Loader2 className="h-3 w-3 animate-spin inline" /> : '加载更多'}
+          {loadingMore ? <Loader2 className="h-3 w-3 animate-spin inline" /> : t('sidebar.loadMore', 'Load More')}
         </button>
       )}
     </div>

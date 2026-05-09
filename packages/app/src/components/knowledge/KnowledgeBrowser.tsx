@@ -48,9 +48,10 @@ export function KnowledgeBrowser({
         totalBytes?: number
       }>('team_sync_repo', { force: false, workspacePath })
       if (result.needsConfirmation) {
-        toast.warning(
-          `检测到 ${result.newFiles?.length ?? 0} 个较大的新文件待同步，请在设置 → 团队中确认`,
-        )
+        toast.warning(t('settings.team.syncPrecheckToast', {
+          count: result.newFiles?.length ?? 0,
+          defaultValue: 'Detected {{count}} large new files to sync. Confirm in Settings > Team.',
+        }))
         return
       }
       if (result.success) {
@@ -69,7 +70,7 @@ export function KnowledgeBrowser({
       setSyncing(false)
       useTeamModeStore.setState({ teamGitSyncing: false })
     }
-  }, [syncing, refreshFileTree, workspacePath])
+  }, [syncing, refreshFileTree, t, workspacePath])
 
   if (!workspacePath) return null
 

@@ -182,11 +182,12 @@ export function CronSection() {
   // Periodically refresh job list while this section is mounted.
   // Refresh jobs periodically (every 30 seconds)
   React.useEffect(() => {
+    loadJobs()
     const interval = setInterval(() => {
       loadJobs()
     }, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [loadJobs])
 
   const handleOpenCreate = () => {
     setEditJob(undefined)

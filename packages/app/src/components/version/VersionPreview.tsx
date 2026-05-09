@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -108,12 +109,13 @@ export function VersionPreview({
   onRestore,
   restoring,
 }: VersionPreviewProps) {
+  const { t } = useTranslation()
   const [tab, setTab] = useState<TabMode>('content')
 
   if (!version) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        请选择一个历史版本
+        {t('versionHistory.selectVersionPrompt', 'Select a historical version')}
       </div>
     )
   }
@@ -132,7 +134,7 @@ export function VersionPreview({
                 : 'text-muted-foreground hover:bg-accent/50'
             )}
           >
-            内容
+            {t('versionHistory.contentTab', 'Content')}
           </button>
           <button
             onClick={() => setTab('diff')}
@@ -143,7 +145,7 @@ export function VersionPreview({
                 : 'text-muted-foreground hover:bg-accent/50'
             )}
           >
-            与当前对比
+            {t('versionHistory.diffTab', 'Compare with current')}
           </button>
         </div>
 
@@ -151,19 +153,26 @@ export function VersionPreview({
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button size="sm" variant="outline" disabled={restoring}>
-                {restoring ? '恢复中...' : '恢复此版本'}
+                {restoring
+                  ? t('versionHistory.restoring', 'Restoring...')
+                  : t('versionHistory.restoreThisVersion', 'Restore this version')}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent size="sm">
               <AlertDialogHeader>
-                <AlertDialogTitle>恢复此版本？</AlertDialogTitle>
+                <AlertDialogTitle>{t('versionHistory.restoreTitle', 'Restore this version?')}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  文件将恢复到本地草稿，不会立即同步给团队。下次同步时，此变更将自动推送。
+                  {t(
+                    'versionHistory.restoreDescription',
+                    'The file will be restored to the local draft and will not sync to the team immediately. This change will be pushed automatically on the next sync.',
+                  )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>取消</AlertDialogCancel>
-                <AlertDialogAction onClick={onRestore}>确认恢复</AlertDialogAction>
+                <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
+                <AlertDialogAction onClick={onRestore}>
+                  {t('versionHistory.confirmRestore', 'Restore')}
+                </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -180,7 +189,7 @@ export function VersionPreview({
           <SimpleDiff oldContent={currentContent} newContent={version.content} />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground p-4">
-            当前内容不可用
+            {t('versionHistory.currentContentUnavailable', 'Current content is unavailable')}
           </div>
         )}
       </ScrollArea>

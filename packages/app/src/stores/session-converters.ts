@@ -5,10 +5,39 @@ import type {
 } from "@/lib/opencode/sdk-types";
 import type { ToolCall, MessagePart, Message, Session } from './session-types';
 
+function isCompactionContinueMetadata(metadata: unknown): boolean {
+  return !!(
+    metadata &&
+    typeof metadata === "object" &&
+    (metadata as Record<string, unknown>).compaction_continue === true
+  );
+}
+
+function archiveMetadata(
+  time: { archived?: number | null },
+): Pick<Session, "isArchived" | "archivedAt"> {
+  if (time.archived == null) return {};
+  return {
+    isArchived: true,
+    archivedAt: new Date(time.archived),
+  };
+}
+
 // Convert OpenCode message to our format
 export function convertMessage(msg: OpenCodeMessage): Message {
+  const hasCompactionPart = msg.parts.some((part) => part.type === "compaction");
+  const compactionPart = msg.parts.find((part) => part.type === "compaction");
+  const isCompactionSummary =
+    msg.info.role === "assistant" &&
+    (msg.info.summary === true ||
+      msg.info.agent === "compaction" ||
+      msg.info.mode === "compaction");
+  const isSyntheticCompactionContinue =
+    isCompactionContinueMetadata(msg.info.metadata) ||
+    (msg.info.synthetic === true && isCompactionContinueMetadata(msg.info.metadata));
+
   const content = msg.parts
-    .filter((p) => p.type === "text" && p.text)
+    .filter((p) => p.type === "text" && p.text && !isSyntheticCompactionContinue)
     .map((p) => p.text)
     .join("");
 
@@ -96,9 +125,20 @@ export function convertMessage(msg: OpenCodeMessage): Message {
     type: p.type,
     content: p.text,
     text: p.text, // Keep text field for reasoning
+    auto: p.auto,
+    overflow: p.overflow,
+    completed: p.completed,
     tool: p.toolCall,
     result: p.toolResult,
   }));
+
+  const displayKind = hasCompactionPart
+    ? "compaction"
+    : isCompactionSummary
+      ? "compaction-summary"
+      : isSyntheticCompactionContinue
+        ? "synthetic"
+        : undefined;
 
   return {
     id: msg.info.id,
@@ -114,6 +154,16 @@ export function convertMessage(msg: OpenCodeMessage): Message {
     modelID: msg.info.modelID,
     providerID: msg.info.providerID,
     agent: msg.info.agent,
+    parentID: msg.info.parentID,
+    displayKind,
+    hidden: displayKind === "compaction-summary" || displayKind === "synthetic" ? true : undefined,
+    compaction: hasCompactionPart
+      ? {
+          auto: compactionPart?.auto,
+          overflow: compactionPart?.overflow,
+          completed: compactionPart?.completed ?? true,
+        }
+      : undefined,
   };
 }
 
@@ -127,6 +177,7 @@ export function convertSession(session: OpenCodeSession): Session {
     updatedAt: new Date(session.time.updated),
     directory: session.directory,
     parentID: session.parentID,
+    ...archiveMetadata(session.time),
   };
 }
 
@@ -140,5 +191,6 @@ export function convertSessionListItem(item: SessionListItem): Session {
     updatedAt: new Date(item.time.updated),
     directory: item.directory,
     parentID: item.parentID,
+    ...archiveMetadata(item.time),
   };
 }

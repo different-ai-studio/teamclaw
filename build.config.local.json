@@ -12,7 +12,14 @@
   "app": {
     "name": "TeamClaw",
     "shortName": "teamclaw",
-    "uiVariant": "default"
+    "uiVariant": "default",
+    "updater": {
+      "endpoints": [
+        "https://teamclaw.ucar.cc/releases/latest.json",
+        "https://github.com/different-ai-studio/teamclaw/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQzODk5QzIxMUI4RkY3OTkKUldTWjk0OGJJWnlKUTlnZVdEaUsyUGJ4WFpaYmlQZW03NGdlNVdyUlRMNGtKVVBKeTk3NEYwZXAK"
+    }
   },
   "features": {
     "advancedMode": true,

@@ -9,6 +9,35 @@ const { mockListCommands, mockLoadAllSkills, mockReadSkillPermissions, mockLoadA
   mockLoadAllRoles: vi.fn(),
 }))
 
+vi.mock('react-i18next', () => ({
+  useTranslation: (() => {
+    const t = (key: string, options?: string | { count?: number; query?: string }) => {
+      if (key === 'chat.commandPopover.roles') {
+        return `Roles (${typeof options === 'object' ? options.count ?? 0 : 0})`
+      }
+      if (key === 'chat.commandPopover.skills') {
+        return `Skills (${typeof options === 'object' ? options.count ?? 0 : 0})`
+      }
+      if (key === 'chat.commandPopover.commands') {
+        return `Commands (${typeof options === 'object' ? options.count ?? 0 : 0})`
+      }
+      if (key === 'chat.commandPopover.itemCount') {
+        const count = typeof options === 'object' ? options.count ?? 0 : 0
+        return `${count} items`
+      }
+      if (key === 'chat.commandPopover.noMatch') {
+        const query = typeof options === 'object' ? options.query ?? '' : ''
+        return `No matches for "${query}"`
+      }
+      return typeof options === 'string' ? options : key
+    }
+    return () => ({
+      i18n: { language: 'en' },
+      t,
+    })
+  })(),
+}))
+
 vi.mock('@/lib/utils', async () => {
   const actual = await vi.importActual<typeof import('@/lib/utils')>('@/lib/utils')
   return {
@@ -16,6 +45,19 @@ vi.mock('@/lib/utils', async () => {
     isTauri: () => true,
   }
 })
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, fallbackOrOptions?: string | { count?: number }) => {
+      if (typeof fallbackOrOptions === 'string') return fallbackOrOptions
+      if (key === 'chat.commandPopover.roles') return `Roles (${fallbackOrOptions?.count})`
+      if (key === 'chat.commandPopover.skills') return `Skills (${fallbackOrOptions?.count})`
+      if (key === 'chat.commandPopover.commands') return `Commands (${fallbackOrOptions?.count})`
+      if (key === 'chat.commandPopover.itemCount') return `${fallbackOrOptions?.count} items`
+      return key
+    },
+  }),
+}))
 
 vi.mock('@/lib/opencode/sdk-client', () => ({
   getOpenCodeClient: () => ({
@@ -88,6 +130,35 @@ describe('CommandPopover', () => {
         description: 'Brainstorm first',
       }),
     )
+  })
+
+  it('selects the highlighted item with Tab', async () => {
+    const onSelect = vi.fn()
+    const onOpenChange = vi.fn()
+
+    render(
+      <CommandPopover
+        open={true}
+        onOpenChange={onOpenChange}
+        searchQuery="brain"
+        onSelect={onSelect}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('brainstorming')).toBeTruthy()
+    })
+
+    fireEvent.keyDown(document, { key: 'Tab' })
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'superpowers/brainstorming',
+        description: 'Brainstorm first',
+        _type: 'skill',
+      }),
+    )
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('shows roles in a dedicated group and selects a role mention', async () => {

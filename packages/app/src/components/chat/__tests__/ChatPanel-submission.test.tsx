@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 import React from 'react';
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
@@ -26,6 +26,7 @@ const workspaceState = {
 const mockSessionState = {
   activeSessionId: 'sess-1',
   error: null,
+  errorSessionId: null as string | null,
   isConnected: true,
   messageQueue: [] as Array<{ id: string; content: string; timestamp: Date }>,
   sessionError: null,
@@ -160,15 +161,18 @@ vi.mock('@/lib/opencode/sdk-client', () => ({
 // Mock child components to isolate ChatPanel behavior
 vi.mock('../MessageList', () => ({
   MessageList: React.forwardRef(function MockMessageList(
-    props: { messages: unknown[]; emptyState?: React.ReactNode },
+    props: { messages: unknown[]; emptyState?: React.ReactNode; bottomContent?: React.ReactNode },
     _ref: unknown,
   ) {
+    const body = props.messages.length === 0 && props.emptyState
+      ? props.emptyState
+      : `${props.messages.length} messages`;
+
     return React.createElement(
       'div',
       { 'data-testid': 'message-list' },
-      props.messages.length === 0 && props.emptyState
-        ? props.emptyState
-        : `${props.messages.length} messages`,
+      body,
+      props.bottomContent && React.createElement('div', { key: 'bottom' }, props.bottomContent),
     );
   }),
 }));
@@ -260,6 +264,7 @@ describe('ChatPanel submission flow', () => {
     workspaceState.openCodeReady = true;
     mockSessionState.activeSessionId = 'sess-1';
     mockSessionState.error = null;
+    mockSessionState.errorSessionId = null;
     mockSessionState.isConnected = true;
     mockSessionState.messageQueue = [];
     mockSessionState.sessionError = null;
@@ -386,14 +391,14 @@ describe('ChatPanel submission flow', () => {
   });
 
   describe('connection status', () => {
-    it('shows connecting indicator when disconnected with active session', async () => {
+    it('does not show a connection indicator in the message area when disconnected', async () => {
       mockSessionState.isConnected = false;
       mockSessionState.activeSessionId = 'sess-1';
 
       const { ChatPanel } = await import('../ChatPanel');
       render(React.createElement(ChatPanel));
 
-      expect(screen.getByText('Connecting...')).toBeDefined();
+      expect(screen.queryByText('Connecting...')).toBeNull();
     });
 
     it('does not show connecting indicator when connected', async () => {
@@ -520,6 +525,50 @@ describe('ChatPanel submission flow', () => {
       expect(screen.getByText('继续测试')).toBeTruthy();
     });
 
+    it('renders a child session question dock while viewing the parent session', async () => {
+      mockSessionState.activeSessionId = 'parent-1';
+      mockSessionState.sessions = [
+        {
+          id: 'parent-1',
+          title: 'Parent session',
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'child-1',
+          title: 'Child session',
+          parentID: 'parent-1',
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+      mockSessionState.pendingQuestions = [
+        {
+          questionId: 'question-event-child',
+          toolCallId: 'tool-call-child',
+          messageId: 'message-child',
+          sessionId: 'child-1',
+          questions: [
+            {
+              id: 'q-1',
+              header: '子任务确认',
+              question: '子任务需要你确认什么？',
+              options: [{ label: '继续', value: 'continue' }],
+            },
+          ],
+        },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(screen.queryByTestId('chat-input-area')).toBeNull();
+      expect(screen.getByTestId('question-input-dock')).toBeTruthy();
+      expect(screen.getByText('子任务需要你确认什么？')).toBeTruthy();
+    });
+
     it('skips the active question from the question dock', async () => {
       mockSessionState.pendingQuestions = [
         {
@@ -619,17 +668,67 @@ describe('ChatPanel submission flow', () => {
       const { ChatPanel } = await import('../ChatPanel');
       render(React.createElement(ChatPanel));
 
-      expect(screen.getByTestId('session-error')).toBeDefined();
+      expect(within(screen.getByTestId('message-list')).getByTestId('session-error')).toBeDefined();
+      expect(within(screen.getByTestId('chat-input-area')).queryByTestId('session-error')).toBeNull();
     });
 
     it('shows general error when error exists and no sessionError', async () => {
       mockSessionState.error = 'Network error' as unknown as typeof mockSessionState.error;
+      mockSessionState.errorSessionId = 'sess-1';
       mockSessionState.sessionError = null;
 
       const { ChatPanel } = await import('../ChatPanel');
       render(React.createElement(ChatPanel));
 
-      expect(screen.getByTestId('session-error')).toBeDefined();
+      expect(within(screen.getByTestId('message-list')).getByTestId('session-error')).toBeDefined();
+      expect(within(screen.getByTestId('chat-input-area')).queryByTestId('session-error')).toBeNull();
+    });
+
+    it('does not show session error inside another session message list', async () => {
+      mockSessionState.activeSessionId = 'sess-2';
+      mockSessionState.sessions = [
+        ...mockSessionState.sessions,
+        {
+          id: 'sess-2',
+          title: 'Other',
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+      mockSessionState.sessionError = {
+        sessionId: 'sess-1',
+        error: { name: 'TestError', data: { message: 'Test error' } },
+      } as unknown as typeof mockSessionState.sessionError;
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(within(screen.getByTestId('message-list')).queryByTestId('session-error')).toBeNull();
+      expect(within(screen.getByTestId('chat-input-area')).queryByTestId('session-error')).toBeNull();
+    });
+
+    it('does not show a general send error inside another session message list', async () => {
+      mockSessionState.activeSessionId = 'sess-2';
+      mockSessionState.error = 'OpenCode API Error: NotFoundError' as unknown as typeof mockSessionState.error;
+      mockSessionState.errorSessionId = 'sess-1';
+      mockSessionState.sessionError = null;
+      mockSessionState.sessions = [
+        ...mockSessionState.sessions,
+        {
+          id: 'sess-2',
+          title: 'Other',
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      expect(within(screen.getByTestId('message-list')).queryByTestId('session-error')).toBeNull();
+      expect(within(screen.getByTestId('chat-input-area')).queryByTestId('session-error')).toBeNull();
     });
   });
 

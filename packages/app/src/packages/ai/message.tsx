@@ -2,7 +2,7 @@ import * as React from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { readFile } from "@tauri-apps/plugin-fs"
-import { Download, X, Copy, Check } from "lucide-react"
+import { Download, X, Copy, Check, Maximize2 } from "lucide-react"
 
 import { cn, isTauri } from "@/lib/utils"
 import {
@@ -205,6 +205,66 @@ function getMimeType(filename: string): string {
 
 function isSvgImageSource(src: string): boolean {
   return src.startsWith('data:image/svg+xml') || /\.svg(?:$|[?#])/i.test(src)
+}
+
+const boxDrawingPattern = /[┌┐└┘├┤┬┴┼─│╭╮╰╯╔╗╚╝╠╣╦╩╬═║]/
+const asciiBoxBorderPattern = /^\s*\+[+=\- ]+\+\s*$/
+
+function isFenceLine(line: string): boolean {
+  return /^\s*```/.test(line)
+}
+
+function isBareDiagramStart(line: string): boolean {
+  return boxDrawingPattern.test(line) || asciiBoxBorderPattern.test(line)
+}
+
+function isBareDiagramContinuation(line: string): boolean {
+  if (!line.trim() || isFenceLine(line)) return false
+  return (
+    boxDrawingPattern.test(line) ||
+    asciiBoxBorderPattern.test(line) ||
+    (line.includes('|') && line.indexOf('|') !== line.lastIndexOf('|'))
+  )
+}
+
+export function normalizeAssistantMarkdownForDisplay(content: string): string {
+  const lines = content.split('\n')
+  const normalized: string[] = []
+  let inFence = false
+  let index = 0
+
+  while (index < lines.length) {
+    const line = lines[index]
+
+    if (isFenceLine(line)) {
+      inFence = !inFence
+      normalized.push(line)
+      index += 1
+      continue
+    }
+
+    if (!inFence && isBareDiagramStart(line)) {
+      let end = index
+      while (end < lines.length && isBareDiagramContinuation(lines[end])) {
+        end += 1
+      }
+
+      const diagramLines = lines.slice(index, end)
+      if (diagramLines.length >= 2) {
+        if (normalized.length > 0 && normalized[normalized.length - 1] !== '') {
+          normalized.push('')
+        }
+        normalized.push('```text', ...diagramLines, '```')
+        index = end
+        continue
+      }
+    }
+
+    normalized.push(line)
+    index += 1
+  }
+
+  return normalized.join('\n')
 }
 
 function PreviewImage({
@@ -530,6 +590,10 @@ function CodeBlock({ language, children }: { language: string; children: string 
 
   React.useEffect(() => {
     let cancelled = false
+    if (!language || language === 'text') {
+      setHighlightedHtml(null)
+      return () => { cancelled = true }
+    }
     import('@/components/diff/shiki-renderer').then(async ({ getHighlighter, mapLanguage }) => {
       if (cancelled) return
       try {
@@ -553,7 +617,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
   }
 
   return (
-    <div className="w-full rounded-lg bg-foreground/[0.02] overflow-hidden my-2">
+    <div className="not-prose my-2 w-full overflow-hidden rounded-lg bg-foreground/[0.02] [overflow-wrap:normal]">
       <div className="flex items-center justify-between px-3 py-1.5">
         <span className="text-xs text-muted-foreground font-mono">{language}</span>
         <button
@@ -565,12 +629,12 @@ function CodeBlock({ language, children }: { language: string; children: string 
       </div>
       {highlightedHtml ? (
         <div
-          className="px-3 pb-3 overflow-x-auto text-sm [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!bg-transparent [&_code]:!p-0"
+          className="overflow-x-auto px-3 pb-3 text-sm [overflow-wrap:normal] [&_code]:!bg-transparent [&_code]:!p-0 [&_code]:[overflow-wrap:normal] [&_code]:whitespace-pre [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:[overflow-wrap:normal] [&_pre]:whitespace-pre"
           dangerouslySetInnerHTML={{ __html: highlightedHtml }}
         />
       ) : (
-        <pre className="px-3 pb-3 overflow-x-auto">
-          <code className="font-mono text-sm text-foreground">{code}</code>
+        <pre className="overflow-x-auto whitespace-pre px-3 pb-3 [overflow-wrap:normal]">
+          <code className="font-mono text-sm text-foreground [overflow-wrap:normal]">{code}</code>
         </pre>
       )}
     </div>
@@ -580,6 +644,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
 function MermaidBlock({ children }: { children: string }) {
   const [svg, setSvg] = React.useState<string | null>(null)
   const [hasError, setHasError] = React.useState(false)
+  const [isPreviewOpen, setIsPreviewOpen] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const diagramId = React.useId().replace(/:/g, '')
   const source = React.useMemo(() => String(children).trim(), [children])
@@ -626,23 +691,49 @@ function MermaidBlock({ children }: { children: string }) {
   }
 
   return (
-    <div
-      data-testid="mermaid-block"
-      className="my-2 overflow-x-auto rounded-lg border border-border bg-background px-3 py-3"
-    >
-      {svg ? (
-        <div
-          ref={containerRef}
-          className="[&_svg]:h-auto [&_svg]:max-w-full"
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
-      ) : (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span>Rendering Mermaid diagram...</span>
-        </div>
-      )}
-    </div>
+    <>
+      <div
+        data-testid="mermaid-block"
+        className="relative my-2 overflow-x-auto rounded-lg border border-border bg-background px-3 py-3"
+      >
+        {svg ? (
+          <>
+            <button
+              type="button"
+              aria-label="放大流程图"
+              title="放大流程图"
+              onClick={() => setIsPreviewOpen(true)}
+              className="absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/80 bg-background/90 text-muted-foreground opacity-80 shadow-sm backdrop-blur transition hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+            <div
+              ref={containerRef}
+              className="[&_svg]:h-auto [&_svg]:max-w-full"
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          </>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <span>Rendering Mermaid diagram...</span>
+          </div>
+        )}
+      </div>
+      {isPreviewOpen && svg ? (
+        <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+          <DialogContent className="max-h-[82vh] w-[92vw] !max-w-[92vw] overflow-hidden p-0">
+            <DialogTitle className="sr-only">放大流程图</DialogTitle>
+            <div className="max-h-[82vh] overflow-auto bg-background p-4">
+              <div
+                className="w-max min-w-full [&_svg]:block [&_svg]:h-auto [&_svg]:min-w-[960px] [&_svg]:max-w-none"
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </>
   )
 }
 
@@ -680,7 +771,8 @@ const markdownComponentsBase = {
   ),
   pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   code: ({ className, children, ...codeProps }: { className?: string; children?: React.ReactNode }) => {
-    const isInline = !className
+    const codeText = String(children)
+    const isInline = !className && !codeText.includes('\n')
     if (isInline) {
       return (
         <code
@@ -691,11 +783,11 @@ const markdownComponentsBase = {
         </code>
       )
     }
-    const language = className?.replace('language-', '') || ''
+    const language = className?.replace('language-', '') || 'text'
     if (language === 'mermaid') {
-      return <MermaidBlock>{String(children)}</MermaidBlock>
+      return <MermaidBlock>{codeText}</MermaidBlock>
     }
-    return <CodeBlock language={language}>{String(children)}</CodeBlock>
+    return <CodeBlock language={language}>{codeText}</CodeBlock>
   },
   a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
     <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#5a7a64] hover:underline">{children}</a>
@@ -823,7 +915,7 @@ export function MessageResponse({
                 remarkPlugins={remarkPluginsStable}
                 components={markdownComponents}
               >
-                {part.content}
+                {normalizeAssistantMarkdownForDisplay(part.content)}
               </ReactMarkdown>
             </MarkdownRenderBoundary>
           </div>

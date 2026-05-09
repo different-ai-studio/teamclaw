@@ -43,7 +43,11 @@
     "daysAgo": "{{count}} 天前",
     "daysAgo_plural": "{{count}} 天前",
     "refresh": "刷新",
-    "or": "或"
+    "or": "或",
+    "dismiss": "忽略",
+    "more": "更多",
+    "showLess": "收起",
+    "showMore": "展开更多"
   },
   "navigation": {
     "home": "首页",
@@ -57,7 +61,9 @@
     "tasks": "任务",
     "session": "会话",
     "shortcuts": "快捷方式",
-    "knowledge": "文档"
+    "knowledge": "文档",
+    "hideTabs": "隐藏文件",
+    "restoreTabs": "显示文件"
   },
   "panel": {
     "tasks": {
@@ -71,6 +77,11 @@
     "send": "发送",
     "clear": "清空聊天",
     "newChat": "新聊天",
+    "backToActiveSession": "返回活跃会话",
+    "archivedSession": "归档会话",
+    "restoreSession": "恢复",
+    "archivedSessionLoadError": "无法加载归档会话",
+    "restoreArchivedHint": "恢复此会话后可继续聊天",
     "agent": "助手",
     "startNewChat": "开始新对话",
     "suggestions": {
@@ -84,6 +95,11 @@
     "skillRestartTitle": "检测到新技能",
     "skillRestartBody": "检测到新增或更新的技能。请等待 skills 生成完成后再进行重启。",
     "planningMoves": "规划下一步",
+    "loadEarlierMessages": "加载前 {{count}} 条消息",
+    "compaction": {
+      "title": "已自动压缩上下文",
+      "inProgressTitle": "正在自动压缩上下文..."
+    },
     "analyzing": "助手正在分析规划...",
     "generatingComponents": "生成中... ({{count}} 个组件)",
     "thinking": "思考中...",
@@ -207,14 +223,50 @@
         "submitting": "提交中...",
         "preparing": "准备中...",
         "submitAnswer": "提交回答"
-      }
+      },
+      "argCount": "{{count}} 个参数"
     },
     "voiceInputStart": "开始语音输入",
     "voiceInputStop": "停止录音",
     "voiceInputUnsupported": "语音输入不支持",
     "voiceInputPermissionDenied": "麦克风权限被拒绝",
     "voiceInputNoSession": "请先选择或创建会话",
-    "voiceInputInsertToChat": "插入到聊天"
+    "voiceInputInsertToChat": "插入到聊天",
+    "inputPlaceholderDescription": "添加描述...",
+    "inputPlaceholderMention": "输入 @ 引用文件...",
+    "inputPlaceholderQueue": "输入消息以加入队列...",
+    "newSession": "新会话",
+    "refreshMessages": "刷新消息",
+    "startingAgent": "正在启动助手...",
+    "taskRunning": "任务运行中...",
+    "voiceInputChecking": "正在检查麦克风...",
+    "voiceInputDesktopNoTranscript": "桌面应用暂不支持语音转文字。请使用 Web 版本进行语音输入。",
+    "voiceInputNoMicrophone": "未检测到麦克风",
+    "voiceInputRecognizing": "识别中...",
+    "waitingForAgent": "会话已准备好。正在等待助手运行时完成启动。",
+    "backToMainSession": "返回主会话",
+    "waitingForConfirmationShort": "待确认",
+    "newSessionBadge": "新",
+    "messageCountShort": "{{count}} 条消息",
+    "messageCountShort_plural": "{{count}} 条消息",
+    "commandPopover": {
+      "prompt": "选择角色、技能或命令",
+      "itemCount": "{{count}} 项",
+      "itemCount_plural": "{{count}} 项",
+      "noMatch": "没有匹配 \"{{query}}\" 的结果",
+      "empty": "未找到技能或命令",
+      "roles": "{{count}} 个角色",
+      "roles_plural": "{{count}} 个角色",
+      "skills": "{{count}} 个技能",
+      "skills_plural": "{{count}} 个技能",
+      "commands": "{{count}} 个命令",
+      "commands_plural": "{{count}} 个命令",
+      "navigate": "导航",
+      "enterOrTab": "↵/Tab",
+      "select": "选择",
+      "close": "关闭",
+      "description": "说明"
+    }
   },
   "onboarding": {
     "common": {
@@ -325,7 +377,11 @@
     "confirmDeleteDirDesc": "此操作将永久删除该文件夹及其所有内容。",
     "confirmBatchDeleteDesc": "此操作将永久删除所有选中项。文件夹删除后无法撤销。",
     "teamLastSyncTooltip": "最后同步：{{time}}",
-    "teamSyncing": "同步中…"
+    "teamSyncing": "同步中…",
+    "duplicateFailed": "创建副本失败",
+    "duplicated": "已创建副本",
+    "pathCopied": "路径已复制",
+    "undo": "撤销：{{desc}}"
   },
   "git": {
     "modified": "已修改",
@@ -343,6 +399,11 @@
     "searchSessions": "搜索会话",
     "searchDescription": "搜索并导航到会话",
     "searchPlaceholder": "搜索会话...",
+    "searchActive": "活跃",
+    "searchArchived": "已归档",
+    "searchAll": "全部",
+    "archivedAt": "归档于 {{date}}",
+    "loadingArchivedSessions": "正在加载归档会话...",
     "sessions": "会话",
     "active": "活动中",
     "today": "今天",
@@ -359,9 +420,16 @@
     "allSessions": "全部会话",
     "pinToTop": "固定到顶部",
     "unpin": "取消固定",
+    "awaitingConfirmation": "等待确认",
+    "sessionRunning": "运行中",
     "loadMore": "加载更多",
     "loadingMore": "加载中...",
-    "settings": "设置"
+    "settings": "设置",
+    "archive": "归档",
+    "rename": "重命名",
+    "showAllSessions": "显示全部会话",
+    "showCronSessions": "显示定时会话",
+    "searchWithShortcut": "搜索 (⌘K)"
   },
   "setup": {
     "title": "需要设置",
@@ -372,7 +440,24 @@
     "getStarted": "开始使用",
     "continue": "继续",
     "intro": "TeamClaw 需要一些工具才能正常工作。请安装以下缺失的依赖项。",
-    "optionalHint": "缺少 {{count}} 个可选{{singular}}。您可以从设置中稍后安装{{pronoun}}。"
+    "optionalHint": "缺少 {{count}} 个可选{{singular}}。您可以从设置中稍后安装{{pronoun}}。",
+    "back": "返回",
+    "customize": "自定义",
+    "customizeIntro": "选择要安装的依赖。必需工具已预先选中。",
+    "customizeTitle": "选择依赖",
+    "installAllRequired": "安装所有必需项",
+    "installFailed": "{{count}} 项安装失败",
+    "installSelected": "安装所选项",
+    "installSuccess": "{{count}} 项已成功安装",
+    "installing": "安装中",
+    "installingIntro": "正在安装依赖，请稍候...",
+    "installingTitle": "正在安装依赖",
+    "passwordPrompt": "macOS 可能会要求输入系统密码，以完成 Homebrew 安装。",
+    "resultsIntro": "安装已完成。请查看下方结果。",
+    "resultsTitle": "安装完成",
+    "retryFailed": "重试失败项",
+    "skip": "跳过",
+    "waitingForOutput": "等待输出..."
   },
   "errors": {
     "somethingWentWrong": "出了点问题",
@@ -386,7 +471,12 @@
     "recoveryHint": "发生了意外错误。您可以尝试恢复或重新加载应用程序。",
     "fileNotFound": "文件未找到",
     "accessDenied": "访问被拒绝",
-    "networkError": "发生网络错误"
+    "networkError": "发生网络错误",
+    "authenticationError": "认证错误",
+    "error": "错误",
+    "quotaExceeded": "额度已用尽",
+    "rateLimited": "请求频率受限",
+    "serverError": "服务器错误"
   },
   "updater": {
     "available": "有可用更新",
@@ -403,7 +493,8 @@
     "isAvailable": "可用。",
     "pleaseWait": "请等待更新下载完成。",
     "restartToApply": "更新已安装。请重启以应用更改。",
-    "updateError": "更新过程中发生错误。"
+    "updateError": "更新过程中发生错误。",
+    "retry": "重试"
   },
   "detail": {
     "searchResults": "搜索结果",
@@ -500,7 +591,15 @@
       "compiled": "编译文件",
       "design": "设计文件",
       "other": "二进制文件"
-    }
+    },
+    "discardChanges": "不保存",
+    "saveAndClose": "保存",
+    "saving": "保存中...",
+    "switchToSplitLayout": "切换到分栏布局",
+    "switchToStackedLayout": "切换到堆叠布局",
+    "unsavedChangesMessage": "此文件有未保存的更改。关闭前要保存吗？",
+    "unsavedChangesTitle": "未保存的更改",
+    "viewHistory": "查看历史"
   },
   "settings": {
     "title": "设置",
@@ -655,7 +754,20 @@
       "disconnecting": "断开中...",
       "disconnect": "断开连接",
       "managedByTeam": "由团队统一管理",
-      "managedByTeamDesc": "当前配置由团队管理员统一设置，无需个人配置。"
+      "managedByTeamDesc": "当前配置由团队管理员统一设置，无需个人配置。",
+      "connectDescriptionOAuth": "通过浏览器订阅连接，或输入 API Key。",
+      "copied": "已复制！",
+      "copyCode": "复制代码",
+      "loginWithBrowser": "用浏览器登录",
+      "oauthPolling": "正在等待授权...",
+      "oauthWaiting": "浏览器已打开。完成授权后回到这里。",
+      "or": "或",
+      "reopenBrowser": "重新打开浏览器",
+      "authorizationCode": "授权码",
+      "authorizationCodePlaceholder": "粘贴授权码",
+      "completeAuthorization": "完成授权",
+      "showLess": "收起",
+      "showMore": "显示更多"
     },
     "prompt": {
       "title": "提示词",
@@ -807,7 +919,9 @@
       "noWorkspace": "未选择工作区",
       "inherentMCP": "内置 MCP",
       "managedByTeamClaw": "由 TeamClaw 管理",
-      "customMCP": "自定义 MCP"
+      "customMCP": "自定义 MCP",
+      "inherentEnvHint": "在“设置 → 环境变量”中填写后，重启 OpenCode 即可生效。",
+      "inherentEnvNotice": "此服务器的环境变量由“环境变量”设置统一管理，请前往配置以下变量："
     },
     "skills": {
       "title": "技能",
@@ -1023,7 +1137,12 @@
           "rerankModel": "Rerank 模型",
           "rerankTopKDesc": "重排序前获取的初始结果数量"
         }
-      }
+      },
+      "autoIndexed": "文件已自动索引到知识库",
+      "configChanged": "索引配置已更改",
+      "needsReindex": "检测到配置变更（嵌入模型或分块参数）。需要完整重建索引后变更才会生效。",
+      "rebuildNow": "立即重建",
+      "rebuilding": "重建中..."
     },
     "channels": {
       "disconnected": "断开连接",
@@ -1285,6 +1404,8 @@
         "gmailAddressPlaceholder": "your-email@gmail.com",
         "authorizeGmail": "授权 Gmail",
         "reauthorize": "重新授权",
+        "gmailAuthUrlHint": "在浏览器中打开此授权链接，然后粘贴返回的授权码。",
+        "copy": "复制",
         "authorized": "已授权",
         "imapHost": "IMAP 服务器",
         "imapPort": "IMAP 端口",
@@ -1428,7 +1549,34 @@
         "wizardVerifyTitle": "连接已验证",
         "wizardVerifyDesc": "微信已成功连接。",
         "wizardCompleteTitle": "设置完成",
-        "wizardCompleteDesc": "微信渠道已就绪。"
+        "wizardCompleteDesc": "微信渠道已就绪。",
+        "accountId": "账号 ID",
+        "authExpired": "登录会话已过期",
+        "authExpiredDesc": "请重新扫描二维码登录。",
+        "baseUrl": "基础 URL",
+        "clickToGetQr": "点击下方按钮生成微信登录二维码。",
+        "completeMessage": "微信连接已配置。点击“完成”保存设置并开始使用。",
+        "connectDesc": "此向导将通过 ClawBot 连接你的微信账号。你需要用 iPhone 上的微信扫描二维码登录。",
+        "connectTitle": "将微信连接到 {{appName}}",
+        "connectionInfo": "连接信息",
+        "gateway": "微信网关",
+        "getQrCode": "获取二维码",
+        "iosRequired": "需要 iPhone",
+        "iosRequiredDesc": "二维码登录需要 iOS 版微信",
+        "loadingQr": "正在生成二维码...",
+        "loginSuccess": "登录成功！",
+        "loginSuccessDesc": "你的微信账号已连接到 ClawBot。",
+        "nextStepMessage": "在微信中发送一条消息来测试连接！",
+        "quickSetupDesc": "一分钟内扫码完成连接",
+        "reLogin": "重新登录",
+        "retry": "重试",
+        "scanInstructions": "打开 iPhone 上的微信，扫描此二维码登录。",
+        "secure": "安全连接",
+        "secureDesc": "凭证仅保存在本地，不会发送到我们的服务器",
+        "setupDesc": "通过扫描二维码连接你的微信账号。",
+        "setupTitle": "设置微信集成",
+        "waitingConfirm": "已扫码，请在手机上确认...",
+        "waitingScan": "等待扫码..."
       },
       "wecom": {
         "chooseMethod": "选择接入方式",
@@ -1447,7 +1595,30 @@
         "scanTimeout": "二维码已过期，请重试。",
         "scanError": "获取二维码失败，请重试或使用手动输入。",
         "retryQr": "重试",
-        "switchToManual": "切换为手动输入"
+        "switchToManual": "切换为手动输入",
+        "activeSessions": "活跃会话",
+        "botCredentials": "机器人凭证",
+        "botId": "机器人 ID",
+        "botIdPlaceholder": "输入企业微信机器人 ID",
+        "completeMessage": "企业微信机器人已配置。点击“完成”保存设置并开始使用。",
+        "connectDesc": "此向导将引导你创建企业微信 AI 机器人并连接到 {{appName}}。之后你可以直接在企业微信聊天中与 AI 互动。",
+        "connectTitle": "将企业微信连接到 {{appName}}",
+        "copyChatId": "复制聊天 ID",
+        "credentialsEntered": "凭证已填写",
+        "credentialsPortalHint": "在企业微信管理后台中，进入你的 AI 机器人设置：",
+        "credentialsSecretDesc": "请勿分享 Bot Secret。它会保存在你的本机设备上。",
+        "credentialsSecretWarning": "请妥善保管你的凭证！",
+        "encodingAesKey": "Encoding AES Key",
+        "encodingAesKeyPlaceholder": "用于附件解密的 43 位密钥",
+        "gateway": "企业微信网关",
+        "getQrCode": "获取二维码",
+        "longConnection": "长连接",
+        "longConnectionDesc": "无需公网服务器，通过本地 WebSocket 运行",
+        "nextStepMessage": "在企业微信中给机器人发消息进行测试！",
+        "secret": "Secret",
+        "secretPlaceholder": "输入企业微信机器人 Secret",
+        "setupDesc": "连接企业微信 AI 机器人，以便在企业微信聊天中与 AI 互动。",
+        "setupTitle": "设置企业微信集成"
       }
     },
     "cron": {
@@ -1525,7 +1696,13 @@
       "useWorktreeDesc": "在临时 git worktree 副本中执行",
       "worktreeBranch": "分支",
       "worktreeBranchPlaceholder": "main",
-      "viewConversation": "查看对话"
+      "viewConversation": "查看对话",
+      "execution": "执行",
+      "modelOverrideHint": "选择一个模型，或使用工作区默认模型。",
+      "modelSelected": "使用：{{model}}",
+      "noModels": "未配置模型。请先在 LLM 设置中配置提供商。",
+      "lastHeartbeat": "最后心跳",
+      "useDefaultModel": "使用默认模型"
     },
     "team": {
       "checkingWorkspace": "检查工作区...",
@@ -1693,6 +1870,7 @@
       "syncPrecheckDesc": "即将同步 {{count}} 个新文件，共 {{size}}。请确认是否继续。",
       "syncPrecheckMore": "… 及另外 {{count}} 个文件",
       "syncPrecheckTitle": "检测到较多新文件",
+      "syncPrecheckToast": "检测到 {{count}} 个较大的新文件待同步，请在设置 > 团队中确认。",
       "teamCreatedDesc": "将这些凭据分享给团队成员以便加入。",
       "teamCreatedDescInvite": "将下方邀请码分享给团队成员 — 粘贴即可加入。",
       "teamCreatedTitle": "团队创建成功",
@@ -1774,7 +1952,8 @@
       "approveFailed": "审批失败: {{error}}",
       "restoreComplete": "恢复完成: {{count}} 个文件已恢复",
       "restoreFailed": "恢复失败: {{error}}",
-      "noVersionHistory": "暂无文件版本记录"
+      "noVersionHistory": "暂无文件版本记录",
+      "p2pConfiguredNotConnected": "团队已配置但尚未连接。成员可能离线或无法访问。"
     },
     "deps": {
       "copied": "已复制！",
@@ -1787,7 +1966,11 @@
       "installedCount": "{{installed}}/{{total}} 已安装",
       "recheck": "重新检查",
       "required": "必需",
-      "optional": "可选"
+      "optional": "可选",
+      "install": "安装",
+      "installed": "已安装",
+      "installing": "安装中...",
+      "retry": "重试"
     },
     "plugins": {
       "title": "插件",
@@ -1869,8 +2052,22 @@
       "error": {
         "keyRequired": "键名不能为空",
         "valueRequired": "值不能为空",
-        "invalidKey": "键名只能包含字母、数字和下划线"
-      }
+        "invalidKey": "键名只能包含字母、数字和下划线",
+        "invalidKeyShared": "共享变量名只能包含小写字母、数字和下划线（最多 64 个字符）"
+      },
+      "configChanged": "环境变量已更改",
+      "hideValue": "隐藏值",
+      "hintTeam": "团队变量会加密并同步给所有团队成员。保存后无法查看其值。",
+      "needRestart": "需要重启",
+      "notConfigured": "未配置",
+      "restart": "重启 OpenCode",
+      "restartToApply": "重启 OpenCode 以将新的环境变量应用到 MCP 服务器。",
+      "scopePersonal": "个人",
+      "scopeSystem": "系统",
+      "scopeTeam": "团队",
+      "shareHint": "此变量将被加密并同步给所有团队成员。",
+      "shareWithTeam": "与团队共享",
+      "showValue": "显示值"
     },
     "shortcuts": {
       "title": "快捷方式",
@@ -1959,10 +2156,63 @@
       "you": "你",
       "skillRank": "Skill 排名",
       "skillInvocations": "Skill 调用",
+      "totalSkills_one": "{{count}} 次 skill",
       "totalSkills_other": "{{count}} 次 skill",
       "topSkills": "团队最常用 Skills",
       "calls": "次",
-      "usedBy": "{{n}} 人用过"
+      "usedBy": "{{n}} 人用过",
+      "totalSkills": "{{count}} 个技能"
+    },
+    "permissions": {
+      "allow": "允许",
+      "allowDesc": "无需提示，自动批准",
+      "allowlist": "命令白名单",
+      "allowlistDesc": "标记为“始终允许”的命令。助手重启后生效。",
+      "ask": "询问",
+      "askDesc": "每次都提示审批",
+      "config": "权限配置",
+      "configDesc": "配置助手工具的默认权限策略",
+      "configInfo": "权限操作",
+      "deny": "拒绝",
+      "denyDesc": "阻止此操作",
+      "desc": "管理助手权限和命令白名单",
+      "noAllowlist": "尚未将任何命令加入白名单",
+      "noWorkspace": "未选择工作区。请先选择一个工作区。",
+      "saveAndApply": "保存并应用",
+      "saving": "应用中...",
+      "title": "权限管理"
+    },
+    "sharedSecrets": {
+      "add": "添加密钥",
+      "addDescription": "添加一个新的共享密钥，它会被加密并同步到团队中。",
+      "addFirst": "添加第一个密钥",
+      "addTitle": "添加共享密钥",
+      "category": "类别",
+      "count": "已存储 {{count}} 个密钥",
+      "delete": "删除",
+      "deleteDescription": "确定要删除“{{key}}”吗？这会从磁盘移除该密钥，且无法撤销。",
+      "deleteTitle": "删除共享密钥",
+      "description": "描述",
+      "descriptionPlaceholder": "例如：团队使用的 OpenAI API Key",
+      "edit": "编辑",
+      "editDescription": "更新此共享密钥的值。新值会同步给所有团队成员。",
+      "editTitle": "编辑共享密钥",
+      "emptyDescription": "与团队共享加密密钥。值会使用团队密钥加密，并通过 P2P 同步。",
+      "emptyTitle": "暂无共享密钥",
+      "error": {
+        "invalidKey": "Key ID 只能包含小写字母、数字和下划线",
+        "keyRequired": "Key ID 为必填项",
+        "valueRequired": "值为必填项"
+      },
+      "hintBody": "密钥会使用团队共享密钥加密，并以 .enc.json 文件存储。它们会通过 P2P 和 OSS 同步给所有团队成员。值为只写，保存后无法查看。",
+      "hintTitle": "工作方式",
+      "keyId": "Key ID",
+      "on": "于",
+      "optional": "可选",
+      "sectionDescription": "团队共享的加密密钥，通过 P2P 同步并存储在磁盘上",
+      "title": "共享密钥",
+      "updatedBy": "更新者",
+      "value": "值"
     }
   },
   "skillssh": {
@@ -2011,7 +2261,19 @@
     "installed": "已安装",
     "installSkill": "安装技能",
     "installSkillDesc": "选择安装位置",
-    "viewOnGitHub": "在 GitHub 上查看"
+    "viewOnGitHub": "在 GitHub 上查看",
+    "allUpToDate": "所有技能都是最新的",
+    "checkUpdates": "检查更新",
+    "installFromSource": "从来源安装",
+    "installFromSourceDesc": "通过 npx skills add 安装技能，支持 GitHub 简写（owner/repo）、完整 URL 和直接技能路径",
+    "manageDesc": "通过 npx skills 检查更新或更新所有已安装技能",
+    "manageInstalled": "管理已安装技能",
+    "reinstall": "重新安装",
+    "sourcePlaceholder": "owner/repo 或 https://github.com/owner/repo",
+    "sourceRequired": "请输入来源（owner/repo 或 URL）",
+    "supportedFormats": "支持的格式：",
+    "uninstall": "卸载",
+    "updateAll": "全部更新"
   },
   "knowledge": {
     "stats": {
@@ -2066,13 +2328,152 @@
       "startWatcherFailed": "启动文件监控失败",
       "watcherStopped": "文件监控已停止",
       "stopWatcherFailed": "停止文件监控失败"
+    },
+    "gitSync": "同步团队"
+  },
+  "versionHistory": {
+    "title": "版本历史",
+    "fileList": "文件列表",
+    "selectFilePrompt": "请从左侧选择文件",
+    "docType": {
+      "skill": "技能",
+      "mcp": "MCP",
+      "knowledge": "知识库",
+      "meta": "元数据"
+    },
+    "filterAll": "全部",
+    "noFiles": "暂无文件",
+    "versionCount": "{{count}} 个版本",
+    "versionCount_plural": "{{count}} 个版本",
+    "currentVersion": "当前版本",
+    "currentFile": "当前文件",
+    "historicalVersionsTitle": "历史版本",
+    "noHistoricalVersions": "暂无历史版本",
+    "versionLabel": "版本 {{number}}",
+    "selectVersionPrompt": "请选择一个历史版本",
+    "contentTab": "内容",
+    "diffTab": "与当前对比",
+    "restoring": "恢复中...",
+    "restoreThisVersion": "恢复此版本",
+    "restoreTitle": "恢复此版本？",
+    "restoreDescription": "文件将恢复到本地草稿，不会立即同步给团队。下次同步时，此变更将自动推送。",
+    "confirmRestore": "确认恢复",
+    "currentContentUnavailable": "当前内容不可用"
+  },
+  "telemetry": {
+    "consent": {
+      "title": "帮助改善 {{appName}}",
+      "description": "允许 {{appName}} 收集匿名使用数据，帮助我们改善 Agent 质量。",
+      "collectTitle": "收集内容",
+      "collectDescription": "会话时长、Token 消耗、工具调用统计、反馈评分、模型信息",
+      "neverCollectTitle": "绝不收集",
+      "neverCollectDescription": "对话内容、代码、文件路径、项目名称、个人信息",
+      "changeAnytimeTitle": "随时可改",
+      "changeAnytimeDescription": "可在设置 > 系统 > 隐私与遥测中随时关闭",
+      "deny": "暂不开启",
+      "allow": "允许分析"
+    },
+    "rating": {
+      "question": "这次结果怎么样？",
+      "starLabel": "{{count}} 星",
+      "starLabel_plural": "{{count}} 星"
     }
+  },
+  "nodeStatus": {
+    "connected": "已连接",
+    "degraded": "连接异常",
+    "reconnecting": "重连中...",
+    "disconnected": "未连接",
+    "online": "在线",
+    "unknown": "未知",
+    "thisDevice": "本机",
+    "engine": "引擎",
+    "restarts": "重启次数",
+    "lastSync": "上次同步",
+    "syncedFiles": "已同步文件",
+    "pendingFiles": "待同步文件",
+    "teamMembers": "{{count}} 位团队成员",
+    "teamMembers_plural": "{{count}} 位团队成员",
+    "staleSeconds": "{{count}} 秒未响应",
+    "staleMinutes": "{{count}} 分钟未响应",
+    "offlineSeconds": "离线 {{count}} 秒",
+    "offlineMinutes": "离线 {{count}} 分钟",
+    "offlineHours": "离线 {{count}} 小时",
+    "secondsAgo": "{{count}} 秒前",
+    "minutesAgoShort": "{{count}} 分钟前",
+    "hoursAgoShort": "{{count}} 小时前",
+    "daysAgoShort": "{{count}} 天前"
   },
   "shortcuts": {
     "personal": "个人",
     "team": "团队",
+    "newShortcut": "新建快捷方式",
     "refreshTeam": "刷新团队快捷方式",
     "configure": "设置个人收藏",
-    "configurePersonal": "设置个人收藏"
+    "configurePersonal": "设置个人收藏",
+    "backToSidebar": "返回侧边栏"
+  },
+  "clawhub": {
+    "author": "作者",
+    "changelog": "更新日志",
+    "downloads": "下载",
+    "empty": "暂无可用技能",
+    "emptyHint": "稍后再来查看新技能",
+    "install": "安装",
+    "installed": "已安装",
+    "loadMore": "加载更多",
+    "malwareBlocked": "此技能被标记为恶意软件，无法安装。",
+    "noResults": "未找到技能",
+    "noResultsHint": "试试其他搜索词",
+    "refresh": "刷新",
+    "searchPlaceholder": "搜索 ClawHub 技能...",
+    "stars": "星标",
+    "suspicious": "此技能被标记为可疑。安装前请仔细检查。",
+    "uninstall": "卸载",
+    "update": "更新",
+    "updated": "已更新",
+    "version": "版本",
+    "viewOnClawHub": "在 ClawHub 上查看"
+  },
+  "diff": {
+    "agentActions": "助手操作",
+    "clickToCopy": "点击复制路径",
+    "collapseAll": "全部折叠",
+    "expandAll": "全部展开",
+    "explainChange": "解释变更",
+    "generatePatch": "生成补丁",
+    "openFile": "打开文件",
+    "pathCopied": "路径已复制",
+    "revertFailed": "还原文件失败",
+    "revertFile": "还原文件",
+    "reverted": "文件已还原",
+    "reviewCode": "审查代码",
+    "suggestRefactor": "建议重构"
+  },
+  "editor": {
+    "acceptAgent": "接受助手版本",
+    "conflictMessage": "助手修改了此文件，而你还有未保存的更改。",
+    "documentRewrittenByAgent": "文档已被助手重写",
+    "imagePasteFailed": "图片上传失败",
+    "keepMine": "保留我的版本",
+    "uploadingImage": "正在上传图片...",
+    "viewDiff": "查看差异"
+  },
+  "mainContent": {
+    "selectShortcut": "选择一个快捷方式开始"
+  },
+  "history": {
+    "loadCommitContentFailed": "无法加载该提交的内容 ({{sha}})",
+    "noFileHistory": "该文件还没有提交历史",
+    "diffSkippedTooLarge": "文件过大或为二进制，跳过 diff"
+  },
+  "dynamicUi": {
+    "generating": "正在生成界面..."
+  },
+  "nativeContent": {
+    "notFound": "组件未找到"
+  },
+  "team": {
+    "viewerReadOnly": "只读模式 - 你没有编辑权限"
   }
 }

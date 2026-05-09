@@ -25,6 +25,12 @@ import {
 import { useLocalStatsStore } from "@/stores/local-stats";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { sessionDataCache } from "./session-data-cache";
+import {
+  addPendingQuestionActivity,
+  pendingQuestionActivityKey,
+  removePendingQuestionActivity,
+  resolveSessionActivityOwner,
+} from "@/lib/session-list-activity";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
@@ -94,17 +100,33 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
             questions,
             sessionId: event.sessionId ?? activeSessionId ?? undefined,
           };
+          const ownerSessionId = resolveSessionActivityOwner(
+            questionData.sessionId,
+            get().sessions,
+            activeSessionId,
+          );
           set((state) => ({
-            pendingQuestions: [
-              ...state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
-              questionData,
-            ].slice(-20),
+            pendingQuestions:
+              ownerSessionId === state.activeSessionId
+                ? [
+                    ...state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
+                    questionData,
+                  ].slice(-20)
+                : state.pendingQuestions,
+            pendingQuestionIdsBySession: addPendingQuestionActivity(
+              state.pendingQuestionIdsBySession || {},
+              questionData.sessionId,
+              pendingQuestionActivityKey(questionData),
+            ),
           }));
           // Also save to cache so it survives session switching
-          if (activeSessionId) {
-            const cached = sessionDataCache.get(activeSessionId) || { todos: [], diff: [] };
+          const cacheSessionIds = Array.from(
+            new Set([questionData.sessionId, ownerSessionId].filter(Boolean) as string[]),
+          );
+          for (const cacheSessionId of cacheSessionIds) {
+            const cached = sessionDataCache.get(cacheSessionId) || { todos: [], diff: [] };
             const cacheQuestions = cached.pendingQuestions || [];
-            sessionDataCache.set(activeSessionId, {
+            sessionDataCache.set(cacheSessionId, {
               ...cached,
               pendingQuestions: [
                 ...cacheQuestions.filter((q) => q.toolCallId !== event.toolCallId),
@@ -118,13 +140,26 @@ export function createToolHandlers(set: SessionSet, get: SessionGet) {
       if (isQuestionTool && event.status === "completed") {
         set((state) => ({
           pendingQuestions: state.pendingQuestions.filter((q) => q.toolCallId !== event.toolCallId),
+          pendingQuestionIdsBySession: removePendingQuestionActivity(
+            state.pendingQuestionIdsBySession || {},
+            event.sessionId ?? activeSessionId,
+            event.toolCallId,
+          ),
         }));
         // Also clear from cache
-        if (activeSessionId) {
-          const cached = sessionDataCache.get(activeSessionId);
+        const ownerSessionId = resolveSessionActivityOwner(
+          event.sessionId ?? activeSessionId,
+          get().sessions,
+          activeSessionId,
+        );
+        const cacheSessionIds = Array.from(
+          new Set([event.sessionId ?? activeSessionId, ownerSessionId].filter(Boolean) as string[]),
+        );
+        for (const cacheSessionId of cacheSessionIds) {
+          const cached = sessionDataCache.get(cacheSessionId);
           if (cached) {
             const cacheQsComplete = cached.pendingQuestions || [];
-            sessionDataCache.set(activeSessionId, {
+            sessionDataCache.set(cacheSessionId, {
               ...cached,
               pendingQuestions: cacheQsComplete.filter((q) => q.toolCallId !== event.toolCallId),
             });

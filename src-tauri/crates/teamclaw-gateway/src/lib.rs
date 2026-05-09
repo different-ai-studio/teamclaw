@@ -20,7 +20,7 @@ pub mod wecom_config;
 
 pub use config::*;
 pub use discord::DiscordGateway;
-pub use email::EmailGateway;
+pub use email::{AuthUrlCallback, EmailGateway};
 pub use feishu::FeishuGateway;
 pub use feishu_config::*;
 pub use kook::KookGateway;

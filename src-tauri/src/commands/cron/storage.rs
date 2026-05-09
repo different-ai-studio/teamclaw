@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::types::{CronJob, CronJobsData, CronRunRecord};
+use super::types::{
+    normalize_legacy_timeout_status, CronJob, CronJobsData, CronRunRecord, RunStatus,
+};
 
 /// Persistent storage for cron jobs and run history
 #[derive(Debug)]
@@ -140,15 +142,46 @@ impl CronStorage {
         }
     }
 
+    /// Reload jobs from disk so changes made by external tools (such as the
+    /// teamclaw-introspect MCP sidecar) become visible to the UI and scheduler.
+    async fn reload_jobs_from_disk(&self) {
+        let workspace = self.workspace_path.read().await.clone();
+        let Some(ws) = workspace.as_ref() else {
+            return;
+        };
+
+        let jobs_path = Self::jobs_path(ws);
+        if !jobs_path.exists() {
+            return;
+        }
+
+        match std::fs::read_to_string(&jobs_path) {
+            Ok(content) => match serde_json::from_str::<CronJobsData>(&content) {
+                Ok(loaded) => {
+                    let mut data = self.data.write().await;
+                    *data = loaded;
+                }
+                Err(e) => {
+                    eprintln!("[Cron] Failed to parse jobs file during reload: {}", e);
+                }
+            },
+            Err(e) => {
+                eprintln!("[Cron] Failed to read jobs file during reload: {}", e);
+            }
+        }
+    }
+
     // ==================== Job CRUD ====================
 
     /// Get all jobs
     pub async fn list_jobs(&self) -> Vec<CronJob> {
+        self.reload_jobs_from_disk().await;
         self.data.read().await.jobs.clone()
     }
 
     /// Get a single job by ID
     pub async fn get_job(&self, job_id: &str) -> Option<CronJob> {
+        self.reload_jobs_from_disk().await;
         self.data
             .read()
             .await
@@ -398,10 +431,17 @@ impl CronStorage {
                         .lines()
                         .filter(|l| !l.trim().is_empty())
                         .filter_map(|l| serde_json::from_str(l).ok())
+                        .map(|mut record| {
+                            normalize_legacy_timeout_status(&mut record);
+                            record
+                        })
                         .collect();
 
                     // Most recent first
                     records.reverse();
+
+                    let mut seen_run_ids = std::collections::HashSet::new();
+                    records.retain(|record| seen_run_ids.insert(record.run_id.clone()));
 
                     if let Some(limit) = limit {
                         records.truncate(limit);
@@ -417,5 +457,121 @@ impl CronStorage {
         } else {
             Vec::new()
         }
+    }
+
+    /// Get the latest persisted state for runs that were active when the app stopped.
+    pub async fn get_latest_running_runs(&self) -> Vec<CronRunRecord> {
+        let workspace = self.workspace_path.read().await;
+        let Some(ws) = workspace.as_ref() else {
+            return Vec::new();
+        };
+
+        let runs_dir = Self::runs_dir(ws);
+        if !runs_dir.exists() {
+            return Vec::new();
+        }
+
+        let mut records_by_run_id = std::collections::HashMap::<String, CronRunRecord>::new();
+        if let Ok(entries) = std::fs::read_dir(&runs_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+                        if let Ok(mut record) = serde_json::from_str::<CronRunRecord>(line) {
+                            normalize_legacy_timeout_status(&mut record);
+                            records_by_run_id.insert(record.run_id.clone(), record);
+                        }
+                    }
+                }
+            }
+        }
+
+        records_by_run_id
+            .into_values()
+            .filter(|record| record.status == RunStatus::Running)
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+    use serde_json::json;
+
+    fn make_run(run_id: &str, status: RunStatus) -> CronRunRecord {
+        let started_at = Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap();
+        CronRunRecord {
+            run_id: run_id.to_string(),
+            job_id: "job-1".to_string(),
+            started_at,
+            finished_at: None,
+            status,
+            last_heartbeat_at: Some(started_at),
+            session_id: None,
+            response_summary: None,
+            delivery_status: None,
+            error: None,
+            worktree_path: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn get_runs_returns_only_latest_record_for_duplicate_run_id() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let storage = CronStorage::new();
+        storage.init(tempdir.path().to_str().unwrap()).await;
+
+        let running = make_run("run-1", RunStatus::Running);
+        let mut success = make_run("run-1", RunStatus::Success);
+        success.finished_at = Some(Utc.with_ymd_and_hms(2024, 6, 1, 12, 3, 0).unwrap());
+        success.worktree_path = Some("/tmp/worktree".to_string());
+
+        storage.append_run(&running).await;
+        storage.append_run(&success).await;
+
+        let runs = storage.get_runs("job-1", None).await;
+
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, RunStatus::Success);
+        assert_eq!(runs[0].worktree_path.as_deref(), Some("/tmp/worktree"));
+    }
+
+    #[tokio::test]
+    async fn list_jobs_reflects_external_file_changes() {
+        let workspace = tempfile::tempdir().unwrap();
+        let workspace_path = workspace.path().to_str().unwrap();
+        let storage = CronStorage::new();
+
+        storage.init(workspace_path).await;
+        assert!(storage.list_jobs().await.is_empty());
+
+        let now = Utc::now().to_rfc3339();
+        let jobs_path = CronStorage::jobs_path(workspace_path);
+        std::fs::create_dir_all(jobs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &jobs_path,
+            serde_json::to_string_pretty(&json!({
+                "jobs": [{
+                    "id": "external-job",
+                    "name": "External job",
+                    "enabled": true,
+                    "schedule": { "kind": "cron", "expr": "0 9 * * *" },
+                    "payload": { "message": "hello" },
+                    "deleteAfterRun": false,
+                    "createdAt": now,
+                    "updatedAt": now
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let jobs = storage.list_jobs().await;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "external-job");
     }
 }

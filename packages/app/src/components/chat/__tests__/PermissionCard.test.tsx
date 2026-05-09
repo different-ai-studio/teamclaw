@@ -17,12 +17,15 @@ const sessionState = {
   activeSessionId: null as string | null,
   sessions: [] as Array<{
     id: string;
+    parentID?: string;
     messages: Array<{
       toolCalls?: Array<{
         id: string;
+        name?: string;
         status: string;
         permission?: {
           id: string;
+          sessionID?: string;
           permission: string;
           patterns: string[];
           metadata?: Record<string, string>;
@@ -34,6 +37,7 @@ const sessionState = {
   pendingPermissions: [] as Array<{
     permission: {
       id: string;
+      sessionID?: string;
       permission: string;
       patterns: string[];
       metadata?: Record<string, string>;
@@ -45,6 +49,7 @@ const sessionState = {
       matchedRules: string[];
       allowAlways: false;
     };
+    ownerSessionId?: string | null;
   }>,
   replyPermission: vi.fn(() => Promise.resolve()),
 };
@@ -320,6 +325,59 @@ describe('PendingPermissionInline', () => {
     expect(screen.getByTestId('pending-permission-actions')).toBeTruthy();
   });
 
+  it('does not render a global pending permission owned by a different active session', async () => {
+    sessionState.activeSessionId = 'session-2';
+    sessionState.sessions = [
+      { id: 'session-1', messages: [] },
+      { id: 'session-2', messages: [] },
+    ];
+    sessionState.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-session-1',
+          sessionID: 'child-session-1',
+          permission: 'bash',
+          patterns: ['belongs-to-session-1'],
+        },
+        childSessionId: 'child-session-1',
+        ownerSessionId: 'session-1',
+      },
+    ];
+
+    const { PendingPermissionInline } = await import('../PermissionCard');
+
+    render(<PendingPermissionInline />);
+
+    expect(screen.queryByTestId('pending-permission-inline')).toBeNull();
+    expect(screen.queryByText('belongs-to-session-1')).toBeNull();
+  });
+
+  it('renders a child-session global pending permission for its owning active session', async () => {
+    sessionState.activeSessionId = 'parent-1';
+    sessionState.sessions = [
+      { id: 'parent-1', messages: [] },
+    ];
+    sessionState.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-child-owned',
+          sessionID: 'child-session-owned',
+          permission: 'bash',
+          patterns: ['child-owned-command'],
+        },
+        childSessionId: 'child-session-owned',
+        ownerSessionId: 'parent-1',
+      },
+    ];
+
+    const { PendingPermissionInline } = await import('../PermissionCard');
+
+    render(<PendingPermissionInline />);
+
+    expect(screen.getByText('child-owned-command')).toBeTruthy();
+    expect(screen.getByText('子会话正在等待你的审批')).toBeTruthy();
+  });
+
   it('uses the same stacked approval UI for tool-attached and child-session permissions together', async () => {
     sessionState.activeSessionId = 'session-1';
     sessionState.sessions = [
@@ -358,6 +416,7 @@ describe('PendingPermissionInline', () => {
           },
         },
         childSessionId: 'child-sess-1',
+        ownerSessionId: 'session-1',
       },
     ];
 

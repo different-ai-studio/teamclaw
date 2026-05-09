@@ -43,6 +43,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { TrafficLights } from "@/components/ui/traffic-lights"
+import { buildSessionListActivityMap, type SessionListActivity } from "@/lib/session-list-activity"
 import {
   CommandDialog,
   CommandInput,
@@ -53,6 +54,9 @@ import {
 } from "@/components/ui/command"
 
 import type { EmbeddedSidebarSettingsSection } from "@/stores/ui"
+import type { Session } from "@/stores/session"
+
+type SessionSearchFilter = "active" | "archived" | "all"
 
 const WORKSPACE_QUICK_SECTIONS: {
   id: EmbeddedSidebarSettingsSection
@@ -65,28 +69,25 @@ const WORKSPACE_QUICK_SECTIONS: {
   { id: 'rolesSkills', labelKey: 'settings.nav.rolesSkills', fallback: 'Roles & Skills', icon: Shapes, color: 'text-foreground' },
 ]
 
-// Status indicator for the active session in the sidebar
-function SidebarSessionStatusIndicator() {
-  const sessionStatus = useSessionStore(s => s.sessionStatus)
-  const pendingPermissions = useSessionStore(s => s.pendingPermissions)
-  const pendingQuestions = useSessionStore(s => s.pendingQuestions)
-  const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
-
-  if (pendingPermissions.length > 0 || pendingQuestions.length > 0) {
+function SessionActivityBadge({ activity }: { activity?: SessionListActivity }) {
+  const { t } = useTranslation()
+  if (!activity) return null
+  if (activity.state === "running") {
     return (
-      <span className="shrink-0 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
-        等待确认
+      <Loader2
+        className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
+        aria-label={t("sidebar.sessionRunning", "Running")}
+      />
+    )
+  }
+
+  return (
+    <span className="min-w-0 shrink rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold leading-4 text-emerald-600">
+      <span className="block truncate">
+        {t("sidebar.awaitingConfirmation", "Awaiting confirmation")}
       </span>
-    )
-  }
-
-  if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry' || streamingMessageId) {
-    return (
-      <Loader2 className="shrink-0 h-3 w-3 animate-spin text-muted-foreground/70" />
-    )
-  }
-
-  return null
+    </span>
+  )
 }
 
 // Session search dialog component
@@ -99,15 +100,52 @@ function SessionSearchDialog({
 }) {
   const { t } = useTranslation()
   const sessions = useSessionStore(s => s.sessions)
+  const archivedSessions = useSessionStore(s => s.archivedSessions)
   const activeSessionId = useSessionStore(s => s.activeSessionId)
+  const isLoadingArchivedSessions = useSessionStore(s => s.isLoadingArchivedSessions)
+  const archivedSessionError = useSessionStore(s => s.archivedSessionError)
+  const loadArchivedSessions = useSessionStore(s => s.loadArchivedSessions)
+  const openArchivedSession = useSessionStore(s => s.openArchivedSession)
+  const workspacePath = useWorkspaceStore(s => s.workspacePath)
+  const [filter, setFilter] = React.useState<SessionSearchFilter>("active")
 
   // Format date for display
   const formatDate = (date: Date) => formatRelativeTime(date)
+
+  React.useEffect(() => {
+    if (open) setFilter("active")
+  }, [open])
+
+  React.useEffect(() => {
+    if (!open || filter === "active") return
+    void loadArchivedSessions(workspacePath || undefined)
+  }, [filter, loadArchivedSessions, open, workspacePath])
 
   const handleSelectSession = (sessionId: string) => {
     useUIStore.getState().switchToSession(sessionId)
     onOpenChange(false)
   }
+
+  const handleSelectArchivedSession = (sessionId: string) => {
+    onOpenChange(false)
+    void openArchivedSession(sessionId)
+  }
+
+  const activeResults = sessions.map((session) => ({ session, isArchived: false }))
+  const archivedResults = archivedSessions.map((session) => ({ session, isArchived: true }))
+  const visibleSessions: { session: Session; isArchived: boolean }[] =
+    filter === "active"
+      ? activeResults
+      : filter === "archived"
+        ? archivedResults
+        : [...activeResults, ...archivedResults]
+
+  const showArchivedStatus = filter === "archived" || filter === "all"
+  const filterOptions: { value: SessionSearchFilter; label: string }[] = [
+    { value: "active", label: t("sidebar.searchActive", "Active") },
+    { value: "archived", label: t("sidebar.searchArchived", "Archived") },
+    { value: "all", label: t("sidebar.searchAll", "All") },
+  ]
 
   return (
     <CommandDialog 
@@ -117,23 +155,65 @@ function SessionSearchDialog({
       description={t('sidebar.searchDescription', 'Search and navigate to a session')}
     >
       <CommandInput placeholder={t('sidebar.searchPlaceholder', 'Search sessions...')} />
+      <div className="flex items-center gap-1 border-b px-3 py-2">
+        {filterOptions.map((option) => (
+          <Button
+            key={option.value}
+            type="button"
+            variant={filter === option.value ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 rounded-md px-2.5 text-xs"
+            aria-pressed={filter === option.value}
+            onClick={() => setFilter(option.value)}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
       <CommandList className="max-h-[400px]">
         <CommandEmpty>{t('sidebar.noSessionsFound', 'No sessions found.')}</CommandEmpty>
+        {showArchivedStatus && isLoadingArchivedSessions && (
+          <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t("sidebar.loadingArchivedSessions", "Loading archived sessions...")}
+          </div>
+        )}
+        {showArchivedStatus && archivedSessionError && (
+          <div className="px-3 py-2 text-sm text-destructive">
+            {archivedSessionError}
+          </div>
+        )}
         <CommandGroup heading={t('sidebar.sessions', 'Sessions')}>
-          {sessions.map((session) => (
+          {visibleSessions.map(({ session, isArchived }) => (
             <CommandItem
-              key={session.id}
+              key={`${isArchived ? "archived" : "active"}-${session.id}`}
               value={`${session.id} ${session.title}`}
-              onSelect={() => handleSelectSession(session.id)}
+              onSelect={() => {
+                if (isArchived) {
+                  void handleSelectArchivedSession(session.id)
+                } else {
+                  handleSelectSession(session.id)
+                }
+              }}
             >
-              <MessageSquare className="h-4 w-4 mr-3 text-muted-foreground shrink-0" />
+              {isArchived ? (
+                <Archive className="h-4 w-4 mr-3 text-muted-foreground shrink-0" />
+              ) : (
+                <MessageSquare className="h-4 w-4 mr-3 text-muted-foreground shrink-0" />
+              )}
               <div className="flex flex-col flex-1 min-w-0">
                 <span className="truncate font-medium">{session.title}</span>
                 <span className="text-xs text-muted-foreground">
-                  {formatDate(session.updatedAt)}
+                  {isArchived && session.archivedAt
+                    ? t("sidebar.archivedAt", "Archived {{date}}", { date: formatDate(session.archivedAt) })
+                    : formatDate(session.updatedAt)}
                 </span>
               </div>
-              {activeSessionId === session.id && (
+              {isArchived ? (
+                <span className="text-xs text-muted-foreground font-medium ml-2 shrink-0">
+                  {t("sidebar.searchArchived", "Archived")}
+                </span>
+              ) : activeSessionId === session.id && (
                 <span className="text-xs text-emerald-500 font-medium ml-2 shrink-0">{t('sidebar.active', 'Active')}</span>
               )}
             </CommandItem>
@@ -220,7 +300,7 @@ export function SidebarSecondarySessionActions({
         className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-40"
         disabled={!hasWorkspace}
         onClick={() => includeSearchDialog && setSearchOpen(true)}
-        title={hasWorkspace ? "Search (⌘K)" : t('sidebar.selectWorkspaceFirst', 'Please select a workspace first')}
+        title={hasWorkspace ? t('sidebar.searchWithShortcut', 'Search (⌘K)') : t('sidebar.selectWorkspaceFirst', 'Please select a workspace first')}
       >
         <Search className="h-4 w-4" />
       </Button>
@@ -282,7 +362,7 @@ export function SidebarSecondarySessionActions({
                 )}
                 disabled={!hasWorkspace}
                 onClick={() => includeSearchDialog && setSearchOpen(true)}
-                title={hasWorkspace ? "Search (⌘K)" : t('sidebar.selectWorkspaceFirst', 'Please select a workspace first')}
+                title={hasWorkspace ? t('sidebar.searchWithShortcut', 'Search (⌘K)') : t('sidebar.selectWorkspaceFirst', 'Please select a workspace first')}
               >
                 <Search className="h-4 w-4" />
               </Button>
@@ -376,7 +456,10 @@ function DefaultKnowledgeHeaderControls({
       }>('team_sync_repo', { force: false, workspacePath })
       if (result.needsConfirmation) {
         const { toast } = await import('sonner')
-        toast.warning(`检测到 ${result.newFiles?.length ?? 0} 个较大的新文件待同步，请在设置 → 团队中确认`)
+        toast.warning(t('settings.team.syncPrecheckToast', {
+          count: result.newFiles?.length ?? 0,
+          defaultValue: 'Detected {{count}} large new files to sync. Confirm in Settings > Team.',
+        }))
         return
       }
       const { toast } = await import('sonner')
@@ -395,7 +478,7 @@ function DefaultKnowledgeHeaderControls({
       setSyncing(false)
       useTeamModeStore.setState({ teamGitSyncing: false })
     }
-  }, [refreshFileTree, syncing, workspacePath])
+  }, [refreshFileTree, syncing, t, workspacePath])
 
   const iconButtonClass =
     'h-7 w-7 shrink-0 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -668,6 +751,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const hasMoreSessions = useSessionStore(s => s.hasMoreSessions)
   const visibleSessionCount = useSessionStore(s => s.visibleSessionCount)
   const highlightedSessionIds = useSessionStore(s => s.highlightedSessionIds)
+  const sessionStatuses = useSessionStore(s => s.sessionStatuses) || {}
+  const pendingQuestionIdsBySession = useSessionStore(s => s.pendingQuestionIdsBySession) || {}
+  const pendingQuestions = useSessionStore(s => s.pendingQuestions) || []
+  const pendingPermissions = useSessionStore(s => s.pendingPermissions) || []
+  const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
+  const childSessionStreaming = useStreamingStore(s => s.childSessionStreaming)
   const archiveSession = useSessionStore(s => s.archiveSession)
   const updateSessionTitle = useSessionStore(s => s.updateSessionTitle)
   const toggleSessionPinned = useSessionStore(s => s.toggleSessionPinned)
@@ -702,6 +791,31 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const unpinnedSessions = React.useMemo(
     () => sessions.filter((session) => !pinnedSessionIds.includes(session.id)),
     [sessions, pinnedSessionIds],
+  )
+  const sessionActivityMap = React.useMemo(
+    () =>
+      buildSessionListActivityMap({
+        sessions: allSessions,
+        activeSessionId,
+        sessionStatuses,
+        pendingQuestionIdsBySession,
+        pendingQuestions,
+        pendingPermissions,
+        streamingMessageId,
+        streamingChildSessionIds: Object.values(childSessionStreaming)
+          .filter((state) => state?.isStreaming)
+          .map((state) => state.sessionId),
+      }),
+    [
+      activeSessionId,
+      allSessions,
+      childSessionStreaming,
+      pendingPermissions,
+      pendingQuestionIdsBySession,
+      pendingQuestions,
+      sessionStatuses,
+      streamingMessageId,
+    ],
   )
   
   const openSettings = useUIStore(s => s.openSettings)
@@ -795,13 +909,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     const isHighlighted = highlightedSessionIds.includes(session.id)
     const isRenaming = renamingSessionId === session.id
     const isPinned = pinnedSessionIds.includes(session.id)
+    const activity = sessionActivityMap.get(session.id)
 
     return (
       <SidebarMenuItem key={session.id}>
         <SidebarMenuButton
           isActive={session.id === activeSessionId}
           className={cn(
-            "h-auto py-1.5 transition-all duration-300",
+            "h-auto py-2 pr-8 transition-all duration-300",
             isWorkspaceUIVariant() &&
               session.id === activeSessionId &&
               "relative z-0 data-[active=true]:!bg-muted/40 data-[active=true]:font-medium before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:z-10 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary before:content-['']",
@@ -819,7 +934,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             handleStartRename(e, session.id)
           }}
         >
-          <div className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
+          <div className="flex flex-col items-start gap-1 flex-1 min-w-0">
             <div className="flex items-center gap-1.5 w-full">
               {isRenaming ? (
                 <SessionRenameInput
@@ -837,25 +952,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   )}
                   {session.id !== activeSessionId && isHighlighted && (
                     <span className="shrink-0 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
-                      NEW
+                      {t('chat.newSessionBadge', 'NEW')}
                     </span>
                   )}
                 </>
               )}
             </div>
             {!isRenaming && (
-              <div className="flex items-center gap-1.5 w-full">
-                <span className="text-[10px] text-muted-foreground">
+              <div className="flex min-w-0 items-center gap-2 w-full">
+                <span className="shrink-0 text-[10px] text-muted-foreground">
                   {formatDate(session.updatedAt)}
                   {session.messageCount !== undefined && (
-                    <> · {session.messageCount} messages</>
+                    <> · {t('chat.messageCountShort', { count: session.messageCount })}</>
                   )}
                 </span>
-                {session.id === activeSessionId && (
-                  <span className="ml-auto">
-                    <SidebarSessionStatusIndicator />
-                  </span>
-                )}
+                <SessionActivityBadge activity={activity} />
               </div>
             )}
           </div>
@@ -865,7 +976,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-1 bottom-1 h-5 w-5 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
+              className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
               onClick={(e) => e.stopPropagation()}
             >
               <Ellipsis className="h-3 w-3" />
@@ -982,7 +1093,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </div>
         )}
 
-        <SidebarContent>
+        <SidebarContent className="overflow-hidden">
           {isWorkspaceUIVariant() && (
             <div className="px-1.5 pb-0 pt-0">
               <div className="flex flex-col gap-0.5">
@@ -1033,7 +1144,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           )}
           <SidebarGroup
             className={cn(
-              "min-h-0 flex-1",
+              "min-h-0 flex-1 overflow-hidden",
               isWorkspaceUIVariant() ? "!px-1 !pb-2 !pt-1" : "!px-0 !pb-0 !pt-0",
             )}
           >
@@ -1047,7 +1158,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             )}
 
             {defaultSidebarContent === 'session' && (
-              <>
+              <div
+                data-testid="sidebar-session-scroll"
+                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+              >
                 <SidebarMenu>
                   {isLoading && sessions.length === 0 ? (
                     <div className="flex items-center justify-center py-8">
@@ -1107,7 +1221,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     </Button>
                   </div>
                 )}
-              </>
+              </div>
             )}
 
             {defaultSidebarContent === 'knowledge' && (

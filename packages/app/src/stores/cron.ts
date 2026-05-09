@@ -19,7 +19,8 @@ export interface CronSchedule {
 export interface CronPayload {
   message: string
   model?: string // "provider/model"
-  timeoutSeconds?: number // Max seconds for AI to respond (default: 180)
+  /** @deprecated Compatibility only. Runtime ignores this and new saves omit it. */
+  timeoutSeconds?: number
   useWorktree?: boolean
   worktreeBranch?: string
 }
@@ -34,7 +35,7 @@ export interface CronDelivery {
   bestEffort: boolean
 }
 
-export type RunStatus = 'success' | 'failed' | 'timeout' | 'running'
+export type RunStatus = 'success' | 'failed' | 'timeout' | 'running' | 'stale'
 
 export interface CronJob {
   id: string
@@ -57,6 +58,7 @@ export interface CronRunRecord {
   startedAt: string
   finishedAt?: string
   status: RunStatus
+  lastHeartbeatAt?: string
   sessionId?: string
   responseSummary?: string
   deliveryStatus?: string
@@ -249,7 +251,7 @@ export const useCronStore = create<CronState>((set, get) => ({
         limit: limit ?? 50,
         workspacePath,
       })
-      set({ runs, runsLoading: false })
+      set({ runs: runs.map(normalizeCronRunRecord), runsLoading: false })
     } catch (error) {
       console.error('[Cron] Failed to load runs:', error)
       set({ runs: [], runsLoading: false })
@@ -271,6 +273,20 @@ export const useCronStore = create<CronState>((set, get) => ({
 }))
 
 // ==================== Helpers ====================
+
+const LEGACY_TIMEOUT_CUT_SHORT_MARKER = 'AI response was cut short after'
+
+export function normalizeCronRunRecord(record: CronRunRecord): CronRunRecord {
+  const hasLegacyTimeoutText =
+    record.responseSummary?.includes(LEGACY_TIMEOUT_CUT_SHORT_MARKER) ||
+    record.error?.includes(LEGACY_TIMEOUT_CUT_SHORT_MARKER)
+
+  if (record.status === 'success' && hasLegacyTimeoutText) {
+    return { ...record, status: 'timeout' }
+  }
+
+  return record
+}
 
 /** Convert schedule to human-readable string */
 export function formatSchedule(schedule: CronSchedule): string {
@@ -370,6 +386,8 @@ export function getRunStatusColor(status: RunStatus): string {
       return 'text-orange-500'
     case 'running':
       return 'text-blue-500'
+    case 'stale':
+      return 'text-yellow-500'
     default:
       return 'text-muted-foreground'
   }

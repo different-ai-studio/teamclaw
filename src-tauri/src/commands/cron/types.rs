@@ -34,9 +34,8 @@ pub struct CronSchedule {
     pub tz: Option<String>,
 }
 
-/// Default timeout for cron job AI execution (3 minutes).
-/// This limits how long the AI agent can run before being forcibly aborted.
-pub const DEFAULT_TIMEOUT_SECONDS: u64 = 180;
+/// Legacy marker written by older cron timeout handling when it aborted an AI response.
+pub const LEGACY_TIMEOUT_CUT_SHORT_MARKER: &str = "AI response was cut short after";
 
 /// Payload configuration - what to send to OpenCode
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,9 +46,8 @@ pub struct CronPayload {
     /// Optional model override ("provider/model")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// Max seconds to wait for the AI to respond before aborting the session.
-    /// Prevents the AI agent from running indefinitely in agentic loops.
-    /// Default: 180 (3 minutes). Range: 30–900.
+    /// Deprecated compatibility field. Old job JSON may contain this value, but
+    /// cron execution ignores it and new saves omit it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_seconds: Option<u64>,
     /// Whether to run in an isolated git worktree
@@ -105,6 +103,7 @@ pub enum RunStatus {
     Failed,
     Timeout,
     Running,
+    Stale,
 }
 
 /// A cron job definition
@@ -158,6 +157,9 @@ pub struct CronRunRecord {
     pub finished_at: Option<DateTime<Utc>>,
     /// Run status
     pub status: RunStatus,
+    /// Last executor heartbeat while the run was active
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
     /// OpenCode session ID used for this run
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -173,6 +175,24 @@ pub struct CronRunRecord {
     /// Worktree path used for this run (if worktree mode was enabled)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
+}
+
+impl CronRunRecord {
+    pub fn has_legacy_timeout_cut_short_text(&self) -> bool {
+        self.response_summary
+            .as_deref()
+            .is_some_and(|text| text.contains(LEGACY_TIMEOUT_CUT_SHORT_MARKER))
+            || self
+                .error
+                .as_deref()
+                .is_some_and(|text| text.contains(LEGACY_TIMEOUT_CUT_SHORT_MARKER))
+    }
+}
+
+pub fn normalize_legacy_timeout_status(record: &mut CronRunRecord) {
+    if record.has_legacy_timeout_cut_short_text() && record.status == RunStatus::Success {
+        record.status = RunStatus::Timeout;
+    }
 }
 
 /// Persistent storage structure for all cron jobs

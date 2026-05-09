@@ -1,6 +1,6 @@
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebouncedEventKind};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,9 +20,13 @@ pub struct FileWatcherState {
 }
 
 struct WatcherHandle {
-    // We keep the debouncer alive by storing it
-    // When dropped, the watcher stops
+    /// Keep the debouncer alive so the watcher keeps running.
+    /// Dropping this stops the watcher.
     _debouncer: notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
+    /// Window labels currently subscribed to this path. The watcher is dropped
+    /// only when the last subscriber unwatches — so closing window A doesn't
+    /// kill window B's watcher when both watch the same workspace tree.
+    subscribers: HashSet<String>,
 }
 
 impl Default for FileWatcherState {
@@ -33,17 +37,23 @@ impl Default for FileWatcherState {
     }
 }
 
-/// Start watching a directory for file changes
+/// Start watching a directory for file changes on behalf of the calling window.
+///
+/// If another window is already watching this path, the existing debouncer
+/// is reused and the calling window's label is added as a subscriber. The
+/// watcher is only torn down when the last subscriber unwatches.
 #[tauri::command]
 pub async fn watch_directory(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, FileWatcherState>,
     path: String,
 ) -> Result<bool, String> {
+    let label = window.label().to_string();
     let mut watchers = state.watchers.lock().await;
 
-    // If already watching this path, return success
-    if watchers.contains_key(&path) {
+    if let Some(handle) = watchers.get_mut(&path) {
+        handle.subscribers.insert(label);
         return Ok(true);
     }
 
@@ -53,9 +63,14 @@ pub async fn watch_directory(
     }
 
     let app_handle = app.clone();
-    let path_clone = path.clone();
 
-    // Create a debounced watcher with 500ms delay to batch rapid changes
+    // Create a debounced watcher with 500ms delay to batch rapid changes.
+    //
+    // The debouncer callback is synchronous and broadcasts the file-change
+    // event to every window. Per-window routing would require locking the
+    // subscribers map from inside the callback (tokio::Mutex needs an async
+    // context), and the frontend already filters by `path.startsWith(workspacePath)`
+    // for the file tree. The broadcast cost is small and acceptable.
     let mut debouncer = new_debouncer(
         Duration::from_millis(500),
         move |result: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
@@ -65,7 +80,7 @@ pub async fn watch_directory(
                         let kind = match event.kind {
                             DebouncedEventKind::Any => "any",
                             DebouncedEventKind::AnyContinuous => "any",
-                            _ => "any", // Handle any future variants
+                            _ => "any",
                         };
 
                         let change_event = FileChangeEvent {
@@ -73,7 +88,6 @@ pub async fn watch_directory(
                             kind: kind.to_string(),
                         };
 
-                        // Emit event to frontend
                         if let Err(e) = app_handle.emit("file-change", change_event) {
                             eprintln!("[FileWatcher] Failed to emit event: {}", e);
                         }
@@ -87,51 +101,90 @@ pub async fn watch_directory(
     )
     .map_err(|e| format!("Failed to create watcher: {}", e))?;
 
-    // Start watching the directory recursively
     debouncer
         .watcher()
         .watch(&watch_path, RecursiveMode::Recursive)
         .map_err(|e| format!("Failed to watch path: {}", e))?;
 
-    println!("[FileWatcher] Started watching: {}", path);
+    println!("[FileWatcher] Started watching: {} (subscriber: {})", path, label);
 
+    let mut subscribers = HashSet::new();
+    subscribers.insert(label);
     watchers.insert(
-        path_clone,
+        path,
         WatcherHandle {
             _debouncer: debouncer,
+            subscribers,
         },
     );
 
     Ok(true)
 }
 
-/// Stop watching a directory
+/// Stop watching a directory on behalf of the calling window.
+///
+/// Decrements the subscriber set for the path. Only when the last subscriber
+/// unwatches is the underlying debouncer dropped. Returns `true` if the path
+/// was being watched (regardless of whether the watcher was actually stopped).
 #[tauri::command]
 pub async fn unwatch_directory(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, FileWatcherState>,
     path: String,
 ) -> Result<bool, String> {
+    let label = window.label();
     let mut watchers = state.watchers.lock().await;
 
-    if watchers.remove(&path).is_some() {
-        println!("[FileWatcher] Stopped watching: {}", path);
-        Ok(true)
+    let Some(handle) = watchers.get_mut(&path) else {
+        return Ok(false);
+    };
+
+    handle.subscribers.remove(label);
+    if handle.subscribers.is_empty() {
+        watchers.remove(&path);
+        println!("[FileWatcher] Stopped watching: {} (last subscriber gone)", path);
     } else {
-        Ok(false)
+        println!(
+            "[FileWatcher] Unsubscribed {} from {}; {} subscriber(s) remain",
+            label,
+            path,
+            handle.subscribers.len()
+        );
     }
+    Ok(true)
 }
 
-/// Stop all watchers
+/// Stop watching every directory the calling window has subscribed to.
+///
+/// Removes the calling window's label from every watcher. Watchers with no
+/// remaining subscribers are dropped. Other windows' subscriptions are
+/// preserved — this is what fixes the cross-window unwatch bug.
 #[tauri::command]
-pub async fn unwatch_all(state: tauri::State<'_, FileWatcherState>) -> Result<(), String> {
+pub async fn unwatch_all(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, FileWatcherState>,
+) -> Result<(), String> {
+    let label = window.label();
     let mut watchers = state.watchers.lock().await;
-    let count = watchers.len();
-    watchers.clear();
-    println!("[FileWatcher] Stopped all {} watchers", count);
+
+    let mut paths_to_drop: Vec<String> = Vec::new();
+    for (path, handle) in watchers.iter_mut() {
+        if handle.subscribers.remove(label) && handle.subscribers.is_empty() {
+            paths_to_drop.push(path.clone());
+        }
+    }
+    let dropped = paths_to_drop.len();
+    for path in paths_to_drop {
+        watchers.remove(&path);
+    }
+    println!(
+        "[FileWatcher] Unsubscribed {} from all watchers; {} watcher(s) dropped",
+        label, dropped
+    );
     Ok(())
 }
 
-/// Get list of currently watched directories
+/// Get list of currently watched directories.
 #[tauri::command]
 pub async fn get_watched_directories(
     state: tauri::State<'_, FileWatcherState>,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadDir = vi.fn();
 const mockStat = vi.fn();
+const mockInvoke = vi.fn();
 
 vi.mock("@/lib/utils", () => ({
   isTauri: () => true,
@@ -12,11 +13,16 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   stat: (...args: unknown[]) => mockStat(...args),
 }));
 
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => mockInvoke(...args),
+}));
+
 import { useWorkspaceStore } from "../workspace";
 
 describe("workspace loadDirectory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockInvoke.mockResolvedValue([]);
     useWorkspaceStore.setState({
       workspacePath: "/workspace",
       fileTree: [],
@@ -26,23 +32,20 @@ describe("workspace loadDirectory", () => {
   });
 
   it("treats symlinked directories as directories", async () => {
-    mockReadDir.mockResolvedValue([
+    mockInvoke.mockResolvedValue([
       {
         name: "linked-dir",
-        isDirectory: false,
-        isFile: false,
-        isSymlink: true,
+        path: "/workspace/linked-dir",
+        type: "directory",
       },
     ]);
-    mockStat.mockResolvedValue({
-      isDirectory: true,
-      isFile: false,
-      isSymlink: false,
-    });
 
     const result = await useWorkspaceStore.getState().loadDirectory(".");
 
-    expect(mockStat).toHaveBeenCalledWith("/workspace/linked-dir");
+    expect(mockInvoke).toHaveBeenCalledWith("read_workspace_directory", {
+      workspacePath: "/workspace",
+      path: "/workspace",
+    });
     expect(result).toEqual([
       {
         name: "linked-dir",
@@ -53,23 +56,20 @@ describe("workspace loadDirectory", () => {
   });
 
   it("keeps symlinked files as files", async () => {
-    mockReadDir.mockResolvedValue([
+    mockInvoke.mockResolvedValue([
       {
         name: "linked-file.ts",
-        isDirectory: false,
-        isFile: false,
-        isSymlink: true,
+        path: "/workspace/linked-file.ts",
+        type: "file",
       },
     ]);
-    mockStat.mockResolvedValue({
-      isDirectory: false,
-      isFile: true,
-      isSymlink: false,
-    });
 
     const result = await useWorkspaceStore.getState().loadDirectory(".");
 
-    expect(mockStat).toHaveBeenCalledWith("/workspace/linked-file.ts");
+    expect(mockInvoke).toHaveBeenCalledWith("read_workspace_directory", {
+      workspacePath: "/workspace",
+      path: "/workspace",
+    });
     expect(result).toEqual([
       {
         name: "linked-file.ts",
@@ -79,24 +79,21 @@ describe("workspace loadDirectory", () => {
     ]);
   });
 
-  it("treats alias-like ambiguous entries as directories via stat fallback", async () => {
-    mockReadDir.mockResolvedValue([
+  it("treats directory entries from the workspace reader as directories", async () => {
+    mockInvoke.mockResolvedValue([
       {
         name: "skills",
-        isDirectory: false,
-        isFile: false,
-        isSymlink: false,
+        path: "/workspace/skills",
+        type: "directory",
       },
     ]);
-    mockStat.mockResolvedValue({
-      isDirectory: true,
-      isFile: false,
-      isSymlink: false,
-    });
 
     const result = await useWorkspaceStore.getState().loadDirectory(".");
 
-    expect(mockStat).toHaveBeenCalledWith("/workspace/skills");
+    expect(mockInvoke).toHaveBeenCalledWith("read_workspace_directory", {
+      workspacePath: "/workspace",
+      path: "/workspace",
+    });
     expect(result).toEqual([
       {
         name: "skills",
@@ -106,28 +103,51 @@ describe("workspace loadDirectory", () => {
     ]);
   });
 
-  it("treats ambiguous linked files as files via stat fallback", async () => {
-    mockReadDir.mockResolvedValue([
+  it("treats file entries from the workspace reader as files", async () => {
+    mockInvoke.mockResolvedValue([
       {
         name: "linked-file.md",
-        isDirectory: false,
-        isFile: false,
-        isSymlink: false,
+        path: "/workspace/linked-file.md",
+        type: "file",
       },
     ]);
-    mockStat.mockResolvedValue({
-      isDirectory: false,
-      isFile: true,
-      isSymlink: false,
-    });
 
     const result = await useWorkspaceStore.getState().loadDirectory(".");
 
-    expect(mockStat).toHaveBeenCalledWith("/workspace/linked-file.md");
+    expect(mockInvoke).toHaveBeenCalledWith("read_workspace_directory", {
+      workspacePath: "/workspace",
+      path: "/workspace",
+    });
     expect(result).toEqual([
       {
         name: "linked-file.md",
         path: "/workspace/linked-file.md",
+        type: "file",
+      },
+    ]);
+  });
+
+  it("lists a symlink directory through the workspace reader when fs scope would reject the target", async () => {
+    mockInvoke.mockResolvedValue([
+      {
+        name: "README.md",
+        path: "/workspace/ac360-link/README.md",
+        type: "file",
+      },
+    ]);
+
+    const result = await useWorkspaceStore.getState().loadDirectory("/workspace/ac360-link");
+
+    expect(mockReadDir).not.toHaveBeenCalled();
+    expect(mockStat).not.toHaveBeenCalled();
+    expect(mockInvoke).toHaveBeenCalledWith("read_workspace_directory", {
+      workspacePath: "/workspace",
+      path: "/workspace/ac360-link",
+    });
+    expect(result).toEqual([
+      {
+        name: "README.md",
+        path: "/workspace/ac360-link/README.md",
         type: "file",
       },
     ]);

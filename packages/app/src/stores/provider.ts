@@ -3,6 +3,8 @@ import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { toast } from 'sonner'
 import { appShortName } from '@/lib/build-config'
 import { invoke } from '@tauri-apps/api/core'
+import { workspaceScopedKey } from '@/lib/storage'
+import { useWorkspaceStore } from '@/stores/workspace'
 import {
   type CustomProviderConfig,
   addCustomProviderToConfig,
@@ -12,6 +14,20 @@ import {
   getCustomProviderIds,
   providerApiKeyName,
 } from '@/lib/opencode/config'
+
+const SELECTED_MODEL_BASE = `${appShortName}-selected-model`
+
+function selectedModelStorageKey(): string {
+  return workspaceScopedKey(SELECTED_MODEL_BASE, useWorkspaceStore.getState().workspacePath)
+}
+
+// Read the saved model, preferring the workspace-scoped key but falling back
+// to the legacy unscoped key for users upgrading from before workspace scoping.
+function readSavedSelectedModel(): string | null {
+  const scoped = localStorage.getItem(selectedModelStorageKey())
+  if (scoped !== null) return scoped
+  return localStorage.getItem(SELECTED_MODEL_BASE)
+}
 
 // Safe helper: returns client or null if not initialized yet
 function tryGetClient() {
@@ -472,8 +488,8 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     const modelKey = `${providerId}/${modelId}`
     set({ currentModelKey: modelKey })
 
-    // Cache in localStorage as fallback
-    localStorage.setItem(`${appShortName}-selected-model`, modelKey)
+    // Cache in workspace-scoped localStorage as fallback
+    localStorage.setItem(selectedModelStorageKey(), modelKey)
 
     const client = tryGetClient()
     if (!client) return
@@ -517,8 +533,8 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     let resolvedKey = currentModelKey
 
     if (!resolvedKey || !models.find((m) => `${m.provider}/${m.id}` === resolvedKey)) {
-      // Try localStorage fallback
-      const saved = localStorage.getItem(`${appShortName}-selected-model`)
+      // Try localStorage fallback (workspace-scoped, with legacy fallback)
+      const saved = readSavedSelectedModel()
       if (saved && models.find((m) => `${m.provider}/${m.id}` === saved)) {
         resolvedKey = saved
       } else if (models.length > 0) {
@@ -529,8 +545,8 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
 
     if (resolvedKey) {
       set({ currentModelKey: resolvedKey })
-      // Sync localStorage to be consistent
-      localStorage.setItem(`${appShortName}-selected-model`, resolvedKey)
+      // Sync workspace-scoped localStorage to be consistent
+      localStorage.setItem(selectedModelStorageKey(), resolvedKey)
     }
   },
 }))

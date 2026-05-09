@@ -14,6 +14,34 @@ fn deep_merge(base: &mut serde_json::Value, overlay: serde_json::Value) {
     }
 }
 
+fn resolve_updater_url(url: &str) -> Option<String> {
+    if url.contains("__OSS_BASE_URL__") {
+        let oss_base = std::env::var("OSS_BASE_URL")
+            .ok()
+            .map(|s| s.trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty())?;
+        Some(url.replace("__OSS_BASE_URL__", &oss_base))
+    } else if url.is_empty() {
+        None
+    } else {
+        Some(url.to_string())
+    }
+}
+
+fn resolve_updater_endpoint(config: &serde_json::Value) -> Option<String> {
+    let updater = &config["app"]["updater"];
+    if let Some(endpoint) = updater["endpoint"].as_str().and_then(resolve_updater_url) {
+        return Some(endpoint);
+    }
+
+    updater["endpoints"].as_array().and_then(|endpoints| {
+        endpoints
+            .iter()
+            .filter_map(|endpoint| endpoint.as_str())
+            .find_map(resolve_updater_url)
+    })
+}
+
 fn main() {
     // ── Read build config: base → env → local (mirrors vite.config.ts) ──
     let root_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -73,7 +101,7 @@ fn main() {
     println!("cargo:warning=Using APP_SHORT_NAME={}", short_name);
 
     // Export updater config from build.config.json
-    if let Some(endpoint) = config["app"]["updater"]["endpoint"].as_str() {
+    if let Some(endpoint) = resolve_updater_endpoint(&config) {
         println!("cargo:rustc-env=UPDATER_ENDPOINT={}", endpoint);
         println!("cargo:warning=Using UPDATER_ENDPOINT={}", endpoint);
     }

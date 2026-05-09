@@ -100,6 +100,8 @@ export function FileMentionPopover({
   const [isLoading, setIsLoading] = React.useState(false)
   const [highlightedIndex, setHighlightedIndex] = React.useState(0)
   const listRef = React.useRef<HTMLDivElement>(null)
+  const filteredEntriesRef = React.useRef<FlatEntry[]>([])
+  const highlightedIndexRef = React.useRef(0)
 
   // Recursively scan workspace on open
   React.useEffect(() => {
@@ -147,6 +149,14 @@ export function FileMentionPopover({
   }, [allEntries, searchQuery])
 
   React.useEffect(() => {
+    filteredEntriesRef.current = filteredEntries
+  }, [filteredEntries])
+
+  React.useEffect(() => {
+    highlightedIndexRef.current = highlightedIndex
+  }, [highlightedIndex])
+
+  React.useEffect(() => {
     setHighlightedIndex(0)
   }, [filteredEntries])
 
@@ -164,29 +174,40 @@ export function FileMentionPopover({
 
   // Keyboard navigation
   React.useEffect(() => {
-    if (!open || filteredEntries.length === 0) return
+    if (!open) return
 
     const onKeyDown = (e: KeyboardEvent) => {
+      const currentEntries = filteredEntriesRef.current
+      if (currentEntries.length === 0) return
+
       if (e.key === "ArrowDown") {
         e.preventDefault()
         e.stopPropagation()
-        setHighlightedIndex(i => (i + 1) % filteredEntries.length)
+        setHighlightedIndex(i => {
+          const nextIndex = (i + 1) % currentEntries.length
+          highlightedIndexRef.current = nextIndex
+          return nextIndex
+        })
       } else if (e.key === "ArrowUp") {
         e.preventDefault()
         e.stopPropagation()
-        setHighlightedIndex(i => (i - 1 + filteredEntries.length) % filteredEntries.length)
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        if (e.isComposing || e.keyCode === 229) return
+        setHighlightedIndex(i => {
+          const nextIndex = (i - 1 + currentEntries.length) % currentEntries.length
+          highlightedIndexRef.current = nextIndex
+          return nextIndex
+        })
+      } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+        if (e.key === "Enter" && (e.isComposing || e.keyCode === 229)) return
         e.preventDefault()
         e.stopPropagation()
-        const entry = filteredEntries[highlightedIndex]
+        const entry = currentEntries[highlightedIndexRef.current]
         if (entry) handleSelect(entry)
       }
     }
 
     document.addEventListener("keydown", onKeyDown, true)
     return () => document.removeEventListener("keydown", onKeyDown, true)
-  }, [open, filteredEntries, highlightedIndex, handleSelect])
+  }, [open, handleSelect])
 
   if (!open) return null
 
@@ -257,7 +278,7 @@ export function FileMentionPopover({
       {/* Hint bar */}
       <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] text-muted-foreground/60 border-t">
         <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> navigate</span>
-        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵</kbd> select</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵/Tab</kbd> select</span>
         <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Esc</kbd> close</span>
       </div>
     </div>

@@ -177,10 +177,12 @@ async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, Strin
 
 async fn handle_team_sync_all(app: &AppHandle, _body: &[u8]) -> Result<String, String> {
     use super::opencode::OpenCodeState;
-    use super::team::get_workspace_path;
 
+    // introspect_api has no calling-window context (HTTP server). Falls back
+    // to single-instance inference, which errors in multi-window — out of
+    // scope here; needs workspace_path in payload eventually.
     let opencode_state = app.state::<OpenCodeState>();
-    let workspace = get_workspace_path(&opencode_state)?;
+    let workspace = super::opencode::current_workspace_path(&opencode_state)?;
     let result = super::team_sync_all::sync_all(app, &workspace).await;
     serde_json::to_string(&result).map_err(|e| format!("Serialization error: {e}"))
 }
@@ -194,15 +196,30 @@ async fn handle_cron_run(app: &AppHandle, body: &[u8]) -> Result<String, String>
         .and_then(|v| v.as_str())
         .ok_or("Missing field: job_id")?;
 
-    let cron_state = app.state::<super::cron::CronState>();
+    // introspect_api has no calling-window context (it's an HTTP server).
+    // The request payload may carry an explicit workspace_path; otherwise we
+    // fall back to single-instance inference (which errors in multi-window).
+    let workspace_path = match v.get("workspace_path").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => {
+            let oc_state = app.state::<super::opencode::OpenCodeState>();
+            super::opencode::current_workspace_path(&oc_state)?
+        }
+    };
 
-    let job = cron_state
+    let cron_state = app.state::<super::cron::CronState>();
+    let instance = cron_state
+        .try_instance_for(&workspace_path)
+        .await
+        .ok_or_else(|| format!("Cron not initialized for workspace: {}", workspace_path))?;
+
+    let job = instance
         .storage
         .get_job(job_id)
         .await
         .ok_or_else(|| format!("Job not found: {}", job_id))?;
 
-    let scheduler = cron_state.scheduler.clone();
+    let scheduler = instance.scheduler.clone();
     tokio::spawn(async move {
         scheduler.execute_job(job).await;
     });
@@ -375,8 +392,13 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    // introspect_api has no calling-window context (it's an HTTP server).
+    // Multi-window workspace selection is out of scope here — falls back to
+    // single-instance inference, which errors in multi-window mode.
     let oc_state = app.state::<super::opencode::OpenCodeState>();
-    super::env_vars::env_var_set(oc_state, key.clone(), value, description).await?;
+    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    super::env_vars::env_var_set_for_workspace(&workspace_path, key.clone(), value, description)
+        .await?;
 
     Ok(format!(r#"{{"ok":true,"key":"{}"}}"#, key))
 }
@@ -392,7 +414,8 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         .to_string();
 
     let oc_state = app.state::<super::opencode::OpenCodeState>();
-    super::env_vars::env_var_delete(oc_state, key.clone()).await?;
+    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    super::env_vars::env_var_delete_for_workspace(&workspace_path, key.clone()).await?;
 
     Ok(format!(r#"{{"ok":true,"key":"{}"}}"#, key))
 }

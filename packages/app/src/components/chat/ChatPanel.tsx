@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, ArrowLeft, Bot, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertCircle, Archive, ArrowLeft, Bot, Loader2, RefreshCw, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn, isTauri } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
+import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
@@ -106,6 +107,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Session store selectors (reactive state only) ────────────────────
   const activeSessionId = useSessionStore(s => s.activeSessionId);
   const error = useSessionStore(s => s.error);
+  const errorSessionId = useSessionStore(s => s.errorSessionId);
   const isConnected = useSessionStore(s => s.isConnected);
   const streamingMessageId = useStreamingStore(s => s.streamingMessageId);
   const messageQueue = useSessionStore(s => s.messageQueue);
@@ -117,25 +119,43 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const pendingQuestions = useSessionStore(s => s.pendingQuestions);
   const sessions = useSessionStore(s => s.sessions);
 
+  // ── Archived session viewing ────────────────────────────────────────
+  const viewingArchivedSessionId = useSessionStore(s => s.viewingArchivedSessionId);
+  const archivedSessionMessages = useSessionStore(s =>
+    s.viewingArchivedSessionId
+      ? (s.archivedSessionMessages[s.viewingArchivedSessionId] || EMPTY_MESSAGES)
+      : EMPTY_MESSAGES
+  );
+  const archivedSession = useSessionStore(s =>
+    s.viewingArchivedSessionId
+      ? s.archivedSessions.find((session) => session.id === s.viewingArchivedSessionId)
+      : undefined
+  );
+  const archivedSessionError = useSessionStore(s => s.archivedSessionError);
+  const isViewingArchived = !!viewingArchivedSessionId;
+
   // ── Child session viewing ──────────────────────────────────────────
   const viewingChildSessionId = useSessionStore(s => s.viewingChildSessionId);
   const childSessionMessages = useSessionStore(s =>
-    s.viewingChildSessionId
+    s.viewingChildSessionId && !s.viewingArchivedSessionId
       ? (s.childSessionMessages[s.viewingChildSessionId] || EMPTY_MESSAGES)
       : EMPTY_MESSAGES
   );
   const isLoadingChildMessages = useSessionStore(s => s.isLoadingChildMessages);
   const childStreamingContent = useStreamingStore(s =>
-    viewingChildSessionId ? s.childSessionStreaming[viewingChildSessionId] : undefined
+    viewingChildSessionId && !isViewingArchived
+      ? s.childSessionStreaming[viewingChildSessionId]
+      : undefined
   );
-  const isViewingChild = !!viewingChildSessionId;
+  const isViewingChild = !!viewingChildSessionId && !isViewingArchived;
   const showInlineTodo = React.useMemo(() => {
+    if (isViewingArchived) return false;
     if (isViewingChild) return false;
     if (todos.length === 0 && messageQueue.length === 0) return false;
     return !hasVisiblePendingPermissions(activeSessionId, sessions, pendingPermissions);
-  }, [activeSessionId, isViewingChild, messageQueue.length, pendingPermissions, sessions, todos]);
+  }, [activeSessionId, isViewingArchived, isViewingChild, messageQueue.length, pendingPermissions, sessions, todos]);
   const displayedChildSessionMessages = React.useMemo(() => {
-    if (!viewingChildSessionId) return EMPTY_MESSAGES;
+    if (!isViewingChild || !viewingChildSessionId) return EMPTY_MESSAGES;
 
     const hasLiveChildStreaming =
       !!childStreamingContent &&
@@ -171,15 +191,22 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         timestamp: placeholderTimestamp,
       },
     ];
-  }, [childSessionMessages, childStreamingContent, viewingChildSessionId]);
+  }, [childSessionMessages, childStreamingContent, isViewingChild, viewingChildSessionId]);
   const activeInputQuestion = React.useMemo(() => {
+    if (!activeSessionId) return null;
+    if (isViewingArchived) return null;
     if (isViewingChild) return null;
     return (
-      pendingQuestions.find((question) => !question.sessionId || question.sessionId === activeSessionId) ||
-      pendingQuestions[0] ||
+      pendingQuestions.find((question) => {
+        if (!question.sessionId) return true;
+        return (
+          resolveSessionActivityOwner(question.sessionId, sessions, question.sessionId) ===
+          activeSessionId
+        );
+      }) ||
       null
     );
-  }, [activeSessionId, isViewingChild, pendingQuestions]);
+  }, [activeSessionId, isViewingArchived, isViewingChild, pendingQuestions, sessions]);
 
   // Actions — accessed via getState() to avoid creating subscriptions.
   // Zustand actions are stable references; subscribing to them wastes equality checks.
@@ -193,6 +220,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const setError = acts.setError;
   const setStoreSelectedModel = acts.setSelectedModel;
   const setDraftInput = acts.setDraftInput;
+  const closeArchivedSession = acts.closeArchivedSession;
+  const restoreSession = acts.restoreSession;
+  const setViewingChildSession = acts.setViewingChildSession;
 
   // ── Workspace store ───────────────────────────────────────────────────
   const workspacePath = useWorkspaceStore(s => s.workspacePath);
@@ -207,6 +237,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [hasSkillRestartPrompt, setHasSkillRestartPrompt] = React.useState(false);
   const [isRestartingSkillsRuntime, setIsRestartingSkillsRuntime] = React.useState(false);
+  const [isRestoringArchived, setIsRestoringArchived] = React.useState(false);
+  const isRestoringArchivedRef = React.useRef(false);
 
   const isImagePath = React.useCallback((path: string) => {
     return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
@@ -724,6 +756,23 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     }
   }, [workspacePath, setOpenCodeBootstrapped, setError]);
 
+  const handleCloseArchivedSession = React.useCallback(() => {
+    closeArchivedSession();
+    setViewingChildSession?.(null);
+  }, [closeArchivedSession, setViewingChildSession]);
+
+  const handleRestoreArchivedSession = React.useCallback(async () => {
+    if (!viewingArchivedSessionId || isRestoringArchivedRef.current) return;
+    isRestoringArchivedRef.current = true;
+    setIsRestoringArchived(true);
+    try {
+      await restoreSession(viewingArchivedSessionId);
+    } finally {
+      isRestoringArchivedRef.current = false;
+      setIsRestoringArchived(false);
+    }
+  }, [restoreSession, viewingArchivedSessionId]);
+
   // ── Empty state with suggestions ──────────────────────────────────────
   const emptyState = React.useMemo(() => (
     <div
@@ -764,6 +813,29 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     </div>
   ), [compact, t, suggestions, handleSuggestionClick]);
 
+  const visibleSessionError =
+    sessionError?.sessionId && sessionError.sessionId === displaySessionId
+      ? sessionError
+      : null;
+  const visibleError =
+    error && errorSessionId && errorSessionId === displaySessionId
+      ? error
+      : null;
+
+  const messageBottomContent = !isViewingChild ? (
+    visibleSessionError ? (
+      <SessionErrorAlert
+        error={visibleSessionError}
+        onDismiss={clearSessionError}
+      />
+    ) : visibleError ? (
+      <SessionErrorAlert
+        error={visibleError}
+        onDismiss={() => setError(null)}
+      />
+    ) : null
+  ) : null;
+
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
@@ -773,14 +845,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         compact ? "h-full w-full relative" : "absolute inset-0",
       )}
     >
-      {/* Connection status indicator */}
-      {!isConnected && activeSessionId && (
-        <div className="absolute top-2 right-2 z-20 flex items-center gap-2 rounded-full bg-yellow-100 px-3 py-1 text-xs text-yellow-800">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          {t("chat.connecting", "Connecting...")}
-        </div>
-      )}
-
       {hasSkillRestartPrompt && (
         <div className="absolute top-2 left-1/2 z-20 flex w-[min(92vw,640px)] -translate-x-1/2 items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 shadow-sm">
           <AlertCircle className="h-4 w-4 shrink-0 text-sky-600" />
@@ -827,6 +891,37 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         </div>
       )}
 
+      {/* ─── Archived session read-only bar ─── */}
+      {isViewingArchived && (
+        <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-2">
+          <button
+            type="button"
+            onClick={handleCloseArchivedSession}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft size={14} />
+            <span>{t("chat.backToActiveSession", "Back to active session")}</span>
+          </button>
+          <div className="min-w-0 flex flex-1 items-center gap-1.5 text-xs text-muted-foreground">
+            <Archive size={12} />
+            <span className="truncate">
+              {archivedSession?.title || t("chat.archivedSession", "Archived session")}
+            </span>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 px-2 text-xs"
+            disabled={isRestoringArchived}
+            onClick={() => void handleRestoreArchivedSession()}
+          >
+            <RefreshCw className={cn("h-3 w-3", isRestoringArchived && "animate-spin")} />
+            {t("chat.restoreSession", "Restore")}
+          </Button>
+        </div>
+      )}
+
       {/* ─── Child session back bar ─── */}
       {isViewingChild && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/30">
@@ -836,7 +931,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft size={14} />
-            <span>返回主会话</span>
+            <span>{t("chat.backToMainSession", "Back to main session")}</span>
           </button>
           <div className="flex items-center gap-1.5 ml-auto text-xs text-muted-foreground">
             <Bot size={12} />
@@ -870,9 +965,19 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           "flex-1 min-h-0 flex flex-col overflow-hidden",
           "transition-opacity duration-150 ease-in-out motion-reduce:transition-none",
         )}
-        style={{ opacity: isViewingChild ? 1 : sessionFadeOpacity }}
+        style={{ opacity: isViewingArchived || isViewingChild ? 1 : sessionFadeOpacity }}
       >
-        {isViewingChild ? (
+        {isViewingArchived ? (
+          <MessageList
+            ref={messageListRef}
+            messages={archivedSessionMessages}
+            activeSessionId={viewingArchivedSessionId}
+            isStreaming={false}
+            streamingMessageId={null}
+            compact={compact}
+            sessionDirectory={archivedSession?.directory}
+          />
+        ) : isViewingChild ? (
           isLoadingChildMessages ? (
             <div className="flex items-center justify-center flex-1">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -896,12 +1001,32 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             streamingMessageId={streamingMessageId}
             compact={compact}
             emptyState={emptyState}
+            bottomContent={messageBottomContent}
           />
         )}
       </div>
 
       {/* ─── Input Area (with Permission & Error UI above it) ─────────── */}
-      {!isViewingChild && (
+      {isViewingArchived ? (
+        <div className="border-t border-border bg-background px-3 py-3">
+          {archivedSessionError && (
+            <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="min-w-0">
+                <div className="font-medium">
+                  {t("chat.archivedSessionLoadError", "Could not load archived session")}
+                </div>
+                <div className="break-words text-xs text-destructive/80">
+                  {archivedSessionError}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            {t("chat.restoreArchivedHint", "Restore this session to continue chatting")}
+          </div>
+        </div>
+      ) : !isViewingChild && (
         activeInputQuestion ? (
           <QuestionInputDock
             compact={compact}
@@ -936,18 +1061,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
                   />
                 ) : null}
                 <PendingPermissionInline />
-                {sessionError && (
-                  <SessionErrorAlert
-                    error={sessionError}
-                    onDismiss={clearSessionError}
-                  />
-                )}
-                {error && !sessionError && (
-                  <SessionErrorAlert
-                    error={error}
-                    onDismiss={() => setError(null)}
-                  />
-                )}
               </>
             }
           />

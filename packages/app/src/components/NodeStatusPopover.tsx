@@ -1,4 +1,6 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { useP2pEngineStore, type PeerConnection } from "@/stores/p2p-engine"
@@ -21,40 +23,40 @@ function connectionDot(connection: PeerConnection): string {
   }
 }
 
-function connectionLabel(connection: PeerConnection, lastSeenSecsAgo: number): string {
+function connectionLabel(connection: PeerConnection, lastSeenSecsAgo: number, t: TFunction): string {
   switch (connection) {
     case "active":
-      return "Online"
+      return t("nodeStatus.online", "Online")
     case "stale": {
-      if (lastSeenSecsAgo < 60) return `Stale ${lastSeenSecsAgo}s`
+      if (lastSeenSecsAgo < 60) return t("nodeStatus.staleSeconds", { count: lastSeenSecsAgo })
       const mins = Math.floor(lastSeenSecsAgo / 60)
-      return `Stale ${mins}m`
+      return t("nodeStatus.staleMinutes", { count: mins })
     }
     case "lost": {
-      if (lastSeenSecsAgo < 60) return `Offline ${lastSeenSecsAgo}s`
+      if (lastSeenSecsAgo < 60) return t("nodeStatus.offlineSeconds", { count: lastSeenSecsAgo })
       const mins = Math.floor(lastSeenSecsAgo / 60)
-      if (mins < 60) return `Offline ${mins}m`
+      if (mins < 60) return t("nodeStatus.offlineMinutes", { count: mins })
       const hrs = Math.floor(mins / 60)
-      return `Offline ${hrs}h`
+      return t("nodeStatus.offlineHours", { count: hrs })
     }
     case "unknown":
     default:
-      return "Unknown"
+      return t("nodeStatus.unknown", "Unknown")
   }
 }
 
-function formatLastSync(iso: string | null): string {
-  if (!iso) return "Never"
+function formatLastSync(iso: string | null, t: TFunction): string {
+  if (!iso) return t("common.never", "Never")
   const date = new Date(iso)
   const secsAgo = Math.floor((Date.now() - date.getTime()) / 1000)
-  if (secsAgo < 5) return "Just now"
-  if (secsAgo < 60) return `${secsAgo}s ago`
+  if (secsAgo < 5) return t("common.justNow", "Just now")
+  if (secsAgo < 60) return t("nodeStatus.secondsAgo", { count: secsAgo })
   const mins = Math.floor(secsAgo / 60)
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 60) return t("nodeStatus.minutesAgoShort", { count: mins })
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
+  if (hrs < 24) return t("nodeStatus.hoursAgoShort", { count: hrs })
   const days = Math.floor(hrs / 24)
-  return `${days}d ago`
+  return t("nodeStatus.daysAgoShort", { count: days })
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -74,8 +76,9 @@ interface MemberRowProps {
 }
 
 function MemberRow({ name, role, isLocal, connection, lastSeenSecsAgo }: MemberRowProps) {
+  const { t } = useTranslation()
   const dotColor = isLocal ? "bg-blue-500" : connectionDot(connection)
-  const label = isLocal ? "This device" : connectionLabel(connection, lastSeenSecsAgo)
+  const label = isLocal ? t("nodeStatus.thisDevice", "This device") : connectionLabel(connection, lastSeenSecsAgo, t)
   const labelColor = isLocal
     ? "text-blue-500"
     : connection === "active"
@@ -105,6 +108,7 @@ function MemberRow({ name, role, isLocal, connection, lastSeenSecsAgo }: MemberR
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation()
   const snapshot = useP2pEngineStore((s) => s.snapshot)
   const fetchSnapshot = useP2pEngineStore((s) => s.fetch)
   const members = useTeamMembersStore((s) => s.members)
@@ -150,12 +154,12 @@ export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
     : "bg-red-500"
 
   const statusLabel = isHealthy
-    ? "Connected"
+    ? t("nodeStatus.connected", "Connected")
     : isDegraded
-    ? "Degraded"
+    ? t("nodeStatus.degraded", "Degraded")
     : isReconnecting
-    ? "Reconnecting..."
-    : "Disconnected"
+    ? t("nodeStatus.reconnecting", "Reconnecting...")
+    : t("nodeStatus.disconnected", "Disconnected")
 
   const showEngineInfo = !isHealthy && streamHealth !== "healthy"
 
@@ -226,11 +230,11 @@ export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
         {showEngineInfo && (
           <div className="mb-2 space-y-0.5">
             <p className="text-[10px] text-muted-foreground">
-              Engine: {streamHealth}
+              {t("nodeStatus.engine", "Engine")}: {streamHealth}
             </p>
             {restartCount > 0 && (
               <p className="text-[10px] text-muted-foreground">
-                Restarts: {restartCount}
+                {t("nodeStatus.restarts", "Restarts")}: {restartCount}
               </p>
             )}
           </div>
@@ -239,15 +243,15 @@ export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
         {/* ── Stats ── */}
         <div className="space-y-1 mb-1">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">Last sync</span>
-            <span className="text-[10px] text-foreground">{formatLastSync(lastSyncAt)}</span>
+            <span className="text-[10px] text-muted-foreground">{t("nodeStatus.lastSync", "Last sync")}</span>
+            <span className="text-[10px] text-foreground">{formatLastSync(lastSyncAt, t)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">Synced files</span>
+            <span className="text-[10px] text-muted-foreground">{t("nodeStatus.syncedFiles", "Synced files")}</span>
             <span className="text-[10px] text-foreground">{syncedFiles}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">Pending files</span>
+            <span className="text-[10px] text-muted-foreground">{t("nodeStatus.pendingFiles", "Pending files")}</span>
             <span
               className={cn(
                 "text-[10px]",
@@ -264,7 +268,7 @@ export function NodeStatusPopover({ children }: { children: React.ReactNode }) {
           <>
             <Separator className="my-2" />
             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
-              Team Members ({sortedRows.length})
+              {t("nodeStatus.teamMembers", { count: sortedRows.length })}
             </p>
             <div className="space-y-0.5">
               {sortedRows.map((row) => (

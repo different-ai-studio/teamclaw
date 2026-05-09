@@ -56,6 +56,11 @@ vi.mock('@/components/ui/dialog', () => ({
 vi.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children }: any) => <div>{children}</div>,
 }))
+vi.mock('@/components/ui/collapsible', () => ({
+  Collapsible: ({ children }: any) => <div>{children}</div>,
+  CollapsibleContent: ({ children }: any) => <div>{children}</div>,
+  CollapsibleTrigger: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+}))
 vi.mock('@/components/ui/textarea', () => ({
   Textarea: (props: any) => <textarea {...props} />,
 }))
@@ -68,5 +73,31 @@ describe('CronJobDialog', () => {
       <CronJobDialog open={false} onOpenChange={vi.fn()} />
     )
     expect(container.innerHTML).toBe('')
+  })
+
+  it('does not render the deprecated timeout field when editing a legacy job', () => {
+    const now = new Date().toISOString()
+    const { queryByText } = render(
+      <CronJobDialog
+        open
+        onOpenChange={vi.fn()}
+        editJob={{
+          id: 'job-1',
+          name: 'Legacy job',
+          enabled: true,
+          schedule: { kind: 'every', everyMs: 30 * 60 * 1000 },
+          payload: {
+            message: 'legacy',
+            timeoutSeconds: 30,
+          },
+          deleteAfterRun: false,
+          createdAt: now,
+          updatedAt: now,
+        }}
+      />
+    )
+
+    expect(queryByText('Timeout (seconds)')).toBeNull()
+    expect(queryByText(/Auto-aborts if exceeded/)).toBeNull()
   })
 })

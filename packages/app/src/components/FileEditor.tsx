@@ -737,7 +737,7 @@ export function FileEditor({
                   ? "text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30"
                   : "text-muted-foreground/50"
               }`}
-              title={isModified ? `Save (⌘S)` : t("app.noChanges", "No changes")}
+              title={isModified ? `${t("common.save", "Save")} (⌘S)` : t("app.noChanges", "No changes")}
             >
               {isSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

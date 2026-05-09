@@ -75,7 +75,7 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0(react@19.2.5)(zod@3.25.76)
       '@opencode-ai/sdk':
-        specifier: ^1.4.0
+        specifier: ^1.14.18
         version: 1.14.18
       '@radix-ui/react-avatar':
         specifier: ^1.1.11

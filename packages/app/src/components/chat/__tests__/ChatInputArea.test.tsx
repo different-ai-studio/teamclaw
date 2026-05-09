@@ -80,6 +80,17 @@ describe('ChatInputArea', () => {
     expect(editable).not.toBeNull();
   });
 
+  it('disables browser text assistance on the contenteditable input', () => {
+    const { container } = render(
+      <ChatInputArea {...defaultProps} inputValue="" />
+    );
+    const editable = container.querySelector('[contenteditable]');
+
+    expect(editable?.getAttribute('autocorrect')).toBe('off');
+    expect(editable?.getAttribute('autocapitalize')).toBe('off');
+    expect(editable?.getAttribute('spellcheck')).toBe('false');
+  });
+
   it('renders differently when isStreaming is true vs false', () => {
     const { container: streamingContainer } = render(
       <ChatInputArea {...defaultProps} isStreaming={true} />

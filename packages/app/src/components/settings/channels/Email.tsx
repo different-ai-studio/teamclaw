@@ -49,6 +49,7 @@ export function EmailChannel() {
     emailHasChanges,
     emailIsTesting,
     emailTestResult,
+    gmailAuthUrl,
     saveEmailConfig,
     startEmailGateway,
     stopEmailGateway,
@@ -373,6 +374,26 @@ export function EmailChannel() {
                     </span>
                   )}
                 </div>
+                {gmailAuthUrl && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-900/20 p-3 space-y-2">
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      {t(
+                        'settings.channels.email.gmailAuthUrlHint',
+                        "If your browser didn't open automatically, copy the URL below and open it manually to complete authorization.",
+                      )}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Input readOnly value={gmailAuthUrl} className="text-xs font-mono" />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigator.clipboard.writeText(gmailAuthUrl)}
+                      >
+                        {t('settings.channels.email.copy', 'Copy')}
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {emailTestResult && (
                   <div className={cn(
                     'flex items-center gap-2 text-sm p-2 rounded',

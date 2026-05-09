@@ -136,6 +136,7 @@ export interface OpenCodeClientCompat {
   getSessionChildren: typeof getSessionChildren
   deleteSession: typeof deleteSession
   archiveSession: typeof archiveSession
+  restoreSession: typeof restoreSession
   updateSession: typeof updateSession
   abortSession: typeof abortSession
   getMessages: typeof getMessages
@@ -179,7 +180,7 @@ let compatClient: OpenCodeClientCompat | null = null
 function buildCompat(): OpenCodeClientCompat {
   return {
     createSession, listSessions, getSession, getSessionChildren, deleteSession,
-    archiveSession, updateSession, abortSession, getMessages,
+    archiveSession, restoreSession, updateSession, abortSession, getMessages,
     sendMessage, sendMessageWithParts, sendMessageAsync,
     sendMessageWithPartsAsync, replyQuestion, rejectQuestion,
     listQuestions, getTodos, getSessionDiff, getFileStatus,
@@ -236,6 +237,38 @@ function dir(): string | undefined {
   return currentConfig?.workspacePath || undefined
 }
 
+type SyncHistoryEvent = {
+  id: string
+  aggregate_id: string
+  seq: number
+  type: string
+  data: Record<string, unknown>
+}
+
+function createSyncEventId(): string {
+  const random =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `teamclaw-restore-${random}`
+}
+
+async function getNextSyncSequence(
+  c: OpencodeClient,
+  id: string,
+  directory: string,
+): Promise<number> {
+  const result = await c.sync.history.list({
+    directory,
+    body: {},
+  })
+  const events = unwrap(result) as unknown as SyncHistoryEvent[]
+  const latest = events
+    .filter((event) => event.aggregate_id === id)
+    .reduce((max, event) => Math.max(max, event.seq), -1)
+  return latest + 1
+}
+
 // ---------------------------------------------------------------------------
 // Session convenience wrappers
 // ---------------------------------------------------------------------------
@@ -249,12 +282,21 @@ export async function createSession(): Promise<Session> {
 export async function listSessions(options?: {
   directory?: string
   roots?: boolean
+  archived?: boolean
 }): Promise<SessionListItem[]> {
   const c = getRawSdkClient()
-  const result = await c.session.list({
+  const hasArchivedFilter =
+    options != null && Object.prototype.hasOwnProperty.call(options, 'archived')
+  const params = {
     directory: options?.directory || dir(),
     roots: options?.roots,
-  })
+  }
+  const result = hasArchivedFilter
+    ? await c.experimental.session.list({
+      ...params,
+      archived: options?.archived,
+    })
+    : await c.session.list(params)
   return unwrap(result) as unknown as SessionListItem[]
 }
 
@@ -282,6 +324,38 @@ export async function archiveSession(id: string, directory?: string): Promise<vo
     sessionID: id,
     directory: directory || dir(),
     time: { archived: Date.now() },
+  })
+  unwrap(result)
+}
+
+export async function restoreSession(id: string, directory?: string): Promise<void> {
+  const c = getRawSdkClient()
+  const resolvedDirectory = directory || dir()
+  if (!resolvedDirectory) {
+    throw new Error('Cannot restore an archived session without a workspace directory.')
+  }
+
+  // OpenCode's session.update schema only accepts numeric archive timestamps;
+  // clearing archive state has to go through the sync event projector.
+  const result = await c.sync.replay({
+    query_directory: resolvedDirectory,
+    body_directory: resolvedDirectory,
+    events: [
+      {
+        id: createSyncEventId(),
+        aggregateID: id,
+        seq: await getNextSyncSequence(c, id, resolvedDirectory),
+        type: 'session.updated.1',
+        data: {
+          sessionID: id,
+          info: {
+            time: {
+              archived: null,
+            },
+          },
+        },
+      },
+    ],
   })
   unwrap(result)
 }

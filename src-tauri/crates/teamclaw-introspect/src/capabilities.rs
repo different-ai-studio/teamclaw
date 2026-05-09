@@ -97,16 +97,12 @@ fn build_overview(workspace: &str) -> Result<Value, String> {
     let members = crate::config::read_team_members(workspace).unwrap_or(json!({}));
     let member_count = members.as_object().map(|m| m.len()).unwrap_or(0);
 
-    let cron_jobs = crate::config::read_cron_jobs(workspace).unwrap_or(json!([]));
-    let cron_total = cron_jobs.as_array().map(|a| a.len()).unwrap_or(0);
+    let cron_jobs = crate::config::cron_jobs_from_value(&crate::config::read_cron_jobs(workspace)?);
+    let cron_total = cron_jobs.len();
     let cron_enabled = cron_jobs
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter(|j| j.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false))
-                .count()
-        })
-        .unwrap_or(0);
+        .iter()
+        .filter(|j| j.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false))
+        .count();
 
     Ok(json!({
         "channels": {
@@ -376,7 +372,7 @@ fn build_team_info(workspace: &str) -> Result<Value, String> {
 
 fn build_cron_jobs(workspace: &str) -> Result<Value, String> {
     let raw = crate::config::read_cron_jobs(workspace)?;
-    let jobs = raw.as_array().cloned().unwrap_or_default();
+    let jobs = crate::config::cron_jobs_from_value(&raw);
 
     let safe: Vec<Value> = jobs
         .iter()

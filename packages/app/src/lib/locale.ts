@@ -1,6 +1,22 @@
 import { appShortName } from '@/lib/build-config'
 
 export const LANGUAGE_STORAGE_KEY = `${appShortName}-language`
+export const SUPPORTED_LANGUAGES = ['en', 'zh-CN'] as const
+
+export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]
+
+export const LANGUAGE_OPTIONS: Array<{
+  value: SupportedLanguage
+  labelKey: string
+  fallback: string
+}> = [
+  { value: 'en', labelKey: 'common.english', fallback: 'English' },
+  { value: 'zh-CN', labelKey: 'common.chinese', fallback: '中文' },
+]
+
+export function isSupportedLanguage(language: string | null | undefined): language is SupportedLanguage {
+  return SUPPORTED_LANGUAGES.includes(language as SupportedLanguage)
+}
 
 function getStorage(): Storage | undefined {
   if (typeof window !== 'undefined' && window.localStorage) {

@@ -158,6 +158,25 @@ describe('session store: message behavior', () => {
       expect(session!.messages[1].isStreaming).toBe(true);
     });
 
+    it('timestamps pending assistant after the optimistic user message for stable ordering', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-01T10:00:00.000Z'));
+
+      try {
+        await useSessionStore.getState().sendMessage('Hello agent');
+
+        const session = useSessionStore.getState().sessions.find((s) => s.id === 'sess-1');
+        expect(session).toBeTruthy();
+        const [userMessage, pendingAssistant] = session!.messages;
+
+        expect(userMessage.role).toBe('user');
+        expect(pendingAssistant.role).toBe('assistant');
+        expect(pendingAssistant.timestamp.getTime()).toBe(userMessage.timestamp.getTime() + 1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('calls sendMessageAsync with correct session and content', async () => {
       await useSessionStore.getState().sendMessage('test content');
       expect(mockSendMessageAsync).toHaveBeenCalledTimes(1);
@@ -206,6 +225,7 @@ describe('session store: message behavior', () => {
       const state = useSessionStore.getState();
       // Error should be set
       expect(state.error).toBe('Network failure');
+      expect(state.errorSessionId).toBe('sess-1');
       // Pending assistant message should be removed
       const session = state.sessions.find((s) => s.id === 'sess-1');
       const assistantMsgs = session!.messages.filter((m) => m.role === 'assistant');
@@ -282,6 +302,49 @@ describe('session store: message behavior', () => {
       await useSessionStore.getState().abortSession();
       expect(mockAbortSession).not.toHaveBeenCalled();
     });
+
+    it('does not clear pending approvals owned by another session', async () => {
+      useSessionStore.setState({
+        sessions: [
+          {
+            id: 'sess-1',
+            title: 'Waiting Session',
+            messages: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          {
+            id: 'sess-2',
+            title: 'Active Session',
+            messages: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        activeSessionId: 'sess-2',
+        pendingPermissions: [
+          {
+            permission: {
+              id: 'perm-1',
+              sessionID: 'sess-1',
+              permission: 'bash',
+              patterns: ['ls'],
+            },
+            childSessionId: null,
+            ownerSessionId: 'sess-1',
+          },
+        ],
+      });
+
+      await useSessionStore.getState().abortSession();
+
+      expect(useSessionStore.getState().pendingPermissions).toEqual([
+        expect.objectContaining({
+          permission: expect.objectContaining({ id: 'perm-1' }),
+          ownerSessionId: 'sess-1',
+        }),
+      ]);
+    });
   });
 
   describe('simple state setters', () => {
@@ -296,9 +359,11 @@ describe('session store: message behavior', () => {
     it('setError sets and clears error', () => {
       useSessionStore.getState().setError('Something went wrong');
       expect(useSessionStore.getState().error).toBe('Something went wrong');
+      expect(useSessionStore.getState().errorSessionId).toBe('sess-1');
 
       useSessionStore.getState().setError(null);
       expect(useSessionStore.getState().error).toBeNull();
+      expect(useSessionStore.getState().errorSessionId).toBeNull();
     });
 
     it('setInactivityWarning toggles warning state', () => {

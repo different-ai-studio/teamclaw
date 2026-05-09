@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTelemetryStore } from '@/stores/telemetry'
@@ -10,6 +11,7 @@ interface MessageStarRatingProps {
 }
 
 export function MessageStarRating({ sessionId, messageId }: MessageStarRatingProps) {
+  const { t } = useTranslation()
   const setStarRating = useTelemetryStore((s) => s.setStarRating)
   const removeStarRating = useTelemetryStore((s) => s.removeStarRating)
   const starRatingCache = useTelemetryStore((s) => s.starRatingCache)
@@ -40,7 +42,7 @@ export function MessageStarRating({ sessionId, messageId }: MessageStarRatingPro
       )}
     >
       <span className="text-xs text-muted-foreground/60 select-none">
-        How was this result?
+        {t('telemetry.rating.question', 'How was this result?')}
       </span>
       <div
         className="inline-flex items-center gap-0"
@@ -59,7 +61,7 @@ export function MessageStarRating({ sessionId, messageId }: MessageStarRatingPro
                   ? 'text-amber-400'
                   : 'text-muted-foreground/30 hover:text-amber-400/60',
               )}
-              title={`${star} star${star > 1 ? 's' : ''}`}
+              title={t('telemetry.rating.starLabel', { count: star })}
             >
               <Star
                 className="h-3.5 w-3.5"

@@ -1,4 +1,5 @@
 import { useEffect, useState, lazy, Suspense, useCallback, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { gitManager } from '@/lib/git/manager'
 import type { GitLogEntry } from '@/lib/git/types'
@@ -34,6 +35,7 @@ export function FileHistoryView({
   filePath,
   isDark,
 }: FileHistoryViewProps) {
+  const { t } = useTranslation()
   const [commits, setCommits] = useState<GitLogEntry[]>([])
   const [selectedSha, setSelectedSha] = useState<string | null>(null)
   const [before, setBefore] = useState<string | null>(null)
@@ -109,7 +111,10 @@ export function FileHistoryView({
       .then(([b, a]) => {
         if (cancelled) return
         if (a === null) {
-          setDiffError(`无法加载该提交的内容 (${selectedSha.slice(0, 7)})`)
+          setDiffError(t('history.loadCommitContentFailed', {
+            sha: selectedSha.slice(0, 7),
+            defaultValue: 'Unable to load content for this commit ({{sha}})',
+          }))
           setBefore(null)
           setAfter(null)
         } else {
@@ -127,7 +132,7 @@ export function FileHistoryView({
     return () => {
       cancelled = true
     }
-  }, [selectedSha, selectedEntry, repoPath, relativePath])
+  }, [selectedSha, selectedEntry, repoPath, relativePath, t])
 
   const handleLoadMore = useCallback(() => {
     if (loadingMore) return
@@ -164,7 +169,7 @@ export function FileHistoryView({
           <div className="p-3 text-xs text-red-500">
             {listError}
             <button type="button" onClick={fetchInitial} className="ml-2 underline">
-              重试
+              {t('common.retry', 'Retry')}
             </button>
           </div>
         ) : (
@@ -181,7 +186,7 @@ export function FileHistoryView({
       <div className="flex-1 overflow-hidden">
         {showEmpty ? (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            该文件还没有提交历史
+            {t('history.noFileHistory', 'This file has no commit history yet')}
           </div>
         ) : loadingDiff ? (
           <div className="flex items-center justify-center h-full">
@@ -193,7 +198,7 @@ export function FileHistoryView({
           </div>
         ) : showSizeGuard ? (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            文件过大或为二进制，跳过 diff
+            {t('history.diffSkippedTooLarge', 'File is too large or binary, skipping diff')}
           </div>
         ) : after !== null ? (
           <Suspense

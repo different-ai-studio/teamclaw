@@ -106,4 +106,29 @@ describe('QuestionInputDock', () => {
     });
     expect(mockAnswerQuestion).not.toHaveBeenCalled();
   });
+
+  it('renders markdown in the question prompt', () => {
+    render(
+      <QuestionInputDock
+        pendingQuestion={{
+          questionId: 'question-event-3',
+          toolCallId: 'tool-call-3',
+          messageId: 'message-3',
+          questions: [
+            {
+              id: 'q-1',
+              header: 'Item #1',
+              question: '### **Title**: choose the `payment_update` path\n\nUse **adopt** when the source matches.',
+              options: [{ label: 'adopt', value: 'adopt' }],
+            },
+          ],
+          source: 'opencode',
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { level: 3, name: /title\s*: choose the payment_update path/i })).toBeTruthy();
+    expect(screen.getByText('payment_update').tagName).toBe('CODE');
+    expect(screen.queryByText(/### \*\*Title\*\*/)).toBeNull();
+  });
 });

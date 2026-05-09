@@ -513,12 +513,12 @@ export const FileTreeItem = React.memo(function FileTreeItem({
               useTabsStore.getState().openTab({
                 type: "native",
                 target: "version-history",
-                label: "版本历史",
+                label: t("versionHistory.title", "Version history"),
               })
             })}
           >
             <History className="h-4 w-4" />
-            版本历史
+            {t("versionHistory.title", "Version history")}
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />

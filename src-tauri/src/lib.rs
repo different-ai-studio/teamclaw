@@ -41,6 +41,7 @@ mod commands;
 pub mod process_util;
 pub mod sentry_utils;
 mod telemetry;
+mod webview_recovery;
 
 /// Get the mtime of the user's shell profile file as a u64 (seconds since epoch).
 /// Returns 0 if the file doesn't exist or can't be read.
@@ -577,6 +578,7 @@ pub fn run() {
             commands::webview::webview_find_in_page,
             commands::webview::webview_clear_find,
             commands::webview::webview_set_zoom,
+            commands::workspace_files::read_workspace_directory,
             commands::workspace_files::read_workspace_text_file,
             commands::workspace_files::read_workspace_binary_file,
             commands::app_settings::get_spotlight_shortcut,
@@ -705,6 +707,9 @@ pub fn run() {
                             app_handle.clone(),
                             &state,
                             config,
+                            // Early launch is always the main window's resume —
+                            // it should keep the last-workspace marker in sync.
+                            true,
                         ).await;
                         let _ = tx.send(Some(result));
                     });
@@ -1021,6 +1026,9 @@ pub fn run() {
             match event {
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
+                    if webview_recovery::request_restart_if_main_webview_unhealthy(app, "macOS reopen") {
+                        return;
+                    }
                     // Always show the main window when the dock icon is clicked.
                     // Tauri's `has_visible_windows` can report `true` even when
                     // the window was hidden via `win.hide()`, so we ignore it and
@@ -1028,6 +1036,19 @@ pub fn run() {
                     let state = app.state::<commands::spotlight::SpotlightState>();
                     commands::spotlight::show_main_window(app.clone(), state);
                     maybe_emit_app_active(app);
+                }
+                tauri::RunEvent::Resumed => {
+                    let app_handle = app.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(750));
+                        let app_for_probe = app_handle.clone();
+                        let _ = app_handle.run_on_main_thread(move || {
+                            webview_recovery::request_restart_if_main_webview_unhealthy(
+                                &app_for_probe,
+                                "event loop resume",
+                            );
+                        });
+                    });
                 }
                 tauri::RunEvent::Exit => {
                     // Kill the OpenCode sidecar synchronously.

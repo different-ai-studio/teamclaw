@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 
 let shouldThrowMarkdown = false
@@ -19,7 +19,9 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
-  DialogContent: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
+  DialogContent: ({ children, className }: React.PropsWithChildren<{ className?: string }>) => (
+    React.createElement('div', { className, 'data-testid': 'dialog-content' }, children)
+  ),
   DialogTitle: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
 }))
 
@@ -37,14 +39,15 @@ vi.mock('react-markdown', () => ({
       throw new Error('Invalid regular expression: invalid group specifier name')
     }
 
-    const mermaidMatch = children.match(/^```(\w+)\n([\s\S]*?)\n```$/)
-    if (mermaidMatch && components?.code) {
+    const fencedCodeMatch = children.match(/^```([^\n]*)\n([\s\S]*?)\n```$/)
+    if (fencedCodeMatch && components?.code) {
+      const language = fencedCodeMatch[1].trim()
       return React.createElement(
         'div',
         { 'data-testid': 'markdown' },
         components.code({
-          className: `language-${mermaidMatch[1]}`,
-          children: mermaidMatch[2],
+          className: language ? `language-${language}` : undefined,
+          children: fencedCodeMatch[2],
         }),
       )
     }
@@ -69,6 +72,7 @@ vi.mock('lucide-react', () => ({
   X: () => React.createElement('span', null, 'X'),
   Copy: () => React.createElement('span', null, 'Copy'),
   Check: () => React.createElement('span', null, 'Check'),
+  Maximize2: () => React.createElement('span', null, 'Maximize2'),
 }))
 
 beforeEach(() => {
@@ -178,6 +182,61 @@ describe('image preview rendering', () => {
 })
 
 describe('MessageResponse', () => {
+  it('normalizes bare unicode box diagrams into text code fences', async () => {
+    const { normalizeAssistantMarkdownForDisplay } = await import('@/packages/ai/message')
+
+    const source = [
+      '4.2 数据流：从管理后台到存储',
+      '┌─────────────────────────────┐',
+      '│ ACCOUNTING_ADMIN_PORTAL      │',
+      '├─────────────────────────────┤',
+      '│ /adminv2/api/grpc-proxy      │',
+      '└─────────────────────────────┘',
+      '',
+      '下一段内容',
+    ].join('\n')
+
+    expect(normalizeAssistantMarkdownForDisplay(source)).toBe([
+      '4.2 数据流：从管理后台到存储',
+      '',
+      '```text',
+      '┌─────────────────────────────┐',
+      '│ ACCOUNTING_ADMIN_PORTAL      │',
+      '├─────────────────────────────┤',
+      '│ /adminv2/api/grpc-proxy      │',
+      '└─────────────────────────────┘',
+      '```',
+      '',
+      '下一段内容',
+    ].join('\n'))
+  })
+
+  it('normalizes bare ascii box diagrams without changing markdown tables', async () => {
+    const { normalizeAssistantMarkdownForDisplay } = await import('@/packages/ai/message')
+
+    const source = [
+      '+----------------------+',
+      '| service | database   |',
+      '+----------------------+',
+      '',
+      '| col | value |',
+      '| --- | ----- |',
+      '| a   | b     |',
+    ].join('\n')
+
+    expect(normalizeAssistantMarkdownForDisplay(source)).toBe([
+      '```text',
+      '+----------------------+',
+      '| service | database   |',
+      '+----------------------+',
+      '```',
+      '',
+      '| col | value |',
+      '| --- | ----- |',
+      '| a   | b     |',
+    ].join('\n'))
+  })
+
   it('falls back to plain text when markdown rendering throws', async () => {
     shouldThrowMarkdown = true
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -221,6 +280,60 @@ describe('MessageResponse', () => {
       expect(container.querySelector('[data-testid="mermaid-svg"]')).toBeTruthy()
     })
     expect(container.querySelector('pre')).toBeNull()
+  })
+
+  it('opens a larger mermaid preview without rendering the diagram again', async () => {
+    const { Message, MessageContent, MessageResponse } = await import('@/packages/ai/message')
+
+    const mermaidSource = [
+      '```mermaid',
+      'flowchart LR',
+      '  A[Start] --> B[Done]',
+      '```',
+    ].join('\n')
+
+    render(
+      React.createElement(Message, { from: 'assistant' },
+        React.createElement(MessageContent, null,
+          React.createElement(MessageResponse, null, mermaidSource)
+        )
+      )
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mermaid-block')).toBeTruthy()
+      expect(screen.getByTestId('mermaid-svg')).toBeTruthy()
+    })
+
+    expect(mermaidRenderMock).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '放大流程图' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('mermaid-svg')).toHaveLength(2)
+    })
+    expect(mermaidRenderMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses a compact mermaid preview button and content-sized dialog', async () => {
+    const { Message, MessageContent, MessageResponse } = await import('@/packages/ai/message')
+
+    render(
+      React.createElement(Message, { from: 'assistant' },
+        React.createElement(MessageContent, null,
+          React.createElement(MessageResponse, null, '```mermaid\nflowchart LR\nA --> B\n```')
+        )
+      )
+    )
+
+    const expandButton = await screen.findByRole('button', { name: '放大流程图' })
+    expect(expandButton.className).toContain('h-6 w-6')
+
+    fireEvent.click(expandButton)
+
+    const dialogContent = await screen.findByTestId('dialog-content')
+    expect(dialogContent.className).toContain('max-h-[82vh]')
+    expect(dialogContent.className).not.toContain('h-[86vh]')
   })
 
   it('falls back to a normal mermaid code block when diagram rendering fails', async () => {
@@ -286,7 +399,24 @@ describe('MessageResponse', () => {
 
     expect(container.querySelector('[data-testid="mermaid-block"]')).toBeNull()
     expect(container.querySelector('pre')).toBeTruthy()
+    expect(container.querySelector('pre')?.className).toContain('[overflow-wrap:normal]')
     expect(screen.getByText('const answer = 42')).toBeTruthy()
     expect(mermaidRenderMock).not.toHaveBeenCalled()
+  })
+
+  it('renders fenced code without a language as a block', async () => {
+    const { Message, MessageContent, MessageResponse } = await import('@/packages/ai/message')
+
+    const { container } = render(
+      React.createElement(Message, { from: 'assistant' },
+        React.createElement(MessageContent, null,
+          React.createElement(MessageResponse, null, '```\n┌────┐\n│ UI │\n└────┘\n```')
+        )
+      )
+    )
+
+    expect(container.querySelector('pre')).toBeTruthy()
+    expect(container.querySelector('pre')?.textContent).toContain('┌────┐')
+    expect(container.querySelector('code')?.className).not.toContain('[overflow-wrap:anywhere]')
   })
 })

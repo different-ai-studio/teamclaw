@@ -191,6 +191,38 @@ describe('session-sse-lifecycle-handlers', () => {
     expect(clearStreamingSpy).not.toHaveBeenCalled()
   })
 
+  it('handleSessionIdle clears active streaming when only another session owns pending approval', () => {
+    state.activeSessionId = 'sess-2'
+    state.sessions = [
+      { id: 'sess-1', messages: [] },
+      { id: 'sess-2', messages: [] },
+    ]
+    state.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-1',
+          sessionID: 'sess-1',
+          permission: 'write',
+          patterns: ['/test'],
+        },
+        childSessionId: null,
+        ownerSessionId: 'sess-1',
+      },
+    ]
+    useStreamingStore.setState({ streamingMessageId: 'msg-2' })
+    sessionLookupCache.set('sess-2', {
+      id: 'sess-2',
+      messages: [{ id: 'msg-2', isStreaming: true, content: '', parts: [], role: 'assistant', timestamp: new Date(), sessionId: 'sess-2' }],
+      updatedAt: new Date(),
+    } as any)
+
+    const clearStreamingSpy = vi.spyOn(useStreamingStore.getState(), 'clearStreaming')
+
+    handlers.handleSessionIdle({ sessionId: 'sess-2', type: 'session.idle' } as any)
+
+    expect(clearStreamingSpy).toHaveBeenCalled()
+  })
+
   it('handleSessionIdle preserves streaming when buffer has content', async () => {
     state.activeSessionId = 'sess-1'
     state.pendingQuestions = []
@@ -261,6 +293,47 @@ describe('session-sse-lifecycle-handlers', () => {
         }),
       }),
     }))
+  })
+
+  it('handleSessionStatus idle keeps pending permissions and questions for active approvals', () => {
+    state.activeSessionId = 'sess-1'
+    state.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-1',
+          sessionID: 'sess-1',
+          permission: 'bash',
+          patterns: ['ls'],
+        },
+        childSessionId: null,
+        ownerSessionId: 'sess-1',
+      },
+    ]
+    state.pendingQuestions = [
+      {
+        questionId: 'question-1',
+        toolCallId: 'tool-question-1',
+        messageId: 'msg-1',
+        sessionId: 'sess-1',
+        questions: [{ question: 'Continue?', options: [] }],
+      },
+    ]
+
+    handlers.handleSessionStatus({
+      sessionId: 'sess-1',
+      status: { type: 'idle' },
+    } as any)
+
+    expect(state.pendingPermissions).toEqual([
+      expect.objectContaining({
+        permission: expect.objectContaining({ id: 'perm-1' }),
+      }),
+    ])
+    expect(state.pendingQuestions).toEqual([
+      expect.objectContaining({
+        questionId: 'question-1',
+      }),
+    ])
   })
 
   it('does not clean up child session when child permission is still pending', async () => {

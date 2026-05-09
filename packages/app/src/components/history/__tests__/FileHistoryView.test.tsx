@@ -18,6 +18,28 @@ vi.mock('@/components/diff/DiffRenderer', () => ({
   ),
 }))
 
+vi.mock('react-i18next', () => ({
+  useTranslation: (() => {
+    const translations: Record<string, string> = {
+      'common.retry': '重试',
+      'history.noFileHistory': '该文件还没有提交历史',
+      'history.diffSkippedTooLarge': '文件过大或为二进制，跳过 diff',
+      'sidebar.loadMore': '加载更多',
+    }
+    const t = (key: string, options?: string | { sha?: string; defaultValue?: string }) => {
+      if (key === 'history.loadCommitContentFailed') {
+        const sha = typeof options === 'object' ? options.sha : undefined
+        return `无法加载该提交的内容 (${sha ?? ''})`
+      }
+      return translations[key] ?? (typeof options === 'string' ? options : key)
+    }
+    return () => ({
+      i18n: { language: 'zh-CN' },
+      t,
+    })
+  })(),
+}))
+
 import { FileHistoryView } from '../FileHistoryView'
 
 const initial: GitLogEntry = {
