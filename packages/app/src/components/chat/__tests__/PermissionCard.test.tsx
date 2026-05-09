@@ -43,6 +43,12 @@ const sessionState = {
       metadata?: Record<string, string>;
     };
     childSessionId: string | null;
+    productionRisk?: {
+      level: 'production_data';
+      reasons: string[];
+      matchedRules: string[];
+      allowAlways: false;
+    };
     ownerSessionId?: string | null;
   }>,
   replyPermission: vi.fn(() => Promise.resolve()),
@@ -172,6 +178,34 @@ describe('PendingPermissionInline', () => {
     await waitFor(() => {
       expect(replyMock).toHaveBeenCalledWith('perm-1', 'allow');
     });
+  });
+
+  it('renders production-risk permission without an always-allow action', async () => {
+    sessionState.pendingPermissions = [
+      {
+        permission: {
+          id: 'perm-prod-1',
+          permission: 'bash',
+          patterns: ['pnpm sync-prod-orders'],
+        },
+        childSessionId: null,
+        productionRisk: {
+          level: 'production_data',
+          reasons: ['Sync production orders'],
+          matchedRules: ['sync-prod-orders'],
+          allowAlways: false,
+        },
+      },
+    ];
+
+    const { PendingPermissionInline } = await import('../PermissionCard');
+    render(<PendingPermissionInline />);
+
+    expect(screen.getByText('Production data guard')).toBeTruthy();
+    expect(screen.getByText('Sync production orders')).toBeTruthy();
+    expect(screen.queryByText('总是允许')).toBeNull();
+    expect(screen.getByText('允许')).toBeTruthy();
+    expect(screen.getByText('拒绝')).toBeTruthy();
   });
 
   it('promotes the next queued permission immediately before reply resolves', async () => {

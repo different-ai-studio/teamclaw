@@ -5,6 +5,10 @@ import { isTauri } from "@/lib/utils";
 import { buildConfig } from "@/lib/build-config";
 import { notificationService } from "@/lib/notification-service";
 import { shouldAutoAuthorize } from "@/lib/permission-policy";
+import {
+  getProductionGuardRiskForPermission,
+  type CommandRisk,
+} from "@/lib/dangerous-command-policy";
 import type { PermissionAskedEvent } from "@/lib/opencode/sdk-types";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type {
@@ -24,6 +28,8 @@ import {
 import {
   resolveSessionActivityOwner,
 } from "@/lib/session-list-activity";
+
+type ProductionDataRisk = Extract<CommandRisk, { level: "production_data" }>;
 
 /**
  * Cache of permission config from opencode.json.
@@ -289,6 +295,7 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
   const queuePermission = (
     event: PermissionAskedEvent,
     classification: PermissionSessionClassification,
+    productionRisk?: ProductionDataRisk,
   ) => {
     if (!classification.ownerSessionId) return false;
 
@@ -296,6 +303,7 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
       permission: event,
       childSessionId: classification.childSessionId,
       ownerSessionId: classification.ownerSessionId,
+      productionRisk,
     };
 
     set((state) => ({
@@ -343,7 +351,28 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
   };
 
   return {
-    handlePermissionAsked: (event: PermissionAskedEvent) => {
+    handlePermissionAsked: async (event: PermissionAskedEvent) => {
+      const workspacePath = useWorkspaceStore.getState().workspacePath;
+      const productionRisk = await getProductionGuardRiskForPermission(event, workspacePath);
+      if (productionRisk.level === "production_data") {
+        const { isChild, childSessionId, ownerSessionId } = classifyPermissionSession(event.sessionID);
+        if (ownerSessionId) {
+          if (queuePermission(event, { isChild, childSessionId, ownerSessionId }, productionRisk)) {
+            sendPermissionNotification(event);
+          }
+          return;
+        }
+
+        resolvePermissionSession(event.sessionID).then((resolved) => {
+          if (queuePermission(event, resolved, productionRisk)) {
+            sendPermissionNotification(event);
+          }
+        }).catch(() => {
+          // Ignore stale permission events for sessions that no longer exist.
+        });
+        return;
+      }
+
       // Check permission policy -- auto-authorize if bypass or batch-done
       if (shouldAutoAuthorize()) {
         const client = getOpenCodeClient();
@@ -512,45 +541,57 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
         const permissions = await client.listPermissions();
         if (!permissions || permissions.length === 0) return;
 
-        if (shouldAutoAuthorize()) {
+        const autoAuthorize = shouldAutoAuthorize();
+        if (autoAuthorize) {
           console.log("[Session] Auto-authorizing polled permissions (policy: bypass/batch-done)");
-          for (const perm of permissions) {
+        }
+
+        const permissionsToQueue: Array<{
+          permission: PermissionAskedEvent;
+          productionRisk?: ProductionDataRisk;
+        }> = [];
+
+        for (const perm of permissions) {
+          const workspacePath = useWorkspaceStore.getState().workspacePath;
+          const productionRisk = await getProductionGuardRiskForPermission(perm, workspacePath);
+          if (productionRisk.level === "production_data") {
+            permissionsToQueue.push({ permission: perm, productionRisk });
+            continue;
+          }
+
+          if (autoAuthorize) {
             client.replyPermission(perm.id, { reply: "always" }).catch((err) => {
               console.error("[Session] Failed to auto-reply polled permission:", err);
             });
+            continue;
           }
-          return;
-        }
 
-        // Auto-authorize permissions that are set to "allow" in opencode.json or already "Always Allowed"
-        {
-          const remaining = permissions.filter((perm) => {
-            if (perm.permission && _permConfigCache?.[perm.permission] === "allow") {
-              client.replyPermission(perm.id, { reply: "once" }).catch((err) => {
-                console.error("[Session] Failed to auto-reply polled permission from config:", err);
-              });
-              return false;
-            }
-            if (perm.permission && _alwaysAllowedPermissions.has(perm.permission)) {
-              client.replyPermission(perm.id, { reply: "always" }).catch((err) => {
-                console.error("[Session] Failed to auto-reply polled always-allowed permission:", err);
-              });
-              return false;
-            }
-            return true;
-          });
-          if (remaining.length === 0) return;
+          if (perm.permission && _permConfigCache?.[perm.permission] === "allow") {
+            client.replyPermission(perm.id, { reply: "once" }).catch((err) => {
+              console.error("[Session] Failed to auto-reply polled permission from config:", err);
+            });
+            continue;
+          }
+          if (perm.permission && _alwaysAllowedPermissions.has(perm.permission)) {
+            client.replyPermission(perm.id, { reply: "always" }).catch((err) => {
+              console.error("[Session] Failed to auto-reply polled always-allowed permission:", err);
+            });
+            continue;
+          }
+
+          permissionsToQueue.push({ permission: perm });
         }
+        if (permissionsToQueue.length === 0) return;
 
         const stalePermissionIds = new Set<string>();
-        for (const permission of permissions) {
+        for (const { permission, productionRisk } of permissionsToQueue) {
           const classification = await resolvePermissionSession(permission.sessionID);
           if (!classification.ownerSessionId) {
             stalePermissionIds.add(permission.id);
             continue;
           }
 
-          if (permission.tool?.callID && !classification.isChild) {
+          if (permission.tool?.callID && !classification.isChild && !productionRisk) {
             const session = getSessionById(activeSessionId);
             const alreadyAttached = session?.messages.some((m) =>
               m.toolCalls?.some((tc) => tc.permission?.id === permission.id),
@@ -573,6 +614,7 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
                   permission,
                   childSessionId: classification.childSessionId,
                   ownerSessionId: classification.ownerSessionId,
+                  productionRisk,
                 },
               ].slice(-20),
             }));

@@ -108,7 +108,11 @@ function getPermissionCardPresentation(entry: PendingPermissionEntry, t: Transla
     return permType
   })()
 
-  const subtitle = isExternal
+  const productionGuardLabel = entry.productionRisk
+    ? t("chat.permissionCard.productionGuard", "Production data guard")
+    : null
+  const productionGuardReason = entry.productionRisk?.reasons.join(", ")
+  const subtitle = productionGuardReason || (isExternal
     ? sourceToolLabel
       ? t("chat.permissionCard.sourceToolInvocation", "来自 {{tool}} 工具调用", { tool: sourceToolLabel })
       : t("chat.permissionCard.waitingExternalPathApproval", "读取工作区外路径前需要你的确认")
@@ -116,9 +120,15 @@ function getPermissionCardPresentation(entry: PendingPermissionEntry, t: Transla
       ? t("chat.permissionCard.childSessionWaitingApproval", "子会话正在等待你的审批")
       : sourceToolLabel
         ? t("chat.permissionCard.sourceToolInvocation", "来自 {{tool}} 工具调用", { tool: sourceToolLabel })
-        : t("chat.permissionCard.toolInvocationWaitingApproval", "工具调用正在等待你的审批")
+        : t("chat.permissionCard.toolInvocationWaitingApproval", "工具调用正在等待你的审批"))
 
-  return { meta, detail: summarizePermissionDetail(detail, permType), subtitle }
+  return {
+    meta,
+    detail: summarizePermissionDetail(detail, permType),
+    subtitle,
+    productionGuardLabel,
+    allowAlways: entry.productionRisk?.allowAlways !== false,
+  }
 }
 
 function buildPendingEntryFromToolPermission(
@@ -217,7 +227,8 @@ function PermissionEntryCard({
     if (decided !== null) setDecided(null)
   }
 
-  const { meta, detail, subtitle } = getPermissionCardPresentation(entry, t)
+  const presentation = getPermissionCardPresentation(entry, t)
+  const { meta, detail, subtitle } = presentation
 
   const handleReply = async (d: "allow" | "deny" | "always") => {
     setSubmitting(true)
@@ -251,6 +262,11 @@ function PermissionEntryCard({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="text-[13px] font-semibold text-foreground">{meta.subject} {meta.title}</div>
+                {presentation.productionGuardLabel ? (
+                  <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                    {presentation.productionGuardLabel}
+                  </span>
+                ) : null}
                 {pendingCount > 1 ? (
                   <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                     {t("chat.permissionCard.pendingCount", "{{count}} pending", { count: pendingCount })}
@@ -278,14 +294,16 @@ function PermissionEntryCard({
                 >
                   {t("permission.deny", "拒绝")}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleReply("always")}
-                  disabled={submitting}
-                  className="shrink-0 rounded-[9px] border border-[#e5eaf0] bg-white px-[10px] py-[5px] text-[12px] font-medium text-[#475569] transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-50 dark:border-border dark:bg-background dark:text-muted-foreground"
-                >
-                  {t("permission.alwaysAllow", "总是允许")}
-                </button>
+                {presentation.allowAlways ? (
+                  <button
+                    type="button"
+                    onClick={() => handleReply("always")}
+                    disabled={submitting}
+                    className="shrink-0 rounded-[9px] border border-[#e5eaf0] bg-white px-[10px] py-[5px] text-[12px] font-medium text-[#475569] transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-50 dark:border-border dark:bg-background dark:text-muted-foreground"
+                  >
+                    {t("permission.alwaysAllow", "总是允许")}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => handleReply("allow")}

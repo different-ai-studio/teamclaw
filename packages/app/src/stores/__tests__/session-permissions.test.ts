@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+const permissionPolicyMock = vi.hoisted(() => ({
+  shouldAutoAuthorize: vi.fn(() => false),
+}))
+
+const productionGuardMock = vi.hoisted(() => ({
+  getProductionGuardRiskForPermission: vi.fn(async () => ({ level: 'normal' as const })),
+}))
+
 const mockReplyPermission = vi.fn().mockResolvedValue(undefined)
 const mockListPermissions = vi.fn().mockResolvedValue([])
 const mockGetSession = vi.fn().mockResolvedValue(null)
@@ -33,7 +41,11 @@ vi.mock('@/lib/notification-service', () => ({
 }))
 
 vi.mock('@/lib/permission-policy', () => ({
-  shouldAutoAuthorize: () => false,
+  shouldAutoAuthorize: permissionPolicyMock.shouldAutoAuthorize,
+}))
+
+vi.mock('@/lib/dangerous-command-policy', () => ({
+  getProductionGuardRiskForPermission: productionGuardMock.getProductionGuardRiskForPermission,
 }))
 
 vi.mock('@/stores/workspace', () => ({
@@ -55,6 +67,8 @@ vi.mock('@/stores/session-internals', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  permissionPolicyMock.shouldAutoAuthorize.mockReturnValue(false)
+  productionGuardMock.getProductionGuardRiskForPermission.mockResolvedValue({ level: 'normal' })
   mockListPermissions.mockResolvedValue([])
   mockGetSession.mockResolvedValue(null)
 })
@@ -135,6 +149,54 @@ describe('createPermissionActions', () => {
 
     expect(store.pendingPermissions).toHaveLength(2)
     expect(store.pendingPermissions.map((e) => e.permission.id)).toEqual(['perm-1', 'perm-2'])
+  })
+
+  it('queues production-risk bash permissions even when auto-authorization is enabled', async () => {
+    permissionPolicyMock.shouldAutoAuthorize.mockReturnValue(true)
+    productionGuardMock.getProductionGuardRiskForPermission.mockResolvedValue({
+      level: 'production_data',
+      reasons: ['Sync production orders'],
+      matchedRules: ['sync-prod-orders'],
+      allowAlways: false,
+    })
+
+    const { createPermissionActions } = await import('@/stores/session-permissions')
+    const store = {
+      activeSessionId: 'session-1',
+      sessions: [{ id: 'session-1', title: 'S', messages: [] }],
+      pendingPermissions: [] as Array<{
+        permission: { id: string };
+        childSessionId: string | null;
+        productionRisk?: { level: string; matchedRules: string[] };
+      }>,
+      setActiveSession: vi.fn(),
+    }
+    const set = vi.fn((fn: unknown) => {
+      if (typeof fn === 'function') {
+        Object.assign(store, (fn as (s: typeof store) => Partial<typeof store>)(store))
+      } else {
+        Object.assign(store, fn)
+      }
+    })
+    const get = vi.fn(() => store)
+    const actions = createPermissionActions(set as any, get as any)
+
+    await actions.handlePermissionAsked({
+      id: 'perm-prod-1',
+      sessionID: 'session-1',
+      permission: 'bash',
+      patterns: ['pnpm sync-prod-orders'],
+    })
+
+    expect(mockReplyPermission).not.toHaveBeenCalled()
+    expect(store.pendingPermissions).toHaveLength(1)
+    expect(store.pendingPermissions[0]).toMatchObject({
+      permission: { id: 'perm-prod-1' },
+      productionRisk: {
+        level: 'production_data',
+        matchedRules: ['sync-prod-orders'],
+      },
+    })
   })
 
   it('queues child-session tool permissions even when the child session already exists locally', async () => {
