@@ -106,7 +106,10 @@ pub async fn watch_directory(
         .watch(&watch_path, RecursiveMode::Recursive)
         .map_err(|e| format!("Failed to watch path: {}", e))?;
 
-    println!("[FileWatcher] Started watching: {} (subscriber: {})", path, label);
+    println!(
+        "[FileWatcher] Started watching: {} (subscriber: {})",
+        path, label
+    );
 
     let mut subscribers = HashSet::new();
     subscribers.insert(label);
@@ -142,7 +145,10 @@ pub async fn unwatch_directory(
     handle.subscribers.remove(label);
     if handle.subscribers.is_empty() {
         watchers.remove(&path);
-        println!("[FileWatcher] Stopped watching: {} (last subscriber gone)", path);
+        println!(
+            "[FileWatcher] Stopped watching: {} (last subscriber gone)",
+            path
+        );
     } else {
         println!(
             "[FileWatcher] Unsubscribed {} from {}; {} subscriber(s) remain",

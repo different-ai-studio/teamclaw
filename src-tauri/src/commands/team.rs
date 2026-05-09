@@ -862,7 +862,8 @@ pub fn update_team_llm_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
     write_llm_config(&workspace_path, llm_config.as_ref())?;
     Ok(())
@@ -901,7 +902,8 @@ pub async fn team_check_workspace_has_git(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<WorkspaceGitCheckResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let git_dir = Path::new(&workspace_path).join(".git");
     Ok(WorkspaceGitCheckResult {
         has_git: git_dir.exists(),
@@ -923,7 +925,8 @@ pub async fn team_init_repo(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if Path::new(&team_dir).exists() {
@@ -1054,7 +1057,8 @@ pub async fn team_git_create(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<TeamGitCreateResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if Path::new(&team_dir).exists() {
@@ -1628,7 +1632,8 @@ pub async fn team_git_join(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     team_git_join_impl(
         app,
         TeamGitJoinArgs {
@@ -1677,7 +1682,8 @@ pub async fn team_git_join_background(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let app_for_spawn = app.clone();
     let args = TeamGitJoinArgs {
         git_url,
@@ -1736,7 +1742,8 @@ pub async fn team_generate_gitignore(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
     ensure_gitignore_rules(&team_dir);
     Ok(TeamGitResult {
@@ -2086,7 +2093,8 @@ pub async fn team_disconnect_repo(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
 
     if !Path::new(&team_dir).exists() {
@@ -2118,7 +2126,8 @@ pub async fn init_git_team_secrets(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     let team_dir = get_team_repo_path(&workspace_path);
     let team_path = Path::new(&team_dir);
 
@@ -2143,7 +2152,8 @@ pub async fn get_git_team_secret(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<String, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     crate::commands::oss_sync::load_team_secret(&workspace_path, &team_id)
 }
 
@@ -2157,7 +2167,8 @@ pub async fn get_team_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<Option<TeamConfig>, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     read_team_config_from_file(&workspace_path)
 }
 
@@ -2170,7 +2181,8 @@ pub async fn save_team_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     write_team_config_to_file(&workspace_path, Some(&team))
 }
 
@@ -2182,7 +2194,8 @@ pub async fn clear_team_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path =
+        resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
     write_team_config_to_file(&workspace_path, None)
 }
 

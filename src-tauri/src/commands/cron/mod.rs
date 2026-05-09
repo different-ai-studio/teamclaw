@@ -73,11 +73,8 @@ async fn require_instance(
     opencode_state: &State<'_, OpenCodeState>,
     cron_state: &State<'_, CronState>,
 ) -> Result<CronInstance, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        window,
-        registry,
-        opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(window, registry, opencode_state)?;
     cron_state
         .try_instance_for(&workspace_path)
         .await
@@ -126,7 +123,10 @@ pub async fn cron_init(
     instance.scheduler.set_port(port).await;
 
     let session_mapping = gateway_state.shared_session_mapping.clone();
-    instance.scheduler.set_session_mapping(session_mapping).await;
+    instance
+        .scheduler
+        .set_session_mapping(session_mapping)
+        .await;
 
     let delivery_mgr = DeliveryManager::new(workspace_path.clone());
     instance.scheduler.set_delivery(delivery_mgr).await;

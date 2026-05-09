@@ -135,11 +135,8 @@ pub async fn get_channel_config(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<ChannelsConfig, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     read_channels_for(&workspace_path)
 }
 
@@ -151,11 +148,8 @@ pub async fn save_channel_config(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     config.channels = Some(channels);
@@ -169,11 +163,8 @@ pub async fn get_discord_config(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<Option<config::DiscordConfig>, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     Ok(read_channels_for(&workspace_path)?.discord)
 }
 
@@ -186,11 +177,8 @@ pub async fn save_discord_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -220,11 +208,8 @@ pub async fn set_config_locale(
     opencode_state: State<'_, OpenCodeState>,
     locale: String,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     let mut config = read_config(&workspace_path)?;
     config.locale = Some(locale);
     write_config(&workspace_path, &config)
@@ -238,11 +223,8 @@ pub async fn start_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     let (workspace_path, port) =
         crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
@@ -336,11 +318,8 @@ pub async fn get_feishu_config(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<Option<feishu_config::FeishuConfig>, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     Ok(read_channels_for(&workspace_path)?.feishu)
 }
 
@@ -353,11 +332,8 @@ pub async fn save_feishu_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -387,11 +363,8 @@ pub async fn start_feishu_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     let (workspace_path, port) =
         crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
@@ -504,11 +477,8 @@ pub async fn get_email_config(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<Option<email_config::EmailConfig>, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     Ok(read_channels_for(&workspace_path)?.email)
 }
 
@@ -521,11 +491,8 @@ pub async fn save_email_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -555,11 +522,8 @@ pub async fn start_email_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     let (workspace_path, port) =
         crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
@@ -649,11 +613,8 @@ pub async fn gmail_authorize(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<String, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
 
     let app_for_callback = app.clone();
     let on_url: teamclaw_gateway::AuthUrlCallback = Box::new(move |url: &str| {
@@ -670,11 +631,8 @@ pub async fn check_gmail_auth(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<bool, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
 
     Ok(EmailGateway::check_gmail_auth(&workspace_path).await)
 }
@@ -688,11 +646,8 @@ pub async fn get_kook_config(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<kook_config::KookConfig, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     Ok(read_channels_for(&workspace_path)?.kook.unwrap_or_default())
 }
 
@@ -705,11 +660,8 @@ pub async fn save_kook_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -739,11 +691,8 @@ pub async fn start_kook_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     let (workspace_path, port) =
         crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
@@ -888,8 +837,12 @@ pub async fn get_wecom_config(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<wecom_config::WeComConfig, String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(
+        workspace_path,
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     let config = read_config(&workspace_path)?;
     Ok(config
         .channels
@@ -907,8 +860,12 @@ pub async fn save_wecom_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(
+        workspace_path,
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -1033,8 +990,13 @@ pub async fn stop_wecom_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let resolved_workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state).ok();
+    let resolved_workspace_path = crate::commands::team::resolve_workspace_path(
+        workspace_path,
+        &window,
+        &registry,
+        &opencode_state,
+    )
+    .ok();
 
     let gateway_clone = {
         let guard = gateway_state
@@ -1065,8 +1027,12 @@ pub async fn get_wecom_gateway_status(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<WeComGatewayStatusResponse, String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(
+        workspace_path,
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     let gateway_clone = {
         let guard = gateway_state
             .wecom_gateway
@@ -1161,12 +1127,11 @@ pub async fn get_wechat_config(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     opencode_state: State<'_, OpenCodeState>,
 ) -> Result<wechat_config::WeChatConfig, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
-    Ok(read_channels_for(&workspace_path)?.wechat.unwrap_or_default())
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+    Ok(read_channels_for(&workspace_path)?
+        .wechat
+        .unwrap_or_default())
 }
 
 /// Save WeChat configuration
@@ -1178,11 +1143,8 @@ pub async fn save_wechat_config(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -1212,11 +1174,8 @@ pub async fn start_wechat_gateway(
     opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(
-        &window,
-        &registry,
-        &opencode_state,
-    )?;
+    let workspace_path =
+        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
     let (workspace_path, port) =
         crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
@@ -1386,8 +1345,12 @@ pub fn load_shortcuts(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     workspace_path: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(
+        workspace_path,
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     let config = read_config(&workspace_path)?;
     let shortcuts = config
         .other
@@ -1406,8 +1369,12 @@ pub fn save_shortcuts(
     nodes: Vec<serde_json::Value>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(
+        workspace_path,
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     let mut config = read_config(&workspace_path)?;
     config
         .other
@@ -1423,8 +1390,12 @@ pub fn load_system_prompt(
     registry: State<'_, crate::commands::window::WindowRegistry>,
     workspace_path: Option<String>,
 ) -> Result<String, String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(
+        workspace_path,
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     let config = read_config(&workspace_path)?;
     Ok(config
         .other
@@ -1443,8 +1414,12 @@ pub fn save_system_prompt(
     prompt: String,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+    let workspace_path = crate::commands::team::resolve_workspace_path(
+        workspace_path,
+        &window,
+        &registry,
+        &opencode_state,
+    )?;
     let mut config = read_config(&workspace_path)?;
     config
         .other

@@ -90,7 +90,8 @@ pub async fn get_mcp_config(
     state: State<'_, OpenCodeState>,
     workspace_path: Option<String>,
 ) -> Result<IndexMap<String, MCPServerConfig>, String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let config = read_config(&workspace_path)?;
     Ok(config.mcp.unwrap_or_default())
@@ -105,7 +106,8 @@ pub async fn save_mcp_config(
     mcp_config: IndexMap<String, MCPServerConfig>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     config.mcp = if mcp_config.is_empty() {
@@ -126,7 +128,8 @@ pub async fn add_mcp_server(
     server_config: MCPServerConfig,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -150,7 +153,8 @@ pub async fn update_mcp_server(
     server_config: MCPServerConfig,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -173,7 +177,8 @@ pub async fn remove_mcp_server(
     name: String,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -197,7 +202,8 @@ pub async fn toggle_mcp_server(
     enabled: bool,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -228,7 +234,8 @@ pub async fn test_mcp_server(
     name: String,
     workspace_path: Option<String>,
 ) -> Result<MCPTestResult, String> {
-    let workspace_path = crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+    let workspace_path =
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
 
     let config = read_config(&workspace_path)?;
     let mcp = config.mcp.unwrap_or_default();

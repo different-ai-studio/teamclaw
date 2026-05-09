@@ -122,6 +122,7 @@
       "waitingExternalPathApproval": "读取工作区外路径前需要你的确认",
       "childSessionWaitingApproval": "子会话正在等待你的审批",
       "toolInvocationWaitingApproval": "工具调用正在等待你的审批",
+      "productionGuard": "生产数据保护",
       "pendingCount": "{{count}} 个待处理",
       "approve": "允许"
     },
@@ -2178,6 +2179,9 @@
       "desc": "管理助手权限和命令白名单",
       "noAllowlist": "尚未将任何命令加入白名单",
       "noWorkspace": "未选择工作区。请先选择一个工作区。",
+      "productionGuard": "生产数据保护",
+      "productionGuardDesc": "本地工作区规则会在命令触及生产数据前强制要求审批。",
+      "productionGuardMissing": "当前工作区未找到生产数据保护文件。",
       "saveAndApply": "保存并应用",
       "saving": "应用中...",
       "title": "权限管理"

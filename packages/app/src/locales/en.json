@@ -122,6 +122,7 @@
       "waitingExternalPathApproval": "Confirmation is required before accessing a path outside the workspace",
       "childSessionWaitingApproval": "A child session is waiting for your approval",
       "toolInvocationWaitingApproval": "A tool call is waiting for your approval",
+      "productionGuard": "Production data guard",
       "pendingCount": "{{count}} pending",
       "approve": "Allow"
     },
@@ -2178,6 +2179,9 @@
       "desc": "Manage agent permissions and command allowlist",
       "noAllowlist": "No commands have been allowlisted yet",
       "noWorkspace": "No workspace selected. Please select a workspace first.",
+      "productionGuard": "Production Data Guard",
+      "productionGuardDesc": "Local workspace rules that force approval before commands can touch production data.",
+      "productionGuardMissing": "No production guard file was found for this workspace.",
       "saveAndApply": "Save & Apply",
       "saving": "Applying...",
       "title": "Permission Management"
