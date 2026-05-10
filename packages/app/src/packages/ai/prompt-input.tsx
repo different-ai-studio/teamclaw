@@ -115,6 +115,7 @@ export function PromptInput({
   const [textareaRefState, setTextareaRefState] = React.useState<React.RefObject<HTMLDivElement | null>>({ current: null })
   const mentionStartRefState = React.useRef<number | null>(null)
   const commandStartRefState = React.useRef<number | null>(null)
+  const hashStartRefState = React.useRef<number | null>(null)
   const text = value ?? internalText
   const setText = React.useCallback(
     (next: string) => {
@@ -224,7 +225,8 @@ export function PromptInput({
       multiple,
       textareaRef: textareaRefState, setTextareaRef: setTextareaRefState,
       mentionStartRef: mentionStartRefState,
-      commandStartRef: commandStartRefState
+      commandStartRef: commandStartRefState,
+      hashStartRef: hashStartRefState
     }}>
       <form
         ref={formRef}
@@ -302,11 +304,12 @@ export function PromptInputTextarea({
     onMentionTrigger, onMentionClose,
     onCommandTrigger, onCommandClose, onHashTrigger, onHashClose, setTextareaRef,
     mentionStartRef,
-    commandStartRef
+    commandStartRef,
+    hashStartRef
   } = usePromptInputContext()
-  
+
   const textareaRef = React.useRef<HTMLDivElement>(null)
-  
+
   // Track IME composition state (for Chinese/Japanese/Korean input)
   const isComposingRef = React.useRef(false)
 
@@ -314,9 +317,6 @@ export function PromptInputTextarea({
   React.useEffect(() => {
     setTextareaRef(textareaRef)
   }, [setTextareaRef])
-
-  // Track hash (#) state
-  const hashStartRef = React.useRef<number | null>(null)
 
   // Check for @ mention trigger
   const checkMentionTrigger = React.useCallback((newText: string, cursorPos: number) => {
