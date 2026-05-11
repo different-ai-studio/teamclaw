@@ -30,7 +30,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { AnimatedClock } from "@/components/ui/animated-clock"
 import { DefaultBottomNav } from "@/components/navigation/DefaultBottomNav"
-import { RightPanel, ShortcutsPanel } from "@/components/panel"
+import { RightPanel, ShortcutsPanel, ActorsView, IdeasView } from "@/components/panel"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,19 +99,12 @@ function SessionSearchDialog({
   onOpenChange: (open: boolean) => void 
 }) {
   const { t } = useTranslation()
-  // @ts-expect-error Phase 1E removal
   const sessions = useSessionStore(s => s.sessions)
-  // @ts-expect-error Phase 1E removal
   const archivedSessions = useSessionStore(s => s.archivedSessions)
-  // @ts-expect-error Phase 1E removal
   const activeSessionId = useSessionStore(s => s.activeSessionId)
-  // @ts-expect-error Phase 1E removal
   const isLoadingArchivedSessions = useSessionStore(s => s.isLoadingArchivedSessions)
-  // @ts-expect-error Phase 1E removal
   const archivedSessionError = useSessionStore(s => s.archivedSessionError)
-  // @ts-expect-error Phase 1E removal
   const loadArchivedSessions = useSessionStore(s => s.loadArchivedSessions)
-  // @ts-expect-error Phase 1E removal
   const openArchivedSession = useSessionStore(s => s.openArchivedSession)
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const [filter, setFilter] = React.useState<SessionSearchFilter>("active")
@@ -138,9 +131,7 @@ function SessionSearchDialog({
     void openArchivedSession(sessionId)
   }
 
-  // @ts-expect-error Phase 1E removal
   const activeResults = sessions.map((session) => ({ session, isArchived: false }))
-  // @ts-expect-error Phase 1E removal
   const archivedResults = archivedSessions.map((session) => ({ session, isArchived: true }))
   const visibleSessions: { session: Session; isArchived: boolean }[] =
     filter === "active"
@@ -752,39 +743,23 @@ function SessionRenameInput({
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { t } = useTranslation()
   const { state: sidebarDisplayState } = useSidebar()
-  // @ts-expect-error Phase 1E removal
   const allSessions = useSessionStore(s => s.sessions)
-  // @ts-expect-error Phase 1E removal
   const pinnedSessionIds = useSessionStore(s => s.pinnedSessionIds)
-  // @ts-expect-error Phase 1E removal
   const activeSessionId = useSessionStore(s => s.activeSessionId)
-  // @ts-expect-error Phase 1E removal
   const isLoading = useSessionStore(s => s.isLoading)
-  // @ts-expect-error Phase 1E removal
   const isLoadingMore = useSessionStore(s => s.isLoadingMore)
-  // @ts-expect-error Phase 1E removal
   const hasMoreSessions = useSessionStore(s => s.hasMoreSessions)
-  // @ts-expect-error Phase 1E removal
   const visibleSessionCount = useSessionStore(s => s.visibleSessionCount)
-  // @ts-expect-error Phase 1E removal
   const highlightedSessionIds = useSessionStore(s => s.highlightedSessionIds)
-  // @ts-expect-error Phase 1E removal
   const sessionStatuses = useSessionStore(s => s.sessionStatuses) || {}
-  // @ts-expect-error Phase 1E removal
   const pendingQuestionIdsBySession = useSessionStore(s => s.pendingQuestionIdsBySession) || {}
-  // @ts-expect-error Phase 1E removal
   const pendingQuestions = useSessionStore(s => s.pendingQuestions) || []
-  // @ts-expect-error Phase 1E removal
   const pendingPermissions = useSessionStore(s => s.pendingPermissions) || []
   const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
   const childSessionStreaming = useStreamingStore(s => s.childSessionStreaming)
-  // @ts-expect-error Phase 1E removal
   const archiveSession = useSessionStore(s => s.archiveSession)
-  // @ts-expect-error Phase 1E removal
   const updateSessionTitle = useSessionStore(s => s.updateSessionTitle)
-  // @ts-expect-error Phase 1E removal
   const toggleSessionPinned = useSessionStore(s => s.toggleSessionPinned)
-  // @ts-expect-error Phase 1E removal
   const loadMoreSessions = useSessionStore(s => s.loadMoreSessions)
   const cronSessionIds = useCronStore(s => s.cronSessionIds)
   const showCronSessions = useCronStore(s => s.showCronSessions)
@@ -795,14 +770,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // UI-level pagination: filter by cron toggle, then slice to visible count
   const sessions = React.useMemo(
     () => allSessions
-      // @ts-expect-error Phase 1E removal
       .filter(s => !s.parentID)
-      // @ts-expect-error Phase 1E removal
       .filter(s => showCronSessions
         ? cronSessionIds.has(s.id)
         : !cronSessionIds.has(s.id)
       )
-      // @ts-expect-error Phase 1E removal
       .sort((a, b) => {
         const aPinned = pinnedSessionIds.includes(a.id)
         const bPinned = pinnedSessionIds.includes(b.id)
@@ -813,12 +785,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     [allSessions, cronSessionIds, pinnedSessionIds, showCronSessions, visibleSessionCount],
   )
   const pinnedSessions = React.useMemo(
-    // @ts-expect-error Phase 1E removal
     () => sessions.filter((session) => pinnedSessionIds.includes(session.id)),
     [sessions, pinnedSessionIds],
   )
   const unpinnedSessions = React.useMemo(
-    // @ts-expect-error Phase 1E removal
     () => sessions.filter((session) => !pinnedSessionIds.includes(session.id)),
     [sessions, pinnedSessionIds],
   )
@@ -912,7 +882,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   const handleRenameConfirm = async (id: string, newTitle: string) => {
-    // @ts-expect-error Phase 1E removal
     if (newTitle.trim() && newTitle !== allSessions.find(s => s.id === id)?.title) {
       try {
         await updateSessionTitle(id, newTitle.trim())
@@ -1275,6 +1244,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             {defaultSidebarContent === 'shortcuts' && (
               <div className="min-h-0 flex-1 overflow-hidden">
                 <ShortcutsPanel />
+              </div>
+            )}
+
+            {defaultSidebarContent === 'actors' && (
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <ActorsView />
+              </div>
+            )}
+
+            {defaultSidebarContent === 'ideas' && (
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <IdeasView />
               </div>
             )}
           </SidebarGroup>
