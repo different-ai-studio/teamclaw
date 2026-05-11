@@ -95,6 +95,10 @@ type RestartOptions = {
   reason?: OpenCodeReloadReason
 }
 
+type SkillsRuntimeChangedOptions = {
+  reloadSkills?: boolean
+}
+
 const EMPTY_ROLE_USAGE_BY_SKILL: Record<string, string[]> = {}
 const SKILL_DELETE_EXIT_DURATION_MS = 180
 
@@ -154,6 +158,8 @@ export const SkillsSection = React.memo(function SkillsSection({
   const installedTabRef = React.useRef<HTMLButtonElement>(null)
   const marketplaceTabRef = React.useRef<HTMLButtonElement>(null)
   const autoRestartSkillsChangesRef = React.useRef(false)
+  const isAutoRestartingSkillsRef = React.useRef(false)
+  const pendingAutoRestartAfterSettingLoadRef = React.useRef(false)
 
   const defaultPermission: SkillPermission = skillPermissions['*'] ?? 'allow'
   const effectiveSearchQuery = embeddedConsole ? (sharedSearchQuery ?? '') : searchQuery
@@ -349,15 +355,12 @@ export const SkillsSection = React.memo(function SkillsSection({
     [workspacePath]
   )
 
-  const handleSkillsRuntimeChanged = React.useCallback(async () => {
-    setHasSkillRuntimeChanges(true)
-    setRestartError(null)
-    void loadSkills()
-
-    if (!autoRestartSkillsChangesRef.current || !workspacePath) {
+  const runSkillsAutoRestart = React.useCallback(async () => {
+    if (!workspacePath || isAutoRestartingSkillsRef.current) {
       return
     }
 
+    isAutoRestartingSkillsRef.current = true
     setIsRestarting(true)
     try {
       await restartOpenCodeInstance({ preserveChangeFlag: true, reason: 'skills-file-change' })
@@ -366,9 +369,50 @@ export const SkillsSection = React.memo(function SkillsSection({
       console.error('[SkillsSection] Failed to auto-restart OpenCode:', err)
       setRestartError(err instanceof Error ? err.message : String(err))
     } finally {
+      isAutoRestartingSkillsRef.current = false
       setIsRestarting(false)
     }
-  }, [loadSkills, restartOpenCodeInstance, workspacePath])
+  }, [restartOpenCodeInstance, workspacePath])
+
+  const handleSkillsRuntimeChanged = React.useCallback(async (options?: SkillsRuntimeChangedOptions) => {
+    setHasSkillRuntimeChanges(true)
+    setRestartError(null)
+    if (options?.reloadSkills !== false) {
+      void loadSkills()
+    }
+
+    if (!autoRestartSettingLoaded) {
+      pendingAutoRestartAfterSettingLoadRef.current = true
+      return
+    }
+
+    if (!autoRestartSkillsChangesRef.current || !workspacePath) {
+      return
+    }
+
+    await runSkillsAutoRestart()
+  }, [autoRestartSettingLoaded, loadSkills, runSkillsAutoRestart, workspacePath])
+
+  React.useEffect(() => {
+    if (
+      !pendingAutoRestartAfterSettingLoadRef.current ||
+      !hasSkillRuntimeChanges ||
+      !autoRestartSettingLoaded ||
+      !autoRestartSkillsChanges ||
+      !workspacePath
+    ) {
+      return
+    }
+
+    pendingAutoRestartAfterSettingLoadRef.current = false
+    void runSkillsAutoRestart()
+  }, [
+    autoRestartSettingLoaded,
+    autoRestartSkillsChanges,
+    hasSkillRuntimeChanges,
+    runSkillsAutoRestart,
+    workspacePath,
+  ])
 
   React.useEffect(() => {
     const onTeamSynced = () => loadSkills()
@@ -485,7 +529,7 @@ ${skillContent.trim()}`
       await writeTextFile(`${skillDir}/SKILL.md`, finalContent)
       await loadSkills()
       onDataChange?.()
-      setHasSkillRuntimeChanges(true)
+      await handleSkillsRuntimeChanged({ reloadSkills: false })
       
       setDialogOpen(false)
       setEditingSkill(null)
@@ -551,7 +595,7 @@ ${skillContent.trim()}`
       }, SKILL_DELETE_EXIT_DURATION_MS)
 
       onDataChange?.()
-      setHasSkillRuntimeChanges(true)
+      await handleSkillsRuntimeChanged({ reloadSkills: false })
     } catch (err) {
       console.error('Failed to delete skill:', err)
       setError(err instanceof Error ? err.message : 'Failed to delete skill')
@@ -945,7 +989,7 @@ ${skillContent.trim()}`
             onInstalled={async () => {
               await loadSkills()
               onDataChange?.()
-              setHasSkillRuntimeChanges(true)
+              await handleSkillsRuntimeChanged({ reloadSkills: false })
             }}
           />
         </div>

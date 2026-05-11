@@ -4,10 +4,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const t = (k: string, d?: string) => d ?? k
 
-const { workspaceState, mockLoadAllSkills, mockInvoke } = vi.hoisted(() => ({
+const { workspaceState, mockLoadAllSkills, mockInvoke, mockWriteTextFile, mockRemove } = vi.hoisted(() => ({
   workspaceState: { workspacePath: null as string | null },
   mockLoadAllSkills: vi.fn(async () => ({ skills: [], overrides: [] })),
   mockInvoke: vi.fn(),
+  mockWriteTextFile: vi.fn(async () => undefined),
+  mockRemove: vi.fn(async () => undefined),
 }))
 const {
   autoRestartState,
@@ -57,6 +59,11 @@ vi.mock('@/lib/utils', () => ({ cn: (...a: string[]) => a.join(' '), isTauri: ()
 vi.mock('@tauri-apps/plugin-fs', () => ({
   exists: vi.fn(async () => true),
   mkdir: vi.fn(async () => undefined),
+  writeTextFile: mockWriteTextFile,
+  remove: mockRemove,
+}))
+vi.mock('@tauri-apps/api/path', () => ({
+  homeDir: vi.fn(async () => '/home/tester'),
 }))
 vi.mock('@/lib/opencode/config', () => ({
   readSkillPermissions: vi.fn(async () => ({})),
@@ -105,7 +112,7 @@ vi.mock('../shared', () => ({
   ),
 }))
 vi.mock('../SkillsMarketplace', () => ({
-  SkillsMarketplace: () => {
+  SkillsMarketplace: ({ onInstalled }: { onInstalled?: () => Promise<void> | void }) => {
     const [ready, setReady] = React.useState(false)
 
     React.useEffect(() => {
@@ -114,7 +121,10 @@ vi.mock('../SkillsMarketplace', () => ({
     }, [])
 
     return ready ? (
-      <div data-testid="marketplace-content">Marketplace content</div>
+      <div data-testid="marketplace-content">
+        Marketplace content
+        <button type="button" onClick={() => void onInstalled?.()}>Mock install skill</button>
+      </div>
     ) : (
       <div data-slot="skeleton">Marketplace loading</div>
     )
@@ -128,6 +138,10 @@ describe('SkillsSection', () => {
     autoRestartState.enabled = false
     mockLoadAllSkills.mockReset()
     mockLoadAllSkills.mockResolvedValue({ skills: [], overrides: [] })
+    mockWriteTextFile.mockReset()
+    mockWriteTextFile.mockResolvedValue(undefined)
+    mockRemove.mockReset()
+    mockRemove.mockResolvedValue(undefined)
     mockGetAutoRestartOpencodeOnSkillsChange.mockReset()
     mockGetAutoRestartOpencodeOnSkillsChange.mockImplementation(async () => autoRestartState.enabled)
     mockSetAutoRestartOpencodeOnSkillsChange.mockReset()
@@ -300,6 +314,84 @@ describe('SkillsSection', () => {
 
     await act(async () => {
       window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
+  })
+
+  it('auto-restarts after creating a skill when enabled', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Skill' }))
+    fireEvent.change(await screen.findByPlaceholderText('e.g., Git Workflow Guide'), {
+      target: { value: 'Direct Save Skill' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Skill' }))
+
+    await waitFor(() => {
+      expect(mockWriteTextFile).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+    })
+    expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+  })
+
+  it('auto-restarts after marketplace install when enabled', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Marketplace' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Mock install skill' }))
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+    })
+    expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+  })
+
+  it('auto-restarts when Skills change arrives before enabled setting finishes loading', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    let resolveSetting!: (enabled: boolean) => void
+    mockGetAutoRestartOpencodeOnSkillsChange.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveSetting = resolve
+      }),
+    )
+
+    render(<SkillsSection />)
+
+    await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(mockRequestOpenCodeRuntimeReload).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSetting(true)
     })
 
     await waitFor(() => {
