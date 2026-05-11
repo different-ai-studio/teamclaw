@@ -898,37 +898,44 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     const titleSource = (pendingFirstMessage.text ?? '').trim() || 'New chat';
 
     try {
-      const { createSessionWithParticipants } = await import('@/lib/session-create');
+      // 1. Synchronously insert sessions + session_participants. This is the
+      //    "hot path" — user wants to see the chat view immediately.
+      const { createSessionShell, startAgentRuntimesAsync } = await import('@/lib/session-create');
       const allAdditional = Array.from(new Set([...picks.memberActorIds, ...picks.agentActorIds]));
-      const { sessionId } = await createSessionWithParticipants({
+      const { sessionId } = await createSessionShell({
         teamId: teamIdForSend,
         creatorActorId: myActor.id,
         title: titleSource,
         additionalActorIds: allAdditional,
-        agentActorIds: picks.agentActorIds,
       });
 
-      // Refresh session-list-store so sendIntoSession can find the new row.
-      // (Method is `load`, not `loadSessions` — earlier optional-chain call
-      // was silently a no-op.)
+      // 2. Refresh session-list-store so the new row appears in the left
+      //    sidebar AND sendIntoSession can find it by id.
       await useSessionListStore.getState().load();
-      // Switch to the new session (triggers SSE subscriptions + loads session row)
+      // 3. Switch to the new session (UI now shows the chat view).
       await useUIStore.getState().switchToSession(sessionId);
 
-      // Replay the deferred send into the new session.
+      // 4. Replay the deferred first message immediately. Auto-mention picked
+      //    agents (iOS pattern: NewSessionSheet:441 — single-agent
+      //    auto-mention; multi-agent leaves @-routing to the user).
       const deferredMessage = pendingFirstMessage;
       setPendingFirstMessage(null);
-
-      // Auto-mention picked agents on first send so the daemon prompts them
-      // (mirrors iOS NewSessionSheet:441 — when there are picked agents,
-      // include them in mention_actor_ids; otherwise the daemon's
-      // route_session_message routes to silent queue and no reply fires).
-      // iOS only auto-mentions when there's exactly one agent; we do the
-      // same — multi-agent leaves routing to the user's @-mentions.
       const autoMentionAgents = picks.agentActorIds.length === 1
         ? picks.agentActorIds
         : [];
       await sendIntoSession(sessionId, deferredMessage, autoMentionAgents);
+
+      // 5. Fire-and-forget: spawn agent runtimes in the background. UI
+      //    has already moved into the new session; the RuntimeInfo retain
+      //    subscription will update the actor sheet's status dot when
+      //    each runtime comes up.
+      if (picks.agentActorIds.length > 0) {
+        void startAgentRuntimesAsync({
+          sessionId,
+          teamId: teamIdForSend,
+          agentActorIds: picks.agentActorIds,
+        });
+      }
     } catch (e) {
       console.error('[ChatPanel] session creation failed:', e);
       const { toast } = await import('sonner');
