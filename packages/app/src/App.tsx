@@ -116,6 +116,11 @@ import { Button } from "@/components/ui/button";
 // duplicate SUBSCRIBE packets here.
 export const subscribedSessionTopics = new Set<string>();
 
+/** How many most-recent sessions get auto-subscribed on boot / list reload.
+ * Older sessions subscribe lazily when the user opens them (see the
+ * activeSessionId effect in AppContent). */
+const RECENT_SESSION_SUBSCRIBE_CAP = 10;
+
 /** Subscribe to a session's live topic, idempotently. */
 export async function ensureSessionLiveSubscribed(teamId: string, sessionId: string): Promise<void> {
   const topic = `amux/${teamId}/session/${sessionId}/live`;
@@ -783,12 +788,13 @@ function AppContent() {
           return;
         }
 
-        // Per-session subscribe — start from the loaded session list. A
-        // separate effect below keeps the subscribed set in sync with
-        // useSessionListStore.rows as new sessions are added.
-        const rowsAtBoot = useSessionListStore.getState().rows;
+        // Per-session subscribe — only the N most-recent sessions on boot
+        // (rows are sorted by last_message_at DESC). Older sessions
+        // subscribe lazily when the user activates them. A separate effect
+        // keeps the recent slice in sync with useSessionListStore.rows.
+        const recentAtBoot = useSessionListStore.getState().rows.slice(0, RECENT_SESSION_SUBSCRIBE_CAP);
         await Promise.all(
-          rowsAtBoot.map((r) => {
+          recentAtBoot.map((r) => {
             const topic = `amux/${r.team_id}/session/${r.id}/live`;
             subscribedSessionTopics.add(topic);
             return mqttSubscribe(topic).catch((e) => {
@@ -797,7 +803,7 @@ function AppContent() {
             });
           }),
         );
-        console.log('[MQTT] receiver wired: subscribed to', rowsAtBoot.length, 'session/live topics');
+        console.log('[MQTT] receiver wired: subscribed to', recentAtBoot.length, 'recent session/live topics');
 
         // RPC client: subscribe to the team's rpc/res topic and start correlating.
         await initTeamclawRpc(firstTeamId);
@@ -819,16 +825,19 @@ function AppContent() {
     };
   }, [userId, firstTeamId]);
 
-  // Keep session/live subscriptions in sync with the user's session list.
-  // When a new session is created (via NewSessionActorPicker or otherwise),
-  // session-list-store reloads and `rows` gains an entry — we subscribe to
-  // that session's live topic so streaming and message events arrive.
+  // Keep session/live subscriptions in sync with the user's most-recent
+  // sessions. Rows are sorted by last_message_at DESC, so we slice the top
+  // RECENT_SESSION_SUBSCRIBE_CAP and subscribe any not-yet-subscribed.
+  // When a new session is created and pushed into rows (newest first),
+  // it's auto-included here. Older sessions stay un-subscribed until the
+  // user activates one (see the activeSessionId effect below).
   const sessionRowsForSubscribe = useSessionListStore((s) => s.rows);
   useEffect(() => {
     if (!userId || !firstTeamId) return;
     let cancelled = false;
+    const recent = sessionRowsForSubscribe.slice(0, RECENT_SESSION_SUBSCRIBE_CAP);
     void (async () => {
-      for (const r of sessionRowsForSubscribe) {
+      for (const r of recent) {
         if (cancelled) return;
         const topic = `amux/${r.team_id}/session/${r.id}/live`;
         if (subscribedSessionTopics.has(topic)) continue;
@@ -843,6 +852,19 @@ function AppContent() {
     })();
     return () => { cancelled = true; };
   }, [sessionRowsForSubscribe, userId, firstTeamId]);
+
+  // Lazy-subscribe on session activation. When the user opens a session
+  // that's outside the most-recent slice, subscribe to its live topic so
+  // any incoming streaming arrives. Idempotent via the shared dedup set.
+  const activeSessionIdForSubscribe = useSessionStore((s) => s.activeSessionId);
+  useEffect(() => {
+    if (!activeSessionIdForSubscribe || !userId || !firstTeamId) return;
+    const row = useSessionListStore.getState().rows.find(
+      (r) => r.id === activeSessionIdForSubscribe,
+    );
+    if (!row) return; // session not in our list — nothing to do
+    void ensureSessionLiveSubscribed(row.team_id, row.id);
+  }, [activeSessionIdForSubscribe, userId, firstTeamId]);
 
   // v2 Phase 1: load message history from Supabase whenever the active
   // session changes. Single-window scope: no realtime sub here, we just
