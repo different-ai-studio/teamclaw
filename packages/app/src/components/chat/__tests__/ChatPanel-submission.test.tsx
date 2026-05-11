@@ -468,6 +468,25 @@ describe('ChatPanel submission flow', () => {
         expect(screen.queryByText('Detected new skills')).toBeNull();
       });
     });
+
+    it('does not show a prompt from another workspace after switching workspaces', async () => {
+      workspaceState.workspacePath = '/workspace/project';
+      const { ChatPanel } = await import('../ChatPanel');
+      const { rerender } = render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      expect(await screen.findByText('Detected new skills')).toBeTruthy();
+
+      workspaceState.workspacePath = '/workspace/other';
+      rerender(React.createElement(ChatPanel));
+
+      await waitFor(() => {
+        expect(screen.queryByText('Detected new skills')).toBeNull();
+      });
+    });
   });
 
   describe('inline todo dock', () => {

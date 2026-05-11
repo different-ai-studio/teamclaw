@@ -241,6 +241,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
   const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [hasSkillRestartPrompt, setHasSkillRestartPrompt] = React.useState(false);
+  const [skillRestartPromptWorkspacePath, setSkillRestartPromptWorkspacePath] = React.useState<string | null>(null);
   const [isRestartingSkillsRuntime, setIsRestartingSkillsRuntime] = React.useState(false);
   const [isRestoringArchived, setIsRestoringArchived] = React.useState(false);
   const isRestoringArchivedRef = React.useRef(false);
@@ -427,11 +428,26 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     };
   }, [openCodeReady, workspacePath]);
 
+  const showSkillRestartPrompt =
+    hasSkillRestartPrompt && skillRestartPromptWorkspacePath === workspacePath;
+
   React.useEffect(() => {
-    const onSkillsChanged = () => setHasSkillRestartPrompt(true);
+    const onSkillsChanged = () => {
+      if (!workspacePath) return;
+      setSkillRestartPromptWorkspacePath(workspacePath);
+      setHasSkillRestartPrompt(true);
+    };
     const onOpenCodeRuntimeReloaded = (event: Event) => {
       const detail = (event as CustomEvent<OpenCodeRuntimeReloadEventDetail>).detail;
-      if (!detail || detail.workspacePath !== workspacePath) return;
+      if (
+        !detail ||
+        (
+          detail.workspacePath !== skillRestartPromptWorkspacePath &&
+          detail.workspacePath !== workspacePath
+        )
+      ) {
+        return;
+      }
       if (
         detail.reason !== 'skills-file-change' &&
         detail.reason !== 'skills-permission-change' &&
@@ -441,6 +457,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         return;
       }
       setHasSkillRestartPrompt(false);
+      setSkillRestartPromptWorkspacePath(null);
       setIsRestartingSkillsRuntime(false);
     };
     window.addEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
@@ -449,7 +466,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
       window.removeEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onOpenCodeRuntimeReloaded);
     };
-  }, [workspacePath]);
+  }, [skillRestartPromptWorkspacePath, workspacePath]);
 
   // ── Team shortcuts hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
@@ -869,7 +886,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         compact ? "h-full w-full relative" : "absolute inset-0",
       )}
     >
-      {hasSkillRestartPrompt && (
+      {showSkillRestartPrompt && (
         <div className="absolute top-2 left-1/2 z-20 flex w-[min(92vw,640px)] -translate-x-1/2 items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 shadow-sm">
           <AlertCircle className="h-4 w-4 shrink-0 text-sky-600" />
           <div className="min-w-0 flex-1">
@@ -898,7 +915,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           </Button>
           <button
             type="button"
-            onClick={() => setHasSkillRestartPrompt(false)}
+            onClick={() => {
+              setHasSkillRestartPrompt(false);
+              setSkillRestartPromptWorkspacePath(null);
+            }}
             className="rounded p-1 text-sky-700 hover:bg-sky-100"
             aria-label={t("common.close", "Close")}
           >
