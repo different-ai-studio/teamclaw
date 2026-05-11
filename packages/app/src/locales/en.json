@@ -284,7 +284,9 @@
       "removeTitle": "Remove from session?",
       "removeDesc": "Remove {{name}} from this session?",
       "removeConfirm": "Remove",
-      "removeError": "Failed to remove from session"
+      "removeError": "Failed to remove from session",
+      "addAgentAria": "Add agent",
+      "addError": "Failed to add agent"
     }
   },
   "onboarding": {

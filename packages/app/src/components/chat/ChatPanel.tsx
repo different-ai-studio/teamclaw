@@ -251,6 +251,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
   const [attachedAgents, setAttachedAgents] = React.useState<AttachedAgent[]>([]);
   const [actorSheetOpen, setActorSheetOpen] = React.useState(false);
+  const sessionRow = useSessionListStore(s => s.rows.find(r => r.id === activeSessionId));
   const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [hasSkillRestartPrompt, setHasSkillRestartPrompt] = React.useState(false);
   const [isRestartingSkillsRuntime, setIsRestartingSkillsRuntime] = React.useState(false);
@@ -992,6 +993,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         open={actorSheetOpen}
         onOpenChange={setActorSheetOpen}
         sessionId={activeSessionId}
+        teamId={sessionRow?.team_id ?? null}
       />
 
       {/* Inactivity warning - task still running but no events */}

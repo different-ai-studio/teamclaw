@@ -11,6 +11,11 @@ import {
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { SessionActorSheet } from '../SessionActorSheet'
 
+const mockRuntimeStart = vi.fn().mockResolvedValue({ accepted: true, runtimeId: 'rt-new', sessionId: 'sess-1', rejectedReason: '' })
+vi.mock('@/lib/teamclaw-rpc', () => ({
+  runtimeStart: (...args: unknown[]) => mockRuntimeStart(...args),
+}))
+
 const supabaseFrom = vi.fn()
 const supabaseDelete = vi.fn()
 
@@ -34,8 +39,28 @@ vi.mock('react-i18next', () => ({
 beforeEach(() => {
   supabaseFrom.mockReset()
   supabaseDelete.mockReset()
+  mockRuntimeStart.mockReset()
+  mockRuntimeStart.mockResolvedValue({ accepted: true, runtimeId: 'rt-new', sessionId: 'sess-1', rejectedReason: '' })
   useRuntimeStateStore.getState().clear()
 })
+
+function makeActorsMock(myActorId = 'm-1', teamAgentRows: unknown[] = []) {
+  return {
+    select: () => ({
+      eq: vi.fn().mockImplementation((col: string) => {
+        if (col === 'user_id') {
+          return {
+            in: () => Promise.resolve({ data: [{ id: myActorId }], error: null }),
+          }
+        }
+        // col === 'team_id'
+        return {
+          eq: () => Promise.resolve({ data: teamAgentRows, error: null }),
+        }
+      }),
+    }),
+  }
+}
 
 function mockJoinedRows(participantActorIds: string[], actorRows: unknown[]) {
   supabaseFrom.mockImplementation((table: string) => {
@@ -62,19 +87,18 @@ function mockJoinedRows(participantActorIds: string[], actorRows: unknown[]) {
       }
     }
     if (table === 'actors') {
-      return {
-        select: () => ({
-          eq: () => ({
-            in: () => Promise.resolve({ data: [{ id: 'm-1' }], error: null }),
-          }),
-        }),
-      }
+      return makeActorsMock('m-1', [])
     }
     return { select: () => Promise.resolve({ data: [], error: null }) }
   })
 }
 
-function mockSheetData(participantActorIds: string[], actorRows: unknown[], runtimeRows: unknown[]) {
+function mockSheetData(
+  participantActorIds: string[],
+  actorRows: unknown[],
+  runtimeRows: unknown[],
+  teamAgentRows: unknown[] = [],
+) {
   supabaseFrom.mockImplementation((table: string) => {
     if (table === 'session_participants') {
       return {
@@ -84,6 +108,12 @@ function mockSheetData(participantActorIds: string[], actorRows: unknown[], runt
             error: null,
           }),
         }),
+        delete: () => ({
+          eq: () => ({
+            eq: () => supabaseDelete(),
+          }),
+        }),
+        insert: () => Promise.resolve({ error: null }),
       }
     }
     if (table === 'actor_directory') {
@@ -95,30 +125,26 @@ function mockSheetData(participantActorIds: string[], actorRows: unknown[], runt
     }
     if (table === 'agent_runtimes') {
       return {
-        select: () => ({ eq: () => Promise.resolve({ data: runtimeRows, error: null }) }),
+        select: () => ({
+          eq: vi.fn().mockImplementation((col: string) => {
+            if (col === 'session_id') {
+              // fetch-effect query: .eq('session_id', ...) → returns Promise
+              return Promise.resolve({ data: runtimeRows, error: null })
+            }
+            // handleAddAgent history query: .eq('agent_id', ...).eq('team_id', ...).order(...).limit(...)
+            return {
+              eq: vi.fn().mockReturnValue({
+                order: vi.fn().mockReturnValue({
+                  limit: () => Promise.resolve({ data: [], error: null }),
+                }),
+              }),
+            }
+          }),
+        }),
       }
     }
     if (table === 'actors') {
-      return {
-        select: () => ({
-          eq: () => ({
-            in: () => Promise.resolve({ data: [{ id: 'm-1' }], error: null }),
-          }),
-        }),
-      }
-    }
-    if (table === 'session_participants') {
-      // delete path — handled via .delete() chain
-      return {
-        select: () => ({
-          eq: () => Promise.resolve({ data: [], error: null }),
-        }),
-        delete: () => ({
-          eq: () => ({
-            eq: () => supabaseDelete(),
-          }),
-        }),
-      }
+      return makeActorsMock('m-1', teamAgentRows)
     }
     return { select: () => Promise.resolve({ data: [], error: null }) }
   })
@@ -133,7 +159,7 @@ describe('SessionActorSheet', () => {
         { id: 'a-1', actor_type: 'agent', display_name: 'Reviewer', member_status: null, agent_status: 'idle', agent_kind: 'claude', last_active_at: null },
       ],
     )
-    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" />)
+    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" teamId={null} />)
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument())
     expect(screen.getByText('Reviewer')).toBeInTheDocument()
     expect(screen.getByText(/members/i)).toBeInTheDocument()
@@ -142,12 +168,12 @@ describe('SessionActorSheet', () => {
 
   it('shows empty state when session has no participants', async () => {
     mockJoinedRows([], [])
-    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" />)
+    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" teamId={null} />)
     await waitFor(() => expect(screen.getByText(/no participants in this session/i)).toBeInTheDocument())
   })
 
   it('does not fetch when sessionId is null', async () => {
-    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId={null} />)
+    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId={null} teamId={null} />)
     // Brief wait to ensure no fetch fires
     await new Promise(r => setTimeout(r, 50))
     expect(supabaseFrom).not.toHaveBeenCalled()
@@ -180,7 +206,7 @@ describe('SessionActorSheet', () => {
       [{ agent_id: 'a-1', runtime_id: '05532480', status: 'running', current_model: 'claude-opus-4-7' }],
     )
 
-    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" />)
+    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" teamId={null} />)
     await waitFor(() => expect(screen.getByText('Reviewer')).toBeInTheDocument())
 
     // Model name appears in subline
@@ -203,7 +229,7 @@ describe('SessionActorSheet', () => {
       [],
     )
 
-    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" />)
+    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" teamId={null} />)
     await waitFor(() => expect(screen.getByText('Me')).toBeInTheDocument())
 
     // There should be exactly 2 remove buttons: one for 'Other' (m-2) and one for 'Bot' (a-1)
@@ -223,7 +249,7 @@ describe('SessionActorSheet', () => {
       [],
     )
 
-    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" />)
+    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" teamId={null} />)
     await waitFor(() => expect(screen.getByText('Other')).toBeInTheDocument())
 
     // Click the remove button on the non-self row
@@ -240,5 +266,53 @@ describe('SessionActorSheet', () => {
     await waitFor(() => expect(screen.queryByText(/remove from session\?/i)).not.toBeInTheDocument())
     // Row still present after cancel
     expect(screen.getByText('Other')).toBeInTheDocument()
+  })
+
+  it('shows + button when team has candidate agents and hides when no candidates', async () => {
+    // Session has only a member (m-1), team has agent a-1 not yet in session
+    mockSheetData(
+      ['m-1'],
+      [
+        { id: 'm-1', actor_type: 'member', display_name: 'Me', member_status: 'active', agent_status: null, agent_kind: null, last_active_at: null },
+      ],
+      [],
+      [{ id: 'a-1', display_name: 'Bot', actor_type: 'agent' }],
+    )
+
+    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" teamId="team-1" />)
+    await waitFor(() => expect(screen.getByText('Me')).toBeInTheDocument())
+
+    // The Agents heading and + button should appear since there's a candidate
+    expect(screen.getByText(/agents/i)).toBeInTheDocument()
+    const addBtn = screen.getByRole('button', { name: /add agent/i })
+    expect(addBtn).toBeInTheDocument()
+  })
+
+  it('clicking + button calls runtimeStart and adds agent row', async () => {
+    const user = userEvent.setup()
+
+    // Session has only m-1; team has candidate agent a-1
+    mockSheetData(
+      ['m-1'],
+      [
+        { id: 'm-1', actor_type: 'member', display_name: 'Me', member_status: 'active', agent_status: null, agent_kind: null, last_active_at: null },
+      ],
+      [],
+      [{ id: 'a-1', display_name: 'Bot', actor_type: 'agent' }],
+    )
+
+    render(<SessionActorSheet open={true} onOpenChange={() => {}} sessionId="sess-1" teamId="team-1" />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /add agent/i })).toBeInTheDocument())
+
+    const addBtn = screen.getByRole('button', { name: /add agent/i })
+    await user.click(addBtn)
+
+    // After click, the agent row should appear optimistically
+    await waitFor(() => expect(screen.getByText('Bot')).toBeInTheDocument())
+
+    // runtimeStart should have been called
+    await waitFor(() => expect(mockRuntimeStart).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'sess-1' }),
+    ))
   })
 })

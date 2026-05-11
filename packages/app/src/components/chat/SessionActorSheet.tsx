@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Users, User as UserIcon, Sparkles, X } from 'lucide-react'
+import { Loader2, Plus, Users, User as UserIcon, Sparkles, X } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import {
   AlertDialog,
@@ -141,9 +141,10 @@ export interface SessionActorSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   sessionId: string | null
+  teamId: string | null
 }
 
-export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActorSheetProps) {
+export function SessionActorSheet({ open, onOpenChange, sessionId, teamId }: SessionActorSheetProps) {
   const { t } = useTranslation()
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState(false)
@@ -151,6 +152,8 @@ export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActo
   const [agentToRuntimeId, setAgentToRuntimeId] = React.useState<Map<string, string>>(new Map())
   const [myActorId, setMyActorId] = React.useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = React.useState<Row | null>(null)
+  const [candidateAgents, setCandidateAgents] = React.useState<Array<{ id: string; display_name: string }>>([])
+  const [addingAgent, setAddingAgent] = React.useState(false)
 
   const runtimeStates = useRuntimeStateStore(s => s.byRuntimeId)
 
@@ -163,6 +166,8 @@ export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActo
     setAgentToRuntimeId(new Map())
     setMyActorId(null)
     setError(false)
+    setCandidateAgents([])
+    setAddingAgent(false)
     if (!open || !sessionId) {
       setLoading(false)
       return
@@ -237,6 +242,26 @@ export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActo
         myActorIdLocal = myActorRows?.[0]?.id ?? null
       }
 
+      // Step 5: fetch team agents not yet in this session (candidates for add)
+      const presentActorIds = new Set(actorIds)
+      if (teamId) {
+        const { data: teamAgentRows, error: teamAgentsErr } = await supabase
+          .from('actors')
+          .select('id, display_name, actor_type')
+          .eq('team_id', teamId)
+          .eq('actor_type', 'agent')
+        if (!cancelled) {
+          if (teamAgentsErr) {
+            console.error('[SessionActorSheet] team agents fetch failed (non-fatal)', teamAgentsErr)
+          } else {
+            const candidates = (teamAgentRows ?? []).filter(
+              (a: { id: string; display_name: string; actor_type: string }) => !presentActorIds.has(a.id),
+            )
+            setCandidateAgents(candidates as Array<{ id: string; display_name: string }>)
+          }
+        }
+      }
+
       if (cancelled) return
 
       setRows((actorData ?? []) as Row[])
@@ -247,7 +272,7 @@ export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActo
     return () => {
       cancelled = true
     }
-  }, [open, sessionId])
+  }, [open, sessionId, teamId])
 
   async function confirmRemove(actor: Row) {
     if (!sessionId) return
@@ -267,6 +292,75 @@ export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActo
       // Toast
       const { toast } = await import('sonner')
       toast.error(t('chat.actorSheet.removeError', 'Failed to remove from session'))
+    }
+  }
+
+  async function handleAddAgent() {
+    if (!sessionId || !teamId) return
+    if (candidateAgents.length === 0) return
+    if (addingAgent) return
+
+    const candidate = candidateAgents[0] // MVP: pick the first available
+    setAddingAgent(true)
+
+    // Snapshot for rollback
+    const prevRows = rows
+    const prevCandidates = candidateAgents
+
+    // Optimistic: insert as a "starting"-state agent row
+    const newRow: Row = {
+      id: candidate.id,
+      actor_type: 'agent',
+      display_name: candidate.display_name,
+      member_status: null,
+      agent_status: 'starting',
+      agent_kind: null,
+      last_active_at: null,
+    }
+    setRows(prev => [...prev, newRow])
+    setCandidateAgents(prev => prev.filter(c => c.id !== candidate.id))
+
+    try {
+      // 1. Insert into session_participants
+      const { error: insErr } = await supabase
+        .from('session_participants')
+        .insert({ session_id: sessionId, actor_id: candidate.id })
+      if (insErr) throw insErr
+
+      // 2. Derive workspace from the agent's prior runtime history
+      const { data: priorRows } = await supabase
+        .from('agent_runtimes')
+        .select('workspace_id, agent_id, current_model, status, updated_at')
+        .eq('agent_id', candidate.id)
+        .eq('team_id', teamId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+
+      const workspaceId = priorRows?.[0]?.workspace_id ?? ''
+
+      // 3. Call runtimeStart RPC
+      const { runtimeStart } = await import('@/lib/teamclaw-rpc')
+      const { AgentType } = await import('@/lib/proto/amux_pb')
+      const result = await runtimeStart({
+        workspaceId,
+        worktree: '', // daemon falls back to '.' when empty
+        sessionId,
+        agentType: AgentType.CLAUDE_CODE,
+        initialPrompt: '',
+      })
+      if (!result.accepted) {
+        throw new Error(result.rejectedReason || 'runtimeStart rejected')
+      }
+      // RuntimeInfo retain will arrive via store subscription and update the dot/model automatically
+    } catch (e) {
+      console.error('[SessionActorSheet] add agent failed:', e)
+      // Rollback
+      setRows(prevRows)
+      setCandidateAgents(prevCandidates)
+      const { toast } = await import('sonner')
+      toast.error(t('chat.actorSheet.addError', 'Failed to add agent'))
+    } finally {
+      setAddingAgent(false)
     }
   }
 
@@ -294,14 +388,14 @@ export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActo
               </div>
             )}
 
-            {!loading && !error && members.length === 0 && agents.length === 0 && (
+            {!loading && !error && members.length === 0 && agents.length === 0 && candidateAgents.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-center text-sm text-muted-foreground">
                 <Users className="mb-2 h-8 w-8 text-muted-foreground" />
                 <span>{t('chat.actorSheet.empty', 'No participants in this session')}</span>
               </div>
             )}
 
-            {!loading && !error && (members.length > 0 || agents.length > 0) && (
+            {!loading && !error && (members.length > 0 || agents.length > 0 || candidateAgents.length > 0) && (
               <>
                 {members.length > 0 && (
                   <>
@@ -318,10 +412,27 @@ export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActo
                     ))}
                   </>
                 )}
-                {agents.length > 0 && (
+                {(agents.length > 0 || candidateAgents.length > 0) && (
                   <>
-                    <div className="px-4 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                      {t('chat.mentionGroupAgents', 'Agents')}
+                    <div className="flex items-center justify-between px-4 pb-1 pt-3">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                        {t('chat.mentionGroupAgents', 'Agents')}
+                      </span>
+                      {candidateAgents.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => void handleAddAgent()}
+                          disabled={addingAgent}
+                          aria-label={t('chat.actorSheet.addAgentAria', 'Add agent')}
+                        >
+                          {addingAgent
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Plus className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
                     </div>
                     {agents.map((a) => {
                       const runtimeId = agentToRuntimeId.get(a.id)

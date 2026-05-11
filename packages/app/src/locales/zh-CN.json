@@ -284,7 +284,9 @@
       "removeTitle": "从会话中移除？",
       "removeDesc": "将 {{name}} 从此会话中移除？",
       "removeConfirm": "移除",
-      "removeError": "移除失败"
+      "removeError": "移除失败",
+      "addAgentAria": "添加 Agent",
+      "addError": "添加 Agent 失败"
     }
   },
   "onboarding": {
