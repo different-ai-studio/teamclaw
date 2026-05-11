@@ -582,12 +582,16 @@ export const SkillsSection = React.memo(function SkillsSection({
       await loadSkills()
       onDataChange?.()
       const changedWorkspacePath = workspacePath
-      markSkillRuntimeChanges(changedWorkspacePath)
       setDialogOpen(false)
       setSkillDialogMode('create')
       setImportZipPath(null)
       setImportZipLabel(null)
       setInstallLocation('workspace')
+      if (!changedWorkspacePath) {
+        return
+      }
+
+      markSkillRuntimeChanges(changedWorkspacePath)
       try {
         const result = await restartOpenCodeInstance({ reason: 'skills-file-change' })
         if (result?.status === 'deferred') {
