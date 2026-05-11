@@ -104,6 +104,7 @@ type RestartOptions = {
 
 type SkillsRuntimeChangedOptions = {
   reloadSkills?: boolean
+  reason?: OpenCodeReloadReason
 }
 
 const EMPTY_ROLE_USAGE_BY_SKILL: Record<string, string[]> = {}
@@ -184,6 +185,7 @@ export const SkillsSection = React.memo(function SkillsSection({
   const autoRestartSkillsChangesRef = React.useRef(false)
   const isAutoRestartingSkillsRef = React.useRef(false)
   const pendingAutoRestartAfterSettingLoadRef = React.useRef(false)
+  const pendingAutoRestartReasonRef = React.useRef<OpenCodeReloadReason>('skills-file-change')
   const skillRuntimeChangesWorkspacePathRef = React.useRef<string | null>(null)
   const pendingRestartWorkspacePathRef = React.useRef<string | null>(null)
 
@@ -414,7 +416,7 @@ export const SkillsSection = React.memo(function SkillsSection({
     [workspacePath]
   )
 
-  const runSkillsAutoRestart = React.useCallback(async () => {
+  const runSkillsAutoRestart = React.useCallback(async (reason: OpenCodeReloadReason = 'skills-file-change') => {
     if (!workspacePath || isAutoRestartingSkillsRef.current) {
       return
     }
@@ -422,7 +424,7 @@ export const SkillsSection = React.memo(function SkillsSection({
     isAutoRestartingSkillsRef.current = true
     setIsRestarting(true)
     try {
-      const result = await restartOpenCodeInstance({ preserveChangeFlag: true, reason: 'skills-file-change' })
+      const result = await restartOpenCodeInstance({ preserveChangeFlag: true, reason })
       if (result?.status === 'deferred') {
         markRestartPending(result.workspacePath)
         markSkillRuntimeChanges(result.workspacePath)
@@ -448,6 +450,7 @@ export const SkillsSection = React.memo(function SkillsSection({
 
   const handleSkillsRuntimeChanged = React.useCallback(async (options?: SkillsRuntimeChangedOptions) => {
     if (!workspacePath) return
+    const reason = options?.reason ?? 'skills-file-change'
     markSkillRuntimeChanges(workspacePath)
     setRestartError(null)
     if (options?.reloadSkills !== false) {
@@ -456,6 +459,7 @@ export const SkillsSection = React.memo(function SkillsSection({
 
     if (!autoRestartSettingLoaded) {
       pendingAutoRestartAfterSettingLoadRef.current = true
+      pendingAutoRestartReasonRef.current = reason
       return
     }
 
@@ -463,7 +467,7 @@ export const SkillsSection = React.memo(function SkillsSection({
       return
     }
 
-    await runSkillsAutoRestart()
+    await runSkillsAutoRestart(reason)
   }, [autoRestartSettingLoaded, loadSkills, markSkillRuntimeChanges, runSkillsAutoRestart, workspacePath])
 
   React.useEffect(() => {
@@ -478,7 +482,9 @@ export const SkillsSection = React.memo(function SkillsSection({
     }
 
     pendingAutoRestartAfterSettingLoadRef.current = false
-    void runSkillsAutoRestart()
+    const reason = pendingAutoRestartReasonRef.current
+    pendingAutoRestartReasonRef.current = 'skills-file-change'
+    void runSkillsAutoRestart(reason)
   }, [
     autoRestartSettingLoaded,
     autoRestartSkillsChanges,
@@ -488,7 +494,9 @@ export const SkillsSection = React.memo(function SkillsSection({
   ])
 
   React.useEffect(() => {
-    const onTeamSynced = () => loadSkills()
+    const onTeamSynced = () => {
+      void handleSkillsRuntimeChanged({ reason: 'team-skills-sync' })
+    }
     const onSkillsChanged = () => {
       void handleSkillsRuntimeChanged()
     }
@@ -498,7 +506,7 @@ export const SkillsSection = React.memo(function SkillsSection({
       window.removeEventListener(TEAM_SYNCED_EVENT, onTeamSynced)
       window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged)
     }
-  }, [handleSkillsRuntimeChanged, loadSkills])
+  }, [handleSkillsRuntimeChanged])
 
   React.useEffect(() => {
     const isMatchingSkillsReload = (detail?: OpenCodeRuntimeReloadEventDetail) => (

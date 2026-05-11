@@ -141,6 +141,7 @@ vi.mock('../SkillsMarketplace', () => ({
   },
 }))
 import { SkillsSection } from '../SkillsSection'
+import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 
 describe('SkillsSection', () => {
   beforeEach(() => {
@@ -317,6 +318,24 @@ describe('SkillsSection', () => {
     expect(mockRequestOpenCodeRuntimeReload).not.toHaveBeenCalled()
   })
 
+  it('shows the manual restart prompt on team sync when auto-restart is off', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.hasAttribute('disabled')).toBe(false)
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
+    })
+
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Restart' })).toBeTruthy()
+    expect(mockRequestOpenCodeRuntimeReload).not.toHaveBeenCalled()
+  })
+
   it('auto-restarts on Skills changes when enabled and hides the prompt on success', async () => {
     workspaceState.workspacePath = '/workspace/project'
     autoRestartState.enabled = true
@@ -334,6 +353,29 @@ describe('SkillsSection', () => {
 
     await waitFor(() => {
       expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
+  })
+
+  it('auto-restarts after team sync when enabled', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
+    })
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'team-skills-sync', { mode: 'defer-if-busy' })
     })
     await waitFor(() => {
       expect(screen.queryByText('Detected Skill Changes')).toBeNull()
