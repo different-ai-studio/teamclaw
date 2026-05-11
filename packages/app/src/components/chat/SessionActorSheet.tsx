@@ -155,10 +155,20 @@ export function SessionActorSheet({ open, onOpenChange, sessionId }: SessionActo
   const runtimeStates = useRuntimeStateStore(s => s.byRuntimeId)
 
   React.useEffect(() => {
-    if (!open || !sessionId) return
+    // Clear stale data whenever the sheet closes or the session changes —
+    // otherwise switching to a new session leaves the previous session's
+    // rows visible until the new fetch lands (or forever, if the new
+    // session is null/empty).
+    setRows([])
+    setAgentToRuntimeId(new Map())
+    setMyActorId(null)
+    setError(false)
+    if (!open || !sessionId) {
+      setLoading(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
-    setError(false)
     void (async () => {
       // Step 1: get actor_id list for the session
       const { data: participantData, error: participantError } = await supabase
