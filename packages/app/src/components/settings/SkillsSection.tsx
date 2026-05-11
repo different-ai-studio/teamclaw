@@ -30,7 +30,11 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import { SKILLS_CHANGED_EVENT } from '@/hooks/useAppInit'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { restartOpencode } from '@/lib/opencode/restart'
+import { requestOpenCodeRuntimeReload, type OpenCodeReloadReason } from '@/lib/opencode/restart'
+import {
+  getAutoRestartOpencodeOnSkillsChange,
+  setAutoRestartOpencodeOnSkillsChange,
+} from '@/lib/opencode/runtime-settings'
 import { cn } from '@/lib/utils'
 import { buildConfig } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
@@ -51,7 +55,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { SettingCard, SectionHeader } from './shared'
+import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
 import type { SkillPermission, SkillPermissionMap } from '@/lib/opencode/config'
 import {
   readSkillPermissions,
@@ -88,6 +92,7 @@ interface SkillsSectionProps {
 
 type RestartOptions = {
   preserveChangeFlag?: boolean
+  reason?: OpenCodeReloadReason
 }
 
 const EMPTY_ROLE_USAGE_BY_SKILL: Record<string, string[]> = {}
@@ -136,6 +141,9 @@ export const SkillsSection = React.memo(function SkillsSection({
   const [hasSkillRuntimeChanges, setHasSkillRuntimeChanges] = React.useState(false)
   const [isRestarting, setIsRestarting] = React.useState(false)
   const [restartError, setRestartError] = React.useState<string | null>(null)
+  const [autoRestartSkillsChanges, setAutoRestartSkillsChanges] = React.useState(false)
+  const [autoRestartSettingLoaded, setAutoRestartSettingLoaded] = React.useState(false)
+  const [autoRestartSettingError, setAutoRestartSettingError] = React.useState<string | null>(null)
   const [installLocation, setInstallLocation] = React.useState<'workspace' | 'global'>('workspace')
   const [isViewMode, setIsViewMode] = React.useState(false)
   const [importZipPath, setImportZipPath] = React.useState<string | null>(null)
@@ -145,12 +153,58 @@ export const SkillsSection = React.memo(function SkillsSection({
   const [marketplaceSource, setMarketplaceSource] = React.useState<'clawhub' | 'skillssh'>('clawhub')
   const installedTabRef = React.useRef<HTMLButtonElement>(null)
   const marketplaceTabRef = React.useRef<HTMLButtonElement>(null)
+  const autoRestartSkillsChangesRef = React.useRef(false)
 
   const defaultPermission: SkillPermission = skillPermissions['*'] ?? 'allow'
   const effectiveSearchQuery = embeddedConsole ? (sharedSearchQuery ?? '') : searchQuery
 
   const switchTab = React.useCallback((nextTab: SkillsTab) => {
     setActiveTab(nextTab)
+  }, [])
+
+  React.useEffect(() => {
+    autoRestartSkillsChangesRef.current = autoRestartSkillsChanges
+  }, [autoRestartSkillsChanges])
+
+  React.useEffect(() => {
+    if (embeddedConsole || !workspacePath) {
+      setAutoRestartSettingLoaded(true)
+      return
+    }
+
+    let cancelled = false
+    setAutoRestartSettingLoaded(false)
+    void getAutoRestartOpencodeOnSkillsChange()
+      .then((enabled) => {
+        if (cancelled) return
+        setAutoRestartSkillsChanges(enabled)
+        setAutoRestartSettingError(null)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setAutoRestartSkillsChanges(false)
+        setAutoRestartSettingError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAutoRestartSettingLoaded(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [embeddedConsole, workspacePath])
+
+  const handleAutoRestartSkillsChangesChange = React.useCallback(async (enabled: boolean) => {
+    setAutoRestartSkillsChanges(enabled)
+    setAutoRestartSettingError(null)
+    try {
+      const persisted = await setAutoRestartOpencodeOnSkillsChange(enabled)
+      setAutoRestartSkillsChanges(persisted)
+    } catch (err) {
+      setAutoRestartSkillsChanges(!enabled)
+      setAutoRestartSettingError(err instanceof Error ? err.message : String(err))
+    }
   }, [])
 
   React.useEffect(() => {
@@ -284,11 +338,42 @@ export const SkillsSection = React.memo(function SkillsSection({
     setSearchQuery(value)
   }, [embeddedConsole, onSharedSearchQueryChange])
 
+  const restartOpenCodeInstance = React.useCallback(
+    async (options?: RestartOptions) => {
+      if (!workspacePath) return
+      await requestOpenCodeRuntimeReload(workspacePath, options?.reason ?? 'manual')
+      if (!options?.preserveChangeFlag) {
+        setHasChanges(false)
+      }
+    },
+    [workspacePath]
+  )
+
+  const handleSkillsRuntimeChanged = React.useCallback(async () => {
+    setHasSkillRuntimeChanges(true)
+    setRestartError(null)
+    void loadSkills()
+
+    if (!autoRestartSkillsChangesRef.current || !workspacePath) {
+      return
+    }
+
+    setIsRestarting(true)
+    try {
+      await restartOpenCodeInstance({ preserveChangeFlag: true, reason: 'skills-file-change' })
+      setHasSkillRuntimeChanges(false)
+    } catch (err) {
+      console.error('[SkillsSection] Failed to auto-restart OpenCode:', err)
+      setRestartError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setIsRestarting(false)
+    }
+  }, [loadSkills, restartOpenCodeInstance, workspacePath])
+
   React.useEffect(() => {
     const onTeamSynced = () => loadSkills()
     const onSkillsChanged = () => {
-      setHasSkillRuntimeChanges(true)
-      void loadSkills()
+      void handleSkillsRuntimeChanged()
     }
     window.addEventListener(TEAM_SYNCED_EVENT, onTeamSynced)
     window.addEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged)
@@ -296,18 +381,7 @@ export const SkillsSection = React.memo(function SkillsSection({
       window.removeEventListener(TEAM_SYNCED_EVENT, onTeamSynced)
       window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged)
     }
-  }, [loadSkills])
-
-  const restartOpenCodeInstance = React.useCallback(
-    async (options?: RestartOptions) => {
-      if (!workspacePath) return
-      await restartOpencode(workspacePath)
-      if (!options?.preserveChangeFlag) {
-        setHasChanges(false)
-      }
-    },
-    [workspacePath]
-  )
+  }, [handleSkillsRuntimeChanged, loadSkills])
 
   // Skills file watching is disabled - users can manually refresh if needed
 
@@ -599,7 +673,7 @@ ${skillContent.trim()}`
     setIsRestarting(true)
     setRestartError(null)
     try {
-      await restartOpenCodeInstance()
+      await restartOpenCodeInstance({ reason: 'manual' })
       setHasSkillRuntimeChanges(false)
     } catch (err) {
       console.error('[SkillsSection] Failed to restart OpenCode:', err)
@@ -824,6 +898,36 @@ ${skillContent.trim()}`
           </button>
         </div>
       )}
+
+      {!embeddedConsole ? (
+        <SettingCard>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              <RefreshCw className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 space-y-1">
+                <p id="auto-restart-skills-changes-label" className="text-sm font-medium">
+                  {t('settings.skills.autoRestartLabel', 'Auto restart after Skills changes')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.skills.autoRestartDescription', 'Automatically restart OpenCode after skills are installed, edited, deleted, or synced. Disabled by default.')}
+                </p>
+                {autoRestartSettingError ? (
+                  <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+                    {t('common.error', 'Error')}: {autoRestartSettingError}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <ToggleSwitch
+              enabled={autoRestartSkillsChanges}
+              onChange={handleAutoRestartSkillsChangesChange}
+              disabled={!autoRestartSettingLoaded}
+              aria-labelledby="auto-restart-skills-changes-label"
+              className="mt-0.5"
+            />
+          </div>
+        </SettingCard>
+      ) : null}
 
       {/* Marketplace tab */}
       {isMarketplaceTabActive ? (
