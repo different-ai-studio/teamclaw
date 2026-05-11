@@ -122,6 +122,11 @@ vi.mock('@/stores/suggestions', () => ({
 
 vi.mock('@/hooks/useAppInit', () => ({
   SKILLS_CHANGED_EVENT: 'skills-files-changed',
+  SKILLS_RUNTIME_RELOADED_EVENT: 'skills-runtime-reloaded',
+}));
+
+vi.mock('@/lib/opencode/restart', () => ({
+  requestOpenCodeRuntimeReload: vi.fn(async () => ({ url: 'http://localhost:4096' })),
 }));
 
 vi.mock('@/stores/shortcuts', () => ({
@@ -408,6 +413,27 @@ describe('ChatPanel submission flow', () => {
       render(React.createElement(ChatPanel));
 
       expect(screen.queryByText('Connecting...')).toBeNull();
+    });
+  });
+
+  describe('skills runtime restart prompt', () => {
+    it('clears the prompt when the skills runtime reload event is broadcast', async () => {
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      expect(await screen.findByText('Detected new skills')).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-runtime-reloaded'));
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText('Detected new skills')).toBeNull();
+      });
     });
   });
 

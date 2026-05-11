@@ -370,6 +370,26 @@ describe('SkillsSection', () => {
     expect(screen.queryByText('Detected Skill Changes')).toBeNull()
   })
 
+  it('auto-restarts after embedded marketplace install when the global setting is enabled', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection embeddedConsole />)
+
+    expect(screen.queryByText('Auto restart after Skills changes')).toBeNull()
+    await waitFor(() => {
+      expect(mockGetAutoRestartOpencodeOnSkillsChange).toHaveBeenCalled()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Marketplace' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Mock install skill' }))
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+    })
+    expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+  })
+
   it('auto-restarts when Skills change arrives before enabled setting finishes loading', async () => {
     workspaceState.workspacePath = '/workspace/project'
     let resolveSetting!: (enabled: boolean) => void

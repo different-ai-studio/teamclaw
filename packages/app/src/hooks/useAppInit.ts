@@ -35,6 +35,7 @@ import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
 import { appShortName, TEAMCLAW_DIR, TEAM_REPO_DIR } from "@/lib/build-config";
 
 export const SKILLS_CHANGED_EVENT = "skills-files-changed";
+export const SKILLS_RUNTIME_RELOADED_EVENT = "skills-runtime-reloaded";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OpenCode server start / workspace restore

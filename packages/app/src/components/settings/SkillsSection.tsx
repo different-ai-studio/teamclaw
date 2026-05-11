@@ -28,7 +28,7 @@ import {
   Package,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
-import { SKILLS_CHANGED_EVENT } from '@/hooks/useAppInit'
+import { SKILLS_CHANGED_EVENT, SKILLS_RUNTIME_RELOADED_EVENT } from '@/hooks/useAppInit'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { requestOpenCodeRuntimeReload, type OpenCodeReloadReason } from '@/lib/opencode/restart'
 import {
@@ -173,11 +173,6 @@ export const SkillsSection = React.memo(function SkillsSection({
   }, [autoRestartSkillsChanges])
 
   React.useEffect(() => {
-    if (embeddedConsole || !workspacePath) {
-      setAutoRestartSettingLoaded(true)
-      return
-    }
-
     let cancelled = false
     setAutoRestartSettingLoaded(false)
     void getAutoRestartOpencodeOnSkillsChange()
@@ -199,7 +194,7 @@ export const SkillsSection = React.memo(function SkillsSection({
     return () => {
       cancelled = true
     }
-  }, [embeddedConsole, workspacePath])
+  }, [])
 
   const handleAutoRestartSkillsChangesChange = React.useCallback(async (enabled: boolean) => {
     setAutoRestartSkillsChanges(enabled)
@@ -348,6 +343,7 @@ export const SkillsSection = React.memo(function SkillsSection({
     async (options?: RestartOptions) => {
       if (!workspacePath) return
       await requestOpenCodeRuntimeReload(workspacePath, options?.reason ?? 'manual')
+      window.dispatchEvent(new CustomEvent(SKILLS_RUNTIME_RELOADED_EVENT))
       if (!options?.preserveChangeFlag) {
         setHasChanges(false)
       }
