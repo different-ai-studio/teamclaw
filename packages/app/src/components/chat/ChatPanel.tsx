@@ -688,14 +688,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
    * the normal handleSubmit path (activeSessionId) and from the picker-confirm
    * path (freshly-created sessionId).  Must NOT close over activeSessionId.
    */
-  const sendIntoSession = async (sid: string, message: PromptInputMessage) => {
+  const sendIntoSession = async (
+    sid: string,
+    message: PromptInputMessage,
+    extraMentionActorIds: string[] = [],
+  ) => {
     // v2: OpenCode-ready gate removed — that flag tracked a sidecar that's
     // gone now. Single-window scope sends via MQTT + Supabase regardless.
     const text = message.text?.trim() || "";
     const mentions = message.mentions || [];
     const memberIds = mentions.map((m) => m.id);
     const agentIds = attachedAgents.map((a) => a.id);
-    const mentionActorIds = Array.from(new Set([...memberIds, ...agentIds]));
+    const mentionActorIds = Array.from(
+      new Set([...memberIds, ...agentIds, ...extraMentionActorIds]),
+    );
     const _isPlanMode = !!(message as PromptInputMessage & { _planMode?: boolean })._planMode;
 
     if (!text && attachedFiles.length === 0 && mentions.length === 0 && imageFiles.length === 0) return;
@@ -913,8 +919,16 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       const deferredMessage = pendingFirstMessage;
       setPendingFirstMessage(null);
 
-      // Send into the freshly-created session.
-      await sendIntoSession(sessionId, deferredMessage);
+      // Auto-mention picked agents on first send so the daemon prompts them
+      // (mirrors iOS NewSessionSheet:441 — when there are picked agents,
+      // include them in mention_actor_ids; otherwise the daemon's
+      // route_session_message routes to silent queue and no reply fires).
+      // iOS only auto-mentions when there's exactly one agent; we do the
+      // same — multi-agent leaves routing to the user's @-mentions.
+      const autoMentionAgents = picks.agentActorIds.length === 1
+        ? picks.agentActorIds
+        : [];
+      await sendIntoSession(sessionId, deferredMessage, autoMentionAgents);
     } catch (e) {
       console.error('[ChatPanel] session creation failed:', e);
       const { toast } = await import('sonner');
