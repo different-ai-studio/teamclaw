@@ -279,7 +279,12 @@
       "title": "Actors",
       "loading": "正在加载成员...",
       "empty": "当前会话暂无成员",
-      "error": "加载失败"
+      "error": "加载失败",
+      "removeAria": "移除",
+      "removeTitle": "从会话中移除？",
+      "removeDesc": "将 {{name}} 从此会话中移除？",
+      "removeConfirm": "移除",
+      "removeError": "移除失败"
     }
   },
   "onboarding": {

@@ -279,7 +279,12 @@
       "title": "Actors",
       "loading": "Loading actors...",
       "empty": "No participants in this session",
-      "error": "Failed to load actors"
+      "error": "Failed to load actors",
+      "removeAria": "Remove",
+      "removeTitle": "Remove from session?",
+      "removeDesc": "Remove {{name}} from this session?",
+      "removeConfirm": "Remove",
+      "removeError": "Failed to remove from session"
     }
   },
   "onboarding": {
