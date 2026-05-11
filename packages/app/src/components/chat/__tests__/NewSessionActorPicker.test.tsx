@@ -43,7 +43,10 @@ describe('NewSessionActorPicker', () => {
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument())
     await user.click(screen.getByText('Alice'))
     await user.click(screen.getByText('Send'))
-    expect(onConfirm).toHaveBeenCalledWith({ memberActorIds: ['m-1'], agentActorIds: [] })
+    expect(onConfirm).toHaveBeenCalledWith({
+      members: [{ id: 'm-1', displayName: 'Alice' }],
+      agents: [],
+    })
   })
 
   it('Skip sends empty arrays', async () => {
@@ -61,7 +64,7 @@ describe('NewSessionActorPicker', () => {
     )
     await waitFor(() => expect(screen.getByText('Bot')).toBeInTheDocument())
     await user.click(screen.getByText('Skip'))
-    expect(onConfirm).toHaveBeenCalledWith({ memberActorIds: [], agentActorIds: [] })
+    expect(onConfirm).toHaveBeenCalledWith({ members: [], agents: [] })
   })
 
   it('excludes selfActorId from the list', async () => {

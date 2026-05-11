@@ -691,17 +691,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const sendIntoSession = async (
     sid: string,
     message: PromptInputMessage,
-    extraMentionActorIds: string[] = [],
+    extraMentionAgents: AttachedAgent[] = [],
   ) => {
     // v2: OpenCode-ready gate removed — that flag tracked a sidecar that's
     // gone now. Single-window scope sends via MQTT + Supabase regardless.
     const text = message.text?.trim() || "";
     const mentions = message.mentions || [];
+    // Combine chip-bar agents + picker-supplied agents, dedup by id.
+    const allAgents: AttachedAgent[] = [...attachedAgents];
+    for (const ea of extraMentionAgents) {
+      if (!allAgents.some((a) => a.id === ea.id)) allAgents.push(ea);
+    }
     const memberIds = mentions.map((m) => m.id);
-    const agentIds = attachedAgents.map((a) => a.id);
-    const mentionActorIds = Array.from(
-      new Set([...memberIds, ...agentIds, ...extraMentionActorIds]),
-    );
+    const agentIds = allAgents.map((a) => a.id);
+    const mentionActorIds = Array.from(new Set([...memberIds, ...agentIds]));
     const _isPlanMode = !!(message as PromptInputMessage & { _planMode?: boolean })._planMode;
 
     if (!text && attachedFiles.length === 0 && mentions.length === 0 && imageFiles.length === 0) return;
@@ -738,6 +741,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     const parts: string[] = [];
 
+    // Prepend literal @AgentName tokens so the rendered user message
+    // visibly carries the mention (matches @-member rendering and makes
+    // history readable). Picker auto-mentions land here too via
+    // extraMentionAgents.
+    const agentMentionPrefix = allAgents.length > 0
+      ? allAgents.map((a) => `@${a.displayName}`).join(" ")
+      : "";
+
     // Add person mentions at the beginning
     if (personMentions.length > 0) {
       parts.push(`[Mentioned: ${personMentions.join(', ')}]`);
@@ -750,9 +761,15 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       }
     }
 
-    // Add the processed text (with inline [File: ...] replacements)
-    if (processedText.trim()) {
-      parts.push(processedText.trim());
+    // Add the processed text (with inline [File: ...] replacements),
+    // prefixed by agent @-mentions if any.
+    const bodyText = agentMentionPrefix
+      ? (processedText.trim()
+        ? `${agentMentionPrefix} ${processedText.trim()}`
+        : agentMentionPrefix)
+      : processedText.trim();
+    if (bodyText) {
+      parts.push(bodyText);
     }
 
     finalContent = parts.join("\n\n");
@@ -868,7 +885,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── New-session picker handlers ────────────────────────────────────────
 
-  const handlePickerConfirm = async (picks: { memberActorIds: string[]; agentActorIds: string[] }) => {
+  const handlePickerConfirm = async (
+    picks: {
+      members: { id: string; displayName: string }[]
+      agents: { id: string; displayName: string }[]
+    },
+  ) => {
     if (!pendingFirstMessage) return;
 
     const teamIdForSend = sheetTeamId;
@@ -901,7 +923,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       // 1. Synchronously insert sessions + session_participants. This is the
       //    "hot path" — user wants to see the chat view immediately.
       const { createSessionShell, startAgentRuntimesAsync } = await import('@/lib/session-create');
-      const allAdditional = Array.from(new Set([...picks.memberActorIds, ...picks.agentActorIds]));
+      const memberIds = picks.members.map((m) => m.id);
+      const agentIds = picks.agents.map((a) => a.id);
+      const allAdditional = Array.from(new Set([...memberIds, ...agentIds]));
       const { sessionId } = await createSessionShell({
         teamId: teamIdForSend,
         creatorActorId: myActor.id,
@@ -917,11 +941,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
       // 4. Replay the deferred first message immediately. Auto-mention picked
       //    agents (iOS pattern: NewSessionSheet:441 — single-agent
-      //    auto-mention; multi-agent leaves @-routing to the user).
+      //    auto-mention; multi-agent leaves @-routing to the user). Pass
+      //    the full {id, displayName} so sendIntoSession can prepend
+      //    visible @-tokens to the message body.
       const deferredMessage = pendingFirstMessage;
       setPendingFirstMessage(null);
-      const autoMentionAgents = picks.agentActorIds.length === 1
-        ? picks.agentActorIds
+      const autoMentionAgents: AttachedAgent[] = picks.agents.length === 1
+        ? picks.agents
         : [];
       await sendIntoSession(sessionId, deferredMessage, autoMentionAgents);
 
@@ -929,11 +955,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       //    has already moved into the new session; the RuntimeInfo retain
       //    subscription will update the actor sheet's status dot when
       //    each runtime comes up.
-      if (picks.agentActorIds.length > 0) {
+      if (picks.agents.length > 0) {
         void startAgentRuntimesAsync({
           sessionId,
           teamId: teamIdForSend,
-          agentActorIds: picks.agentActorIds,
+          agentActorIds: agentIds,
         });
       }
     } catch (e) {

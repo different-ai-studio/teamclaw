@@ -15,10 +15,15 @@ type Candidate = {
   display_name: string
 }
 
+export interface PickedActor {
+  id: string
+  displayName: string
+}
+
 export interface NewSessionActorPickerProps {
   open: boolean
   onCancel: () => void  // user closes / cancels — abort send
-  onConfirm: (picks: { memberActorIds: string[]; agentActorIds: string[] }) => void
+  onConfirm: (picks: { members: PickedActor[]; agents: PickedActor[] }) => void
   teamId: string
   /** Current user's actor_id — excluded from the member list. */
   selfActorId: string | null
@@ -68,9 +73,13 @@ export function NewSessionActorPicker({ open, onCancel, onConfirm, teamId, selfA
 
   function send(includePicks: boolean) {
     const ids = includePicks ? Array.from(picked) : []
-    const memberActorIds = members.filter(m => ids.includes(m.id)).map(m => m.id)
-    const agentActorIds = agents.filter(a => ids.includes(a.id)).map(a => a.id)
-    onConfirm({ memberActorIds, agentActorIds })
+    const memberPicks: PickedActor[] = members
+      .filter(m => ids.includes(m.id))
+      .map(m => ({ id: m.id, displayName: m.display_name }))
+    const agentPicks: PickedActor[] = agents
+      .filter(a => ids.includes(a.id))
+      .map(a => ({ id: a.id, displayName: a.display_name }))
+    onConfirm({ members: memberPicks, agents: agentPicks })
   }
 
   return (
