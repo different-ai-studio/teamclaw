@@ -120,7 +120,12 @@ async function performRuntimeReload(
 }
 
 function flushPendingRuntimeReloads() {
-  if (pendingRuntimeReloads.size === 0 || isRuntimeBusy()) {
+  if (pendingRuntimeReloads.size === 0) {
+    clearPendingReloadSubscription()
+    return
+  }
+
+  if (isRuntimeBusy()) {
     return
   }
 
@@ -130,8 +135,17 @@ function flushPendingRuntimeReloads() {
     }
 
     pendingRuntimeReloads.delete(workspacePath)
-    void performRuntimeReload(pendingReload.workspacePath, pendingReload.reason)
+    void performRuntimeReload(pendingReload.workspacePath, pendingReload.reason).catch(() => undefined)
   }
+
+  if (pendingRuntimeReloads.size === 0) {
+    clearPendingReloadSubscription()
+  }
+}
+
+function clearPendingReloadSubscription() {
+  pendingReloadUnsubscribe?.()
+  pendingReloadUnsubscribe = null
 }
 
 function ensurePendingReloadSubscription() {
@@ -166,6 +180,9 @@ export function requestOpenCodeRuntimeReload(
   }
 
   pendingRuntimeReloads.delete(workspacePath)
+  if (pendingRuntimeReloads.size === 0) {
+    clearPendingReloadSubscription()
+  }
   return performRuntimeReload(workspacePath, reason).then((result) => ({
     status: 'restarted',
     url: result.url,

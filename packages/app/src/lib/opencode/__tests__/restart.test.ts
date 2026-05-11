@@ -174,7 +174,10 @@ describe('OpenCode runtime reload', () => {
       return Promise.resolve(undefined)
     })
 
-    const { requestOpenCodeRuntimeReload } = await import('../restart')
+    const { requestOpenCodeRuntimeReload, OPENCODE_RUNTIME_RELOADED_EVENT } = await import('../restart')
+    const reloadedHandler = vi.fn()
+    window.addEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, reloadedHandler, { once: true })
+
     await expect(
       Promise.all([
         requestOpenCodeRuntimeReload('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' }),
@@ -191,6 +194,39 @@ describe('OpenCode runtime reload', () => {
 
     expect(invokeMock.mock.calls.filter(([cmd]) => cmd === 'stop_opencode')).toHaveLength(1)
     expect(invokeMock.mock.calls.filter(([cmd]) => cmd === 'start_opencode')).toHaveLength(1)
+    expect((reloadedHandler.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      workspacePath: '/workspace/project',
+      reason: 'team-skills-sync',
+      url: 'http://127.0.0.1:4096',
+    })
+  })
+
+  it('emits failed event for deferred flush failures without rejecting the subscriber path', async () => {
+    busySessionsMock.add('sess-1')
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'stop_opencode') return Promise.resolve(undefined)
+      if (command === 'start_opencode') return Promise.reject(new Error('restart failed'))
+      return Promise.resolve(undefined)
+    })
+
+    const { requestOpenCodeRuntimeReload, OPENCODE_RUNTIME_RELOAD_FAILED_EVENT } = await import('../restart')
+    const failedHandler = vi.fn()
+    window.addEventListener(OPENCODE_RUNTIME_RELOAD_FAILED_EVENT, failedHandler, { once: true })
+
+    await requestOpenCodeRuntimeReload('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+
+    busySessionsMock.clear()
+    expect(() => {
+      sessionSubscribers.forEach((subscriber) => subscriber())
+    }).not.toThrow()
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(failedHandler).toHaveBeenCalledTimes(1)
+    expect((failedHandler.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      workspacePath: '/workspace/project',
+      reason: 'skills-file-change',
+      error: 'restart failed',
+    })
   })
 
   it('treats pending permissions as busy for deferred reloads', async () => {
