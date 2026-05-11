@@ -7,6 +7,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 const SETTINGS_FILE_NAME: &str = "app-settings.json";
 const SPOTLIGHT_SHORTCUT_KEY: &str = "spotlightShortcut";
+const AUTO_RESTART_OPENCODE_ON_SKILLS_CHANGE_KEY: &str =
+    "autoRestartOpencodeOnSkillsChange";
 pub const DEFAULT_SPOTLIGHT_SHORTCUT: &str = "alt+space";
 
 pub struct SpotlightShortcutState {
@@ -43,15 +45,19 @@ fn read_settings_value() -> Value {
     serde_json::from_str(&content).unwrap_or_else(|_| Value::Object(Map::new()))
 }
 
-fn write_spotlight_shortcut_setting(shortcut: &str) -> Result<(), String> {
+fn read_bool_setting_from_value(value: &Value, key: &str, default_value: bool) -> bool {
+    value
+        .get(key)
+        .and_then(Value::as_bool)
+        .unwrap_or(default_value)
+}
+
+fn write_setting_value(key: &str, value: Value) -> Result<(), String> {
     let mut settings = match read_settings_value() {
         Value::Object(map) => map,
         _ => Map::new(),
     };
-    settings.insert(
-        SPOTLIGHT_SHORTCUT_KEY.to_string(),
-        Value::String(shortcut.to_string()),
-    );
+    settings.insert(key.to_string(), value);
 
     let path = settings_path();
     if let Some(parent) = path.parent() {
@@ -61,6 +67,13 @@ fn write_spotlight_shortcut_setting(shortcut: &str) -> Result<(), String> {
     let content = serde_json::to_string_pretty(&Value::Object(settings))
         .map_err(|e| format!("Failed to serialize settings: {e}"))?;
     std::fs::write(&path, content).map_err(|e| format!("Failed to write settings: {e}"))
+}
+
+fn write_spotlight_shortcut_setting(shortcut: &str) -> Result<(), String> {
+    write_setting_value(
+        SPOTLIGHT_SHORTCUT_KEY,
+        Value::String(shortcut.to_string()),
+    )
 }
 
 pub fn normalize_spotlight_shortcut(shortcut: &str) -> Result<String, String> {
@@ -102,6 +115,14 @@ pub fn read_spotlight_shortcut() -> String {
         .unwrap_or_else(|| DEFAULT_SPOTLIGHT_SHORTCUT.to_string())
 }
 
+pub fn read_auto_restart_opencode_on_skills_change() -> bool {
+    read_bool_setting_from_value(
+        &read_settings_value(),
+        AUTO_RESTART_OPENCODE_ON_SKILLS_CHANGE_KEY,
+        false,
+    )
+}
+
 pub fn register_spotlight_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
     let normalized = normalize_spotlight_shortcut(shortcut)?;
     if app.global_shortcut().is_registered(normalized.as_str()) {
@@ -115,6 +136,20 @@ pub fn register_spotlight_shortcut(app: &AppHandle, shortcut: &str) -> Result<()
 #[tauri::command]
 pub fn get_spotlight_shortcut(state: State<'_, SpotlightShortcutState>) -> String {
     state.current()
+}
+
+#[tauri::command]
+pub fn get_auto_restart_opencode_on_skills_change() -> bool {
+    read_auto_restart_opencode_on_skills_change()
+}
+
+#[tauri::command]
+pub fn set_auto_restart_opencode_on_skills_change(enabled: bool) -> Result<bool, String> {
+    write_setting_value(
+        AUTO_RESTART_OPENCODE_ON_SKILLS_CHANGE_KEY,
+        Value::Bool(enabled),
+    )?;
+    Ok(enabled)
 }
 
 #[tauri::command]
@@ -183,5 +218,42 @@ mod tests {
     fn rejects_empty_shortcuts() {
         assert!(normalize_spotlight_shortcut("").is_err());
         assert!(normalize_spotlight_shortcut("alt+").is_err());
+    }
+
+    #[test]
+    fn boolean_setting_defaults_when_missing() {
+        let value = Value::Object(Map::new());
+
+        assert!(!read_bool_setting_from_value(
+            &value,
+            AUTO_RESTART_OPENCODE_ON_SKILLS_CHANGE_KEY,
+            false,
+        ));
+    }
+
+    #[test]
+    fn boolean_setting_reads_explicit_true() {
+        let value = serde_json::json!({
+            "autoRestartOpencodeOnSkillsChange": true
+        });
+
+        assert!(read_bool_setting_from_value(
+            &value,
+            AUTO_RESTART_OPENCODE_ON_SKILLS_CHANGE_KEY,
+            false,
+        ));
+    }
+
+    #[test]
+    fn boolean_setting_ignores_wrong_type() {
+        let value = serde_json::json!({
+            "autoRestartOpencodeOnSkillsChange": "true"
+        });
+
+        assert!(!read_bool_setting_from_value(
+            &value,
+            AUTO_RESTART_OPENCODE_ON_SKILLS_CHANGE_KEY,
+            false,
+        ));
     }
 }

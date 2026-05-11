@@ -583,6 +583,8 @@ pub fn run() {
             commands::workspace_files::read_workspace_binary_file,
             commands::app_settings::get_spotlight_shortcut,
             commands::app_settings::set_spotlight_shortcut,
+            commands::app_settings::get_auto_restart_opencode_on_skills_change,
+            commands::app_settings::set_auto_restart_opencode_on_skills_change,
             commands::spotlight::toggle_spotlight,
             commands::spotlight::set_spotlight_pin,
             commands::spotlight::show_main_window,
