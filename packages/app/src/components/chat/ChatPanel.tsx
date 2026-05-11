@@ -45,6 +45,8 @@ import { TodoList } from "./TodoList";
 import { QuestionInputDock } from "./QuestionInputDock";
 import { SessionActorSheet } from "./SessionActorSheet";
 import { NewSessionActorPicker } from "./NewSessionActorPicker";
+import { useV2StreamingStore } from "@/stores/v2-streaming-store";
+import { StreamingAgentBubble } from "./StreamingAgentBubble";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -134,6 +136,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const pendingPermissions = useSessionStore(s => s.pendingPermissions);
   const pendingQuestions = useSessionStore(s => s.pendingQuestions);
   const sessions = useSessionStore(s => s.sessions);
+
+  // ── V2 agent streaming (acp.event deltas) ───────────────────────────
+  // Select byKey directly (stable reference when nothing changes) and filter in useMemo.
+  const v2StreamsByKey = useV2StreamingStore(s => s.byKey);
+  const v2Streams = React.useMemo(
+    () =>
+      Object.values(v2StreamsByKey).filter(
+        e => e.sessionId === activeSessionId && e.active,
+      ),
+    [v2StreamsByKey, activeSessionId],
+  );
 
   // ── Archived session viewing ────────────────────────────────────────
   const viewingArchivedSessionId = useSessionStore(s => s.viewingArchivedSessionId);
@@ -1005,17 +1018,26 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       : null;
 
   const messageBottomContent = !isViewingChild ? (
-    visibleSessionError ? (
-      <SessionErrorAlert
-        error={visibleSessionError}
-        onDismiss={clearSessionError}
-      />
-    ) : visibleError ? (
-      <SessionErrorAlert
-        error={visibleError}
-        onDismiss={() => setError(null)}
-      />
-    ) : null
+    <>
+      {v2Streams.map(entry => (
+        <StreamingAgentBubble
+          key={entry.actorId}
+          entry={entry}
+          displayName={entry.actorId.slice(0, 8)}
+        />
+      ))}
+      {visibleSessionError ? (
+        <SessionErrorAlert
+          error={visibleSessionError}
+          onDismiss={clearSessionError}
+        />
+      ) : visibleError ? (
+        <SessionErrorAlert
+          error={visibleError}
+          onDismiss={() => setError(null)}
+        />
+      ) : null}
+    </>
   ) : null;
 
   // ── Render ────────────────────────────────────────────────────────────

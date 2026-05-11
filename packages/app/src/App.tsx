@@ -88,6 +88,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { mqttConnect, mqttSubscribe, listenForEnvelopes } from "@/lib/mqtt-bridge";
 import { initTeamclawRpc, disposeTeamclawRpc } from "@/lib/teamclaw-rpc";
 import { decodeLiveEvent, sessionIdFromTopic } from "@/lib/teamclaw-events";
+import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { initRuntimeStateStore, disposeRuntimeStateStore } from "@/stores/runtime-state-store";
 import { supabase } from "@/lib/supabase-client";
 import { create as createMessage } from "@bufbuild/protobuf";
@@ -730,8 +731,31 @@ function AppContent() {
           const sid = sessionIdFromTopic(env.topic);
           if (!sid) return;
           const decoded = decodeLiveEvent(new Uint8Array(env.bytes));
-          if (!decoded?.message) return;
-          useSessionStore.getState().appendMessage(sid, decoded.message);
+          if (!decoded) return;
+
+          // Case 1: final message.created
+          if (decoded.message) {
+            useSessionStore.getState().appendMessage(sid, decoded.message);
+            // Clear any in-flight streaming buffer for that actor
+            if (decoded.message.senderActorId) {
+              useV2StreamingStore.getState().clearActor(sid, decoded.message.senderActorId);
+            }
+            return;
+          }
+
+          // Case 2: streaming acp.event
+          if (decoded.acpEvent && decoded.envelope.actorId) {
+            const actorId = decoded.envelope.actorId;
+            const event = decoded.acpEvent.event;
+            if (event?.case === "output") {
+              const text = (event.value as { text?: string })?.text ?? "";
+              useV2StreamingStore.getState().appendOutput(sid, actorId, text);
+            } else if (event?.case === "thinking") {
+              const text = (event.value as { text?: string })?.text ?? "";
+              useV2StreamingStore.getState().appendThinking(sid, actorId, text);
+            }
+            // Other variants: silently ignored for MVP
+          }
         });
         if (cancelled) {
           unlisten?.();

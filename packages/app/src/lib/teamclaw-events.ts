@@ -6,11 +6,14 @@ import {
   type SessionMessageEnvelope,
   type Message,
 } from "@/lib/proto/teamclaw_pb";
+import { EnvelopeSchema as AmuxEnvelopeSchema, type AcpEvent } from "@/lib/proto/amux_pb";
 
 export interface DecodedLiveEvent {
   envelope: LiveEventEnvelope;
   sessionMessage?: SessionMessageEnvelope;
   message?: Message;
+  // Set when event_type === 'acp.event'
+  acpEvent?: AcpEvent;
 }
 
 export function decodeLiveEvent(bytes: Uint8Array): DecodedLiveEvent | null {
@@ -22,6 +25,7 @@ export function decodeLiveEvent(bytes: Uint8Array): DecodedLiveEvent | null {
   }
 
   const decoded: DecodedLiveEvent = { envelope };
+
   if (envelope.eventType === "message.created" && envelope.body && envelope.body.length > 0) {
     try {
       const sessionMessage = fromBinary(SessionMessageEnvelopeSchema, envelope.body);
@@ -30,7 +34,17 @@ export function decodeLiveEvent(bytes: Uint8Array): DecodedLiveEvent | null {
     } catch {
       // ignore body decode failure; envelope still valid for caller inspection
     }
+  } else if (envelope.eventType === "acp.event" && envelope.body && envelope.body.length > 0) {
+    try {
+      const amuxEnv = fromBinary(AmuxEnvelopeSchema, envelope.body);
+      if (amuxEnv.payload?.case === "acpEvent") {
+        decoded.acpEvent = amuxEnv.payload.value;
+      }
+    } catch {
+      // ignore body decode failure; envelope still valid for caller inspection
+    }
   }
+
   return decoded;
 }
 

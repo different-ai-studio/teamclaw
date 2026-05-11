@@ -6,6 +6,12 @@ import {
   MessageSchema,
   MessageKind,
 } from "@/lib/proto/teamclaw_pb";
+import {
+  EnvelopeSchema as AmuxEnvelopeSchema,
+  AcpEventSchema,
+  AcpOutputSchema,
+  AcpThinkingSchema,
+} from "@/lib/proto/amux_pb";
 import { decodeLiveEvent, sessionIdFromTopic } from "./teamclaw-events";
 
 describe("decodeLiveEvent", () => {
@@ -51,5 +57,55 @@ describe("sessionIdFromTopic", () => {
   });
   it("returns null for non-session topics", () => {
     expect(sessionIdFromTopic("amux/team1/device/d1/state")).toBeNull();
+  });
+});
+
+describe("decodeLiveEvent – acp.event", () => {
+  it("decodes acp.event with output variant", () => {
+    const output = create(AcpOutputSchema, { text: "hello" });
+    const acpEvent = create(AcpEventSchema, {
+      event: { case: "output", value: output },
+    });
+    const amuxEnv = create(AmuxEnvelopeSchema, {
+      payload: { case: "acpEvent", value: acpEvent },
+    });
+    const live = create(LiveEventEnvelopeSchema, {
+      eventType: "acp.event",
+      sessionId: "s1",
+      actorId: "a1",
+      body: toBinary(AmuxEnvelopeSchema, amuxEnv),
+    });
+
+    const decoded = decodeLiveEvent(toBinary(LiveEventEnvelopeSchema, live));
+    expect(decoded).toBeTruthy();
+    expect(decoded!.acpEvent).toBeDefined();
+    expect(decoded!.acpEvent!.event.case).toBe("output");
+    if (decoded!.acpEvent && decoded!.acpEvent.event.case === "output") {
+      expect(decoded!.acpEvent.event.value.text).toBe("hello");
+    }
+  });
+
+  it("decodes acp.event with thinking variant", () => {
+    const thinking = create(AcpThinkingSchema, { text: "pondering..." });
+    const acpEvent = create(AcpEventSchema, {
+      event: { case: "thinking", value: thinking },
+    });
+    const amuxEnv = create(AmuxEnvelopeSchema, {
+      payload: { case: "acpEvent", value: acpEvent },
+    });
+    const live = create(LiveEventEnvelopeSchema, {
+      eventType: "acp.event",
+      sessionId: "s1",
+      actorId: "a1",
+      body: toBinary(AmuxEnvelopeSchema, amuxEnv),
+    });
+
+    const decoded = decodeLiveEvent(toBinary(LiveEventEnvelopeSchema, live));
+    expect(decoded).toBeTruthy();
+    expect(decoded!.acpEvent).toBeDefined();
+    expect(decoded!.acpEvent!.event.case).toBe("thinking");
+    if (decoded!.acpEvent && decoded!.acpEvent.event.case === "thinking") {
+      expect(decoded!.acpEvent.event.value.text).toBe("pondering...");
+    }
   });
 });
