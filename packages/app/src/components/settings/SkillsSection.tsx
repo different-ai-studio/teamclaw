@@ -418,17 +418,32 @@ export const SkillsSection = React.memo(function SkillsSection({
 
   const runSkillsAutoRestart = React.useCallback(async (reason: OpenCodeReloadReason = 'skills-file-change') => {
     if (!workspacePath || isAutoRestartingSkillsRef.current) {
+      console.info('[SkillsAutoRestart] skipped auto restart request', {
+        workspacePath,
+        reason,
+        alreadyRestarting: isAutoRestartingSkillsRef.current,
+      })
       return
     }
 
     isAutoRestartingSkillsRef.current = true
     setIsRestarting(true)
     try {
+      console.info('[SkillsAutoRestart] requesting OpenCode reload', { workspacePath, reason })
       const result = await restartOpenCodeInstance({ preserveChangeFlag: true, reason })
       if (result?.status === 'deferred') {
+        console.info('[SkillsAutoRestart] OpenCode reload deferred', {
+          workspacePath: result.workspacePath,
+          reason: result.reason,
+        })
         markRestartPending(result.workspacePath)
         markSkillRuntimeChanges(result.workspacePath)
       } else if (result?.status === 'restarted') {
+        console.info('[SkillsAutoRestart] OpenCode reload completed', {
+          workspacePath,
+          reason,
+          url: result.url,
+        })
         clearRestartPendingForWorkspace(workspacePath)
         clearSkillRuntimeChangesForWorkspace(workspacePath)
       }
@@ -451,6 +466,11 @@ export const SkillsSection = React.memo(function SkillsSection({
   const handleSkillsRuntimeChanged = React.useCallback(async (options?: SkillsRuntimeChangedOptions) => {
     if (!workspacePath) return
     const reason = options?.reason ?? 'skills-file-change'
+    console.info('[SkillsAutoRestart] skills runtime change detected', {
+      workspacePath,
+      reason,
+      reloadSkills: options?.reloadSkills !== false,
+    })
     markSkillRuntimeChanges(workspacePath)
     setRestartError(null)
     if (options?.reloadSkills !== false) {
@@ -458,12 +478,20 @@ export const SkillsSection = React.memo(function SkillsSection({
     }
 
     if (!autoRestartSettingLoaded) {
+      console.info('[SkillsAutoRestart] auto restart setting not loaded yet; queueing restart decision', {
+        workspacePath,
+        reason,
+      })
       pendingAutoRestartAfterSettingLoadRef.current = true
       pendingAutoRestartReasonRef.current = reason
       return
     }
 
     if (!autoRestartSkillsChangesRef.current) {
+      console.info('[SkillsAutoRestart] auto restart disabled; showing manual restart prompt', {
+        workspacePath,
+        reason,
+      })
       return
     }
 
@@ -524,6 +552,7 @@ export const SkillsSection = React.memo(function SkillsSection({
       if (detail.workspacePath === workspacePath && shouldClearSkillPermissionChanges(detail.reason)) {
         setHasChanges(false)
       }
+      console.info('[SkillsAutoRestart] observed OpenCode reload success event', detail)
       setRestartError(null)
     }
 
@@ -532,6 +561,7 @@ export const SkillsSection = React.memo(function SkillsSection({
       if (!isMatchingSkillsReload(detail)) return
       clearRestartPendingForWorkspace(detail.workspacePath)
       if (detail.workspacePath === workspacePath) {
+        console.info('[SkillsAutoRestart] observed OpenCode reload failure event', detail)
         setRestartError(detail.error ?? t('settings.skills.restartFailed', 'Failed to restart OpenCode'))
       }
     }

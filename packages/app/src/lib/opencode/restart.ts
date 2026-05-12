@@ -35,12 +35,18 @@ const runtimeReloadsInFlight = new Map<string, Promise<RestartResult>>()
 const pendingRuntimeReloads = new Map<string, { workspacePath: string; reason: OpenCodeReloadReason }>()
 let pendingReloadUnsubscribe: (() => void) | null = null
 
+type RuntimeBusySnapshot = {
+  busy: boolean
+  reasons: string[]
+}
+
 // Stop+start the OpenCode sidecar and restore the SDK client URL and ready flags.
 // Provider state (including the team provider) is reconciled by the Rust
 // `ensure_team_provider` step inside `start_opencode` itself, so callers don't
 // need to re-apply team config here.
 export async function restartOpencode(workspacePath: string): Promise<RestartResult> {
   const { setOpenCodeBootstrapped, setOpenCodeReady } = useWorkspaceStore.getState()
+  console.info('[OpenCodeReload] restarting OpenCode runtime', { workspacePath })
   setOpenCodeBootstrapped(false)
   await invoke('stop_opencode', { workspacePath })
   await new Promise((resolve) => setTimeout(resolve, 500))
@@ -50,6 +56,7 @@ export async function restartOpencode(workspacePath: string): Promise<RestartRes
   initOpenCodeClient({ baseUrl: status.url, workspacePath })
   setOpenCodeBootstrapped(true, status.url)
   setOpenCodeReady(true, status.url)
+  console.info('[OpenCodeReload] OpenCode runtime restarted', { workspacePath, url: status.url })
   return { url: status.url }
 }
 
@@ -69,18 +76,27 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function isRuntimeBusy(): boolean {
+function getRuntimeBusySnapshot(): RuntimeBusySnapshot {
   const state = useSessionStore.getState()
-  const hasBusyStatus = Object.values(state.sessionStatuses ?? {}).some(
+  const reasons: string[] = []
+  const activeStatuses = Object.values(state.sessionStatuses ?? {}).filter(
     (status) => status?.type === 'busy' || status?.type === 'retry',
   )
 
-  return (
-    hasBusyStatus ||
-    busySessions.size > 0 ||
-    (state.pendingPermissions?.length ?? 0) > 0 ||
-    (state.pendingQuestions?.length ?? 0) > 0
-  )
+  if (activeStatuses.length > 0) {
+    reasons.push(`session-status:${activeStatuses.map((status) => status?.type).join(',')}`)
+  }
+  if (busySessions.size > 0) {
+    reasons.push(`busy-sessions:${busySessions.size}`)
+  }
+  if ((state.pendingPermissions?.length ?? 0) > 0) {
+    reasons.push(`pending-permissions:${state.pendingPermissions.length}`)
+  }
+  if ((state.pendingQuestions?.length ?? 0) > 0) {
+    reasons.push(`pending-questions:${state.pendingQuestions.length}`)
+  }
+
+  return { busy: reasons.length > 0, reasons }
 }
 
 async function performRuntimeReload(
@@ -89,11 +105,14 @@ async function performRuntimeReload(
 ): Promise<RestartResult> {
   const existingReload = runtimeReloadsInFlight.get(workspacePath)
   if (existingReload) {
+    console.info('[OpenCodeReload] joining in-flight reload', { workspacePath, reason })
     return existingReload
   }
 
+  console.info('[OpenCodeReload] starting reload', { workspacePath, reason })
   const reload = restartOpencode(workspacePath)
     .then((result) => {
+      console.info('[OpenCodeReload] reload completed', { workspacePath, reason, url: result.url })
       emitRuntimeReloadEvent(OPENCODE_RUNTIME_RELOADED_EVENT, {
         workspacePath,
         reason,
@@ -102,6 +121,11 @@ async function performRuntimeReload(
       return result
     })
     .catch((error) => {
+      console.error('[OpenCodeReload] reload failed', {
+        workspacePath,
+        reason,
+        error: getErrorMessage(error),
+      })
       emitRuntimeReloadEvent(OPENCODE_RUNTIME_RELOAD_FAILED_EVENT, {
         workspacePath,
         reason,
@@ -125,7 +149,12 @@ function flushPendingRuntimeReloads() {
     return
   }
 
-  if (isRuntimeBusy()) {
+  const busySnapshot = getRuntimeBusySnapshot()
+  if (busySnapshot.busy) {
+    console.info('[OpenCodeReload] pending reload still deferred because runtime is busy', {
+      pendingWorkspaces: Array.from(pendingRuntimeReloads.keys()),
+      reasons: busySnapshot.reasons,
+    })
     return
   }
 
@@ -135,6 +164,10 @@ function flushPendingRuntimeReloads() {
     }
 
     pendingRuntimeReloads.delete(workspacePath)
+    console.info('[OpenCodeReload] flushing deferred reload', {
+      workspacePath: pendingReload.workspacePath,
+      reason: pendingReload.reason,
+    })
     void performRuntimeReload(pendingReload.workspacePath, pendingReload.reason).catch(() => undefined)
   }
 
@@ -165,12 +198,19 @@ export function requestOpenCodeRuntimeReload(
 ): Promise<OpenCodeReloadRequestResult> {
   const existingReload = runtimeReloadsInFlight.get(workspacePath)
   if (existingReload) {
+    console.info('[OpenCodeReload] request joined existing reload', { workspacePath, reason })
     return existingReload.then((result) => ({ status: 'restarted', url: result.url }))
   }
 
-  if (options.mode === 'defer-if-busy' && isRuntimeBusy()) {
+  const busySnapshot = getRuntimeBusySnapshot()
+  if (options.mode === 'defer-if-busy' && busySnapshot.busy) {
     pendingRuntimeReloads.set(workspacePath, { workspacePath, reason })
     ensurePendingReloadSubscription()
+    console.info('[OpenCodeReload] reload deferred because runtime is busy', {
+      workspacePath,
+      reason,
+      reasons: busySnapshot.reasons,
+    })
     emitRuntimeReloadEvent(OPENCODE_RUNTIME_RELOAD_DEFERRED_EVENT, {
       workspacePath,
       reason,
@@ -183,6 +223,7 @@ export function requestOpenCodeRuntimeReload(
   if (pendingRuntimeReloads.size === 0) {
     clearPendingReloadSubscription()
   }
+  console.info('[OpenCodeReload] reload requested immediately', { workspacePath, reason, mode: options.mode ?? 'immediate' })
   return performRuntimeReload(workspacePath, reason).then((result) => ({
     status: 'restarted',
     url: result.url,
