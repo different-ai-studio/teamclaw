@@ -1,6 +1,14 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
+
+const mermaidInitializeMock = vi.fn()
+const mermaidRenderMock = vi.fn(async (id: string, code: string) => ({
+  svg: `<svg data-testid="mermaid-svg" data-diagram-id="${id}"><text>${code}</text></svg>`,
+}))
+const codeToHtmlMock = vi.fn((code: string) =>
+  `<pre data-testid="highlighted-code"><code><span style="color:#cf222e">${code}</span></code></pre>`,
+)
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -61,8 +69,29 @@ vi.mock('@/components/editors/ConflictBanner', () => ({
   ConflictBanner: () => null,
 }))
 
+vi.mock('@/components/ui/dialog', () => ({
+  Dialog: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
+  DialogContent: ({ children, className }: React.PropsWithChildren<{ className?: string }>) =>
+    React.createElement('div', { className, 'data-testid': 'dialog-content' }, children),
+  DialogTitle: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
+}))
+
 vi.mock('@/components/editors/TiptapMarkdownEditor', () => ({
   default: React.forwardRef(() => <div data-testid="tiptap-markdown-editor" />),
+}))
+
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: mermaidInitializeMock,
+    render: mermaidRenderMock,
+  },
+}))
+
+vi.mock('@/components/diff/shiki-renderer', () => ({
+  getHighlighter: vi.fn(async () => ({
+    codeToHtml: codeToHtmlMock,
+  })),
+  mapLanguage: (language: string) => (language === 'ts' ? 'typescript' : language),
 }))
 
 vi.mock('@/components/editors/CodeEditor', () => ({
@@ -97,7 +126,7 @@ describe('FileEditor large markdown routing', () => {
     expect(screen.queryByTestId('tiptap-markdown-editor')).toBeNull()
   })
 
-  it('keeps small markdown documents in the Tiptap editor', async () => {
+  it('opens small markdown documents in preview and can switch to the Tiptap editor', async () => {
     render(
       <FileEditor
         content="# Notes\n\nSmall file"
@@ -107,7 +136,62 @@ describe('FileEditor large markdown routing', () => {
       />,
     )
 
+    expect(await screen.findByTestId('markdown-preview')).toBeTruthy()
+    fireEvent.click(screen.getByTitle('Edit mode'))
     expect(await screen.findByTestId('tiptap-markdown-editor')).toBeTruthy()
     expect(screen.queryByTestId('code-editor')).toBeNull()
+  })
+
+  it('renders mermaid diagrams in the markdown file preview', async () => {
+    render(
+      <FileEditor
+        content={[
+          '### Runtime Matching',
+          '',
+          '```mermaid',
+          'sequenceDiagram',
+          '    participant Runtime as Upstream Runtime Job',
+          '    participant CondDB as Upstream Condition DB',
+          '    Runtime->>CondDB: Load enabled NodeCondition list',
+          '```',
+        ].join('\n')}
+        filename="README.md"
+        filePath="/workspace/README.md"
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByTestId('markdown-preview')).toBeTruthy()
+    expect(await screen.findByTestId('mermaid-block')).toBeTruthy()
+    expect(await screen.findByTestId('mermaid-svg')).toBeTruthy()
+    expect(screen.queryByTestId('tiptap-markdown-editor')).toBeNull()
+    expect(mermaidRenderMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^mermaid-/),
+      expect.stringContaining('sequenceDiagram'),
+    )
+  })
+
+  it('syntax highlights code blocks in the markdown file preview', async () => {
+    render(
+      <FileEditor
+        content={[
+          '# Example',
+          '',
+          '```ts',
+          'const answer: number = 42',
+          '```',
+        ].join('\n')}
+        filename="README.md"
+        filePath="/workspace/README.md"
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByTestId('markdown-preview')).toBeTruthy()
+    expect(await screen.findByTestId('highlighted-code')).toBeTruthy()
+    expect(codeToHtmlMock).toHaveBeenCalledWith(
+      'const answer: number = 42',
+      { lang: 'typescript', theme: 'github-light' },
+    )
   })
 })

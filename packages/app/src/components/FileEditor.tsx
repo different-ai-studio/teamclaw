@@ -53,6 +53,7 @@ const LazyTiptapMarkdownEditor = lazy(
 const LazyCodeEditor = lazy(() => import("@/components/editors/CodeEditor"));
 const LazyDiffRenderer = lazy(() => import("@/components/diff/DiffRenderer"));
 const LazyFileHistoryView = lazy(() => import("@/components/history/FileHistoryView"));
+const LazyMarkdownPreview = lazy(() => import("@/components/markdown/MarkdownPreview"));
 
 // Viewers - lazy loaded
 const LazyPDFViewer = lazy(
@@ -376,7 +377,10 @@ export function FileEditor({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [showPreview, setShowPreview] = useState(supportsPreview(filename) === "html");
+  const [showPreview, setShowPreview] = useState(() => {
+    const preview = supportsPreview(filename);
+    return preview === "html" || getEditorType(filename, filePath, content) === "markdown";
+  });
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [externalUpdateType, setExternalUpdateType] = useState<
     "updated" | "changed_externally" | null
@@ -747,8 +751,8 @@ export function FileEditor({
             </button>
           )}
 
-          {/* Code toggle - only for HTML files (switch between preview and code) */}
-          {previewType === "html" && (
+          {/* Preview / edit toggle for previewable text formats */}
+          {(previewType === "html" || previewType === "markdown") && (
             <button
               onClick={() => setShowPreview(!showPreview)}
               className={`p-1.5 rounded transition-colors ${
@@ -956,17 +960,25 @@ export function FileEditor({
                     </div>
                   }
                 >
-                  <LazyTiptapMarkdownEditor
-                    ref={tiptapEditorRef}
-                    content={currentContent}
-                    filename={filename}
-                    filePath={filePath}
-                    onChange={(value) => setCurrentContent(value)}
-                    isDark={isDark}
-                    targetLine={targetLine}
-                    targetHeading={targetHeading}
-                    readOnly={isViewerReadOnly}
-                  />
+                  {showPreview && previewType === "markdown" ? (
+                    <LazyMarkdownPreview
+                      content={currentContent}
+                      filePath={filePath}
+                      isDark={isDark}
+                    />
+                  ) : (
+                    <LazyTiptapMarkdownEditor
+                      ref={tiptapEditorRef}
+                      content={currentContent}
+                      filename={filename}
+                      filePath={filePath}
+                      onChange={(value) => setCurrentContent(value)}
+                      isDark={isDark}
+                      targetLine={targetLine}
+                      targetHeading={targetHeading}
+                      readOnly={isViewerReadOnly}
+                    />
+                  )}
                 </Suspense>
               );
             }
