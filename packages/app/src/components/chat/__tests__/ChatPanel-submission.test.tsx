@@ -442,6 +442,30 @@ describe('ChatPanel submission flow', () => {
       expect(screen.queryByText('Detected new skills')).toBeNull();
     });
 
+    it('keeps the prompt visible when auto-restart is deferred because the runtime is busy', async () => {
+      mockGetAutoRestartOpencodeOnSkillsChange.mockResolvedValue(true);
+      const { requestOpenCodeRuntimeReload } = await import('@/lib/opencode/restart');
+      vi.mocked(requestOpenCodeRuntimeReload).mockResolvedValueOnce({
+        status: 'deferred',
+        workspacePath: '/test',
+        reason: 'skills-file-change',
+      });
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      await waitFor(() => {
+        expect(requestOpenCodeRuntimeReload).toHaveBeenCalledWith('/test', 'skills-file-change', {
+          mode: 'defer-if-busy',
+        });
+      });
+      expect(await screen.findByText('Detected new skills')).toBeTruthy();
+    });
+
     it('keeps the prompt visible when a manual restart is deferred', async () => {
       const { requestOpenCodeRuntimeReload } = await import('@/lib/opencode/restart');
       vi.mocked(requestOpenCodeRuntimeReload).mockResolvedValueOnce({
