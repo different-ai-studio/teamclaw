@@ -27,6 +27,7 @@ import {
   RotateCw,
   MessageSquarePlus,
   AppWindow,
+  Users,
 } from "lucide-react";
 // Spotlight window - lazy loaded for spotlight window label
 const SpotlightWindow = lazy(() =>
@@ -596,6 +597,7 @@ function AppContent() {
   const mainContentLayout = useUIStore((s) => s.mainContentLayout);
   const openSettings = useUIStore((s) => s.openSettings);
   const embeddedSettingsSection = useUIStore((s) => s.embeddedSettingsSection);
+  const actorSheetOpenInHeader = useUIStore((s) => s.actorSheetOpen);
   const closeEmbeddedSettingsSection = useUIStore(
     (s) => s.closeEmbeddedSettingsSection,
   );
@@ -1458,6 +1460,12 @@ function AppContent() {
                   <AppWindow className="h-4 w-4" />
                 </button>
               )}
+              <HeaderPanelTab
+                icon={Users}
+                label={t("chat.actorSheet.title", "Actors")}
+                isActive={actorSheetOpenInHeader}
+                onClick={() => useUIStore.getState().toggleActorSheet()}
+              />
               <HeaderPanelTab
                 icon={BookOpen}
                 label={t("navigation.knowledge", "Knowledge")}

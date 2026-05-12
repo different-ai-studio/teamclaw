@@ -11,8 +11,8 @@ export type MainContentLayout = 'stacked' | 'split'
 
 // Right panel tab in file mode
 export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
-export type DefaultPrimaryTab = 'session' | 'knowledge' | 'actors' | 'ideas' | 'shortcuts'
-export type DefaultMoreDestination = 'shortcuts' | 'automation' | 'rolesSkills' | 'settings'
+export type DefaultPrimaryTab = 'session' | 'actors' | 'ideas' | 'shortcuts'
+export type DefaultMoreDestination = 'automation' | 'rolesSkills' | 'settings'
 
 export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
@@ -26,12 +26,19 @@ interface UIState {
   fileModeRightTab: FileModeRightTab
   defaultNavTab: DefaultPrimaryTab
   defaultMoreOpen: boolean
+  /** Toggle for the session-scoped Actors sheet (the right-side slideover
+   * that lists members + agents for the current session). Lives in ui-store
+   * so the header trigger (App.tsx) and the sheet mount (ChatPanel) can
+   * share state. */
+  actorSheetOpen: boolean
   spotlightMode: boolean
   settingsInitialSection: SettingsSection | null
   /** When set, main column shows this settings section (workspace UI variant only). */
   embeddedSettingsSection: EmbeddedSidebarSettingsSection | null
   setView: (view: View) => void
   setDefaultMoreOpen: (open: boolean) => void
+  setActorSheetOpen: (open: boolean) => void
+  toggleActorSheet: () => void
   selectDefaultPrimaryTab: (tab: DefaultPrimaryTab) => void
   openDefaultMoreDestination: (destination: DefaultMoreDestination) => Promise<void> | void
   openSettings: (section?: SettingsSection) => void
@@ -81,6 +88,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   fileModeRightTab: 'agent',
   defaultNavTab: 'session',
   defaultMoreOpen: false,
+  actorSheetOpen: false,
   spotlightMode: false,
   settingsInitialSection: null,
   embeddedSettingsSection: null,
@@ -88,6 +96,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   setView: (view) => set({ currentView: view }),
 
   setDefaultMoreOpen: (open) => set({ defaultMoreOpen: open }),
+
+  setActorSheetOpen: (open) => set({ actorSheetOpen: open }),
+  toggleActorSheet: () => set((s) => ({ actorSheetOpen: !s.actorSheetOpen })),
 
   selectDefaultPrimaryTab: (tab) => {
     const ws = useWorkspaceStore.getState()
@@ -112,11 +123,6 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   openDefaultMoreDestination: (destination) => {
     set({ defaultMoreOpen: false })
-
-    if (destination === 'shortcuts') {
-      get().selectDefaultPrimaryTab('shortcuts')
-      return
-    }
 
     if (destination === 'settings') {
       get().openSettings()

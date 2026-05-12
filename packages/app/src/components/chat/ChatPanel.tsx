@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, Archive, ArrowLeft, Bot, Loader2, RefreshCw, Users, X } from "lucide-react";
+import { AlertCircle, Archive, ArrowLeft, Bot, Loader2, RefreshCw, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn, isTauri } from "@/lib/utils";
 
@@ -269,7 +269,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const setInputValue = setDraftInput;
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
   const [attachedAgents, setAttachedAgents] = React.useState<AttachedAgent[]>([]);
-  const [actorSheetOpen, setActorSheetOpen] = React.useState(false);
+  // Actor sheet open state lives in useUIStore so the App.tsx header
+  // trigger (Users icon next to BookOpen / FolderGit) and the sheet
+  // mount here can share it.
+  const actorSheetOpen = useUIStore((s) => s.actorSheetOpen);
+  const setActorSheetOpen = useUIStore((s) => s.setActorSheetOpen);
   const [pendingFirstMessage, setPendingFirstMessage] = React.useState<PromptInputMessage | null>(null);
   const sessionRow = useSessionListStore(s => s.rows.find(r => r.id === activeSessionId));
   // Team is workspace-scoped: every session in `rows` shares the same team_id.
@@ -1156,18 +1160,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         </div>
       )}
 
-      {/* SessionActorSheet entry */}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="absolute top-2 right-2 z-20 h-8 w-8 rounded-full bg-background/80 backdrop-blur shadow-sm hover:bg-muted"
-        onClick={() => setActorSheetOpen(true)}
-        aria-label={t('chat.actorSheet.title', 'Actors')}
-      >
-        <Users className="h-4 w-4" />
-      </Button>
-
+      {/* SessionActorSheet — trigger lives in App.tsx header next to
+       *  Knowledge / Changes; open state is shared via useUIStore. */}
       <SessionActorSheet
         open={actorSheetOpen}
         onOpenChange={setActorSheetOpen}
