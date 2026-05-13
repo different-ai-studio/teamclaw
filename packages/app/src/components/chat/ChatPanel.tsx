@@ -1067,6 +1067,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       // Fire-and-forget runtime spawn — UI has already moved into the
       // session; status dots update via RuntimeInfo subscriptions.
       if (picks.agents.length > 0) {
+        // Mark these (session, agent) pairs as already-ensured so the
+        // user's next @-mention via the input doesn't re-fire runtimeStart
+        // (which would make the daemon create a second runtime for the
+        // same pair → duplicate replies).
+        for (const aid of agentIds) {
+          ensuredRuntimesRef.current.add(`${sessionId}:${aid}`);
+        }
         void startAgentRuntimesAsync({
           sessionId,
           teamId: teamIdForSend,
