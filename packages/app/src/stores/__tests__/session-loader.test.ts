@@ -667,6 +667,24 @@ describe('session-loader: createLoaderActions', () => {
     expect(state.activeSessionId).toBeNull()
   })
 
+  it('archiveSession uses the current workspace when the session has no directory', async () => {
+    const now = Date.now()
+    state.currentWorkspacePath = '/workspace-secondary'
+    state.sessions = [{
+      id: 'sess-1',
+      title: 'Secondary window session',
+      messages: [],
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    }]
+    mockArchiveSession.mockResolvedValue(undefined)
+
+    await actions.archiveSession('sess-1')
+
+    expect(mockArchiveSession).toHaveBeenCalledWith('sess-1', '/workspace-secondary')
+    expect(state.sessions).toEqual([])
+  })
+
   it('archiveSession clears streaming state when archiving the active session', async () => {
     const now = Date.now()
     state.sessions = [

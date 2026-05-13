@@ -692,7 +692,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
       try {
         const client = getOpenCodeClient();
         const session = get().sessions.find((s) => s.id === id);
-        const directory = session?.directory;
+        const directory = session?.directory ?? get().currentWorkspacePath ?? undefined;
         const wasActiveSession = get().activeSessionId === id;
         await client.archiveSession(id, directory);
 
