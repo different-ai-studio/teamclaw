@@ -107,6 +107,10 @@ export interface MessagePart {
 export interface Message {
   id: string;
   sessionId: string;
+  /** v2: actor_id of the message sender (member or agent). Used for
+   * looking up display_name from actor_directory. Optional for v1
+   * compat where messages have no sender concept. */
+  senderActorId?: string;
   role: "user" | "assistant" | "system";
   content: string;
   parts: MessagePart[];

@@ -18,6 +18,7 @@ import {
 import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { UserMessageWithMentions } from "./UserMessageWithMentions";
+import { useActorDisplayName, useAgentModelByActor } from "@/hooks/useActorDisplayName";
 import { MessageTokenUsage } from "./MessageTokenUsage";
 import { MessageTokenSummary } from "./MessageTokenSummary";
 import { MessageFeedback } from "./MessageFeedback";
@@ -73,7 +74,6 @@ export const ChatMessage = React.memo(function ChatMessage({
   const streamingUpdateTrigger = useStreamingStore(s =>
     isThisMessageStreaming && !isChildSessionStreaming ? s.streamingUpdateTrigger : 0,
   );
-  // @ts-expect-error Phase 1E removal
   const storeActiveSessionId = useSessionStore(s => s.activeSessionId);
   const resolvedSessionId = activeSessionId ?? storeActiveSessionId;
 
@@ -206,6 +206,7 @@ export const ChatMessage = React.memo(function ChatMessage({
 
   return (
     <div className={cn("group/msg", isToolCallOnly ? "mb-0.5" : "mb-1.5")} data-testid="chat-message" data-message-role={message.role}>
+      <ActorLabel senderActorId={message.senderActorId} isUser={isUser} />
       {/* Thinking indicator - MUST be first for assistant messages during streaming */}
       {showThinkingOnly && !hasReasoning && (
         <div className="flex items-start gap-2 pl-1 mb-2">
@@ -356,3 +357,29 @@ export const ChatMessage = React.memo(function ChatMessage({
     </div>
   );
 });
+
+/** Subtle "actor name [· model]" label rendered above each message bubble.
+ * Right-aligned for user messages, left-aligned for assistant. Skipped
+ * when no senderActorId is available (legacy v1 messages). */
+function ActorLabel({
+  senderActorId,
+  isUser,
+}: {
+  senderActorId: string | undefined;
+  isUser: boolean;
+}) {
+  const name = useActorDisplayName(senderActorId);
+  const model = useAgentModelByActor(isUser ? null : senderActorId);
+  if (!senderActorId || !name) return null;
+  return (
+    <div
+      className={cn(
+        "px-1 mb-0.5 text-[11px] text-muted-foreground/70",
+        isUser ? "text-right" : "text-left",
+      )}
+    >
+      <span>{name}</span>
+      {!isUser && model && <span> · {model}</span>}
+    </div>
+  );
+}

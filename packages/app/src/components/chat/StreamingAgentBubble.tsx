@@ -1,60 +1,11 @@
 import * as React from "react";
 import { AlertCircle, CheckCircle2, Circle, Clock3, Loader2, ShieldQuestion, Sparkles } from "lucide-react";
 import type { AgentStreamEntry, StreamingTodoItem } from "@/stores/v2-streaming-store";
-import { supabase } from "@/lib/supabase-client";
 import { cn } from "@/lib/utils";
 import { Message, MessageContent, MessageResponse } from "@/packages/ai/message";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCallCard } from "./ToolCallCard";
-
-// Module-level cache of actor_id -> display_name. The MQTT envelope only
-// carries the actor_id; we resolve the human-readable name from
-// public.actor_directory on first sighting. Cache survives component
-// re-mounts and is shared across all StreamingAgentBubble instances.
-const actorDisplayNameCache = new Map<string, string>();
-const inflightLookups = new Map<string, Promise<string | null>>();
-
-async function lookupActorDisplayName(actorId: string): Promise<string | null> {
-  const cached = actorDisplayNameCache.get(actorId);
-  if (cached) return cached;
-  const inflight = inflightLookups.get(actorId);
-  if (inflight) return inflight;
-
-  const p = (async () => {
-    const { data, error } = await supabase
-      .from("actor_directory")
-      .select("display_name")
-      .eq("id", actorId)
-      .maybeSingle();
-    if (error || !data) return null;
-    const name = (data as { display_name?: string }).display_name ?? null;
-    if (name) actorDisplayNameCache.set(actorId, name);
-    return name;
-  })();
-  inflightLookups.set(actorId, p);
-  try {
-    return await p;
-  } finally {
-    inflightLookups.delete(actorId);
-  }
-}
-
-function useActorDisplayName(actorId: string): string {
-  const [name, setName] = React.useState<string | null>(
-    () => actorDisplayNameCache.get(actorId) ?? null,
-  );
-  React.useEffect(() => {
-    if (name) return;
-    let cancelled = false;
-    void lookupActorDisplayName(actorId).then((resolved) => {
-      if (!cancelled && resolved) setName(resolved);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [actorId, name]);
-  return name ?? actorId.slice(0, 8);
-}
+import { useActorDisplayName, useAgentModelByActor } from "@/hooks/useActorDisplayName";
 
 function TodoStatusIcon({ status }: { status: StreamingTodoItem["status"] }) {
   const cls = "h-3.5 w-3.5 shrink-0";
@@ -119,6 +70,7 @@ function ErrorCard({ message, details }: { message: string; details: string }) {
 
 export function StreamingAgentBubble({ entry }: { entry: AgentStreamEntry }) {
   const displayName = useActorDisplayName(entry.actorId);
+  const currentModel = useAgentModelByActor(entry.actorId);
   const hasOutput = entry.outputText.length > 0;
   const hasThinking = entry.thinkingText.length > 0;
   const hasToolCalls = entry.toolCalls.length > 0;
@@ -136,6 +88,9 @@ export function StreamingAgentBubble({ entry }: { entry: AgentStreamEntry }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm font-medium">{displayName}</span>
+            {currentModel && (
+              <span className="text-[11px] text-muted-foreground/70">· {currentModel}</span>
+            )}
             {isStreaming && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
           </div>
 
