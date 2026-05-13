@@ -268,6 +268,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const setInputValue = setDraftInput;
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
   const [engagedAgent, setEngagedAgent] = React.useState<AttachedAgent | null>(null);
+  // Dedupe runtimeStart RPCs across re-engages within the same session.
+  const ensuredRuntimesRef = React.useRef<Set<string>>(new Set());
   const [pendingFirstMessage, setPendingFirstMessage] = React.useState<PromptInputMessage | null>(null);
   const sessionRow = useSessionListStore(s => s.rows.find(r => r.id === activeSessionId));
   // Team is workspace-scoped: every session in `rows` shares the same team_id.
@@ -388,6 +390,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       setDisplaySessionId(null);
       setSessionFadeOpacity(1);
     }
+    // Switching session invalidates the runtime-ensured memo — different
+    // (session, agent) pairs should each get their own runtimeStart.
+    ensuredRuntimesRef.current = new Set();
   }, [activeSessionId]);
 
   React.useEffect(() => {
@@ -1303,7 +1308,32 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             onFilesChange={handleFilesChange}
             onRemoveFile={removeFile}
             engagedAgent={engagedAgent}
-            onEngageAgent={(a) => setEngagedAgent(a)}
+            onEngageAgent={(a) => {
+              setEngagedAgent(a);
+              // Bootstrap a runtime for this (session, agent) if we haven't
+              // already — otherwise the daemon has no process to deliver
+              // the mention to and AgentSelectorDock has no RuntimeInfo
+              // retain to read availableModels from.
+              const sid = activeSessionId;
+              const teamId = sheetTeamId;
+              if (!sid || !teamId) return;
+              const key = `${sid}:${a.id}`;
+              if (ensuredRuntimesRef.current.has(key)) return;
+              ensuredRuntimesRef.current.add(key);
+              void (async () => {
+                try {
+                  const { startAgentRuntimesAsync } = await import("@/lib/session-create");
+                  await startAgentRuntimesAsync({
+                    sessionId: sid,
+                    teamId,
+                    agentActorIds: [a.id],
+                  });
+                } catch (e) {
+                  console.warn("[ChatPanel] ensureAgentRuntime failed", e);
+                  ensuredRuntimesRef.current.delete(key); // allow retry
+                }
+              })();
+            }}
             onClearAgent={() => setEngagedAgent(null)}
             imageFiles={imageFiles}
             onImageFilesChange={handleImageFilesChange}
