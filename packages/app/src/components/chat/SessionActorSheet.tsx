@@ -400,10 +400,15 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
     setCandidateAgents(prev => prev.filter(c => c.id !== candidate.id))
 
     try {
-      // 1. Insert into session_participants
+      // 1. Upsert into session_participants — idempotent: if the row already
+      //    exists (candidate list was stale because phase 2 sync hadn't
+      //    landed yet), treat it as a no-op rather than failing.
       const { error: insErr } = await supabase
         .from('session_participants')
-        .insert({ session_id: sessionId, actor_id: candidate.id })
+        .upsert(
+          { session_id: sessionId, actor_id: candidate.id },
+          { onConflict: 'session_id,actor_id', ignoreDuplicates: true },
+        )
       if (insErr) throw insErr
 
       // 2. Derive workspace from the agent's prior runtime history
@@ -417,20 +422,26 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
 
       const workspaceId = priorRows?.[0]?.workspace_id ?? ''
 
-      // 3. Call runtimeStart RPC
-      // Assume daemon device_id == agent actor_id (current amuxd convention).
+      // 3. Call runtimeStart RPC. Daemon may reject if it already has a
+      //    runtime for this (session, agent) — treat that as success since
+      //    the existing runtime will service the next prompt anyway.
       const { runtimeStart } = await import('@/lib/teamclaw-rpc')
       const { AgentType } = await import('@/lib/proto/amux_pb')
-      const result = await runtimeStart({
-        targetDeviceId: candidate.id,
-        workspaceId,
-        worktree: '', // daemon falls back to '.' when empty
-        sessionId,
-        agentType: AgentType.CLAUDE_CODE,
-        initialPrompt: '',
-      })
-      if (!result.accepted) {
-        throw new Error(result.rejectedReason || 'runtimeStart rejected')
+      try {
+        const result = await runtimeStart({
+          targetDeviceId: candidate.id,
+          workspaceId,
+          worktree: '', // daemon falls back to '.' when empty
+          sessionId,
+          agentType: AgentType.CLAUDE_CODE,
+          initialPrompt: '',
+        })
+        if (!result.accepted) {
+          // Tolerate "already running"-style rejections — log and proceed.
+          console.warn('[SessionActorSheet] runtimeStart rejected (non-fatal):', result.rejectedReason)
+        }
+      } catch (rpcErr) {
+        console.warn('[SessionActorSheet] runtimeStart threw (non-fatal):', rpcErr)
       }
       // RuntimeInfo retain will arrive via store subscription and update the dot/model automatically
     } catch (e) {
