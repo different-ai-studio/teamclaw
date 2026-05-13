@@ -389,6 +389,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (activeSessionId === null) {
       setDisplaySessionId(null);
       setSessionFadeOpacity(1);
+      // Brand-new chat: clear leftover engaged agent from prior session so
+      // the dock doesn't keep showing the previous session's agent name.
+      setEngagedAgent(null);
     }
     // Switching session invalidates the runtime-ensured memo — different
     // (session, agent) pairs should each get their own runtimeStart.
@@ -957,16 +960,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       // 5. Switch to the new session (UI now shows the chat view).
       await useUIStore.getState().switchToSession(sessionId);
 
-      // 4. Replay the deferred first message immediately. Auto-mention picked
-      //    agents (iOS pattern: NewSessionSheet:441 — single-agent
-      //    auto-mention; multi-agent leaves @-routing to the user). Pass
-      //    the full {id, displayName} so sendIntoSession can prepend
-      //    visible @-tokens to the message body.
+      // 4. Replay the deferred first message immediately. Auto-engage +
+      //    auto-mention ONLY when the user picked exactly one actor and
+      //    that actor is an agent — anything more ambiguous (multi-agent,
+      //    or agent+member) leaves the dock empty and routing to the user.
       const deferredMessage = pendingFirstMessage;
       setPendingFirstMessage(null);
-      const autoMentionAgents: AttachedAgent[] = picks.agents.length === 1
-        ? picks.agents
-        : [];
+      const soleActor =
+        picks.members.length === 0 && picks.agents.length === 1
+          ? picks.agents[0]
+          : null;
+      if (soleActor) {
+        setEngagedAgent(soleActor);
+      }
+      const autoMentionAgents: AttachedAgent[] = soleActor ? [soleActor] : [];
       await sendIntoSession(sessionId, deferredMessage, autoMentionAgents);
 
       // 5. Fire-and-forget: spawn agent runtimes in the background. UI

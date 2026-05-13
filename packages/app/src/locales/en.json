@@ -263,6 +263,7 @@
       "noAgent": "No agent",
       "pickAgent": "Add an agent to this session first",
       "noModels": "No models advertised",
+      "loading": "Loading…",
       "modelChangeFailed": "Failed to change model"
     },
     "commandPopover": {

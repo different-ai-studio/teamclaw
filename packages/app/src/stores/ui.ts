@@ -159,6 +159,10 @@ export const useUIStore = create<UIState>((set, get) => ({
             // Actual session will be created when user sends first message
             useSessionStore.setState({
               activeSessionId: null,
+              // Also clear currentSessionId — getActiveSession() falls back
+              // to it, so leaving it stale makes the header keep showing
+              // the previous session's title after pressing "new chat".
+              currentSessionId: null,
               isLoading: false,
               messageQueue: [],
               todos: [],

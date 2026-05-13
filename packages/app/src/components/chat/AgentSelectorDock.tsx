@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Sparkles } from 'lucide-react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -32,6 +32,8 @@ type SessionAgent = { id: string; display_name: string }
 // Status dot helper
 // ────────────────────────────────────────────────────────────────────────────
 
+/** Gray = waiting for init / unknown. Green = idle. Red = actively
+ * streaming output or errored. */
 function dotClasses(info: RuntimeInfo | undefined): { color: string; pulse: boolean } {
   if (!info) return { color: 'bg-muted-foreground/40', pulse: false }
   switch (info.state) {
@@ -43,7 +45,7 @@ function dotClasses(info: RuntimeInfo | undefined): { color: string; pulse: bool
       return { color: 'bg-muted-foreground/40', pulse: false }
     case RuntimeLifecycle.ACTIVE:
       switch (info.status) {
-        case AgentStatus.ACTIVE: return { color: 'bg-emerald-500', pulse: true }
+        case AgentStatus.ACTIVE: return { color: 'bg-red-500', pulse: true }
         case AgentStatus.IDLE:   return { color: 'bg-emerald-500', pulse: false }
         case AgentStatus.ERROR:  return { color: 'bg-red-500', pulse: false }
         default:                  return { color: 'bg-muted-foreground/40', pulse: false }
@@ -134,6 +136,13 @@ export function AgentSelectorDock({ engagedAgent, onEngageAgent }: AgentSelector
     }
   }, [engagedAgent, engagedRuntimeId, t])
 
+  // No agents in this session → hide the dock entirely. The parent
+  // composer falls back to its empty state until at least one agent
+  // joins (via picker / Add agent button / @-mention).
+  if (sessionAgents.length === 0 && !engagedAgent) return null
+
+  const runtimeInfoLoading = !!engagedAgent && !engagedRuntimeInfo
+
   return (
     <div className="flex items-center gap-1">
       {/* Agent dropdown */}
@@ -145,14 +154,11 @@ export function AgentSelectorDock({ engagedAgent, onEngageAgent }: AgentSelector
             size="sm"
             className="h-7 gap-1.5 rounded-full bg-muted/40 px-2 text-xs font-medium"
           >
-            <div className="relative flex h-4 w-4 items-center justify-center">
-              <Sparkles className="h-3 w-3 text-muted-foreground" />
-              <span className={cn(
-                'absolute -bottom-0 -right-0 h-2 w-2 rounded-full ring-1 ring-background',
-                dotColor,
-                pulse && 'animate-pulse',
-              )} />
-            </div>
+            <span className={cn(
+              'h-2 w-2 rounded-full',
+              dotColor,
+              pulse && 'animate-pulse',
+            )} />
             <span className="truncate max-w-[10rem]">
               {engagedAgent?.displayName ?? t('chat.agentSelector.noAgent', 'No agent')}
             </span>
@@ -171,7 +177,6 @@ export function AgentSelectorDock({ engagedAgent, onEngageAgent }: AgentSelector
                 onClick={() => onEngageAgent({ id: a.id, displayName: a.display_name })}
                 className={cn(engagedAgent?.id === a.id && 'bg-muted')}
               >
-                <Sparkles className="h-3.5 w-3.5 text-muted-foreground mr-1.5" />
                 <span className="truncate">{a.display_name}</span>
               </DropdownMenuItem>
             ))
@@ -189,14 +194,27 @@ export function AgentSelectorDock({ engagedAgent, onEngageAgent }: AgentSelector
               size="sm"
               className="h-7 gap-1 rounded-full bg-muted/40 px-2 text-xs text-muted-foreground"
             >
-              <span className="truncate max-w-[8rem]">
-                {currentModel || availableModels[0]?.id || t('chat.agentSelector.noModels', '—')}
-              </span>
-              <ChevronDown className="h-3 w-3" />
+              {runtimeInfoLoading ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span className="truncate">{t('chat.agentSelector.loading', 'Loading…')}</span>
+                </>
+              ) : (
+                <>
+                  <span className="truncate max-w-[8rem]">
+                    {currentModel || availableModels[0]?.id || t('chat.agentSelector.noModels', '—')}
+                  </span>
+                  <ChevronDown className="h-3 w-3" />
+                </>
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[10rem]">
-            {availableModels.length === 0 ? (
+            {runtimeInfoLoading ? (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                {t('chat.agentSelector.loading', 'Loading…')}
+              </div>
+            ) : availableModels.length === 0 ? (
               <div className="px-2 py-1.5 text-xs text-muted-foreground">
                 {t('chat.agentSelector.noModels', 'No models advertised')}
               </div>
