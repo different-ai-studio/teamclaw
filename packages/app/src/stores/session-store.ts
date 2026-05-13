@@ -152,6 +152,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         : [...cur, sid],
     });
   },
+  /** Briefly mark a session as freshly-created in the sidebar.
+   * Auto-clears after ttlMs. */
+  addHighlightedSession: (sid: string, ttlMs = 4000) => {
+    const cur = (get().highlightedSessionIds as string[]) ?? [];
+    if (cur.includes(sid)) return;
+    set({ highlightedSessionIds: [...cur, sid] });
+    setTimeout(() => {
+      const next = ((get().highlightedSessionIds as string[]) ?? []).filter(
+        (id) => id !== sid,
+      );
+      set({ highlightedSessionIds: next });
+    }, ttlMs);
+  },
   setSelectedModel: (model: Compat) => set({ selectedModel: model }),
   setViewingChildSession: (sid: string | null) => set({ viewingChildSessionId: sid }),
   setConnected: (v: boolean) => set({ isConnected: v }),

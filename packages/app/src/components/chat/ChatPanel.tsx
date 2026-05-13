@@ -943,9 +943,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       await ensureSessionLiveSubscribed(teamIdForSend, sessionId);
 
       // 3. Refresh session-list-store so the new row appears in the left
-      //    sidebar AND sendIntoSession can find it by id.
+      //    sidebar AND sendIntoSession can find it by id. createSessionShell
+      //    already upserted into local libsql, so load() hydrates the new
+      //    row from cache instantly before the Supabase delta returns.
       await useSessionListStore.getState().load();
-      // 4. Switch to the new session (UI now shows the chat view).
+      // 4. Highlight the new session in the sidebar (auto-clears after 4s).
+      useSessionStore.getState().addHighlightedSession(sessionId);
+      // 5. Switch to the new session (UI now shows the chat view).
       await useUIStore.getState().switchToSession(sessionId);
 
       // 4. Replay the deferred first message immediately. Auto-mention picked

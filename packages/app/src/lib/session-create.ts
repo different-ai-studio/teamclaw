@@ -1,6 +1,13 @@
 import { supabase } from '@/lib/supabase-client'
 import { runtimeStart } from '@/lib/teamclaw-rpc'
 import { AgentType } from '@/lib/proto/amux_pb'
+import {
+  upsertSessionsBatch,
+  upsertSessionParticipantsBatch,
+  type SessionRow,
+  type SessionParticipantRow,
+} from '@/lib/local-cache'
+import { isTauri } from '@/lib/utils'
 
 export interface CreateSessionShellArgs {
   teamId: string
@@ -43,6 +50,45 @@ export async function createSessionShell(
     const rows = participantActorIds.map(actorId => ({ session_id: sessionId, actor_id: actorId }))
     const { error: partErr } = await supabase.from('session_participants').insert(rows)
     if (partErr) throw new Error(`Failed to add participants: ${partErr.message}`)
+  }
+
+  // Mirror into local libsql immediately so the session-list-store + Actors
+  // panel see the new session without waiting for a Supabase refetch.
+  if (isTauri()) {
+    const now = new Date().toISOString()
+    const sessionRow: SessionRow = {
+      id: sessionId,
+      teamId: args.teamId,
+      title: trimmedTitle,
+      mode: 'collab',
+      primaryAgentId: null,
+      ideaId: null,
+      summary: null,
+      lastMessagePreview: null,
+      lastMessageAt: null,
+      createdBy: args.creatorActorId,
+      metadataJson: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+      syncedAt: now,
+    }
+    const partRows: SessionParticipantRow[] = participantActorIds.map(actorId => ({
+      id: `${sessionId}:${actorId}`,
+      sessionId,
+      actorId,
+      joinedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+      syncedAt: now,
+    }))
+    try {
+      await upsertSessionsBatch([sessionRow])
+      if (partRows.length > 0) await upsertSessionParticipantsBatch(partRows)
+    } catch (e) {
+      console.warn('[session-create] local cache upsert failed (non-fatal):', e)
+    }
   }
 
   return { sessionId }
