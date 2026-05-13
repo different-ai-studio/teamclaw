@@ -979,15 +979,23 @@ function AppContent() {
   // Lazy-subscribe on session activation. When the user opens a session
   // that's outside the most-recent slice, subscribe to its live topic so
   // any incoming streaming arrives. Idempotent via the shared dedup set.
+  // Reactive on the row's team_id (selector) so this also fires once the
+  // session list finishes loading — otherwise a freshly-activated session
+  // can race against rows hydration and stay un-subscribed.
   const activeSessionIdForSubscribe = useSessionStore((s) => s.activeSessionId);
+  const activeSessionTeamId = useSessionListStore((s) =>
+    activeSessionIdForSubscribe
+      ? s.rows.find((r) => r.id === activeSessionIdForSubscribe)?.team_id ?? null
+      : null,
+  );
   useEffect(() => {
     if (!activeSessionIdForSubscribe || !userId || !firstTeamId) return;
-    const row = useSessionListStore.getState().rows.find(
-      (r) => r.id === activeSessionIdForSubscribe,
+    if (!activeSessionTeamId) return;
+    void ensureSessionLiveSubscribed(
+      activeSessionTeamId,
+      activeSessionIdForSubscribe,
     );
-    if (!row) return; // session not in our list — nothing to do
-    void ensureSessionLiveSubscribed(row.team_id, row.id);
-  }, [activeSessionIdForSubscribe, userId, firstTeamId]);
+  }, [activeSessionIdForSubscribe, activeSessionTeamId, userId, firstTeamId]);
 
   // v2 Phase 1 → local-first: load message history whenever the active
   // session changes.
