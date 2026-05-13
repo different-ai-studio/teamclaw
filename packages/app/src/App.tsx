@@ -1015,8 +1015,15 @@ function AppContent() {
   // TODO(cleanup): remove agent_runtime_event table once all clients have
   // upgraded past this version.
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
+  const messageRefreshTrigger = useSessionStore((s) => s.messageRefreshTrigger ?? 0);
+  const prevRefreshTriggerRef = useRef(0);
   useEffect(() => {
     if (!currentSessionId) return;
+    // A refresh-trigger bump on the SAME session = user pressed ↻.
+    const forceFull =
+      messageRefreshTrigger !== prevRefreshTriggerRef.current &&
+      prevRefreshTriggerRef.current !== 0;
+    prevRefreshTriggerRef.current = messageRefreshTrigger;
     let cancelled = false;
     const kindMap: Record<string, MessageKind> = {
       text: MessageKind.TEXT,
@@ -1068,7 +1075,17 @@ function AppContent() {
         const synced = await syncMessagesForSession(
           currentSessionId,
           teamId,
+          { full: forceFull },
         );
+        if (forceFull && teamId) {
+          // Also force-refresh participants on user-driven refresh.
+          const { syncParticipantsForSession } = await import(
+            "@/lib/sync/session-participant-sync"
+          );
+          await syncParticipantsForSession(currentSessionId, teamId, {
+            full: true,
+          });
+        }
         if (cancelled) return;
         if (synced > 0) {
           // Re-read from local cache to surface the newly-synced rows
@@ -1111,7 +1128,7 @@ function AppContent() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId]);
+  }, [currentSessionId, messageRefreshTrigger]);
 
   /** When left dock opens, hide the main sidebar; restore prior expansion when it closes. */
   const restoreSidebarAfterLeftDockRef = useRef<boolean | null>(null);
