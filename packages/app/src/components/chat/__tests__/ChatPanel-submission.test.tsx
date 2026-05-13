@@ -448,9 +448,9 @@ vi.mock('../ChatInputArea', () => ({
     onFilesChange: (paths: string[]) => void;
     onRemoveFile: (index: number) => void;
     headerContent?: React.ReactNode;
-    attachedAgents?: Array<{ id: string; displayName: string }>;
-    onAttachAgent?: (agent: { id: string; displayName: string }) => void;
-    onRemoveAgent?: (id: string) => void;
+    engagedAgent?: { id: string; displayName: string } | null;
+    onEngageAgent?: (agent: { id: string; displayName: string }) => void;
+    onClearAgent?: () => void;
   }) =>
     React.createElement('div', { 'data-testid': 'chat-input-area' }, [
       props.headerContent && React.createElement('div', { key: 'header' }, props.headerContent),
@@ -469,15 +469,15 @@ vi.mock('../ChatInputArea', () => ({
         },
         'Send',
       ),
-      // Test-only seam (Option 2 from plan): clicking this button pre-attaches a fixed
-      // agent via the onAttachAgent callback so T7's mentionActorIds test can drive
-      // agent attachment without needing a full UI interaction chain.
+      // Test-only seam (Option 2 from plan): clicking this button engages a fixed
+      // agent via the onEngageAgent callback so T7's mentionActorIds test can drive
+      // agent engagement without needing a full UI interaction chain.
       React.createElement(
         'button',
         {
           key: 'attach-agent',
           'data-testid': 'test-attach-agent',
-          onClick: () => props.onAttachAgent?.({ id: 'a-1', displayName: 'Reviewer' }),
+          onClick: () => props.onEngageAgent?.({ id: 'a-1', displayName: 'Reviewer' }),
         },
         'Attach Agent',
       ),
@@ -1040,8 +1040,8 @@ describe.skip('ChatPanel submission flow (v1 OpenCode path — pending rewrite)'
 // ── v2 MQTT/Supabase send path ────────────────────────────────────────────────
 
 // T7: mentionActorIds + metadata.mention_actor_ids
-// Agent attachment seam: Option 2 from the T7 plan — the mock ChatInputArea
-// renders a data-testid="test-attach-agent" button that fires onAttachAgent
+// Agent engagement seam: Option 2 from the T7 plan — the mock ChatInputArea
+// renders a data-testid="test-attach-agent" button that fires onEngageAgent
 // with a fixed agent { id: 'a-1', displayName: 'Reviewer' }. A separate
 // data-testid="mock-submit-with-mention" button fires onSubmit with a
 // member mention { id: 'm-1', name: 'Alice' }. Both buttons are test-only

@@ -259,6 +259,12 @@
     "newSessionBadge": "新",
     "messageCountShort": "{{count}} 条消息",
     "messageCountShort_plural": "{{count}} 条消息",
+    "agentSelector": {
+      "noAgent": "未选择 Agent",
+      "pickAgent": "请先把 Agent 加入此会话",
+      "noModels": "暂无可用模型",
+      "modelChangeFailed": "切换模型失败"
+    },
     "commandPopover": {
       "prompt": "选择角色、技能或命令",
       "itemCount": "{{count}} 项",

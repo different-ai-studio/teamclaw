@@ -4,10 +4,12 @@ import {
   RpcResponseSchema,
   RuntimeStartRequestSchema,
   RuntimeStopRequestSchema,
+  SetModelRequestSchema,
   type RpcRequest,
   type RpcResponse,
   type RuntimeStartResult,
   type RuntimeStopResult,
+  type SetModelResult,
 } from '@/lib/proto/teamclaw_pb'
 import { mqttPublish, mqttSubscribe, listenForEnvelopes, type IncomingEnvelope } from '@/lib/mqtt-bridge'
 import { useAuthStore } from '@/stores/auth-store'
@@ -184,6 +186,35 @@ export async function runtimeStop(args: RuntimeStopArgs): Promise<RuntimeStopRes
     throw new Error(response.error || 'runtimeStop rejected')
   }
   if (response.result.case !== 'runtimeStopResult') {
+    throw new Error(`unexpected result variant: ${response.result.case}`)
+  }
+  return response.result.value
+}
+
+// ---------------------------------------------------------------------------
+// Public helper: setModel
+// ---------------------------------------------------------------------------
+
+export interface SetModelArgs {
+  targetDeviceId: string
+  runtimeId: string
+  modelId: string
+  timeoutMs?: number
+}
+
+export async function setModel(args: SetModelArgs): Promise<SetModelResult> {
+  const response = await sendRequest((req) => {
+    const sm = create(SetModelRequestSchema, {
+      runtimeId: args.runtimeId,
+      modelId: args.modelId,
+    })
+    req.method = { case: 'setModel', value: sm }
+  }, args.targetDeviceId, args.timeoutMs)
+
+  if (!response.success) {
+    throw new Error(response.error || 'setModel rejected')
+  }
+  if (response.result.case !== 'setModelResult') {
     throw new Error(`unexpected result variant: ${response.result.case}`)
   }
   return response.result.value

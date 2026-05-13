@@ -267,7 +267,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const inputValue = draftInput;
   const setInputValue = setDraftInput;
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
-  const [attachedAgents, setAttachedAgents] = React.useState<AttachedAgent[]>([]);
+  const [engagedAgent, setEngagedAgent] = React.useState<AttachedAgent | null>(null);
   const [pendingFirstMessage, setPendingFirstMessage] = React.useState<PromptInputMessage | null>(null);
   const sessionRow = useSessionListStore(s => s.rows.find(r => r.id === activeSessionId));
   // Team is workspace-scoped: every session in `rows` shares the same team_id.
@@ -699,8 +699,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     // gone now. Single-window scope sends via MQTT + Supabase regardless.
     const text = message.text?.trim() || "";
     const mentions = message.mentions || [];
-    // Combine chip-bar agents + picker-supplied agents, dedup by id.
-    const allAgents: AttachedAgent[] = [...attachedAgents];
+    // Combine engaged agent + picker-supplied agents, dedup by id.
+    const allAgents: AttachedAgent[] = engagedAgent ? [engagedAgent] : [];
     for (const ea of extraMentionAgents) {
       if (!allAgents.some((a) => a.id === ea.id)) allAgents.push(ea);
     }
@@ -885,7 +885,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     setInputValue("");
     setAttachedFiles([]);
-    setAttachedAgents([]);
     setImageFiles([]);
   };
 
@@ -1323,11 +1322,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             attachedFiles={attachedFiles}
             onFilesChange={handleFilesChange}
             onRemoveFile={removeFile}
-            attachedAgents={attachedAgents}
-            onAttachAgent={(a) => setAttachedAgents((prev) =>
-              prev.some((x) => x.id === a.id) ? prev : [...prev, a]
-            )}
-            onRemoveAgent={(id) => setAttachedAgents((prev) => prev.filter((x) => x.id !== id))}
+            engagedAgent={engagedAgent}
+            onEngageAgent={(a) => setEngagedAgent(a)}
+            onClearAgent={() => setEngagedAgent(null)}
             imageFiles={imageFiles}
             onImageFilesChange={handleImageFilesChange}
             onRemoveImageFile={removeImageFile}

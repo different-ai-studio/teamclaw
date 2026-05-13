@@ -24,7 +24,7 @@ import {
 } from "@/packages/ai/prompt-input-insert-hooks";
 import { FileMentionPopover } from "./FileMentionPopover";
 import { MentionPopover } from "./MentionPopover";
-import { AgentChipBar } from "./AgentChipBar";
+import { AgentSelectorDock } from "./AgentSelectorDock";
 import { CommandPopover } from "./CommandPopover";
 import type { Command as OpenCodeCommand } from "@/lib/opencode/sdk-client";
 import { useTeamModeStore } from "@/stores/team-mode";
@@ -86,18 +86,18 @@ function MentionPopoverWrapper({
   open,
   onOpenChange,
   searchQuery,
-  onAttachAgent,
+  onEngageAgent,
 }: {
   open: boolean;
   onOpenChange: (next: boolean) => void;
   searchQuery: string;
-  onAttachAgent: (agent: AttachedAgent) => void;
+  onEngageAgent: (agent: AttachedAgent) => void;
 }) {
   const context = usePromptInputContext();
   const insertMember = React.useMemo(() => createInsertMention(context), [context]);
   const insertAgent = React.useMemo(
-    () => createInsertAgentMention(context, onAttachAgent),
-    [context, onAttachAgent],
+    () => createInsertAgentMention(context, onEngageAgent),
+    [context, onEngageAgent],
   );
   const [innerQuery, setInnerQuery] = React.useState(searchQuery);
   React.useEffect(() => { setInnerQuery(searchQuery); }, [searchQuery]);
@@ -164,9 +164,9 @@ interface ChatInputAreaProps {
   onRemoveFromQueue: (id: string) => void;
   onHeightChange?: (height: number) => void;
   headerContent?: React.ReactNode;
-  attachedAgents: AttachedAgent[];
-  onAttachAgent: (agent: AttachedAgent) => void;
-  onRemoveAgent: (id: string) => void;
+  engagedAgent: AttachedAgent | null;
+  onEngageAgent: (agent: AttachedAgent) => void;
+  onClearAgent: () => void;
 }
 
 function isImagePath(path: string): boolean {
@@ -190,9 +190,9 @@ export function ChatInputArea({
   onRemoveFromQueue: _onRemoveFromQueue,
   onHeightChange,
   headerContent,
-  attachedAgents = [],
-  onAttachAgent = () => {},
-  onRemoveAgent = () => {},
+  engagedAgent = null,
+  onEngageAgent = () => {},
+  onClearAgent: _onClearAgent = () => {},
 }: ChatInputAreaProps) {
   const { t } = useTranslation();
 
@@ -354,8 +354,7 @@ export function ChatInputArea({
             multiple
             className="relative z-10 bg-card shadow-lg"
           >
-          {/* Agent chips */}
-          {REDESIGN_ON && <AgentChipBar agents={attachedAgents} onRemove={onRemoveAgent} />}
+          {/* Agent chips: removed — agent is shown in AgentSelectorDock (bottom-left) instead */}
 
           {/* Image previews */}
           {imageFiles.length > 0 && (
@@ -475,7 +474,7 @@ export function ChatInputArea({
               open={mentionPopoverOpen}
               onOpenChange={setMentionPopoverOpen}
               searchQuery={mentionSearchQuery}
-              onAttachAgent={onAttachAgent}
+              onEngageAgent={onEngageAgent}
             />
           )}
           <CommandPopoverWrapper
@@ -490,42 +489,12 @@ export function ChatInputArea({
                 <FileInputButton onFilesSelected={onFilesChange} />
               </div>
 
-              {teamMode && teamModelConfig && !devUnlocked && teamModelOptions.length > 1 ? (
-                <ModelSelector
-                  open={modelSelectorOpen}
-                  onOpenChange={setModelSelectorOpen}
-                >
-                  <ModelSelectorTrigger asChild>
-                    <PromptInputButton>
-                      <ModelSelectorLogo provider="team" />
-                      {teamModelConfig.modelName}
-                    </PromptInputButton>
-                  </ModelSelectorTrigger>
-                  <ModelSelectorContent align="start">
-                    <ModelSelectorList>
-                      <ModelSelectorGroup heading="Team">
-                        {teamModelOptions.map((option) => (
-                          <ModelSelectorItem
-                            key={option.id}
-                            onSelect={() => {
-                              setModelSelectorOpen(false);
-                              const wsPath = useWorkspaceStore.getState().workspacePath;
-                              if (wsPath) switchTeamModel(option.id, wsPath);
-                            }}
-                          >
-                            <ModelSelectorLogo provider="team" />
-                            <ModelSelectorName>{option.name}</ModelSelectorName>
-                          </ModelSelectorItem>
-                        ))}
-                      </ModelSelectorGroup>
-                    </ModelSelectorList>
-                  </ModelSelectorContent>
-                </ModelSelector>
-              ) : teamMode && teamModelConfig && !devUnlocked ? (
-                <PromptInputButton>
-                  <ModelSelectorLogo provider="team" />
-                  {teamModelConfig.modelName}
-                </PromptInputButton>
+              {teamMode ? (
+                /* v2 team-mode: replace legacy team ModelSelector with AgentSelectorDock */
+                <AgentSelectorDock
+                  engagedAgent={engagedAgent}
+                  onEngageAgent={onEngageAgent}
+                />
               ) : (
                 <ModelSelector
                   open={modelSelectorOpen}

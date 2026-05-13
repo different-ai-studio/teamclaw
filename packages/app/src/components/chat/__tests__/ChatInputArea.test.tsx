@@ -49,9 +49,9 @@ const defaultProps = {
   onAbort: vi.fn(),
   messageQueue: [],
   onRemoveFromQueue: vi.fn(),
-  attachedAgents: [],
-  onAttachAgent: vi.fn(),
-  onRemoveAgent: vi.fn(),
+  engagedAgent: null,
+  onEngageAgent: vi.fn(),
+  onClearAgent: vi.fn(),
 };
 
 describe('ChatInputArea', () => {

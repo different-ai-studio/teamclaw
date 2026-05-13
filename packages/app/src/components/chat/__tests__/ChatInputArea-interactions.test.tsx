@@ -81,9 +81,9 @@ const createDefaultProps = () => ({
   onAbort: vi.fn(),
   messageQueue: [] as Array<{ id: string; content: string; timestamp: Date }>,
   onRemoveFromQueue: vi.fn(),
-  attachedAgents: [] as Array<{ id: string; displayName: string }>,
-  onAttachAgent: vi.fn(),
-  onRemoveAgent: vi.fn(),
+  engagedAgent: null as { id: string; displayName: string } | null,
+  onEngageAgent: vi.fn(),
+  onClearAgent: vi.fn(),
 });
 
 // ── Polyfill for jsdom ───────────────────────────────────────────────────────
