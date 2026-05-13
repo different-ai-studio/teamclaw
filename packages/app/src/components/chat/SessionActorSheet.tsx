@@ -13,6 +13,9 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase-client'
+import { loadActorsForTeam, loadActorsByIds, loadSessionParticipants } from '@/lib/local-cache'
+import { syncActorsForTeam } from '@/lib/sync/actor-sync'
+import { syncParticipantsForSession } from '@/lib/sync/session-participant-sync'
 import { cn } from '@/lib/utils'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
@@ -186,20 +189,17 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
     if (!sessionId) {
       if (teamId) {
         void (async () => {
-          const { data: teamAgentRows, error: teamAgentsErr } = await supabase
-            .from('actors')
-            .select('id, display_name, actor_type')
-            .eq('team_id', teamId)
-            .eq('actor_type', 'agent')
+          // Phase 1: load candidate agents from local cache instantly.
+          const cached = await loadActorsForTeam(teamId)
           if (cancelled) return
-          if (teamAgentsErr) {
-            console.error('[SessionActorSheet] team agents fetch failed (non-fatal)', teamAgentsErr)
-          } else {
-            setCandidateAgents(
-              (teamAgentRows ?? []) as Array<{ id: string; display_name: string }>,
-            )
-          }
+          setCandidateAgents(
+            cached
+              .filter(a => a.actorType === 'agent')
+              .map(a => ({ id: a.id, display_name: a.displayName })),
+          )
           setLoading(false)
+          // Phase 2: refresh in background.
+          void syncActorsForTeam(teamId)
         })()
       } else {
         setLoading(false)
@@ -207,103 +207,147 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
       return () => { cancelled = true }
     }
 
+    /** Apply a snapshot of (participants, actors, candidate agents) to UI. */
+    function applySnapshot(
+      actorIds: string[],
+      actorRows: Row[],
+      candidates: Array<{ id: string; display_name: string }>,
+    ) {
+      setRows(actorRows)
+      setCandidateAgents(candidates)
+      if (actorIds.length === 0) setAgentToRuntimeId(new Map())
+    }
+
     void (async () => {
-      // Step 1: get actor_id list for the session
-      const { data: participantData, error: participantError } = await supabase
-        .from('session_participants')
-        .select('actor_id')
-        .eq('session_id', sessionId)
-
+      // ────────────────────────────────────────────────────────────────
+      // Phase 1: instant render from local libsql cache
+      // ────────────────────────────────────────────────────────────────
+      const [cachedParticipants, cachedTeamActors] = await Promise.all([
+        loadSessionParticipants(sessionId),
+        teamId ? loadActorsForTeam(teamId) : Promise.resolve([]),
+      ])
       if (cancelled) return
-      if (participantError) {
-        console.error('[SessionActorSheet] fetch failed', participantError)
-        setError(true)
-        setLoading(false)
-        return
+
+      const cachedActorIds = cachedParticipants.map(p => p.actorId)
+      const cachedPresentSet = new Set(cachedActorIds)
+      const cachedById = new Map(cachedTeamActors.map(a => [a.id, a]))
+
+      // If team cache misses any participant (rare), fall back to id-lookup.
+      const missingIds = cachedActorIds.filter(id => !cachedById.has(id))
+      if (missingIds.length > 0) {
+        const extra = await loadActorsByIds(missingIds)
+        if (cancelled) return
+        for (const a of extra) cachedById.set(a.id, a)
       }
 
-      const actorIds = (participantData ?? []).map((r: { actor_id: string }) => r.actor_id)
-      const presentActorIds = new Set(actorIds)
+      const cachedRows: Row[] = cachedActorIds
+        .map(id => cachedById.get(id))
+        .filter((a): a is NonNullable<typeof a> => !!a)
+        .map(a => ({
+          id: a.id,
+          actor_type: (a.actorType as 'member' | 'agent'),
+          display_name: a.displayName,
+          member_status: a.memberStatus ?? null,
+          agent_status: a.agentStatus ?? null,
+          agent_kind: null,
+          last_active_at: null,
+        }))
 
-      // Always query team agents (independent of participant count) so the
-      // "Add agent" button shows for brand-new sessions too. Failure is
-      // non-fatal — fall back to empty candidate list.
+      const cachedCandidates = cachedTeamActors
+        .filter(a => a.actorType === 'agent' && !cachedPresentSet.has(a.id))
+        .map(a => ({ id: a.id, display_name: a.displayName }))
+
+      applySnapshot(cachedActorIds, cachedRows, cachedCandidates)
+      setLoading(false)
+
+      // ────────────────────────────────────────────────────────────────
+      // Phase 2: background sync (participants + team actors), re-hydrate
+      // ────────────────────────────────────────────────────────────────
       if (teamId) {
-        const { data: teamAgentRows, error: teamAgentsErr } = await supabase
-          .from('actors')
-          .select('id, display_name, actor_type')
-          .eq('team_id', teamId)
-          .eq('actor_type', 'agent')
-        if (!cancelled) {
-          if (teamAgentsErr) {
-            console.error('[SessionActorSheet] team agents fetch failed (non-fatal)', teamAgentsErr)
-          } else {
-            const candidates = (teamAgentRows ?? []).filter(
-              (a: { id: string; display_name: string; actor_type: string }) => !presentActorIds.has(a.id),
-            )
-            setCandidateAgents(candidates as Array<{ id: string; display_name: string }>)
-          }
+        await Promise.all([
+          syncParticipantsForSession(sessionId, teamId),
+          syncActorsForTeam(teamId),
+        ])
+        if (cancelled) return
+
+        const [freshParticipants, freshTeamActors] = await Promise.all([
+          loadSessionParticipants(sessionId),
+          loadActorsForTeam(teamId),
+        ])
+        if (cancelled) return
+
+        const freshIds = freshParticipants.map(p => p.actorId)
+        const freshPresent = new Set(freshIds)
+        const freshById = new Map(freshTeamActors.map(a => [a.id, a]))
+        const stillMissing = freshIds.filter(id => !freshById.has(id))
+        if (stillMissing.length > 0) {
+          const extra = await loadActorsByIds(stillMissing)
+          if (cancelled) return
+          for (const a of extra) freshById.set(a.id, a)
         }
+
+        const freshRows: Row[] = freshIds
+          .map(id => freshById.get(id))
+          .filter((a): a is NonNullable<typeof a> => !!a)
+          .map(a => ({
+            id: a.id,
+            actor_type: (a.actorType as 'member' | 'agent'),
+            display_name: a.displayName,
+            member_status: a.memberStatus ?? null,
+            agent_status: a.agentStatus ?? null,
+            agent_kind: null,
+            last_active_at: null,
+          }))
+
+        const freshCandidates = freshTeamActors
+          .filter(a => a.actorType === 'agent' && !freshPresent.has(a.id))
+          .map(a => ({ id: a.id, display_name: a.displayName }))
+
+        applySnapshot(freshIds, freshRows, freshCandidates)
       }
 
-      if (actorIds.length === 0) {
-        setRows([])
-        setAgentToRuntimeId(new Map())
-        setMyActorId(null)
-        setLoading(false)
-        return
-      }
-
-      // Step 2: fetch actor_directory rows
-      const { data: actorData, error: actorError } = await supabase
-        .from('actor_directory')
-        .select('id, actor_type, display_name, member_status, agent_status, agent_kind, last_active_at')
-        .in('id', actorIds)
-
+      // ────────────────────────────────────────────────────────────────
+      // Live-state lookups that aren't cached: agent_runtimes + my-actor.
+      // Small queries, kept on supabase. Fire in parallel; failures are
+      // non-fatal (we already rendered from cache).
+      // ────────────────────────────────────────────────────────────────
+      const finalActorIds = (await loadSessionParticipants(sessionId)).map(p => p.actorId)
       if (cancelled) return
-      if (actorError) {
-        console.error('[SessionActorSheet] fetch failed', actorError)
-        setError(true)
-        setLoading(false)
-        return
-      }
 
-      // Step 3: fetch agent_runtimes for live RuntimeInfo mapping
-      const { data: runtimeRows, error: runtimeErr } = await supabase
-        .from('agent_runtimes')
-        .select('agent_id, runtime_id, status, current_model')
-        .eq('session_id', sessionId)
-
+      const [runtimeRes, userRes] = await Promise.all([
+        supabase
+          .from('agent_runtimes')
+          .select('agent_id, runtime_id')
+          .eq('session_id', sessionId),
+        supabase.auth.getUser(),
+      ])
       if (cancelled) return
-      if (runtimeErr) {
-        console.error('[SessionActorSheet] agent_runtimes fetch failed (non-fatal)', runtimeErr)
-        // Non-fatal: agents will fall back to static agent_status
-      }
 
       const runtimeMap = new Map<string, string>()
-      for (const r of (runtimeRows ?? [])) {
-        if (r.agent_id && r.runtime_id) runtimeMap.set(r.agent_id, r.runtime_id)
+      if (!runtimeRes.error) {
+        for (const r of (runtimeRes.data ?? []) as Array<{ agent_id: string; runtime_id: string }>) {
+          if (r.agent_id && r.runtime_id) runtimeMap.set(r.agent_id, r.runtime_id)
+        }
       }
+      setAgentToRuntimeId(runtimeMap)
 
-      // Step 4: resolve current user's actor_id (find which participant is me)
-      const { data: { user } } = await supabase.auth.getUser()
-      let myActorIdLocal: string | null = null
-      if (user && actorIds.length > 0) {
+      const user = userRes.data.user
+      if (user && finalActorIds.length > 0) {
         const { data: myActorRows } = await supabase
           .from('actors')
           .select('id')
           .eq('user_id', user.id)
-          .in('id', actorIds)
-        myActorIdLocal = myActorRows?.[0]?.id ?? null
+          .in('id', finalActorIds)
+        if (cancelled) return
+        setMyActorId(myActorRows?.[0]?.id ?? null)
       }
-
+    })().catch(e => {
       if (cancelled) return
-
-      setRows((actorData ?? []) as Row[])
-      setAgentToRuntimeId(runtimeMap)
-      setMyActorId(myActorIdLocal)
+      console.error('[SessionActorSheet] load failed', e)
+      setError(true)
       setLoading(false)
-    })()
+    })
+
     return () => {
       cancelled = true
     }
