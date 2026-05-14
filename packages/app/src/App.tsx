@@ -28,6 +28,7 @@ import {
   MessageSquarePlus,
   AppWindow,
   Users,
+  TerminalSquare,
 } from "lucide-react";
 // Spotlight window - lazy loaded for spotlight window label
 const SpotlightWindow = lazy(() =>
@@ -93,6 +94,7 @@ import { MessageSchema, MessageKind } from "@/lib/proto/teamclaw_pb";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useTabsStore, selectActiveTab, selectHasHiddenTabs } from "@/stores/tabs";
+import { useTerminalStore } from "@/stores/terminal-store";
 import { TabBar } from "@/components/tab-bar/TabBar";
 import { TabContentRenderer } from "@/components/tab-bar/TabContentRenderer";
 import { WebViewToolbar } from "@/components/tab-bar/WebViewToolbar";
@@ -228,6 +230,52 @@ function useWebviewShortcuts() {
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
   }, [])
+}
+
+function useTerminalShortcuts() {
+  const togglePanel = useTerminalStore(s => s.togglePanel);
+  const openTerminal = useTerminalStore(s => s.openTerminal);
+  const closeTerminal = useTerminalStore(s => s.closeTerminal);
+  const workspacePath = useWorkspaceStore(s => s.workspacePath);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!workspacePath) return;
+      const mod = e.metaKey || e.ctrlKey;
+
+      // Ctrl + ` (backtick) — toggle terminal panel
+      if (e.ctrlKey && e.key === "`") {
+        e.preventDefault();
+        togglePanel(workspacePath);
+        return;
+      }
+
+      // Only act on Cmd+T / Cmd+W when focus is inside a terminal viewport.
+      const focused = document.activeElement;
+      const inTerminal = focused?.closest?.(".xterm") != null;
+      if (!inTerminal) return;
+
+      if (mod && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        void openTerminal(workspacePath, {
+          cwd: workspacePath,
+          allowedRoots: [workspacePath],
+        });
+        return;
+      }
+
+      if (mod && e.key.toLowerCase() === "w") {
+        e.preventDefault();
+        const state = useTerminalStore.getState();
+        const activeId = state.activeTabByWorkspace[workspacePath];
+        if (activeId) void closeTerminal(activeId);
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [workspacePath, togglePanel, openTerminal, closeTerminal]);
 }
 
 // Main content component - shows chat with tab overlay
@@ -385,6 +433,27 @@ function MainContent() {
         </ErrorBoundary>
       </div>
     </div>
+  );
+}
+
+// Terminal toggle button in header
+function TerminalToggleButton({ workspacePath }: { workspacePath: string }) {
+  const { t } = useTranslation();
+  const terminalOpen = useTerminalStore(
+    s => Boolean(s.panelOpenByWorkspace[workspacePath]),
+  );
+  const togglePanel = useTerminalStore(s => s.togglePanel);
+  return (
+    <button
+      className={cn(
+        "ml-1 rounded p-1 transition-colors hover:bg-muted hover:text-foreground",
+        terminalOpen ? "bg-muted text-foreground" : "text-muted-foreground",
+      )}
+      onClick={() => togglePanel(workspacePath)}
+      title={t("terminal.toggle", "Toggle terminal (⌃`)")}
+    >
+      <TerminalSquare className="h-4 w-4" />
+    </button>
   );
 }
 
@@ -1502,6 +1571,9 @@ function AppContent() {
                   <AppWindow className="h-4 w-4" />
                 </button>
               )}
+              {workspacePath && (
+                <TerminalToggleButton workspacePath={workspacePath} />
+              )}
               <HeaderPanelTab
                 icon={Users}
                 label={t("chat.actorSheet.title", "Actors")}
@@ -1577,6 +1649,7 @@ function AppContent() {
 function App() {
   // ── Global webview shortcuts (find, zoom, context menu) ──
   useWebviewShortcuts()
+  useTerminalShortcuts()
 
   // ── Spotlight mode from UI store ──────────────────────────────────────
   const spotlightMode = useUIStore((s) => s.spotlightMode)
