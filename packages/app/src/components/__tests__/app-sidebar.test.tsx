@@ -528,48 +528,4 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Settings')).toBeDefined()
   })
 
-  it('shows connected P2P icon state from engine snapshot', () => {
-    uiVariantMocks.workspaceShell = true
-    teamModeStoreMocks.teamMode = true
-    p2pEngineStoreMocks.snapshot = {
-      status: 'connected',
-      streamHealth: 'healthy',
-    }
-
-    render(<AppSidebar />)
-
-    const icon = screen.getByTestId('workspace-p2p-icon')
-    expect(icon.getAttribute('data-p2p-status')).toBe('connected')
-    expect(icon.getAttribute('class')).toContain('text-blue-500')
-  })
-
-  it('shows degraded P2P icon state from engine snapshot', () => {
-    uiVariantMocks.workspaceShell = true
-    teamModeStoreMocks.teamMode = true
-    p2pEngineStoreMocks.snapshot = {
-      status: 'connected',
-      streamHealth: 'restarting',
-    }
-
-    render(<AppSidebar />)
-
-    const icon = screen.getByTestId('workspace-p2p-icon')
-    expect(icon.getAttribute('data-p2p-status')).toBe('degraded')
-    expect(icon.getAttribute('class')).toContain('text-amber-500')
-  })
-
-  it('shows disconnected P2P icon state when engine is disconnected', () => {
-    uiVariantMocks.workspaceShell = true
-    teamModeStoreMocks.teamMode = true
-    p2pEngineStoreMocks.snapshot = {
-      status: 'disconnected',
-      streamHealth: 'dead',
-    }
-
-    render(<AppSidebar />)
-
-    const icon = screen.getByTestId('workspace-p2p-icon')
-    expect(icon.getAttribute('data-p2p-status')).toBe('disconnected')
-    expect(icon.getAttribute('class')).toContain('text-muted-foreground')
-  })
 })

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Settings, Pin, SquarePlus, UserPlus, Lightbulb } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, Pencil, Ellipsis, Settings, Pin, SquarePlus, UserPlus, Lightbulb } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -9,7 +9,6 @@ import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useCronStore } from "@/stores/cron"
 import { useTeamModeStore } from "@/stores/team-mode"
-import { useTeamOssStore } from "@/stores/team-oss"
 import { useP2pEngineStore } from "@/stores/p2p-engine"
 import {
   Sidebar,
@@ -341,17 +340,12 @@ function WorkspaceSelectorButton() {
   const isLoadingWorkspace = useWorkspaceStore(s => s.isLoadingWorkspace)
   const setWorkspace = useWorkspaceStore(s => s.setWorkspace)
   const teamMode = useTeamModeStore(s => s.teamMode)
-  const teamModeP2pConnected = useTeamModeStore(s => s.p2pConnected)
-  const ossConfigured = useTeamOssStore(s => s.configured)
-  const ossConnected = useTeamOssStore(s => s.connected)
-  const engineInitialized = useP2pEngineStore(s => s.initialized)
-  const engineStatus = useP2pEngineStore(s => s.snapshot.status)
-  const engineStreamHealth = useP2pEngineStore(s => s.snapshot.streamHealth)
   const engineInit = useP2pEngineStore(s => s.init)
   const engineFetch = useP2pEngineStore(s => s.fetch)
   const [isSelecting, setIsSelecting] = React.useState(false)
 
-  // Initialize P2P engine store when in team mode
+  // Initialize P2P engine store when in team mode. The UI no longer renders
+  // connection status here, but the engine still needs to come up so sync works.
   React.useEffect(() => {
     if (!teamMode || !isTauri()) return
     let cleanup: (() => void) | undefined
@@ -359,15 +353,6 @@ function WorkspaceSelectorButton() {
     void engineFetch()
     return () => { cleanup?.() }
   }, [teamMode, engineFetch, engineInit])
-
-  // Prefer the engine snapshot for connection truth. Keep a narrow fallback to the
-  // mirrored team-mode flag only before the engine store finishes initialization.
-  const p2pConnected = engineStatus === 'connected' || (!engineInitialized && teamModeP2pConnected)
-  const p2pStatusTone = p2pConnected
-    ? engineStatus === 'connected' && engineStreamHealth !== 'healthy'
-      ? 'degraded'
-      : 'connected'
-    : 'disconnected'
 
   const handleOpenFolder = async () => {
     if (!isTauri()) {
@@ -400,26 +385,11 @@ function WorkspaceSelectorButton() {
     <Button
       variant="ghost"
       size="sm"
-      className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground max-w-[180px]"
+      className="h-7 px-2 text-muted-foreground hover:text-foreground max-w-[180px]"
       disabled={isLoading}
       onClick={handleOpenFolder}
     >
-      {isLoading ? (
-        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-      ) : teamMode && workspaceName && ossConfigured ? (
-        <Cloud className={cn("h-4 w-4 shrink-0", ossConnected ? "text-blue-500" : "text-muted-foreground")} />
-      ) : teamMode && workspaceName ? (
-        <Users className={cn(
-          "h-4 w-4 shrink-0",
-          p2pStatusTone === 'connected'
-            ? "text-blue-500"
-            : p2pStatusTone === 'degraded'
-              ? "text-amber-500"
-              : "text-muted-foreground"
-        )} data-testid="workspace-p2p-icon" data-p2p-status={p2pStatusTone} />
-      ) : (
-        <FolderOpen className="h-4 w-4 shrink-0" />
-      )}
+      {isLoading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin shrink-0" />}
       <span className="truncate text-xs" data-testid="workspace-name">
         {workspaceName || t('workspace.selectWorkspace', 'Select Workspace')}
       </span>
