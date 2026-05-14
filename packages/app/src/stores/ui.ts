@@ -44,6 +44,7 @@ interface UIState {
   setSidebarFilter: (filter: SidebarFilter) => void
   toggleIdeasSection: () => void
   toggleActorsSection: () => void
+  setDraftIdeaId: (ideaId: string) => void
   clearDraftIdeaId: () => void
   setView: (view: View) => void
   setDefaultMoreOpen: (open: boolean) => void
@@ -221,12 +222,13 @@ export const useUIStore = create<UIState>((set, get) => ({
     
     // Switch to the session (setActiveSession handles its own internal state)
     await useSessionStore.getState().setActiveSession(sessionId)
-    set({ sidebarFilter: { kind: 'all' } })
+    set({ sidebarFilter: { kind: 'all' }, draftIdeaId: null })
   },
 
   setSidebarFilter: (filter) => set({ sidebarFilter: filter }),
   toggleIdeasSection: () => set((s) => ({ ideasSectionCollapsed: !s.ideasSectionCollapsed })),
   toggleActorsSection: () => set((s) => ({ actorsSectionCollapsed: !s.actorsSectionCollapsed })),
+  setDraftIdeaId: (ideaId) => set({ draftIdeaId: ideaId }),
   clearDraftIdeaId: () => set({ draftIdeaId: null }),
 
   setLayoutMode: (mode) => set({ layoutMode: mode }),

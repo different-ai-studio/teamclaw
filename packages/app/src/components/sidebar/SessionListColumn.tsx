@@ -212,7 +212,7 @@ export function SessionListColumn() {
     }
     useUIStore.getState().startNewChat()
     if (filter.kind === 'idea') {
-      useUIStore.setState({ draftIdeaId: filter.ideaId })
+      useUIStore.getState().setDraftIdeaId(filter.ideaId)
     }
   }
 
