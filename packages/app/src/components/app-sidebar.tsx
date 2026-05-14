@@ -1,13 +1,12 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Bookmark, BookOpen, Settings, Pin, SquarePlus, UserPlus, Lightbulb } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Settings, Pin, SquarePlus, UserPlus, Lightbulb } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
 import { useStreamingStore } from "@/stores/streaming"
 import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
-import { useTabsStore } from "@/stores/tabs"
 import { useCronStore } from "@/stores/cron"
 import { useTeamModeStore } from "@/stores/team-mode"
 import { useTeamOssStore } from "@/stores/team-oss"
@@ -44,6 +43,8 @@ import {
 import { TrafficLights } from "@/components/ui/traffic-lights"
 import { buildSessionListActivityMap, type SessionListActivity } from "@/lib/session-list-activity"
 import { SessionSearchDialog } from "@/components/sidebar/session-search-dialog"
+import { NavRail } from "@/components/sidebar/NavRail"
+import { SessionListColumn } from "@/components/sidebar/SessionListColumn"
 
 function SessionActivityBadge({ activity }: { activity?: SessionListActivity }) {
   const { t } = useTranslation()
@@ -546,7 +547,6 @@ function SessionRenameInput({
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { t } = useTranslation()
-  const { state: sidebarDisplayState } = useSidebar()
   const allSessions = useSessionStore(s => s.sessions)
   const pinnedSessionIds = useSessionStore(s => s.pinnedSessionIds)
   const activeSessionId = useSessionStore(s => s.activeSessionId)
@@ -623,28 +623,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   )
   
   const openSettings = useUIStore(s => s.openSettings)
-  const closeSettings = useUIStore(s => s.closeSettings)
   const defaultNavTab = useUIStore(s => s.defaultNavTab)
-  const clearSelection = useWorkspaceStore(s => s.clearSelection)
-  const isPanelOpen = useWorkspaceStore(s => s.isPanelOpen)
-  const activeWorkspacePanelTab = useWorkspaceStore(s => s.activeTab)
-  const openPanel = useWorkspaceStore(s => s.openPanel)
-  const closePanel = useWorkspaceStore(s => s.closePanel)
 
-  const handleWorkspaceShortcutsPanel = () => {
-    clearSelection()
-    closeSettings()
-    useTabsStore.getState().hideAll()
-    if (isPanelOpen && activeWorkspacePanelTab === "shortcuts") {
-      closePanel()
-    } else {
-      openPanel("shortcuts")
-    }
-  }
-
-  const shortcutsStripActive =
-    isPanelOpen &&
-    activeWorkspacePanelTab === "shortcuts"
   const defaultSidebarContent = isWorkspaceUIVariant() ? 'session' : defaultNavTab
 
   const handleSelectSession = (id: string) => {
@@ -801,30 +781,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           {/* Flexible drag region */}
           <div className="flex-1" data-tauri-drag-region />
           {isWorkspaceUIVariant() ? (
-            <>
-              <SidebarCollapseToggle />
-              <button
-                type="button"
-                className={cn(
-                  "flex h-7 items-center gap-1.5 rounded text-xs transition-colors",
-                  isPanelOpen && activeWorkspacePanelTab === "knowledge"
-                    ? "bg-muted px-2 text-foreground"
-                    : "w-7 justify-center text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-                onClick={() =>
-                  isPanelOpen && activeWorkspacePanelTab === "knowledge"
-                    ? closePanel()
-                    : openPanel("knowledge")
-                }
-                title={t("navigation.knowledge", "Knowledge")}
-                aria-label={t("navigation.knowledge", "Knowledge")}
-              >
-                <BookOpen className="h-4 w-4" />
-                {isPanelOpen && activeWorkspacePanelTab === "knowledge" && (
-                  <span>{t("navigation.knowledge", "Knowledge")}</span>
-                )}
-              </button>
-            </>
+            <SidebarCollapseToggle />
           ) : defaultSidebarContent === 'shortcuts' ? (
             <DefaultShortcutsHeaderControls />
           ) : defaultSidebarContent === 'actors' ? (
@@ -837,136 +794,103 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarHeader>
 
         <SidebarContent className="overflow-hidden">
-          {isWorkspaceUIVariant() && (
-            <div className="px-1.5 pb-0 pt-0">
-              <div className="flex flex-col gap-0.5">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "h-9 justify-start gap-2 px-1.5 font-normal",
-                  shortcutsStripActive && "bg-primary/10 text-primary font-medium"
-                )}
-                onClick={handleWorkspaceShortcutsPanel}
-              >
-                <Bookmark
-                  className={cn(
-                    "h-4 w-4 shrink-0",
-                    shortcutsStripActive ? "text-amber-500" : "text-muted-foreground"
-                  )}
-                />
-                <span className="truncate text-sm">
-                  {t("navigation.shortcuts", "Shortcuts")}
-                </span>
-              </Button>
+          {isWorkspaceUIVariant() ? (
+            <div className="flex h-full w-full min-w-0 flex-1 flex-row overflow-hidden">
+              <div className="w-[220px] shrink-0 border-r border-border/60">
+                <NavRail />
               </div>
-            {/* Inset rule (not edge-to-edge) */}
-            <div
-              className="mx-3 mt-2 h-px shrink-0 bg-border/60"
-              aria-hidden
-            />
-          </div>
-          )}
-          <SidebarGroup
-            className={cn(
-              "min-h-0 flex-1 overflow-hidden",
-              isWorkspaceUIVariant() ? "!px-1 !pb-2 !pt-1" : "!px-0 !pb-0 !pt-0",
-            )}
-          >
-            {isWorkspaceUIVariant() && (
-              <div className="flex w-full shrink-0 flex-col pb-3 pt-0.5">
-                <SidebarSecondarySessionActions
-                  newChatVariant="sidebarWide"
-                  includeSearchDialog={sidebarDisplayState !== 'collapsed'}
-                />
+              <div className="min-w-0 flex-1">
+                <SessionListColumn />
               </div>
-            )}
-
-            {defaultSidebarContent === 'session' && (
-              <div
-                data-testid="sidebar-session-scroll"
-                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
-              >
-                <SidebarMenu>
-                  {isLoading && sessions.length === 0 ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : sessions.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <MessageSquare className="h-8 w-8 text-muted-foreground mb-2" />
-                      <p className="text-sm text-muted-foreground">
-                        {t('sidebar.noConversations', 'No conversations')}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('sidebar.clickToStartChat', 'Click the edit icon to start a new chat')}
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      {pinnedSessions.length > 0 && (
-                        <>
-                          <div className="px-2 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                            {t('sidebar.pinnedSessions', 'Pinned')}
-                          </div>
-                          {pinnedSessions.map(renderSessionItem)}
-                        </>
-                      )}
-                      {unpinnedSessions.length > 0 && (
-                        <>
-                          {pinnedSessions.length > 0 && (
-                            <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                              {t('sidebar.allSessions', 'All sessions')}
+            </div>
+          ) : (
+            <SidebarGroup className="!px-0 !pb-0 !pt-0 min-h-0 flex-1 overflow-hidden">
+              {defaultSidebarContent === 'session' && (
+                <div
+                  data-testid="sidebar-session-scroll"
+                  className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+                >
+                  <SidebarMenu>
+                    {isLoading && sessions.length === 0 ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : sessions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-center">
+                        <MessageSquare className="h-8 w-8 text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">
+                          {t('sidebar.noConversations', 'No conversations')}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {t('sidebar.clickToStartChat', 'Click the edit icon to start a new chat')}
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        {pinnedSessions.length > 0 && (
+                          <>
+                            <div className="px-2 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                              {t('sidebar.pinnedSessions', 'Pinned')}
                             </div>
-                          )}
-                          {unpinnedSessions.map(renderSessionItem)}
-                        </>
-                      )}
-                    </>
+                            {pinnedSessions.map(renderSessionItem)}
+                          </>
+                        )}
+                        {unpinnedSessions.length > 0 && (
+                          <>
+                            {pinnedSessions.length > 0 && (
+                              <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                                {t('sidebar.allSessions', 'All sessions')}
+                              </div>
+                            )}
+                            {unpinnedSessions.map(renderSessionItem)}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </SidebarMenu>
+
+                  {hasMoreSessions && sessions.length > 0 && (
+                    <div className="px-2 py-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => loadMoreSessions()}
+                        disabled={isLoadingMore}
+                      >
+                        {isLoadingMore ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            {t('sidebar.loadingMore', 'Loading...')}
+                          </>
+                        ) : (
+                          t('sidebar.loadMore', 'Load More')
+                        )}
+                      </Button>
+                    </div>
                   )}
-                </SidebarMenu>
+                </div>
+              )}
 
-                {hasMoreSessions && sessions.length > 0 && (
-                  <div className="px-2 py-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => loadMoreSessions()}
-                      disabled={isLoadingMore}
-                    >
-                      {isLoadingMore ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          {t('sidebar.loadingMore', 'Loading...')}
-                        </>
-                      ) : (
-                        t('sidebar.loadMore', 'Load More')
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
+              {defaultSidebarContent === 'shortcuts' && (
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <ShortcutsPanel />
+                </div>
+              )}
 
-            {defaultSidebarContent === 'shortcuts' && (
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <ShortcutsPanel />
-              </div>
-            )}
+              {defaultSidebarContent === 'actors' && (
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <ActorsView />
+                </div>
+              )}
 
-            {defaultSidebarContent === 'actors' && (
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <ActorsView />
-              </div>
-            )}
-
-            {defaultSidebarContent === 'ideas' && (
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <IdeasView />
-              </div>
-            )}
-          </SidebarGroup>
+              {defaultSidebarContent === 'ideas' && (
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <IdeasView />
+                </div>
+              )}
+            </SidebarGroup>
+          )}
 
         </SidebarContent>
 
