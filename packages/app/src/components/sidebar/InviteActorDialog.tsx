@@ -58,14 +58,18 @@ export function InviteActorDialog({ open, onOpenChange, teamId }: InviteActorDia
     if (!canSubmit) return
     setSubmitting(true)
     try {
+      // Param names must match the SQL function signature exactly
+      // (`create_team_invite(p_team_id, p_kind, p_display_name, p_team_role,
+      // p_agent_kind, p_ttl_seconds, p_target_actor_id)`); PostgREST overloads
+      // by argument name so the `p_` prefix is required.
       const { data, error } = await supabase.rpc('create_team_invite', {
-        team_id: teamId,
-        kind,
-        display_name: trimmed,
-        team_role: kind === 'member' ? teamRole : null,
-        agent_kind: kind === 'agent' ? agentKind : null,
-        ttl_seconds: null,
-        target_actor_id: null,
+        p_team_id: teamId,
+        p_kind: kind,
+        p_display_name: trimmed,
+        p_team_role: kind === 'member' ? teamRole : null,
+        p_agent_kind: kind === 'agent' ? agentKind : null,
+        p_ttl_seconds: null,
+        p_target_actor_id: null,
       })
       if (error) {
         toast.error(t('invite.failed', 'Failed to create invite: {{msg}}', { msg: error.message }))

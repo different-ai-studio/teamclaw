@@ -44,11 +44,16 @@ export function CreateIdeaDialog({ open, onOpenChange, teamId, onCreated }: Crea
     if (!canSubmit) return
     setSubmitting(true)
     try {
+      // Param names must match the SQL function signature exactly. The RPC is
+      // declared as `create_idea(p_team_id, p_title, p_workspace_id, p_description)`
+      // and PostgREST overloads by argument name, so dropping the `p_` prefix
+      // misses the schema cache. workspace_id is uuid-typed, so pass null when
+      // there's no workspace bound — an empty string is not a valid uuid.
       const { error } = await supabase.rpc('create_idea', {
-        team_id: teamId,
-        workspace_id: '',
-        title: trimmed,
-        description: description.trim() || null,
+        p_team_id: teamId,
+        p_title: trimmed,
+        p_workspace_id: null,
+        p_description: description.trim() || null,
       })
       if (error) {
         toast.error(t('ideas.createFailed', 'Failed to create idea: {{msg}}', { msg: error.message }))
