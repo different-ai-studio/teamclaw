@@ -31,6 +31,7 @@ pub mod team_p2p;
 pub mod team_sync_all;
 pub mod team_unified;
 pub mod team_webdav;
+pub mod terminal;
 pub mod trash;
 pub mod updater;
 pub mod version_commands;

@@ -56,7 +56,7 @@ tempfile = "3"
 cron = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.9"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 jsonwebtoken = "9"
 regex = "1"
