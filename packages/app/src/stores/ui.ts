@@ -14,6 +14,13 @@ export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
 export type DefaultPrimaryTab = 'session' | 'actors' | 'ideas' | 'shortcuts'
 export type DefaultMoreDestination = 'settings'
 
+/** Preselected actor for the draft chat state: when the user taps an actor
+ * row in the Actors tab, we record it here, switch nav back to Session, and
+ * clear activeSessionId. ChatPanel's "no active session" branch then renders
+ * a draft view that uses this actor's name as the title and skips the
+ * NewSessionActorPicker on send. */
+export type DraftActor = { id: string; displayName: string; kind: 'member' | 'agent' }
+
 /** Selector for what the workspace sidebar's column 2 displays. */
 export type SidebarFilter =
   | { kind: 'all' }
@@ -37,6 +44,7 @@ interface UIState {
   actorSheetOpen: boolean
   spotlightMode: boolean
   settingsInitialSection: SettingsSection | null
+  draftPreselectedActor: DraftActor | null
   sidebarFilter: SidebarFilter
   ideasSectionCollapsed: boolean
   actorsSectionCollapsed: boolean
@@ -64,6 +72,8 @@ interface UIState {
   loadAdvancedMode: (workspacePath: string) => Promise<void>
   startNewChat: () => void
   switchToSession: (sessionId: string) => Promise<void>
+  enterActorDraft: (actor: DraftActor) => void
+  clearActorDraft: () => void
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -100,6 +110,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   actorSheetOpen: false,
   spotlightMode: false,
   settingsInitialSection: null,
+  draftPreselectedActor: null,
   sidebarFilter: { kind: 'all' },
   ideasSectionCollapsed: false,
   actorsSectionCollapsed: false,
@@ -155,6 +166,8 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({
       currentView: 'chat',
       settingsInitialSection: null,
+      // Starting a fresh chat overrides any pending actor-draft selection.
+      draftPreselectedActor: null,
       sidebarFilter: { kind: 'all' },
       draftIdeaId: null,
     })
@@ -222,8 +235,44 @@ export const useUIStore = create<UIState>((set, get) => ({
     
     // Switch to the session (setActiveSession handles its own internal state)
     await useSessionStore.getState().setActiveSession(sessionId)
-    set({ sidebarFilter: { kind: 'all' }, draftIdeaId: null })
+    // If the user was in actor-draft mode, drop that since they jumped into
+    // an existing session.
+    set({ draftPreselectedActor: null, sidebarFilter: { kind: 'all' }, draftIdeaId: null })
   },
+
+  enterActorDraft: (actor) => {
+    set({
+      draftPreselectedActor: actor,
+      draftIdeaId: null,
+      defaultNavTab: 'session',
+      defaultMoreOpen: false,
+      currentView: 'chat',
+      settingsInitialSection: null,
+    })
+    // Mirror startNewChat's clear-out so the chat view shows an empty
+    // canvas with the preselected actor as the implicit recipient. We
+    // dynamic-import to avoid a top-level cycle with session/workspace stores.
+    void (async () => {
+      const { useSessionStore } = await import('@/stores/session')
+      const { useWorkspaceStore } = await import('@/stores/workspace')
+      useWorkspaceStore.getState().clearSelection()
+      useWorkspaceStore.getState().closePanel()
+      useSessionStore.setState({
+        activeSessionId: null,
+        currentSessionId: null,
+        isLoading: false,
+        messageQueue: [],
+        todos: [],
+        sessionDiff: [],
+        sessionError: null,
+        sessionStatus: null,
+        pendingQuestions: [],
+        pendingPermissions: [],
+      })
+    })()
+  },
+
+  clearActorDraft: () => set({ draftPreselectedActor: null }),
 
   setSidebarFilter: (filter) => set({ sidebarFilter: filter }),
   toggleIdeasSection: () => set((s) => ({ ideasSectionCollapsed: !s.ideasSectionCollapsed })),
