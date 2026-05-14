@@ -44,8 +44,65 @@ impl Registry {
     pub fn new() -> Self {
         Self { handles: RwLock::new(HashMap::new()) }
     }
+
+    pub fn insert(&self, id: TerminalId, handle: Arc<crate::terminal::pty::PtyHandle>) {
+        self.handles.write().unwrap().insert(id, handle);
+    }
+
+    pub fn get(&self, id: &str) -> Option<Arc<crate::terminal::pty::PtyHandle>> {
+        self.handles.read().unwrap().get(id).cloned()
+    }
+
+    pub fn remove(&self, id: &str) -> Option<Arc<crate::terminal::pty::PtyHandle>> {
+        self.handles.write().unwrap().remove(id)
+    }
+
+    pub fn list_summaries(&self, workspace_id: Option<&str>) -> Vec<TerminalSummary> {
+        self.handles
+            .read()
+            .unwrap()
+            .values()
+            .filter(|h| workspace_id.map_or(true, |w| h.workspace_id == w))
+            .map(|h| TerminalSummary {
+                id: h.id.clone(),
+                shell: h.shell.clone(),
+                pid: h.pid,
+                status: h.status(),
+                exit_code: h.exit_code(),
+            })
+            .collect()
+    }
+
+    pub fn kill_all(&self) {
+        for (_, h) in self.handles.write().unwrap().drain() {
+            h.kill();
+        }
+    }
 }
 
 impl Default for Registry {
     fn default() -> Self { Self::new() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_registry_lists_zero() {
+        let r = Registry::new();
+        assert_eq!(r.list_summaries(None).len(), 0);
+    }
+
+    #[test]
+    fn remove_missing_returns_none() {
+        let r = Registry::new();
+        assert!(r.remove("nonexistent").is_none());
+    }
+
+    #[test]
+    fn get_missing_returns_none() {
+        let r = Registry::new();
+        assert!(r.get("nonexistent").is_none());
+    }
 }
