@@ -14,6 +14,13 @@ export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
 export type DefaultPrimaryTab = 'session' | 'actors' | 'ideas' | 'shortcuts'
 export type DefaultMoreDestination = 'settings'
 
+/** Selector for what the workspace sidebar's column 2 displays. */
+export type SidebarFilter =
+  | { kind: 'all' }
+  | { kind: 'pinned' }
+  | { kind: 'actor'; actorId: string; displayName: string; actorType: 'member' | 'agent' }
+  | { kind: 'idea'; ideaId: string; title: string }
+
 export type SettingsSection = 'general' | 'voice' | 'channels' | 'team' | 'envVars' | 'knowledge' | 'tokenUsage' | 'privacy' | 'leaderboard' | 'shortcuts' | 'cache'
 
 interface UIState {
@@ -30,6 +37,14 @@ interface UIState {
   actorSheetOpen: boolean
   spotlightMode: boolean
   settingsInitialSection: SettingsSection | null
+  sidebarFilter: SidebarFilter
+  ideasSectionCollapsed: boolean
+  actorsSectionCollapsed: boolean
+  draftIdeaId: string | null
+  setSidebarFilter: (filter: SidebarFilter) => void
+  toggleIdeasSection: () => void
+  toggleActorsSection: () => void
+  clearDraftIdeaId: () => void
   setView: (view: View) => void
   setDefaultMoreOpen: (open: boolean) => void
   setActorSheetOpen: (open: boolean) => void
@@ -84,6 +99,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   actorSheetOpen: false,
   spotlightMode: false,
   settingsInitialSection: null,
+  sidebarFilter: { kind: 'all' } as SidebarFilter,
+  ideasSectionCollapsed: false,
+  actorsSectionCollapsed: false,
+  draftIdeaId: null,
 
   setView: (view) => set({ currentView: view }),
 
@@ -135,6 +154,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({
       currentView: 'chat',
       settingsInitialSection: null,
+      sidebarFilter: { kind: 'all' } as SidebarFilter,
     })
     const isStacked = get().mainContentLayout === 'stacked'
 
@@ -200,7 +220,13 @@ export const useUIStore = create<UIState>((set, get) => ({
     
     // Switch to the session (setActiveSession handles its own internal state)
     await useSessionStore.getState().setActiveSession(sessionId)
+    set({ sidebarFilter: { kind: 'all' } })
   },
+
+  setSidebarFilter: (filter) => set({ sidebarFilter: filter }),
+  toggleIdeasSection: () => set((s) => ({ ideasSectionCollapsed: !s.ideasSectionCollapsed })),
+  toggleActorsSection: () => set((s) => ({ actorsSectionCollapsed: !s.actorsSectionCollapsed })),
+  clearDraftIdeaId: () => set({ draftIdeaId: null }),
 
   setLayoutMode: (mode) => set({ layoutMode: mode }),
 
