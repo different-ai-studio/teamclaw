@@ -39,6 +39,7 @@ use tauri_plugin_global_shortcut::ShortcutState;
 
 mod local_cache;
 mod commands;
+mod terminal;
 pub mod mqtt;
 pub mod process_util;
 pub mod proto;

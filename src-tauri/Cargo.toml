@@ -127,6 +127,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Global keyboard event monitoring (double-tap Ctrl for spotlight)
 rdev = "0.5"
 sentry = { version = "0.47.0", features = ["backtrace", "debug-images"] }
+portable-pty = "0.8"
 
 # macOS native APIs for traffic light control
 [target.'cfg(target_os = "macos")'.dependencies]
