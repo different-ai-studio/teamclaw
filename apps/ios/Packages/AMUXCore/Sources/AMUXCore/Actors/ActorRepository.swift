@@ -36,7 +36,14 @@ public struct InviteCreated: Equatable, Sendable {
     public let deeplink: String
 
     public init(token: String, expiresAt: Date, deeplink: String) {
-        self.token = token; self.expiresAt = expiresAt; self.deeplink = deeplink
+        self.token = token
+        self.expiresAt = expiresAt
+        self.deeplink = Self.teamclawDeeplink(from: deeplink)
+    }
+
+    private static func teamclawDeeplink(from deeplink: String) -> String {
+        guard deeplink.hasPrefix("amux://") else { return deeplink }
+        return "teamclaw://" + deeplink.dropFirst("amux://".count)
     }
 }
 

@@ -3,8 +3,8 @@ import XCTest
 /// End-to-end tests for authentication and MQTT connection.
 ///
 /// Requires environment variables set in the test scheme (or CI secrets):
-///   AMUX_TEST_EMAIL    — e.g. uitest@teamclaw.tech
-///   AMUX_TEST_PASSWORD — password for the test account
+///   TEAMCLAW_TEST_EMAIL    — e.g. uitest@teamclaw.tech
+///   TEAMCLAW_TEST_PASSWORD — password for the test account
 ///
 /// The account must already exist in Supabase and belong to a team so the
 /// app can reach the `.ready` route after sign-in.
@@ -13,8 +13,15 @@ final class AMUXAuthUITests: XCTestCase {
     private var app: XCUIApplication!
 
     // Credentials injected at test-scheme level; tests skip if absent.
-    private var testEmail: String { ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? "" }
-    private var testPassword: String { ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? "" }
+    private var testEmail: String {
+        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_EMAIL"] ??
+            ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? ""
+    }
+
+    private var testPassword: String {
+        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_PASSWORD"] ??
+            ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? ""
+    }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -74,7 +81,7 @@ final class AMUXAuthUITests: XCTestCase {
     @MainActor
     func testSignInAndMQTTConnects() throws {
         try XCTSkipIf(testEmail.isEmpty || testPassword.isEmpty,
-                      "Set AMUX_TEST_EMAIL and AMUX_TEST_PASSWORD to run this test")
+                      "Set TEAMCLAW_TEST_EMAIL and TEAMCLAW_TEST_PASSWORD to run this test")
 
         // Handle the case where the app already has a valid session.
         let sessionsTab = app.tabBars.buttons["Sessions"]
@@ -120,7 +127,7 @@ final class AMUXAuthUITests: XCTestCase {
     @MainActor
     func testDaemonInviteLinkGenerated() throws {
         try XCTSkipIf(testEmail.isEmpty || testPassword.isEmpty,
-                      "Set AMUX_TEST_EMAIL and AMUX_TEST_PASSWORD to run this test")
+                      "Set TEAMCLAW_TEST_EMAIL and TEAMCLAW_TEST_PASSWORD to run this test")
 
         // Reach the main UI (sign in if needed).
         if !app.tabBars.buttons["Actors"].waitForExistence(timeout: 6) {
@@ -177,13 +184,13 @@ final class AMUXAuthUITests: XCTestCase {
         // Wait for the deeplink to appear (backend round-trip).
         // staticText identifier doesn't propagate through Form/SwiftUI in iOS 26,
         // so match by label prefix instead.
-        let deeplinkPredicate = NSPredicate(format: "label BEGINSWITH 'amux://'")
+        let deeplinkPredicate = NSPredicate(format: "label BEGINSWITH 'teamclaw://'")
         let deeplinkText = app.staticTexts.matching(deeplinkPredicate).firstMatch
         XCTAssertTrue(deeplinkText.waitForExistence(timeout: 15),
                       "Deeplink should appear after invite is created\n\(app.debugDescription)")
 
-        XCTAssertTrue(deeplinkText.label.hasPrefix("amux://"),
-                      "Deeplink should use amux:// scheme, got: \(deeplinkText.label)")
+        XCTAssertTrue(deeplinkText.label.hasPrefix("teamclaw://"),
+                      "Deeplink should use teamclaw:// scheme, got: \(deeplinkText.label)")
 
         // Tap Copy link (no assertion — pasteboard is not readable in UI tests).
         let copyButton = app.buttons["Copy link"]

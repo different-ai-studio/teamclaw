@@ -37,7 +37,7 @@ struct TimelineInputBuilderTests {
     @Test("a recorded smoke-cold-start trace contains no session/live records (yields zero inputs)")
     func smokeColdStartTraceYieldsZeroInputs() throws {
         // Recorded from running AMUXAuthUITests/testSignInAndMQTTConnects
-        // with AMUXRecordMQTT enabled. The smoke test never opens a
+        // with TeamclawRecordMQTT enabled. The smoke test never opens a
         // session detail view, so it has zero session/live messages —
         // every record in the trace is `runtime/{id}/state` or device
         // metadata. Use it to verify the builder filters cleanly.

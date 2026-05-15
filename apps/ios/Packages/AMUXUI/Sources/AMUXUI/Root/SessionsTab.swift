@@ -3,7 +3,7 @@ import SwiftData
 import AMUXCore
 import os
 
-private let sessionsTabLogger = Logger(subsystem: "com.amux.app", category: "SessionsTab")
+private let sessionsTabLogger = Logger(subsystem: "tech.teamclaw.mobile", category: "SessionsTab")
 
 public struct SessionsTab: View {
     let mqtt: MQTTService

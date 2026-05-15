@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-let onboardingLogger = Logger(subsystem: "com.amux.app", category: "Onboarding")
+let onboardingLogger = Logger(subsystem: "tech.teamclaw.mobile", category: "Onboarding")
 let onboardingSignposter = OSSignposter(logger: onboardingLogger)
 
 /// Times an async step, emitting both an os_signpost interval (visible in

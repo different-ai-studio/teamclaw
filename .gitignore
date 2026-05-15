@@ -126,4 +126,7 @@ sre/
 # TeamClaw system directories
 .ac360/
 
+# gstack / codex CLI skills (per-machine tool install, not project config)
+.codex/
+
 build.config.json

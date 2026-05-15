@@ -173,7 +173,7 @@ public struct RootTabView: View {
     }
 
     /// Single entry point used by every flow that ends in a claim:
-    ///   - the `amux://invite?token=…` deeplink (NotificationCenter)
+    ///   - the `teamclaw://invite?token=…` deeplink (NotificationCenter)
     ///   - the pre-auth paste path on ChooseAuthView (`pendingInviteToken`)
     ///
     /// If the claim returns a `refreshToken` (agent or member re-invite),

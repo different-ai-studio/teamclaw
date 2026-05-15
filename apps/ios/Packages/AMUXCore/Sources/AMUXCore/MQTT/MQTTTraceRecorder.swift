@@ -34,7 +34,7 @@ public struct MQTTTraceRecord: Codable, Equatable, Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let url = URL.documentsDirectory.appendingPathComponent("amux-trace.jsonl")
+/// let url = URL.documentsDirectory.appendingPathComponent("teamclaw-trace.jsonl")
 /// let recorder = MQTTTraceRecorder(fileURL: url)
 /// await recorder.start()
 /// // pass into MQTTMessageHub; every fanout will write a record
@@ -44,7 +44,7 @@ public struct MQTTTraceRecord: Codable, Equatable, Sendable {
 ///
 /// Off by default in production. The hub picks the recorder up via
 /// `MQTTMessageHub.attachRecorder` when the user opts in (today: setting
-/// `UserDefaults.standard.set(true, forKey: "AMUXRecordMQTT")` before
+/// `UserDefaults.standard.set(true, forKey: "TeamclawRecordMQTT")` before
 /// launching the app).
 public actor MQTTTraceRecorder {
     public let fileURL: URL

@@ -25,21 +25,40 @@ public enum AMUXModelContainerFactory {
             appropriateFor: nil,
             create: true
         )
-        let bundleID = Bundle.main.bundleIdentifier ?? "tech.teamclaw.amux"
+        let bundleID = Bundle.main.bundleIdentifier ?? "tech.teamclaw.mobile"
         let directory = appSupport.appendingPathComponent(bundleID, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("amux.store")
+        let storeURL = directory.appendingPathComponent("teamclaw.store")
+        let legacyURL = directory.appendingPathComponent("amux.store")
+        try moveStoreFilesIfNeeded(from: legacyURL, to: storeURL)
+        return storeURL
+    }
+
+    private static func moveStoreFilesIfNeeded(from oldURL: URL, to newURL: URL) throws {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: newURL.path), fm.fileExists(atPath: oldURL.path) else { return }
+        for (oldFile, newFile) in storeFilePairs(from: oldURL, to: newURL) where fm.fileExists(atPath: oldFile.path) {
+            try fm.moveItem(at: oldFile, to: newFile)
+        }
     }
 
     private static func removeStoreFiles(at url: URL) throws {
         let fm = FileManager.default
-        let candidates = [
+        let candidates = storeFiles(for: url)
+        for candidate in candidates where fm.fileExists(atPath: candidate.path) {
+            try fm.removeItem(at: candidate)
+        }
+    }
+
+    private static func storeFiles(for url: URL) -> [URL] {
+        [
             url,
             url.appendingPathExtension("shm"),
             url.appendingPathExtension("wal"),
         ]
-        for candidate in candidates where fm.fileExists(atPath: candidate.path) {
-            try fm.removeItem(at: candidate)
-        }
+    }
+
+    private static func storeFilePairs(from oldURL: URL, to newURL: URL) -> [(URL, URL)] {
+        zip(storeFiles(for: oldURL), storeFiles(for: newURL)).map { pair in (pair.0, pair.1) }
     }
 }

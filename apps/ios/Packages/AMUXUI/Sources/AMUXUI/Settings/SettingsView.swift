@@ -352,7 +352,7 @@ public struct SettingsView: View {
                     // top of the sheet (near the identity card) instead
                     // of the bottom-of-list Sign Out row the user tapped.
                     .confirmationDialog(
-                        "Sign out of AMUX?",
+                        "Sign out of Teamclaw?",
                         isPresented: $showSignOutConfirm,
                         titleVisibility: .visible
                     ) {

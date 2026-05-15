@@ -87,7 +87,7 @@ struct UpgradeAccountSheet: View {
                     .glassButtonStyle()
                     .disabled(coordinator.isBusy)
 
-                    Text("After upgrading, sign in with the same email next time you launch AMUX.")
+                    Text("After upgrading, sign in with the same email next time you launch Teamclaw.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

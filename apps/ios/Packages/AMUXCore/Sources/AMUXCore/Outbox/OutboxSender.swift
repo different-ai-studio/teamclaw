@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import os
 
-private let outboxLogger = Logger(subsystem: "com.amux.app", category: "Outbox")
+private let outboxLogger = Logger(subsystem: "tech.teamclaw.mobile", category: "Outbox")
 
 /// Background sender that drains `OutboxMessage` rows from SwiftData,
 /// attempting MQTT publish + Supabase persist via `TeamclawService.sendMessage`

@@ -60,5 +60,5 @@ schemes:
       targets:
         - AMUXUITests
       environmentVariables:
-        AMUX_TEST_EMAIL: $(AMUX_TEST_EMAIL)
-        AMUX_TEST_PASSWORD: $(AMUX_TEST_PASSWORD)
+        TEAMCLAW_TEST_EMAIL: $(TEAMCLAW_TEST_EMAIL)
+        TEAMCLAW_TEST_PASSWORD: $(TEAMCLAW_TEST_PASSWORD)

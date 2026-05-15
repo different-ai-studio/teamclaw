@@ -48,7 +48,7 @@ public struct SupabaseProjectConfiguration: Sendable {
         let bundle = Bundle.main
         let defaults = UserDefaults.standard
 
-        let rawURL = (defaults.string(forKey: SupabaseServerStore.urlKey)
+        let rawURL = (SupabaseServerStore.storedURL(in: defaults)
                       ?? bundle.object(forInfoDictionaryKey: "SUPABASE_URL") as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawURL.isEmpty else {
@@ -57,7 +57,7 @@ public struct SupabaseProjectConfiguration: Sendable {
         guard let url = URL(string: rawURL) else {
             throw SupabaseProjectConfigurationError.invalidURL(rawURL)
         }
-        let publishableKey = (defaults.string(forKey: SupabaseServerStore.keyKey)
+        let publishableKey = (SupabaseServerStore.storedKey(in: defaults)
                               ?? bundle.object(forInfoDictionaryKey: "SUPABASE_PUBLISHABLE_KEY") as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !publishableKey.isEmpty else {
@@ -72,17 +72,19 @@ public struct SupabaseProjectConfiguration: Sendable {
 /// an app relaunch — existing Supabase clients are captured with the old
 /// config.
 public enum SupabaseServerStore {
-    public static let urlKey = "amux_supabase_url"
-    public static let keyKey = "amux_supabase_key"
+    public static let urlKey = "teamclaw_supabase_url"
+    public static let keyKey = "teamclaw_supabase_key"
+    private static let legacyURLKey = "amux_supabase_url"
+    private static let legacyKeyKey = "amux_supabase_key"
 
     public static func currentURL() -> String {
-        UserDefaults.standard.string(forKey: urlKey)
+        storedURL(in: .standard)
             ?? Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String
             ?? ""
     }
 
     public static func currentKey() -> String {
-        UserDefaults.standard.string(forKey: keyKey)
+        storedKey(in: .standard)
             ?? Bundle.main.object(forInfoDictionaryKey: "SUPABASE_PUBLISHABLE_KEY") as? String
             ?? ""
     }
@@ -91,6 +93,14 @@ public enum SupabaseServerStore {
         let d = UserDefaults.standard
         d.set(url.trimmingCharacters(in: .whitespacesAndNewlines), forKey: urlKey)
         d.set(key.trimmingCharacters(in: .whitespacesAndNewlines), forKey: keyKey)
+    }
+
+    public static func storedURL(in defaults: UserDefaults) -> String? {
+        defaults.string(forKey: urlKey) ?? defaults.string(forKey: legacyURLKey)
+    }
+
+    public static func storedKey(in defaults: UserDefaults) -> String? {
+        defaults.string(forKey: keyKey) ?? defaults.string(forKey: legacyKeyKey)
     }
 }
 
@@ -248,12 +258,22 @@ public actor SupabaseAppOnboardingStore: AppOnboardingStore {
             : SignUpOutcome.emailConfirmationRequired
     }
 
-    public func sendMagicLink(email: String) async throws {
+    public func sendEmailOTP(email: String) async throws {
+        // Supabase decides whether this email contains a link or a code from
+        // the Auth email template: use {{ .Token }} for a 6-digit OTP.
         try await client.auth.signInWithOTP(
             email: email,
-            redirectTo: URL(string: "amux://auth-callback"),
+            redirectTo: URL(string: "teamclaw://auth-callback"),
             shouldCreateUser: true
         )
+    }
+
+    public func verifyOTP(email: String, token: String) async throws {
+        do {
+            try await client.auth.verifyOTP(email: email, token: token, type: .email)
+        } catch {
+            try await client.auth.verifyOTP(email: email, token: token, type: .signup)
+        }
     }
 
     public func signInWithAppleCredential(idToken: String, nonce: String) async throws {
@@ -265,7 +285,7 @@ public actor SupabaseAppOnboardingStore: AppOnboardingStore {
     public func signInWithGoogle() async throws {
         try await client.auth.signInWithOAuth(
             provider: .google,
-            redirectTo: URL(string: "amux://auth-callback"),
+            redirectTo: URL(string: "teamclaw://auth-callback"),
             scopes: "email profile"
         )
     }

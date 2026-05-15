@@ -3,11 +3,11 @@ import XCTest
 /// Drives the simulator app through sign-in → Sessions tab → tap-first-
 /// available-session so the MQTTTraceRecorder captures session/{id}/live
 /// retained + live traffic. Used out-of-band by a developer with the
-/// AMUXRecordMQTT flag set in the simulator's UserDefaults; the captured
+/// TeamclawRecordMQTT flag set in the simulator's UserDefaults; the captured
 /// jsonl trace becomes a fixture in AMUXCore/Tests/Resources.
 ///
 /// Not part of the CI test action. Requires:
-///   - AMUX_TEST_EMAIL / AMUX_TEST_PASSWORD env vars
+///   - TEAMCLAW_TEST_EMAIL / TEAMCLAW_TEST_PASSWORD env vars
 ///   - The signed-in account to already have at least one session row
 ///   - A daemon reachable from the simulator
 ///
@@ -17,8 +17,15 @@ final class AMUXSessionLiveCaptureTest: XCTestCase {
 
     private var app: XCUIApplication!
 
-    private var testEmail: String { ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? "" }
-    private var testPassword: String { ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? "" }
+    private var testEmail: String {
+        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_EMAIL"] ??
+            ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? ""
+    }
+
+    private var testPassword: String {
+        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_PASSWORD"] ??
+            ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? ""
+    }
 
     override func setUpWithError() throws {
         continueAfterFailure = true
@@ -29,7 +36,7 @@ final class AMUXSessionLiveCaptureTest: XCTestCase {
     @MainActor
     func testCaptureFirstSessionLive() throws {
         try XCTSkipIf(testEmail.isEmpty || testPassword.isEmpty,
-                      "Set AMUX_TEST_EMAIL and AMUX_TEST_PASSWORD")
+                      "Set TEAMCLAW_TEST_EMAIL and TEAMCLAW_TEST_PASSWORD")
         signInIfNeeded()
 
         let sessionsTab = app.tabBars.buttons["Sessions"]

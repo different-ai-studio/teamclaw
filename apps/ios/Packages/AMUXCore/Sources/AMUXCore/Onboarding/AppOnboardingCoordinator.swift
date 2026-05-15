@@ -84,7 +84,8 @@ public protocol AppOnboardingStore: Sendable {
     // Auth sign-in methods
     func signIn(email: String, password: String) async throws
     func signUp(email: String, password: String) async throws
-    func sendMagicLink(email: String) async throws
+    func sendEmailOTP(email: String) async throws
+    func verifyOTP(email: String, token: String) async throws
     func signInWithAppleCredential(idToken: String, nonce: String) async throws
     func signInWithGoogle() async throws
     func signInAnonymously() async throws
@@ -124,7 +125,7 @@ public final class AppOnboardingCoordinator {
     public var currentContext: AppContext?
     public var pendingCreatedTeam: CreatedTeam?
     public var errorMessage: String?
-    public var pendingMagicLinkEmail: String?
+    public var pendingEmailOTPEmail: String?
     public var isBusy = false
     /// True iff the current session is an anonymous Supabase user. UI uses
     /// this to surface the "upgrade your account" affordance.
@@ -368,17 +369,26 @@ public final class AppOnboardingCoordinator {
         await performAuth { try await self.store.signUp(email: email, password: password) }
     }
 
-    public func sendMagicLink(email: String) async {
+    public func sendEmailOTP(email: String) async {
         guard !isBusy else { return }
         isBusy = true
         errorMessage = nil
         defer { isBusy = false }
         do {
-            try await store.sendMagicLink(email: email)
-            pendingMagicLinkEmail = email
+            try await store.sendEmailOTP(email: email)
+            pendingEmailOTPEmail = email
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    public func verifyOTP(email: String, token: String) async {
+        await performAuth { try await self.store.verifyOTP(email: email, token: token) }
+    }
+
+    public func resetPendingEmailOTP() {
+        pendingEmailOTPEmail = nil
+        errorMessage = nil
     }
 
     public func signInWithApple() async {
@@ -521,7 +531,7 @@ public final class AppOnboardingCoordinator {
         currentContext = nil
         teamRuntimeContext = nil
         pendingCreatedTeam = nil
-        pendingMagicLinkEmail = nil
+        pendingEmailOTPEmail = nil
         isAnonymous = false
         route = .needsAuth
         isBusy = false
@@ -533,7 +543,7 @@ public final class AppOnboardingCoordinator {
         errorMessage = nil
         do {
             try await store.handleAuthCallback(url: url)
-            pendingMagicLinkEmail = nil
+            pendingEmailOTPEmail = nil
             isBusy = false
             await bootstrap()
         } catch {

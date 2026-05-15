@@ -126,7 +126,11 @@ private actor InMemoryOnboardingStore: AppOnboardingStore {
         // no-op
     }
 
-    func sendMagicLink(email: String) async throws {
+    func sendEmailOTP(email: String) async throws {
+        // no-op
+    }
+
+    func verifyOTP(email: String, token: String) async throws {
         // no-op
     }
 

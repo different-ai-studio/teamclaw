@@ -4,7 +4,7 @@ import os
 import AMUXCore
 import AMUXUI
 
-private let logger = Logger(subsystem: "com.amux.app", category: "MQTT")
+private let logger = Logger(subsystem: "tech.teamclaw.mobile", category: "MQTT")
 
 struct ContentView: View {
     let pairing: PairingManager
@@ -166,7 +166,7 @@ struct ContentView: View {
             create: true
         )
         guard let docs else { return }
-        let url = docs.appendingPathComponent("amux-trace.jsonl")
+        let url = docs.appendingPathComponent("teamclaw-trace.jsonl")
         let recorder = MQTTTraceRecorder(fileURL: url)
         do {
             try await recorder.start()
@@ -190,8 +190,8 @@ struct ContentView: View {
             return
         }
 
-        let userID = onboarding.currentContext?.memberActorID ?? "amux-ios"
-        let clientId = "amux-ios-\(userID.prefix(8))"
+        let userID = onboarding.currentContext?.memberActorID ?? "teamclaw-ios"
+        let clientId = "teamclaw-ios-\(userID.prefix(8))"
         logger.info("Connecting to \(pairing.brokerHost):\(pairing.brokerPort) tls=\(pairing.useTLS)")
         do {
             try await mqtt.connect(
@@ -206,11 +206,12 @@ struct ContentView: View {
             // stream — `start()` cancels any prior task.
             await hub.start()
             // Debug-only MQTT trace capture: enable by writing
-            // `UserDefaults.standard.set(true, forKey: "AMUXRecordMQTT")`
+            // `UserDefaults.standard.set(true, forKey: "TeamclawRecordMQTT")`
             // before launch. Captured JSONL lands in
-            // Documents/amux-trace.jsonl on the device/simulator.
+            // Documents/teamclaw-trace.jsonl on the device/simulator.
             // Used to capture Phase 4 reducer fixtures from a real session.
-            if UserDefaults.standard.bool(forKey: "AMUXRecordMQTT") {
+            if UserDefaults.standard.bool(forKey: "TeamclawRecordMQTT") ||
+                UserDefaults.standard.bool(forKey: "AMUXRecordMQTT") {
                 await attachTraceRecorder()
             }
             // Coordinator-driven team runtime preparation runs from
@@ -243,7 +244,7 @@ private actor FailingOnboardingStore: AppOnboardingStore {
 
     func signIn(email: String, password: String) async throws { throw error }
     func signUp(email: String, password: String) async throws { throw error }
-    func sendMagicLink(email: String) async throws { throw error }
+    func sendEmailOTP(email: String) async throws { throw error }
     func verifyOTP(email: String, token: String) async throws { throw error }
     func signInWithAppleCredential(idToken: String, nonce: String) async throws { throw error }
     func signInWithGoogle() async throws { throw error }

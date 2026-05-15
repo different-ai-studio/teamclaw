@@ -4,7 +4,7 @@ import SwiftProtobuf
 import SwiftData
 import os
 
-private let teamclawLogger = Logger(subsystem: "com.amux.app", category: "TeamclawService")
+private let teamclawLogger = Logger(subsystem: "tech.teamclaw.mobile", category: "TeamclawService")
 
 @Observable
 @MainActor

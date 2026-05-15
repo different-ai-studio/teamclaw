@@ -6,16 +6,19 @@ interface AuthState {
   session: Session | null;
   loading: boolean;
   errorMessage: string | null;
+  otpEmail: string | null;
   hydrate: () => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  sendOtp: (email: string) => Promise<boolean>;
+  verifyOtp: (code: string) => Promise<void>;
+  resetOtp: () => void;
   signOut: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   loading: true,
   errorMessage: null,
+  otpEmail: null,
   hydrate: async () => {
     set({ loading: true, errorMessage: null });
     const { data } = await supabase.auth.getSession();
@@ -24,26 +27,40 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ session });
     });
   },
-  signIn: async (email, password) => {
+  sendOtp: async (email) => {
     set({ loading: true, errorMessage: null });
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: true },
+    });
+    if (error) {
+      set({ loading: false, errorMessage: error.message });
+      return false;
+    }
+    set({ loading: false, otpEmail: email });
+    return true;
+  },
+  verifyOtp: async (code) => {
+    const email = get().otpEmail;
+    if (!email) {
+      set({ errorMessage: "No pending sign-in. Re-enter your email." });
+      return;
+    }
+    set({ loading: true, errorMessage: null });
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token: code,
+      type: "email",
+    });
     if (error) {
       set({ loading: false, errorMessage: error.message });
       return;
     }
-    set({ session: data.session, loading: false });
+    set({ session: data.session, loading: false, otpEmail: null });
   },
-  signUp: async (email, password) => {
-    set({ loading: true, errorMessage: null });
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      set({ loading: false, errorMessage: error.message });
-      return;
-    }
-    set({ session: data.session, loading: false });
-  },
+  resetOtp: () => set({ otpEmail: null, errorMessage: null }),
   signOut: async () => {
     await supabase.auth.signOut();
-    set({ session: null });
+    set({ session: null, otpEmail: null });
   },
 }));

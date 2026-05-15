@@ -4,7 +4,7 @@ import SwiftData
 import AMUXCore
 import os
 
-private let newSessionLogger = Logger(subsystem: "com.amux.app", category: "NewSession")
+private let newSessionLogger = Logger(subsystem: "tech.teamclaw.mobile", category: "NewSession")
 
 // MARK: - NewSessionSheet
 

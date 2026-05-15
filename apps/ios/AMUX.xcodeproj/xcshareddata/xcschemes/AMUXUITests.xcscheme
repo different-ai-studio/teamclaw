@@ -55,13 +55,13 @@
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
-            key = "AMUX_TEST_EMAIL"
-            value = "$(AMUX_TEST_EMAIL)"
+            key = "TEAMCLAW_TEST_EMAIL"
+            value = "$(TEAMCLAW_TEST_EMAIL)"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "AMUX_TEST_PASSWORD"
-            value = "$(AMUX_TEST_PASSWORD)"
+            key = "TEAMCLAW_TEST_PASSWORD"
+            value = "$(TEAMCLAW_TEST_PASSWORD)"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

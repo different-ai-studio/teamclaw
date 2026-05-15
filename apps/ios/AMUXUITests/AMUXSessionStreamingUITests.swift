@@ -10,7 +10,7 @@ import XCTest
 ///
 /// ## Required environment
 ///
-///   - `AMUX_TEST_EMAIL`, `AMUX_TEST_PASSWORD` in the test scheme. The
+///   - `TEAMCLAW_TEST_EMAIL`, `TEAMCLAW_TEST_PASSWORD` in the test scheme. The
 ///     account must be a **member** of a team with **exactly one** agent
 ///     it can access (entry in `agent_member_access`).
 ///   - A daemon running with that agent's `actor_id` and reachable from
@@ -40,8 +40,15 @@ final class AMUXSessionStreamingUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    private var testEmail: String { ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? "" }
-    private var testPassword: String { ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? "" }
+    private var testEmail: String {
+        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_EMAIL"] ??
+            ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? ""
+    }
+
+    private var testPassword: String {
+        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_PASSWORD"] ??
+            ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? ""
+    }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -56,7 +63,7 @@ final class AMUXSessionStreamingUITests: XCTestCase {
     @MainActor
     func testNewSessionStreamsAssistantOutput() throws {
         try XCTSkipIf(testEmail.isEmpty || testPassword.isEmpty,
-                      "Set AMUX_TEST_EMAIL and AMUX_TEST_PASSWORD to run this test")
+                      "Set TEAMCLAW_TEST_EMAIL and TEAMCLAW_TEST_PASSWORD to run this test")
 
         signInIfNeeded()
 

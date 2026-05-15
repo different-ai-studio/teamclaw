@@ -15,7 +15,7 @@ import XCTest
 ///    daemon is reachable) both assistant replies stream back.
 ///
 /// ## Required environment
-///   - `AMUX_TEST_EMAIL`, `AMUX_TEST_PASSWORD` in the test scheme.
+///   - `TEAMCLAW_TEST_EMAIL`, `TEAMCLAW_TEST_PASSWORD` in the test scheme.
 ///   - Account fixture is `uitest@teamclaw.tech` per the team test
 ///     conventions; the team must have at least one daemon agent
 ///     registered in Supabase (so the New Session sheet can pick a
@@ -25,8 +25,15 @@ final class AMUXSessionMessageRegressionTests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    private var testEmail: String { ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? "" }
-    private var testPassword: String { ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? "" }
+    private var testEmail: String {
+        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_EMAIL"] ??
+            ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? ""
+    }
+
+    private var testPassword: String {
+        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_PASSWORD"] ??
+            ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? ""
+    }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -52,7 +59,7 @@ final class AMUXSessionMessageRegressionTests: XCTestCase {
     @MainActor
     func testSessionNotFoundCopyDoesNotFlashAfterCreatingSession() throws {
         try XCTSkipIf(testEmail.isEmpty || testPassword.isEmpty,
-                      "Set AMUX_TEST_EMAIL and AMUX_TEST_PASSWORD")
+                      "Set TEAMCLAW_TEST_EMAIL and TEAMCLAW_TEST_PASSWORD")
 
         signInIfNeeded()
 
@@ -120,7 +127,7 @@ final class AMUXSessionMessageRegressionTests: XCTestCase {
     @MainActor
     func testTwoConsecutiveUserMessagesInFreshCollabSession() throws {
         try XCTSkipIf(testEmail.isEmpty || testPassword.isEmpty,
-                      "Set AMUX_TEST_EMAIL and AMUX_TEST_PASSWORD")
+                      "Set TEAMCLAW_TEST_EMAIL and TEAMCLAW_TEST_PASSWORD")
 
         signInIfNeeded()
 

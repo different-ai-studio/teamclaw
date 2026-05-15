@@ -144,7 +144,7 @@ struct ChooseAuthView: View {
 
 // MARK: - InviteJoinSheet
 
-/// Lets the user paste an `amux://invite?token=…` link (or a bare token)
+/// Lets the user paste a `teamclaw://invite?token=…` link (or a bare token)
 /// before they have a session. Stashes the parsed token on the coordinator
 /// and starts anonymous sign-in. RootTabView replays the token through the
 /// usual claim-invite pipeline once it mounts.
@@ -165,7 +165,7 @@ private struct InviteJoinSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                TextField("amux://invite?token=… or just the token",
+                TextField("teamclaw://invite?token=… or just the token",
                           text: $raw,
                           axis: .vertical)
                     .lineLimit(2...4)
@@ -250,12 +250,13 @@ private struct InviteJoinSheet: View {
         }
     }
 
-    /// Accepts both `amux://invite?token=XYZ` and bare `XYZ`. Trims whitespace.
+    /// Accepts both `teamclaw://invite?token=XYZ` and bare `XYZ`. Trims whitespace.
     private func parseToken(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if let url = URL(string: trimmed),
-           url.scheme == "amux", url.host == "invite",
+           let scheme = url.scheme,
+           ["teamclaw", "amux"].contains(scheme), url.host == "invite",
            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let token = comps.queryItems?.first(where: { $0.name == "token" })?.value,
            !token.isEmpty {

@@ -53,7 +53,7 @@ struct AMUXApp: App {
     }
 
     private func handle(_ url: URL) {
-        guard url.scheme == "amux" else { return }
+        guard let scheme = url.scheme, ["teamclaw", "amux"].contains(scheme) else { return }
 
         switch url.host {
         case "invite":

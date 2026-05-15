@@ -34,7 +34,7 @@ public final class MQTTService: NSObject, @unchecked Sendable {
     /// queue sidesteps the reentrance problem entirely: even if the closure
     /// is invoked on a thread currently waiting on the queue, the cleanup is
     /// dispatched (`async`) and runs after the current task completes.
-    private let stateQueue = DispatchQueue(label: "com.amux.mqtt-service.state")
+    private let stateQueue = DispatchQueue(label: "tech.teamclaw.mqtt-service.state")
     private var continuations: [UUID: AsyncStream<MQTTIncoming>.Continuation] = [:]
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var subscribeContinuations: [String: [CheckedContinuation<Void, Error>]] = [:]

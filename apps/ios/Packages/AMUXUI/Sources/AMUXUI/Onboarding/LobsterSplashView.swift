@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Splash shown while `AppOnboardingCoordinator.bootstrap()` runs. Lobster
 /// body breathes; both claws wave outward in sync. Replaces the bare
-/// `ProgressView("Setting up AMUX…")` placeholder.
+/// `ProgressView("Setting up Teamclaw…")` placeholder.
 ///
 /// The icon is composited from three slices of the TeamClaw logo so the
 /// claws can pivot at their wrist anchors independently of the body.
@@ -21,7 +21,7 @@ public struct LobsterSplashView: View {
                 lobster.frame(width: 240, height: 240)
 
                 VStack(spacing: 12) {
-                    Text("Setting up AMUX")
+                    Text("Setting up Teamclaw")
                         .font(.system(.headline, design: .rounded, weight: .medium))
                         .foregroundStyle(.primary)
 
