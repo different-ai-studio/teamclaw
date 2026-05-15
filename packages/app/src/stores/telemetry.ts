@@ -9,6 +9,7 @@ import { ScoringEngine } from '@/lib/telemetry/scoring-engine'
 import { buildSessionReport } from '@/lib/telemetry/report-builder'
 import { useSessionStore } from '@/stores/session'
 import { insertFeedback } from '@/lib/telemetry/supabase-feedback'
+import { insertSessionReport } from '@/lib/telemetry/supabase-session-report'
 import { supabase } from '@/lib/supabase-client'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useAuthStore } from '@/stores/auth-store'
@@ -92,11 +93,6 @@ const scoringEngine = new ScoringEngine()
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const scoredSessions = new Set<string>()
 
-const TEAM_EXPORT_DEBOUNCE_MS = 5 * 60 * 1000 // 5 min
-let teamExportTimerId: ReturnType<typeof setTimeout> | null = null
-let lastTeamExportAt = 0
-
-
 /**
  * Ensure a session's messages are loaded before building session report.
  * Prevents token statistics from being 0 for historical sessions.
@@ -107,7 +103,6 @@ async function ensureSessionMessagesLoaded(sessionId: string): Promise<void> {
   
   // If session has messages with token data, we're good
   if (messages && messages.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const hasTokenData = messages.some((msg: any) => msg.role === 'assistant' && msg.tokens)
     if (hasTokenData) {
       return
@@ -432,8 +427,21 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         delete (cleanReport as Record<string, unknown>)._feedbackNegative
         delete (cleanReport as Record<string, unknown>)._starRatings
 
-        // Save to libSQL
-        await invoke('telemetry_save_report', { report: cleanReport })
+        // Save to Supabase
+        const teamId = useCurrentTeamStore.getState().team?.id
+        const actorId = teamId ? await resolveActorId(teamId) : null
+        if (teamId && actorId) {
+          await insertSessionReport({
+            actorId,
+            teamId,
+            sessionId: cleanReport.session_id,
+            tokensUsed: (cleanReport.total_tokens_input ?? 0) + (cleanReport.total_tokens_output ?? 0),
+            costUsd: cleanReport.total_cost ?? 0,
+            model: cleanReport.model_id ?? null,
+            agentKind: cleanReport.agent ?? null,
+            endedAt: cleanReport.completed_at ? new Date(cleanReport.completed_at).toISOString() : null,
+          })
+        }
         console.log(`[telemetry] Scored session ${sessionId}:`, scores.length, 'scores')
 
         scheduleTeamFeedbackExport()
@@ -509,7 +517,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 
               // Check if session has messages with token data
               const hasTokenData = session.messages.some(
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (msg: any) => msg.role === 'assistant' && msg.tokens
               )
               
@@ -535,8 +542,20 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
               delete (cleanReport as Record<string, unknown>)._feedbackNegative
               delete (cleanReport as Record<string, unknown>)._starRatings
 
-              // Save to database
-              await invoke('telemetry_save_report', { report: cleanReport })
+              // Save to Supabase
+              const teamId = useCurrentTeamStore.getState().team?.id
+              const actorId = teamId ? await resolveActorId(teamId) : null
+              if (!teamId || !actorId) { skipCount++; return }
+              await insertSessionReport({
+                actorId,
+                teamId,
+                sessionId: cleanReport.session_id,
+                tokensUsed: (cleanReport.total_tokens_input ?? 0) + (cleanReport.total_tokens_output ?? 0),
+                costUsd: cleanReport.total_cost ?? 0,
+                model: cleanReport.model_id ?? null,
+                agentKind: cleanReport.agent ?? null,
+                endedAt: cleanReport.completed_at ? new Date(cleanReport.completed_at).toISOString() : null,
+              })
               
               // Mark as scored to prevent re-processing
               scoredSessions.add(session.id)
@@ -564,8 +583,8 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     }
   },
 
-  exportTeamData: (force?: boolean) => {
-    scheduleTeamFeedbackExport(force)
+  exportTeamData: () => {
+    // No-op in Supabase mode. Leaderboard now lives in the public.team_leaderboard view.
   },
 
   destroy: () => {
@@ -574,10 +593,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     }
     idleTimers.clear()
     scoredSessions.clear()
-    if (teamExportTimerId) {
-      clearTimeout(teamExportTimerId)
-      teamExportTimerId = null
-    }
   },
 }))
 
@@ -593,35 +608,8 @@ if (typeof window !== 'undefined') {
 
 // ─── Team Feedback & Leaderboard Export ──────────────────────────────────
 
-function scheduleTeamFeedbackExport(force: boolean = false) {
-  if (!isTauri()) return
-
-  const now = Date.now()
-  const elapsed = now - lastTeamExportAt
-  if (!force && elapsed < TEAM_EXPORT_DEBOUNCE_MS && teamExportTimerId) return
-
-  if (teamExportTimerId) {
-    clearTimeout(teamExportTimerId)
-  }
-
-  const delay = force ? 1000 : (elapsed >= TEAM_EXPORT_DEBOUNCE_MS ? 3000 : TEAM_EXPORT_DEBOUNCE_MS - elapsed)
-  teamExportTimerId = setTimeout(async () => {
-    teamExportTimerId = null
-    try {
-      console.log('[telemetry] Exporting team data from .teamclaw/stats.json')
-      
-      // Export both feedback and leaderboard data
-      // Note: leaderboard now reads from .teamclaw/stats.json directly
-      await Promise.all([
-        invoke('telemetry_export_team_feedback', {}),
-        invoke('telemetry_export_leaderboard', {}),
-      ])
-      lastTeamExportAt = Date.now()
-      console.log('[telemetry] Exported team feedback & leaderboard')
-    } catch (err) {
-      console.error('[telemetry] Failed to export team data:', err)
-    }
-  }, delay)
+function scheduleTeamFeedbackExport(_force: boolean = false) {
+  // No-op in Supabase mode. Leaderboard now lives in the public.team_leaderboard view.
 }
 
 /**
