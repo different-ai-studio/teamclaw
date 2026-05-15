@@ -7,6 +7,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { useSessionStore, type Message } from "@/stores/session";
 import { useStreamingStore } from "@/stores/streaming";
+import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./ChatMessage";
 import { SAFE_BOTTOM_SPACING, NEAR_BOTTOM_THRESHOLD } from "./layout-constants";
@@ -74,6 +75,25 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
         len += cs[k]?.text?.length || 0;
       }
       return len;
+    });
+    // v2 streaming bubbles render via bottomContent and grow as acp.event
+    // deltas arrive into useV2StreamingStore. The legacy streamingContent
+    // trigger stays 0 on the v2 path, so we need a dedicated trigger that
+    // bumps on every output/thinking/tool/todo change for active streams in
+    // the displayed session.
+    const v2StreamScrollTrigger = useV2StreamingStore((s) => {
+      let total = 0;
+      for (const key in s.byKey) {
+        const entry = s.byKey[key];
+        if (!entry.active) continue;
+        if (entry.sessionId !== activeSessionId) continue;
+        total +=
+          entry.outputText.length +
+          entry.thinkingText.length +
+          entry.toolCalls.length +
+          entry.todos.length;
+      }
+      return total;
     });
 
     // PERF: Return primitive string instead of session object.
@@ -403,6 +423,22 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
         });
       }
     }, [childStreamingScrollTrigger]);
+
+    // Auto-scroll when v2 streaming bubble content grows. Mirrors the child
+    // streaming effect: any growth in active v2 streams for this session
+    // pulls the viewport to the bottom unless the user scrolled up.
+    React.useEffect(() => {
+      if (
+        scrollRef.current &&
+        v2StreamScrollTrigger > 0 &&
+        !userScrolledUpRef.current
+      ) {
+        scrollRef.current.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: "instant",
+        });
+      }
+    }, [v2StreamScrollTrigger]);
 
     // Reset scroll state when switching sessions (prop tracks displayed session, may lag store during fade)
     const prevSessionIdRef = React.useRef(activeSessionId);

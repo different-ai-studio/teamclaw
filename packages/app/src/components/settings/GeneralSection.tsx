@@ -261,14 +261,14 @@ export const GeneralSection = React.memo(function GeneralSection() {
                 key={t}
                 onClick={() => setTheme(t)}
                 className={cn(
-                  "flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all",
+                  "flex flex-col items-center gap-2 rounded-[14px] border p-4 transition-colors",
                   theme === t 
-                    ? "border-primary bg-primary/5" 
-                    : "border-transparent bg-muted/50 hover:bg-muted"
+                    ? "border-border bg-selected text-foreground" 
+                    : "border-border-soft bg-panel/60 text-muted-foreground hover:bg-selected/60 hover:text-foreground"
                 )}
               >
-                <Icon className={cn("h-5 w-5", theme === t ? "text-primary" : "text-muted-foreground")} />
-                <span className={cn("text-sm capitalize", theme === t ? "font-medium" : "text-muted-foreground")}>
+                <Icon className={cn("h-5 w-5", theme === t ? "text-foreground" : "text-muted-foreground")} />
+                <span className={cn("text-[13px] capitalize", theme === t ? "font-medium" : "text-muted-foreground")}>
                   {t}
                 </span>
               </button>
@@ -516,7 +516,7 @@ function ChatSuggestionsCard() {
           {builtInSuggestions.map((s) => (
             <span
               key={s}
-              className="inline-flex items-center h-8 px-3 rounded-full border text-xs bg-muted/50 text-muted-foreground"
+              className="inline-flex h-8 items-center rounded-[8px] border border-border bg-panel px-3 text-xs text-muted-foreground"
             >
               {s}
             </span>
@@ -528,7 +528,7 @@ function ChatSuggestionsCard() {
             {customSuggestions.map((s, i) => (
               <span
                 key={`${i}-${s}`}
-                className="inline-flex items-center gap-1 h-8 pl-3 pr-1 rounded-full border text-xs bg-primary/5 border-primary/20"
+                className="inline-flex h-8 items-center gap-1 rounded-[8px] border border-border bg-selected pl-3 pr-1 text-xs text-foreground"
               >
                 {s}
                 <button

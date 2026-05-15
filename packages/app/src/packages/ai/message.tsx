@@ -155,7 +155,8 @@ export function MessageContent({
   return (
     <div
       className={cn(
-        "text-sm overflow-hidden break-words [overflow-wrap:anywhere] min-w-0",
+        // Direction B base size — see AGENTS.md §1 type scale.
+        "text-[13px] overflow-hidden break-words [overflow-wrap:anywhere] min-w-0",
         from === "user"
           ? "max-w-[85%] rounded-2xl px-4 py-3 bg-[#e8edf2] text-[#1f2933] dark:border dark:border-white/8 dark:bg-white/10 dark:backdrop-blur-sm dark:text-[#eef3f7]"
           : "w-full",
@@ -629,12 +630,12 @@ function CodeBlock({ language, children }: { language: string; children: string 
       </div>
       {highlightedHtml ? (
         <div
-          className="overflow-x-auto px-3 pb-3 text-sm [overflow-wrap:normal] [&_code]:!bg-transparent [&_code]:!p-0 [&_code]:[overflow-wrap:normal] [&_code]:whitespace-pre [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:[overflow-wrap:normal] [&_pre]:whitespace-pre"
+          className="overflow-x-auto px-3 pb-3 text-[12.5px] [overflow-wrap:normal] [&_code]:!bg-transparent [&_code]:!p-0 [&_code]:[overflow-wrap:normal] [&_code]:whitespace-pre [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:[overflow-wrap:normal] [&_pre]:whitespace-pre"
           dangerouslySetInnerHTML={{ __html: highlightedHtml }}
         />
       ) : (
         <pre className="overflow-x-auto whitespace-pre px-3 pb-3 [overflow-wrap:normal]">
-          <code className="font-mono text-sm text-foreground [overflow-wrap:normal]">{code}</code>
+          <code className="font-mono text-[12.5px] text-foreground [overflow-wrap:normal]">{code}</code>
         </pre>
       )}
     </div>
@@ -741,14 +742,16 @@ function MermaidBlock({ children }: { children: string }) {
 // Hoisted to module level so the object reference never changes between renders.
 // The `img` component needs basePath, so it's added per-render via useMemo.
 const markdownComponentsBase = {
+  // Heading scale steps down one tick from Tailwind defaults so the chat
+  // panel reads quieter at Direction B's 13px body size.
   h1: ({ children }: { children?: React.ReactNode }) => (
-    <h1 className="text-xl font-semibold text-foreground mt-4 mb-2">{children}</h1>
+    <h1 className="text-lg font-semibold text-foreground mt-4 mb-2">{children}</h1>
   ),
   h2: ({ children }: { children?: React.ReactNode }) => (
-    <h2 className="text-lg font-semibold text-foreground mt-3 mb-2">{children}</h2>
+    <h2 className="text-base font-semibold text-foreground mt-3 mb-2">{children}</h2>
   ),
   h3: ({ children }: { children?: React.ReactNode }) => (
-    <h3 className="text-base font-semibold text-foreground mt-3 mb-1.5">{children}</h3>
+    <h3 className="text-sm font-semibold text-foreground mt-3 mb-1.5">{children}</h3>
   ),
   p: ({ children }: { children?: React.ReactNode }) => (
     <p className="my-2 min-w-0 leading-relaxed text-foreground">{children}</p>
@@ -909,7 +912,7 @@ export function MessageResponse({
             />
           </div>
         ) : (
-          <div key={index} className="prose prose-sm max-w-none min-w-0 text-foreground space-y-3 break-words [overflow-wrap:anywhere]">
+          <div key={index} className="prose prose-sm max-w-none min-w-0 text-[13px] text-foreground space-y-3 break-words [overflow-wrap:anywhere]">
             <MarkdownRenderBoundary content={part.content}>
               <ReactMarkdown
                 remarkPlugins={remarkPluginsStable}

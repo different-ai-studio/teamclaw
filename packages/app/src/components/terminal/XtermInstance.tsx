@@ -56,18 +56,44 @@ export function XtermInstance({ tabId, active }: Props) {
       try {
         const { ring_snapshot } = await subscribeTerminal(tabId);
         if (cancelled) return;
+        const replayedSnapshotLength = ring_snapshot.length;
         if (ring_snapshot.length > 0) {
           term.write(new Uint8Array(ring_snapshot));
         }
-        const dims = fit.proposeDimensions();
-        if (dims) await resizeTerminal(tabId, dims.cols, dims.rows);
 
+        let bufferingLiveData = true;
+        let liveDataBuffer: Uint8Array[] = [];
         unlistenData = await onTerminalData(tabId, chunk => {
+          if (bufferingLiveData) {
+            liveDataBuffer.push(chunk);
+            return;
+          }
           term.write(chunk);
         });
         unlistenExit = await onTerminalExit(tabId, code => {
           markExited(tabId, code);
         });
+        if (cancelled) return;
+
+        const latest = await subscribeTerminal(tabId);
+        if (cancelled) return;
+        const catchUpBytes = latest.ring_snapshot.slice(replayedSnapshotLength);
+        if (catchUpBytes.length > 0) {
+          term.write(new Uint8Array(catchUpBytes));
+        }
+
+        const buffered = concatChunks(liveDataBuffer);
+        const alreadyCovered = countCoveredPrefix(buffered, catchUpBytes);
+        const remainingLiveBytes = buffered.slice(alreadyCovered);
+        bufferingLiveData = false;
+        liveDataBuffer = [];
+        if (remainingLiveBytes.length > 0) {
+          term.write(remainingLiveBytes);
+        }
+
+        const dims = fit.proposeDimensions();
+        if (dims) await resizeTerminal(tabId, dims.cols, dims.rows);
+
         onDataDisposer = term.onData(d => {
           writeTerminal(tabId, new TextEncoder().encode(d)).catch(() => {});
         });
@@ -109,4 +135,31 @@ export function XtermInstance({ tabId, active }: Props) {
       style={{ display: active ? "block" : "none" }}
     />
   );
+}
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+function countCoveredPrefix(buffered: Uint8Array, catchUpBytes: number[]): number {
+  const max = Math.min(buffered.length, catchUpBytes.length);
+  for (let n = max; n > 0; n -= 1) {
+    let matches = true;
+    const catchUpStart = catchUpBytes.length - n;
+    for (let i = 0; i < n; i += 1) {
+      if (buffered[i] !== catchUpBytes[catchUpStart + i]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return n;
+  }
+  return 0;
 }

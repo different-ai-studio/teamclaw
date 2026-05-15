@@ -653,23 +653,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
+              className="text-[13px]"
               onClick={(e) => handleTogglePinned(e as unknown as React.MouseEvent, session.id)}
             >
-              <Pin className="h-4 w-4 mr-2" />
+              <Pin className="h-3.5 w-3.5 mr-2" />
               {isPinned
                 ? t('sidebar.unpin', 'Unpin')
                 : t('sidebar.pinToTop', 'Pin to top')}
             </DropdownMenuItem>
             <DropdownMenuItem
+              className="text-[13px]"
               onClick={(e) => handleStartRename(e, session.id)}
             >
-              <Pencil className="h-4 w-4 mr-2" />
+              <Pencil className="h-3.5 w-3.5 mr-2" />
               {t('sidebar.rename', 'Rename')}
             </DropdownMenuItem>
             <DropdownMenuItem
+              className="text-[13px]"
               onClick={(e) => handleArchiveSession(e as unknown as React.MouseEvent, session.id)}
             >
-              <Archive className="h-4 w-4 mr-2" />
+              <Archive className="h-3.5 w-3.5 mr-2" />
               {t('sidebar.archive', 'Archive')}
             </DropdownMenuItem>
           </DropdownMenuContent>

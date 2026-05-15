@@ -18,7 +18,7 @@ export function ToggleSwitch({
       disabled={disabled}
       className={cn(
         "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-border/80 shadow-inner transition-colors",
-        enabled ? "bg-primary" : "bg-muted",
+        enabled ? "bg-foreground" : "bg-panel",
         disabled && "cursor-not-allowed opacity-50",
       )}
     >
@@ -26,8 +26,8 @@ export function ToggleSwitch({
         className={cn(
           "pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm ring-1 ring-black/10 transition-transform dark:ring-white/15",
           enabled
-            ? "translate-x-6 bg-primary-foreground"
-            : "translate-x-1 bg-white dark:bg-background",
+            ? "translate-x-6 bg-paper"
+            : "translate-x-1 bg-paper",
         )}
       />
     </button>

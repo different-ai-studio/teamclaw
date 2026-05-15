@@ -36,6 +36,12 @@ describe('NavRail', () => {
     expect(useUIStore.getState().sidebarFilter).toEqual({ kind: 'pinned' })
   })
 
+  it('clicking Shortcuts sets filter to { kind: "shortcuts" }', () => {
+    render(<NavRail />)
+    fireEvent.click(screen.getByRole('button', { name: /Shortcuts/i }))
+    expect(useUIStore.getState().sidebarFilter).toEqual({ kind: 'shortcuts' })
+  })
+
   it('shows session count badge in Sessions row', () => {
     render(<NavRail />)
     expect(screen.getByText('2')).toBeInTheDocument()

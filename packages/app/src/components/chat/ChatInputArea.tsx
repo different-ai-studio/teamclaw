@@ -163,6 +163,7 @@ interface ChatInputAreaProps {
   messageQueue: QueuedMessage[];
   onRemoveFromQueue: (id: string) => void;
   onHeightChange?: (height: number) => void;
+  bottomOffsetPx?: number;
   headerContent?: React.ReactNode;
   engagedAgent: AttachedAgent | null;
   onEngageAgent: (agent: AttachedAgent) => void;
@@ -189,6 +190,7 @@ export function ChatInputArea({
   messageQueue: _messageQueue,
   onRemoveFromQueue: _onRemoveFromQueue,
   onHeightChange,
+  bottomOffsetPx = 0,
   headerContent,
   engagedAgent = null,
   onEngageAgent = () => {},
@@ -301,6 +303,7 @@ export function ChatInputArea({
     <div
       ref={rootRef}
       data-testid="chat-input-area"
+      style={bottomOffsetPx ? { bottom: bottomOffsetPx } : undefined}
       className={cn(
         "z-10",
         compact

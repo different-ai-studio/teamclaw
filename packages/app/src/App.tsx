@@ -67,7 +67,7 @@ import {
   SidebarCollapseToggle,
   SidebarSecondarySessionActions,
 } from "@/components/app-sidebar";
-import { SessionListColumn } from "@/components/sidebar/SessionListColumn";
+import { SidebarSecondColumn } from "@/components/sidebar/SidebarSecondColumn";
 import { isWorkspaceUIVariant } from "@/lib/ui-variant";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -1461,7 +1461,7 @@ function AppContent() {
       <AppSidebar />
       {workspaceUIVariant && (
         <div className="w-(--session-list-width) shrink-0 h-svh overflow-hidden">
-          <SessionListColumn />
+          <SidebarSecondColumn />
         </div>
       )}
       <SidebarInset className="flex flex-row h-svh overflow-hidden relative">

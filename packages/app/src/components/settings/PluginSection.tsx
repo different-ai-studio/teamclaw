@@ -33,8 +33,8 @@ export const PluginSection = React.memo(function PluginSection() {
           <SettingCard 
             key={plugin.name}
             className={cn(
-              "transition-all",
-              plugin.enabled ? "border-primary/30 bg-primary/5" : ""
+              "transition-colors",
+              plugin.enabled ? "bg-selected/60" : ""
             )}
           >
             <div className="flex items-center justify-between">
@@ -43,7 +43,7 @@ export const PluginSection = React.memo(function PluginSection() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{plugin.name}</span>
-                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                    <span className="rounded bg-panel px-2 py-0.5 font-mono text-xs text-faint">
                       v{plugin.version}
                     </span>
                   </div>

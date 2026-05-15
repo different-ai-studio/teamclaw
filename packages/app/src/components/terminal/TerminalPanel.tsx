@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useTerminalStore } from "@/stores/terminal-store";
+import { useTerminalStore, type TerminalTab } from "@/stores/terminal-store";
 import { TerminalTabBar } from "./TerminalTabBar";
 import { XtermInstance } from "./XtermInstance";
 
@@ -11,9 +11,11 @@ interface Props {
 
 const MIN_HEIGHT = 120;
 const MIN_PARENT_RESERVED = 200;
+const EMPTY_TABS: TerminalTab[] = [];
+const AUTO_OPENING_WORKSPACES = new Set<string>();
 
 export function TerminalPanel({ workspaceId, workspacePath, allowedRoots }: Props) {
-  const tabs = useTerminalStore(s => s.tabsByWorkspace[workspaceId] ?? []);
+  const tabs = useTerminalStore(s => s.tabsByWorkspace[workspaceId] ?? EMPTY_TABS);
   const activeId = useTerminalStore(s => s.activeTabByWorkspace[workspaceId] ?? null);
   const heightPx = useTerminalStore(
     s => s.panelHeightByWorkspace[workspaceId] ?? 240,
@@ -31,9 +33,11 @@ export function TerminalPanel({ workspaceId, workspacePath, allowedRoots }: Prop
   }, [workspaceId, hydrate]);
 
   useEffect(() => {
-    if (tabs.length === 0) {
-      void openTerminal(workspaceId, { cwd: workspacePath, allowedRoots });
-    }
+    if (tabs.length !== 0 || AUTO_OPENING_WORKSPACES.has(workspaceId)) return;
+    AUTO_OPENING_WORKSPACES.add(workspaceId);
+    void openTerminal(workspaceId, { cwd: workspacePath, allowedRoots }).finally(() => {
+      AUTO_OPENING_WORKSPACES.delete(workspaceId);
+    });
   }, [tabs.length, workspaceId, workspacePath, allowedRoots, openTerminal]);
 
   const onDragMouseDown = useCallback(

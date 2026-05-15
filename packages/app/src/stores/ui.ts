@@ -25,6 +25,7 @@ export type DraftActor = { id: string; displayName: string; kind: 'member' | 'ag
 export type SidebarFilter =
   | { kind: 'all' }
   | { kind: 'pinned' }
+  | { kind: 'shortcuts' }
   | { kind: 'actor'; actorId: string; displayName: string; actorType: 'member' | 'agent' }
   | { kind: 'idea'; ideaId: string; title: string }
 

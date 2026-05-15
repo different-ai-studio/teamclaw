@@ -1,25 +1,23 @@
 import * as React from 'react'
-import { cn } from '@/lib/utils'
 
 export function SectionHeader({ 
   icon: Icon, 
   title, 
-  description, 
-  iconColor 
+  description,
 }: { 
   icon: React.ElementType
   title: string
   description: string
-  iconColor: string 
+  iconColor?: string 
 }) {
   return (
-    <div className="flex items-start gap-4 mb-6">
-      <div className="rounded-xl p-3 bg-muted/50">
-        <Icon className={cn("h-6 w-6", iconColor)} />
+    <div className="mb-6 flex items-start gap-4">
+      <div className="rounded-[14px] border border-border-soft bg-panel p-3">
+        <Icon className="h-5 w-5 text-muted-foreground" />
       </div>
       <div>
-        <h3 className="text-xl font-semibold tracking-tight">{title}</h3>
-        <p className="text-sm text-muted-foreground mt-1">{description}</p>
+        <h3 className="text-[15px] font-semibold tracking-normal">{title}</h3>
+        <p className="mt-1 text-[12.5px] text-muted-foreground">{description}</p>
       </div>
     </div>
   )

@@ -13,6 +13,7 @@ interface QuestionInputDockProps {
   pendingQuestion: PendingQuestionState;
   compact?: boolean;
   onHeightChange?: (height: number) => void;
+  bottomOffsetPx?: number;
 }
 
 function getOptionValue(option: { label: string; value?: string }) {
@@ -104,6 +105,7 @@ export function QuestionInputDock({
   pendingQuestion,
   compact = false,
   onHeightChange,
+  bottomOffsetPx = 0,
 }: QuestionInputDockProps) {
   const { t } = useTranslation();
   const answerQuestion = useSessionStore((s) => s.answerQuestion);
@@ -250,6 +252,7 @@ export function QuestionInputDock({
     <div
       ref={rootRef}
       data-testid="question-input-dock"
+      style={bottomOffsetPx ? { bottom: bottomOffsetPx } : undefined}
       className={cn(
         "z-10",
         compact

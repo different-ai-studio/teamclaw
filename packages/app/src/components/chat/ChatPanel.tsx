@@ -45,6 +45,7 @@ import { TodoList } from "./TodoList";
 import { QuestionInputDock } from "./QuestionInputDock";
 import { NewSessionActorPicker } from "./NewSessionActorPicker";
 import { SessionContinueBanner } from "./SessionContinueBanner";
+import { shouldOpenNewSessionActorPicker } from "./chat-panel-routing";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { StreamingAgentBubble } from "./StreamingAgentBubble";
 import { TerminalPanel } from "@/components/terminal/TerminalPanel";
@@ -272,6 +273,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const terminalOpen = useTerminalStore(
     s => Boolean(currentWorkspaceId && s.panelOpenByWorkspace[currentWorkspaceId]),
   );
+  const terminalPanelHeight = useTerminalStore(
+    s => currentWorkspaceId ? s.panelHeightByWorkspace[currentWorkspaceId] ?? 240 : 240,
+  );
+  const terminalBottomOffset = terminalOpen && workspacePath ? terminalPanelHeight : 0;
   const setWorkspaceBootstrapped = React.useCallback((_v: boolean) => {}, []);
 
   // ── Local state ───────────────────────────────────────────────────────
@@ -985,6 +990,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       setPendingFirstMessage(message);
       return;
     }
+    if (shouldOpenNewSessionActorPicker({
+      activeSessionId,
+      activeMessageCount: activeMessages?.length ?? 0,
+      hasDraftPreselectedActor: !!draftPreselectedActor,
+    })) {
+      setPendingFirstMessage(message);
+      return;
+    }
     await sendIntoSession(activeSessionId, message);
   };
 
@@ -1463,6 +1476,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             compact={compact}
             pendingQuestion={activeInputQuestion}
             onHeightChange={handleInputHeightChange}
+            bottomOffsetPx={terminalBottomOffset}
           />
         ) : (
           <ChatInputArea
@@ -1509,6 +1523,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             messageQueue={messageQueue}
             onRemoveFromQueue={removeFromQueue}
             onHeightChange={handleInputHeightChange}
+            bottomOffsetPx={terminalBottomOffset}
             headerContent={
               <>
                 {showInlineTodo ? (

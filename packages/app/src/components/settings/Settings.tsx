@@ -35,25 +35,24 @@ interface Section {
   label: string
   labelKey: string
   icon: React.ElementType
-  color: string
 }
 
 // Primary sections shown directly in sidebar
 const primarySections: Section[] = [
-  { id: 'general', label: 'General', labelKey: 'settings.nav.general', icon: Settings2, color: 'text-blue-500' },
-  { id: 'shortcuts', label: 'Shortcuts', labelKey: 'settings.nav.shortcuts', icon: Bookmark, color: 'text-amber-500' },
-  { id: 'channels', label: 'Channels', labelKey: 'settings.nav.channels', icon: MessageSquare, color: 'text-indigo-500' },
-  { id: 'team', label: 'Team', labelKey: 'settings.nav.team', icon: Users, color: 'text-violet-500' },
-  { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins, color: 'text-rose-500' },
+  { id: 'general', label: 'General', labelKey: 'settings.nav.general', icon: Settings2 },
+  { id: 'shortcuts', label: 'Shortcuts', labelKey: 'settings.nav.shortcuts', icon: Bookmark },
+  { id: 'channels', label: 'Channels', labelKey: 'settings.nav.channels', icon: MessageSquare },
+  { id: 'team', label: 'Team', labelKey: 'settings.nav.team', icon: Users },
+  { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins },
 ]
 
 // Advanced sections shown as tabs inside the Advanced view
 const advancedSections: Section[] = [
-  { id: 'voice', label: 'Voice', labelKey: 'settings.nav.voice', icon: Mic, color: 'text-pink-500' },
-  { id: 'envVars', label: 'Env Variables', labelKey: 'settings.nav.envVars', icon: KeyRound, color: 'text-emerald-500' },
-  { id: 'knowledge', label: 'Knowledge Base', labelKey: 'settings.nav.knowledge', icon: BookOpen, color: 'text-cyan-500' },
-  { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield, color: 'text-slate-500' },
-  { id: 'cache', label: 'Local Cache', labelKey: 'settings.nav.cache', icon: Database, color: 'text-teal-500' },
+  { id: 'voice', label: 'Voice', labelKey: 'settings.nav.voice', icon: Mic },
+  { id: 'envVars', label: 'Env Variables', labelKey: 'settings.nav.envVars', icon: KeyRound },
+  { id: 'knowledge', label: 'Knowledge Base', labelKey: 'settings.nav.knowledge', icon: BookOpen },
+  { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield },
+  { id: 'cache', label: 'Local Cache', labelKey: 'settings.nav.cache', icon: Database },
 ]
 
 function UpdateButton() {
@@ -64,7 +63,7 @@ function UpdateButton() {
 
   if (update.state === 'ready') {
     return (
-      <Button variant="default" size="sm" className="h-6 text-[11px] px-2" onClick={() => restart()}>
+      <Button variant="default" size="sm" className="h-6 px-2 text-[11px]" onClick={() => restart()}>
         {t('settings.update.restart', 'Restart')}
       </Button>
     )
@@ -78,7 +77,7 @@ function UpdateButton() {
         ? ` ${update.progress}%`
         : ''
     return (
-      <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1 tabular-nums">
+      <span className="inline-flex items-center gap-1 font-mono text-[11px] text-faint tabular-nums">
         <Loader2 className="h-3 w-3 animate-spin shrink-0" aria-hidden />
         <span>
           {t('settings.update.updating', 'Updating…')}
@@ -92,7 +91,7 @@ function UpdateButton() {
     <Button
       variant="ghost"
       size="sm"
-      className="h-6 text-[11px] px-2 text-muted-foreground"
+      className="h-6 px-2 text-[11px] text-muted-foreground hover:bg-selected hover:text-foreground"
       onClick={() => checkForUpdates()}
       disabled={update.state === 'checking'}
     >
@@ -130,15 +129,15 @@ export function Settings(_props?: SettingsProps) {
   }, [isAdvancedSection])
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-background text-foreground">
       {/* Sidebar navigation */}
-      <div className="w-60 border-r bg-muted/20 flex flex-col">
-        <div className="flex items-center gap-2 p-4 border-b">
+      <div className="flex w-60 flex-col border-r border-border bg-panel">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3.5">
           <Settings2 className="h-5 w-5 text-muted-foreground" />
-          <h2 className="font-semibold">{t('settings.title', 'Settings')}</h2>
+          <h2 className="text-[15px] font-semibold">{t('settings.title', 'Settings')}</h2>
         </div>
         <ScrollArea className="flex-1 overflow-hidden py-2">
-          <div className="px-2 space-y-0.5">
+          <div className="space-y-0.5 px-2">
             {filteredPrimarySections.map((section) => {
               const Icon = section.icon
               const isActive = activeView === section.id
@@ -150,43 +149,40 @@ export function Settings(_props?: SettingsProps) {
                     setAdvancedExpanded(false)
                   }}
                   className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg transition-all relative',
+                    'relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] transition-colors',
                     isActive
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                      ? 'bg-selected text-foreground font-semibold'
+                      : 'text-muted-foreground hover:bg-selected/60 hover:text-foreground'
                   )}
                 >
                   {isActive && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-primary rounded-r-full" />
+                    <div className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-foreground/70" />
                   )}
-                  <Icon className={cn(
-                    "h-4 w-4 transition-colors",
-                    isActive ? section.color : ""
-                  )} />
+                  <Icon className={cn("h-4 w-4 transition-colors", isActive ? "text-foreground" : "text-muted-foreground")} />
                   {t(section.labelKey, section.label)}
                 </button>
               )
             })}
 
             {/* Divider */}
-            <div className="!my-2 border-t mx-3" />
+            <div className="!my-2 mx-3 border-t border-border-soft" />
 
             {/* Advanced category */}
             <button
               onClick={() => setAdvancedExpanded(!advancedExpanded)}
               className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg transition-all relative',
+                'relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] transition-colors',
                 (advancedExpanded || isAdvancedSection)
-                  ? 'bg-primary/10 text-primary font-medium'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  ? 'bg-selected text-foreground font-semibold'
+                  : 'text-muted-foreground hover:bg-selected/60 hover:text-foreground'
               )}
             >
               {(advancedExpanded || isAdvancedSection) && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-primary rounded-r-full" />
+                <div className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-foreground/70" />
               )}
               <SlidersHorizontal className={cn(
                 "h-4 w-4 transition-colors",
-                (advancedExpanded || isAdvancedSection) ? 'text-gray-500' : ""
+                (advancedExpanded || isAdvancedSection) ? 'text-foreground' : 'text-muted-foreground'
               )} />
               {t('settings.nav.advanced', 'Advanced')}
               <ChevronDown className={cn(
@@ -197,7 +193,7 @@ export function Settings(_props?: SettingsProps) {
 
             {/* Advanced sub-sections */}
             {advancedExpanded && (
-              <div className="pl-6 space-y-0.5 mt-1">
+              <div className="mt-1 space-y-0.5 pl-6">
                 {advancedSections.map((section) => {
                   const Icon = section.icon
                   const isActive = activeView === section.id
@@ -206,20 +202,17 @@ export function Settings(_props?: SettingsProps) {
                       key={section.id}
                       onClick={() => setActiveView(section.id)}
                       className={cn(
-                        'w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-all relative',
+                        'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[12px] transition-colors',
                         isActive
-                          ? 'bg-primary/10 text-primary font-medium'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                          ? 'bg-selected text-foreground font-semibold'
+                          : 'text-muted-foreground hover:bg-selected/60 hover:text-foreground'
                       )}
                     >
                       {isActive && (
-                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-primary rounded-r-full" />
+                        <div className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r-full bg-foreground/70" />
                       )}
-                      <Icon className={cn(
-                        "h-3.5 w-3.5 transition-colors",
-                        isActive ? section.color : ""
-                      )} />
-                      <span className="text-xs">{t(section.labelKey, section.label)}</span>
+                      <Icon className={cn("h-3.5 w-3.5 transition-colors", isActive ? "text-foreground" : "text-muted-foreground")} />
+                      <span>{t(section.labelKey, section.label)}</span>
                     </button>
                   )
                 })}
@@ -236,8 +229,8 @@ export function Settings(_props?: SettingsProps) {
         )}
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t flex items-center justify-between">
-          <span className="text-xs text-muted-foreground select-none cursor-default">
+        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+          <span className="cursor-default select-none font-mono text-[11px] text-faint">
             v{appVersion}
           </span>
           <UpdateButton />
@@ -245,7 +238,7 @@ export function Settings(_props?: SettingsProps) {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-w-0 flex-1 flex-col bg-background">
         <SettingsSectionBody section={activeView} />
       </div>
     </div>

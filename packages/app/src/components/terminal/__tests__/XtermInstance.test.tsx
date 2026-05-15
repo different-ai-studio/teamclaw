@@ -65,6 +65,15 @@ import { XtermInstance } from "@/components/terminal/XtermInstance";
 describe("XtermInstance", () => {
   beforeEach(() => {
     subscribeMock.mockClear();
+    subscribeMock.mockResolvedValue({
+      ring_snapshot: [104, 105, 10], // "hi\n"
+      cols: 80,
+      rows: 24,
+      status: "running",
+      exit_code: null,
+    });
+    onDataMock.mockClear();
+    onDataMock.mockResolvedValue(() => {});
     xtermWriteMock.mockClear();
     xtermDisposeMock.mockClear();
     closeMock.mockClear();
@@ -86,5 +95,30 @@ describe("XtermInstance", () => {
     unmount();
     expect(xtermDisposeMock).toHaveBeenCalled();
     expect(closeMock).not.toHaveBeenCalled();
+  });
+
+  test("catches prompt output emitted between initial snapshot and data listener registration", async () => {
+    subscribeMock
+      .mockResolvedValueOnce({
+        ring_snapshot: [],
+        cols: 80,
+        rows: 24,
+        status: "running",
+        exit_code: null,
+      })
+      .mockResolvedValueOnce({
+        ring_snapshot: [37, 32], // "% "
+        cols: 80,
+        rows: 24,
+        status: "running",
+        exit_code: null,
+      });
+
+    render(<XtermInstance tabId="t1" active />);
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(onDataMock).toHaveBeenCalledWith("t1", expect.any(Function));
+    expect(subscribeMock).toHaveBeenCalledTimes(2);
+    expect(xtermWriteMock).toHaveBeenCalledWith(new Uint8Array([37, 32]));
   });
 });

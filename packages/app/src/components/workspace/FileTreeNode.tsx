@@ -141,7 +141,7 @@ export function InlineInput({
         ref={inputRef}
         defaultValue={defaultValue}
         onKeyDown={handleKeyDown}
-        className="inline-edit-input flex-1 bg-transparent border border-primary/50 rounded px-1 py-0 text-sm outline-none focus:border-primary min-w-0"
+        className="inline-edit-input flex-1 bg-transparent border border-primary/50 rounded px-1 py-0 text-[13px] outline-none focus:border-primary min-w-0"
       />
     </div>
   );
@@ -338,7 +338,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       data-path={node.path}
       data-testid="file-tree-item"
       className={cn(
-        "flex items-center gap-1 py-1 px-2 text-left text-sm hover:bg-primary/10 data-[state=open]:bg-primary/10 rounded transition-colors whitespace-nowrap w-full select-none",
+        "flex items-center gap-1 py-1 px-2 text-left text-[13px] hover:bg-primary/10 data-[state=open]:bg-primary/10 rounded transition-colors whitespace-nowrap w-full select-none",
         isSelected &&
           "bg-primary/20 text-primary font-medium ring-1 ring-inset ring-primary/30",
         isFocused && !isSelected &&

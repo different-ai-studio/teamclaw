@@ -131,4 +131,30 @@ describe('QuestionInputDock', () => {
     expect(screen.getByText('payment_update').tagName).toBe('CODE');
     expect(screen.queryByText(/### \*\*Title\*\*/)).toBeNull();
   });
+
+  it('can be offset above a bottom terminal panel', () => {
+    render(
+      <QuestionInputDock
+        bottomOffsetPx={240}
+        pendingQuestion={{
+          questionId: 'question-event-4',
+          toolCallId: 'tool-call-4',
+          messageId: 'message-4',
+          questions: [
+            {
+              id: 'q-1',
+              header: '下一步',
+              question: '继续吗？',
+              options: [{ label: '继续', value: 'continue' }],
+            },
+          ],
+          source: 'agent',
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('question-input-dock')).toHaveStyle({
+      bottom: '240px',
+    });
+  });
 });

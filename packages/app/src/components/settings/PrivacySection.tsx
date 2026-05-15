@@ -20,17 +20,17 @@ export function PrivacySection() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Shield className="h-5 w-5 text-slate-500" />
+        <h3 className="flex items-center gap-2 text-[15px] font-semibold">
+          <Shield className="h-5 w-5 text-muted-foreground" />
           {t('settings.privacy.title', 'Privacy & Telemetry')}
         </h3>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="mt-1 text-[12.5px] text-muted-foreground">
           {t('settings.privacy.description', { defaultValue: 'Control anonymous usage data collection to help improve {{appName}}.', appName: buildConfig.app.name })}
         </p>
       </div>
 
       {/* Consent Toggle */}
-      <div className="rounded-lg border p-4">
+      <div className="rounded-[14px] border border-border bg-paper p-4">
         <div className="flex items-center justify-between">
           <div>
             <p className="font-medium">{t('settings.privacy.analyticsTitle', 'Analytics Data Collection')}</p>
@@ -42,14 +42,14 @@ export function PrivacySection() {
             onClick={handleToggleConsent}
             className={cn(
               'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-              isGranted ? 'bg-primary' : 'bg-input',
+              isGranted ? 'bg-foreground' : 'bg-panel',
             )}
             role="switch"
             aria-checked={isGranted}
           >
             <span
               className={cn(
-                'pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform',
+                'pointer-events-none block h-5 w-5 rounded-full bg-paper shadow-lg ring-0 transition-transform',
                 isGranted ? 'translate-x-5' : 'translate-x-0.5',
               )}
             />

@@ -152,8 +152,8 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
   const { overallRank, totalMembers, tokenRank, feedbackRank } = ranks
 
   const stats = [
-    { label: t('settings.leaderboard.tokenUsage', 'Token Usage'), rank: tokenRank, icon: Flame, color: 'text-amber-300' },
-    { label: t('settings.leaderboard.feedbackCount', 'Feedback Count'), rank: feedbackRank, icon: MessageSquareHeart, color: 'text-pink-300' },
+    { label: t('settings.leaderboard.tokenUsage', 'Token Usage'), rank: tokenRank, icon: Flame },
+    { label: t('settings.leaderboard.feedbackCount', 'Feedback Count'), rank: feedbackRank, icon: MessageSquareHeart },
   ]
 
   if (totalMembers === 0) {
@@ -161,22 +161,20 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
       <button
         onClick={onClick}
         className={cn(
-          "w-full text-left rounded-xl p-4 transition-all duration-200",
-          "bg-gradient-to-br from-violet-600/50 via-indigo-600/50 to-blue-600/50",
-          "hover:from-violet-500/50 hover:via-indigo-500/50 hover:to-blue-500/50",
-          "border border-white/10",
+          "w-full rounded-[14px] border border-border bg-paper p-4 text-left transition-colors",
+          "hover:bg-selected/60",
           "group cursor-pointer",
         )}
       >
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/10">
-            <Trophy className="h-5 w-5 text-white/50" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-panel">
+            <Trophy className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white/90">{t('settings.leaderboard.teamRanking', 'Team Ranking')}</p>
-            <p className="text-xs text-white/50 mt-0.5">{t('settings.leaderboard.clickToView', 'Click to view')}</p>
+            <p className="text-[13px] font-medium text-foreground">{t('settings.leaderboard.teamRanking', 'Team Ranking')}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('settings.leaderboard.clickToView', 'Click to view')}</p>
           </div>
-          <ChevronRight className="h-4 w-4 text-white/30 group-hover:text-white/70 transition-colors" />
+          <ChevronRight className="h-4 w-4 text-faint transition-colors group-hover:text-foreground" />
         </div>
       </button>
     )
@@ -186,31 +184,28 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left rounded-xl p-4 transition-all duration-200",
-        "bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600",
-        "hover:from-violet-500 hover:via-indigo-500 hover:to-blue-500",
-        "hover:shadow-lg hover:shadow-indigo-500/25 hover:-translate-y-0.5",
-        "active:translate-y-0",
+        "w-full rounded-[14px] border border-border bg-paper p-4 text-left transition-colors",
+        "hover:bg-selected/60",
         "group cursor-pointer",
       )}
     >
       {/* Header: overall rank */}
       <div className="flex items-center gap-3 mb-3">
-        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/15">
-          <Trophy className="h-5 w-5 text-amber-300" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-panel">
+          <Trophy className="h-5 w-5 text-muted-foreground" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-white leading-none">
+            <span className="text-[20px] font-semibold leading-none text-foreground">
               {getRankEmoji(overallRank)}
             </span>
-            <span className="text-sm text-white/50 font-medium">
+            <span className="font-mono text-xs text-faint">
               / {totalMembers}
             </span>
           </div>
-          <p className="text-xs text-white/50 mt-1">{t('settings.leaderboard.teamRanking', 'Team Ranking')}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t('settings.leaderboard.teamRanking', 'Team Ranking')}</p>
         </div>
-        <ChevronRight className="h-4 w-4 text-white/30 group-hover:text-white/70 transition-colors" />
+        <ChevronRight className="h-4 w-4 text-faint transition-colors group-hover:text-foreground" />
       </div>
 
       {/* Stat rows */}
@@ -220,13 +215,13 @@ export function TeamRankingCard({ onClick }: TeamRankingCardProps) {
           return (
             <div
               key={stat.label}
-              className="flex items-center gap-2.5 rounded-lg bg-white/10 px-3 py-2"
+              className="flex items-center gap-2.5 rounded-lg bg-panel px-3 py-2"
             >
-              <Icon className={cn("h-4 w-4 shrink-0", stat.color)} />
-              <span className="flex-1 text-[13px] text-white/80 font-medium">
+              <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="flex-1 text-[13px] font-medium text-ink-2">
                 {stat.label}
               </span>
-              <span className="text-base leading-none">
+              <span className="text-base leading-none text-foreground">
                 {getRankEmoji(stat.rank)}
               </span>
             </div>

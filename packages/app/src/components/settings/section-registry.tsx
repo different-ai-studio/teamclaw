@@ -30,9 +30,9 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
 export function SettingsSectionBody({ section }: { section: SettingsSection }) {
   const Component = SETTINGS_SECTION_COMPONENTS[section]
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/5">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <ScrollArea className="h-full min-h-0 flex-1">
-        <div className="max-w-2xl mx-auto p-8 pr-10">
+        <div className="mx-auto max-w-2xl p-8 pr-10">
           {React.createElement(Component)}
         </div>
       </ScrollArea>

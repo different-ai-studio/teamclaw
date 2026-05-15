@@ -1,7 +1,7 @@
 import { Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
-import { useTerminalStore } from "@/stores/terminal-store";
+import { useTerminalStore, type TerminalTab } from "@/stores/terminal-store";
 
 interface Props {
   workspaceId: string;
@@ -9,9 +9,11 @@ interface Props {
   allowedRoots: string[];
 }
 
+const EMPTY_TABS: TerminalTab[] = [];
+
 export function TerminalTabBar({ workspaceId, workspacePath, allowedRoots }: Props) {
   const { t } = useTranslation();
-  const tabs = useTerminalStore(s => s.tabsByWorkspace[workspaceId] ?? []);
+  const tabs = useTerminalStore(s => s.tabsByWorkspace[workspaceId] ?? EMPTY_TABS);
   const activeId = useTerminalStore(s => s.activeTabByWorkspace[workspaceId] ?? null);
   const openTerminal = useTerminalStore(s => s.openTerminal);
   const closeTerminal = useTerminalStore(s => s.closeTerminal);

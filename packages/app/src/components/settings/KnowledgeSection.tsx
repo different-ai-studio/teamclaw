@@ -392,8 +392,8 @@ export const KnowledgeSection = React.memo(function KnowledgeSection() {
       <div key={item.path} className="space-y-1">
         <div
           className={cn(
-            "flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors",
-            isSelected && "bg-primary/10",
+            "flex items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-selected/60",
+            isSelected && "bg-selected",
             level > 0 && "ml-6"
           )}
         >
@@ -408,7 +408,7 @@ export const KnowledgeSection = React.memo(function KnowledgeSection() {
                 ) : (
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 )}
-                <Folder className="h-4 w-4 text-blue-500" />
+                <Folder className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium">{item.name}</span>
                 {item.children && (
                   <span className="text-xs text-muted-foreground">
@@ -555,7 +555,7 @@ export const KnowledgeSection = React.memo(function KnowledgeSection() {
 
       {/* Reindex Warning Banner */}
       {needsReindex && (
-        <SettingCard className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border-amber-200 dark:border-amber-800">
+        <SettingCard className="border-amber-500/20 bg-amber-500/10">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
             <div className="flex-1">
@@ -655,8 +655,8 @@ export const KnowledgeSection = React.memo(function KnowledgeSection() {
 
       {/* Batch actions bar */}
       {selectedCount > 0 && (
-        <div className="flex items-center gap-3 p-3 bg-primary/10 rounded-lg">
-          <CheckboxIcon className="h-4 w-4 text-primary" />
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-selected p-3">
+          <CheckboxIcon className="h-4 w-4 text-foreground" />
           <span className="text-sm font-medium">
             {t('settings.knowledge.selectedCount', `Selected ${selectedCount} item(s)`, { count: selectedCount })}
           </span>

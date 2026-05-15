@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Inbox, AtSign, Hourglass, Pin } from 'lucide-react'
+import { Inbox, AtSign, Keyboard, Pin } from 'lucide-react'
 import { useUIStore } from '@/stores/ui'
 import { useSessionStore } from '@/stores/session'
 import { useCronStore } from '@/stores/cron'
@@ -76,15 +76,16 @@ export function NavRail() {
           onClick={handleComingSoon}
         />
         <TopEntry
-          label={t('sidebar.waitingOnMe', 'Waiting on me')}
-          icon={Hourglass}
-          onClick={handleComingSoon}
-        />
-        <TopEntry
           label={t('sidebar.pinned', 'Pinned')}
           icon={Pin}
           active={filter.kind === 'pinned'}
           onClick={() => setFilter({ kind: 'pinned' })}
+        />
+        <TopEntry
+          label={t('common.shortcuts', 'Shortcuts')}
+          icon={Keyboard}
+          active={filter.kind === 'shortcuts'}
+          onClick={() => setFilter({ kind: 'shortcuts' })}
         />
       </div>
 

@@ -469,16 +469,22 @@ export function SessionListColumn() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={(e) => handleTogglePinned(e as React.SyntheticEvent, row.id)}>
-              <Pin className="h-4 w-4 mr-2" />
+            <DropdownMenuItem
+              className="text-[13px]"
+              onClick={(e) => handleTogglePinned(e as React.SyntheticEvent, row.id)}
+            >
+              <Pin className="h-3.5 w-3.5 mr-2" />
               {row.isPinned ? t('sidebar.unpin', 'Unpin') : t('sidebar.pinToTop', 'Pin to top')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => handleStartRename(e, row.id)}>
-              <Pencil className="h-4 w-4 mr-2" />
+            <DropdownMenuItem className="text-[13px]" onClick={(e) => handleStartRename(e, row.id)}>
+              <Pencil className="h-3.5 w-3.5 mr-2" />
               {t('sidebar.rename', 'Rename')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => handleArchive(e as React.SyntheticEvent, row.id)}>
-              <Archive className="h-4 w-4 mr-2" />
+            <DropdownMenuItem
+              className="text-[13px]"
+              onClick={(e) => handleArchive(e as React.SyntheticEvent, row.id)}
+            >
+              <Archive className="h-3.5 w-3.5 mr-2" />
               {t('sidebar.archive', 'Archive')}
             </DropdownMenuItem>
           </DropdownMenuContent>

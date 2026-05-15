@@ -12,7 +12,7 @@
   "app": {
     "name": "TeamClaw",
     "shortName": "teamclaw",
-    "uiVariant": "default",
+    "uiVariant": "workspace",
     "updater": {
       "endpoints": [
         "https://teamclaw.ucar.cc/releases/latest.json",

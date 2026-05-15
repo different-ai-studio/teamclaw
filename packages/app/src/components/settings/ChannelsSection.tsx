@@ -35,7 +35,7 @@ export function ChannelsSection() {
 
       {/* Error Message */}
       {error && (
-        <SettingCard className="bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/30 border-red-200 dark:border-red-800">
+        <SettingCard className="border-destructive/20 bg-destructive/5">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5" />
             <div className="flex-1">
