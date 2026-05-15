@@ -6,7 +6,6 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Users,
-  UserPlus,
   GitBranch,
   Loader2,
   AlertCircle,
@@ -22,6 +21,7 @@ import {
   Settings,
   Save,
   Copy,
+  Link,
 } from 'lucide-react'
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { ToggleSwitch } from '@/components/settings/shared'
@@ -53,6 +53,8 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { formatBytes, type SyncPrecheckFile } from './syncPrecheck'
+import { supabase } from '@/lib/supabase-client'
+import { upsertTeamWorkspaceConfig } from '@/lib/team-workspace-config'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -96,38 +98,44 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
   return invoke<T>(cmd, args)
 }
 
-// ─── Managed Git helpers ────────────────────────────────────────────────────
+// ─── Supabase create-team flow ──────────────────────────────────────────────
 
-const MANAGED_GIT_FC_ENDPOINT = 'https://cloud.ucar.cc'
+async function createTeam(args: {
+  teamName: string
+  gitUrl: string
+  gitBranch?: string
+  gitToken?: string
+  aiGatewayEndpoint?: string
+}): Promise<{ teamId: string; deeplink: string }> {
+  // 1. Create team. Backend trigger inserts the owner actor + team_members row.
+  const { data: created, error: createErr } = await supabase
+    .rpc('create_team', { p_name: args.teamName })
+    .single()
+  if (createErr) throw new Error(createErr.message)
+  const teamId = (created as { id: string }).id
 
-interface InviteCodeData {
-  t: string  // teamId
-  s: string  // teamSecret
-  r: string  // repoUrl
-  p: string  // pat
-  u: string  // bot username
-  e?: string // fcEndpoint (LiteLLM/FC base URL); legacy codes default to MANAGED_GIT_FC_ENDPOINT
-}
+  // 2. Insert workspace config.
+  await upsertTeamWorkspaceConfig({
+    teamId,
+    gitUrl:            args.gitUrl,
+    gitBranch:         args.gitBranch ?? 'main',
+    gitToken:          args.gitToken ?? null,
+    aiGatewayEndpoint: args.aiGatewayEndpoint ?? null,
+    enabled:           true,
+    updatedAt:         new Date().toISOString(),
+  })
 
-function encodeInviteCode(data: InviteCodeData): string {
-  return btoa(JSON.stringify(data))
-}
-
-function decodeInviteCode(code: string): InviteCodeData | null {
-  try {
-    // Strip protocol prefix if present
-    const raw = code.replace(/^tclaw:\/\/join\?code=/, '').trim()
-    const json = atob(raw)
-    const data = JSON.parse(json)
-    if (data.t && data.s && data.r && data.p) {
-      // Backfill fcEndpoint for legacy codes (pre-fcEndpoint).
-      if (!data.e || typeof data.e !== 'string') data.e = MANAGED_GIT_FC_ENDPOINT
-      return data
-    }
-    return null
-  } catch {
-    return null
-  }
+  // 3. First invite (admin role).
+  const { data: invite, error: invErr } = await supabase.rpc('create_team_invite', {
+    p_team_id:       teamId,
+    p_kind:          'member',
+    p_display_name:  'New Member',
+    p_team_role:     'admin',
+    p_ttl_seconds:   604800,
+  })
+  if (invErr) throw new Error(invErr.message)
+  const deeplink = ((invite as { deeplink: string }).deeplink).replace(/^amux:/, 'teamclaw:')
+  return { teamId, deeplink }
 }
 
 // ─── Reusable Components (local to git config) ─────────────────────────────
@@ -173,22 +181,16 @@ export function TeamGitConfig() {
   >(null)
   const [pendingUpdateUi, setPendingUpdateUi] = React.useState(true)
 
-  // Create/Join form state
+  // Create form state
   const [teamName, setTeamName] = React.useState('')
-  const [memberName, setMemberName] = React.useState('')
-  const [teamIdInput, setTeamIdInput] = React.useState('')
-  const [teamSecretInput, setTeamSecretInput] = React.useState('')
-  const [createdTeamId, setCreatedTeamId] = React.useState('')
-  const [createdTeamSecret, setCreatedTeamSecret] = React.useState('')
-  const [showCreatedSecret, setShowCreatedSecret] = React.useState(false)
-  const [showTeamSecret, setShowTeamSecret] = React.useState(false)
-  const [loadedTeamSecret, setLoadedTeamSecret] = React.useState('')
 
-  // Managed Git state
-  const [managedGit, setManagedGit] = React.useState(false)
-  const [createdInviteCode, setCreatedInviteCode] = React.useState('')
-  const [inviteCodeInput, setInviteCodeInput] = React.useState('')
-  const [inviteCodeError, setInviteCodeError] = React.useState('')
+  // After creation: deeplink invite to share
+  const [createdTeamId, setCreatedTeamId] = React.useState('')
+  const [createdInviteDeeplink, setCreatedInviteDeeplink] = React.useState('')
+
+  // Generate additional invite (connected state)
+  const [additionalInviteDeeplink, setAdditionalInviteDeeplink] = React.useState('')
+  const [generatingInvite, setGeneratingInvite] = React.useState(false)
 
   // LLM hosting (create form + connected editing share same state)
   const defaultLlmUrl = buildConfig.team.llm.baseUrl || ''
@@ -201,12 +203,6 @@ export function TeamGitConfig() {
 
   // Detect if current URL is HTTPS (needs token auth)
   const isHttpsUrl = gitUrl.trim().startsWith('https://') || gitUrl.trim().startsWith('http://')
-
-  // Workspace path queued during fast-path join — used after the background
-  // clone completes to refresh in-memory team config from the freshly cloned
-  // _meta files. We no longer write provider.json here on the joining
-  // member's behalf (that used to silently delete the team's shared file).
-  const pendingProviderSaveRef = React.useRef<{ workspacePath: string } | null>(null)
 
   // ─── Initialize: check git + load config ─────────────────────────────────
 
@@ -268,54 +264,6 @@ export function TeamGitConfig() {
   React.useEffect(() => {
     initialize()
   }, [initialize])
-
-  // Listen for background-clone results (fired by team_git_join_background).
-  React.useEffect(() => {
-    if (!isTauri()) return
-    let unlistenCompleted: (() => void) | null = null
-    let unlistenFailed: (() => void) | null = null
-    void (async () => {
-      const { listen } = await import('@tauri-apps/api/event')
-      unlistenCompleted = await listen<{ teamId: string; message: string }>(
-        'team:git-join-clone-completed',
-        async () => {
-          // After clone completes, the cloned repo already contains the
-          // owner's _meta/provider.json (if any). A joining member must NOT
-          // overwrite it with their own (typically empty) form state — doing
-          // so would write a null provider, which used to silently delete the
-          // shared file for the entire team. Just refresh the in-memory team
-          // config from the freshly cloned files.
-          const ws = pendingProviderSaveRef.current?.workspacePath
-          pendingProviderSaveRef.current = null
-          if (ws) {
-            try {
-              const { useTeamModeStore } = await import('@/stores/team-mode')
-              const store = useTeamModeStore.getState()
-              await store.loadTeamConfig(ws)
-              if (useTeamModeStore.getState().teamMode) {
-                await store.applyTeamModel(ws, true)
-              }
-            } catch (err) {
-              console.warn('[Team Join] Post-clone team config refresh failed:', err)
-            }
-          }
-          teamMembersStore.loadMembers()
-          teamMembersStore.loadMyRole()
-        },
-      )
-      unlistenFailed = await listen<{ teamId: string; error: string }>(
-        'team:git-join-clone-failed',
-        (evt) => {
-          pendingProviderSaveRef.current = null
-          setErrorMessage(evt.payload?.error || 'Background sync failed')
-        },
-      )
-    })()
-    return () => {
-      unlistenCompleted?.()
-      unlistenFailed?.()
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load current LLM config when connected
   React.useEffect(() => {
@@ -386,37 +334,28 @@ export function TeamGitConfig() {
     }
   }
 
-  // ─── Connect flow (legacy fallback) ─────────────────────────────────
+  // ─── Create team flow (Supabase) ─────────────────────────────────────
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleConnect = async () => {
-    if (!gitUrl.trim()) return
-
+  const handleCreate = async () => {
+    if (!teamName.trim() || !gitUrl.trim()) return
     setState('connecting')
     setErrorMessage(null)
-
     try {
-      setConnectStep(t('settings.team.initializingRepo', 'Initializing repository...'))
-      await tauriInvoke<TeamGitResult>('team_init_repo', {
-        gitUrl: gitUrl.trim(),
-        gitToken: isHttpsUrl && gitToken.trim() ? gitToken.trim() : null,
-        gitBranch: gitBranch.trim() || null,
-        llmBaseUrl: hostLlm ? (llmUrl || null) : null,
-        llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
-        llmModelName: hostLlm ? (llmModels[0]?.name || null) : null,
-        llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
-        ...workspaceArgs,
+      setConnectStep(t('settings.team.creatingTeam', 'Creating team...'))
+      const { teamId, deeplink } = await createTeam({
+        teamName: teamName.trim(),
+        gitUrl:   gitUrl.trim(),
+        gitBranch: gitBranch.trim() || undefined,
+        gitToken:  isHttpsUrl && gitToken.trim() ? gitToken.trim() : undefined,
       })
 
-      setConnectStep(t('settings.team.generatingGitignore', 'Generating .gitignore...'))
-      await tauriInvoke<TeamGitResult>('team_generate_gitignore', workspaceArgs)
-
-      setConnectStep(t('settings.team.savingConfig', 'Saving configuration...'))
+      setConnectStep(t('settings.team.initializingRepo', 'Initializing repository...'))
       const now = new Date().toISOString()
       const newConfig: TeamConfig = {
         gitUrl: gitUrl.trim(),
         enabled: true,
         lastSyncAt: now,
+        teamId,
         ...(isHttpsUrl && gitToken.trim() ? { gitToken: gitToken.trim() } : {}),
         ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
       }
@@ -426,9 +365,11 @@ export function TeamGitConfig() {
       }
 
       setTeamConfig(newConfig)
+      setCreatedTeamId(teamId)
+      setCreatedInviteDeeplink(deeplink)
       setState('connected')
+
     } catch (err) {
-      console.error('Team connect error:', err)
       setErrorMessage(err instanceof Error ? err.message : String(err))
       setState('unconfigured')
     } finally {
@@ -436,251 +377,26 @@ export function TeamGitConfig() {
     }
   }
 
-  // ─── Create team flow ────────────────────────────────────────────────
+  // ─── Generate additional invite ──────────────────────────────────────
 
-  const handleCreate = async () => {
-    if (!teamName.trim() || !memberName.trim()) return
-    if (!managedGit && !gitUrl.trim()) return
-    setState('connecting')
+  const handleGenerateInvite = async (teamId: string) => {
+    setGeneratingInvite(true)
     setErrorMessage(null)
     try {
-      let effectiveGitUrl = gitUrl.trim()
-      let effectiveGitToken = isHttpsUrl && gitToken.trim() ? gitToken.trim() : null
-      let managedPat = ''
-      let managedBotUsername = ''
-
-      // Managed Git: call FC to create CodeUp repo first
-      if (managedGit) {
-        setConnectStep('Creating repository...')
-        const fcResp = await fetch(`${MANAGED_GIT_FC_ENDPOINT}/managed-git/create-repo`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ teamName: teamName.trim() }),
-        })
-        const fcData = await fcResp.json()
-        if (!fcResp.ok) {
-          throw new Error(fcData.error || 'Failed to create managed repository')
-        }
-        effectiveGitUrl = fcData.repoHttpUrl
-        effectiveGitToken = fcData.pat
-        managedPat = fcData.pat
-        managedBotUsername = fcData.botUsername || 'teamclaw'
-      }
-
-      setConnectStep('Creating team...')
-      const result = await tauriInvoke<{ teamId: string; teamSecret: string }>('team_git_create', {
-        gitUrl: effectiveGitUrl,
-        gitToken: effectiveGitToken,
-        gitBranch: gitBranch.trim() || null,
-        teamName: teamName.trim(),
-        memberName: memberName.trim(),
-        llmBaseUrl: hostLlm ? (llmUrl || null) : null,
-        llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
-        llmModelName: hostLlm ? (llmModels[0]?.name || null) : null,
-        llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
-        fcEndpoint: managedGit ? MANAGED_GIT_FC_ENDPOINT : null,
-        ...workspaceArgs,
+      const { data: invite, error: invErr } = await supabase.rpc('create_team_invite', {
+        p_team_id:       teamId,
+        p_kind:          'member',
+        p_display_name:  'New Member',
+        p_team_role:     'admin',
+        p_ttl_seconds:   604800,
       })
-      setConnectStep('Saving configuration...')
-      const now = new Date().toISOString()
-      const newConfig: TeamConfig = {
-        gitUrl: effectiveGitUrl,
-        enabled: true,
-        lastSyncAt: now,
-        teamId: result.teamId,
-        ...(managedGit ? { fcEndpoint: MANAGED_GIT_FC_ENDPOINT } : {}),
-        ...(effectiveGitToken ? { gitToken: effectiveGitToken } : {}),
-        ...(gitBranch.trim() ? { gitBranch: gitBranch.trim() } : {}),
-      }
-      await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
-      if (workspacePath) {
-        await saveTeamProviderFile(workspacePath, buildTeamProviderConfig(hostLlm, llmUrl, llmModels), hostLlm ? llmModels[0]?.id : undefined)
-      }
-      setTeamConfig(newConfig)
-      setCreatedTeamId(result.teamId)
-      setCreatedTeamSecret(result.teamSecret)
-
-      // Generate invite code for managed Git
-      if (managedGit) {
-        const code = encodeInviteCode({
-          t: result.teamId,
-          s: result.teamSecret,
-          r: effectiveGitUrl,
-          p: managedPat,
-          u: managedBotUsername,
-          e: MANAGED_GIT_FC_ENDPOINT,
-        })
-        setCreatedInviteCode(code)
-      }
-
-      setState('connected')
-
+      if (invErr) throw new Error(invErr.message)
+      const deeplink = ((invite as { deeplink: string }).deeplink).replace(/^amux:/, 'teamclaw:')
+      setAdditionalInviteDeeplink(deeplink)
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err))
-      setState('unconfigured')
     } finally {
-      setConnectStep('')
-    }
-  }
-
-  // ─── Join team flow ─────────────────────────────────────────────────
-
-  // Parse invite code and auto-fill fields
-  const handleInviteCodePaste = (code: string) => {
-    setInviteCodeInput(code)
-    setInviteCodeError('')
-    const data = decodeInviteCode(code)
-    if (data) {
-      setTeamIdInput(data.t)
-      setTeamSecretInput(data.s)
-      setGitUrl(data.r)
-      setGitToken(data.p)
-    } else if (code.trim()) {
-      setInviteCodeError(t('settings.team.invalidInviteCode', 'Invalid invite code'))
-    }
-  }
-
-  const handleJoin = async () => {
-    // Allow join via invite code (auto-fills fields) or manual entry
-    if (!memberName.trim()) return
-    if (!gitUrl.trim() || !teamIdInput.trim() || !teamSecretInput.trim()) return
-    setState('connecting')
-    setErrorMessage(null)
-    try {
-      const effectiveGitToken = gitToken.trim() || null
-      const inviteData = decodeInviteCode(inviteCodeInput)
-      const fcEndpoint = inviteData?.e ?? null
-      const teamIdTrim = teamIdInput.trim()
-      const teamSecretTrim = teamSecretInput.trim()
-      const memberNameTrim = memberName.trim()
-      const gitBranchTrim = gitBranch.trim()
-      const gitUrlTrim = gitUrl.trim()
-
-      // Fast path: invite code → register LiteLLM key via FC first, surface
-      // success to the user immediately, then run the slow clone in background.
-      if (fcEndpoint) {
-        setConnectStep('Registering with team service...')
-        // `get_persistent_device_id` returns the same iroh node_id but is
-        // registered on every platform; `get_device_node_id` lives in the
-        // p2p-gated module and is missing on Windows builds.
-        const nodeId = await tauriInvoke<string>('get_persistent_device_id')
-        const fcUrl = `${fcEndpoint.replace(/\/+$/, '')}/ai/add-member`
-        const fcResp = await fetch(fcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            teamId: teamIdTrim,
-            teamSecret: teamSecretTrim,
-            nodeId,
-            memberName: memberNameTrim,
-          }),
-        })
-        if (!fcResp.ok) {
-          // 502 with "alias already exists" means this nodeId already has a key
-          // for some team — likely a previous join attempt or rejoin. The clone
-          // step still proceeds below; the existing key will keep working.
-          let detail = ''
-          try {
-            const data = await fcResp.json()
-            detail = data?.detail?.error?.message || data?.error || ''
-          } catch {
-            detail = await fcResp.text()
-          }
-          const aliasConflict = /already exists/i.test(detail)
-          if (!aliasConflict) {
-            throw new Error(`Failed to register team key: ${detail || fcResp.statusText}`)
-          }
-          console.warn('[Team Join] /ai/add-member alias conflict (proceeding):', detail)
-        }
-
-        // Persist config + kick off background clone (returns immediately).
-        setConnectStep('Saving configuration...')
-        const now = new Date().toISOString()
-        const newConfig: TeamConfig = {
-          gitUrl: gitUrlTrim,
-          enabled: true,
-          lastSyncAt: now,
-          teamId: teamIdTrim,
-          fcEndpoint,
-          ...(effectiveGitToken ? { gitToken: effectiveGitToken } : {}),
-          ...(gitBranchTrim ? { gitBranch: gitBranchTrim } : {}),
-        }
-        await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
-        // Stash workspacePath so the post-clone hook can refresh team config.
-        if (workspacePath) {
-          pendingProviderSaveRef.current = { workspacePath }
-        }
-        setTeamConfig(newConfig)
-
-        // Fire-and-forget: Tauri command spawns its own task and returns Ok(()).
-        await tauriInvoke('team_git_join_background', {
-          gitUrl: gitUrlTrim,
-          gitToken: effectiveGitToken,
-          gitBranch: gitBranchTrim || null,
-          teamId: teamIdTrim,
-          teamSecret: teamSecretTrim,
-          memberName: memberNameTrim,
-          llmBaseUrl: hostLlm ? (llmUrl || null) : null,
-          llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
-          llmModelName: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
-          llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
-          // Frontend already called /ai/add-member; backend should not duplicate.
-          fcEndpoint: null,
-          ...workspaceArgs,
-        })
-
-        setState('connected')
-        return
-      }
-
-      // Slow path: manual entry without invite code → run the full sync clone
-      // in the foreground so verification errors surface inline.
-      setConnectStep('Joining team...')
-      await tauriInvoke<{ success: boolean; message: string }>('team_git_join', {
-        gitUrl: gitUrlTrim,
-        gitToken: effectiveGitToken,
-        gitBranch: gitBranchTrim || null,
-        teamId: teamIdTrim,
-        teamSecret: teamSecretTrim,
-        memberName: memberNameTrim,
-        llmBaseUrl: hostLlm ? (llmUrl || null) : null,
-        llmModel: hostLlm ? (llmModels[0]?.id || null) : null,
-        llmModelName: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
-        llmModels: hostLlm && llmModels.length > 0 ? JSON.stringify(llmModels) : null,
-        fcEndpoint: null,
-        ...workspaceArgs,
-      })
-      setConnectStep('Saving configuration...')
-      const now = new Date().toISOString()
-      const newConfig: TeamConfig = {
-        gitUrl: gitUrlTrim,
-        enabled: true,
-        lastSyncAt: now,
-        teamId: teamIdTrim,
-        ...(effectiveGitToken ? { gitToken: effectiveGitToken } : {}),
-        ...(gitBranchTrim ? { gitBranch: gitBranchTrim } : {}),
-      }
-      await tauriInvoke('save_team_config', { team: newConfig, ...workspaceArgs })
-      if (workspacePath) {
-        // Member-side join: do NOT write provider.json — the cloned repo
-        // already contains the owner's shared provider config (if any).
-        // Writing the joining member's form state used to silently delete
-        // the team's provider.json when the form was empty.
-        const { useTeamModeStore } = await import('@/stores/team-mode')
-        const store = useTeamModeStore.getState()
-        await store.loadTeamConfig(workspacePath)
-        if (useTeamModeStore.getState().teamMode) {
-          await store.applyTeamModel(workspacePath, true)
-        }
-      }
-      setTeamConfig(newConfig)
-      setState('connected')
-
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : String(err))
-      setState('unconfigured')
-    } finally {
-      setConnectStep('')
+      setGeneratingInvite(false)
     }
   }
 
@@ -852,195 +568,25 @@ export function TeamGitConfig() {
         </SettingCard>
       )}
 
-      {/* Unconfigured State - Create/Join (stacked cards, same as OSS) */}
+      {/* Unconfigured State - Create Team */}
       {(state === 'unconfigured' || state === 'connecting') && (
-        <>
-          <SettingCard>
-            <div className="mb-4 flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              <h4 className="text-sm font-semibold text-foreground/90">{t('settings.team.createTeam', 'Create Team')}</h4>
-            </div>
-            <div className="space-y-3">
-              {/* Managed Git toggle */}
-              <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
-                <div>
-                  <p className="text-xs font-medium">{t('settings.team.managedGit', 'Managed Git')}</p>
-                  <p className="text-[11px] text-muted-foreground">{t('settings.team.managedGitDesc', 'Auto-create repo, no Git account needed')}</p>
-                </div>
-                <ToggleSwitch enabled={managedGit} onChange={setManagedGit} />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamName', 'Team Name')}</label>
-                <Input
-                  value={teamName}
-                  onChange={(e) => setTeamName(e.target.value)}
-                  placeholder="My Team"
-                  className="bg-background/50"
-                  disabled={state === 'connecting'}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.yourName', 'Your Name')}</label>
-                  <Input
-                    value={memberName}
-                    onChange={(e) => setMemberName(e.target.value)}
-                    placeholder="Alice"
-                    className="bg-background/50"
-                    disabled={state === 'connecting'}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    {t('settings.team.gitBranch', 'Branch')}
-                    <span className="text-muted-foreground/60 font-normal ml-1">({t('settings.team.optional', 'optional')})</span>
-                  </label>
-                  <Input
-                    value={gitBranch}
-                    onChange={(e) => setGitBranch(e.target.value)}
-                    placeholder="main"
-                    className="bg-background/50"
-                    disabled={state === 'connecting'}
-                  />
-                </div>
-              </div>
-              {!managedGit && (
-                <>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.gitUrl', 'Git Repository URL')}</label>
-                    <Input
-                      value={gitUrl}
-                      onChange={(e) => setGitUrl(e.target.value)}
-                      placeholder="https://github.com/team/shared-workspace.git"
-                      className="bg-background/50 font-mono text-xs"
-                      disabled={state === 'connecting'}
-                    />
-                    <p className="mt-1 text-xs text-muted-foreground/60">
-                      {t('settings.team.urlHint', 'Supports HTTPS and SSH URLs. SSH uses your system keys automatically.')}
-                    </p>
-                  </div>
-                  {isHttpsUrl && (
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                        {t('settings.team.personalToken', 'Personal Access Token')}
-                        <span className="text-muted-foreground/60 font-normal ml-1">({t('settings.team.optional', 'optional')})</span>
-                      </label>
-                      <div className="relative">
-                        <Input
-                          type={showToken ? 'text' : 'password'}
-                          value={gitToken}
-                          onChange={(e) => setGitToken(e.target.value)}
-                          placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
-                          className="bg-background/50 pr-10"
-                          disabled={state === 'connecting'}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-                          onClick={() => setShowToken(!showToken)}
-                        >
-                          {showToken ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-              <HostLlmConfig
-                enabled={hostLlm}
-                onEnabledChange={setHostLlm}
-                baseUrl={llmUrl}
-                onBaseUrlChange={setLlmUrl}
-                models={llmModels}
-                onModelsChange={setLlmModels}
+        <SettingCard>
+          <div className="mb-4 flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <h4 className="text-sm font-semibold text-foreground/90">{t('settings.team.createTeam', 'Create Team')}</h4>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamName', 'Team Name')}</label>
+              <Input
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                placeholder="My Team"
+                className="bg-background/50"
                 disabled={state === 'connecting'}
               />
-              {state === 'connecting' && connectStep && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {connectStep}
-                </div>
-              )}
-              <Button
-                onClick={handleCreate}
-                disabled={state === 'connecting' || !teamName.trim() || !memberName.trim() || (!managedGit && !gitUrl.trim())}
-                className="w-full"
-              >
-                <Users className="mr-2 h-4 w-4" />
-                {state === 'connecting' ? t('settings.team.creating', 'Creating...') : t('settings.team.createTeam', 'Create Team')}
-              </Button>
             </div>
-          </SettingCard>
-
-          <div className="relative flex items-center py-1">
-            <div className="flex-1 border-t border-border/40" />
-            <span className="px-3 text-xs text-muted-foreground">or</span>
-            <div className="flex-1 border-t border-border/40" />
-          </div>
-
-          <SettingCard>
-            <div className="mb-4 flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-muted-foreground" />
-              <h4 className="text-sm font-semibold text-foreground/90">{t('settings.team.joinTeam', 'Join Team')}</h4>
-            </div>
-            <div className="space-y-3">
-              {/* Invite code input */}
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.inviteCode', 'Invite Code')}</label>
-                <Input
-                  value={inviteCodeInput}
-                  onChange={(e) => handleInviteCodePaste(e.target.value)}
-                  placeholder={t('settings.team.inviteCodePlaceholder', 'Paste invite code from team creator')}
-                  className="bg-background/50 font-mono text-xs"
-                  disabled={state === 'connecting'}
-                />
-                {inviteCodeError && (
-                  <p className="mt-1 text-xs text-red-500">{inviteCodeError}</p>
-                )}
-                {inviteCodeInput && !inviteCodeError && decodeInviteCode(inviteCodeInput) && (
-                  <p className="mt-1 text-xs text-green-600 dark:text-green-400">{t('settings.team.inviteCodeValid', 'Invite code valid — fields auto-filled')}</p>
-                )}
-              </div>
-              <div className="relative flex items-center">
-                <div className="flex-1 border-t border-border/40" />
-                <span className="px-3 text-[11px] text-muted-foreground">{t('settings.team.orManualEntry', 'or enter manually')}</span>
-                <div className="flex-1 border-t border-border/40" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamId', 'Team ID')}</label>
-                  <Input
-                    value={teamIdInput}
-                    onChange={(e) => setTeamIdInput(e.target.value)}
-                    placeholder="tc-xxxxxxxxxxxx"
-                    className="font-mono bg-background/50"
-                    disabled={state === 'connecting'}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamSecret', 'Team Secret')}</label>
-                  <Input
-                    type="password"
-                    value={teamSecretInput}
-                    onChange={(e) => setTeamSecretInput(e.target.value)}
-                    placeholder={t('settings.team.teamSecretPlaceholder', 'Paste the team secret')}
-                    className="bg-background/50"
-                    disabled={state === 'connecting'}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.yourName', 'Your Name')}</label>
-                <Input
-                  value={memberName}
-                  onChange={(e) => setMemberName(e.target.value)}
-                  placeholder="Bob"
-                  className="bg-background/50"
-                  disabled={state === 'connecting'}
-                />
-              </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.gitUrl', 'Git Repository URL')}</label>
                 <Input
@@ -1051,51 +597,78 @@ export function TeamGitConfig() {
                   disabled={state === 'connecting'}
                 />
               </div>
-              {isHttpsUrl && (
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    {t('settings.team.personalToken', 'Personal Access Token')}
-                    <span className="text-muted-foreground/60 font-normal ml-1">({t('settings.team.optional', 'optional')})</span>
-                  </label>
-                  <div className="relative">
-                    <Input
-                      type={showToken ? 'text' : 'password'}
-                      value={gitToken}
-                      onChange={(e) => setGitToken(e.target.value)}
-                      placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
-                      className="bg-background/50 pr-10"
-                      disabled={state === 'connecting'}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-                      onClick={() => setShowToken(!showToken)}
-                    >
-                      {showToken ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {state === 'connecting' && connectStep && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {connectStep}
-                </div>
-              )}
-              <Button
-                onClick={handleJoin}
-                disabled={state === 'connecting' || !gitUrl.trim() || !teamIdInput.trim() || !teamSecretInput.trim() || !memberName.trim()}
-                variant="outline"
-                className="w-full"
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                {state === 'connecting' ? t('settings.team.joining', 'Joining...') : t('settings.team.joinTeam', 'Join Team')}
-              </Button>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  {t('settings.team.gitBranch', 'Branch')}
+                  <span className="text-muted-foreground/60 font-normal ml-1">({t('settings.team.optional', 'optional')})</span>
+                </label>
+                <Input
+                  value={gitBranch}
+                  onChange={(e) => setGitBranch(e.target.value)}
+                  placeholder="main"
+                  className="bg-background/50"
+                  disabled={state === 'connecting'}
+                />
+              </div>
             </div>
-          </SettingCard>
-        </>
+            {isHttpsUrl && (
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  {t('settings.team.personalToken', 'Personal Access Token')}
+                  <span className="text-muted-foreground/60 font-normal ml-1">({t('settings.team.optional', 'optional')})</span>
+                </label>
+                <div className="relative">
+                  <Input
+                    type={showToken ? 'text' : 'password'}
+                    value={gitToken}
+                    onChange={(e) => setGitToken(e.target.value)}
+                    placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+                    className="bg-background/50 pr-10"
+                    disabled={state === 'connecting'}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                    onClick={() => setShowToken(!showToken)}
+                  >
+                    {showToken ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                  </Button>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground/60">
+                  {t('settings.team.urlHint', 'Supports HTTPS and SSH URLs. SSH uses your system keys automatically.')}
+                </p>
+              </div>
+            )}
+            <HostLlmConfig
+              enabled={hostLlm}
+              onEnabledChange={setHostLlm}
+              baseUrl={llmUrl}
+              onBaseUrlChange={setLlmUrl}
+              models={llmModels}
+              onModelsChange={setLlmModels}
+              disabled={state === 'connecting'}
+            />
+            {state === 'connecting' && connectStep && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {connectStep}
+              </div>
+            )}
+            <Button
+              onClick={handleCreate}
+              disabled={state === 'connecting' || !teamName.trim() || !gitUrl.trim()}
+              className="w-full"
+            >
+              <Users className="mr-2 h-4 w-4" />
+              {state === 'connecting' ? t('settings.team.creating', 'Creating...') : t('settings.team.createTeam', 'Create Team')}
+            </Button>
+            <p className="text-xs text-muted-foreground/70 text-center">
+              {t('settings.team.joinHint', 'To join a team, open the invite link shared by your team admin.')}
+            </p>
+          </div>
+        </SettingCard>
       )}
 
       {/* Connected State */}
@@ -1187,113 +760,49 @@ export function TeamGitConfig() {
             </div>
           </SettingCard>
 
-          {/* Team Credentials (for sharing with new members) */}
+          {/* Invite Link — share with new members */}
           {teamConfig.teamId && (
             <SettingCard>
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
-                    <KeyRound className="h-5 w-5 text-blue-700 dark:text-blue-400" />
+                    <Link className="h-5 w-5 text-blue-700 dark:text-blue-400" />
                   </div>
-                  <div>
-                    <p className="text-sm font-medium">{t('settings.team.teamCredentials', 'Team Credentials')}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.team.teamCredentialsDesc', 'Share with new members to join')}</p>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{t('settings.team.inviteLink', 'Invite Link')}</p>
+                    <p className="text-xs text-muted-foreground">{t('settings.team.inviteLinkDesc', 'Share this link with teammates — they open it to join')}</p>
                   </div>
-                  {/* Generate invite code button for managed Git teams */}
-                  {teamConfig.gitToken && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="ml-auto gap-1.5 text-xs"
-                      onClick={async () => {
-                        let secret = loadedTeamSecret
-                        if (!secret) {
-                          try {
-                            secret = await tauriInvoke<string>('get_git_team_secret', {
-                              teamId: teamConfig.teamId,
-                              ...workspaceArgs,
-                            })
-                            setLoadedTeamSecret(secret)
-                          } catch { return }
-                        }
-                        const code = encodeInviteCode({
-                          t: teamConfig.teamId!,
-                          s: secret,
-                          r: teamConfig.gitUrl,
-                          p: teamConfig.gitToken!,
-                          u: 'teamclaw',
-                        })
-                        await copyToClipboard(code, t('common.copied', 'Copied!'))
-                      }}
-                    >
-                      <Copy className="h-3 w-3" />
-                      {t('settings.team.copyInviteCode', 'Copy Invite Code')}
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto gap-1.5 text-xs shrink-0"
+                    onClick={() => handleGenerateInvite(teamConfig.teamId!)}
+                    disabled={generatingInvite}
+                  >
+                    {generatingInvite
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Link className="h-3 w-3" />}
+                    {t('settings.team.generateInvite', 'Generate Invite')}
+                  </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamId', 'Team ID')}</label>
-                    <div className="flex items-center gap-1.5">
-                      <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">{teamConfig.teamId}</code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 h-7 w-7 p-0"
-                        onClick={() => copyToClipboard(teamConfig.teamId!, t('common.copied', 'Copied!'))}
-                      >
-                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('settings.team.teamSecret', 'Team Secret')}</label>
-                    <div className="flex items-center gap-1.5">
-                      <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 text-xs font-mono truncate">
-                        {showTeamSecret && loadedTeamSecret ? loadedTeamSecret : '••••••••••••••••'}
+                {additionalInviteDeeplink && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 min-w-0 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-3 py-2 text-xs font-mono break-all select-all">
+                        {additionalInviteDeeplink}
                       </code>
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        className="shrink-0 h-7 w-7 p-0"
-                        onClick={async () => {
-                          if (!showTeamSecret && !loadedTeamSecret) {
-                            try {
-                              const secret = await tauriInvoke<string>('get_git_team_secret', {
-                                teamId: teamConfig.teamId,
-                                ...workspaceArgs,
-                              })
-                              setLoadedTeamSecret(secret)
-                            } catch { /* ignore */ }
-                          }
-                          setShowTeamSecret(!showTeamSecret)
-                        }}
+                        className="shrink-0 h-9 w-9 p-0"
+                        onClick={() => copyToClipboard(additionalInviteDeeplink, t('common.copied', 'Copied!'))}
                       >
-                        {showTeamSecret ? <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> : <Eye className="h-3.5 w-3.5 text-muted-foreground" />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 h-7 w-7 p-0"
-                        onClick={async () => {
-                          let secret = loadedTeamSecret
-                          if (!secret) {
-                            try {
-                              secret = await tauriInvoke<string>('get_git_team_secret', {
-                                teamId: teamConfig.teamId,
-                                ...workspaceArgs,
-                              })
-                              setLoadedTeamSecret(secret)
-                            } catch { return }
-                          }
-                          await copyToClipboard(secret, t('common.copied', 'Copied!'))
-                        }}
-                      >
-                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Copy className="h-4 w-4" />
                       </Button>
                     </div>
+                    <p className="text-xs text-muted-foreground">{t('settings.team.inviteLinkExpiry', 'Valid for 7 days. Generate a new one if it expires.')}</p>
                   </div>
-                </div>
+                )}
               </div>
             </SettingCard>
           )}
@@ -1396,46 +905,38 @@ export function TeamGitConfig() {
         </SettingCard>
       )}
 
-      {/* Team Created Credentials Dialog */}
-      <Dialog open={!!(createdTeamId && createdTeamSecret)} onOpenChange={(open) => {
+      {/* Team Created — Invite Deeplink Dialog */}
+      <Dialog open={!!(createdTeamId && createdInviteDeeplink)} onOpenChange={(open) => {
         if (!open) {
           setCreatedTeamId('')
-          setCreatedTeamSecret('')
-          setCreatedInviteCode('')
-          setShowCreatedSecret(false)
+          setCreatedInviteDeeplink('')
         }
       }}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>{t('settings.team.teamCreatedTitle', 'Team Created Successfully')}</DialogTitle>
             <DialogDescription>
-              {createdInviteCode
-                ? t('settings.team.teamCreatedDescInvite', 'Share the invite code below with your team members — they just paste it to join.')
-                : t('settings.team.teamCreatedDesc', 'Share these credentials with your team members so they can join.')}
+              {t('settings.team.teamCreatedDescInvite', 'Share the invite link below with your team members — they open it to join.')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {/* Invite Code (managed Git) */}
-            {createdInviteCode && (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">{t('settings.team.inviteCode', 'Invite Code')}</label>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 min-w-0 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-3 py-2 text-xs font-mono break-all max-h-20 overflow-y-auto">
-                    {createdInviteCode}
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 h-9 w-9 p-0"
-                    onClick={() => navigator.clipboard.writeText(createdInviteCode)}
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">{t('settings.team.inviteCodeHint', 'Members paste this code to join — no Git account needed')}</p>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">{t('settings.team.inviteLink', 'Invite Link')}</label>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 min-w-0 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-3 py-2 text-xs font-mono break-all max-h-20 overflow-y-auto select-all">
+                  {createdInviteDeeplink}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 h-9 w-9 p-0"
+                  onClick={() => copyToClipboard(createdInviteDeeplink, t('common.copied', 'Copied!'))}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
               </div>
-            )}
-            {/* Team ID */}
+              <p className="text-xs text-muted-foreground">{t('settings.team.inviteLinkExpiry', 'Valid for 7 days. Generate a new one if it expires.')}</p>
+            </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">{t('settings.team.teamId', 'Team ID')}</label>
               <div className="flex items-center gap-2">
@@ -1446,36 +947,7 @@ export function TeamGitConfig() {
                   variant="outline"
                   size="sm"
                   className="shrink-0 h-9 w-9 p-0"
-                  onClick={() => navigator.clipboard.writeText(createdTeamId)}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            {/* Team Secret */}
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">{t('settings.team.teamSecret', 'Team Secret')}</label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 min-w-0 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
-                  {showCreatedSecret ? createdTeamSecret : createdTeamSecret.replace(/./g, '*')}
-                </code>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 h-9 w-9 p-0"
-                  onClick={() => setShowCreatedSecret(!showCreatedSecret)}
-                >
-                  {showCreatedSecret ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 h-9 w-9 p-0"
-                  onClick={() => navigator.clipboard.writeText(createdTeamSecret)}
+                  onClick={() => copyToClipboard(createdTeamId, t('common.copied', 'Copied!'))}
                 >
                   <Copy className="h-4 w-4" />
                 </Button>
@@ -1485,9 +957,7 @@ export function TeamGitConfig() {
           <DialogFooter>
             <Button onClick={() => {
               setCreatedTeamId('')
-              setCreatedTeamSecret('')
-              setCreatedInviteCode('')
-              setShowCreatedSecret(false)
+              setCreatedInviteDeeplink('')
             }}>
               {t('common.close', 'Close')}
             </Button>
