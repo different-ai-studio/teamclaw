@@ -18,7 +18,7 @@ struct ChooseAuthView: View {
                 Image(systemName: "rectangle.3.group")
                     .font(.system(size: 44))
                     .foregroundStyle(Color.amux.cinnabar)
-                Text("Welcome to AMUX")
+                Text("Welcome to Teamclaw")
                     .font(.amuxSerif(28, weight: .regular))
                     .foregroundStyle(Color.amux.onyx)
                 Text("Pick how you want to start.")
@@ -165,7 +165,7 @@ private struct InviteJoinSheet: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Join with invite link")
                         .font(.title2.bold())
-                    Text("Paste the link your teammate shared. AMUX will sign you in and add you to their team.")
+                    Text("Paste the link your teammate shared. Teamclaw will sign you in and add you to their team.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

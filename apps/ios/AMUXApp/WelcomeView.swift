@@ -18,7 +18,7 @@ struct WelcomeView: View {
                     // Serif italic for the wordmark — wabi-sabi voice. The
                     // tagline drops to Basalt so the lobster/Cinnabar accent
                     // is the only intentional color on the screen.
-                    Text("AMUX")
+                    Text("Teamclaw")
                         .font(.amuxSerif(44, weight: .regular))
                         .foregroundStyle(Color.amux.onyx)
                     Text("Monitor and control your AI coding agents from anywhere.")
