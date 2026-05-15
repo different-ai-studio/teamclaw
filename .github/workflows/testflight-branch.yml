@@ -1,0 +1,72 @@
+name: TestFlight Branch Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build and upload"
+        required: true
+        default: "v2/monorepo-migration"
+
+concurrency:
+  group: testflight-branch-${{ github.event.inputs.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-upload:
+    runs-on: macos-26
+
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    env:
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+      FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 60
+      FASTLANE_XCODEBUILD_SETTINGS_RETRIES: 6
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: apps/ios
+
+      - name: Select Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app /Applications/Xcode.app 2>/dev/null | head -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer" || sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          swift --version
+
+      - name: Install iOS platform
+        run: |
+          set -euo pipefail
+          echo "Ensuring iOS platform is installed..."
+          xcodebuild -downloadPlatform iOS
+          xcodebuild -showsdks
+          xcodebuild -showsdks | grep -qi iphoneos
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build and upload to TestFlight
+        run: bundle exec fastlane beta

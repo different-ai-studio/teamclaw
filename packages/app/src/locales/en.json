@@ -51,7 +51,26 @@
     "more": "More",
     "showLess": "Show less",
     "showMore": "Show more",
-    "shortcuts": "Shortcuts"
+    "shortcuts": "Shortcuts",
+    "signOut": "Sign out",
+    "user": "User"
+  },
+  "auth": {
+    "tagline": "AI Ally · AI Teammate",
+    "signIn": "Sign in",
+    "willEmailCode": "We'll email you an 8-digit code.",
+    "email": "Email",
+    "emailPlaceholder": "you@example.com",
+    "sendCode": "Send code",
+    "sending": "Sending…",
+    "enterCode": "Enter the code",
+    "codeSent": "We sent an 8-digit code to {{email}}.",
+    "code": "Code",
+    "verify": "Verify",
+    "verifying": "Verifying…",
+    "useDifferentEmail": "Use a different email",
+    "settingUpWorkspace": "Setting up your workspace…",
+    "loading": "Loading…"
   },
   "navigation": {
     "home": "Home",
@@ -1503,6 +1522,10 @@
       }
     },
     "team": {
+      "currentTeam": "Current team",
+      "noTeam": "No team",
+      "renameSuccess": "Team renamed",
+      "renameFailed": "Failed to rename team",
       "checkingWorkspace": "Checking workspace...",
       "initializingRepo": "Initializing repository...",
       "generatingGitignore": "Generating .gitignore...",

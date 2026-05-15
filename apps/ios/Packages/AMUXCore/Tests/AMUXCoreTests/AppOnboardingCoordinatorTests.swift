@@ -6,18 +6,28 @@ import Testing
 struct AppOnboardingCoordinatorTests {
 
     @MainActor
-    @Test("bootstrap routes users without teams to create team")
-    func bootstrapWithoutTeamsShowsCreateTeam() async throws {
+    @Test("bootstrap auto-creates a team for signed-in users without teams")
+    func bootstrapWithoutTeamsAutoCreatesTeam() async throws {
+        let created = CreatedTeam(
+            team: TeamSummary(id: "team-auto", name: "Auto Team", slug: "auto-team", role: "owner"),
+            memberActorID: "member-auto",
+            workspaceID: "workspace-auto",
+            workspaceName: "General"
+        )
         let store = InMemoryOnboardingStore(
-            bootstrap: AppBootstrap(memberActorID: nil, teams: [])
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            createdTeam: created
         )
         let coordinator = AppOnboardingCoordinator(store: store)
 
         await coordinator.bootstrap()
 
         #expect(await store.recordedEnsureSessionCallCount() == 1)
-        #expect(coordinator.route == .createTeam)
-        #expect(coordinator.currentContext == nil)
+        #expect(await store.recordedCreatedTeamNames().count == 1)
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-auto")
+        #expect(coordinator.currentContext?.memberActorID == "member-auto")
+        #expect(coordinator.pendingCreatedTeam == created)
     }
 
     @MainActor
@@ -56,7 +66,6 @@ struct AppOnboardingCoordinatorTests {
         )
         let coordinator = AppOnboardingCoordinator(store: store)
 
-        await coordinator.bootstrap()
         await coordinator.createTeam(named: "Beta")
 
         #expect(await store.recordedCreatedTeamNames() == ["Beta"])
@@ -72,7 +81,6 @@ struct AppOnboardingCoordinatorTests {
         )
         let coordinator = AppOnboardingCoordinator(store: store)
 
-        await coordinator.bootstrap()
         await coordinator.createTeam(named: "   ")
 
         #expect(await store.recordedCreatedTeamNames().isEmpty)

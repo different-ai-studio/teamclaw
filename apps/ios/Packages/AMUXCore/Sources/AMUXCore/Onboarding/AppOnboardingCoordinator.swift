@@ -307,22 +307,16 @@ public final class AppOnboardingCoordinator {
                 return
             }
 
-            // No team yet. For anonymous users, auto-create one with a
-            // humanized random name so the "try it first" path lands
-            // straight in the app instead of showing the team-name screen.
-            if isAnonymous {
-                let name = RandomTeamName.generate()
-                let created = try await measureOnboarding("createTeam.auto") {
-                    try await store.createTeam(named: name)
-                }
-                pendingCreatedTeam = created
-                currentContext = AppContext(team: created.team, memberActorID: created.memberActorID)
-                route = .ready
-                return
+            // No team yet. Auto-create one after invite handling so newly
+            // registered users who were not invited anywhere land directly
+            // in the app instead of getting stuck on the manual team screen.
+            let name = RandomTeamName.generate()
+            let created = try await measureOnboarding("createTeam.auto") {
+                try await store.createTeam(named: name)
             }
-
-            currentContext = nil
-            route = .createTeam
+            pendingCreatedTeam = created
+            currentContext = AppContext(team: created.team, memberActorID: created.memberActorID)
+            route = .ready
         } catch is AuthRequired {
             currentContext = nil
             isAnonymous = false

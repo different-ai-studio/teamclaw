@@ -51,7 +51,26 @@
     "more": "更多",
     "showLess": "收起",
     "showMore": "展开更多",
-    "shortcuts": "快捷方式"
+    "shortcuts": "快捷方式",
+    "signOut": "登出",
+    "user": "用户"
+  },
+  "auth": {
+    "tagline": "AI Ally · AI 搭档",
+    "signIn": "登录",
+    "willEmailCode": "我们将向你的邮箱发送 8 位验证码。",
+    "email": "邮箱",
+    "emailPlaceholder": "you@example.com",
+    "sendCode": "发送验证码",
+    "sending": "发送中…",
+    "enterCode": "请输入验证码",
+    "codeSent": "已向 {{email}} 发送 8 位验证码。",
+    "code": "验证码",
+    "verify": "验证",
+    "verifying": "验证中…",
+    "useDifferentEmail": "换一个邮箱",
+    "settingUpWorkspace": "正在为你准备工作区…",
+    "loading": "加载中…"
   },
   "navigation": {
     "home": "首页",
@@ -1503,6 +1522,10 @@
       }
     },
     "team": {
+      "currentTeam": "当前团队",
+      "noTeam": "暂无团队",
+      "renameSuccess": "团队已重命名",
+      "renameFailed": "重命名失败",
       "checkingWorkspace": "检查工作区...",
       "initializingRepo": "初始化仓库...",
       "generatingGitignore": "生成 .gitignore...",

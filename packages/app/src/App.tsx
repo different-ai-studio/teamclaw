@@ -1254,7 +1254,7 @@ function AppContent() {
                 (typeof meta?.full_name === 'string' && meta.full_name) ||
                 (typeof meta?.name === 'string' && meta.name) ||
                 authSession.user.email ||
-                t('common.user', 'User');
+                t("common.user", "User");
               return (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

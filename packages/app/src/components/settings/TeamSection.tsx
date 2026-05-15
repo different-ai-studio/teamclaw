@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { TeamP2PConfig } from './team/TeamP2PConfig'
 import { TeamOSSConfig } from './team/TeamOSSConfig'
 import { TeamGitConfig } from './team/TeamGitConfig'
+import { TeamNameCard } from './team/TeamNameCard'
 import { useTeamOssStore } from '@/stores/team-oss'
 import { useTeamModeStore } from '@/stores/team-mode'
 
@@ -135,6 +136,8 @@ export function TeamSection() {
         description={t('settings.team.description', 'Connect cloud storage or Git to share skills, MCP configs, and knowledge with your team')}
         iconColor="text-violet-500"
       />
+
+      <TeamNameCard />
 
       <TabSwitcher activeTab={activeTab} onTabChange={setActiveTab} disabledTabs={disabledTabs} />
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { buildConfig } from "@/lib/build-config";
 import { useAppVersion } from "@/lib/version";
@@ -6,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export function LoginScreen() {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const { sendOtp, verifyOtp, resetOtp, otpEmail, loading, errorMessage } = useAuthStore();
@@ -41,7 +43,7 @@ export function LoginScreen() {
             {buildConfig.app.name}
           </h1>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            AI Ally · AI 搭档
+            {t("auth.tagline", "AI Ally · AI Teammate")}
           </p>
         </div>
       </div>
@@ -52,13 +54,17 @@ export function LoginScreen() {
           className="w-full max-w-sm space-y-5 rounded-2xl border border-border bg-paper p-7"
         >
           <div className="space-y-1.5">
-            <h2 className="text-[17px] font-semibold text-foreground">Enter the code</h2>
+            <h2 className="text-[17px] font-semibold text-foreground">
+              {t("auth.enterCode", "Enter the code")}
+            </h2>
             <p className="text-[13px] text-muted-foreground">
-              We sent an 8-digit code to <span className="font-medium text-foreground">{otpEmail}</span>.
+              {t("auth.codeSent", "We sent an 8-digit code to {{email}}.", { email: otpEmail })}
             </p>
           </div>
           <div className="space-y-2">
-            <label className="block text-[12px] font-medium text-ink-2">Code</label>
+            <label className="block text-[12px] font-medium text-ink-2">
+              {t("auth.code", "Code")}
+            </label>
             <Input
               type="text"
               inputMode="numeric"
@@ -77,14 +83,14 @@ export function LoginScreen() {
             disabled={loading || code.length !== 8}
             className="h-10 w-full bg-coral text-paper hover:bg-coral/90 disabled:bg-coral/40 disabled:text-paper"
           >
-            {loading ? "Verifying…" : "Verify"}
+            {loading ? t("auth.verifying", "Verifying…") : t("auth.verify", "Verify")}
           </Button>
           <button
             type="button"
             onClick={onBack}
             className="block w-full text-center text-[12px] text-muted-foreground hover:text-foreground transition-colors"
           >
-            Use a different email
+            {t("auth.useDifferentEmail", "Use a different email")}
           </button>
         </form>
       ) : (
@@ -93,20 +99,24 @@ export function LoginScreen() {
           className="w-full max-w-sm space-y-5 rounded-2xl border border-border bg-paper p-7"
         >
           <div className="space-y-1.5">
-            <h2 className="text-[17px] font-semibold text-foreground">Sign in</h2>
+            <h2 className="text-[17px] font-semibold text-foreground">
+              {t("auth.signIn", "Sign in")}
+            </h2>
             <p className="text-[13px] text-muted-foreground">
-              We'll email you an 8-digit code.
+              {t("auth.willEmailCode", "We'll email you an 8-digit code.")}
             </p>
           </div>
           <div className="space-y-2">
-            <label className="block text-[12px] font-medium text-ink-2">Email</label>
+            <label className="block text-[12px] font-medium text-ink-2">
+              {t("auth.email", "Email")}
+            </label>
             <Input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               autoFocus
-              placeholder="you@example.com"
+              placeholder={t("auth.emailPlaceholder", "you@example.com")}
               className="h-10"
             />
           </div>
@@ -116,7 +126,7 @@ export function LoginScreen() {
             disabled={loading || !email}
             className="h-10 w-full bg-coral text-paper hover:bg-coral/90 disabled:bg-coral/40 disabled:text-paper"
           >
-            {loading ? "Sending…" : "Send code"}
+            {loading ? t("auth.sending", "Sending…") : t("auth.sendCode", "Send code")}
           </Button>
         </form>
       )}
