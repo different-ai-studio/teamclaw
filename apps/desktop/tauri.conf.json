@@ -43,6 +43,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["teamclaw"]
+      }
+    },
     "shell": {
       "open": true
     },
