@@ -1,6 +1,6 @@
 begin;
 
-select plan(10);
+select plan(12);
 
 create or replace function pg_temp.as_user(p_user uuid)
 returns void language plpgsql as $$
@@ -67,6 +67,22 @@ select results_eq(
   $$ select enabled from public.team_workspace_config where team_id = (select team_id from ctx) $$,
   $$ values (true) $$,
   'enabled defaults true'
+);
+
+-- 11. Stranger cannot delete (no rows affected, row still exists)
+select pg_temp.as_user('b2222222-2222-2222-2222-222222222222');
+delete from public.team_workspace_config where team_id = (select team_id from ctx);
+select pg_temp.as_user('a1111111-1111-1111-1111-111111111111');
+select isnt_empty(
+  $$ select 1 from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  'stranger cannot delete'
+);
+
+-- 12. Owner can delete their own row
+delete from public.team_workspace_config where team_id = (select team_id from ctx);
+select is_empty(
+  $$ select 1 from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  'owner can delete own row'
 );
 
 select * from finish();

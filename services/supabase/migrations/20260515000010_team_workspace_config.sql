@@ -5,6 +5,8 @@ create table public.team_workspace_config (
   team_id              uuid primary key references public.teams(id) on delete cascade,
   git_url              text,
   git_branch           text,
+  -- Team-shared bot PAT. Stored plaintext for v2; encryption (e.g. pgsodium
+  -- vault.secrets) is a follow-up. RLS limits read to team members.
   git_token            text,
   ai_gateway_endpoint  text,
   enabled              boolean not null default true,
