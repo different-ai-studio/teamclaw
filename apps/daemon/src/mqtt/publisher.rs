@@ -1,6 +1,6 @@
 use super::MqttClient;
 use crate::proto::{amux, teamclaw};
-use rumqttc::QoS;
+use teamclaw_transport::{DeliveryGuarantee, Transport, TransportMessage};
 
 pub struct Publisher<'a> {
     client: &'a MqttClient,
@@ -11,6 +11,24 @@ impl<'a> Publisher<'a> {
         Self { client }
     }
 
+    async fn publish_message(
+        &self,
+        topic: String,
+        retain: bool,
+        payload: Vec<u8>,
+    ) -> Result<(), rumqttc::ClientError> {
+        <rumqttc::AsyncClient as Transport>::publish(
+            &self.client.client,
+            TransportMessage {
+                topic,
+                payload,
+                retain,
+                delivery: DeliveryGuarantee::AtLeastOnce,
+            },
+        )
+        .await
+    }
+
     /// Publishes RuntimeInfo to the retained runtime/{id}/state topic.
     pub async fn publish_runtime_state(
         &self,
@@ -18,29 +36,19 @@ impl<'a> Publisher<'a> {
         info: &amux::RuntimeInfo,
     ) -> Result<(), rumqttc::ClientError> {
         let payload = info.encode_to_vec();
-        self.client
-            .client
-            .publish(
-                self.client.topics.runtime_state(agent_id),
-                QoS::AtLeastOnce,
-                true,
-                payload,
-            )
+        self.publish_message(self.client.topics.runtime_state(agent_id), true, payload)
             .await
     }
 
     /// Clears retained state on runtime/{id}/state. Otherwise subscribers
     /// would see ghost state after runtime termination.
     pub async fn clear_runtime_state(&self, agent_id: &str) -> Result<(), rumqttc::ClientError> {
-        self.client
-            .client
-            .publish(
-                self.client.topics.runtime_state(agent_id),
-                QoS::AtLeastOnce,
-                true,
-                Vec::<u8>::new(),
-            )
-            .await
+        self.publish_message(
+            self.client.topics.runtime_state(agent_id),
+            true,
+            Vec::<u8>::new(),
+        )
+        .await
     }
 
     /// Publishes DeviceState (online/offline) to the retained
@@ -52,14 +60,7 @@ impl<'a> Publisher<'a> {
         state: &amux::DeviceState,
     ) -> Result<(), rumqttc::ClientError> {
         let payload = state.encode_to_vec();
-        self.client
-            .client
-            .publish(
-                self.client.topics.device_state(),
-                QoS::AtLeastOnce,
-                true,
-                payload,
-            )
+        self.publish_message(self.client.topics.device_state(), true, payload)
             .await
     }
 
@@ -97,14 +98,11 @@ impl<'a> Publisher<'a> {
             refresh_hint: refresh_hint.to_string(),
             sent_at: chrono::Utc::now().timestamp(),
         };
-        self.client
-            .client
-            .publish(
-                self.client.topics.device_notify(),
-                QoS::AtLeastOnce,
-                false,
-                notify.encode_to_vec(),
-            )
-            .await
+        self.publish_message(
+            self.client.topics.device_notify(),
+            false,
+            notify.encode_to_vec(),
+        )
+        .await
     }
 }

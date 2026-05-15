@@ -60,6 +60,38 @@ pub trait Transport {
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
 }
 
+impl From<DeliveryGuarantee> for rumqttc::QoS {
+    fn from(value: DeliveryGuarantee) -> Self {
+        match value {
+            DeliveryGuarantee::AtMostOnce => rumqttc::QoS::AtMostOnce,
+            DeliveryGuarantee::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
+            DeliveryGuarantee::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
+        }
+    }
+}
+
+impl Transport for rumqttc::AsyncClient {
+    type Error = rumqttc::ClientError;
+
+    async fn publish(&self, message: TransportMessage) -> Result<(), Self::Error> {
+        self.publish(
+            message.topic,
+            rumqttc::QoS::from(message.delivery),
+            message.retain,
+            message.payload,
+        )
+        .await
+    }
+
+    async fn subscribe(
+        &self,
+        topic: String,
+        delivery: DeliveryGuarantee,
+    ) -> Result<(), Self::Error> {
+        self.subscribe(topic, rumqttc::QoS::from(delivery)).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +121,21 @@ mod tests {
         assert_eq!(broker.host, "broker.local");
         assert_eq!(broker.port, 8883);
         assert!(broker.use_tls);
+    }
+
+    #[test]
+    fn delivery_guarantee_maps_to_rumqttc_qos() {
+        assert_eq!(
+            rumqttc::QoS::AtMostOnce,
+            rumqttc::QoS::from(DeliveryGuarantee::AtMostOnce)
+        );
+        assert_eq!(
+            rumqttc::QoS::AtLeastOnce,
+            rumqttc::QoS::from(DeliveryGuarantee::AtLeastOnce)
+        );
+        assert_eq!(
+            rumqttc::QoS::ExactlyOnce,
+            rumqttc::QoS::from(DeliveryGuarantee::ExactlyOnce)
+        );
     }
 }

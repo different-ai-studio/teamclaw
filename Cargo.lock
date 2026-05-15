@@ -12891,6 +12891,9 @@ dependencies = [
 [[package]]
 name = "teamclaw-transport"
 version = "0.1.0"
+dependencies = [
+ "rumqttc",
+]
 
 [[package]]
 name = "teamclaw-types"
