@@ -16,10 +16,9 @@ android {
 }
 
 dependencies {
-    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.junit4)
     testImplementation(libs.truth)
     testImplementation("org.robolectric:robolectric:4.14")
     testImplementation(libs.androidx.test.ext.junit)
 }
-
-tasks.withType<Test> { useJUnitPlatform() }
+// Robolectric requires JUnit4; don't switch to Jupiter for this module.

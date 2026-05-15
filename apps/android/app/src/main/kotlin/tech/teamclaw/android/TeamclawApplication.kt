@@ -4,7 +4,9 @@ import android.app.Application
 import io.github.jan.supabase.SupabaseClient
 import io.sentry.android.core.SentryAndroid
 import tech.teamclaw.android.core.auth.OnboardingCoordinator
+import tech.teamclaw.android.core.auth.SessionListStore
 import tech.teamclaw.android.core.auth.SupabaseOnboardingStore
+import tech.teamclaw.android.core.auth.SupabaseSessionsRepository
 import tech.teamclaw.android.core.auth.apple.AppleSignInHandler
 import tech.teamclaw.android.core.auth.google.GoogleSignInHandler
 import tech.teamclaw.android.core.deeplink.DeepLinkParser
@@ -26,6 +28,8 @@ class TeamclawApplication : Application() {
     lateinit var googleHandler: GoogleSignInHandler
         private set
     lateinit var deepLinkParser: DeepLinkParser
+        private set
+    lateinit var sessionListStoreFactory: (teamId: String) -> SessionListStore
         private set
 
     override fun onCreate() {
@@ -53,5 +57,7 @@ class TeamclawApplication : Application() {
         appleHandler = AppleSignInHandler(serviceId = BuildConfig.APPLE_SERVICE_ID)
         googleHandler = GoogleSignInHandler(clientId = BuildConfig.GOOGLE_OAUTH_CLIENT_ID)
         deepLinkParser = DeepLinkParser()
+        val sessionsRepo = SupabaseSessionsRepository(supabaseClient)
+        sessionListStoreFactory = { teamId -> SessionListStore(teamId, sessionsRepo) }
     }
 }

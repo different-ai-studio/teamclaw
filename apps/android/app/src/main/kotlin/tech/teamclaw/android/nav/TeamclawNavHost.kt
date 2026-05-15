@@ -1,19 +1,12 @@
 package tech.teamclaw.android.nav
 
 import androidx.activity.ComponentActivity
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
@@ -21,6 +14,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import tech.teamclaw.android.core.auth.OnboardingCoordinator
 import tech.teamclaw.android.core.auth.OnboardingRoute
+import tech.teamclaw.android.core.auth.SessionListStore
 import tech.teamclaw.android.core.auth.apple.AppleSignInHandler
 import tech.teamclaw.android.core.auth.google.GoogleSignInHandler
 import tech.teamclaw.android.feature.onboarding.ChooseAuthScreen
@@ -29,6 +23,7 @@ import tech.teamclaw.android.feature.onboarding.InviteJoinSheet
 import tech.teamclaw.android.feature.onboarding.LobsterSplashScreen
 import tech.teamclaw.android.feature.onboarding.LoginScreen
 import tech.teamclaw.android.feature.onboarding.OnboardingErrorScreen
+import tech.teamclaw.android.feature.onboarding.SessionListScreen
 import tech.teamclaw.android.feature.onboarding.WelcomeScreen
 
 @Composable
@@ -36,6 +31,7 @@ fun TeamclawNavHost(
     coordinator: OnboardingCoordinator,
     appleHandler: AppleSignInHandler,
     googleHandler: GoogleSignInHandler,
+    sessionListStoreFactory: (teamId: String) -> SessionListStore,
 ) {
     val state by coordinator.state.collectAsStateWithLifecycle()
     val activity = LocalContext.current as ComponentActivity
@@ -62,22 +58,25 @@ fun TeamclawNavHost(
             errorMessage = state.errorMessage,
             onCreate = { name -> coordinator.launch { coordinator.createTeam(name) } },
         )
-        OnboardingRoute.Ready -> PlaceholderSessionsScreen(
-            teamName = state.currentContext?.team?.name ?: "",
-            onSignOut = { coordinator.launch { coordinator.signOut() } },
-        )
-    }
-}
-
-@Composable
-private fun PlaceholderSessionsScreen(teamName: String, onSignOut: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text("You're in: $teamName")
-        TextButton(onClick = onSignOut) { Text("Sign out") }
+        OnboardingRoute.Ready -> {
+            val team = state.currentContext?.team
+            if (team == null) {
+                LobsterSplashScreen()
+            } else {
+                val store = remember(team.id) { sessionListStoreFactory(team.id) }
+                val sessionState by store.state.collectAsStateWithLifecycle()
+                LaunchedEffect(team.id) { store.reload() }
+                SessionListScreen(
+                    teamName = team.name,
+                    sessions = sessionState.sessions,
+                    isLoading = sessionState.isLoading,
+                    errorMessage = sessionState.errorMessage,
+                    onRefresh = { coordinator.launch { store.reload() } },
+                    onSessionClick = { /* P3 will open chat detail */ },
+                    onSignOut = { coordinator.launch { coordinator.signOut() } },
+                )
+            }
+        }
     }
 }
 

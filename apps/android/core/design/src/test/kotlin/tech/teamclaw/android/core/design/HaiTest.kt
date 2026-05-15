@@ -14,7 +14,9 @@ class HaiTest {
     }
 
     @Test fun `Hairline is onyx at 10 percent alpha`() {
+        // Compose Color packs alpha into a byte, so 0.10f → 26/255 ≈ 0.1019. Tolerance
+        // accounts for the byte rounding.
         val hairline = Hai.Hairline
-        assertThat(hairline.alpha).isWithin(0.001f).of(0.10f)
+        assertThat(hairline.alpha).isWithin(0.01f).of(0.10f)
     }
 }

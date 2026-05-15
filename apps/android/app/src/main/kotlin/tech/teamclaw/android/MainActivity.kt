@@ -19,7 +19,12 @@ class MainActivity : ComponentActivity() {
         intent?.let { handleIntent(it) }
         setContent {
             TeamclawTheme {
-                TeamclawNavHost(app.coordinator, app.appleHandler, app.googleHandler)
+                TeamclawNavHost(
+                    coordinator = app.coordinator,
+                    appleHandler = app.appleHandler,
+                    googleHandler = app.googleHandler,
+                    sessionListStoreFactory = app.sessionListStoreFactory,
+                )
             }
         }
     }
