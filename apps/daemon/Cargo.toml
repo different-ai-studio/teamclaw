@@ -1,0 +1,55 @@
+[package]
+name = "amuxd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# ACP
+agent-client-protocol = { version = "0.10.4", features = ["unstable_session_model", "unstable_session_resume", "unstable_session_usage"] }
+
+# MQTT
+rumqttc = "0.24"
+
+# Protobuf
+prost = { workspace = true }
+prost-types = { workspace = true }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Config & serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+dirs = "6"
+
+# Utilities
+libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "2"
+
+# TLS (match rumqttc 0.24's rustls version)
+rustls = "0.22"
+tokio-rustls = "0.25"
+
+# Supabase (HTTP + JWT)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+jsonwebtoken = "9"
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+
+[build-dependencies]
+prost-build = { workspace = true }

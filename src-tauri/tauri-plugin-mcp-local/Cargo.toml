@@ -32,7 +32,3 @@ win-screenshot = "4.0.5"
 
 [build-dependencies]
 tauri-plugin = { version = "2.2.0", features = ["build"] }
-
-
-[profile.dev.package."*"]
-opt-level = 0  # Force dependencies to compile with minimal optimization

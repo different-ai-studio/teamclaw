@@ -77,6 +77,11 @@ message AcpToolUse {
   string tool_name = 2;           // "Read", "Edit", "Bash", "Write", etc.
   string description = 3;
   map<string, string> params = 4;
+  // ACP ToolKind enum as snake_case string: "read" | "edit" | "delete" |
+  // "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" |
+  // "other". Free-form text so future ACP enum additions don't require
+  // a proto bump; renderers must tolerate unknown values (treat as "other").
+  string tool_kind = 5;
 }
 
 message AcpToolResult {
