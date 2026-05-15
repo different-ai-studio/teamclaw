@@ -1,5 +1,9 @@
 // Suppress cfg warnings from the legacy `objc` crate's `msg_send!` / `sel_impl!` macros.
 #![allow(unexpected_cfgs)]
+// Suppress dead-code and unused-import warnings from legacy/in-progress code.
+#![allow(dead_code, unused_imports)]
+// Suppress new_without_default for types that intentionally use new() with no args.
+#![allow(clippy::new_without_default)]
 // Suppress style/complexity clippy lints that are non-critical for this codebase.
 #![allow(
     clippy::cloned_ref_to_slice_refs,
@@ -292,8 +296,7 @@ pub fn run() {
         .manage(commands::cron::CronState::default())
         .manage(rag_state)
         .manage(local_cache::commands::LocalCacheState::default())
-        .manage(telemetry::commands::TelemetryState::default())
-        .manage(telemetry::commands::IdentityState::default())
+
         .manage(teamclaw_stt::SttState::default())
         .manage({
             #[allow(unused_mut)]
@@ -598,22 +601,6 @@ pub fn run() {
             local_cache::commands::local_cache_clear_team,
             telemetry::commands::telemetry_get_consent,
             telemetry::commands::telemetry_set_consent,
-            telemetry::commands::telemetry_set_feedback,
-            telemetry::commands::telemetry_get_feedbacks,
-            telemetry::commands::telemetry_remove_feedback,
-            telemetry::commands::telemetry_set_star_rating,
-            telemetry::commands::telemetry_remove_star_rating,
-            telemetry::commands::telemetry_save_report,
-            telemetry::commands::telemetry_track,
-            telemetry::commands::telemetry_get_reports,
-            telemetry::commands::telemetry_export_team_feedback,
-            telemetry::commands::telemetry_get_team_feedback_summary,
-            telemetry::commands::telemetry_export_leaderboard,
-            telemetry::commands::telemetry_get_team_leaderboard,
-            telemetry::commands::telemetry_get_member_aggregated_stats,
-            telemetry::commands::identity_list_users,
-            telemetry::commands::identity_bind,
-            telemetry::commands::identity_get_usage,
             commands::webview::webview_eval_js,
             commands::webview::webview_create,
             commands::webview::webview_close,
