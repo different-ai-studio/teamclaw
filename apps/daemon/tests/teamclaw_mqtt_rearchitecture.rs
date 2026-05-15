@@ -4,9 +4,7 @@ mod subscriber;
 mod topics;
 
 mod proto {
-    pub mod amux {
-        include!(concat!(env!("OUT_DIR"), "/amux.rs"));
-    }
+    pub use teamclaw_proto::amux;
 }
 
 use topics::Topics;

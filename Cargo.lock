@@ -330,13 +330,13 @@ dependencies = [
  "jsonwebtoken",
  "libc",
  "prost 0.13.5",
- "prost-build",
  "prost-types",
  "reqwest 0.12.28",
  "rumqttc",
  "rustls 0.22.4",
  "serde",
  "serde_json",
+ "teamclaw-proto",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -12660,7 +12660,6 @@ dependencies = [
  "objc2-web-kit",
  "portable-pty",
  "prost 0.13.5",
- "prost-build",
  "prost-types",
  "rand 0.8.6",
  "rayon",
@@ -12690,6 +12689,7 @@ dependencies = [
  "tauri-plugin-updater",
  "teamclaw-gateway",
  "teamclaw-p2p",
+ "teamclaw-proto",
  "teamclaw-rag",
  "teamclaw-stt",
  "teamclaw-sync",
@@ -12784,6 +12784,15 @@ dependencies = [
  "tokio",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "teamclaw-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "prost-build",
+ "prost-types",
 ]
 
 [[package]]

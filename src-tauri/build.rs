@@ -42,18 +42,7 @@ fn resolve_updater_endpoint(config: &serde_json::Value) -> Option<String> {
     })
 }
 
-fn compile_protos() {
-    let amux = "../proto/amux.proto";
-    let teamclaw = "../proto/teamclaw.proto";
-    println!("cargo:rerun-if-changed={amux}");
-    println!("cargo:rerun-if-changed={teamclaw}");
-    prost_build::Config::new()
-        .compile_protos(&[amux, teamclaw], &["../proto"])
-        .expect("compile amux + teamclaw protos");
-}
-
 fn main() {
-    compile_protos();
     // ── Read build config: base → env → local (mirrors vite.config.ts) ──
     let root_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

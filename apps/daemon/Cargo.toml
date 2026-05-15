@@ -13,6 +13,7 @@ rumqttc = "0.24"
 # Protobuf
 prost = { workspace = true }
 prost-types = { workspace = true }
+teamclaw-proto = { path = "../../crates/teamclaw-proto" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -50,6 +51,3 @@ url = "2"
 [dev-dependencies]
 tempfile = "3"
 wiremock = "0.6"
-
-[build-dependencies]
-prost-build = { workspace = true }
