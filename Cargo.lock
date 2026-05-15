@@ -337,6 +337,7 @@ dependencies = [
  "serde",
  "serde_json",
  "teamclaw-proto",
+ "teamclaw-types",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -12693,6 +12694,7 @@ dependencies = [
  "teamclaw-rag",
  "teamclaw-stt",
  "teamclaw-sync",
+ "teamclaw-types",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -12884,6 +12886,10 @@ dependencies = [
  "uuid",
  "zstd",
 ]
+
+[[package]]
+name = "teamclaw-types"
+version = "0.1.0"
 
 [[package]]
 name = "tempfile"

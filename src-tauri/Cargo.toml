@@ -34,6 +34,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 prost = "0.13"
 prost-types = "0.13"
 teamclaw-proto = { path = "../crates/teamclaw-proto" }
+teamclaw-types = { path = "../crates/teamclaw-types" }
 indexmap = { version = "2", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
 reqwest = { version = "0.11", features = ["json", "blocking", "stream", "rustls-tls-native-roots"], default-features = false }

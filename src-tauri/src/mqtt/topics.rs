@@ -1,5 +1,5 @@
 pub fn session_live(team_id: &str, session_id: &str) -> String {
-    format!("amux/{team_id}/session/{session_id}/live")
+    teamclaw_types::mqtt::session_live(team_id, session_id)
 }
 
 pub fn device_rpc_req(team_id: &str, daemon_id: &str) -> String {
@@ -11,11 +11,11 @@ pub fn device_rpc_res(team_id: &str, daemon_id: &str) -> String {
 }
 
 pub fn runtime_events(team_id: &str, daemon_id: &str, runtime_id: &str) -> String {
-    format!("amux/{team_id}/device/{daemon_id}/runtime/{runtime_id}/events")
+    teamclaw_types::mqtt::runtime_events(team_id, daemon_id, runtime_id)
 }
 
 pub fn device_state(team_id: &str, daemon_id: &str) -> String {
-    format!("amux/{team_id}/device/{daemon_id}/state")
+    teamclaw_types::mqtt::device_state(team_id, daemon_id)
 }
 
 #[cfg(test)]
