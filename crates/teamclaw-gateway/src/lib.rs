@@ -1,5 +1,8 @@
 #![allow(clippy::too_many_arguments)]
 
+pub mod acp;
+pub use acp::{AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId};
+
 pub mod config;
 pub mod discord;
 pub mod email;
