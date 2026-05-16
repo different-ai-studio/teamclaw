@@ -15,6 +15,12 @@
         android:fullBackupContent="false"
         android:supportsRtl="true">
 
+        <!-- Disable Sentry's ContentProvider auto-init. We init from
+             TeamclawApplication.onCreate so we can read SENTRY_DSN from
+             BuildConfig and skip init entirely when it's blank (test
+             builds, local dev with empty secrets.properties). -->
+        <meta-data android:name="io.sentry.auto-init" android:value="false"/>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
