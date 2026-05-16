@@ -1,26 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mockInvoke = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/amuxd-channels', () => {
+  class AmuxdUnreachableError extends Error {
+    constructor() {
+      super('amuxd unreachable')
+      this.name = 'AmuxdUnreachableError'
+    }
+  }
+  return {
+    listChannels: vi.fn(),
+    saveChannelConfig: vi.fn(),
+    reloadChannels: vi.fn(),
+    AmuxdUnreachableError,
+  }
+})
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: (...args: unknown[]) => mockInvoke(...args),
-}))
-
-vi.mock('@/stores/workspace', () => ({
-  useWorkspaceStore: {
-    getState: () => ({ workspacePath: '/tmp/test-workspace' }),
-  },
-}))
+import {
+  listChannels,
+  saveChannelConfig,
+  reloadChannels,
+  AmuxdUnreachableError,
+} from '@/lib/amuxd-channels'
 
 describe('createWecomActions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('passes workspacePath when loading config and status', async () => {
-    mockInvoke
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ status: 'disconnected' })
+  it('maps amuxd channel status into the WeCom gateway slot on load', async () => {
+    vi.mocked(listChannels).mockResolvedValueOnce([
+      { platform: 'wecom', enabled: true, connected: true, lastError: null },
+    ])
 
     const { createWecomActions } = await import('../wecom')
     const set = vi.fn()
@@ -28,35 +38,67 @@ describe('createWecomActions', () => {
 
     await actions.loadWecomConfig()
 
-    expect(mockInvoke).toHaveBeenNthCalledWith(1, 'get_wecom_config', {
-      workspacePath: '/tmp/test-workspace',
-    })
-    expect(mockInvoke).toHaveBeenNthCalledWith(2, 'get_wecom_gateway_status', {
-      workspacePath: '/tmp/test-workspace',
-    })
+    expect(listChannels).toHaveBeenCalledTimes(1)
+    // first set: wecomIsLoading=true, second set: full payload
+    const final = set.mock.calls[set.mock.calls.length - 1][0]
+    expect(final.wecomGatewayStatus).toEqual({ status: 'connected' })
+    expect(final.wecomIsLoading).toBe(false)
   })
 
-  it('passes workspacePath when starting and stopping the gateway', async () => {
-    mockInvoke
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({ status: 'connected' })
-      .mockResolvedValueOnce(undefined)
+  it('saveWecomConfig flips through wrapper + reload', async () => {
+    vi.mocked(saveChannelConfig).mockResolvedValue(undefined)
+    vi.mocked(reloadChannels).mockResolvedValue(undefined)
 
     const { createWecomActions } = await import('../wecom')
     const set = vi.fn()
     const actions = createWecomActions(set)
 
-    await actions.startWecomGateway()
-    await actions.stopWecomGateway()
+    await actions.saveWecomConfig({
+      enabled: true,
+      botId: 'bot',
+      secret: 'sec',
+    })
 
-    expect(mockInvoke).toHaveBeenCalledWith('start_wecom_gateway', {
-      workspacePath: '/tmp/test-workspace',
+    expect(saveChannelConfig).toHaveBeenCalledWith('wecom', {
+      enabled: true,
+      botId: 'bot',
+      secret: 'sec',
     })
-    expect(mockInvoke).toHaveBeenCalledWith('get_wecom_gateway_status', {
-      workspacePath: '/tmp/test-workspace',
+    expect(reloadChannels).toHaveBeenCalled()
+  })
+
+  it('surfaces a friendly error when amuxd is unreachable on load', async () => {
+    vi.mocked(listChannels).mockRejectedValueOnce(new AmuxdUnreachableError())
+
+    const { createWecomActions } = await import('../wecom')
+    const set = vi.fn()
+    const actions = createWecomActions(set)
+
+    await actions.loadWecomConfig()
+
+    const errorPayload = set.mock.calls.find(
+      (c) => (c[0] as { error?: string }).error
+    )?.[0] as { error?: string } | undefined
+    expect(errorPayload?.error).toMatch(/amuxd not running/i)
+  })
+
+  it('toggleWecomEnabled saves disabled config and clears status', async () => {
+    vi.mocked(saveChannelConfig).mockResolvedValue(undefined)
+    vi.mocked(reloadChannels).mockResolvedValue(undefined)
+
+    const { createWecomActions } = await import('../wecom')
+    const set = vi.fn()
+    const actions = createWecomActions(set)
+
+    await actions.toggleWecomEnabled(false, {
+      enabled: true,
+      botId: 'bot',
+      secret: 'sec',
     })
-    expect(mockInvoke).toHaveBeenCalledWith('stop_wecom_gateway', {
-      workspacePath: '/tmp/test-workspace',
-    })
+
+    expect(saveChannelConfig).toHaveBeenCalledWith(
+      'wecom',
+      expect.objectContaining({ enabled: false })
+    )
   })
 })

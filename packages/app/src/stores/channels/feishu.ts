@@ -1,29 +1,47 @@
-import { invoke } from '@tauri-apps/api/core'
 import type {
   FeishuConfig,
   FeishuGatewayStatusResponse,
   ChannelsState,
 } from '../channels-types'
 import { defaultFeishuConfig } from '../channels-types'
+import {
+  listChannels,
+  saveChannelConfig,
+  reloadChannels,
+  AmuxdUnreachableError,
+} from '@/lib/amuxd-channels'
 
 type ChannelsSet = (fn: ((state: ChannelsState) => Partial<ChannelsState>) | Partial<ChannelsState>) => void
+
+function statusFor(list: Awaited<ReturnType<typeof listChannels>>): FeishuGatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'feishu')
+  if (!entry) return { status: 'disconnected' }
+  if (entry.lastError) return { status: 'error', errorMessage: entry.lastError }
+  if (entry.connected) return { status: 'connected' }
+  if (entry.enabled) return { status: 'connecting' }
+  return { status: 'disconnected' }
+}
+
+function describe(e: unknown): string {
+  if (e instanceof AmuxdUnreachableError) return 'amuxd not running. Start amuxd and try again.'
+  return e instanceof Error ? e.message : String(e)
+}
 
 export function createFeishuActions(set: ChannelsSet) {
   return {
     loadFeishuConfig: async () => {
       set({ feishuIsLoading: true, error: null })
       try {
-        const config = await invoke<FeishuConfig | null>('get_feishu_config')
-        const status = await invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status')
+        const list = await listChannels()
         set({
-          feishu: config || defaultFeishuConfig,
-          feishuGatewayStatus: status,
+          feishu: defaultFeishuConfig,
+          feishuGatewayStatus: statusFor(list),
           feishuIsLoading: false,
           feishuHasChanges: false,
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           feishuIsLoading: false,
         })
       }
@@ -32,14 +50,15 @@ export function createFeishuActions(set: ChannelsSet) {
     saveFeishuConfig: async (config: FeishuConfig) => {
       set({ feishuIsLoading: true, error: null })
       try {
-        await invoke('save_feishu_config', { feishu: config })
+        await saveChannelConfig('feishu', config)
+        await reloadChannels()
         set({
           feishu: config,
           feishuIsLoading: false,
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           feishuIsLoading: false,
         })
         throw error
@@ -49,16 +68,24 @@ export function createFeishuActions(set: ChannelsSet) {
     startFeishuGateway: async () => {
       set({ feishuIsLoading: true, error: null })
       try {
-        await invoke('start_feishu_gateway')
+        let cfg: FeishuConfig = defaultFeishuConfig
+        set((state) => {
+          cfg = state.feishu ?? defaultFeishuConfig
+          return {}
+        })
+        const enabled = { ...cfg, enabled: true }
+        await saveChannelConfig('feishu', enabled)
+        await reloadChannels()
         await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status')
+        const list = await listChannels()
         set({
-          feishuGatewayStatus: status,
+          feishu: enabled,
+          feishuGatewayStatus: statusFor(list),
           feishuIsLoading: false,
           feishuHasChanges: false,
         })
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = describe(error)
         set({
           error: errorMessage,
           feishuIsLoading: false,
@@ -74,16 +101,22 @@ export function createFeishuActions(set: ChannelsSet) {
     stopFeishuGateway: async () => {
       set({ feishuIsLoading: true, error: null })
       try {
-        await invoke('stop_feishu_gateway')
+        let cfg: FeishuConfig = defaultFeishuConfig
+        set((state) => {
+          cfg = state.feishu ?? defaultFeishuConfig
+          return {}
+        })
+        const disabled = { ...cfg, enabled: false }
+        await saveChannelConfig('feishu', disabled)
+        await reloadChannels()
         set({
-          feishuGatewayStatus: {
-            status: 'disconnected',
-          },
+          feishu: disabled,
+          feishuGatewayStatus: { status: 'disconnected' },
           feishuIsLoading: false,
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           feishuIsLoading: false,
         })
         throw error
@@ -92,36 +125,22 @@ export function createFeishuActions(set: ChannelsSet) {
 
     refreshFeishuStatus: async () => {
       try {
-        const status = await invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status')
-        set({ feishuGatewayStatus: status })
+        const list = await listChannels()
+        set({ feishuGatewayStatus: statusFor(list) })
       } catch (error) {
         console.error('Failed to refresh Feishu gateway status:', error)
       }
     },
 
-    testFeishuCredentials: async (appId: string, appSecret: string) => {
-      set({ feishuIsTesting: true, feishuTestResult: null })
-      try {
-        await invoke<string>('test_feishu_credentials', { appId, appSecret })
-        set({
-          feishuIsTesting: false,
-          feishuTestResult: {
-            success: true,
-            message: 'Credentials valid',
-          },
-        })
-        return true
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        set({
-          feishuIsTesting: false,
-          feishuTestResult: {
-            success: false,
-            message: errorMessage,
-          },
-        })
-        return false
-      }
+    testFeishuCredentials: async (_appId: string, _appSecret: string) => {
+      set({
+        feishuIsTesting: false,
+        feishuTestResult: {
+          success: false,
+          message: 'Credential test is unavailable. Save the config — amuxd will validate it when the gateway starts.',
+        },
+      })
+      return false
     },
 
     clearFeishuTestResult: () => set({ feishuTestResult: null }),
@@ -130,29 +149,25 @@ export function createFeishuActions(set: ChannelsSet) {
     toggleFeishuEnabled: async (enabled: boolean, config: FeishuConfig) => {
       const updatedConfig = { ...config, enabled }
       try {
-        await invoke('save_feishu_config', { feishu: updatedConfig })
-        set({ feishu: updatedConfig })
+        await saveChannelConfig('feishu', updatedConfig)
+        await reloadChannels()
+        set({ feishu: updatedConfig, feishuHasChanges: false })
         if (enabled) {
           set({ feishuIsLoading: true })
+          await new Promise((resolve) => setTimeout(resolve, 1000))
           try {
-            await invoke('start_feishu_gateway')
-            await new Promise((resolve) => setTimeout(resolve, 1000))
-            const status = await invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status')
-            set({ feishuGatewayStatus: status, feishuIsLoading: false, feishuHasChanges: false })
+            const list = await listChannels()
+            set({ feishuGatewayStatus: statusFor(list), feishuIsLoading: false })
           } catch (error) {
-            console.error('[Feishu] Auto-start failed:', error)
-            set({ feishuIsLoading: false })
+            console.error('[Feishu] Status check after toggle failed:', error)
+            set({ feishuIsLoading: false, error: describe(error) })
           }
         } else {
-          try {
-            await invoke('stop_feishu_gateway')
-            set({ feishuGatewayStatus: { status: 'disconnected' } })
-          } catch {
-            // May not be running
-          }
+          set({ feishuGatewayStatus: { status: 'disconnected' } })
         }
       } catch (error) {
         console.error('[Feishu] Toggle enabled failed:', error)
+        set({ error: describe(error) })
       }
     },
   }

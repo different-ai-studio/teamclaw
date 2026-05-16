@@ -1,30 +1,47 @@
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import type {
   EmailConfig,
   EmailGatewayStatusResponse,
   ChannelsState,
 } from '../channels-types'
 import { defaultEmailConfig } from '../channels-types'
+import {
+  listChannels,
+  saveChannelConfig,
+  reloadChannels,
+  AmuxdUnreachableError,
+} from '@/lib/amuxd-channels'
 
 type ChannelsSet = (fn: ((state: ChannelsState) => Partial<ChannelsState>) | Partial<ChannelsState>) => void
+
+function statusFor(list: Awaited<ReturnType<typeof listChannels>>): EmailGatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'email')
+  if (!entry) return { status: 'disconnected' }
+  if (entry.lastError) return { status: 'error', errorMessage: entry.lastError }
+  if (entry.connected) return { status: 'connected' }
+  if (entry.enabled) return { status: 'connecting' }
+  return { status: 'disconnected' }
+}
+
+function describe(e: unknown): string {
+  if (e instanceof AmuxdUnreachableError) return 'amuxd not running. Start amuxd and try again.'
+  return e instanceof Error ? e.message : String(e)
+}
 
 export function createEmailActions(set: ChannelsSet) {
   return {
     loadEmailConfig: async () => {
       set({ emailIsLoading: true, error: null })
       try {
-        const config = await invoke<EmailConfig | null>('get_email_config')
-        const status = await invoke<EmailGatewayStatusResponse>('get_email_gateway_status')
+        const list = await listChannels()
         set({
-          email: config || defaultEmailConfig,
-          emailGatewayStatus: status,
+          email: defaultEmailConfig,
+          emailGatewayStatus: statusFor(list),
           emailIsLoading: false,
           emailHasChanges: false,
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           emailIsLoading: false,
         })
       }
@@ -33,14 +50,15 @@ export function createEmailActions(set: ChannelsSet) {
     saveEmailConfig: async (config: EmailConfig) => {
       set({ emailIsLoading: true, error: null })
       try {
-        await invoke('save_email_config', { email: config })
+        await saveChannelConfig('email', config)
+        await reloadChannels()
         set({
           email: config,
           emailIsLoading: false,
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           emailIsLoading: false,
         })
         throw error
@@ -50,16 +68,24 @@ export function createEmailActions(set: ChannelsSet) {
     startEmailGateway: async () => {
       set({ emailIsLoading: true, error: null })
       try {
-        await invoke('start_email_gateway')
+        let cfg: EmailConfig = defaultEmailConfig
+        set((state) => {
+          cfg = state.email ?? defaultEmailConfig
+          return {}
+        })
+        const enabled = { ...cfg, enabled: true }
+        await saveChannelConfig('email', enabled)
+        await reloadChannels()
         await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<EmailGatewayStatusResponse>('get_email_gateway_status')
+        const list = await listChannels()
         set({
-          emailGatewayStatus: status,
+          email: enabled,
+          emailGatewayStatus: statusFor(list),
           emailIsLoading: false,
           emailHasChanges: false,
         })
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = describe(error)
         set({
           error: errorMessage,
           emailIsLoading: false,
@@ -75,16 +101,22 @@ export function createEmailActions(set: ChannelsSet) {
     stopEmailGateway: async () => {
       set({ emailIsLoading: true, error: null })
       try {
-        await invoke('stop_email_gateway')
+        let cfg: EmailConfig = defaultEmailConfig
+        set((state) => {
+          cfg = state.email ?? defaultEmailConfig
+          return {}
+        })
+        const disabled = { ...cfg, enabled: false }
+        await saveChannelConfig('email', disabled)
+        await reloadChannels()
         set({
-          emailGatewayStatus: {
-            status: 'disconnected',
-          },
+          email: disabled,
+          emailGatewayStatus: { status: 'disconnected' },
           emailIsLoading: false,
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           emailIsLoading: false,
         })
         throw error
@@ -93,79 +125,38 @@ export function createEmailActions(set: ChannelsSet) {
 
     refreshEmailStatus: async () => {
       try {
-        const status = await invoke<EmailGatewayStatusResponse>('get_email_gateway_status')
-        set({ emailGatewayStatus: status })
+        const list = await listChannels()
+        set({ emailGatewayStatus: statusFor(list) })
       } catch (error) {
         console.error('Failed to refresh Email gateway status:', error)
       }
     },
 
-    testEmailConnection: async (config: EmailConfig) => {
-      set({ emailIsTesting: true, emailTestResult: null })
-      try {
-        const result = await invoke<string>('test_email_connection', { email: config })
-        set({
-          emailIsTesting: false,
-          emailTestResult: {
-            success: true,
-            message: result,
-          },
-        })
-        return true
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        set({
-          emailIsTesting: false,
-          emailTestResult: {
-            success: false,
-            message: errorMessage,
-          },
-        })
-        return false
-      }
+    testEmailConnection: async (_config: EmailConfig) => {
+      set({
+        emailIsTesting: false,
+        emailTestResult: {
+          success: false,
+          message: 'Connection test is unavailable. Save the config — amuxd will validate it when the gateway starts.',
+        },
+      })
+      return false
     },
 
-    gmailAuthorize: async (clientId: string, clientSecret: string, email: string) => {
-      set({ emailIsLoading: true, emailTestResult: null, gmailAuthUrl: null })
-      // The Rust command emits `gmail-auth-url` once yup_oauth2 has the auth URL.
-      // We surface it on state so the UI can show it for manual copy/paste in
-      // case the system browser fails to auto-open.
-      const unlisten = await listen<string>('gmail-auth-url', (event) => {
-        set({ gmailAuthUrl: event.payload })
+    gmailAuthorize: async (_clientId: string, _clientSecret: string, _email: string) => {
+      set({
+        emailIsLoading: false,
+        gmailAuthUrl: null,
+        emailTestResult: {
+          success: false,
+          message: 'Gmail authorization is no longer driven by the desktop app. Run the OAuth flow via amuxd (see daemon docs).',
+        },
       })
-      try {
-        await invoke<string>('gmail_authorize', { clientId, clientSecret, email })
-        set({
-          emailIsLoading: false,
-          gmailAuthUrl: null,
-          emailTestResult: {
-            success: true,
-            message: 'Gmail authorized successfully',
-          },
-        })
-        return true
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        set({
-          emailIsLoading: false,
-          gmailAuthUrl: null,
-          emailTestResult: {
-            success: false,
-            message: errorMessage,
-          },
-        })
-        return false
-      } finally {
-        unlisten()
-      }
+      return false
     },
 
     checkGmailAuth: async () => {
-      try {
-        return await invoke<boolean>('check_gmail_auth')
-      } catch {
-        return false
-      }
+      return false
     },
 
     clearEmailTestResult: () => set({ emailTestResult: null }),
@@ -174,29 +165,25 @@ export function createEmailActions(set: ChannelsSet) {
     toggleEmailEnabled: async (enabled: boolean, config: EmailConfig) => {
       const updatedConfig = { ...config, enabled }
       try {
-        await invoke('save_email_config', { email: updatedConfig })
-        set({ email: updatedConfig })
+        await saveChannelConfig('email', updatedConfig)
+        await reloadChannels()
+        set({ email: updatedConfig, emailHasChanges: false })
         if (enabled) {
           set({ emailIsLoading: true })
+          await new Promise((resolve) => setTimeout(resolve, 1000))
           try {
-            await invoke('start_email_gateway')
-            await new Promise((resolve) => setTimeout(resolve, 1000))
-            const status = await invoke<EmailGatewayStatusResponse>('get_email_gateway_status')
-            set({ emailGatewayStatus: status, emailIsLoading: false, emailHasChanges: false })
+            const list = await listChannels()
+            set({ emailGatewayStatus: statusFor(list), emailIsLoading: false })
           } catch (error) {
-            console.error('[Email] Auto-start failed:', error)
-            set({ emailIsLoading: false })
+            console.error('[Email] Status check after toggle failed:', error)
+            set({ emailIsLoading: false, error: describe(error) })
           }
         } else {
-          try {
-            await invoke('stop_email_gateway')
-            set({ emailGatewayStatus: { status: 'disconnected' } })
-          } catch {
-            // May not be running
-          }
+          set({ emailGatewayStatus: { status: 'disconnected' } })
         }
       } catch (error) {
         console.error('[Email] Toggle enabled failed:', error)
+        set({ error: describe(error) })
       }
     },
   }

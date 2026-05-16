@@ -1,29 +1,60 @@
-import { invoke } from '@tauri-apps/api/core'
 import type {
   DiscordConfig,
   GatewayStatusResponse,
   ChannelsState,
 } from '../channels-types'
 import { defaultDiscordConfig } from '../channels-types'
+import {
+  listChannels,
+  saveChannelConfig,
+  reloadChannels,
+  AmuxdUnreachableError,
+} from '@/lib/amuxd-channels'
 
 type ChannelsSet = (fn: ((state: ChannelsState) => Partial<ChannelsState>) | Partial<ChannelsState>) => void
+
+function statusFor(list: Awaited<ReturnType<typeof listChannels>>): GatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'discord')
+  if (!entry) {
+    return { status: 'disconnected', discordConnected: false, connectedGuilds: [] }
+  }
+  if (entry.lastError) {
+    return {
+      status: 'error',
+      discordConnected: false,
+      errorMessage: entry.lastError,
+      connectedGuilds: [],
+    }
+  }
+  if (entry.connected) {
+    return { status: 'connected', discordConnected: true, connectedGuilds: [] }
+  }
+  if (entry.enabled) {
+    return { status: 'connecting', discordConnected: false, connectedGuilds: [] }
+  }
+  return { status: 'disconnected', discordConnected: false, connectedGuilds: [] }
+}
+
+function describe(e: unknown): string {
+  if (e instanceof AmuxdUnreachableError) return 'amuxd not running. Start amuxd and try again.'
+  return e instanceof Error ? e.message : String(e)
+}
 
 export function createDiscordActions(set: ChannelsSet) {
   return {
     loadConfig: async () => {
       set({ isLoading: true, error: null })
       try {
-        const config = await invoke<DiscordConfig | null>('get_discord_config')
-        const status = await invoke<GatewayStatusResponse>('get_gateway_status')
+        const list = await listChannels()
         set({
-          discord: config || defaultDiscordConfig,
-          gatewayStatus: status,
+          discord: defaultDiscordConfig,
+          gatewayStatus: statusFor(list),
           isLoading: false,
           hasChanges: false,
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           isLoading: false,
         })
       }
@@ -32,14 +63,15 @@ export function createDiscordActions(set: ChannelsSet) {
     saveDiscordConfig: async (config: DiscordConfig) => {
       set({ isLoading: true, error: null })
       try {
-        await invoke('save_discord_config', { discord: config })
+        await saveChannelConfig('discord', config)
+        await reloadChannels()
         set({
           discord: config,
           isLoading: false,
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           isLoading: false,
         })
         throw error
@@ -49,16 +81,24 @@ export function createDiscordActions(set: ChannelsSet) {
     startGateway: async () => {
       set({ isLoading: true, error: null })
       try {
-        await invoke('start_gateway')
+        let cfg: DiscordConfig = defaultDiscordConfig
+        set((state) => {
+          cfg = state.discord ?? defaultDiscordConfig
+          return {}
+        })
+        const enabled = { ...cfg, enabled: true }
+        await saveChannelConfig('discord', enabled)
+        await reloadChannels()
         await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<GatewayStatusResponse>('get_gateway_status')
+        const list = await listChannels()
         set({
-          gatewayStatus: status,
+          discord: enabled,
+          gatewayStatus: statusFor(list),
           isLoading: false,
           hasChanges: false,
         })
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = describe(error)
         set({
           error: errorMessage,
           isLoading: false,
@@ -76,8 +116,16 @@ export function createDiscordActions(set: ChannelsSet) {
     stopGateway: async () => {
       set({ isLoading: true, error: null })
       try {
-        await invoke('stop_gateway')
+        let cfg: DiscordConfig = defaultDiscordConfig
+        set((state) => {
+          cfg = state.discord ?? defaultDiscordConfig
+          return {}
+        })
+        const disabled = { ...cfg, enabled: false }
+        await saveChannelConfig('discord', disabled)
+        await reloadChannels()
         set({
+          discord: disabled,
           gatewayStatus: {
             status: 'disconnected',
             discordConnected: false,
@@ -87,7 +135,7 @@ export function createDiscordActions(set: ChannelsSet) {
         })
       } catch (error) {
         set({
-          error: error instanceof Error ? error.message : String(error),
+          error: describe(error),
           isLoading: false,
         })
         throw error
@@ -96,36 +144,22 @@ export function createDiscordActions(set: ChannelsSet) {
 
     refreshStatus: async () => {
       try {
-        const status = await invoke<GatewayStatusResponse>('get_gateway_status')
-        set({ gatewayStatus: status })
+        const list = await listChannels()
+        set({ gatewayStatus: statusFor(list) })
       } catch (error) {
         console.error('Failed to refresh gateway status:', error)
       }
     },
 
-    testToken: async (token: string) => {
-      set({ isTesting: true, testResult: null })
-      try {
-        const username = await invoke<string>('test_discord_token', { token })
-        set({
-          isTesting: false,
-          testResult: {
-            success: true,
-            message: `Connected as ${username}`,
-          },
-        })
-        return true
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        set({
-          isTesting: false,
-          testResult: {
-            success: false,
-            message: errorMessage,
-          },
-        })
-        return false
-      }
+    testToken: async (_token: string) => {
+      set({
+        isTesting: false,
+        testResult: {
+          success: false,
+          message: 'Token test is unavailable. Save the config — amuxd will validate it when the gateway starts.',
+        },
+      })
+      return false
     },
 
     clearError: () => set({ error: null }),
@@ -135,35 +169,31 @@ export function createDiscordActions(set: ChannelsSet) {
     toggleDiscordEnabled: async (enabled: boolean, config: DiscordConfig) => {
       const updatedConfig = { ...config, enabled }
       try {
-        await invoke('save_discord_config', { discord: updatedConfig })
-        set({ discord: updatedConfig })
+        await saveChannelConfig('discord', updatedConfig)
+        await reloadChannels()
+        set({ discord: updatedConfig, hasChanges: false })
         if (enabled) {
           set({ isLoading: true })
+          await new Promise((resolve) => setTimeout(resolve, 1000))
           try {
-            await invoke('start_gateway')
-            await new Promise((resolve) => setTimeout(resolve, 1000))
-            const status = await invoke<GatewayStatusResponse>('get_gateway_status')
-            set({ gatewayStatus: status, isLoading: false, hasChanges: false })
+            const list = await listChannels()
+            set({ gatewayStatus: statusFor(list), isLoading: false })
           } catch (error) {
-            console.error('[Discord] Auto-start failed:', error)
-            set({ isLoading: false })
+            console.error('[Discord] Status check after toggle failed:', error)
+            set({ isLoading: false, error: describe(error) })
           }
         } else {
-          try {
-            await invoke('stop_gateway')
-            set({
-              gatewayStatus: {
-                status: 'disconnected',
-                discordConnected: false,
-                connectedGuilds: [],
-              },
-            })
-          } catch {
-            // May not be running
-          }
+          set({
+            gatewayStatus: {
+              status: 'disconnected',
+              discordConnected: false,
+              connectedGuilds: [],
+            },
+          })
         }
       } catch (error) {
         console.error('[Discord] Toggle enabled failed:', error)
+        set({ error: describe(error) })
       }
     },
   }

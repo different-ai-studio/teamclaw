@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { invoke } from '@tauri-apps/api/core'
 import type {
   DiscordConfig,
   FeishuConfig,
@@ -29,11 +28,71 @@ import { createEmailActions } from './channels/email'
 import { createKookActions } from './channels/kook'
 import { createWecomActions } from './channels/wecom'
 import { createWechatActions } from './channels/wechat'
-import { useWorkspaceStore } from './workspace'
+import {
+  listChannels,
+  AmuxdUnreachableError,
+  type ChannelStatus as AmuxdChannelStatus,
+} from '@/lib/amuxd-channels'
 
-function getWorkspaceArgs() {
-  const workspacePath = useWorkspaceStore.getState().workspacePath
-  return workspacePath ? { workspacePath } : {}
+function describe(e: unknown): string {
+  if (e instanceof AmuxdUnreachableError) return 'amuxd not running. Start amuxd and try again.'
+  return e instanceof Error ? e.message : String(e)
+}
+
+function discordStatus(list: AmuxdChannelStatus[]): GatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'discord')
+  if (!entry) return { status: 'disconnected', discordConnected: false, connectedGuilds: [] }
+  if (entry.lastError) {
+    return { status: 'error', discordConnected: false, errorMessage: entry.lastError, connectedGuilds: [] }
+  }
+  if (entry.connected) return { status: 'connected', discordConnected: true, connectedGuilds: [] }
+  if (entry.enabled) return { status: 'connecting', discordConnected: false, connectedGuilds: [] }
+  return { status: 'disconnected', discordConnected: false, connectedGuilds: [] }
+}
+
+function feishuStatus(list: AmuxdChannelStatus[]): FeishuGatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'feishu')
+  if (!entry) return { status: 'disconnected' }
+  if (entry.lastError) return { status: 'error', errorMessage: entry.lastError }
+  if (entry.connected) return { status: 'connected' }
+  if (entry.enabled) return { status: 'connecting' }
+  return { status: 'disconnected' }
+}
+
+function emailStatus(list: AmuxdChannelStatus[]): EmailGatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'email')
+  if (!entry) return { status: 'disconnected' }
+  if (entry.lastError) return { status: 'error', errorMessage: entry.lastError }
+  if (entry.connected) return { status: 'connected' }
+  if (entry.enabled) return { status: 'connecting' }
+  return { status: 'disconnected' }
+}
+
+function kookStatus(list: AmuxdChannelStatus[]): KookGatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'kook')
+  if (!entry) return { status: 'disconnected', connectedGuilds: [] }
+  if (entry.lastError) return { status: 'error', errorMessage: entry.lastError, connectedGuilds: [] }
+  if (entry.connected) return { status: 'connected', connectedGuilds: [] }
+  if (entry.enabled) return { status: 'connecting', connectedGuilds: [] }
+  return { status: 'disconnected', connectedGuilds: [] }
+}
+
+function wecomStatus(list: AmuxdChannelStatus[]): WeComGatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'wecom')
+  if (!entry) return { status: 'disconnected' }
+  if (entry.lastError) return { status: 'error', errorMessage: entry.lastError }
+  if (entry.connected) return { status: 'connected' }
+  if (entry.enabled) return { status: 'connecting' }
+  return { status: 'disconnected' }
+}
+
+function wechatStatus(list: AmuxdChannelStatus[]): WeChatGatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'wechat')
+  if (!entry) return { status: 'disconnected' }
+  if (entry.lastError) return { status: 'error', errorMessage: entry.lastError }
+  if (entry.connected) return { status: 'connected' }
+  if (entry.enabled) return { status: 'connecting' }
+  return { status: 'disconnected' }
 }
 
 export const useChannelsStore = create<ChannelsState>((set) => ({
@@ -108,70 +167,29 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
 
   // ========== Shared gateway logic ==========
 
-  // The loadConfig in discord.ts only loads Discord. Override it here to load ALL configs.
+  // The discord createDiscordActions exposes `loadConfig` for its own slot;
+  // we override it here to fan out across every platform from a single
+  // `listChannels()` call to amuxd.
   loadConfig: async () => {
     set({ isLoading: true, error: null })
     try {
-      const config = await invoke<DiscordConfig | null>('get_discord_config')
-      const status = await invoke<GatewayStatusResponse>('get_gateway_status')
-      // Also load Feishu config
-      let feishuConfig: FeishuConfig | null = null
-      let feishuStatus: FeishuGatewayStatusResponse = { status: 'disconnected' }
-      try {
-        feishuConfig = await invoke<FeishuConfig | null>('get_feishu_config')
-        feishuStatus = await invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status')
-      } catch {
-        // Feishu config may not exist yet
-      }
-      // Also load Email config
-      let emailConfig: EmailConfig | null = null
-      let emailStatus: EmailGatewayStatusResponse = { status: 'disconnected' }
-      try {
-        emailConfig = await invoke<EmailConfig | null>('get_email_config')
-        emailStatus = await invoke<EmailGatewayStatusResponse>('get_email_gateway_status')
-      } catch {
-        // Email config may not exist yet
-      }
-      // Also load KOOK config
-      let kookConfig: KookConfig | null = null
-      let kookStatus: KookGatewayStatusResponse = { status: 'disconnected', errorMessage: undefined, botUsername: undefined, connectedGuilds: [] }
-      try {
-        kookConfig = await invoke<KookConfig | null>('get_kook_config')
-        kookStatus = await invoke<KookGatewayStatusResponse>('get_kook_gateway_status')
-      } catch {
-        // KOOK config may not exist yet
-      }
-      // Also load WeCom config
-      let wecomConfig: WeComConfig | null = null
-      let wecomStatus: WeComGatewayStatusResponse = { status: 'disconnected' }
-      try {
-        wecomConfig = await invoke<WeComConfig | null>('get_wecom_config', getWorkspaceArgs())
-        wecomStatus = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
-      } catch {
-        // WeCom config may not exist yet
-      }
-      // Also load WeChat config
-      let wechatConfig: WeChatConfig | null = null
-      let wechatStatus: WeChatGatewayStatusResponse = { status: 'disconnected' }
-      try {
-        wechatConfig = await invoke<WeChatConfig | null>('get_wechat_config')
-        wechatStatus = await invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status')
-      } catch {
-        // WeChat config may not exist yet
-      }
+      const list = await listChannels()
+      // amuxd does not expose persisted config payloads, only status. Seed
+      // the per-platform config slots with defaults so the UI can still
+      // render forms; users overwrite them with `save*Config`.
       set({
-        discord: config || defaultDiscordConfig,
-        gatewayStatus: status,
-        feishu: feishuConfig || defaultFeishuConfig,
-        feishuGatewayStatus: feishuStatus,
-        email: emailConfig || defaultEmailConfig,
-        emailGatewayStatus: emailStatus,
-        kook: kookConfig || defaultKookConfig,
-        kookGatewayStatus: kookStatus,
-        wecom: wecomConfig || defaultWeComConfig,
-        wecomGatewayStatus: wecomStatus,
-        wechat: wechatConfig || defaultWeChatConfig,
-        wechatGatewayStatus: wechatStatus,
+        discord: defaultDiscordConfig,
+        gatewayStatus: discordStatus(list),
+        feishu: defaultFeishuConfig,
+        feishuGatewayStatus: feishuStatus(list),
+        email: defaultEmailConfig,
+        emailGatewayStatus: emailStatus(list),
+        kook: defaultKookConfig,
+        kookGatewayStatus: kookStatus(list),
+        wecom: defaultWeComConfig,
+        wecomGatewayStatus: wecomStatus(list),
+        wechat: defaultWeChatConfig,
+        wechatGatewayStatus: wechatStatus(list),
         isLoading: false,
         hasChanges: false,
         feishuHasChanges: false,
@@ -181,66 +199,19 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
       })
     } catch (error) {
       set({
-        error: error instanceof Error ? error.message : String(error),
+        error: describe(error),
         isLoading: false,
       })
     }
   },
 
   // ========== Stop All and Reset (for workspace switching) ==========
+  //
+  // amuxd owns the gateway lifecycle now — the desktop app no longer toggles
+  // them on workspace switch. We just reset local UI state.
 
   stopAllAndReset: async () => {
-    console.log('[Channels] Stopping all gateways and resetting state...')
-    const state = useChannelsStore.getState()
-
-    if (state.gatewayStatus.status !== 'disconnected') {
-      try {
-        await invoke('stop_gateway')
-      } catch (e) {
-        console.warn('[Channels] Failed to stop Discord gateway:', e)
-      }
-    }
-
-    if (state.feishuGatewayStatus.status !== 'disconnected') {
-      try {
-        await invoke('stop_feishu_gateway')
-      } catch (e) {
-        console.warn('[Channels] Failed to stop Feishu gateway:', e)
-      }
-    }
-
-    if (state.emailGatewayStatus.status !== 'disconnected') {
-      try {
-        await invoke('stop_email_gateway')
-      } catch (e) {
-        console.warn('[Channels] Failed to stop Email gateway:', e)
-      }
-    }
-
-    if (state.kookGatewayStatus.status !== 'disconnected') {
-      try {
-        await invoke('stop_kook_gateway')
-      } catch (e) {
-        console.warn('[Channels] Failed to stop KOOK gateway:', e)
-      }
-    }
-
-    if (state.wecomGatewayStatus.status !== 'disconnected') {
-      try {
-        await invoke('stop_wecom_gateway', getWorkspaceArgs())
-      } catch (e) {
-        console.warn('[Channels] Failed to stop WeCom gateway:', e)
-      }
-    }
-
-    if (state.wechatGatewayStatus.status !== 'disconnected') {
-      try {
-        await invoke('stop_wechat_gateway')
-      } catch (e) {
-        console.warn('[Channels] Failed to stop WeChat gateway:', e)
-      }
-    }
-
+    console.log('[Channels] Resetting local UI state for workspace switch...')
     set({
       discord: null,
       isLoading: false,
@@ -282,230 +253,47 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
       wechatIsTesting: false,
       wechatTestResult: null,
     })
-    console.log('[Channels] All gateways stopped and state reset')
   },
 
   // ========== Auto-Start Enabled Gateways ==========
-
+  //
+  // amuxd auto-starts whatever is enabled in `daemon.toml`. The desktop app's
+  // job here reduces to "ask amuxd for current status and reflect it in the
+  // UI".
   autoStartEnabledGateways: async () => {
-    const state = useChannelsStore.getState()
-
-    if (state.discord?.enabled && state.gatewayStatus.status === 'disconnected') {
-      console.log('[AutoStart] Starting Discord gateway...')
-      try {
-        await invoke('start_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<GatewayStatusResponse>('get_gateway_status')
-        set({ gatewayStatus: status })
-      } catch (error) {
-        console.error('[AutoStart] Discord start failed:', error)
-      }
+    try {
+      const list = await listChannels()
+      set({
+        gatewayStatus: discordStatus(list),
+        feishuGatewayStatus: feishuStatus(list),
+        emailGatewayStatus: emailStatus(list),
+        kookGatewayStatus: kookStatus(list),
+        wecomGatewayStatus: wecomStatus(list),
+        wechatGatewayStatus: wechatStatus(list),
+      })
+    } catch (error) {
+      console.error('[AutoStart] Failed to fetch channel statuses from amuxd:', error)
+      set({ error: describe(error) })
     }
-
-    if (state.feishu?.enabled && state.feishuGatewayStatus.status === 'disconnected') {
-      console.log('[AutoStart] Starting Feishu gateway...')
-      try {
-        await invoke('start_feishu_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status')
-        set({ feishuGatewayStatus: status })
-      } catch (error) {
-        console.error('[AutoStart] Feishu start failed:', error)
-      }
-    }
-
-    if (state.kook?.enabled && state.kookGatewayStatus.status === 'disconnected') {
-      console.log('[AutoStart] Starting KOOK gateway...')
-      try {
-        await invoke('start_kook_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<KookGatewayStatusResponse>('get_kook_gateway_status')
-        set({ kookGatewayStatus: status })
-      } catch (error) {
-        console.error('[AutoStart] KOOK start failed:', error)
-      }
-    }
-
-    if (state.wecom?.enabled && state.wecomGatewayStatus.status === 'disconnected') {
-      console.log('[AutoStart] Starting WeCom gateway...')
-      try {
-        await invoke('start_wecom_gateway', getWorkspaceArgs())
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
-        set({ wecomGatewayStatus: status })
-      } catch (error) {
-        console.error('[AutoStart] WeCom start failed:', error)
-      }
-    }
-
-    if (state.wechat?.enabled && state.wechatGatewayStatus.status === 'disconnected') {
-      console.log('[AutoStart] Starting WeChat gateway...')
-      try {
-        await invoke('start_wechat_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status')
-        set({ wechatGatewayStatus: status })
-      } catch (error) {
-        console.error('[AutoStart] WeChat start failed:', error)
-      }
-    }
-
-    // Email last — Gmail OAuth may block waiting for browser authorization
-    if (state.email?.enabled && state.emailGatewayStatus.status === 'disconnected') {
-      console.log('[AutoStart] Starting Email gateway...')
-      try {
-        await invoke('start_email_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<EmailGatewayStatusResponse>('get_email_gateway_status')
-        set({ emailGatewayStatus: status })
-      } catch (error) {
-        console.error('[AutoStart] Email start failed:', error)
-      }
-    }
-
   },
 
   // ========== Keep-Alive: Periodic Health Check ==========
-
+  //
+  // amuxd's channel manager runs its own keep-alive loop. From the UI side
+  // we just re-poll status periodically and surface it.
   keepAliveCheck: async () => {
     try {
-      const [discordStatus, feishuStatus, emailStatus, kookStatus, wecomStatus, wechatStatus] = await Promise.all([
-        invoke<GatewayStatusResponse>('get_gateway_status').catch(() => null),
-        invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status').catch(() => null),
-        invoke<EmailGatewayStatusResponse>('get_email_gateway_status').catch(() => null),
-        invoke<KookGatewayStatusResponse>('get_kook_gateway_status').catch(() => null),
-        invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs()).catch(() => null),
-        invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status').catch(() => null),
-      ])
-      if (discordStatus) set({ gatewayStatus: discordStatus })
-      if (feishuStatus) set({ feishuGatewayStatus: feishuStatus })
-      if (emailStatus) set({ emailGatewayStatus: emailStatus })
-      if (kookStatus) set({ kookGatewayStatus: kookStatus })
-      if (wecomStatus) set({ wecomGatewayStatus: wecomStatus })
-      if (wechatStatus) set({ wechatGatewayStatus: wechatStatus })
+      const list = await listChannels()
+      set({
+        gatewayStatus: discordStatus(list),
+        feishuGatewayStatus: feishuStatus(list),
+        emailGatewayStatus: emailStatus(list),
+        kookGatewayStatus: kookStatus(list),
+        wecomGatewayStatus: wecomStatus(list),
+        wechatGatewayStatus: wechatStatus(list),
+      })
     } catch {
-      // Ignore status refresh errors
-    }
-
-    const updated = useChannelsStore.getState()
-
-    // Discord: restart if enabled but disconnected/errored
-    if (
-      updated.discord?.enabled &&
-      (updated.gatewayStatus.status === 'disconnected' || updated.gatewayStatus.status === 'error')
-    ) {
-      console.log('[KeepAlive] Discord is enabled but status=', updated.gatewayStatus.status, '- restarting...')
-      try {
-        await invoke('stop_gateway').catch(() => {})
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        await invoke('start_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<GatewayStatusResponse>('get_gateway_status')
-        set({ gatewayStatus: status })
-        console.log('[KeepAlive] Discord restarted, status=', status.status)
-      } catch (error) {
-        console.error('[KeepAlive] Discord restart failed:', error)
-      }
-    }
-
-    // Feishu: restart if enabled but disconnected/errored
-    if (
-      updated.feishu?.enabled &&
-      (updated.feishuGatewayStatus.status === 'disconnected' || updated.feishuGatewayStatus.status === 'error')
-    ) {
-      console.log('[KeepAlive] Feishu is enabled but status=', updated.feishuGatewayStatus.status, '- restarting...')
-      try {
-        await invoke('stop_feishu_gateway').catch(() => {})
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        await invoke('start_feishu_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<FeishuGatewayStatusResponse>('get_feishu_gateway_status')
-        set({ feishuGatewayStatus: status })
-        console.log('[KeepAlive] Feishu restarted, status=', status.status)
-      } catch (error) {
-        console.error('[KeepAlive] Feishu restart failed:', error)
-      }
-    }
-
-    // Email: restart if enabled but disconnected/errored
-    if (
-      updated.email?.enabled &&
-      (updated.emailGatewayStatus.status === 'disconnected' || updated.emailGatewayStatus.status === 'error')
-    ) {
-      console.log('[KeepAlive] Email is enabled but status=', updated.emailGatewayStatus.status, '- restarting...')
-      try {
-        await invoke('stop_email_gateway').catch(() => {})
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        await invoke('start_email_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<EmailGatewayStatusResponse>('get_email_gateway_status')
-        set({ emailGatewayStatus: status })
-        console.log('[KeepAlive] Email restarted, status=', status.status)
-      } catch (error) {
-        console.error('[KeepAlive] Email restart failed:', error)
-      }
-    }
-
-    // KOOK: restart if enabled but disconnected/errored
-    if (
-      updated.kook?.enabled &&
-      (updated.kookGatewayStatus.status === 'disconnected' || updated.kookGatewayStatus.status === 'error')
-    ) {
-      console.log('[KeepAlive] KOOK is enabled but status=', updated.kookGatewayStatus.status, '- restarting...')
-      try {
-        await invoke('stop_kook_gateway').catch(() => {})
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        await invoke('start_kook_gateway')
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<KookGatewayStatusResponse>('get_kook_gateway_status')
-        set({ kookGatewayStatus: status })
-        console.log('[KeepAlive] KOOK restarted, status=', status.status)
-      } catch (error) {
-        console.error('[KeepAlive] KOOK restart failed:', error)
-      }
-    }
-
-    // WeCom: restart if enabled but disconnected/errored
-    if (
-      updated.wecom?.enabled &&
-      (updated.wecomGatewayStatus.status === 'disconnected' || updated.wecomGatewayStatus.status === 'error')
-    ) {
-      console.log('[KeepAlive] WeCom is enabled but status=', updated.wecomGatewayStatus.status, '- restarting...')
-      try {
-        await invoke('stop_wecom_gateway', getWorkspaceArgs()).catch(() => {})
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        await invoke('start_wecom_gateway', getWorkspaceArgs())
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await invoke<WeComGatewayStatusResponse>('get_wecom_gateway_status', getWorkspaceArgs())
-        set({ wecomGatewayStatus: status })
-        console.log('[KeepAlive] WeCom restarted, status=', status.status)
-      } catch (error) {
-        console.error('[KeepAlive] WeCom restart failed:', error)
-      }
-    }
-
-    // WeChat: restart if enabled but disconnected/errored (skip auth errors)
-    if (
-      updated.wechat?.enabled &&
-      (updated.wechatGatewayStatus.status === 'disconnected' || updated.wechatGatewayStatus.status === 'error')
-    ) {
-      const errMsg = updated.wechatGatewayStatus.errorMessage || ''
-      if (errMsg.includes('re-authenticate') || errMsg.includes('expired')) {
-        console.log('[KeepAlive] WeChat has auth error, skipping restart:', errMsg)
-      } else {
-        console.log('[KeepAlive] WeChat is enabled but status=', updated.wechatGatewayStatus.status, '- restarting...')
-        try {
-          await invoke('stop_wechat_gateway').catch(() => {})
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          await invoke('start_wechat_gateway')
-          await new Promise((resolve) => setTimeout(resolve, 1000))
-          const status = await invoke<WeChatGatewayStatusResponse>('get_wechat_gateway_status')
-          set({ wechatGatewayStatus: status })
-          console.log('[KeepAlive] WeChat restarted, status=', status.status)
-        } catch (error) {
-          console.error('[KeepAlive] WeChat restart failed:', error)
-        }
-      }
+      // Ignore — keep-alive failures shouldn't surface UI errors on every tick.
     }
   },
 }))

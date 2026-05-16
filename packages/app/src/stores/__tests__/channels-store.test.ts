@@ -1,10 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockInvoke = vi.fn().mockResolvedValue(undefined)
-
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: (...args: unknown[]) => mockInvoke(...args),
-}))
+vi.mock('@/lib/amuxd-channels', () => {
+  class AmuxdUnreachableError extends Error {
+    constructor() {
+      super('amuxd unreachable')
+      this.name = 'AmuxdUnreachableError'
+    }
+  }
+  return {
+    listChannels: vi.fn().mockResolvedValue([]),
+    saveChannelConfig: vi.fn().mockResolvedValue(undefined),
+    reloadChannels: vi.fn().mockResolvedValue(undefined),
+    AmuxdUnreachableError,
+  }
+})
 
 vi.mock('@/stores/channels/discord', () => ({
   createDiscordActions: () => ({}),
@@ -26,12 +35,17 @@ vi.mock('@/stores/channels/wecom', () => ({
   createWecomActions: () => ({}),
 }))
 
+vi.mock('@/stores/channels/wechat', () => ({
+  createWechatActions: () => ({}),
+}))
+
 vi.mock('@/stores/channels-types', () => ({
   defaultDiscordConfig: { enabled: false, token: '', guildId: '' },
   defaultFeishuConfig: { enabled: false },
   defaultKookConfig: { enabled: false },
   defaultEmailConfig: { enabled: false },
   defaultWeComConfig: { enabled: false },
+  defaultWeChatConfig: { enabled: false },
 }))
 
 beforeEach(() => {
@@ -60,11 +74,18 @@ describe('useChannelsStore', () => {
     expect(state.gatewayStatus.status).toBe('disconnected')
   })
 
-  it('keepAliveCheck calls invoke for all gateway statuses', async () => {
-    mockInvoke.mockResolvedValue({ status: 'disconnected' })
+  it('keepAliveCheck calls amuxd listChannels', async () => {
+    const { listChannels } = await import('@/lib/amuxd-channels')
     const { useChannelsStore } = await import('@/stores/channels-store')
     await useChannelsStore.getState().keepAliveCheck()
-    // Should have called get_gateway_status for each channel type
-    expect(mockInvoke).toHaveBeenCalled()
+    expect(listChannels).toHaveBeenCalled()
+  })
+
+  it('loadConfig surfaces amuxd-unreachable as a UI error', async () => {
+    const { listChannels, AmuxdUnreachableError } = await import('@/lib/amuxd-channels')
+    vi.mocked(listChannels).mockRejectedValueOnce(new AmuxdUnreachableError())
+    const { useChannelsStore } = await import('@/stores/channels-store')
+    await useChannelsStore.getState().loadConfig()
+    expect(useChannelsStore.getState().error).toMatch(/amuxd not running/i)
   })
 })
