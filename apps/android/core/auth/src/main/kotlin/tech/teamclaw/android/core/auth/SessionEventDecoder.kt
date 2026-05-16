@@ -3,6 +3,7 @@ package tech.teamclaw.android.core.auth
 import amux.AcpEvent
 import amux.Envelope
 import amux.TodoItem as ProtoTodoItem
+import tech.teamclaw.android.core.model.SlashCommand
 
 /**
  * Decoded slice of an [Envelope] that the chat UI cares about. Maps each
@@ -83,6 +84,18 @@ sealed interface DecodedEvent {
 
     enum class TodoStatus { PENDING, IN_PROGRESS, COMPLETED }
 
+    /**
+     * Snapshot of the agent's slash-command palette. Each AcpAvailableCommands
+     * event replaces the previous list — the agent re-publishes the full set
+     * whenever it changes, mirroring iOS SlashCommandsPopup behavior.
+     */
+    data class AvailableCommands(
+        override val runtimeId: String,
+        override val timestampMs: Long,
+        override val sequence: Long,
+        val commands: List<SlashCommand>,
+    ) : DecodedEvent
+
     data class Unknown(
         override val runtimeId: String,
         override val timestampMs: Long,
@@ -152,6 +165,18 @@ object SessionEventDecoder {
                     DecodedEvent.TodoUpdate.Item(
                         content = item.content,
                         status = mapTodoStatus(item.status),
+                    )
+                },
+            )
+        }
+        event.available_commands?.let { palette ->
+            return DecodedEvent.AvailableCommands(
+                runtimeId, timestampMs, sequence,
+                commands = palette.commands.map {
+                    SlashCommand(
+                        name = it.name,
+                        description = it.description,
+                        inputHint = it.input_hint,
                     )
                 },
             )

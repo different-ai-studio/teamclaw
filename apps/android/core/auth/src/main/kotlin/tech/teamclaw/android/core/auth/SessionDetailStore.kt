@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tech.teamclaw.android.core.model.MessageRecord
+import tech.teamclaw.android.core.model.SlashCommand
 
 /**
  * Per-session message timeline. PostgREST-seeded; optionally re-fetches on
@@ -37,6 +38,10 @@ class SessionDetailStore(
          *  Cleared on reload — these are transient until they roll up into a
          *  finalized message in PostgREST. */
         val liveEvents: List<DecodedEvent> = emptyList(),
+        /** Slash-command palette the agent has advertised via AcpAvailableCommands.
+         *  Persists across reloads since the palette is a property of the agent,
+         *  not of any one turn. */
+        val availableCommands: List<SlashCommand> = emptyList(),
         val isLoading: Boolean = false,
         val isSending: Boolean = false,
         val errorMessage: String? = null,
@@ -63,8 +68,11 @@ class SessionDetailStore(
         realtimeEvents?.let { events ->
             scope.launch {
                 events.collect { event ->
-                    _state.update {
-                        it.copy(liveEvents = mergeEvent(it.liveEvents, event))
+                    when (event) {
+                        is DecodedEvent.AvailableCommands ->
+                            _state.update { it.copy(availableCommands = event.commands) }
+                        else ->
+                            _state.update { it.copy(liveEvents = mergeEvent(it.liveEvents, event)) }
                     }
                 }
             }

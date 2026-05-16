@@ -40,6 +40,7 @@ import tech.teamclaw.android.core.design.Hai
 import tech.teamclaw.android.core.design.TeamclawTheme
 import tech.teamclaw.android.core.model.ActorRecord
 import tech.teamclaw.android.core.model.MessageRecord
+import tech.teamclaw.android.core.model.SlashCommand
 
 @Composable
 fun SessionDetailScreen(
@@ -48,6 +49,7 @@ fun SessionDetailScreen(
     messages: List<MessageRecord>,
     liveEvents: List<DecodedEvent> = emptyList(),
     mentionCandidates: List<ActorRecord>,
+    slashCommands: List<SlashCommand> = emptyList(),
     isLoading: Boolean,
     isSending: Boolean,
     errorMessage: String?,
@@ -61,6 +63,7 @@ fun SessionDetailScreen(
     var mentionedActorIds by remember { mutableStateOf(setOf<String>()) }
     val listState = rememberLazyListState()
     val activeMention = remember(draft) { extractActiveMentionQuery(draft) }
+    val activeSlash = remember(draft) { extractActiveSlashQuery(draft) }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -120,6 +123,15 @@ fun SessionDetailScreen(
                 onSelect = { actor ->
                     draft = replaceMentionAtCursor(draft, actor.displayName)
                     mentionedActorIds = mentionedActorIds + actor.id
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        } else if (activeSlash != null && slashCommands.isNotEmpty()) {
+            SlashCommandPopup(
+                commands = slashCommands,
+                query = activeSlash.query,
+                onSelect = { cmd ->
+                    draft = replaceSlashAtCursor(draft, cmd.name)
                 },
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             )
@@ -248,6 +260,7 @@ private fun LiveEventBubble(event: DecodedEvent) {
         is DecodedEvent.Error -> Hai.CinnabarDeep
         is DecodedEvent.PermissionRequest -> Hai.Cinnabar
         is DecodedEvent.TodoUpdate -> Hai.Basalt
+        is DecodedEvent.AvailableCommands -> Hai.Slate
         is DecodedEvent.Unknown -> Hai.Slate
     }
     val (badge, body) = when (event) {
@@ -263,6 +276,7 @@ private fun LiveEventBubble(event: DecodedEvent) {
         }
         is DecodedEvent.PermissionRequest -> "Permission" to event.description
         is DecodedEvent.TodoUpdate -> "Tasks" to "${event.items.size} item${if (event.items.size == 1) "" else "s"}"
+        is DecodedEvent.AvailableCommands -> "Commands" to "${event.commands.size} available"
         is DecodedEvent.Error -> "Error" to event.message
         is DecodedEvent.Unknown -> "Event" to event.variantTag
     }
@@ -304,6 +318,24 @@ private fun replaceMentionAtCursor(text: String, displayName: String): String {
     val match = mentionPattern.find(text) ?: return text
     val before = text.substring(0, match.range.first)
     return "$before@$displayName "
+}
+
+private data class ActiveSlash(val start: Int, val query: String)
+
+// Match `/<word>` only when it's the start of the line or message — same
+// rule iOS uses to avoid picking up file paths like /tmp/foo mid-sentence.
+private val slashPattern = Regex("(^|\\s)/([A-Za-z0-9_\\-]*)$")
+
+private fun extractActiveSlashQuery(text: String): ActiveSlash? {
+    val match = slashPattern.find(text) ?: return null
+    return ActiveSlash(start = match.range.first, query = match.groupValues[2])
+}
+
+private fun replaceSlashAtCursor(text: String, commandName: String): String {
+    val match = slashPattern.find(text) ?: return text
+    val leadingWs = match.groupValues[1]
+    val before = text.substring(0, match.range.first)
+    return "$before$leadingWs/$commandName "
 }
 
 @Composable

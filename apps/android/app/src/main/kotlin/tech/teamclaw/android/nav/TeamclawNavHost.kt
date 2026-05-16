@@ -246,6 +246,7 @@ private fun ReadyFlow(
             messages = detailState.messages,
             liveEvents = detailState.liveEvents,
             mentionCandidates = actorState.actors.filter { it.id != currentActorId },
+            slashCommands = detailState.availableCommands,
             isLoading = detailState.isLoading,
             isSending = detailState.isSending,
             errorMessage = detailState.errorMessage,
