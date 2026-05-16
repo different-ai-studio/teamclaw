@@ -57,13 +57,11 @@ fn main() -> anyhow::Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 let server = daemon::DaemonServer::new(daemon_config, &config_path).await?;
-                tokio::select! {
-                    res = server.run() => res,
-                    _ = shutdown_signal() => {
-                        tracing::info!("shutdown signal received");
-                        Ok(())
-                    }
-                }
+                // run() owns the shutdown signal so it can gracefully tear
+                // down channels (consuming `ChannelManager::shutdown(self)`)
+                // before returning. Dropping the run() future mid-loop via
+                // an external select would skip that teardown.
+                server.run(shutdown_signal()).await
             })?;
         }
         Commands::Stop => {

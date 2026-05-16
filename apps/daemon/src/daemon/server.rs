@@ -1,15 +1,21 @@
 use rumqttc::{Event, Packet};
+use std::collections::HashMap;
+use std::future::Future;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::{error, info, warn};
 
+use crate::channels::{AmuxdAcpHandle, AmuxdChannelStore, ChannelManager};
 use crate::collab::{AuthManager, AuthResult, PeerState, PeerTracker, PermissionManager};
-use crate::config::{DaemonConfig, MemberStore, SessionStore, StoredSession, WorkspaceStore};
+use crate::config::{DaemonConfig, SessionStore, StoredSession, WorkspaceStore};
 use crate::history::EventHistory;
 use crate::mqtt::{publisher::Publisher, subscriber, MqttClient};
 use crate::proto::amux;
 use crate::runtime::RuntimeManager;
 use crate::supabase::{SupabaseClient, SupabaseConfig};
 use std::path::PathBuf;
+use teamclaw_gateway::{AcpHandle, ChannelStore};
 
 /// Outcome of apply_start_runtime. Success path returns the allocated
 /// runtime_id + the session_id (echoed from request or freshly created).
@@ -30,7 +36,7 @@ struct StartRuntimeError {
 pub struct DaemonServer {
     config: DaemonConfig,
     mqtt: MqttClient,
-    agents: RuntimeManager,
+    agents: Arc<AsyncMutex<RuntimeManager>>,
     auth: AuthManager,
     peers: PeerTracker,
     permissions: PermissionManager,
@@ -42,6 +48,10 @@ pub struct DaemonServer {
     teamclaw: Option<crate::teamclaw::SessionManager>,
     supabase: SupabaseClient,
     actor_id: String,
+    /// Channel manager (Discord/WeCom/Feishu/Kook/WeChat/Email gateways).
+    /// `None` until `start_channels()` runs; held as `Option` so `shutdown(self)`
+    /// can be `.take()`n on graceful exit.
+    channel_mgr: Option<ChannelManager>,
 }
 
 impl DaemonServer {
@@ -118,7 +128,11 @@ impl DaemonServer {
             .join("history");
         let history = EventHistory::new(&history_dir);
 
-        let agents = RuntimeManager::new(binary, flags, Some(supabase.clone()));
+        let agents = Arc::new(AsyncMutex::new(RuntimeManager::new(
+            binary,
+            flags,
+            Some(supabase.clone()),
+        )));
 
         let teamclaw = if let Some(team_id) = &config.team_id {
             Some(crate::teamclaw::SessionManager::new(
@@ -147,11 +161,80 @@ impl DaemonServer {
             teamclaw,
             supabase,
             actor_id,
+            channel_mgr: None,
         })
     }
 
-    pub async fn run(mut self) -> crate::error::Result<()> {
+    /// Construct the channel manager from `[channels.*]` entries in
+    /// `daemon.toml` and call `start_enabled()` so every gateway whose
+    /// section has `enabled = true` boots alongside the daemon. Best-effort:
+    /// missing team_id (daemon not yet onboarded) or per-channel start
+    /// failures are logged but do NOT abort daemon startup.
+    async fn start_channels(&mut self) {
+        let Some(team_id) = self.config.team_id.clone() else {
+            info!("channels: daemon has no team_id (run `amuxd init`); skipping channel start");
+            return;
+        };
+
+        // The daemon's own actor_id (persisted in supabase.toml during `init`)
+        // is the agent participant the gateway-port channels speak as. Owner
+        // ids would be looked up via agent_member_access; we don't yet ship a
+        // helper, so leave the owner list empty — channels treat that as "no
+        // human participants" and still function for the agent-only path.
+        let primary_agent_actor_id = self.actor_id.clone();
+        let agent_owner_actor_ids: Vec<String> = Vec::new();
+
+        let acp_handle: Arc<dyn AcpHandle> = Arc::new(AmuxdAcpHandle {
+            manager: self.agents.clone(),
+            logical_to_acp: Arc::new(AsyncMutex::new(HashMap::new())),
+            team_id: team_id.clone(),
+        });
+        let store: Arc<dyn ChannelStore> = Arc::new(AmuxdChannelStore {
+            client: Arc::new(self.supabase.clone()),
+        });
+
+        let mgr = ChannelManager::new(
+            self.config.clone(),
+            acp_handle,
+            store,
+            team_id,
+            primary_agent_actor_id,
+            agent_owner_actor_ids,
+        );
+        match mgr.start_enabled().await {
+            Ok(()) => info!("channel manager: start_enabled() completed"),
+            Err(e) => warn!("channel manager: start_enabled() failed: {e:?}"),
+        }
+        self.channel_mgr = Some(mgr);
+    }
+
+    /// Tear down any running channels. Idempotent — safe to call when
+    /// `channel_mgr` is `None`.
+    async fn shutdown_channels(&mut self) {
+        if let Some(mgr) = self.channel_mgr.take() {
+            info!("shutting down channels...");
+            mgr.shutdown().await;
+        }
+    }
+
+    /// Run the daemon. When `shutdown` resolves, the inner loop exits
+    /// gracefully — channels are shut down (consuming `shutdown(self)`) and
+    /// `Ok(())` is returned. Without a shutdown signal the daemon runs
+    /// forever; callers that want signal-based exit should pass
+    /// `tokio::signal`-derived futures.
+    pub async fn run<F>(mut self, shutdown: F) -> crate::error::Result<()>
+    where
+        F: Future<Output = ()>,
+    {
         info!("amuxd v0.1.0 starting");
+
+        // Start channel gateways. Best-effort: missing team_id (daemon not yet
+        // onboarded) or per-channel boot failures are logged but do not abort
+        // daemon startup. This runs before the MQTT loop so a misconfigured
+        // channel doesn't delay collab connectivity.
+        self.start_channels().await;
+
+        tokio::pin!(shutdown);
 
         // One-time setup before the reconnect loop.
         // Heartbeat runs independently of MQTT session.
@@ -323,6 +406,11 @@ impl DaemonServer {
             loop {
                 tokio::select! {
                     biased;
+                    _ = &mut shutdown => {
+                        info!("shutdown signal received, draining channels");
+                        self.shutdown_channels().await;
+                        return Ok(());
+                    }
                     poll_result = self.mqtt.eventloop.poll() => {
                         match poll_result {
                             Ok(Event::Incoming(Packet::ConnAck(_))) => {
@@ -380,7 +468,7 @@ impl DaemonServer {
                     }
                     _ = tokio::time::sleep(Duration::from_millis(50)) => {
                         // Drain queued runtime events without preempting poll().
-                        let agent_events = self.agents.poll_events();
+                        let agent_events = self.agents.lock().await.poll_events();
                         for (agent_id, acp_event) in agent_events {
                             self.forward_agent_event(&agent_id, acp_event).await;
                         }
@@ -479,8 +567,8 @@ impl DaemonServer {
     /// Build merged agent list: active agents + historical (non-active) sessions.
     /// Now only used by `publish_all_agent_states` to iterate startup/reconnect state.
     /// Per-agent updates should go through `publish_runtime_state_by_id`.
-    fn merged_agent_list(&self) -> amux::AgentList {
-        let mut agent_list = self.agents.to_proto_agent_list();
+    async fn merged_agent_list(&self) -> amux::AgentList {
+        let mut agent_list = self.agents.lock().await.to_proto_agent_list();
         let active_ids: std::collections::HashSet<String> = agent_list
             .runtimes
             .iter()
@@ -496,16 +584,17 @@ impl DaemonServer {
 
     /// Look up a single agent's current RuntimeInfo — live adapter first, then
     /// the historical session store. Returns `None` if unknown.
-    fn agent_info_by_id(&self, agent_id: &str) -> Option<amux::RuntimeInfo> {
-        self.agents
-            .to_proto_info(agent_id)
-            .or_else(|| self.sessions.to_proto_agent_info(agent_id))
+    async fn agent_info_by_id(&self, agent_id: &str) -> Option<amux::RuntimeInfo> {
+        match self.agents.lock().await.to_proto_info(agent_id) {
+            Some(info) => Some(info),
+            None => self.sessions.to_proto_agent_info(agent_id),
+        }
     }
 
     /// Publish retained RuntimeInfo for a single agent on its per-agent state
     /// topic. Swallows errors (same convention as other publish helpers).
     async fn publish_runtime_state_by_id(&self, agent_id: &str) {
-        if let Some(info) = self.agent_info_by_id(agent_id) {
+        if let Some(info) = self.agent_info_by_id(agent_id).await {
             let publisher = Publisher::new(&self.mqtt);
             let _ = publisher.publish_runtime_state(agent_id, &info).await;
         }
@@ -519,7 +608,7 @@ impl DaemonServer {
     /// count grew.
     async fn publish_all_agent_states(&self) {
         let publisher = Publisher::new(&self.mqtt);
-        for info in self.merged_agent_list().runtimes {
+        for info in self.merged_agent_list().await.runtimes {
             let _ = publisher
                 .publish_runtime_state(&info.runtime_id, &info)
                 .await;
@@ -566,8 +655,8 @@ impl DaemonServer {
             acp_event.event,
             Some(amux::acp_event::Event::Output(_)) | Some(amux::acp_event::Event::Thinking(_))
         ) {
-            if let Some(model) = self.agents.current_model(agent_id) {
-                acp_event.model = model.clone();
+            if let Some(model) = self.agents.lock().await.current_model(agent_id).cloned() {
+                acp_event.model = model;
             }
         }
 
@@ -580,8 +669,16 @@ impl DaemonServer {
         if let Some(amux::acp_event::Event::Raw(ref raw)) = acp_event.event {
             if raw.method == "session_title" {
                 let title = String::from_utf8_lossy(&raw.json_payload).to_string();
-                if let Some(handle) = self.agents.get_handle_mut(agent_id) {
-                    handle.session_title = title;
+                let updated = {
+                    let mut agents = self.agents.lock().await;
+                    if let Some(handle) = agents.get_handle_mut(agent_id) {
+                        handle.session_title = title;
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if updated {
                     self.publish_runtime_state_by_id(agent_id).await;
                 }
                 return;
@@ -600,6 +697,8 @@ impl DaemonServer {
                     };
                     let seq = self
                         .agents
+                        .lock()
+                        .await
                         .get_handle_mut(agent_id)
                         .map(|h| h.next_sequence())
                         .unwrap_or(0);
@@ -620,9 +719,12 @@ impl DaemonServer {
 
         // Update agent status if this is a status change event
         if let Some(amux::acp_event::Event::StatusChange(ref sc)) = acp_event.event {
-            if let Some(handle) = self.agents.get_handle_mut(agent_id) {
-                handle.status = amux::AgentStatus::try_from(sc.new_status)
-                    .unwrap_or(amux::AgentStatus::Unknown);
+            {
+                let mut agents = self.agents.lock().await;
+                if let Some(handle) = agents.get_handle_mut(agent_id) {
+                    handle.status = amux::AgentStatus::try_from(sc.new_status)
+                        .unwrap_or(amux::AgentStatus::Unknown);
+                }
             }
             if let Some(session) = self.sessions.find_by_id_mut(agent_id) {
                 session.status = sc.new_status;
@@ -641,25 +743,19 @@ impl DaemonServer {
                     amux::AgentStatus::Stopped => "stopped",
                     _ => "unknown",
                 };
-                let acp_sid = self
-                    .agents
-                    .get_handle(agent_id)
-                    .map(|h| h.acp_session_id.clone())
-                    .unwrap_or_default();
-                let session_id = self
-                    .agents
-                    .get_handle(agent_id)
-                    .map(|h| h.session_id.clone())
-                    .unwrap_or_default();
-                let ws_id = self
-                    .agents
-                    .get_handle(agent_id)
-                    .map(|h| h.workspace_id.clone())
-                    .unwrap_or_default();
+                let (acp_sid, session_id, ws_id, current_model) = {
+                    let agents = self.agents.lock().await;
+                    let h = agents.get_handle(agent_id);
+                    (
+                        h.map(|h| h.acp_session_id.clone()).unwrap_or_default(),
+                        h.map(|h| h.session_id.clone()).unwrap_or_default(),
+                        h.map(|h| h.workspace_id.clone()).unwrap_or_default(),
+                        agents.current_model(agent_id).cloned(),
+                    )
+                };
                 let supabase_ws_id = self.workspaces.find_by_id(&ws_id).and_then(|w| {
                     (!w.supabase_workspace_id.is_empty()).then_some(w.supabase_workspace_id.clone())
                 });
-                let current_model = self.agents.current_model(agent_id).cloned();
                 let team_id = sb.config().team_id.clone();
                 let actor_id = sb.config().actor_id.clone();
                 let runtime_id_owned = agent_id.to_string();
@@ -691,8 +787,11 @@ impl DaemonServer {
 
         // Update session on tool use
         if let Some(amux::acp_event::Event::ToolUse(_)) = acp_event.event {
-            if let Some(handle) = self.agents.get_handle_mut(agent_id) {
-                handle.tool_use_count += 1;
+            {
+                let mut agents = self.agents.lock().await;
+                if let Some(handle) = agents.get_handle_mut(agent_id) {
+                    handle.tool_use_count += 1;
+                }
             }
             if let Some(session) = self.sessions.find_by_id_mut(agent_id) {
                 session.tool_use_count += 1;
@@ -707,17 +806,21 @@ impl DaemonServer {
         // the unchanged publish path below for streaming UI.
         let collab_sessions = self.target_sessions(agent_id);
         if !collab_sessions.is_empty() {
-            let emitted = self
-                .agents
-                .aggregator_mut(agent_id)
-                .map(|agg| agg.ingest(&acp_event))
-                .unwrap_or_default();
+            let emitted = {
+                let mut agents = self.agents.lock().await;
+                agents
+                    .aggregator_mut(agent_id)
+                    .map(|agg| agg.ingest(&acp_event))
+                    .unwrap_or_default()
+            };
 
             if !emitted.is_empty() {
                 if let Some(tc) = self.teamclaw.as_ref() {
                     let actor_id = self.actor_id.clone();
                     let model = self
                         .agents
+                        .lock()
+                        .await
                         .current_model(agent_id)
                         .cloned()
                         .unwrap_or_default();
@@ -763,6 +866,8 @@ impl DaemonServer {
 
         let seq = self
             .agents
+            .lock()
+            .await
             .get_handle_mut(agent_id)
             .map(|h| h.next_sequence())
             .unwrap_or(0);
@@ -791,6 +896,8 @@ impl DaemonServer {
             // bump the retained state would stay empty until the next
             // unrelated transition.
             self.agents
+                .lock()
+                .await
                 .set_available_commands(agent_id, ac.commands.clone());
             self.publish_runtime_state_by_id(agent_id).await;
         }
@@ -836,7 +943,7 @@ impl DaemonServer {
             .display_name_for_actor(&message.sender_actor_id)
             .unwrap_or_else(|| message.sender_actor_id.chars().take(8).collect());
 
-        let runtime_ids = self.agents.runtime_ids_for_session(session_id);
+        let runtime_ids = self.agents.lock().await.runtime_ids_for_session(session_id);
         if runtime_ids.is_empty() {
             // We're subscribed to session/{sid}/live but have no runtime
             // for it — typically the runtime exited (or never spawned in
@@ -857,14 +964,20 @@ impl DaemonServer {
         // never hit and every message would fall through to silent queue.
         let mentioned_actor = mention_actor_ids.iter().any(|m| m == &self.actor_id);
         for runtime_id in runtime_ids {
-            if self.agents.agent_id_of(&runtime_id).is_none() {
+            if self.agents.lock().await.agent_id_of(&runtime_id).is_none() {
                 continue;
             }
             let mentioned = mentioned_actor;
 
             if mentioned {
                 // Real prompt — flush_pending_silent inside send_prompt does the prefix work.
-                let _drained = match self.agents.send_prompt(&runtime_id, &message.content).await {
+                let send_res = self
+                    .agents
+                    .lock()
+                    .await
+                    .send_prompt(&runtime_id, &message.content)
+                    .await;
+                let _drained = match send_res {
                     Ok(d) => d,
                     Err(e) => {
                         warn!(runtime_id = %runtime_id, err = ?e, "send_prompt failed");
@@ -873,7 +986,12 @@ impl DaemonServer {
                 };
 
                 // Cursor advances to this message id.
-                if let Some(row_id) = self.agents.supabase_runtime_row_id(&runtime_id) {
+                let row_id_opt = self
+                    .agents
+                    .lock()
+                    .await
+                    .supabase_runtime_row_id(&runtime_id);
+                if let Some(row_id) = row_id_opt {
                     let sb = self.supabase.clone();
                     let row = row_id.clone();
                     let last = message.message_id.clone();
@@ -885,15 +1003,23 @@ impl DaemonServer {
                 }
             } else {
                 // Silent: queue for next real prompt.
-                if let Some(handle) = self.agents.get_handle_mut(&runtime_id) {
-                    handle.pending_silent.push(PendingMessage {
-                        message_id: message.message_id.clone(),
-                        sender_display: sender_display.clone(),
-                        content: message.content.clone(),
-                        created_at: message.created_at,
-                    });
+                {
+                    let mut agents = self.agents.lock().await;
+                    if let Some(handle) = agents.get_handle_mut(&runtime_id) {
+                        handle.pending_silent.push(PendingMessage {
+                            message_id: message.message_id.clone(),
+                            sender_display: sender_display.clone(),
+                            content: message.content.clone(),
+                            created_at: message.created_at,
+                        });
+                    }
                 }
-                if let Some(row_id) = self.agents.supabase_runtime_row_id(&runtime_id) {
+                let row_id_opt = self
+                    .agents
+                    .lock()
+                    .await
+                    .supabase_runtime_row_id(&runtime_id);
+                if let Some(row_id) = row_id_opt {
                     let sb = self.supabase.clone();
                     let row = row_id.clone();
                     let last = message.message_id.clone();
@@ -915,7 +1041,8 @@ impl DaemonServer {
     /// un-mentioned → pending_silent queue).
     pub async fn catchup_runtime(&mut self, runtime_id: &str) {
         let (session_id, last_processed_message_id) = {
-            let Some(h) = self.agents.get_handle(runtime_id) else {
+            let agents = self.agents.lock().await;
+            let Some(h) = agents.get_handle(runtime_id) else {
                 return;
             };
             (h.session_id.clone(), h.last_processed_message_id.clone())
@@ -995,20 +1122,21 @@ impl DaemonServer {
     /// Returns the primary (first running) agent ID for this daemon.
     /// Used to stamp new sessions with the host's agent without passing
     /// RuntimeManager into SessionManager.
-    fn primary_agent_id(&self) -> Option<String> {
-        self.agents.first_running_agent_id()
+    async fn primary_agent_id(&self) -> Option<String> {
+        self.agents.lock().await.first_running_agent_id()
     }
 
-    fn runtime_id_for_agent_actor_in_session(
+    async fn runtime_id_for_agent_actor_in_session(
         &self,
         agent_actor_id: &str,
         session_id: &str,
     ) -> Option<String> {
-        if self.agents.get_handle(agent_actor_id).is_some() {
+        let agents = self.agents.lock().await;
+        if agents.get_handle(agent_actor_id).is_some() {
             return Some(agent_actor_id.to_string());
         }
         if agent_actor_id == self.supabase.config().actor_id {
-            return self.agents.running_agent_id_for_collab_session(session_id);
+            return agents.running_agent_id_for_collab_session(session_id);
         }
         None
     }
@@ -1041,7 +1169,7 @@ impl DaemonServer {
             | Some(Method::SubmitIdea(_))
             | Some(Method::UpdateIdea(_)) => {
                 // Pre-compute primary before the mutable borrow of self.teamclaw.
-                let primary = self.primary_agent_id();
+                let primary = self.primary_agent_id().await;
                 if let Some(tc) = self.teamclaw.as_mut() {
                     tc.handle_rpc_method(request.clone(), primary).await
                 } else {
@@ -1160,14 +1288,17 @@ impl DaemonServer {
                                                 &agent_actor_id,
                                                 &session_id,
                                             )
+                                            .await
                                         {
                                             let prompt = format_idea_prompt(&session_id, &event);
                                             if !prompt.is_empty() {
-                                                if let Err(e) = self
+                                                let send_res = self
                                                     .agents
-                                                    .send_prompt(&runtime_id, &prompt)
+                                                    .lock()
                                                     .await
-                                                {
+                                                    .send_prompt(&runtime_id, &prompt)
+                                                    .await;
+                                                if let Err(e) = send_res {
                                                     warn!(
                                                         "Failed to route live idea to agent {} runtime {}: {}",
                                                         agent_actor_id, runtime_id, e
@@ -1326,7 +1457,14 @@ impl DaemonServer {
             }
 
             amux::acp_command::Command::StopAgent(_) => {
-                if self.agents.stop_agent(agent_id).await.is_some() {
+                let stopped = self
+                    .agents
+                    .lock()
+                    .await
+                    .stop_agent(agent_id)
+                    .await
+                    .is_some();
+                if stopped {
                     if let Some(session) = self.sessions.find_by_id_mut(agent_id) {
                         session.status = amux::AgentStatus::Stopped as i32;
                         let _ = self.sessions.save(&self.sessions_path);
@@ -1339,7 +1477,8 @@ impl DaemonServer {
             amux::acp_command::Command::SendPrompt(prompt) => {
                 // Lazy resume: if agent is not live but exists in session store,
                 // spawn a new ACP process and resume the session.
-                if self.agents.get_handle(agent_id).is_none() {
+                let needs_resume = self.agents.lock().await.get_handle(agent_id).is_none();
+                if needs_resume {
                     if let Some(stored) = self.sessions.find_by_id(agent_id) {
                         let at = amux::AgentType::try_from(stored.agent_type)
                             .unwrap_or(amux::AgentType::ClaudeCode);
@@ -1350,30 +1489,32 @@ impl DaemonServer {
                         info!(agent_id, "lazy-resuming historical session");
                         let supabase_ws_id = self.workspaces.find_by_id(&ws_id).and_then(|w| {
                             (!w.supabase_workspace_id.is_empty())
-                                .then_some(w.supabase_workspace_id.as_str())
+                                .then_some(w.supabase_workspace_id.clone())
                         });
-                        match self
+                        let resume_res = self
                             .agents
+                            .lock()
+                            .await
                             .resume_agent(
                                 agent_id,
                                 &acp_sid,
                                 at,
                                 &worktree,
                                 &ws_id,
-                                supabase_ws_id,
+                                supabase_ws_id.as_deref(),
                                 (!session_id.is_empty()).then_some(session_id.as_str()),
                                 &prompt.text,
                             )
-                            .await
-                        {
+                            .await;
+                        match resume_res {
                             Ok(new_acp_sid) => {
                                 // Forward model_id if the client requested one
                                 let desired_model = prompt.model_id.clone();
                                 if !desired_model.is_empty() {
-                                    match self.agents.send_set_model(agent_id, &desired_model).await
-                                    {
+                                    let mut agents = self.agents.lock().await;
+                                    match agents.send_set_model(agent_id, &desired_model).await {
                                         Ok(()) => {
-                                            self.agents.set_current_model(agent_id, &desired_model);
+                                            agents.set_current_model(agent_id, &desired_model);
                                         }
                                         Err(e) => {
                                             warn!(agent_id, model_id = %desired_model, "set_model after resume failed: {}", e);
@@ -1421,36 +1562,46 @@ impl DaemonServer {
                 }
 
                 // Check busy
-                if let Some(handle) = self.agents.get_handle(agent_id) {
-                    if let Err(reason) = self.permissions.check_agent_busy(handle.status) {
-                        self.publish_session_event(
-                            agent_id,
-                            amux::SessionEvent {
-                                event: Some(amux::session_event::Event::PromptRejected(
-                                    amux::PromptRejected { command_id, reason },
-                                )),
-                            },
-                        )
-                        .await;
-                        return;
+                let busy_reject: Option<String> = {
+                    let agents = self.agents.lock().await;
+                    if let Some(handle) = agents.get_handle(agent_id) {
+                        self.permissions.check_agent_busy(handle.status).err()
+                    } else {
+                        None
                     }
+                };
+                if let Some(reason) = busy_reject {
+                    self.publish_session_event(
+                        agent_id,
+                        amux::SessionEvent {
+                            event: Some(amux::session_event::Event::PromptRejected(
+                                amux::PromptRejected { command_id, reason },
+                            )),
+                        },
+                    )
+                    .await;
+                    return;
                 }
 
                 // If the client requested a specific model and it differs from
                 // the one we last applied, forward a SetModel command before
                 // the prompt so the new turn runs on the requested model.
                 let desired_model = prompt.model_id.clone();
+                let mut model_changed = false;
                 if !desired_model.is_empty() {
                     let current = self
                         .agents
+                        .lock()
+                        .await
                         .current_model(agent_id)
                         .cloned()
                         .unwrap_or_default();
                     if desired_model != current {
-                        match self.agents.send_set_model(agent_id, &desired_model).await {
+                        let mut agents = self.agents.lock().await;
+                        match agents.send_set_model(agent_id, &desired_model).await {
                             Ok(()) => {
-                                self.agents.set_current_model(agent_id, &desired_model);
-                                self.publish_runtime_state_by_id(agent_id).await;
+                                agents.set_current_model(agent_id, &desired_model);
+                                model_changed = true;
                             }
                             Err(e) => {
                                 warn!(agent_id, model_id = %desired_model, "send_set_model failed: {}", e);
@@ -1458,13 +1609,25 @@ impl DaemonServer {
                         }
                     }
                 }
+                if model_changed {
+                    self.publish_runtime_state_by_id(agent_id).await;
+                }
 
                 // Send prompt to agent (respawns if process exited)
-                match self.agents.send_prompt(agent_id, &prompt.text).await {
+                let send_res = self
+                    .agents
+                    .lock()
+                    .await
+                    .send_prompt(agent_id, &prompt.text)
+                    .await;
+                match send_res {
                     Ok(_drained) => {
-                        if let Some(handle) = self.agents.get_handle_mut(agent_id) {
-                            handle.status = amux::AgentStatus::Active;
-                            handle.current_prompt = prompt.text.clone();
+                        {
+                            let mut agents = self.agents.lock().await;
+                            if let Some(handle) = agents.get_handle_mut(agent_id) {
+                                handle.status = amux::AgentStatus::Active;
+                                handle.current_prompt = prompt.text.clone();
+                            }
                         }
                         if let Some(session) = self.sessions.find_by_id_mut(agent_id) {
                             session.last_prompt = prompt.text.clone();
@@ -1489,10 +1652,14 @@ impl DaemonServer {
             }
 
             amux::acp_command::Command::Cancel(_) => {
-                match self.agents.cancel_agent(agent_id).await {
+                let cancel_res = self.agents.lock().await.cancel_agent(agent_id).await;
+                match cancel_res {
                     Ok(()) => {
-                        if let Some(handle) = self.agents.get_handle_mut(agent_id) {
-                            handle.status = amux::AgentStatus::Idle;
+                        {
+                            let mut agents = self.agents.lock().await;
+                            if let Some(handle) = agents.get_handle_mut(agent_id) {
+                                handle.status = amux::AgentStatus::Idle;
+                            }
                         }
                         info!(agent_id, peer_id, "agent cancelled via ACP");
                         self.publish_runtime_state_by_id(agent_id).await;
@@ -1508,6 +1675,8 @@ impl DaemonServer {
                     // Resolve via ACP permission response
                     let _ = self
                         .agents
+                        .lock()
+                        .await
                         .resolve_permission(agent_id, &grant.request_id, true)
                         .await;
                     info!(request_id = %grant.request_id, peer_id, "permission granted via ACP");
@@ -1532,6 +1701,8 @@ impl DaemonServer {
                     // Resolve via ACP permission response
                     let _ = self
                         .agents
+                        .lock()
+                        .await
                         .resolve_permission(agent_id, &deny.request_id, false)
                         .await;
                     info!(request_id = %deny.request_id, peer_id, "permission denied via ACP");
@@ -2055,10 +2226,12 @@ impl DaemonServer {
         // instead of spawning a duplicate. Protects against misbehaving
         // clients that fire RuntimeStart twice (e.g. picker + inline
         // mention race on the desktop client pre-4210aad8).
-        if let Some(existing) = self
+        let existing_runtime = self
             .agents
-            .find_active_runtime_for(session_id, agent_type, &ws_id)
-        {
+            .lock()
+            .await
+            .find_active_runtime_for(session_id, agent_type, &ws_id);
+        if let Some(existing) = existing_runtime {
             info!(
                 session_id,
                 workspace_id = %ws_id,
@@ -2106,8 +2279,10 @@ impl DaemonServer {
         let session_id_opt = (!session_id.is_empty()).then_some(session_id);
 
         // Spawn.
-        let new_id = match self
+        let spawn_res = self
             .agents
+            .lock()
+            .await
             .spawn_agent(
                 agent_type,
                 &resolved_worktree,
@@ -2116,8 +2291,8 @@ impl DaemonServer {
                 supabase_ws_id,
                 session_id_opt,
             )
-            .await
-        {
+            .await;
+        let new_id = match spawn_res {
             Ok(id) => id,
             Err(e) => {
                 error!("spawn_agent failed: {}", e);
@@ -2152,6 +2327,8 @@ impl DaemonServer {
         // Persist session + transition to ACTIVE.
         let acp_sid = self
             .agents
+            .lock()
+            .await
             .get_handle(&new_id)
             .map(|h| h.acp_session_id.clone())
             .unwrap_or_default();
@@ -2203,12 +2380,19 @@ impl DaemonServer {
         }
 
         // Reject if runtime is not known.
-        if self.agents.get_handle(&runtime_id).is_none() {
+        if self.agents.lock().await.get_handle(&runtime_id).is_none() {
             return reject_stop(request, &format!("unknown runtime_id: {}", runtime_id));
         }
 
         // Terminate via RuntimeManager (same path as AcpCommand::StopAgent).
-        if self.agents.stop_agent(&runtime_id).await.is_none() {
+        if self
+            .agents
+            .lock()
+            .await
+            .stop_agent(&runtime_id)
+            .await
+            .is_none()
+        {
             return reject_stop(
                 request,
                 &format!("stop failed for runtime_id: {}", runtime_id),
@@ -2326,7 +2510,12 @@ impl DaemonServer {
             return reject_set_model(request, "model_id required");
         }
 
-        let result = self.agents.set_model(&runtime_id, &model_id).await;
+        let result = self
+            .agents
+            .lock()
+            .await
+            .set_model(&runtime_id, &model_id)
+            .await;
         let (success, error) = match result {
             Ok(()) => (true, String::new()),
             Err(e) => (false, e.to_string()),

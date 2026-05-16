@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
     pub device: DeviceConfig,
     pub mqtt: MqttConfig,
@@ -13,24 +13,24 @@ pub struct DaemonConfig {
     pub channels: ChannelsConfig,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceConfig {
     pub id: String,
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttConfig {
     pub broker_url: String,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct AgentsConfig {
     #[serde(default)]
     pub claude_code: Option<ClaudeCodeConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeCodeConfig {
     #[serde(default = "default_claude_binary")]
     pub binary: String,
@@ -42,7 +42,7 @@ fn default_claude_binary() -> String {
     "claude".into()
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ChannelsConfig {
     #[serde(default)]
     pub discord: Option<DiscordChannel>,
@@ -58,7 +58,7 @@ pub struct ChannelsConfig {
     pub email: Option<EmailChannel>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordChannel {
     pub enabled: bool,
     pub bot_token: String,
@@ -66,7 +66,7 @@ pub struct DiscordChannel {
     pub default_username: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeComChannel {
     pub enabled: bool,
     /// WeCom bot id (QR-bound bot mode used by `teamclaw_gateway::wecom`).
@@ -76,27 +76,27 @@ pub struct WeComChannel {
     pub encoding_aes_key: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeishuChannel {
     pub enabled: bool,
     pub app_id: String,
     pub app_secret: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KookChannel {
     pub enabled: bool,
     pub bot_token: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeChatChannel {
     pub enabled: bool,
     pub ilink_account: String,
     pub ilink_token: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailChannel {
     pub enabled: bool,
     pub imap_host: String,
