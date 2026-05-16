@@ -862,8 +862,11 @@ impl SupabaseClient {
         Ok(id)
     }
 
-    /// Return the `member_actor_id` values from `agent_member_access` where
+    /// Return the member actor ids from `agent_member_access` where
     /// `agent_id = agent_actor_id AND permission_level = 'admin'`.
+    ///
+    /// The column is named `member_id` but its values are actor ids
+    /// (members.id references actors.id per 202604220002_core_schema.sql).
     ///
     /// Used at channel-manager boot to populate `owner_member_actor_ids` so
     /// that gateway-originated sessions (Discord/WeCom/Feishu DMs) include the
@@ -875,7 +878,7 @@ impl SupabaseClient {
     ) -> SupabaseResult<Vec<String>> {
         let token = self.access_token().await?;
         let url = format!(
-            "{}/rest/v1/agent_member_access?agent_id=eq.{}&permission_level=eq.admin&select=member_actor_id",
+            "{}/rest/v1/agent_member_access?agent_id=eq.{}&permission_level=eq.admin&select=member_id",
             self.cfg.url, agent_actor_id
         );
         let resp = self
@@ -895,10 +898,10 @@ impl SupabaseClient {
         }
         #[derive(Deserialize)]
         struct Row {
-            member_actor_id: String,
+            member_id: String,
         }
         let rows: Vec<Row> = resp.json().await?;
-        Ok(rows.into_iter().map(|r| r.member_actor_id).collect())
+        Ok(rows.into_iter().map(|r| r.member_id).collect())
     }
 
     /// Add (or ignore-if-present) a participant on `session_participants`.
