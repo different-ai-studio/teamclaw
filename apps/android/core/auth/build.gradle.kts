@@ -24,6 +24,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)
     implementation(libs.hivemq.mqtt.client)
+    api(project(":core:proto"))
     implementation(libs.appauth)
     implementation(libs.credentials)
     implementation(libs.credentials.play.services.auth)

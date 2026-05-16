@@ -21,9 +21,15 @@ class SessionDetailStore(
     private val repository: MessagesRepository,
     /** Optional realtime signal — typically [MqttService.subscribeAsSignal]. */
     private val realtimeSignal: Flow<Unit>? = null,
+    /** Optional decoded-event stream — typically [MqttService.subscribeAsEvents]. */
+    private val realtimeEvents: Flow<DecodedEvent>? = null,
 ) {
     data class UiState(
         val messages: List<MessageRecord> = emptyList(),
+        /** Live events the agent is emitting right now (thinking/tool/output deltas).
+         *  Cleared on reload — these are transient until they roll up into a
+         *  finalized message in PostgREST. */
+        val liveEvents: List<DecodedEvent> = emptyList(),
         val isLoading: Boolean = false,
         val isSending: Boolean = false,
         val errorMessage: String? = null,
@@ -40,9 +46,43 @@ class SessionDetailStore(
      */
     fun startRealtime(scope: CoroutineScope): Job? {
         val signal = realtimeSignal ?: return null
-        return scope.launch {
+        val job = scope.launch {
             signal.collect { reload() }
         }
+        // Live decoded-events stream runs in a sibling coroutine. Each event
+        // appends to liveEvents until a reload() clears them (which happens
+        // on every signal — and the agent's final reply gets persisted by
+        // the daemon so the PostgREST refresh is the source of truth).
+        realtimeEvents?.let { events ->
+            scope.launch {
+                events.collect { event ->
+                    _state.update {
+                        it.copy(liveEvents = mergeEvent(it.liveEvents, event))
+                    }
+                }
+            }
+        }
+        return job
+    }
+
+    /**
+     * Append [event] to [existing], collapsing consecutive [DecodedEvent.Output]
+     * frames from the same runtime into a single rolling text buffer (the
+     * stream of deltas the agent emits as it types). All other event kinds
+     * are appended as discrete bubbles.
+     */
+    private fun mergeEvent(existing: List<DecodedEvent>, event: DecodedEvent): List<DecodedEvent> {
+        if (event !is DecodedEvent.Output) return existing + event
+        val last = existing.lastOrNull()
+        if (last is DecodedEvent.Output && last.runtimeId == event.runtimeId && !last.isComplete) {
+            return existing.dropLast(1) + last.copy(
+                text = last.text + event.text,
+                isComplete = event.isComplete,
+                sequence = event.sequence,
+                timestampMs = event.timestampMs,
+            )
+        }
+        return existing + event
     }
 
     suspend fun reload() {
@@ -50,7 +90,12 @@ class SessionDetailStore(
         _state.update { it.copy(isLoading = true, errorMessage = null) }
         try {
             val rows = repository.listMessages(sessionId)
-            _state.update { it.copy(messages = rows, isLoading = false) }
+            _state.update {
+                // Clear liveEvents on reload — the events that fired before
+                // this reload are now either persisted in `messages` (final
+                // output) or no longer relevant (intermediate thinking).
+                it.copy(messages = rows, liveEvents = emptyList(), isLoading = false)
+            }
         } catch (t: Throwable) {
             _state.update { it.copy(errorMessage = t.message, isLoading = false) }
         }

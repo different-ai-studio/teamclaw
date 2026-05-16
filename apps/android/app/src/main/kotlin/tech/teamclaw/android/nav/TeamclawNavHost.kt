@@ -244,6 +244,7 @@ private fun ReadyFlow(
             title = active.title.ifBlank { "Session" },
             currentActorId = currentActorId,
             messages = detailState.messages,
+            liveEvents = detailState.liveEvents,
             mentionCandidates = actorState.actors.filter { it.id != currentActorId },
             isLoading = detailState.isLoading,
             isSending = detailState.isSending,

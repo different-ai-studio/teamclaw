@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -140,6 +142,35 @@ class MqttService(
             activeSubscriptions -= topicFilter
             // Best-effort unsubscribe; if the client is already gone, this
             // is a no-op.
+            client?.unsubscribeWith()?.topicFilter(topicFilter)?.send()
+        }
+    }
+
+    /**
+     * Same subscription path as [subscribeAsSignal] but emits decoded
+     * [DecodedEvent]s instead of bare Units. Payloads that don't decode as
+     * an Amux Envelope (or that contain no acp_event) are filtered out
+     * silently — the chat UI just won't see anything for them.
+     */
+    fun subscribeAsEvents(topicFilter: String): Flow<DecodedEvent> = callbackFlow {
+        val c = client
+        if (c == null) {
+            close()
+            return@callbackFlow
+        }
+        activeSubscriptions += topicFilter
+        c.subscribeWith()
+            .topicFilter(topicFilter)
+            .qos(MqttQos.AT_LEAST_ONCE)
+            .callback { msg ->
+                val bytes = msg.payloadAsBytes ?: ByteArray(0)
+                events.tryEmit(TopicEvent(msg.topic.toString(), bytes))
+                SessionEventDecoder.decode(bytes)?.let { trySend(it) }
+            }
+            .send()
+            .await()
+        awaitClose {
+            activeSubscriptions -= topicFilter
             client?.unsubscribeWith()?.topicFilter(topicFilter)?.send()
         }
     }

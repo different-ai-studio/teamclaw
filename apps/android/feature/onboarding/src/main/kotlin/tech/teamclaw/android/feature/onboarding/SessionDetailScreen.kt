@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import tech.teamclaw.android.core.auth.DecodedEvent
 import tech.teamclaw.android.core.design.Hai
 import tech.teamclaw.android.core.design.TeamclawTheme
 import tech.teamclaw.android.core.model.ActorRecord
@@ -45,6 +46,7 @@ fun SessionDetailScreen(
     title: String,
     currentActorId: String,
     messages: List<MessageRecord>,
+    liveEvents: List<DecodedEvent> = emptyList(),
     mentionCandidates: List<ActorRecord>,
     isLoading: Boolean,
     isSending: Boolean,
@@ -96,6 +98,9 @@ fun SessionDetailScreen(
                 items(items = messages, key = { it.id }) { msg ->
                     MessageBubble(message = msg, isMine = msg.senderActorId == currentActorId)
                 }
+                items(items = liveEvents, key = { "live-${it.sequence}-${it.timestampMs}" }) { evt ->
+                    LiveEventBubble(evt)
+                }
             }
         }
 
@@ -128,6 +133,55 @@ fun SessionDetailScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun LiveEventBubble(event: DecodedEvent) {
+    val accent = when (event) {
+        is DecodedEvent.Thinking -> Hai.Slate
+        is DecodedEvent.Output -> Hai.Basalt
+        is DecodedEvent.ToolUse -> Hai.Sage
+        is DecodedEvent.ToolResult -> Hai.Sage
+        is DecodedEvent.Error -> Hai.CinnabarDeep
+        is DecodedEvent.Unknown -> Hai.Slate
+    }
+    val (badge, body) = when (event) {
+        is DecodedEvent.Thinking -> "Thinking" to event.text
+        is DecodedEvent.Output -> {
+            val tag = if (event.isComplete) "Output" else "Output…"
+            tag to event.text
+        }
+        is DecodedEvent.ToolUse -> "Tool · ${event.toolName.ifBlank { event.toolId }}" to event.description
+        is DecodedEvent.ToolResult -> {
+            val tag = if (event.success) "Tool result" else "Tool failed"
+            tag to event.summary
+        }
+        is DecodedEvent.Error -> "Error" to event.message
+        is DecodedEvent.Unknown -> "Event" to event.variantTag
+    }
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.widthIn(max = 340.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Hai.Paper)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                badge,
+                style = MaterialTheme.typography.bodySmall,
+                color = accent,
+            )
+            if (body.isNotBlank()) {
+                Text(
+                    body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Hai.Basalt,
+                )
+            }
+        }
+        Spacer(Modifier.weight(1f))
     }
 }
 

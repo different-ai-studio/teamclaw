@@ -86,6 +86,7 @@ class TeamclawApplication : Application() {
                 currentActorId = actorId,
                 repository = messagesRepo,
                 realtimeSignal = mqttService.subscribeAsSignal(topic),
+                realtimeEvents = mqttService.subscribeAsEvents(topic),
             )
         }
         val actorRepo = SupabaseActorRepository(supabaseClient)
