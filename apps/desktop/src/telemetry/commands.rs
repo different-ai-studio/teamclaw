@@ -32,16 +32,12 @@ pub async fn telemetry_get_consent(_app: AppHandle) -> Result<ConsentState, Stri
 }
 
 #[tauri::command]
-pub async fn telemetry_set_consent(
-    _app: AppHandle,
-    state: ConsentState,
-) -> Result<(), String> {
+pub async fn telemetry_set_consent(_app: AppHandle, state: ConsentState) -> Result<(), String> {
     let path = consent_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let body =
-        serde_json::to_string_pretty(&ConsentFile { state }).map_err(|e| e.to_string())?;
+    let body = serde_json::to_string_pretty(&ConsentFile { state }).map_err(|e| e.to_string())?;
     std::fs::write(&path, body).map_err(|e| e.to_string())?;
     Ok(())
 }
