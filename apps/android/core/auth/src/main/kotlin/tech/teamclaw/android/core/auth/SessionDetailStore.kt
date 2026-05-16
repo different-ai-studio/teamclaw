@@ -79,6 +79,14 @@ class SessionDetailStore(
      * are appended as discrete bubbles.
      */
     private fun mergeEvent(existing: List<DecodedEvent>, event: DecodedEvent): List<DecodedEvent> {
+        // TodoUpdate: replace any prior TodoUpdate from the same runtime —
+        // the agent emits a fresh full list on each transition, so we keep
+        // exactly one in the live-events stream per runtime.
+        if (event is DecodedEvent.TodoUpdate) {
+            return existing.filterNot {
+                it is DecodedEvent.TodoUpdate && it.runtimeId == event.runtimeId
+            } + event
+        }
         if (event !is DecodedEvent.Output) return existing + event
         val last = existing.lastOrNull()
         if (last is DecodedEvent.Output && last.runtimeId == event.runtimeId && !last.isComplete) {

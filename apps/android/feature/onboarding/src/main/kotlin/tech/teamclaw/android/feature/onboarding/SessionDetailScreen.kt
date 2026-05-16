@@ -100,14 +100,14 @@ fun SessionDetailScreen(
                     MessageBubble(message = msg, isMine = msg.senderActorId == currentActorId)
                 }
                 items(items = liveEvents, key = { "live-${it.sequence}-${it.timestampMs}" }) { evt ->
-                    if (evt is DecodedEvent.PermissionRequest) {
-                        PermissionRequestBubble(
+                    when (evt) {
+                        is DecodedEvent.PermissionRequest -> PermissionRequestBubble(
                             event = evt,
                             onGrant = { onPermissionResponse?.invoke(evt, true) },
                             onDeny = { onPermissionResponse?.invoke(evt, false) },
                         )
-                    } else {
-                        LiveEventBubble(evt)
+                        is DecodedEvent.TodoUpdate -> TodoListBubble(evt)
+                        else -> LiveEventBubble(evt)
                     }
                 }
             }
@@ -142,6 +142,56 @@ fun SessionDetailScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun TodoListBubble(event: DecodedEvent.TodoUpdate) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.widthIn(max = 360.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Hai.Paper)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val total = event.items.size
+            val done = event.items.count { it.status == DecodedEvent.TodoStatus.COMPLETED }
+            Text(
+                "Tasks · $done/$total",
+                style = MaterialTheme.typography.bodySmall,
+                color = Hai.Basalt,
+            )
+            event.items.forEach { item ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = when (item.status) {
+                            DecodedEvent.TodoStatus.PENDING -> "○"
+                            DecodedEvent.TodoStatus.IN_PROGRESS -> "◐"
+                            DecodedEvent.TodoStatus.COMPLETED -> "●"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = when (item.status) {
+                            DecodedEvent.TodoStatus.PENDING -> Hai.Slate
+                            DecodedEvent.TodoStatus.IN_PROGRESS -> Hai.Cinnabar
+                            DecodedEvent.TodoStatus.COMPLETED -> Hai.Sage
+                        },
+                    )
+                    Text(
+                        text = item.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (item.status == DecodedEvent.TodoStatus.COMPLETED) Hai.Slate else Hai.Onyx,
+                        textDecoration = if (item.status == DecodedEvent.TodoStatus.COMPLETED) {
+                            androidx.compose.ui.text.style.TextDecoration.LineThrough
+                        } else null,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
     }
 }
 
@@ -197,6 +247,7 @@ private fun LiveEventBubble(event: DecodedEvent) {
         is DecodedEvent.ToolResult -> Hai.Sage
         is DecodedEvent.Error -> Hai.CinnabarDeep
         is DecodedEvent.PermissionRequest -> Hai.Cinnabar
+        is DecodedEvent.TodoUpdate -> Hai.Basalt
         is DecodedEvent.Unknown -> Hai.Slate
     }
     val (badge, body) = when (event) {
@@ -211,6 +262,7 @@ private fun LiveEventBubble(event: DecodedEvent) {
             tag to event.summary
         }
         is DecodedEvent.PermissionRequest -> "Permission" to event.description
+        is DecodedEvent.TodoUpdate -> "Tasks" to "${event.items.size} item${if (event.items.size == 1) "" else "s"}"
         is DecodedEvent.Error -> "Error" to event.message
         is DecodedEvent.Unknown -> "Event" to event.variantTag
     }

@@ -2,6 +2,7 @@ package tech.teamclaw.android.core.auth
 
 import amux.AcpEvent
 import amux.Envelope
+import amux.TodoItem as ProtoTodoItem
 
 /**
  * Decoded slice of an [Envelope] that the chat UI cares about. Maps each
@@ -65,6 +66,23 @@ sealed interface DecodedEvent {
         val description: String,
     ) : DecodedEvent
 
+    /**
+     * Latest snapshot of the agent's task list. Replaces any prior
+     * TodoUpdate from the same runtime — the agent emits a fresh
+     * `AcpTodoUpdate` every time it transitions a task, so the renderer
+     * shouldn't accumulate them.
+     */
+    data class TodoUpdate(
+        override val runtimeId: String,
+        override val timestampMs: Long,
+        override val sequence: Long,
+        val items: List<Item>,
+    ) : DecodedEvent {
+        data class Item(val content: String, val status: TodoStatus)
+    }
+
+    enum class TodoStatus { PENDING, IN_PROGRESS, COMPLETED }
+
     data class Unknown(
         override val runtimeId: String,
         override val timestampMs: Long,
@@ -127,9 +145,26 @@ object SessionEventDecoder {
                 description = it.description,
             )
         }
+        event.todo_update?.let { todo ->
+            return DecodedEvent.TodoUpdate(
+                runtimeId, timestampMs, sequence,
+                items = todo.items.map { item ->
+                    DecodedEvent.TodoUpdate.Item(
+                        content = item.content,
+                        status = mapTodoStatus(item.status),
+                    )
+                },
+            )
+        }
         return DecodedEvent.Unknown(
             runtimeId, timestampMs, sequence,
             variantTag = "acp_event",
         )
+    }
+
+    private fun mapTodoStatus(status: ProtoTodoItem.Status): DecodedEvent.TodoStatus = when (status) {
+        ProtoTodoItem.Status.PENDING -> DecodedEvent.TodoStatus.PENDING
+        ProtoTodoItem.Status.IN_PROGRESS -> DecodedEvent.TodoStatus.IN_PROGRESS
+        ProtoTodoItem.Status.COMPLETED -> DecodedEvent.TodoStatus.COMPLETED
     }
 }
