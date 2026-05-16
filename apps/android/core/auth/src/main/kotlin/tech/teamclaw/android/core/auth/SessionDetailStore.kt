@@ -56,7 +56,7 @@ class SessionDetailStore(
         }
     }
 
-    suspend fun send(content: String) {
+    suspend fun send(content: String, mentionActorIds: List<String> = emptyList()) {
         val trimmed = content.trim()
         if (trimmed.isEmpty()) return
         if (_state.value.isSending) return
@@ -67,6 +67,7 @@ class SessionDetailStore(
                 sessionId = sessionId,
                 senderActorId = currentActorId,
                 content = trimmed,
+                mentionActorIds = mentionActorIds,
             )
             _state.update { it.copy(messages = it.messages + inserted, isSending = false) }
         } catch (t: Throwable) {

@@ -244,10 +244,13 @@ private fun ReadyFlow(
             title = active.title.ifBlank { "Session" },
             currentActorId = currentActorId,
             messages = detailState.messages,
+            mentionCandidates = actorState.actors.filter { it.id != currentActorId },
             isLoading = detailState.isLoading,
             isSending = detailState.isSending,
             errorMessage = detailState.errorMessage,
-            onSend = { text -> coordinator.launch { detailStore.send(text) } },
+            onSend = { text, mentions ->
+                coordinator.launch { detailStore.send(text, mentions) }
+            },
             onBack = { openSession = null },
             onStartVoiceInput = onStartVoiceInput,
         )

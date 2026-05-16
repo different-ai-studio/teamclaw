@@ -37,6 +37,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import tech.teamclaw.android.core.design.Hai
 import tech.teamclaw.android.core.design.TeamclawTheme
+import tech.teamclaw.android.core.model.ActorRecord
 import tech.teamclaw.android.core.model.MessageRecord
 
 @Composable
@@ -44,16 +45,19 @@ fun SessionDetailScreen(
     title: String,
     currentActorId: String,
     messages: List<MessageRecord>,
+    mentionCandidates: List<ActorRecord>,
     isLoading: Boolean,
     isSending: Boolean,
     errorMessage: String?,
-    onSend: (text: String) -> Unit,
+    onSend: (text: String, mentionActorIds: List<String>) -> Unit,
     onBack: () -> Unit,
     onStartVoiceInput: ((onResult: (String) -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var draft by remember { mutableStateOf("") }
+    var mentionedActorIds by remember { mutableStateOf(setOf<String>()) }
     val listState = rememberLazyListState()
+    val activeMention = remember(draft) { extractActiveMentionQuery(draft) }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -95,13 +99,26 @@ fun SessionDetailScreen(
             }
         }
 
+        if (activeMention != null) {
+            MentionPopup(
+                actors = mentionCandidates,
+                query = activeMention.query,
+                onSelect = { actor ->
+                    draft = replaceMentionAtCursor(draft, actor.displayName)
+                    mentionedActorIds = mentionedActorIds + actor.id
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
+
         ComposerRow(
             value = draft,
             isSending = isSending,
             onChange = { draft = it },
             onSend = {
-                onSend(draft)
+                onSend(draft, mentionedActorIds.toList())
                 draft = ""
+                mentionedActorIds = emptySet()
             },
             onMic = onStartVoiceInput?.let { start ->
                 {
@@ -112,6 +129,21 @@ fun SessionDetailScreen(
             },
         )
     }
+}
+
+private data class ActiveMention(val start: Int, val query: String)
+
+private val mentionPattern = Regex("@(\\w*)$")
+
+private fun extractActiveMentionQuery(text: String): ActiveMention? {
+    val match = mentionPattern.find(text) ?: return null
+    return ActiveMention(start = match.range.first, query = match.groupValues[1])
+}
+
+private fun replaceMentionAtCursor(text: String, displayName: String): String {
+    val match = mentionPattern.find(text) ?: return text
+    val before = text.substring(0, match.range.first)
+    return "$before@$displayName "
 }
 
 @Composable
@@ -203,8 +235,9 @@ private fun SessionDetailPreview() {
                 MessageRecord("1", "s", "me", "text", "Hey", 0L, null, null),
                 MessageRecord("2", "s", "agent-1", "text", "Hi! How can I help?", 0L, null, null),
             ),
+            mentionCandidates = emptyList(),
             isLoading = false, isSending = false, errorMessage = null,
-            onSend = {}, onBack = {},
+            onSend = { _, _ -> }, onBack = {},
         )
     }
 }

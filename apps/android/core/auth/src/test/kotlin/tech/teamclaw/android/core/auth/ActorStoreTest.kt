@@ -27,6 +27,9 @@ class ActorStoreTest {
             inviteError?.let { throw it }
             return invite ?: error("set invite")
         }
+        override suspend fun removeActor(actorId: String) {
+            actors = actors.filterNot { it.id == actorId }
+        }
     }
 
     private fun sample(id: String, displayName: String) = ActorRecord(
