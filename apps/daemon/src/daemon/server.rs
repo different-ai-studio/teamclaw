@@ -3,6 +3,9 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::net::UnixListener;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{error, info, warn};
 
@@ -35,6 +38,10 @@ struct StartRuntimeError {
 
 pub struct DaemonServer {
     config: DaemonConfig,
+    /// Path the daemon's `daemon.toml` was loaded from. Stashed so
+    /// `channel-reload` (over `amuxd.sock`) can re-read the latest config
+    /// without callers having to thread the path through every helper.
+    config_path: PathBuf,
     mqtt: MqttClient,
     agents: Arc<AsyncMutex<RuntimeManager>>,
     auth: AuthManager,
@@ -52,6 +59,14 @@ pub struct DaemonServer {
     /// `None` until `start_channels()` runs; held as `Option` so `shutdown(self)`
     /// can be `.take()`n on graceful exit.
     channel_mgr: Option<ChannelManager>,
+}
+
+/// Single control command parsed off `amuxd.sock`. Variants correspond to the
+/// `cmd` strings written by `cli::process::send_control`.
+#[derive(Debug)]
+enum SockCommand {
+    ChannelReload,
+    Unknown(String),
 }
 
 impl DaemonServer {
@@ -148,6 +163,7 @@ impl DaemonServer {
 
         Ok(Self {
             config,
+            config_path: config_path.to_path_buf(),
             mqtt,
             agents,
             auth,
@@ -165,15 +181,15 @@ impl DaemonServer {
         })
     }
 
-    /// Construct the channel manager from `[channels.*]` entries in
-    /// `daemon.toml` and call `start_enabled()` so every gateway whose
-    /// section has `enabled = true` boots alongside the daemon. Best-effort:
-    /// missing team_id (daemon not yet onboarded) or per-channel start
-    /// failures are logged but do NOT abort daemon startup.
-    async fn start_channels(&mut self) {
-        let Some(team_id) = self.config.team_id.clone() else {
+    /// Build a `ChannelManager` from the given config and call
+    /// `start_enabled()`. Returns `None` when the daemon has no `team_id`
+    /// yet (not onboarded) — caller logs and skips. Per-channel start
+    /// failures are logged inside `start_enabled` and do NOT abort the
+    /// whole boot.
+    async fn build_and_start_channel_manager(&self, cfg: DaemonConfig) -> Option<ChannelManager> {
+        let Some(team_id) = cfg.team_id.clone() else {
             info!("channels: daemon has no team_id (run `amuxd init`); skipping channel start");
-            return;
+            return None;
         };
 
         // The daemon's own actor_id (persisted in supabase.toml during `init`)
@@ -194,7 +210,7 @@ impl DaemonServer {
         });
 
         let mgr = ChannelManager::new(
-            self.config.clone(),
+            cfg,
             acp_handle,
             store,
             team_id,
@@ -205,7 +221,43 @@ impl DaemonServer {
             Ok(()) => info!("channel manager: start_enabled() completed"),
             Err(e) => warn!("channel manager: start_enabled() failed: {e:?}"),
         }
-        self.channel_mgr = Some(mgr);
+        Some(mgr)
+    }
+
+    /// Construct the channel manager from `[channels.*]` entries in
+    /// `daemon.toml` and call `start_enabled()` so every gateway whose
+    /// section has `enabled = true` boots alongside the daemon. Best-effort:
+    /// missing team_id (daemon not yet onboarded) or per-channel start
+    /// failures are logged but do NOT abort daemon startup.
+    async fn start_channels(&mut self) {
+        let cfg = self.config.clone();
+        self.channel_mgr = self.build_and_start_channel_manager(cfg).await;
+    }
+
+    /// Re-read `daemon.toml` from disk, tear down the running channel
+    /// manager (if any), and bring up a fresh one. Used by the
+    /// `channel-reload` control command. Failures are logged but never
+    /// crash the daemon — partial reloads (e.g. config parsed but one
+    /// channel fails to start) are acceptable.
+    async fn reload_channels(&mut self) {
+        let fresh_cfg = match DaemonConfig::load(&self.config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                error!("channel-reload: failed to read config: {e:?}");
+                return;
+            }
+        };
+
+        if let Some(mgr) = self.channel_mgr.take() {
+            info!("channel-reload: shutting down current channel manager");
+            mgr.shutdown().await;
+        }
+
+        // Update the in-memory copy so subsequent paths that read
+        // `self.config` see the new values.
+        self.config = fresh_cfg.clone();
+        self.channel_mgr = self.build_and_start_channel_manager(fresh_cfg).await;
+        info!("channel-reload: ok");
     }
 
     /// Tear down any running channels. Idempotent — safe to call when
@@ -233,6 +285,15 @@ impl DaemonServer {
         // daemon startup. This runs before the MQTT loop so a misconfigured
         // channel doesn't delay collab connectivity.
         self.start_channels().await;
+
+        // Bind the control socket and spawn a listener that funnels parsed
+        // commands into the main loop via mpsc. Done after channel start so
+        // any error in `start_channels` surfaces first; failure to bind the
+        // sock is logged but does NOT abort the daemon — operators can still
+        // use SIGTERM / signal handlers to stop it.
+        let (sock_tx, mut sock_rx) = mpsc::channel::<SockCommand>(16);
+        let sock_path = DaemonConfig::sock_path();
+        spawn_sock_listener(sock_path.clone(), sock_tx);
 
         tokio::pin!(shutdown);
 
@@ -409,7 +470,24 @@ impl DaemonServer {
                     _ = &mut shutdown => {
                         info!("shutdown signal received, draining channels");
                         self.shutdown_channels().await;
+                        let _ = std::fs::remove_file(&sock_path);
                         return Ok(());
+                    }
+                    sock_cmd = sock_rx.recv() => {
+                        match sock_cmd {
+                            Some(SockCommand::ChannelReload) => {
+                                self.reload_channels().await;
+                            }
+                            Some(SockCommand::Unknown(line)) => {
+                                warn!("amuxd.sock: unknown control command: {line:?}");
+                            }
+                            None => {
+                                // Sender dropped — listener task died. Log and
+                                // keep running; we just lose the sock control
+                                // path until next restart.
+                                warn!("amuxd.sock: listener channel closed; control commands unavailable until restart");
+                            }
+                        }
                     }
                     poll_result = self.mqtt.eventloop.poll() => {
                         match poll_result {
@@ -2645,6 +2723,71 @@ pub fn parse_mention_actor_ids(metadata_json: &str) -> Vec<String> {
         .and_then(|v| v.get("mention_actor_ids").cloned())
         .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
         .unwrap_or_default()
+}
+
+/// Bind `amuxd.sock` and spawn a task that accepts connections, reads a
+/// single newline-terminated control command per connection, and forwards
+/// the parsed `SockCommand` to the daemon's main loop via `tx`. Stale
+/// socket files left over from a crashed previous run are removed before
+/// bind. Errors are logged and swallowed — the daemon must keep running
+/// even if the sock can't be set up (operators can still kill it via
+/// SIGTERM).
+fn spawn_sock_listener(sock_path: PathBuf, tx: mpsc::Sender<SockCommand>) {
+    // Make sure the parent directory exists (e.g. on first run).
+    if let Some(parent) = sock_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            error!(
+                "amuxd.sock: failed to create parent dir {}: {e}",
+                parent.display()
+            );
+            return;
+        }
+    }
+    // Remove a stale socket left by an earlier crash; `bind` returns
+    // AddrInUse otherwise.
+    let _ = std::fs::remove_file(&sock_path);
+
+    let listener = match UnixListener::bind(&sock_path) {
+        Ok(l) => l,
+        Err(e) => {
+            error!("amuxd.sock: bind {} failed: {e}", sock_path.display());
+            return;
+        }
+    };
+    info!("amuxd.sock: listening on {}", sock_path.display());
+
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    let tx = tx.clone();
+                    tokio::spawn(async move {
+                        let mut reader = BufReader::new(stream);
+                        let mut line = String::new();
+                        match reader.read_line(&mut line).await {
+                            Ok(0) => {}
+                            Ok(_) => {
+                                let cmd = match line.trim() {
+                                    "channel-reload" => SockCommand::ChannelReload,
+                                    other => SockCommand::Unknown(other.to_string()),
+                                };
+                                if tx.send(cmd).await.is_err() {
+                                    // main loop is gone; nothing to do
+                                }
+                            }
+                            Err(e) => {
+                                warn!("amuxd.sock: read_line failed: {e}");
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    warn!("amuxd.sock: accept error: {e}");
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+            }
+        }
+    });
 }
 
 fn not_yet_implemented(
