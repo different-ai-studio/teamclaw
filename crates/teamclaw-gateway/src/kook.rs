@@ -8,10 +8,11 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
 use crate::kook_config::{KookConfig, KookGatewayStatus, KookGatewayStatusResponse};
-use crate::session::SessionMapping;
 
 use crate::i18n;
-use crate::{FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::{
+    AcpHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
+};
 
 /// Maximum number of buffered out-of-order messages
 const MAX_BUFFER_SIZE: usize = 100;
@@ -88,8 +89,11 @@ impl KookMessageData {
 /// KOOK gateway implementation
 pub struct KookGateway {
     config: Arc<RwLock<KookConfig>>,
-    session_mapping: SessionMapping,
-    opencode_port: u16,
+    pub acp: Arc<dyn AcpHandle>,
+    pub store: Arc<dyn ChannelStore>,
+    pub team_id: String,
+    pub primary_agent_actor_id: String,
+    pub agent_owner_actor_ids: Vec<String>,
     #[allow(dead_code)]
     workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
@@ -103,22 +107,24 @@ pub struct KookGateway {
     processed_messages: Arc<RwLock<ProcessedMessageTracker>>,
     /// Bot's own user ID (fetched via /user/me on startup)
     bot_user_id: Arc<RwLock<Option<String>>>,
-    /// Permission auto-approver
-    permission_approver: super::PermissionAutoApprover,
-    /// Pending questions awaiting replies
-    pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl KookGateway {
     pub fn new(
-        opencode_port: u16,
-        session_mapping: SessionMapping,
+        acp: Arc<dyn AcpHandle>,
+        store: Arc<dyn ChannelStore>,
+        team_id: String,
+        primary_agent_actor_id: String,
+        agent_owner_actor_ids: Vec<String>,
         workspace_path: String,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(KookConfig::default())),
-            session_mapping,
-            opencode_port,
+            acp,
+            store,
+            team_id,
+            primary_agent_actor_id,
+            agent_owner_actor_ids,
             workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(KookGatewayStatusResponse::default())),
@@ -129,8 +135,6 @@ impl KookGateway {
                 MAX_PROCESSED_MESSAGES,
             ))),
             bot_user_id: Arc::new(RwLock::new(None)),
-            permission_approver: super::PermissionAutoApprover::new(opencode_port),
-            pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
 
@@ -722,23 +726,6 @@ impl KookGateway {
             return Ok(());
         }
 
-        // Check if this is a reply to a pending question (KOOK uses extra.quote)
-        if let Some(quote_id) = msg_data
-            .extra
-            .get("quote")
-            .and_then(|q| q.get("rong_id").or_else(|| q.get("id")))
-            .and_then(|id| id.as_str())
-        {
-            if let Some(entry) = self.pending_questions.take(quote_id).await {
-                let _ = entry.answer_tx.send(msg_data.content.clone());
-                println!(
-                    "[KOOK] Question {} answered via quote reply",
-                    entry.question_id
-                );
-                return Ok(());
-            }
-        }
-
         // Filter message
         let filter_result = self.filter_message(&msg_data).await;
 
@@ -854,23 +841,33 @@ impl KookGateway {
                         return FilterResult::UserNotAllowed;
                     }
 
-                    // Check if @mention is required
-                    if rule.require_mention {
-                        let bot_id = self.bot_user_id.read().await;
-                        let bot_mentioned = if let Some(ref id) = *bot_id {
-                            msg.content.contains(&format!("(met){}(met)", id))
-                        } else {
-                            msg.content.contains("(met)")
-                        };
-                        drop(bot_id);
-                        if !bot_mentioned && !msg.content.starts_with('/') {
-                            return FilterResult::Ignore;
-                        }
+                    // Group-only flows when @-mentioned (per spec). Always enforce this
+                    // for GROUP channels regardless of rule.require_mention setting.
+                    let bot_id = self.bot_user_id.read().await;
+                    let bot_mentioned = if let Some(ref id) = *bot_id {
+                        msg.content.contains(&format!("(met){}(met)", id))
+                    } else {
+                        msg.content.contains("(met)")
+                    };
+                    drop(bot_id);
+                    if !bot_mentioned && !msg.content.starts_with('/') {
+                        return FilterResult::Ignore;
                     }
 
                     FilterResult::Allow
                 } else {
-                    // No specific channel rule, but guild is configured - allow by default
+                    // No specific channel rule, but guild is configured. Still require
+                    // @-mention for group messages per spec.
+                    let bot_id = self.bot_user_id.read().await;
+                    let bot_mentioned = if let Some(ref id) = *bot_id {
+                        msg.content.contains(&format!("(met){}(met)", id))
+                    } else {
+                        msg.content.contains("(met)")
+                    };
+                    drop(bot_id);
+                    if !bot_mentioned && !msg.content.starts_with('/') {
+                        return FilterResult::Ignore;
+                    }
                     FilterResult::Allow
                 }
             }
@@ -878,226 +875,182 @@ impl KookGateway {
         }
     }
 
-    /// Process message and send reply
+    /// Process message and send reply via amuxd ACP + ChannelStore.
     async fn process_and_reply(&self, msg: &KookMessageData) -> Result<(), String> {
-        let config = self.config.read().await;
-
-        // Build session key
-        let session_key = if msg.channel_type == "PERSON" {
-            format!("kook:dm:{}", msg.author_id)
-        } else {
-            let guild_id = msg
-                .extra
-                .get("guild_id")
-                .and_then(|g| g.as_str())
-                .unwrap_or("");
-            format!("kook:channel:{}:{}", guild_id, msg.target_id)
-        };
-
-        // Determine which session_id to use (from config or session mapping)
-        // Note: DM always uses session mapping, only guild channels support configured session_id
-        let configured_session_id = if msg.channel_type == "PERSON" {
-            None
-        } else {
-            let guild_id = msg
-                .extra
-                .get("guild_id")
-                .and_then(|g| g.as_str())
-                .unwrap_or("");
-            config
-                .guilds
-                .get(guild_id)
-                .and_then(|guild| guild.channels.get(&msg.target_id))
-                .and_then(|ch| ch.session_id.clone())
-        };
-
-        // Get or create session
-        let session_id = if let Some(configured_id) = configured_session_id {
-            // Use configured session_id
-            configured_id
-        } else {
-            // Use session mapping
-            match self.session_mapping.get_session(&session_key).await {
-                Some(id) => id,
-                None => {
-                    let new_id = self.create_opencode_session().await?;
-                    self.session_mapping
-                        .set_session(session_key.clone(), new_id.clone())
-                        .await;
-                    new_id
-                }
-            }
-        };
-
-        drop(config);
-
         // Strip bot mention from content (like Discord strips <@BOTID>)
         let bot_id = self.bot_user_id.read().await;
         let content = self.strip_mentions(&msg.content, bot_id.as_deref());
         drop(bot_id);
 
-        // Check for /answer command — routes reply to the most recent pending question
-        let locale = i18n::get_locale(&self.workspace_path);
-        if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&content) {
-            if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
-                println!(
-                    "[KOOK] Question {} answered via /answer: {}",
-                    qid, answer_text
-                );
-                let _ = self
-                    .send_reply(
-                        msg,
-                        &i18n::t(i18n::MsgKey::AnswerSubmitted(answer_text), locale),
-                    )
-                    .await;
-            } else {
-                let _ = self
-                    .send_reply(msg, &i18n::t(i18n::MsgKey::NoPendingQuestions, locale))
-                    .await;
-            }
+        if content.is_empty() {
             return Ok(());
         }
 
-        // Check for slash commands
-        if content.starts_with('/') {
-            return self.handle_slash_command(&session_key, &content, msg).await;
+        let locale = i18n::get_locale(&self.workspace_path);
+
+        // Handle /reset — no-op in v2 (server-managed sessions, no client cache to clear).
+        if content.eq_ignore_ascii_case("/reset") {
+            let _ = self
+                .send_reply(msg, &i18n::t(i18n::MsgKey::SessionReset, locale))
+                .await;
+            return Ok(());
         }
 
-        // Look up model preference for this context (like Discord)
-        let model_param = self
-            .session_mapping
-            .get_model(&session_key)
-            .await
-            .and_then(|m| super::parse_model_preference(&m));
+        // /model, /sessions, /stop — depended on opencode HTTP; not yet supported in v2.
+        let lower = content.to_lowercase();
+        if content.eq_ignore_ascii_case("/model")
+            || lower.starts_with("/model ")
+            || content.eq_ignore_ascii_case("/sessions")
+            || lower.starts_with("/sessions ")
+            || content.eq_ignore_ascii_case("/stop")
+        {
+            let _ = self
+                .send_reply(
+                    msg,
+                    "Model switching not yet supported in amuxd; configure via daemon.toml.",
+                )
+                .await;
+            return Ok(());
+        }
 
-        // Build question context for forwarding AI questions to the channel
-        let pending_questions_clone = Arc::clone(&self.pending_questions);
-        let qctx_config = self.config.read().await.clone();
-        let target = if msg.channel_type == "PERSON" {
-            msg.author_id.clone()
+        // /help — preserved.
+        if content.eq_ignore_ascii_case("/help") {
+            let _ = self
+                .send_reply(msg, &i18n::t(i18n::MsgKey::HelpKook, locale))
+                .await;
+            return Ok(());
+        }
+
+        // Build the binding URI. For DMs the scope is "dm"; for guild channels
+        // the scope is the guild id.
+        let is_dm = msg.channel_type == "PERSON";
+        let scope = if is_dm {
+            "dm".to_string()
         } else {
-            msg.target_id.clone()
+            msg.extra
+                .get("guild_id")
+                .and_then(|g| g.as_str())
+                .unwrap_or("unknown")
+                .to_string()
         };
-        let channel_type = msg.channel_type.clone();
-        let locale_for_q = i18n::get_locale(&self.workspace_path);
-        let question_ctx = super::QuestionContext {
-            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
-                let token = qctx_config.token.clone();
-                let target = target.clone();
-                let ct = channel_type.clone();
-                Box::pin(async move {
-                    let text = super::format_question_message(
-                        &fq.questions,
-                        &fq.question_id,
-                        locale_for_q,
-                    );
-                    let client = reqwest::Client::builder()
-                        .timeout(std::time::Duration::from_secs(30))
-                        .build()
-                        .unwrap_or_else(|_| reqwest::Client::new());
-                    let (url, body) = if ct == "PERSON" {
-                        (
-                            "https://www.kookapp.cn/api/v3/direct-message/create".to_string(),
-                            serde_json::json!({ "target_id": target, "type": 1, "content": text }),
-                        )
-                    } else {
-                        (
-                            "https://www.kookapp.cn/api/v3/message/create".to_string(),
-                            serde_json::json!({ "target_id": target, "type": 1, "content": text }),
-                        )
-                    };
-                    let resp = client
-                        .post(&url)
-                        .header("Authorization", format!("Bot {}", token))
-                        .json(&body)
-                        .send()
-                        .await
-                        .map_err(|e| format!("KOOK send failed: {}", e))?;
-                    let json: serde_json::Value = resp
-                        .json()
-                        .await
-                        .map_err(|e| format!("KOOK parse failed: {}", e))?;
-                    json.get("data")
-                        .and_then(|d| d.get("msg_id"))
-                        .and_then(|id| id.as_str())
-                        .map(|s| s.to_string())
-                        .ok_or_else(|| "No msg_id in KOOK response".to_string())
-                })
-            }),
-            store: pending_questions_clone,
-        };
+        let binding = crate::binding::kook(&scope, &msg.target_id);
 
-        // Build sender identity for message prefix
-        let channel_sender = super::ChannelSender {
-            platform: "kook".to_string(),
-            external_id: msg.author_id.clone(),
-            display_name: msg.author_id.clone(),
-        };
+        // Resolve / create the external actor for the message author.
+        // Prefer the author's username from `extra.author` if available.
+        let sender_display = msg
+            .extra
+            .get("author")
+            .and_then(|a| a.get("username"))
+            .and_then(|u| u.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| msg.author_id.clone());
 
-        // Send "Thinking..." card message first
-        let thinking_msg_id = self.send_thinking_card(msg).await?;
-
-        // Send to OpenCode
-        let response = match self
-            .send_to_opencode(
-                &session_id,
-                &content,
-                model_param.clone(),
-                Some(question_ctx),
-                &channel_sender,
+        let external_actor_id = match self
+            .store
+            .ensure_external_actor(
+                &self.team_id,
+                "kook",
+                &crate::binding::urn_kook_user(&msg.author_id),
+                &sender_display,
             )
             .await
         {
-            Ok(resp) => resp,
+            Ok(id) => id,
             Err(e) => {
-                // Update the thinking message with error
-                let error_text = format!("❌ Error: {}", e);
-                let _ = self
-                    .update_card_message(
-                        &thinking_msg_id,
-                        &error_text,
-                        msg.channel_type == "PERSON",
-                    )
-                    .await;
-                return Err(e);
+                let _ = self.send_reply(msg, &format!("Error (actor): {}", e)).await;
+                return Ok(());
             }
         };
 
-        // Update the thinking message with actual response
-        self.update_card_message(&thinking_msg_id, &response, msg.channel_type == "PERSON")
-            .await?;
+        let session_title = if is_dm {
+            format!("Kook DM: {}", sender_display)
+        } else {
+            format!("Kook: #{}", msg.target_id)
+        };
+
+        let outcome = match self
+            .store
+            .ensure_session(
+                &self.team_id,
+                &binding,
+                &session_title,
+                &self.primary_agent_actor_id,
+                &self.agent_owner_actor_ids,
+                &[external_actor_id.clone()],
+            )
+            .await
+        {
+            Ok(o) => o,
+            Err(e) => {
+                let _ = self
+                    .send_reply(msg, &format!("Error (session): {}", e))
+                    .await;
+                return Ok(());
+            }
+        };
+
+        if let Err(e) = self
+            .store
+            .add_participant(&outcome.session_id, &external_actor_id)
+            .await
+        {
+            eprintln!("[KOOK] add_participant failed: {}", e);
+        }
+
+        if let Err(e) = self
+            .store
+            .record_message(
+                &outcome.session_id,
+                &external_actor_id,
+                &content,
+                Some(&msg.msg_id),
+            )
+            .await
+        {
+            eprintln!("[KOOK] record_message (user) failed: {}", e);
+        }
+
+        // Send "Thinking..." card message first so the user gets immediate feedback.
+        let thinking_msg_id = self.send_thinking_card(msg).await.ok();
+
+        // Drive a single ACP turn through amuxd.
+        let turn = self
+            .acp
+            .send_prompt(&outcome.acp_session_id, &sender_display, &content)
+            .await;
+
+        match turn {
+            Ok(reply) => {
+                if let Err(e) = self
+                    .store
+                    .record_message(
+                        &outcome.session_id,
+                        &self.primary_agent_actor_id,
+                        &reply.reply_text,
+                        None,
+                    )
+                    .await
+                {
+                    eprintln!("[KOOK] record_message (reply) failed: {}", e);
+                }
+
+                if let Some(ref proc_id) = thinking_msg_id {
+                    let _ = self.update_card_message(proc_id, &reply.reply_text, is_dm).await;
+                } else {
+                    let _ = self.send_reply(msg, &reply.reply_text).await;
+                }
+            }
+            Err(e) => {
+                let error_text = format!("❌ Error: {}", e);
+                if let Some(ref proc_id) = thinking_msg_id {
+                    let _ = self.update_card_message(proc_id, &error_text, is_dm).await;
+                } else {
+                    let _ = self.send_reply(msg, &error_text).await;
+                }
+            }
+        }
 
         Ok(())
-    }
-
-    /// Create new OpenCode session
-    async fn create_opencode_session(&self) -> Result<String, String> {
-        super::create_opencode_session(self.opencode_port).await
-    }
-
-    /// Send message to OpenCode using async mode with permission auto-approval
-    async fn send_to_opencode(
-        &self,
-        session_id: &str,
-        message: &str,
-        model: Option<(String, String)>,
-        question_ctx: Option<super::QuestionContext>,
-        sender: &super::ChannelSender,
-    ) -> Result<String, String> {
-        println!("[KOOK] Sending message asynchronously with permission auto-approval");
-
-        let parts = vec![json!({"type": "text", "text": message})];
-
-        // Use async send with permission auto-approval
-        super::send_message_async_with_approval(
-            self.opencode_port,
-            session_id,
-            parts,
-            model,
-            question_ctx,
-            Some(sender),
-        )
-        .await
     }
 
     /// Send "Thinking..." card message and return msg_id
@@ -1316,262 +1269,6 @@ impl KookGateway {
         Ok(())
     }
 
-    /// Handle slash commands
-    async fn handle_slash_command(
-        &self,
-        session_key: &str,
-        content: &str,
-        msg: &KookMessageData,
-    ) -> Result<(), String> {
-        let locale = i18n::get_locale(&self.workspace_path);
-        let parts: Vec<&str> = content.split_whitespace().collect();
-        let command = parts.first().map(|s| s.to_lowercase()).unwrap_or_default();
-        let arg = parts.get(1..).map(|s| s.join(" ")).unwrap_or_default();
-
-        match command.as_str() {
-            "/reset" => {
-                self.session_mapping.remove_session(session_key).await;
-                self.send_reply(msg, &i18n::t(i18n::MsgKey::SessionReset, locale))
-                    .await?;
-            }
-            "/model" if arg.is_empty() => {
-                // List models - use dedicated card layout
-                self.send_model_list_card(session_key, msg).await?;
-            }
-            "/model" => {
-                let response = super::handle_model_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    &arg,
-                    locale,
-                )
-                .await;
-                self.send_reply(msg, &response).await?;
-            }
-            "/sessions" => {
-                let response = super::handle_sessions_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    &arg,
-                    locale,
-                )
-                .await;
-                self.send_reply(msg, &response).await?;
-            }
-            "/stop" => {
-                let response = super::handle_stop_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    locale,
-                )
-                .await;
-                self.send_reply(msg, &response).await?;
-            }
-            "/help" => {
-                self.send_help_card(msg).await?;
-            }
-            _ => {
-                return Ok(());
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Send model list as a well-structured multi-module card
-    async fn send_model_list_card(
-        &self,
-        session_key: &str,
-        msg: &KookMessageData,
-    ) -> Result<(), String> {
-        let (models, default_model) = super::opencode_get_available_models(self.opencode_port)
-            .await
-            .map_err(|e| format!("Failed to get models: {}", e))?;
-
-        let locale = i18n::get_locale(&self.workspace_path);
-        let stored = self.session_mapping.get_model(session_key).await;
-        let (active, is_custom) = match &stored {
-            Some(m) => (m.as_str(), true),
-            None => (default_model.as_str(), false),
-        };
-
-        // Group models by provider
-        let mut provider_groups: std::collections::BTreeMap<String, Vec<&super::ModelInfo>> =
-            std::collections::BTreeMap::new();
-        for m in &models {
-            provider_groups
-                .entry(m.provider.clone())
-                .or_default()
-                .push(m);
-        }
-
-        // Build card modules
-        let mut modules: Vec<serde_json::Value> = vec![
-            json!({
-                "type": "header",
-                "text": { "type": "plain-text", "content": i18n::t(i18n::MsgKey::KookCardHeaderModels, locale) }
-            }),
-            json!({
-                "type": "section",
-                "text": {
-                    "type": "kmarkdown",
-                    "content": i18n::t(i18n::MsgKey::KookCardCurrentModel(active, is_custom), locale)
-                }
-            }),
-            json!({ "type": "divider" }),
-        ];
-
-        // Add each provider as a separate section
-        for (provider, provider_models) in &provider_groups {
-            let lines: Vec<String> = provider_models
-                .iter()
-                .map(|m| {
-                    let full_id = format!("{}/{}", m.provider, m.id);
-                    let marker = if full_id == active {
-                        i18n::t(i18n::MsgKey::ModelCurrentMarker, locale)
-                    } else {
-                        String::new()
-                    };
-                    format!("{} ({}){}", full_id, m.name, marker)
-                })
-                .collect();
-
-            let section_text = format!("**{}**\n{}", provider, lines.join("\n"));
-
-            modules.push(json!({
-                "type": "section",
-                "text": {
-                    "type": "kmarkdown",
-                    "content": section_text
-                }
-            }));
-
-            // KOOK card limits: max 50 modules
-            if modules.len() > 45 {
-                modules.push(json!({
-                    "type": "section",
-                    "text": {
-                        "type": "kmarkdown",
-                        "content": i18n::t(i18n::MsgKey::ModelListTruncated, locale)
-                    }
-                }));
-                break;
-            }
-        }
-
-        modules.push(json!({ "type": "divider" }));
-        modules.push(json!({
-            "type": "context",
-            "elements": [{
-                "type": "kmarkdown",
-                "content": i18n::t(i18n::MsgKey::ModelSwitchUsage, locale)
-            }]
-        }));
-
-        let card = json!([{
-            "type": "card",
-            "theme": "info",
-            "size": "lg",
-            "modules": modules
-        }]);
-
-        self.send_card_direct(msg, &card).await
-    }
-
-    /// Send help as a well-structured card
-    async fn send_help_card(&self, msg: &KookMessageData) -> Result<(), String> {
-        let locale = i18n::get_locale(&self.workspace_path);
-        let card = json!([{
-            "type": "card",
-            "theme": "info",
-            "size": "lg",
-            "modules": [
-                {
-                    "type": "header",
-                    "text": { "type": "plain-text", "content": i18n::t(i18n::MsgKey::KookCardHeaderHelp, locale) }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "kmarkdown",
-                        "content": i18n::t(i18n::MsgKey::HelpKook, locale)
-                    }
-                },
-                { "type": "divider" },
-                {
-                    "type": "context",
-                    "elements": [{
-                        "type": "kmarkdown",
-                        "content": i18n::t(i18n::MsgKey::KookCardHelpUsage, locale)
-                    }]
-                }
-            ]
-        }]);
-
-        self.send_card_direct(msg, &card).await
-    }
-
-    /// Send a raw card JSON message
-    async fn send_card_direct(
-        &self,
-        original: &KookMessageData,
-        card: &serde_json::Value,
-    ) -> Result<(), String> {
-        let config = self.config.read().await;
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-
-        let (endpoint, payload) = if original.channel_type == "PERSON" {
-            let url = format!("{}/direct-message/create", KOOK_API_BASE);
-            let body = json!({
-                "type": 10,
-                "target_id": original.author_id,
-                "content": serde_json::to_string(card).unwrap(),
-                "quote": original.msg_id,
-            });
-            (url, body)
-        } else {
-            let url = format!("{}/message/create", KOOK_API_BASE);
-            let body = json!({
-                "type": 10,
-                "target_id": original.target_id,
-                "content": serde_json::to_string(card).unwrap(),
-                "quote": original.msg_id,
-            });
-            (url, body)
-        };
-
-        let resp = client
-            .post(&endpoint)
-            .header("Authorization", format!("Bot {}", config.token))
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to send card: {}", e))?;
-
-        let body: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-        if let Some(code) = body.get("code").and_then(|c| c.as_i64()) {
-            if code != 0 {
-                let message = body
-                    .get("message")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("Unknown error");
-                return Err(format!("KOOK API error ({}): {}", code, message));
-            }
-        }
-
-        Ok(())
-    }
-
     /// Send rejection reply for users not in allowlist
     async fn send_rejection_reply(&self, msg: &KookMessageData) -> Result<(), String> {
         let reply = "This is an automated response from TeamClaw. \
@@ -1592,8 +1289,11 @@ impl Clone for KookGateway {
     fn clone(&self) -> Self {
         Self {
             config: Arc::clone(&self.config),
-            session_mapping: self.session_mapping.clone(),
-            opencode_port: self.opencode_port,
+            acp: Arc::clone(&self.acp),
+            store: Arc::clone(&self.store),
+            team_id: self.team_id.clone(),
+            primary_agent_actor_id: self.primary_agent_actor_id.clone(),
+            agent_owner_actor_ids: self.agent_owner_actor_ids.clone(),
             workspace_path: self.workspace_path.clone(),
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
@@ -1602,8 +1302,6 @@ impl Clone for KookGateway {
             last_sn: Arc::clone(&self.last_sn),
             processed_messages: Arc::clone(&self.processed_messages),
             bot_user_id: Arc::clone(&self.bot_user_id),
-            permission_approver: self.permission_approver.clone(),
-            pending_questions: Arc::clone(&self.pending_questions),
         }
     }
 }
