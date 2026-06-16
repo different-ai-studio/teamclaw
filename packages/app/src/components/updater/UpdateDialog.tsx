@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 import {
   Dialog,
@@ -12,6 +14,70 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { useUpdaterStore } from "@/stores/updater"
+
+const releaseNotesMarkdownPlugins = [remarkGfm]
+
+const releaseNotesMarkdownComponents = {
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="mb-1.5 mt-2 text-base font-semibold leading-6 text-foreground first:mt-0">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="mb-1.5 mt-2 text-[15px] font-semibold leading-6 text-foreground first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="mb-1.5 mt-2 text-sm font-semibold leading-5 text-foreground first:mt-0">{children}</h3>
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="my-1.5 leading-5 first:mt-0 last:mb-0">{children}</p>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="my-1.5 list-disc space-y-1 pl-5 first:mt-0 last:mb-0">{children}</ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="my-1.5 list-decimal space-y-1 pl-5 first:mt-0 last:mb-0">{children}</ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="pl-0.5 leading-5">{children}</li>
+  ),
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted-foreground">{children}</blockquote>
+  ),
+  a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
+    <a className="text-foreground underline underline-offset-2" href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
+  code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
+    const isBlock = !!className
+    if (isBlock) {
+      return (
+        <code className="block whitespace-pre font-mono text-[12px] leading-5 text-foreground">
+          {children}
+        </code>
+      )
+    }
+
+    return (
+      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.92em] leading-snug text-foreground break-words [overflow-wrap:anywhere]">
+        {children}
+      </code>
+    )
+  },
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="my-2 overflow-x-auto rounded-md bg-muted px-3 py-2">{children}</pre>
+  ),
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="my-2 overflow-x-auto rounded-md border border-border first:mt-0 last:mb-0">
+      <table className="min-w-full border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border-b border-border bg-muted px-2 py-1.5 text-left font-semibold text-foreground">{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border-b border-border px-2 py-1.5 last:border-b-0">{children}</td>
+  ),
+} as const
 
 export function UpdateDialogContainer() {
   const { t } = useTranslation()
@@ -99,7 +165,14 @@ export function UpdateDialogContainer() {
           {update.state === "ready" && update.notes && (
             <div className="rounded-lg border bg-muted/50 p-3 max-h-48 overflow-auto">
               <p className="text-xs font-medium text-muted-foreground mb-1">{t('updater.releaseNotes', 'Release Notes')}</p>
-              <p className="text-sm whitespace-pre-wrap">{update.notes}</p>
+              <div className="text-sm text-foreground break-words [overflow-wrap:anywhere]">
+                <ReactMarkdown
+                  remarkPlugins={releaseNotesMarkdownPlugins}
+                  components={releaseNotesMarkdownComponents}
+                >
+                  {update.notes}
+                </ReactMarkdown>
+              </div>
             </div>
           )}
 
