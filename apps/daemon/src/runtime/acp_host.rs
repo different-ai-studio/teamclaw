@@ -177,6 +177,7 @@ impl AcpHostPool {
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
         is_gateway: bool,
+        forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)> {
         let host_cmd = self
             .ensure_host(agent_type, launch, extra_env, force_env_override)
@@ -194,6 +195,7 @@ impl AcpHostPool {
                 event_tx,
                 startup_tx,
                 is_gateway,
+                forbid_new_session_fallback,
             })
             .await
             .map_err(|_| crate::error::AmuxError::Agent("ACP host command channel closed".into()))?;

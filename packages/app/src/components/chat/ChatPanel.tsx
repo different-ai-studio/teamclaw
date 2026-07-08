@@ -23,6 +23,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { bumpSessionListLastMessage } from "@/lib/session-list-preview";
 import { useSessionListStore } from "@/stores/session-list-store";
 import { useEngagedAgentStore } from "@/stores/engaged-agent-store";
+import { useSessionParticipantStore } from "@/stores/session-participant-store";
 import { useUIStore } from "@/stores/ui";
 import { getBackend } from "@/lib/backend";
 import { expandPageLinkTokensInText } from "@/lib/expand-page-link-tokens";
@@ -194,7 +195,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── Session store selectors (reactive state only) ────────────────────
   const activeSessionId = useSessionSelectionStore(s => s.activeSessionId);
+  const ensureParticipants = useSessionParticipantStore(s => s.ensureParticipants);
   const sessionPermissionMode = useSessionPermissionMode(activeSessionId);
+
+  React.useEffect(() => {
+    if (!activeSessionId) return;
+    void ensureParticipants([activeSessionId]);
+  }, [activeSessionId, ensureParticipants]);
   const error = useSessionStore(s => s.error);
   const errorSessionId = useSessionStore(s => s.errorSessionId);
   const isConnected = useSessionStore(s => s.isConnected);

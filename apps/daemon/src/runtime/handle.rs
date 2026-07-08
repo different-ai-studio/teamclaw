@@ -86,6 +86,11 @@ pub struct RuntimeHandle {
     pub last_processed_message_id: Option<String>,
     /// Human member actor whose client receives remote-tool RPC for this runtime.
     pub remote_tool_member_id: String,
+    /// Gateway runtimes auto-allow ACP tool permissions; collab runtimes do not.
+    pub is_gateway: bool,
+    /// Another session on the shared OpenCode host may have dropped MCP; refresh
+    /// on the next Idle transition (never detach/resume while Active).
+    pub remote_tools_mcp_refresh_pending: bool,
 }
 
 impl RuntimeHandle {
@@ -124,6 +129,8 @@ impl RuntimeHandle {
             last_processed_message_id: None,
             available_models: Vec::new(),
             remote_tool_member_id: String::new(),
+            is_gateway: false,
+            remote_tools_mcp_refresh_pending: false,
         }
     }
 
@@ -336,6 +343,8 @@ impl RuntimeHandle {
             last_processed_message_id: None,
             available_models: Vec::new(),
             remote_tool_member_id: String::new(),
+            is_gateway: false,
+            remote_tools_mcp_refresh_pending: false,
         }
     }
 }

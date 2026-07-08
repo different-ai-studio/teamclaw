@@ -45,6 +45,10 @@ pub struct SpawnRuntimeEnv {
     /// Original `opencode.json` before MCP placeholder resolve; restored when the
     /// last runtime on this worktree stops.
     pub opencode_json_original: Option<String>,
+    /// Gateway sessions auto-allow tool permissions and use gateway MCP wiring.
+    /// Remote-tools collab runtimes may also carry an MCP config but must stay
+    /// `is_gateway = false` so permission + MCP repair paths behave correctly.
+    pub is_gateway: bool,
 }
 
 /// Per-agent runtime state checked out of `RuntimeManager` for the duration
@@ -393,6 +397,7 @@ impl RuntimeManager {
             extra_env,
             force_env_override,
             opencode_json_original,
+            is_gateway,
         } = runtime_env;
         self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
         let mut handle = RuntimeHandle::new(
@@ -404,9 +409,9 @@ impl RuntimeManager {
         handle.current_prompt = prompt.into();
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
         handle.available_models = crate::runtime::models::available_models_for(agent_type);
+        handle.is_gateway = is_gateway;
 
         let launch = self.launch_config_for(agent_type);
-        let is_gateway = mcp_config_path.is_some();
         let resume_requested = resume_acp_session_id.is_some();
         let (cmd_tx, startup) = self
             .acp_host_pool
@@ -422,6 +427,7 @@ impl RuntimeManager {
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 is_gateway,
+                false,
             )
             .await?;
 
@@ -563,6 +569,7 @@ impl RuntimeManager {
             extra_env,
             force_env_override,
             opencode_json_original,
+            is_gateway,
         } = runtime_env;
         self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
 
@@ -573,9 +580,9 @@ impl RuntimeManager {
             workspace_id.into(),
         );
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
+        handle.is_gateway = is_gateway;
 
         let launch = self.launch_config_for(agent_type);
-        let is_gateway = mcp_config_path.is_some();
         let (cmd_tx, startup) = self
             .acp_host_pool
             .attach_session(
@@ -590,6 +597,7 @@ impl RuntimeManager {
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 is_gateway,
+                false,
             )
             .await?;
 
@@ -648,6 +656,84 @@ impl RuntimeManager {
         }
 
         Ok(new_acp_sid)
+    }
+
+    /// Re-register remote-tools MCP on a live collab runtime via
+    /// `session/resume` on the same ACP session id (no `session/new` fallback).
+    pub async fn refresh_remote_tools_mcp_attach(
+        &mut self,
+        agent_id: &str,
+        mcp_config_path: std::path::PathBuf,
+        runtime_env: SpawnRuntimeEnv,
+    ) -> crate::error::Result<()> {
+        let snapshot = {
+            let handle = self.agents.get(agent_id).ok_or_else(|| {
+                crate::error::AmuxError::Agent(format!("agent {agent_id} not found"))
+            })?;
+            if handle.is_gateway {
+                return Ok(());
+            }
+            if handle.acp_session_id.is_empty() {
+                return Err(crate::error::AmuxError::Agent(format!(
+                    "agent {agent_id} has no ACP session id"
+                )));
+            }
+            (
+                handle.agent_type,
+                handle.worktree.clone(),
+                handle.acp_session_id.clone(),
+                handle.event_tx.clone(),
+            )
+        };
+
+        if let Some(handle) = self.agents.get(agent_id) {
+            handle.shutdown().await;
+        }
+
+        let (agent_type, worktree, acp_session_id, event_tx) = snapshot;
+        let SpawnRuntimeEnv {
+            extra_env,
+            force_env_override,
+            opencode_json_original,
+            ..
+        } = runtime_env;
+        self.register_opencode_snapshot(&worktree, opencode_json_original, &extra_env);
+        let launch = self.launch_config_for(agent_type);
+        let (cmd_tx, startup) = self
+            .acp_host_pool
+            .attach_session(
+                agent_type,
+                &launch,
+                extra_env,
+                force_env_override,
+                worktree.clone(),
+                Some(acp_session_id.clone()),
+                Some(mcp_config_path),
+                None,
+                String::new(),
+                event_tx,
+                false,
+                true,
+            )
+            .await?;
+
+        let resumed_sid = startup.acp_session_id.clone();
+        if let Some(h) = self.agents.get_mut(agent_id) {
+            h.cmd_tx = Some(cmd_tx);
+            h.acp_session_id = startup.acp_session_id;
+            h.is_gateway = false;
+            h.available_models = startup.available_models;
+            h.status = amux::AgentStatus::Active;
+        }
+        if let Some(model_id) = startup.initial_model {
+            self.set_current_model(agent_id, &model_id);
+        }
+        info!(
+            agent_id,
+            acp_session_id = %resumed_sid,
+            "remote-tools MCP re-attached via ACP resume"
+        );
+        Ok(())
     }
 
     pub async fn stop_agent(&mut self, agent_id: &str) -> Option<RuntimeHandle> {
@@ -1108,7 +1194,10 @@ impl RuntimeManager {
                 initial_model,
                 mcp_cfg_path,
                 None,
-                SpawnRuntimeEnv::default(),
+                SpawnRuntimeEnv {
+                    is_gateway: true,
+                    ..SpawnRuntimeEnv::default()
+                },
             )
             .await?;
 

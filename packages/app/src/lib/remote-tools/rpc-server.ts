@@ -8,11 +8,9 @@ import {
 } from '@/lib/proto/teamclaw_pb'
 import { listenForEnvelopes, mqttPublish, mqttSubscribe, type IncomingEnvelope } from '@/lib/mqtt-bridge'
 
-import { useSessionParticipantStore } from '@/stores/session-participant-store'
-
 import { getExecutor } from './registry'
 import { REMOTE_TOOL_ERROR } from './types'
-import { isAgentRequesterForRemoteToolRequest, isAllowedRemoteToolRequest } from './validate-request'
+import { authorizeRemoteToolRequest } from './validate-request'
 
 type RpcServerState = {
   teamId: string
@@ -71,13 +69,40 @@ function handleEnvelope(env: IncomingEnvelope): void {
     }
     if (request.method.case !== 'remoteToolInvoke') return
     const invoke = request.method.value
-    if (!isAgentRequesterForRemoteToolRequest(teamId, request)) return
-    const sessionId = invoke.sessionId.trim()
-    if (sessionId) {
-      await useSessionParticipantStore.getState().ensureParticipants([sessionId])
+    const toolName = invoke.toolName
+
+    // Incapable clients (desktop) must skip or reply unsupported_platform so
+    // daemon keeps waiting for the extension — never reply forbidden here.
+    const exec = getExecutor(toolName)
+    if (!exec) {
+      await publishRpcResponse(
+        request,
+        buildRemoteToolResponse(
+          request,
+          false,
+          '',
+          REMOTE_TOOL_ERROR.unsupportedPlatform,
+          `tool not supported on this client: ${toolName}`,
+        ),
+      )
+      return
     }
-    if (!isAllowedRemoteToolRequest(teamId, request, invoke)) return
-    const response = await dispatchRemoteToolInvoke(request, invoke.toolName, invoke.argumentsJson)
+
+    if (!(await authorizeRemoteToolRequest(teamId, request, invoke))) {
+      await publishRpcResponse(
+        request,
+        buildRemoteToolResponse(
+          request,
+          false,
+          '',
+          REMOTE_TOOL_ERROR.forbidden,
+          'remote tool request not allowed for this session',
+        ),
+      )
+      return
+    }
+
+    const response = await dispatchRemoteToolInvoke(request, toolName, invoke.argumentsJson, exec)
     if (!response) return
     await publishRpcResponse(request, response)
   })()
@@ -87,12 +112,8 @@ async function dispatchRemoteToolInvoke(
   request: RpcRequest,
   toolName: string,
   argumentsJson: string,
+  exec: NonNullable<ReturnType<typeof getExecutor>>,
 ): Promise<RpcResponse | null> {
-  const exec = getExecutor(toolName)
-  if (!exec) {
-    return null
-  }
-
   let args: Record<string, unknown> = {}
   if (argumentsJson.trim()) {
     try {

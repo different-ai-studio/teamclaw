@@ -237,6 +237,8 @@ impl DaemonServer {
 
         // Update agent status if this is a status change event
         if let Some(amux::acp_event::Event::StatusChange(ref sc)) = acp_event.event {
+            let became_idle = sc.old_status == amux::AgentStatus::Active as i32
+                && sc.new_status == amux::AgentStatus::Idle as i32;
             {
                 let mut agents = self.agents.lock().await;
                 if let Some(handle) = agents.get_handle_mut(agent_id) {
@@ -249,6 +251,9 @@ impl DaemonServer {
                 let _ = self.sessions.save(&self.sessions_path);
             }
             self.publish_runtime_state_by_id(agent_id).await;
+            if became_idle {
+                self.flush_pending_remote_tools_mcp_refresh(agent_id).await;
+            }
 
             // Upsert agent_runtimes on status transitions
             {

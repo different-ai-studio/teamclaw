@@ -177,7 +177,7 @@ impl DaemonServer {
         if let Some(member) = bind_member_actor_id.filter(|s| !s.is_empty()) {
             if let Some(runtime_id) = &out.already_live_first {
                 let team_id = self.config.team_id.clone().unwrap_or_default();
-                self.bind_remote_tool_member(runtime_id, cloud_session_id, member, &team_id)
+                self.ensure_live_runtime_remote_tools(runtime_id, cloud_session_id, member, &team_id)
                     .await;
             }
         }
@@ -206,8 +206,7 @@ impl DaemonServer {
             (!requester_actor_id.is_empty()).then_some(requester_actor_id),
         );
 
-        let bind_member = (!requester_actor_id.is_empty() && !initial_prompt.trim().is_empty())
-            .then_some(requester_actor_id);
+        let bind_member = (!requester_actor_id.is_empty()).then_some(requester_actor_id);
 
         let result = self
             .resume_stored_collab_runtimes(
@@ -227,6 +226,16 @@ impl DaemonServer {
         let runtime_id = result
             .already_live_first
             .or_else(|| result.resumed_runtime_ids.into_iter().next())?;
+
+        if !requester_actor_id.is_empty() {
+            self.ensure_live_runtime_remote_tools(
+                &runtime_id,
+                cloud_session_id,
+                requester_actor_id,
+                &team_id,
+            )
+            .await;
+        }
 
         Some(StartRuntimeOutcome {
             runtime_id,

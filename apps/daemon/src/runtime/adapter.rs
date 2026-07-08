@@ -42,6 +42,8 @@ pub enum AcpCommand {
         /// Gateway sessions auto-allow tool permissions; native runtimes wait
         /// for MQTT approval.
         is_gateway: bool,
+        /// When resuming, fail instead of falling back to `session/new`.
+        forbid_new_session_fallback: bool,
     },
     /// Drop routing state for a session; the host process keeps running.
     DetachSession { acp_session_id: String },
@@ -899,6 +901,7 @@ async fn attach_acp_session_on_conn(
     initial_model_override: Option<String>,
     event_tx: mpsc::Sender<AcpEventFrame>,
     is_gateway: bool,
+    forbid_new_session_fallback: bool,
 ) -> anyhow::Result<AcpStartupMetadata> {
     let worktree_path = std::path::PathBuf::from(worktree);
     let acp_mcp_servers: Vec<acp::McpServer> = match mcp_config_path.as_ref() {
@@ -949,6 +952,11 @@ async fn attach_acp_session_on_conn(
                 )
             }
             Err(e) => {
+                if forbid_new_session_fallback {
+                    return Err(anyhow::anyhow!(
+                        "ACP resume_session failed (new_session fallback forbidden): {e}"
+                    ));
+                }
                 warn!(
                     resume_id,
                     "ACP resume_session failed ({}), falling back to new_session", e
@@ -1329,6 +1337,7 @@ async fn run_acp_host(
                         event_tx,
                         startup_tx,
                         is_gateway,
+                        forbid_new_session_fallback,
                     } => {
                         let startup_reporter: StartupReporter =
                             Arc::new(Mutex::new(Some(startup_tx)));
@@ -1346,6 +1355,7 @@ async fn run_acp_host(
                             initial_model_override,
                             event_tx.clone(),
                             is_gateway,
+                            forbid_new_session_fallback,
                         )
                         .await;
 
@@ -1506,6 +1516,7 @@ pub fn spawn_acp_agent(
                             event_tx,
                             startup_tx,
                             is_gateway: false,
+                            forbid_new_session_fallback: false,
                         })
                         .await;
                 }
