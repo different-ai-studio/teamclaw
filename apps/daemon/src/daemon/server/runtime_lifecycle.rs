@@ -576,7 +576,7 @@ impl DaemonServer {
             // Replay from the cursor so @-mentioned rows still reach send_prompt.
             self.catchup_runtime(&existing).await;
             if wants_remote_mcp {
-                self.bind_remote_tool_member(
+                self.ensure_live_runtime_remote_tools(
                     &existing,
                     session_id,
                     requester_actor_id,

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import {
   QUICK_CHAT_STUCK_RETRY_MS,
+  quickChatLocalDaemonAgent,
+  quickChatWelcomeAgent,
   useQuickChatReadiness,
 } from '../use-quick-chat-readiness'
 
@@ -266,5 +268,50 @@ describe('useQuickChatReadiness', () => {
 
     expect(resolveQuickChatTarget).toHaveBeenCalledTimes(callsAfterReady)
     expect(result.current).toEqual({ kind: 'ready', target: readyTarget })
+  })
+})
+
+describe('quickChatWelcomeAgent', () => {
+  it('maps loading to spinner state', () => {
+    expect(quickChatWelcomeAgent({ kind: 'loading' })).toEqual({
+      agent: null,
+      loading: true,
+    })
+  })
+
+  it('maps ready target to welcome agent', () => {
+    expect(
+      quickChatWelcomeAgent({
+        kind: 'ready',
+        target: { agentId: 'a-1', displayName: 'MACPRO', source: 'team_default' },
+      }),
+    ).toEqual({
+      agent: { id: 'a-1', displayName: 'MACPRO' },
+      loading: false,
+    })
+  })
+
+  it('maps no_agent to offline welcome', () => {
+    expect(quickChatWelcomeAgent({ kind: 'no_agent' })).toEqual({
+      agent: null,
+      loading: false,
+    })
+  })
+})
+
+describe('quickChatLocalDaemonAgent', () => {
+  it('returns agent only for local source', () => {
+    expect(
+      quickChatLocalDaemonAgent({
+        kind: 'ready',
+        target: { agentId: 'a-1', displayName: 'MACPRO', source: 'local' },
+      }),
+    ).toEqual({ id: 'a-1', displayName: 'MACPRO' })
+    expect(
+      quickChatLocalDaemonAgent({
+        kind: 'ready',
+        target: { agentId: 'a-1', displayName: 'MACPRO', source: 'team_default' },
+      }),
+    ).toBeNull()
   })
 })

@@ -163,7 +163,7 @@ impl DaemonServer {
             .await;
             if let Some(member) = bind_member_actor_id.filter(|s| !s.is_empty()) {
                 let team_id = self.config.team_id.clone().unwrap_or_default();
-                self.bind_remote_tool_member(
+                self.ensure_live_runtime_remote_tools(
                     &stored.runtime_id,
                     cloud_session_id,
                     member,

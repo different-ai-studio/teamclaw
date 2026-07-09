@@ -683,6 +683,7 @@ impl RuntimeManager {
                 handle.worktree.clone(),
                 handle.acp_session_id.clone(),
                 handle.event_tx.clone(),
+                handle.status,
             )
         };
 
@@ -690,7 +691,7 @@ impl RuntimeManager {
             handle.shutdown().await;
         }
 
-        let (agent_type, worktree, acp_session_id, event_tx) = snapshot;
+        let (agent_type, worktree, acp_session_id, event_tx, prior_status) = snapshot;
         let SpawnRuntimeEnv {
             extra_env,
             force_env_override,
@@ -723,7 +724,7 @@ impl RuntimeManager {
             h.acp_session_id = startup.acp_session_id;
             h.is_gateway = false;
             h.available_models = startup.available_models;
-            h.status = amux::AgentStatus::Active;
+            h.status = prior_status;
         }
         if let Some(model_id) = startup.initial_model {
             self.set_current_model(agent_id, &model_id);
