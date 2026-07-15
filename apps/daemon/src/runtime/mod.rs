@@ -7,6 +7,7 @@ mod agent_trace;
 pub mod env_assembly;
 mod handle;
 mod instruction_delivery;
+pub mod managed_llm;
 mod manager;
 mod workspace_runtime;
 pub mod models;

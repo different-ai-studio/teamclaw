@@ -338,6 +338,110 @@ describe('provider store initAll', () => {
     expect(useProviderStore.getState().currentModelKey).toBe('scnet/minimax-m2.5')
   })
 
+  // Regression: an admin changing the team model list left members pinned to the
+  // old list. Runtime state arrives on a retained MQTT topic that replays the
+  // models a runtime was spawned with, so unioning it in resurrected dropped
+  // models and no refresh could clear them.
+  it('drops team models the daemon no longer reports, even when retained runtime state still advertises them', async () => {
+    mocks.getDaemonProviders.mockResolvedValue([
+      {
+        id: 'team',
+        display_name: 'Team',
+        authenticated: true,
+        models: ['model-b', 'model-c'],
+      },
+    ])
+    mocks.runtimeById = {
+      'runtime-1': {
+        info: {
+          agentType: 2,
+          availableModels: [{ id: 'team/model-a', displayName: 'Model A' }],
+          currentModel: 'team/model-a',
+        },
+      },
+    }
+
+    const { useProviderStore } = await import('../provider')
+    await useProviderStore.getState().initAll()
+
+    const teamModels = useProviderStore
+      .getState()
+      .models.filter((model) => model.provider === 'team')
+      .map((model) => model.id)
+    expect(teamModels).toEqual(['model-b', 'model-c'])
+  })
+
+  it('lets runtime state name team models without changing the daemon-reported list', async () => {
+    mocks.getDaemonProviders.mockResolvedValue([
+      { id: 'team', display_name: 'Team', authenticated: true, models: ['model-b'] },
+    ])
+    mocks.runtimeById = {
+      'runtime-1': {
+        info: {
+          agentType: 2,
+          availableModels: [
+            { id: 'team/model-b', displayName: 'Model B' },
+            { id: 'team/model-a', displayName: 'Model A' },
+          ],
+          currentModel: 'team/model-b',
+        },
+      },
+    }
+
+    const { useProviderStore } = await import('../provider')
+    await useProviderStore.getState().initAll()
+
+    expect(useProviderStore.getState().models.filter((model) => model.provider === 'team')).toEqual([
+      { provider: 'team', id: 'model-b', name: 'Model B' },
+    ])
+  })
+
+  // Without a daemon answer there is nothing authoritative to trust, so the
+  // union still applies rather than blanking the picker.
+  it('keeps runtime-advertised team models when the daemon snapshot is unavailable', async () => {
+    mocks.getDaemonProviders.mockResolvedValue(null)
+    mocks.runtimeById = {
+      'runtime-1': {
+        info: {
+          agentType: 2,
+          availableModels: [{ id: 'team/model-a', displayName: 'Model A' }],
+          currentModel: 'team/model-a',
+        },
+      },
+    }
+
+    const { useProviderStore } = await import('../provider')
+    await useProviderStore.getState().initAll()
+
+    expect(useProviderStore.getState().models).toEqual(
+      expect.arrayContaining([{ provider: 'team', id: 'model-a', name: 'Model A' }]),
+    )
+  })
+
+  it('still unions runtime models into non-team providers', async () => {
+    mocks.getDaemonProviders.mockResolvedValue([
+      { id: 'openai', display_name: 'OpenAI', authenticated: true, models: ['gpt-4o'] },
+    ])
+    mocks.runtimeById = {
+      'runtime-1': {
+        info: {
+          agentType: 2,
+          availableModels: [{ id: 'openai/o3-mini', displayName: 'o3-mini' }],
+          currentModel: 'openai/gpt-4o',
+        },
+      },
+    }
+
+    const { useProviderStore } = await import('../provider')
+    await useProviderStore.getState().initAll()
+
+    const openaiModels = useProviderStore
+      .getState()
+      .models.filter((model) => model.provider === 'openai')
+      .map((model) => model.id)
+    expect(openaiModels).toEqual(['gpt-4o', 'o3-mini'])
+  })
+
   it('filters model options to the selected backend during a session', async () => {
     const { getModelOptionsForSelectedBackend } = await import('../provider')
 
