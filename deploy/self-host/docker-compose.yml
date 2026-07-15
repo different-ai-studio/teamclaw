@@ -5,6 +5,16 @@ include:
     project_directory: ./supabase
 
 services:
+  # Override only the healthcheck of the vendored Supabase service (the file under
+  # supabase/ stays pristine). Upstream sets interval 5s x 3 retries with no
+  # start_period, so storage must answer /status within ~15s of boot — but it runs
+  # its own schema migrations first and regularly takes ~45s. Compose then marks it
+  # unhealthy and aborts migrate's `depends_on: storage: service_healthy`, so a cold
+  # `up` fails while storage is merely still starting.
+  storage:
+    healthcheck:
+      start_period: 120s
+
   emqx:
     # 5.10.3+ required: 5.8.0 has a WebSocket bug where emqx_ws_connection
     # handle_outgoing/2 crashes with {badmatch, <send_oct>} when a broker
