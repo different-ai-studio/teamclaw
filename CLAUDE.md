@@ -31,7 +31,7 @@ has it.
 
 ## Project Overview
 
-TeamClaw is an AI Agent Desktop Platform built with Tauri 2.0 + React 19. Three-column layout chat/collaboration tool with local AI agents, team P2P/OSS sync, and multi-channel gateways.
+TeamClaw is an AI Agent Desktop Platform built with Tauri 2.0 + React 19. Three-column layout chat/collaboration tool with local AI agents, team sync (Git / OSS, owned by the amuxd daemon), and multi-channel gateways.
 
 ## Commands
 
@@ -91,8 +91,9 @@ pnpm ios:test               # iOS UI tests
 - `packages/app/src/hooks/` — React hooks
 
 **Rust backend key paths:**
-- `apps/desktop/src/commands/` — Tauri IPC commands (oss_sync, team_p2p, gateway/, cron/, etc.)
-- `apps/desktop/src/rag/` — Full-text search + embeddings
+- `apps/desktop/src/commands/` — Tauri IPC commands (oss_sync/, team_share/, team_git.rs, gateway/, cron/, etc.)
+- `apps/desktop/crates/teamclaw-rag/` — Full-text search (Tantivy) + embeddings
+- `apps/desktop/crates/teamclaw-stt/` — Speech-to-text (Whisper)
 - `apps/desktop/binaries/` — sidecar binaries (teamclaw-introspect, etc.)
 
 **Editor system:** Markdown (Tiptap) / HTML (Tiptap + sandbox preview) / Code (CodeMirror 6 + Shiki)
@@ -136,8 +137,15 @@ Single source of truth principle — **never mix content sources**:
 Team sync is owned by the amuxd daemon (git + OSS engine). The legacy
 iroh-based P2P mode has been removed.
 
-- **S3/OSS mode**: Alibaba OSS with WebDAV
-- Shared: `skills/`, `.mcp/`, `knowledge/`
+A team picks one **share mode** during onboarding; it is then locked
+server-side (`ShareMode` in `packages/app/src/stores/team-share.ts`, mirroring
+`GET /v1/teams/:id/share-mode`):
+
+- **`oss`**: Alibaba OSS with WebDAV
+- **`managed_git`**: Git repo provisioned via `/managed-git/create-repo`
+- **`custom_git`**: self-hosted Git repo
+
+Shared: `skills/`, `.mcp/`, `knowledge/`
 
 ## Versioning & Release
 

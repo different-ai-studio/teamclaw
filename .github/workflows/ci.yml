@@ -43,6 +43,13 @@ jobs:
       - name: Run script tests
         run: pnpm test:scripts
 
+      # Smoke/E2E use tauri-mcp and require a built Tauri app (pnpm tauri:build),
+      # which this job does not build — so this stays advisory and never gates.
+      # Run locally or in a job that builds the app to execute smoke/e2e.
+      - name: Run smoke tests
+        run: pnpm test:smoke
+        continue-on-error: true
+
   rust-check:
     name: Rust Format & Clippy
     runs-on: ubuntu-latest

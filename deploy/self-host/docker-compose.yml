@@ -5,6 +5,16 @@ include:
     project_directory: ./supabase
 
 services:
+  # Override only the healthcheck of the vendored Supabase service (the file under
+  # supabase/ stays pristine). Upstream sets interval 5s x 3 retries with no
+  # start_period, so storage must answer /status within ~15s of boot — but it runs
+  # its own schema migrations first and regularly takes ~45s. Compose then marks it
+  # unhealthy and aborts migrate's `depends_on: storage: service_healthy`, so a cold
+  # `up` fails while storage is merely still starting.
+  storage:
+    healthcheck:
+      start_period: 120s
+
   emqx:
     # 5.10.3+ required: 5.8.0 has a WebSocket bug where emqx_ws_connection
     # handle_outgoing/2 crashes with {badmatch, <send_oct>} when a broker
@@ -67,6 +77,83 @@ services:
     # script is mounted read-only, so invoke via `sh` rather than chmod +x (chmod fails on a ro mount)
     entrypoint: ["/bin/sh", "-c", "sh /apply-migrations.sh"]
 
+  # Creates the _litellm database inside the Supabase postgres (`db`) container.
+  # LiteLLM's prisma schema owns ~20 tables and would collide with the app schema
+  # in `postgres`, so it gets its own database on the same server — same pattern
+  # as Supabase's own _supabase/_analytics database.
+  #
+  # This runs as a one-shot service rather than a volumes/db/*.sql init script
+  # because docker-entrypoint-initdb.d only executes on FIRST cluster init: an
+  # already-deployed stack would never get the database. CREATE DATABASE cannot
+  # run inside a transaction or take IF NOT EXISTS, hence the SELECT-then-create.
+  litellm-init:
+    image: postgres:15-alpine
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: "${POSTGRES_HOST}"
+      PGPORT: "${POSTGRES_PORT}"
+      PGUSER: postgres
+      PGPASSWORD: "${POSTGRES_PASSWORD}"
+      PGDATABASE: "${POSTGRES_DB}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        if [ "$$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='_litellm'")" = "1" ]; then
+          echo "litellm-init: _litellm already exists"
+        else
+          psql -c 'CREATE DATABASE "_litellm"'
+          echo "litellm-init: created _litellm"
+        fi
+
+  # AI gateway. FC provisions per-team budgets and virtual keys against the admin
+  # API (/team/new, /key/generate) using LITELLM_MASTER_KEY.
+  #
+  # The -database image variant runs `prisma migrate deploy` against DATABASE_URL
+  # on boot; the plain litellm image does not and would fail on a fresh database.
+  litellm:
+    image: ghcr.io/berriai/litellm-database:v1.83.3-stable
+    restart: unless-stopped
+    depends_on:
+      litellm-init:
+        condition: service_completed_successfully
+    # Not fronted by Caddy — the gateway is reachable in-network at
+    # http://litellm:4000 (FC) and on the host loopback for admin work
+    # (curl/UI via an SSH tunnel). Publish to 0.0.0.0 only behind a firewall:
+    # the master key is a full admin credential.
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    environment:
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY}"
+      # Postgres password is interpolated raw — if POSTGRES_PASSWORD contains
+      # @ : / or #, percent-encode it here or prisma will misparse the URL.
+      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/_litellm"
+      STORE_MODEL_IN_DB: "True"
+      UI_USERNAME: "${LITELLM_UI_USERNAME:-admin}"
+      UI_PASSWORD: "${LITELLM_UI_PASSWORD:-}"
+      # Provider keys referenced by litellm/config.yaml via os.environ/.
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    healthcheck:
+      # Image has no curl; python3 is the interpreter the proxy itself runs on.
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - "import urllib.request;urllib.request.urlopen('http://localhost:4000/health/liveliness')"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
   fc:
     build:
       context: ../../services/fc
@@ -100,7 +187,10 @@ services:
       BUCKET: "${BUCKET:-teamclaw-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
-      LITELLM_URL: "${LITELLM_URL:-}"
+      # Must be non-empty: services/fc/src/lib/litellm.ts falls back to the
+      # hosted gateway (https://ai.ucar.cc) when LITELLM_URL is blank, which
+      # would silently send a self-host deployment to a third-party endpoint.
+      LITELLM_URL: "${LITELLM_URL:-http://litellm:4000}"
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:-}"
 
   caddy:

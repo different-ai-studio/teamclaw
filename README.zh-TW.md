@@ -1,214 +1,192 @@
 # TeamClaw
 
-本地智慧體，你的 AI 搭檔
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
+
+本地智慧體 — 你在每個職位上的 AI 搭檔
 
 > **你的搭檔，並肩同行。**
 
-- **👥 為團隊而生** — Skills、知識庫、快捷入口可透過 Git 或 S3/OSS 在團隊內共享，同時保留每位成員的私有上下文
-- **🎭 Skills × 角色** — 可組合的角色庫，讓同一個智慧體適配銷售、客服、營運、研發等各類職位
-- **🔋 開箱即用** — 內建 RAG 知識庫、Auto UI 視覺辨識、瀏覽器控制以及六大通道閘道（企業微信、飛書、Discord、Kook、微信、Email），無需膠水程式碼
-- **🧑‍💻 個人到中小企業** — 本地優先、預設私有、零維運；從單人使用擴展到小型公司
+- **👥 為團隊而生** — 透過 Git 或 S3/OSS 同步，在整個團隊間共享 Skills、知識庫與 MCP 設定；同時保留每位成員的私有上下文
+- **🎭 Skills × 角色** — 可組合的角色庫，讓同一個智慧體適配銷售、客服、營運、研發，或任何團隊需要的職位
+- **🔋 開箱即用** — 內建 RAG 知識庫、Auto UI 視覺理解、語音轉文字，以及六大通道閘道（企業微信、飛書、Discord、Kook、微信、Email），無需膠水程式碼
+- **🧑‍💻 個人開發者到中小企業** — 本地優先、預設私有；從單人使用擴展到小型公司
 
 [English](README.md) | [简体中文](README.zh-CN.md) | 繁體中文 | [日本語](README.ja.md) | [한국어](README.ko.md)
 
-## 功能特性
-
-- **三欄佈局** — 側邊欄、聊天區、詳情面板
-- **本地 Agent 執行時** — 完整的 Agent 能力支援
-- **MCP 支援** — Model Context Protocol，連接企業系統
-- **Skills / 外掛擴充** — 可擴充的技能系統
-- **本地檔案操作** — 帶權限管理的檔案讀寫
-
 ## 介面截圖
 
-### 首頁
+| 首頁 | 頻道 |
+|---|---|
+| ![TeamClaw Home](images/home.png) | ![TeamClaw Channels](images/channel.png) |
 
-![TeamClaw 首頁](images/home.png)
+## 功能特性
 
-### 頻道
+- **三欄式工作區** — 側邊欄、聊天區與詳情面板
+- **本地智慧體執行時** — 智慧體在你自己的機器上執行，由 `amuxd` 常駐程式透過 ACP 協定託管
+- **通道閘道** — 從 Discord、飛書、Email、Kook、企業微信與微信觸達你的智慧體
+- **自動化** — 透過 cron 執行排程任務
+- **團隊協作** — 透過 OSS 或 Git 共享工作區；詳見 [團隊協作](#團隊協作)
+- **MCP 支援** — 透過 Model Context Protocol 將智慧體連接到企業系統
+- **Skills / 外掛** — 以工作區層級與全域技能來源擴充智慧體
+- **知識庫** — 全文與嵌入向量的索引及搜尋
+- **內建編輯器** — Markdown 與 HTML（Tiptap）、程式碼（CodeMirror 6），以及智慧體優先的 diff 審查器
+- **本地檔案操作** — 具備逐項操作的權限管理
 
-![TeamClaw 頻道](images/channel.png)
+## 運作方式
 
-### 團隊
+TeamClaw 分為用戶端層、智慧體宿主與雲端後端三部分：
 
-![TeamClaw 團隊](images/team.png)
+```
+  Desktop (Tauri)     iOS      Mobile (Expo)     Chrome extension
+        │              │            │                  │
+        └──────────────┴─────┬──────┴──────────────────┘
+                             │
+              ┌──────────────┴───────────────┐
+              │      TeamClaw Cloud API      │   identity, teams,
+              │            (/v1)             │   sessions, messages
+              └──────────────┬───────────────┘
+                             │
+                    ┌────────┴────────┐
+                    │   amux daemon   │  agent host + channel gateways
+                    │    (amuxd)      │  + team sync (git / OSS)
+                    └────┬───────┬────┘
+                         │ ACP   │ ACP
+                    ┌────┴──┐ ┌──┴────┐
+                    │opencode│ │ codex │  …
+                    └────────┘ └───────┘
+```
 
-## 技術棧
+- **用戶端** 負責 UI 與本地檔案。安裝 TeamClaw Desktop 時會一併安裝 `amuxd` 常駐程式，因此你的機器開箱即為智慧體宿主。
+- **amuxd** 透過 ACP 託管智慧體程序、執行通道閘道，並負責團隊同步。它也可以獨立安裝在伺服器上，不需要 GUI。
+- **Cloud API**（`/v1`）是用戶端唯一對話的後端。介面契約請見 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml)，完整架構請見 [`docs/architecture/v2.md`](docs/architecture/v2.md)。
 
-- **桌面端**：Tauri 2.0 (Rust)
-- **前端**：React 19 + TypeScript
-- **樣式**：Tailwind CSS 4
-- **狀態**：Zustand
-- **編輯器**：Tiptap (Markdown/HTML)、CodeMirror 6 (程式碼)
-- **Diff**：自訂 Diff 渲染器，Shiki 語法高亮
+## 用戶端
+
+| 用戶端 | 路徑 | 狀態 |
+|---|---|---|
+| **桌面端**（macOS / Windows / Linux） | `apps/desktop/` + `packages/app/` | 主力用戶端 |
+| **iOS** | `apps/ios/` | 原生 SwiftUI，透過 TestFlight 發布 |
+| **行動端**（iOS / Android） | `apps/expo/` | Expo；導引流程與工作階段 |
+| **Chrome 擴充功能** | `apps/extension/` | MV3 |
 
 ## 安裝
 
-從 [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) 下載對應平台的安裝包（macOS 為 `.dmg`）。
+從 [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) 下載對應平台的安裝程式 — macOS 為 `.dmg`，Windows 為 `.exe`。
 
 ### macOS 提示「已損毀」時
 
-若從網路下載安裝後開啟應用時提示 **「已損毀」** 或 **「無法開啟，因為無法驗證開發者」**，是 macOS 安全策略（Gatekeeper）所致。在終端機執行以下指令即可解除限制並正常開啟：
+若 macOS 提示應用程式 **「已損毀」** 或 **「無法開啟，因為無法驗證開發者」**，這是 Gatekeeper 對未簽章下載檔案的反應。清除隔離屬性即可：
 
 ```bash
 xattr -cr /Applications/TeamClaw.app
 ```
 
-然後即可正常開啟 TeamClaw。若倉庫已設定 Apple 開發者簽章與公證，則無需此步驟。
+若建置版本已使用 Apple 開發者憑證簽章並公證，則無需此步驟。
 
-## 開發
+## 快速開始（開發）
 
-### 前置需求
-
-- Node.js >= 20
-- pnpm >= 10
-- Rust >= 1.70
-
-### 快速開始
+**前置需求：** Node.js >= 20、pnpm >= 10、Rust >= 1.70
 
 ```bash
-# 1. 安裝依賴
 pnpm install
-
-# 2. 啟動 Tauri 開發模式
-pnpm tauri dev
-```
-
-啟動後，在 TeamClaw 介面中選擇一個 Workspace 目錄即可。
-
-## 團隊協作
-
-TeamClaw 支援透過 Git 倉庫進行團隊協作，團隊成員可共享 Skills、MCP 設定與知識庫。
-
-### 設定團隊共享倉庫
-
-1. 開啟 **Settings** > **Team**
-2. 輸入團隊 Git 倉庫網址（支援 HTTPS 或 SSH）
-3. 點擊「連線」按鈕
-4. TeamClaw 會自動：
-   - 初始化本地 Git 倉庫
-   - 拉取遠端倉庫內容
-   - 產生白名單 `.gitignore`（只同步共享層目錄）
-
-### 共享內容
-
-團隊倉庫會自動同步以下內容：
-
-- **Skills**：`.agent/skills/` — 共享的 Agent 技能
-- **MCP 設定**：`.mcp/` — MCP 伺服器設定
-- **知識庫**：`knowledge/` — 團隊知識庫文件
-
-個人檔案與工作區設定不會被同步，確保隱私安全。
-
-### 自動同步
-
-- 應用啟動時自動同步最新內容
-- 可在 Settings > Team 中手動觸發同步
-- 查看最後同步時間
-
-### 注意事項
-
-- 工作區不能已有 `.git` 目錄（避免衝突）
-- 需設定 Git 認證（SSH key 或 HTTPS token）
-- 共享層檔案以遠端倉庫為準，本地修改會被覆蓋
-
-### 開發指令
-
-```bash
-# 僅啟動前端（不含 Tauri）
-pnpm dev
-
-# 啟動完整 Tauri 應用
-pnpm tauri dev
-
-# 或使用別名
 pnpm tauri:dev
 ```
 
-### 構建
+啟動後，在 TeamClaw 介面中選擇一個工作區目錄。
+
+若要在開發時略過首次執行的設定精靈：
 
 ```bash
-pnpm tauri:build
+pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 ```
 
-### 測試
+若只要啟動前端（不建置 Rust），執行 `pnpm dev`。建置指令、共用的 Rust 建置快取、測試套件與倉庫結構，都記載於 [貢獻指南](CONTRIBUTING.md)。
 
-#### 單元測試
+## 團隊協作
+
+團隊透過三種**共享模式**之一來共享工作區，在團隊引導流程中選定一次後，即由伺服器端鎖定：
+
+| 模式 | 作用 |
+|---|---|
+| `oss` | 透過相容 S3 的物件儲存同步（阿里雲 OSS / WebDAV） |
+| `managed_git` | 透過為你佈建的 Git 倉庫同步 |
+| `custom_git` | 透過你自行託管的 Git 倉庫同步 |
+
+同步由 `amuxd` 常駐程式負責，並由它執行 Git 與 OSS 引擎。
+
+### 共享內容
+
+只有共享層會同步 — 白名單式的 `.gitignore` 會讓其他內容全部保留在本地：
+
+- `skills/` — 共享的智慧體技能
+- `.mcp/` — MCP 伺服器設定
+- `knowledge/` — 團隊知識庫文件
+
+個人檔案與工作區設定永遠不會被同步。
+
+### 注意事項
+
+- Git 模式需要可用的 Git 認證（SSH key 或 HTTPS token）。
+- 共享檔案以遠端為準；對其進行的本地修改會在同步時被覆蓋。
+- 同步會在應用程式啟動時執行，也可從 **Settings → Team** 手動觸發。
+
+## 設定
+
+建置期設定位於倉庫根目錄的 `build.config.*.json`，並依此順序合併：
+
+```
+build.config.json → build.config.${BUILD_ENV}.json → build.config.local.json
+```
+
+複製範例檔即可開始：
 
 ```bash
-# 執行所有單元測試
-pnpm test:unit
-
-# 監聽模式執行測試
-pnpm --filter @teamclaw/app test:unit --watch
+cp build.config.example.json build.config.local.json
 ```
 
-#### E2E 測試（Tauri-mcp）
+最關鍵的設定是 `cloudApiUrl`，它指向應用程式所使用的 TeamClaw Cloud API 部署：
 
-E2E 測試使用 `tauri-mcp` 與執行的 Tauri 應用互動，提供原生 UI 自動化。
-
-**前置需求：**
-
-- 安裝 `tauri-mcp`：`cargo install tauri-mcp`
-- 構建 Tauri 應用：`pnpm tauri:build`
-
-**執行 E2E 測試（需在倉庫根目錄；需先構建 Tauri 應用並安裝 tauri-mcp）：**
-
-```bash
-# 執行全部 E2E
-pnpm test:e2e
-
-# 按分類執行
-pnpm test:e2e:regression
-pnpm test:e2e:performance
-pnpm test:e2e:e2e
-pnpm test:e2e:functional
-
-# 僅 Smoke
-pnpm test:smoke
+```json
+{
+  "cloudApiUrl": "https://cloud.ucar.cc",
+  "features": {
+    "channels": { "discord": true, "feishu": true, "email": true }
+  }
+}
 ```
 
-詳見 `[packages/app/e2e/README.md](./packages/app/e2e/README.md)` 與 `tests/` 目錄。
+`build.config.local.json` 已被 git 忽略。本地開發時，你也可以在 `packages/app/.env.local` 中以 `VITE_CLOUD_API_URL` 覆寫端點。變更後需重新建置才會生效。
 
-## 專案結構
+Cloud API 的實作位於 `services/fc/`（Node.js 20），以 Supabase 為後盾，並可選用 LiteLLM proxy 來管理共享的 AI 預算。
 
-```
-teamclaw/
-├── packages/
-│   └── app/                 # React 前端
-│       └── src/
-│           ├── components/
-│           │   ├── editors/      # 檔案編輯器
-│           │   ├── diff/         # Diff 渲染器
-│           │   └── ...           # 其他 UI 元件
-│           ├── hooks/
-│           ├── lib/
-│           ├── stores/
-│           └── styles/
-├── apps/desktop/              # Tauri 後端
-│   └── src/
-│       └── commands/       # Rust 指令
-├── doc/                    # 文件
-└── package.json
-```
+## 文件
 
-## 編輯器架構
+- [架構](docs/architecture/v2.md) — 元件、拓撲與資料模型
+- [API 契約](docs/openapi/teamclaw-api.v1.yaml) — TeamClaw Cloud API `/v1`
+- [上下文地圖](CONTEXT-MAP.md) — 倉庫如何劃分為各個界限上下文
+- [貢獻指南](CONTRIBUTING.md) — 開發環境、測試、倉庫結構
+- [安全政策](SECURITY.md)
 
-檔案編輯器依檔案類型路由至不同專用編輯器：
+## 參與貢獻
 
-- **Markdown 檔案**（`.md`、`.mdx`）：Tiptap 所見即所得編輯器，支援 Markdown 擴充、預覽切換與剪貼簿圖片貼上傳送
-- **HTML 檔案**（`.html`、`.htm`）：Tiptap HTML 編輯器，沙箱 iframe 預覽
-- **程式碼檔案**（其他類型）：CodeMirror 6，語法高亮、行號、程式碼摺疊與 Git gutter 裝飾
+我們歡迎各種貢獻！詳情請見 [貢獻指南](CONTRIBUTING.md)。
 
-### Diff 渲染器
+- 📝 [文件與翻譯](CONTRIBUTING.md#-documentation--translation-easiest) — 無需開發環境
+- 🐛 [問題回報](CONTRIBUTING.md#-bug-reports)
+- ✨ [功能建議](CONTRIBUTING.md#-feature-suggestions)
+- 🔧 [前端開發](CONTRIBUTING.md#-frontend-development)
+- ⚙️ [Rust 開發](CONTRIBUTING.md#-rust-development)
 
-自訂 Diff 渲染器提供 Agent 優先的程式碼審查體驗：
+## 技術棧
 
-- 將 unified diff 解析為結構化 AST（檔案 > hunk > 行）
-- 支援行級、hunk 級與檔案級選擇
-- 與 Agent 聊天整合，「傳送給 Agent」支援：Review、Explain、Refactor、Generate Patch
-- 大檔案 diff 虛擬滾動（基於 IntersectionObserver 懶載入）
-- 透過 Shiki 語法高亮，按需載入語言
+- **桌面端**：Tauri 2.0 (Rust)
+- **常駐程式**：Rust (`amuxd`)，基於 Zed agent protocol 的 ACP
+- **前端**：React 19 + TypeScript、Tailwind CSS 4、Zustand
+- **iOS**：SwiftUI + SwiftPM (`AMUXCore`)
+- **編輯器**：Tiptap（Markdown / HTML）、CodeMirror 6（程式碼）、Shiki（語法高亮）
+- **搜尋**：Tantivy 全文檢索 + 嵌入向量
 
 ## License
 
