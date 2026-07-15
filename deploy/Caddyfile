@@ -1,3 +1,0 @@
-ai.ucar.cc {
-    reverse_proxy seed:9090
-}

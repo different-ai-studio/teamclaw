@@ -4,6 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { getDb } from "../db/client.js";
 import * as schema from "../db/schema/index.js";
 import { sendOtpEmail } from "./otp-delivery.js";
+import { authBaseURL } from "./base-url.js";
 
 let _auth: ReturnType<typeof buildAuth> | null = null;
 
@@ -19,7 +20,9 @@ export type BuildAuthOpts = {
 // Single construction path shared by prod getAuth() and tests. Build a
 // Better-Auth instance with the project's fixed plugin set + social providers.
 export function buildAuth(opts: BuildAuthOpts = {}) {
-  const baseURL = opts.baseURL ?? process.env.AUTH_BASE_URL ?? "https://cloud.ucar.cc";
+  // Fail closed rather than defaulting to a hosted host (see base-url.ts) —
+  // mirrors the AUTH_SECRET check right below it.
+  const baseURL = authBaseURL(opts.baseURL);
   const secret = opts.secret ?? process.env.AUTH_SECRET;
   if (!secret) throw new Error("AUTH_SECRET is not set");
   const db = opts.db ?? getDb();
