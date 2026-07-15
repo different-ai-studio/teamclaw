@@ -4,9 +4,9 @@
 use super::*;
 
 impl DaemonServer {
-    /// Bind remote-tool routing to a live runtime and persist MCP config.
-    /// Called on new spawn and on dedup reuse (bind only — never detach/resume
-    /// mid-turn; see [`Self::ensure_live_runtime_remote_tools`]).
+    /// Bind remote-tool routing to a live runtime and persist the host-level MCP config.
+    /// Route selection is message-level via `remote_context_id`; this binding is
+    /// retained only for compatibility/diagnostics and must not trigger ACP resume.
     pub(crate) async fn bind_remote_tool_member(
         &self,
         runtime_id: &str,
@@ -28,11 +28,9 @@ impl DaemonServer {
             targets.prune_expired();
             targets.set(session_id, member_actor_id);
         }
-        if let Err(e) = crate::remote_tools::write_remote_tools_mcp_config(
-            session_id,
-            team_id,
-            member_actor_id,
-        ) {
+        if let Err(e) =
+            crate::remote_tools::write_remote_tools_mcp_config(session_id, team_id, member_actor_id)
+        {
             warn!(
                 session_id,
                 runtime_id,
@@ -42,202 +40,28 @@ impl DaemonServer {
         }
     }
 
-    async fn mark_remote_tools_mcp_refresh_pending(&self, runtime_id: &str) {
-        let mut agents = self.agents.lock().await;
-        if let Some(h) = agents.get_handle_mut(runtime_id) {
-            h.remote_tools_mcp_refresh_pending = true;
-        }
-    }
-
-    /// Re-register remote-tools MCP via ACP resume. Skips gateway runtimes and
-    /// defers when the runtime is mid-turn (Active). Returns true on success.
-    async fn try_refresh_remote_tools_mcp_attach_for_runtime(
-        &self,
-        runtime_id: &str,
-        session_id: &str,
-        team_id: &str,
-        member_actor_id: Option<&str>,
-    ) -> bool {
-        if session_id.is_empty() {
-            return false;
-        }
-
-        let (is_gateway, is_active, worktree, workspace_id, member_from_handle) = {
-            let agents = self.agents.lock().await;
-            let Some(h) = agents.get_handle(runtime_id) else {
-                return false;
-            };
-            (
-                h.is_gateway,
-                h.status == amux::AgentStatus::Active,
-                h.worktree.clone(),
-                h.workspace_id.clone(),
-                h.remote_tool_member_id.clone(),
-            )
-        };
-
-        if is_gateway {
-            return false;
-        }
-        if is_active {
-            self.mark_remote_tools_mcp_refresh_pending(runtime_id).await;
-            return false;
-        }
-
-        let member = member_actor_id
-            .filter(|s| !s.is_empty())
-            .unwrap_or(member_from_handle.as_str());
-        if member.is_empty() {
-            return false;
-        }
-
-        let Some(mcp_config_path) = crate::remote_tools::resolve_remote_tools_mcp_config_for_resume(
-            session_id,
-            team_id,
-            Some(member),
-        ) else {
-            return false;
-        };
-
-        if worktree.is_empty() {
-            warn!(
-                runtime_id,
-                session_id,
-                "try_refresh_remote_tools_mcp_attach: missing worktree; skipping"
-            );
-            return false;
-        }
-
-        let runtime_env = match self
-            .assemble_spawn_runtime_env_for_worktree(&worktree, &workspace_id)
-            .await
-        {
-            Ok(env) => env,
-            Err(e) => {
-                warn!(
-                    runtime_id,
-                    session_id,
-                    err = %e,
-                    "try_refresh_remote_tools_mcp_attach: assemble runtime env failed"
-                );
-                return false;
-            }
-        };
-
-        if let Err(e) = self
-            .agents
-            .lock()
-            .await
-            .refresh_remote_tools_mcp_attach(runtime_id, mcp_config_path, runtime_env)
-            .await
-        {
-            warn!(
-                runtime_id,
-                session_id,
-                err = %e,
-                "try_refresh_remote_tools_mcp_attach: refresh_remote_tools_mcp_attach failed"
-            );
-            return false;
-        }
-
+    /// Legacy no-op. Remote-tools MCP is now a host baseline; reattaching a
+    /// session can perturb OpenCode's shared MCP registry.
+    pub(crate) async fn flush_pending_remote_tools_mcp_refresh(&self, runtime_id: &str) {
         let mut agents = self.agents.lock().await;
         if let Some(h) = agents.get_handle_mut(runtime_id) {
             h.remote_tools_mcp_refresh_pending = false;
         }
-        true
     }
 
-    /// Flush a deferred MCP refresh after Active→Idle (never detach mid-turn).
-    pub(crate) async fn flush_pending_remote_tools_mcp_refresh(&self, runtime_id: &str) {
-        let snapshot = {
-            let agents = self.agents.lock().await;
-            let Some(h) = agents.get_handle(runtime_id) else {
-                return;
-            };
-            if !h.remote_tools_mcp_refresh_pending {
-                return;
-            }
-            if h.is_gateway || h.session_id.is_empty() {
-                return;
-            }
-            (
-                h.session_id.clone(),
-                h.remote_tool_member_id.clone(),
-            )
-        };
-        let (session_id, member_id) = snapshot;
-        let team_id = self.config.team_id.clone().unwrap_or_default();
-        self.try_refresh_remote_tools_mcp_attach_for_runtime(
-            runtime_id,
-            &session_id,
-            &team_id,
-            Some(&member_id),
-        )
-        .await;
-    }
-
-    /// After spawning a new runtime on a shared worktree, refresh idle peers'
-    /// remote-tools MCP or defer refresh for peers mid-turn.
+    /// Legacy no-op. Host-level MCP baseline removes the need to refresh peers
+    /// by ACP resume.
     async fn sync_peer_remote_tools_on_worktree(
         &self,
-        worktree: &str,
-        workspace_id: &str,
-        exclude_runtime_id: &str,
-        team_id: &str,
+        _worktree: &str,
+        _workspace_id: &str,
+        _exclude_runtime_id: &str,
+        _team_id: &str,
     ) {
-        let peers: Vec<(String, String, String, amux::AgentStatus)> = {
-            let agents = self.agents.lock().await;
-            agents
-                .active_handles_for_workspace(worktree, workspace_id)
-                .filter(|(id, h)| {
-                    id.as_str() != exclude_runtime_id
-                        && !h.is_gateway
-                        && !h.session_id.is_empty()
-                        && !h.remote_tool_member_id.is_empty()
-                })
-                .map(|(id, h)| {
-                    (
-                        id.clone(),
-                        h.session_id.clone(),
-                        h.remote_tool_member_id.clone(),
-                        h.status,
-                    )
-                })
-                .collect()
-        };
-
-        for (runtime_id, session_id, member_id, status) in peers {
-            if crate::remote_tools::resolve_remote_tools_mcp_config_for_resume(
-                &session_id,
-                team_id,
-                Some(&member_id),
-            )
-            .is_none()
-            {
-                continue;
-            }
-            match status {
-                amux::AgentStatus::Idle => {
-                    self.try_refresh_remote_tools_mcp_attach_for_runtime(
-                        &runtime_id,
-                        &session_id,
-                        team_id,
-                        Some(&member_id),
-                    )
-                    .await;
-                }
-                amux::AgentStatus::Active => {
-                    self.mark_remote_tools_mcp_refresh_pending(&runtime_id).await;
-                }
-                _ => {}
-            }
-        }
     }
 
-    /// Keep remote-tools MCP registered on a live collab runtime. Desktop or
-    /// another session attaching to the shared OpenCode host can drop
-    /// per-session MCP; resume paths re-register via ACP resume when safe
-    /// (Idle). Never detach/resume while Active — defer to Idle instead.
+    /// Keep remote-tools routing metadata on a live collab runtime. MCP itself
+    /// is a host baseline and is not refreshed via per-session ACP resume.
     pub(crate) async fn ensure_live_runtime_remote_tools(
         &self,
         runtime_id: &str,
@@ -249,44 +73,8 @@ impl DaemonServer {
             return;
         }
 
-        self.bind_remote_tool_member(
-            runtime_id,
-            session_id,
-            requester_actor_id,
-            team_id,
-        )
-        .await;
-
-        let is_gateway = self
-            .agents
-            .lock()
-            .await
-            .get_handle(runtime_id)
-            .map(|h| h.is_gateway)
-            .unwrap_or(false);
-        if is_gateway {
-            return;
-        }
-
-        let is_active = self
-            .agents
-            .lock()
-            .await
-            .get_handle(runtime_id)
-            .map(|h| h.status == amux::AgentStatus::Active)
-            .unwrap_or(false);
-        if is_active {
-            self.mark_remote_tools_mcp_refresh_pending(runtime_id).await;
-            return;
-        }
-
-        self.try_refresh_remote_tools_mcp_attach_for_runtime(
-            runtime_id,
-            session_id,
-            team_id,
-            Some(requester_actor_id),
-        )
-        .await;
+        self.bind_remote_tool_member(runtime_id, session_id, requester_actor_id, team_id)
+            .await;
     }
 
     /// Spawns a Claude Code subprocess and publishes lifecycle state
@@ -474,6 +262,10 @@ impl DaemonServer {
         if !superseded.is_empty() {
             for rid in &superseded {
                 self.agents.lock().await.stop_agent(rid).await;
+                self.remote_tool_turn_contexts
+                    .lock()
+                    .await
+                    .clear_runtime(rid);
                 if let Some(s) = self.sessions.find_by_id_mut(rid) {
                     s.status = amux::AgentStatus::Stopped as i32;
                 }
@@ -487,10 +279,27 @@ impl DaemonServer {
         }
 
         if let Some(existing) = existing_runtime {
+            let (existing_acp_session_id, existing_worktree, existing_remote_member) = {
+                let agents = self.agents.lock().await;
+                agents
+                    .get_handle(&existing)
+                    .map(|h| {
+                        (
+                            h.acp_session_id.clone(),
+                            h.worktree.clone(),
+                            h.remote_tool_member_id.clone(),
+                        )
+                    })
+                    .unwrap_or_default()
+            };
             info!(
                 session_id,
                 workspace_id = %ws_id,
                 runtime_id = %existing,
+                acp_session_id = %existing_acp_session_id,
+                handle_worktree = %existing_worktree,
+                remote_tool_member_id = %existing_remote_member,
+                wants_remote_mcp,
                 "apply_start_runtime: dedup hit; reusing existing runtime"
             );
             // TODO(perf-runtime-start-throttle): See the same id on the client
@@ -534,7 +343,22 @@ impl DaemonServer {
                     }
                 }
             }
+            if wants_remote_mcp {
+                self.ensure_live_runtime_remote_tools(
+                    &existing,
+                    session_id,
+                    requester_actor_id,
+                    &team_id,
+                )
+                .await;
+            }
             if !initial_prompt.trim().is_empty() {
+                self.prepare_remote_tool_context_for_turn(
+                    &existing,
+                    session_id,
+                    requester_actor_id,
+                )
+                .await;
                 if let Err(e) = self
                     .agents
                     .lock()
@@ -575,15 +399,6 @@ impl DaemonServer {
             // initial attach catchup (e.g. client dedup runtimeStart on send).
             // Replay from the cursor so @-mentioned rows still reach send_prompt.
             self.catchup_runtime(&existing).await;
-            if wants_remote_mcp {
-                self.ensure_live_runtime_remote_tools(
-                    &existing,
-                    session_id,
-                    requester_actor_id,
-                    &team_id,
-                )
-                .await;
-            }
             return Ok(StartRuntimeOutcome {
                 runtime_id: existing,
                 session_id: session_id.to_string(),
@@ -693,9 +508,7 @@ impl DaemonServer {
             );
         }
 
-        let workspace_team_id = self
-            .resolve_workspace_team_id(&ws_id)
-            .await;
+        let workspace_team_id = self.resolve_workspace_team_id(&ws_id).await;
 
         if let Some(ref team_id) = workspace_team_id {
             let gate = crate::team_link::team_share_gate(self.backend.as_ref(), team_id).await;
@@ -727,7 +540,9 @@ impl DaemonServer {
             ) {
                 Ok(_) => {
                     remote_mcp_ready = true;
-                    Some(crate::remote_tools::remote_tools_mcp_config_path(session_id))
+                    Some(crate::remote_tools::remote_tools_mcp_config_path(
+                        session_id,
+                    ))
                 }
                 Err(e) => {
                     warn!(
@@ -750,7 +565,7 @@ impl DaemonServer {
             .spawn_agent_with_model(
                 agent_type,
                 &resolved_worktree,
-                initial_prompt,
+                "",
                 &ws_id,
                 (!ws_id.is_empty()).then_some(ws_id.as_str()),
                 session_id_opt,
@@ -779,6 +594,25 @@ impl DaemonServer {
         if remote_mcp_ready {
             self.bind_remote_tool_member(&new_id, session_id, requester_actor_id, &team_id)
                 .await;
+        }
+
+        if !initial_prompt.trim().is_empty() {
+            self.prepare_remote_tool_context_for_turn(&new_id, session_id, requester_actor_id)
+                .await;
+            if let Err(e) = self
+                .agents
+                .lock()
+                .await
+                .send_prompt(&new_id, initial_prompt, vec![])
+                .await
+            {
+                warn!(
+                    runtime_id = %new_id,
+                    session_id,
+                    err = %e,
+                    "apply_start_runtime: initial_prompt send_prompt failed"
+                );
+            }
         }
 
         {
@@ -863,13 +697,8 @@ impl DaemonServer {
         self.catchup_runtime(&new_id).await;
 
         if remote_mcp_ready {
-            self.sync_peer_remote_tools_on_worktree(
-                &resolved_worktree,
-                &ws_id,
-                &new_id,
-                &team_id,
-            )
-            .await;
+            self.sync_peer_remote_tools_on_worktree(&resolved_worktree, &ws_id, &new_id, &team_id)
+                .await;
         }
 
         Ok(StartRuntimeOutcome {
@@ -909,6 +738,11 @@ impl DaemonServer {
                 &format!("stop failed for runtime_id: {}", runtime_id),
             );
         }
+
+        self.remote_tool_turn_contexts
+            .lock()
+            .await
+            .clear_runtime(&runtime_id);
 
         self.publish_runtime_stopped(&runtime_id).await;
 

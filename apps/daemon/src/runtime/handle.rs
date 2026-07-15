@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
-use super::adapter::AcpCommand;
 use super::acp_event_frame::AcpEventFrame;
+use super::adapter::AcpCommand;
 use super::instruction_delivery::InstructionDelivery;
 use crate::proto::amux;
 
@@ -65,6 +65,9 @@ pub struct RuntimeHandle {
     pub pending_silent: Vec<PendingMessage>,
     /// Instructions queued by `inject_context` (workspace system prompt, /ctx).
     pub injected_context: Vec<InjectedContextItem>,
+    /// One-shot context that must be prepended to the next prompt even when
+    /// session-level injected context is delivered by a native plugin.
+    pub next_prompt_context: String,
     /// How static workspace instructions are delivered for this runtime.
     pub instruction_delivery: InstructionDelivery,
     /// Backend `agent_runtimes.id` for this runtime row. Used to PATCH
@@ -124,6 +127,7 @@ impl RuntimeHandle {
             turn_lock: Arc::new(AsyncMutex::new(())),
             pending_silent: Vec::new(),
             injected_context: Vec::new(),
+            next_prompt_context: String::new(),
             instruction_delivery: InstructionDelivery::BufferedInject,
             backend_runtime_row_id: None,
             last_processed_message_id: None,
@@ -210,8 +214,8 @@ impl RuntimeHandle {
             tx.send(AcpCommand::Cancel {
                 acp_session_id: self.acp_session_id.clone(),
             })
-                .await
-                .map_err(|_| crate::error::AmuxError::Agent("ACP command channel closed".into()))
+            .await
+            .map_err(|_| crate::error::AmuxError::Agent("ACP command channel closed".into()))
         } else {
             Err(crate::error::AmuxError::Agent(
                 "no ACP command channel".into(),
@@ -338,6 +342,7 @@ impl RuntimeHandle {
             turn_lock: Arc::new(AsyncMutex::new(())),
             pending_silent: Vec::new(),
             injected_context: Vec::new(),
+            next_prompt_context: String::new(),
             instruction_delivery: InstructionDelivery::BufferedInject,
             backend_runtime_row_id: None,
             last_processed_message_id: None,

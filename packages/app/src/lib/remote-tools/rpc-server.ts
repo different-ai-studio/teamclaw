@@ -88,7 +88,24 @@ function handleEnvelope(env: IncomingEnvelope): void {
       return
     }
 
-    if (!(await authorizeRemoteToolRequest(teamId, request, invoke))) {
+    let authorized = false
+    try {
+      authorized = await authorizeRemoteToolRequest(teamId, request, invoke)
+    } catch {
+      await publishRpcResponse(
+        request,
+        buildRemoteToolResponse(
+          request,
+          false,
+          '',
+          REMOTE_TOOL_ERROR.forbidden,
+          'remote tool request authorization failed',
+        ),
+      )
+      return
+    }
+
+    if (!authorized) {
       await publishRpcResponse(
         request,
         buildRemoteToolResponse(

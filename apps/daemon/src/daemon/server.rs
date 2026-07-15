@@ -47,9 +47,9 @@ mod channels;
 mod cron;
 mod messaging;
 mod peers_workspaces;
+mod remote_tools;
 mod rpc;
 mod runtime_lifecycle;
-mod remote_tools;
 use crate::history::EventHistory;
 use crate::mqtt::{publisher::Publisher, subscriber, MqttClient};
 use crate::proto::amux;
@@ -212,6 +212,7 @@ pub struct DaemonServer {
     /// re-attached via `set_local_tee`.
     live_tee: tokio::sync::broadcast::Sender<crate::teamclaw::live::LiveTeeEvent>,
     session_remote_targets: Arc<AsyncMutex<crate::remote_tools::SessionRemoteTargetStore>>,
+    remote_tool_turn_contexts: Arc<AsyncMutex<crate::remote_tools::RemoteToolTurnContextStore>>,
     rpc_client: Arc<AsyncMutex<crate::teamclaw::rpc::RpcClient>>,
 }
 
@@ -565,6 +566,9 @@ impl DaemonServer {
             session_remote_targets: Arc::new(AsyncMutex::new(
                 crate::remote_tools::SessionRemoteTargetStore::default(),
             )),
+            remote_tool_turn_contexts: Arc::new(AsyncMutex::new(
+                crate::remote_tools::RemoteToolTurnContextStore::default(),
+            )),
             rpc_client,
         })
     }
@@ -760,9 +764,13 @@ impl DaemonServer {
             tokio::spawn(async move {
                 let mut mgr = agents.lock().await;
                 match prewarm_env {
-                    Some((extra_env, force_env_override)) => {
-                        mgr.prewarm_acp_hosts_with_env(extra_env, force_env_override)
-                            .await;
+                    Some((worktree, extra_env, force_env_override)) => {
+                        mgr.prewarm_acp_hosts_with_env(
+                            extra_env,
+                            force_env_override,
+                            Some(worktree.as_str()),
+                        )
+                        .await;
                     }
                     None => mgr.prewarm_acp_hosts().await,
                 }
@@ -2701,6 +2709,9 @@ pub(crate) mod tests {
                 live_tee: tokio::sync::broadcast::channel(64).0,
                 session_remote_targets: Arc::new(AsyncMutex::new(
                     crate::remote_tools::SessionRemoteTargetStore::default(),
+                )),
+                remote_tool_turn_contexts: Arc::new(AsyncMutex::new(
+                    crate::remote_tools::RemoteToolTurnContextStore::default(),
                 )),
                 rpc_client: Arc::new(AsyncMutex::new(crate::teamclaw::rpc::RpcClient::new(
                     publisher_handle.clone(),

@@ -17,6 +17,7 @@ use tracing::{info, warn};
 /// Matches `apps/desktop/src/commands/introspect_api.rs` — desktop Tauri hosts the API.
 const INTROSPECT_API_PORT: u16 = 13144;
 const TEAM_SKILLS_PATH: &str = "teamclaw-team/skills";
+const REMOTE_TOOLS_MCP_SERVER_NAME: &str = "amuxd-remote-tools";
 const INSTRUCTION_PLUGIN_TEMPLATE: &str = include_str!(
     "../../../../packages/app/src/lib/opencode/templates/teamclaw-instruction-plugin.mjs.txt"
 );
@@ -26,8 +27,8 @@ use crate::proto::amux;
 use crate::runtime::{
     acp_catalog_probe,
     refresh::{
-        APPLY_REFRESH_SUPPRESS, INTERNAL_PREPARE_KINDS, INTERNAL_WRITE_SUPPRESS, RefreshChangeKind,
-        RuntimeRefreshCoordinator, WorkspaceRefreshState,
+        RefreshChangeKind, RuntimeRefreshCoordinator, WorkspaceRefreshState,
+        APPLY_REFRESH_SUPPRESS, INTERNAL_PREPARE_KINDS, INTERNAL_WRITE_SUPPRESS,
     },
     AgentLaunchConfig, RuntimeManager,
 };
@@ -133,6 +134,23 @@ pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControl
 
     let mut changed = false;
 
+    let remote_tools = remote_tools_mcp_config()?;
+    let needs_remote_tools = mcp_obj
+        .get(REMOTE_TOOLS_MCP_SERVER_NAME)
+        .map(|existing| existing != &remote_tools)
+        .unwrap_or(true);
+    info!(
+        workspace = %workspace_path.display(),
+        config_path = %config_path.display(),
+        needs_remote_tools,
+        remote_tools_present = mcp_obj.contains_key(REMOTE_TOOLS_MCP_SERVER_NAME),
+        "ensure_inherent_mcp: remote-tools config checked"
+    );
+    if needs_remote_tools {
+        mcp_obj.insert(REMOTE_TOOLS_MCP_SERVER_NAME.to_string(), remote_tools);
+        changed = true;
+    }
+
     if !mcp_obj.contains_key("playwright") {
         mcp_obj.insert(
             "playwright".to_string(),
@@ -161,8 +179,33 @@ pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControl
 
     if changed {
         write_json_pretty(&config_path, &config)?;
+        info!(
+            workspace = %workspace_path.display(),
+            config_path = %config_path.display(),
+            "ensure_inherent_mcp: opencode.json updated"
+        );
     }
     Ok(())
+}
+
+fn remote_tools_mcp_config() -> Result<serde_json::Value, WorkspaceControlError> {
+    let amuxd_bin =
+        std::env::current_exe().map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
+    let sock = crate::config::DaemonConfig::sock_path();
+    info!(
+        amuxd_bin = %amuxd_bin.display(),
+        sock = %sock.display(),
+        "ensure_inherent_mcp: building remote-tools config"
+    );
+    Ok(serde_json::json!({
+        "type": "local",
+        "enabled": true,
+        "command": [
+            amuxd_bin.to_string_lossy(),
+            "remote-tools-mcp",
+            format!("--sock={}", sock.to_string_lossy())
+        ]
+    }))
 }
 
 fn resolve_executable(path: PathBuf) -> Option<PathBuf> {
@@ -508,9 +551,7 @@ pub fn ensure_instruction_plugin(workspace_path: &Path) -> Result<(), WorkspaceC
         );
     }
 
-    let plugins = obj
-        .entry("plugin")
-        .or_insert_with(|| serde_json::json!([]));
+    let plugins = obj.entry("plugin").or_insert_with(|| serde_json::json!([]));
     let plugin_list = plugins.as_array_mut().ok_or_else(|| {
         WorkspaceControlError::Parse("opencode.json plugin field is not an array".into())
     })?;
@@ -1054,6 +1095,14 @@ mod tests {
         )
         .unwrap();
         assert!(cfg.get("permission").is_some());
+        assert_eq!(
+            cfg["mcp"][REMOTE_TOOLS_MCP_SERVER_NAME]["enabled"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            cfg["mcp"][REMOTE_TOOLS_MCP_SERVER_NAME]["command"][1],
+            serde_json::json!("remote-tools-mcp")
+        );
 
         assert!(dir
             .path()

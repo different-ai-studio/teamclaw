@@ -252,6 +252,10 @@ impl DaemonServer {
             }
             self.publish_runtime_state_by_id(agent_id).await;
             if became_idle {
+                self.remote_tool_turn_contexts
+                    .lock()
+                    .await
+                    .clear_runtime(agent_id);
                 self.flush_pending_remote_tools_mcp_refresh(agent_id).await;
             }
 
@@ -491,6 +495,10 @@ impl DaemonServer {
         );
         for rid in &superseded {
             self.agents.lock().await.stop_agent(rid).await;
+            self.remote_tool_turn_contexts
+                .lock()
+                .await
+                .clear_runtime(rid);
             if let Some(s) = self.sessions.find_by_id_mut(rid) {
                 s.status = amux::AgentStatus::Stopped as i32;
             }
@@ -525,7 +533,8 @@ impl DaemonServer {
             if self
                 .resume_historical_runtimes_for_session(
                     session_id,
-                    (!message.sender_actor_id.is_empty()).then_some(message.sender_actor_id.as_str()),
+                    (!message.sender_actor_id.is_empty())
+                        .then_some(message.sender_actor_id.as_str()),
                 )
                 .await
             {
@@ -675,6 +684,12 @@ impl DaemonServer {
                         }
                     }
                 }
+                self.prepare_remote_tool_context_for_turn(
+                    &runtime_id,
+                    session_id,
+                    &message.sender_actor_id,
+                )
+                .await;
                 let send_res = self
                     .agents
                     .lock()

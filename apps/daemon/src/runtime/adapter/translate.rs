@@ -411,21 +411,13 @@ pub(super) fn tool_output_summary(raw_output: Option<&serde_json::Value>) -> Opt
                 None
             } else {
                 let text = json_value_to_string(value);
-                if text.is_empty() {
-                    None
-                } else {
-                    Some(text)
-                }
+                if text.is_empty() { None } else { Some(text) }
             }
         }
         serde_json::Value::Array(_) => None,
         _ => {
             let text = json_value_to_string(value);
-            if text.is_empty() {
-                None
-            } else {
-                Some(text)
-            }
+            if text.is_empty() { None } else { Some(text) }
         }
     })
 }
@@ -465,11 +457,7 @@ pub(super) fn json_tool_output_text(value: &serde_json::Value) -> Option<String>
         serde_json::Value::Null => None,
         _ => {
             let text = value.to_string();
-            if text.is_empty() {
-                None
-            } else {
-                Some(text)
-            }
+            if text.is_empty() { None } else { Some(text) }
         }
     }
 }
@@ -497,11 +485,7 @@ pub(super) fn json_content_summary(value: &serde_json::Value) -> Option<String> 
         }
     }
     let text = parts.join("\n\n");
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
+    if text.is_empty() { None } else { Some(text) }
 }
 
 pub(super) fn tool_content_summary(content: Option<&[acp::ToolCallContent]>) -> Option<String> {
@@ -521,11 +505,7 @@ pub(super) fn tool_content_summary(content: Option<&[acp::ToolCallContent]>) -> 
         }
     }
     let text = parts.join("\n\n");
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
+    if text.is_empty() { None } else { Some(text) }
 }
 
 pub(super) fn truncate_tool_summary(summary: String) -> String {
@@ -638,9 +618,7 @@ async fn compress_image_for_prompt(bytes: Vec<u8>, mime: &'static str) -> (Vec<u
 }
 
 /// Parse task tool in-progress metadata for subagent child session binding.
-pub(super) fn extract_task_child_metadata(
-    update: &acp::SessionUpdate,
-) -> Option<(String, String)> {
+pub(super) fn extract_task_child_metadata(update: &acp::SessionUpdate) -> Option<(String, String)> {
     let tcu = match update {
         acp::SessionUpdate::ToolCallUpdate(tcu) => tcu,
         _ => return None,
