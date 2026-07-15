@@ -2962,7 +2962,25 @@
     "copyFailed": "Failed to copy invite link",
     "failed": "Failed to create invite: {{msg}}",
     "upgradeRequired": "This team is still in the shared org and is solo-only. Upgrade your account and create your own team to invite members.",
-    "upgradeButton": "Upgrade account"
+    "upgradeButton": "Upgrade account",
+    "contactHint": "Add an email or phone and they'll see this invite when they sign in — no link to send.",
+    "emailLabel": "Email (optional)",
+    "emailPlaceholder": "name@example.com",
+    "phoneLabel": "Phone (optional)",
+    "phonePlaceholder": "13800138000"
+  },
+  "pendingInvite": {
+    "title": "You have team invites",
+    "description": "These teams invited you to join. You can accept or decline.",
+    "unnamedTeam": "Untitled team",
+    "invitedBy": "{{name}} invited you to join as {{role}}",
+    "invitedAs": "You're invited to join as {{role}}",
+    "expiresAt": "Expires {{date}}",
+    "accept": "Accept",
+    "decline": "Decline",
+    "accepted": "Joined the team",
+    "acceptFailed": "Failed to join team: {{msg}}",
+    "declineFailed": "Failed to decline: {{msg}}"
   },
   "terminal": {
     "label": "Terminal",

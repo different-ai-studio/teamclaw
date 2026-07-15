@@ -25,6 +25,26 @@ export interface AuthClaimResult {
   refreshToken: string | null;
 }
 
+/**
+ * An invite addressed to the signed-in user's verified email or phone, which
+ * they have not yet accepted or declined. Distinct from the token path: the
+ * server matched this to the user's own identity, so no link is involved.
+ */
+export interface PendingInvite {
+  inviteId: string;
+  teamId: string;
+  teamName: string | null;
+  teamRole: string | null;
+  /** The name the inviter typed for this person. */
+  displayName: string | null;
+  invitedByDisplayName: string | null;
+  inviteEmail: string | null;
+  invitePhone: string | null;
+  expiresAt: string | null;
+  /** Which of the user's verified contacts the invite was matched on. */
+  matchedVia: "email" | "phone" | null;
+}
+
 export type Unsubscribe = () => void;
 
 export interface AuthBackend {
@@ -44,6 +64,10 @@ export interface AuthBackend {
   signInWithOAuth(provider: OAuthProvider): Promise<AuthSession | null>;
   signOut(): Promise<void>;
   claimInvite(token: string): Promise<AuthClaimResult>;
+  /** Invites matched to the signed-in user's verified email/phone. */
+  listPendingInvites(): Promise<PendingInvite[]>;
+  acceptPendingInvite(inviteId: string): Promise<AuthClaimResult>;
+  declinePendingInvite(inviteId: string): Promise<void>;
   /** Attach an email identity to the current (anonymous) user. Triggers an OTP. */
   sendUpgradePhoneOtp(phone: string): Promise<void>;
   verifyUpgradePhoneOtp(phone: string, code: string): Promise<AuthSession | null>;
@@ -327,14 +351,25 @@ type TeamInviteBaseInput = {
   targetActorId?: string | null;
 };
 
+/**
+ * Optional invitee contact, member invites only. When supplied, the invitee can
+ * discover and accept the invite after signing in (`listPendingInvites`) instead
+ * of needing the token delivered out-of-band. Agent invites are claimed by a
+ * daemon that provisions its own identity, so there is nobody to match.
+ */
+type TeamInviteContactInput = {
+  inviteEmail?: string | null;
+  invitePhone?: string | null;
+};
+
 export type TeamInviteInput =
-  | (TeamInviteBaseInput & {
+  | (TeamInviteBaseInput & TeamInviteContactInput & {
       kind: "member";
       actorType?: "member";
       teamRole: "owner" | "admin" | "member";
       agentKind?: null;
     })
-  | (TeamInviteBaseInput & {
+  | (TeamInviteBaseInput & TeamInviteContactInput & {
       actorType: "member";
       kind?: "member";
       teamRole: "owner" | "admin" | "member";

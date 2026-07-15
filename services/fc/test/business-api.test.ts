@@ -205,6 +205,90 @@ test("claim invite is anonymous and routes to auth repository", async () => {
   assert.equal(JSON.parse(response.body).actorId, "agent-1");
 });
 
+// The three routes below are the contact path (invited by email/phone, no token
+// ever reached the invitee). Unlike /v1/invites/claim they REQUIRE a bearer:
+// matching keys off the caller's own verified identity, so there is no
+// anonymous variant.
+test("pending invites route requires a bearer and routes to auth repository", async () => {
+  const authCalls = [];
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/invites/pending",
+    headers: { Authorization: "Bearer member-jwt" },
+  }, {
+    createRepository: () => fakeRepo(),
+    createAuthRepository: () => ({
+      async listPendingInvites(ctx) {
+        authCalls.push({ method: "listPendingInvites", accessToken: ctx?.accessToken });
+        return { items: [{ inviteId: "invite-1", teamId: "team-1", matchedVia: "email" }] };
+      },
+    }),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(authCalls[0], { method: "listPendingInvites", accessToken: "member-jwt" });
+  assert.equal(JSON.parse(response.body).items[0].inviteId, "invite-1");
+});
+
+test("pending invites route returns 401 without a bearer", async () => {
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/invites/pending",
+    headers: {},
+  }, {
+    createRepository: () => fakeRepo(),
+    createAuthRepository: () => ({
+      async listPendingInvites() {
+        assert.fail("must not reach the repository without a bearer");
+      },
+    }),
+  });
+
+  assert.equal(response.statusCode, 401);
+});
+
+test("accept pending invite forwards inviteId and bearer", async () => {
+  const authCalls = [];
+  const response = await handleBusinessApiRequest({
+    httpMethod: "POST",
+    path: "/v1/invites/invite-1/accept",
+    headers: { Authorization: "Bearer member-jwt" },
+    body: "{}",
+  }, {
+    createRepository: () => fakeRepo(),
+    createAuthRepository: () => ({
+      async acceptPendingInvite(inviteId, ctx) {
+        authCalls.push({ method: "acceptPendingInvite", inviteId, accessToken: ctx?.accessToken });
+        return { actorId: "actor-9", teamId: "team-1", actorType: "member", displayName: "New User", refreshToken: null };
+      },
+    }),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(authCalls[0], { method: "acceptPendingInvite", inviteId: "invite-1", accessToken: "member-jwt" });
+  assert.equal(JSON.parse(response.body).teamId, "team-1");
+});
+
+test("decline pending invite returns 204", async () => {
+  const authCalls = [];
+  const response = await handleBusinessApiRequest({
+    httpMethod: "POST",
+    path: "/v1/invites/invite-1/decline",
+    headers: { Authorization: "Bearer member-jwt" },
+    body: "{}",
+  }, {
+    createRepository: () => fakeRepo(),
+    createAuthRepository: () => ({
+      async declinePendingInvite(inviteId, ctx) {
+        authCalls.push({ method: "declinePendingInvite", inviteId, accessToken: ctx?.accessToken });
+      },
+    }),
+  });
+
+  assert.equal(response.statusCode, 204);
+  assert.deepEqual(authCalls[0], { method: "declinePendingInvite", inviteId: "invite-1", accessToken: "member-jwt" });
+});
+
 test("claim invite forwards the caller bearer for member claims", async () => {
   // A member joining via someone's link IS authenticated (anonymous or real).
   // The route must forward their bearer as accessToken so the SECURITY DEFINER
@@ -1015,7 +1099,26 @@ test("POST /v1/teams/:teamId/invites creates invite", async () => {
   assert.equal(response.statusCode, 201);
   const body = JSON.parse(response.body);
   assert.equal(body.token, "invite-token");
-  assert.deepEqual(repo.calls[0], { method: "createTeamInvite", teamId: "team-1", input: { kind: "member", displayName: "New User", teamRole: "member", agentKind: null, ttlSeconds: null, targetActorId: null } });
+  assert.deepEqual(repo.calls[0], { method: "createTeamInvite", teamId: "team-1", input: { kind: "member", displayName: "New User", teamRole: "member", agentKind: null, ttlSeconds: null, targetActorId: null, inviteEmail: null, invitePhone: null } });
+});
+
+test("POST /v1/teams/:teamId/invites forwards invitee contact", async () => {
+  const repo = fakeRepo();
+  await handleBusinessApiRequest({
+    httpMethod: "POST",
+    path: "/v1/teams/team-1/invites",
+    headers: { Authorization: "Bearer token" },
+    body: JSON.stringify({
+      kind: "member",
+      displayName: "New User",
+      teamRole: "member",
+      inviteEmail: "new@example.com",
+      invitePhone: "13800138000",
+    }),
+  }, { createRepository: () => repo });
+
+  assert.equal(repo.calls[0].input.inviteEmail, "new@example.com");
+  assert.equal(repo.calls[0].input.invitePhone, "13800138000");
 });
 
 test("POST /v1/teams/:teamId/invites returns 400 without required fields", async () => {
