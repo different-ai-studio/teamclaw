@@ -1393,6 +1393,7 @@
       "mismatchTitle": "This machine's agent belongs to another team",
       "mismatchSubtitle": "The signed-in team doesn't match the team this machine's daemon is bound to. It needs to be reset and re-initialized.",
       "resetting": "Resetting…",
+      "resetIncomplete": "Reset did not take effect: this machine is still bound to team {{teamId}}. Check ~/.amuxd/amuxd.err.log.",
       "resetReinit": "Reset and re-initialize",
       "initTitle": "Set up this machine's agent",
       "initSubtitle": "Create a new agent, or bind this machine to one you already have.",
