@@ -13,12 +13,25 @@
 {$CADDY_SITE_SCHEME}{$FC_DOMAIN} {
 	{$CADDY_SITE_TLS}
 
+	# LiteLLM AI gateway, mounted as a path on the FC domain so it needs no extra
+	# DNS record: base_url = https://{$FC_DOMAIN}/llm
+	# handle_path strips the /llm prefix, so /llm/chat/completions reaches LiteLLM
+	# as /chat/completions (it serves both the bare and /v1 forms).
+	# handle_path + handle are mutually exclusive, so /llm never falls through to FC.
+	# Note this also exposes LiteLLM's admin API (/llm/team/new, /llm/key/generate)
+	# publicly — they are master-key authenticated, same as the hosted gateway.
+	handle_path /llm/* {
+		reverse_proxy litellm:4000
+	}
+
 	# CORS is handled entirely by FC (Hono middleware in services/fc/src/app.ts),
 	# which is origin-aware (reflects the request Origin, allows tauri:// and
 	# localhost, honours CORS_ORIGINS). Do NOT also set CORS headers here — Caddy
 	# would emit a second Access-Control-Allow-Origin on proxied (non-OPTIONS)
 	# responses, and browsers reject any response carrying more than one ACAO.
-	reverse_proxy fc:9000
+	handle {
+		reverse_proxy fc:9000
+	}
 }
 
 {$CADDY_SITE_SCHEME}{$SUPABASE_DOMAIN} {

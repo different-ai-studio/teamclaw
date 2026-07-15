@@ -47,6 +47,21 @@ set_kv MQTT_SERVICE_TOKEN "$MQTT"
 EMQX_JWT_SECRET="$(printf '%s' "$JWT_SECRET" | openssl base64 -A)"
 set_kv EMQX_JWT_SECRET "$EMQX_JWT_SECRET"
 
+# LiteLLM admin credentials. Random, not derived from JWT_SECRET — the master key
+# is a full admin credential for the AI gateway and is handed to FC, not to
+# clients. LiteLLM requires the "sk-" prefix. Preserve an existing value so
+# re-running gen-secrets.sh does not orphan keys already provisioned in _litellm.
+LITELLM_MASTER_KEY="$(grep '^LITELLM_MASTER_KEY=' "$ENV_FILE" | cut -d= -f2- || true)"
+if [ -z "$LITELLM_MASTER_KEY" ]; then
+  LITELLM_MASTER_KEY="sk-$(openssl rand -hex 24)"
+fi
+set_kv LITELLM_MASTER_KEY "$LITELLM_MASTER_KEY"
+
+LITELLM_UI_PASSWORD="$(grep '^LITELLM_UI_PASSWORD=' "$ENV_FILE" | cut -d= -f2- || true)"
+if [ -z "$LITELLM_UI_PASSWORD" ]; then
+  set_kv LITELLM_UI_PASSWORD "$(openssl rand -hex 16)"
+fi
+
 CADDY_TLS_MODE="$(grep '^CADDY_TLS_MODE=' "$ENV_FILE" | cut -d= -f2- || true)"
 case "${CADDY_TLS_MODE:-acme}" in
   internal) CADDY_GLOBAL_TLS=""; CADDY_SITE_TLS="tls internal"; CADDY_SITE_SCHEME="" ;;
@@ -68,4 +83,4 @@ set_kv SUPABASE_PUBLIC_URL "${URL_SCHEME}://${SUPABASE_DOMAIN}"
 set_kv API_EXTERNAL_URL "${URL_SCHEME}://${SUPABASE_DOMAIN}"
 set_kv SITE_URL "${URL_SCHEME}://${FC_DOMAIN}"
 
-echo "gen-secrets: wrote ANON_KEY, SERVICE_ROLE_KEY, MQTT_SERVICE_TOKEN, EMQX_JWT_SECRET, CADDY_GLOBAL_TLS, CADDY_SITE_TLS, CADDY_SITE_SCHEME, SUPABASE_PUBLIC_URL, API_EXTERNAL_URL, SITE_URL to $ENV_FILE"
+echo "gen-secrets: wrote ANON_KEY, SERVICE_ROLE_KEY, MQTT_SERVICE_TOKEN, EMQX_JWT_SECRET, LITELLM_MASTER_KEY, LITELLM_UI_PASSWORD, CADDY_GLOBAL_TLS, CADDY_SITE_TLS, CADDY_SITE_SCHEME, SUPABASE_PUBLIC_URL, API_EXTERNAL_URL, SITE_URL to $ENV_FILE"
