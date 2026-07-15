@@ -275,6 +275,22 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       await invoke('daemon_clear')
+      // Verify rather than assume. `amuxd clear` exiting 0 does not prove the
+      // binding is gone — the config dir has been resurrected from the legacy
+      // dir before, and a live daemon can rewrite the file. Without this check
+      // the wizard just re-renders the same "belongs to another team" screen
+      // with no error, which reads as a dead button.
+      const stillBound = await daemonTeamId()
+      if (stillBound) {
+        set({
+          error: i18n.t(
+            'settings.daemonOnboarding.resetIncomplete',
+            'Reset did not take effect: this machine is still bound to team {{teamId}}. Check ~/.amuxd/amuxd.err.log.',
+            { teamId: stillBound },
+          ),
+        })
+        return
+      }
       // Optimistically clear the mismatch screen while refresh re-resolves.
       set({ status: 'unknown' })
       await get().refresh()
