@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>空会话 Thread — 群聊房间语义（重设计）</title>
+  <style>
+    :root {
+      --background: #fbfaf7;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --selected: #e7e2d6;
+      --foreground: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --success: #2eb872;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); background: #e8e5de; color: var(--foreground); min-height: 100vh; }
+    .hidden { display: none !important; }
+
+    .spec { background: var(--paper); border-bottom: 1px solid var(--border); padding: 22px 28px 20px; }
+    .spec h1 { font-size: 15px; font-weight: 700; }
+    .spec .lead { margin-top: 8px; font-size: 13px; color: var(--muted-foreground); line-height: 1.65; max-width: 56rem; }
+    .insight { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border-soft); font-size: 12.5px; color: var(--ink-2); line-height: 1.6; }
+    .insight strong { color: var(--foreground); }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+    .controls .group-label { font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: 0.04em; text-transform: uppercase; margin-right: 2px; }
+    .controls button { font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--ink-2); cursor: pointer; }
+    .controls button:hover { background: var(--selected); }
+    .controls button.is-active { background: var(--foreground); color: #fefdfa; border-color: var(--foreground); }
+    .rec { margin-left: 5px; font-size: 9px; font-weight: 700; color: var(--coral); background: var(--coral-soft); padding: 1px 5px; border-radius: 4px; }
+
+    .stage { padding: 24px 28px 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 1100px) { .stage { grid-template-columns: 1fr; } }
+
+    .panel-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+
+    .app-shell { height: 580px; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 56px -20px rgba(20,20,15,0.25); display: flex; flex-direction: column; background: var(--background); border: 1px solid var(--border); }
+
+    .chat-header { padding: 11px 16px; border-bottom: 1px solid var(--border-soft); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .chat-header h2 { font-size: 15px; font-weight: 700; }
+    .chat-header .meta { font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+    .header-avatars { display: flex; align-items: center; }
+    .header-avatars .disc { margin-left: -6px; border: 2px solid var(--background); }
+    .header-avatars .disc:first-child { margin-left: 0; }
+
+    .thread { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 22px; display: flex; flex-direction: column; justify-content: flex-end; }
+    .thread-inner { max-width: 42rem; width: 100%; margin: 0 auto; padding-bottom: 8px; }
+
+    /* date divider — AGENTS.md session list style */
+    .day-divider { display: flex; align-items: center; gap: 10px; margin: 8px 0 16px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+    .day-divider::before, .day-divider::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
+
+    /* avatar disc */
+    .disc { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; position: relative; }
+    .disc.agent { border-radius: 6px; box-shadow: 0 0 0 1.5px var(--coral); }
+    .disc.agent::after { content: ""; position: absolute; bottom: -2px; right: -2px; width: 7px; height: 7px; border-radius: 50%; background: var(--coral); border: 1.5px solid var(--background); }
+    .disc .online { position: absolute; bottom: -1px; right: -1px; width: 8px; height: 8px; border-radius: 50%; background: var(--success); border: 2px solid var(--background); }
+
+    .ai-pill { font-family: var(--font-mono); font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--coral); color: var(--coral); }
+
+    /* ── Variant A: Room open (recommended) ── */
+    .room-open { }
+    .roster { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--paper); border: 1px solid var(--border); border-radius: 14px; }
+    .roster-avatars { display: flex; align-items: center; padding-right: 4px; }
+    .roster-avatars .disc { width: 28px; height: 28px; margin-left: -8px; font-size: 11px; }
+    .roster-avatars .disc:first-child { margin-left: 0; }
+    .roster-text { min-width: 0; flex: 1; }
+    .roster-names { font-size: 13px; font-weight: 600; line-height: 1.4; }
+    .roster-sub { margin-top: 3px; font-size: 12px; color: var(--muted-foreground); line-height: 1.5; }
+    .roster-action { font-size: 11.5px; font-weight: 600; color: var(--ink-2); padding: 6px 10px; border-radius: 8px; border: 1px dashed var(--border); background: transparent; cursor: pointer; white-space: nowrap; }
+    .roster-action:hover { background: var(--selected); }
+
+    .routing-hint { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(239, 236, 228, 0.55); font-size: 12px; color: var(--muted-foreground); line-height: 1.55; }
+    .routing-hint code { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 4px; border-radius: 3px; background: var(--paper); border: 1px solid var(--border-soft); color: var(--ink-2); }
+
+    .starters-label { margin-top: 14px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+    .starters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .starter { font-size: 12px; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--paper); color: var(--ink-2); cursor: pointer; font-family: inherit; text-align: left; line-height: 1.35; }
+    .starter:hover { background: var(--selected); }
+    .starter .at { font-family: var(--font-mono); font-size: 11px; color: var(--coral); font-weight: 600; }
+
+    /* ── Variant B: System timeline seed ── */
+    .timeline-seed { font-size: 12.5px; color: var(--muted-foreground); line-height: 1.65; }
+    .timeline-seed .event { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; }
+    .timeline-seed .event-icon { width: 22px; height: 22px; border-radius: 50%; background: var(--panel); color: var(--faint); display: grid; place-items: center; font-size: 11px; flex-shrink: 0; }
+    .timeline-seed .event-body strong { color: var(--ink-2); font-weight: 600; }
+    .participant-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .ppill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 5px; border-radius: 8px; border: 1px solid var(--border); background: var(--paper); font-size: 12px; }
+    .ppill .disc { width: 18px; height: 18px; font-size: 9px; }
+    .ppill.agent .disc { width: 18px; height: 18px; border-radius: 4px; }
+
+    /* ── Variant C: Routing dock (composer-adjacent preview) ── */
+    .routing-dock { border: 1px solid var(--border); border-radius: 14px; background: var(--paper); overflow: hidden; }
+    .rd-head { padding: 10px 14px; border-bottom: 1px solid var(--border-soft); display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+    .rd-head .count { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--faint); }
+    .rd-grid { display: grid; grid-template-columns: 1fr 1fr; }
+    .rd-col { padding: 10px 12px; }
+    .rd-col + .rd-col { border-left: 1px solid var(--border-soft); }
+    .rd-col h4 { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+    .rd-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12.5px; }
+    .rd-foot { padding: 10px 12px; border-top: 1px dashed var(--border-soft); font-size: 12px; color: var(--muted-foreground); line-height: 1.5; }
+
+    .composer-mock { padding: 0 16px 14px; flex-shrink: 0; }
+    .composer { background: var(--paper); border-radius: 14px; border: 1px solid var(--border-soft); box-shadow: 0 4px 16px -10px rgba(20,20,15,0.1); padding: 10px 14px; font-size: 13px; color: var(--faint); }
+
+    .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: var(--foreground); color: #fefdfa; font-size: 12px; padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity 0.2s; z-index: 9; pointer-events: none; max-width: 90vw; text-align: center; }
+    .toast.show { opacity: 1; }
+
+    .compare-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .compare-card { font-size: 12px; color: var(--ink-2); line-height: 1.55; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--background); }
+    .compare-card h4 { font-size: 11px; font-weight: 700; color: var(--foreground); margin-bottom: 4px; }
+    .compare-card.bad { opacity: 0.72; }
+  </style>
+</head>
+<body>
+  <div class="toast" id="toast"></div>
+
+  <header class="spec">
+    <h1>空会话 Thread — 群聊房间语义（重设计 v2）</h1>
+    <p class="lead">
+      上一版把空 thread 当成「我和本机 Agent 一对一」——在群聊模型里不成立。
+      会话创建后参与者可能是 <strong>你 + 多位成员 + 多位 Agent</strong>；空态应表达
+      <strong>「房间已开好，等第一个人开口」</strong>，而不是伪造某 Agent 的开场白。
+    </p>
+    <div class="insight">
+      <strong>设计约束</strong>：不假装已有消息；不绑定 MACMINI；与 @mention 路由规则一致
+      （ sole agent 自动响应 / 多人需 @ ）；chip 只预填 Composer；首条真实消息后整块消失。
+    </div>
+
+    <div class="controls">
+      <span class="group-label">人数场景</span>
+      <button type="button" data-scenario="duo" class="is-active">双人 · 你+1 Agent</button>
+      <button type="button" data-scenario="trio">三人 · 你+人+Agent</button>
+      <button type="button" data-scenario="group">五人 · 混合群</button>
+      <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+      <span class="group-label">方案预览</span>
+      <button type="button" data-preview="a" class="is-active">A 房间开启<span class="rec">推荐</span></button>
+      <button type="button" data-preview="b">B 时间线种子</button>
+      <button type="button" data-preview="c">C 路由面板</button>
+    </div>
+
+    <div class="compare-grid">
+      <div class="compare-card bad">
+        <h4>❌ 上一版问题</h4>
+        默认 solo Agent memo、能力网格、设备 icon——群聊里其他人消失，且像 Agent 已发言。
+      </div>
+      <div class="compare-card">
+        <h4>✓ 新方向</h4>
+        参与者名册 + 路由说明 + 按 roster 生成的 @ starter；视觉像「频道刚建好」而非私聊 onboarding。
+      </div>
+      <div class="compare-card">
+        <h4>实现数据</h4>
+        <code>sessionMembers.listParticipants</code> + <code>engagedAgents</code>；solo agent 时简化 routing 文案。
+      </div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <!-- Side-by-side: recommended A always visible; B/C in second column or toggle -->
+    <div>
+      <div class="panel-label">方案 A · 房间开启（贴 thread 底部）</div>
+      <div class="app-shell" id="shell-a">
+        <div class="chat-header">
+          <div>
+            <h2 id="title-a">产品讨论</h2>
+            <div class="meta" id="meta-a">2 位参与者 · 0 条消息</div>
+          </div>
+          <div class="header-avatars" id="header-avatars-a"></div>
+        </div>
+        <div class="thread">
+          <div class="thread-inner room-open" id="content-a"></div>
+        </div>
+        <div class="composer-mock"><div class="composer">@ 提及参与者，# 引用文件…</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel-label" id="alt-label">方案 B · 时间线种子</div>
+      <div class="app-shell" id="shell-alt">
+        <div class="chat-header">
+          <div>
+            <h2 id="title-b">产品讨论</h2>
+            <div class="meta" id="meta-b">2 位参与者 · 0 条消息</div>
+          </div>
+          <div class="header-avatars" id="header-avatars-b"></div>
+        </div>
+        <div class="thread">
+          <div class="thread-inner" id="content-alt"></div>
+        </div>
+        <div class="composer-mock"><div class="composer">@ 提及参与者，# 引用文件…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const PALETTE = ['#e85a4a','#7a6cf5','#3a8f63','#c98a3c','#3a6dbf','#a5527c','#1f8b94'];
+    function colorFor(id) { let h=0; for (const c of id) h=((h<<5)+h+c.charCodeAt(0))|0; return PALETTE[Math.abs(h)%PALETTE.length]; }
+
+    const SCENARIOS = {
+      duo: {
+        title: 'MACMINI (16:05)',
+        roster: [
+          { id: 'you', name: '你', type: 'member', self: true },
+          { id: 'agent-mac', name: 'MACMINI', type: 'agent' },
+        ],
+      },
+      trio: {
+        title: '产品讨论',
+        roster: [
+          { id: 'you', name: '你', type: 'member', self: true },
+          { id: 'matt', name: 'Matt', type: 'member' },
+          { id: 'agent-mac', name: 'MACMINI', type: 'agent' },
+        ],
+      },
+      group: {
+        title: '团队 · 发版前对齐',
+        roster: [
+          { id: 'you', name: '你', type: 'member', self: true },
+          { id: 'matt', name: 'Matt', type: 'member' },
+          { id: 'liang', name: 'LiangLiang', type: 'member' },
+          { id: 'agent-mac', name: 'MACMINI', type: 'agent' },
+          { id: 'agent-codex', name: 'Codex', type: 'agent' },
+        ],
+      },
+    };
+
+    let scenario = 'duo';
+    let preview = 'a';
+
+    function disc(p, size) {
+      const letter = p.name.charAt(0).toUpperCase();
+      const bg = p.self ? '#1a1a14' : colorFor(p.id);
+      const cls = p.type === 'agent' ? 'disc agent' : 'disc';
+      const online = p.type === 'member' && !p.self ? '<span class="online"></span>' : '';
+      const style = size ? `width:${size}px;height:${size}px;font-size:${Math.round(size*0.4)}px` : '';
+      return `<span class="${cls}" style="background:${bg};${style}" title="${p.name}">${letter}${online}</span>`;
+    }
+
+    function namesLine(roster) {
+      return roster.map(p => p.self ? '你' : p.name).join('、');
+    }
+
+    function agents(roster) { return roster.filter(p => p.type === 'agent'); }
+    function members(roster) { return roster.filter(p => p.type === 'member' && !p.self); }
+
+    function routingText(roster) {
+      const ag = agents(roster);
+      if (ag.length === 1 && roster.length === 2) {
+        return '仅一位 Agent 在场——直接发送即可，无需 <code>@</code>。';
+      }
+      if (ag.length === 1) {
+        return '向全员广播，或 <code>@${ag[0].name}</code> 指定 Agent 回复。';
+      }
+      return '多位 Agent 在场——请 <code>@Agent名</code> 指定谁来回复；不 @ 则不会自动指派。';
+    }
+
+    function starters(roster) {
+      const ag = agents(roster);
+      const mem = members(roster);
+      const items = [];
+      if (ag.length === 1 && roster.length <= 2) {
+        items.push({ label: '查看 workspace 改动', fill: '帮我看看当前 workspace 有什么改动' });
+        items.push({ label: '总结项目结构', fill: '用几句话总结这个 repo 的结构' });
+      } else {
+        ag.forEach(a => {
+          items.push({ label: `@${a.name} 总结现状`, fill: `@${a.name} 用几句话总结当前项目状态` });
+        });
+        if (mem.length > 0) {
+          items.push({ label: `@${mem[0].name} 你怎么看？`, fill: `@${mem[0].name} 对这个方向有什么想法？` });
+        }
+        items.push({ label: '向所有人同步', fill: '各位，我想对齐一下今天的目标：' });
+      }
+      return items.slice(0, 4);
+    }
+
+    function renderA(el, data) {
+      const r = data.roster;
+      const starterHtml = starters(r).map(s =>
+        `<button type="button" class="starter" data-fill="${s.fill.replace(/"/g,'&quot;')}">${s.label.includes('@') ? `<span class="at">${s.label.split(' ')[0]}</span> ${s.label.split(' ').slice(1).join(' ')}` : s.label}</button>`
+      ).join('');
+      el.innerHTML = `
+        <div class="day-divider">今天 · 会话开始</div>
+        <div class="roster">
+          <div class="roster-avatars">${r.map(p => disc(p, 28)).join('')}</div>
+          <div class="roster-text">
+            <div class="roster-names">${namesLine(r)}</div>
+            <div class="roster-sub">${r.length} 位参与者 · 等待第一条消息</div>
+          </div>
+          <button type="button" class="roster-action" data-action="invite">+ 邀请</button>
+        </div>
+        <div class="routing-hint">${routingText(r)}</div>
+        <div class="starters-label">快速开始</div>
+        <div class="starters">${starterHtml}</div>
+      `;
+    }
+
+    function renderB(el, data) {
+      const r = data.roster;
+      const pills = r.filter(p => !p.self).map(p =>
+        `<span class="ppill ${p.type}">${disc(p, 18)}<span>${p.name}</span>${p.type==='agent' ? '<span class="ai-pill">AI</span>' : ''}</span>`
+      ).join('');
+      const starterHtml = starters(r).map(s =>
+        `<button type="button" class="starter" data-fill="${s.fill.replace(/"/g,'&quot;')}">${s.label}</button>`
+      ).join('');
+      el.innerHTML = `
+        <div class="day-divider">今天 · 会话开始</div>
+        <div class="timeline-seed">
+          <div class="event">
+            <span class="event-icon">◎</span>
+            <div class="event-body">
+              <strong>${namesLine(r)}</strong> 进入了会话<br>
+              <span style="color:var(--faint);font-size:12px">${r.length} 人 · 0 条消息</span>
+            </div>
+          </div>
+        </div>
+        <div class="participant-pills">${pills}</div>
+        <div class="routing-hint" style="margin-top:12px">${routingText(r)}</div>
+        <div class="starters" style="margin-top:12px">${starterHtml}</div>
+      `;
+    }
+
+    function renderC(el, data) {
+      const r = data.roster;
+      const memRows = r.filter(p => p.type === 'member').map(p =>
+        `<div class="rd-row">${disc(p, 22)}<span>${p.name}${p.self ? '（我）' : ''}</span></div>`
+      ).join('');
+      const agRows = agents(r).map(p =>
+        `<div class="rd-row">${disc(p, 22)}<span>${p.name}</span><span class="ai-pill">AI</span></div>`
+      ).join('') || '<div style="font-size:12px;color:var(--faint)">暂无 Agent</div>';
+      const starterHtml = starters(r).map(s =>
+        `<button type="button" class="starter" data-fill="${s.fill.replace(/"/g,'&quot;')}">${s.label}</button>`
+      ).join('');
+      el.innerHTML = `
+        <div class="routing-dock">
+          <div class="rd-head">参与者 <span class="count">${r.length} 人</span></div>
+          <div class="rd-grid">
+            <div class="rd-col"><h4>成员</h4>${memRows}</div>
+            <div class="rd-col"><h4>Agent</h4>${agRows}</div>
+          </div>
+          <div class="rd-foot">${routingText(r).replace(/<code>/g,'').replace(/<\/code>/g,'')}</div>
+        </div>
+        <div class="starters-label">快速开始</div>
+        <div class="starters">${starterHtml}</div>
+      `;
+    }
+
+    function render() {
+      const data = SCENARIOS[scenario];
+      const count = data.roster.length;
+      const meta = `${count} 位参与者 · 0 条消息`;
+      const avatars = data.roster.slice(0, 4).map(p => disc(p, 24)).join('');
+
+      ['a','b'].forEach(s => {
+        document.getElementById('title-' + s).textContent = data.title;
+        document.getElementById('meta-' + s).textContent = meta;
+        document.getElementById('header-avatars-' + s).innerHTML = avatars;
+      });
+
+      renderA(document.getElementById('content-a'), data);
+
+      const altLabel = { a: 'A', b: 'B 时间线种子', c: 'C 路由面板' };
+      const altRender = { a: renderA, b: renderB, c: renderC };
+      document.getElementById('alt-label').textContent = '方案 ' + altLabel[preview] + (preview === 'a' ? '（对照）' : '');
+      altRender[preview](document.getElementById('content-alt'), data);
+
+      bindInteractions();
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2000);
+    }
+
+    function bindInteractions() {
+      document.querySelectorAll('.starter').forEach(btn => {
+        btn.onclick = () => showToast('预填 Composer：' + (btn.dataset.fill || btn.textContent).slice(0, 40) + '…');
+      });
+      document.querySelectorAll('[data-action="invite"]').forEach(btn => {
+        btn.onclick = () => showToast('打开 Actors 面板 · 添加参与者');
+      });
+    }
+
+    document.querySelectorAll('[data-scenario]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        scenario = btn.dataset.scenario;
+        document.querySelectorAll('[data-scenario]').forEach(b => b.classList.toggle('is-active', b.dataset.scenario === scenario));
+        render();
+      });
+    });
+    document.querySelectorAll('[data-preview]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        preview = btn.dataset.preview;
+        document.querySelectorAll('[data-preview]').forEach(b => b.classList.toggle('is-active', b.dataset.preview === preview));
+        render();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>

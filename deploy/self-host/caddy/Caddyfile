@@ -1,0 +1,43 @@
+{
+	email {$ACME_EMAIL}
+	# CADDY_GLOBAL_TLS expands to "auto_https off" when CADDY_TLS_MODE=off, empty otherwise.
+	{$CADDY_GLOBAL_TLS}
+	# Force RSA certs — ECDSA with Let's Encrypt YE1 chain causes
+	# ERR_SSL_VERSION_OR_CIPHER_MISMATCH on some clients (incl. CN networks).
+	key_type rsa2048
+}
+
+# CADDY_SITE_SCHEME is "http://" when CADDY_TLS_MODE=off (gen-secrets.sh), empty
+# for acme/internal. Bare hostnames with auto_https off still bind :443 in Caddy
+# 2.x unless the scheme is explicit — which breaks Podman port maps (8080→80).
+{$CADDY_SITE_SCHEME}{$FC_DOMAIN} {
+	{$CADDY_SITE_TLS}
+
+	# CORS is handled entirely by FC (Hono middleware in services/fc/src/app.ts),
+	# which is origin-aware (reflects the request Origin, allows tauri:// and
+	# localhost, honours CORS_ORIGINS). Do NOT also set CORS headers here — Caddy
+	# would emit a second Access-Control-Allow-Origin on proxied (non-OPTIONS)
+	# responses, and browsers reject any response carrying more than one ACAO.
+	reverse_proxy fc:9000
+}
+
+{$CADDY_SITE_SCHEME}{$SUPABASE_DOMAIN} {
+	{$CADDY_SITE_TLS}
+	reverse_proxy kong:8000
+}
+
+{$CADDY_SITE_SCHEME}{$MQTT_DOMAIN} {
+	{$CADDY_SITE_TLS}
+	# Caddy v2 reverse_proxy transparently upgrades WebSocket connections.
+	reverse_proxy emqx:8083
+}
+
+{$CADDY_SITE_SCHEME}{$STUDIO_DOMAIN} {
+	{$CADDY_SITE_TLS}
+	reverse_proxy studio:3000
+}
+
+{$CADDY_SITE_SCHEME}{$EMQX_DASHBOARD_DOMAIN} {
+	{$CADDY_SITE_TLS}
+	reverse_proxy emqx:18083
+}

@@ -1,0 +1,211 @@
+name: teamclaw-self-host
+
+include:
+  - path: ./supabase/docker-compose.yml
+    project_directory: ./supabase
+
+services:
+  emqx:
+    # 5.10.3+ required: 5.8.0 has a WebSocket bug where emqx_ws_connection
+    # handle_outgoing/2 crashes with {badmatch, <send_oct>} when a broker
+    # delivery exceeds the client's advertised Maximum-Packet-Size, killing the
+    # whole WS connection (emqx/emqx#13744, fixed by #16514/#16515 in 5.10.3).
+    # Symptom: WS (browser/extension) clients drop periodically under message load.
+    image: emqx/emqx:5.10.3
+    restart: unless-stopped
+    # Publish the MQTT listeners to the host. Clients connect directly to
+    # mqtt://<MQTT_DOMAIN>:1883 (MQTT_PUBLIC_BROKER_URL), not via Caddy — Caddy
+    # only fronts the WebSocket listener (8083) on 443. Without this mapping the
+    # broker is reachable only on the internal docker network (emqx:1883), so
+    # external clients get "Connection refused (os error 61)".
+    # NOTE: the ECS security group must also allow inbound TCP 1883.
+    # Only the plaintext TCP listener (1883) is configured in emqx.conf; there
+    # is no SSL listener (8883), so we do not publish it.
+    ports:
+      - "1883:1883"   # MQTT (plaintext, listeners.tcp.default)
+    environment:
+      # EMQX expects the HMAC secret base64-encoded (secret_base64_encoded=true).
+      EMQX_JWT_SECRET: "${EMQX_JWT_SECRET}"
+      # 5.10+ no longer interpolates ${EMQX_JWT_SECRET} inside emqx.conf, so the
+      # file's `secret = "${EMQX_JWT_SECRET}"` is read literally and the JWT
+      # authenticator fails to load ({invalid_parameter, secret}) — which
+      # silently falls back to allow-anonymous. Inject the resolved secret via
+      # EMQX's native env override (Compose interpolates ${EMQX_JWT_SECRET} at
+      # parse time) so the authenticator is created with the real key.
+      EMQX_AUTHENTICATION__1__SECRET: "${EMQX_JWT_SECRET}"
+    volumes:
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - emqx_data:/opt/emqx/data
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    image: postgres:15-alpine
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      # storage runs its own schema migrations on startup (adds storage.buckets.public
+      # etc.) that the app baseline migration seeds into — must be ready before migrate
+      storage:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: "${POSTGRES_PASSWORD}"
+      PGDATABASE: postgres
+    volumes:
+      - ../../services/supabase/migrations:/migrations:ro
+      - ../../services/supabase/seed.sql:/seed.sql:ro
+      - ./init/apply-migrations.sh:/apply-migrations.sh:ro
+    # script is mounted read-only, so invoke via `sh` rather than chmod +x (chmod fails on a ro mount)
+    entrypoint: ["/bin/sh", "-c", "sh /apply-migrations.sh"]
+
+  fc:
+    build:
+      context: ../../services/fc
+    image: teamclaw-fc:self-host
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kong:
+        condition: service_started
+      emqx:
+        condition: service_healthy
+    environment:
+      PORT: "9000"
+      HOST: "0.0.0.0"
+      BACKEND_KIND: "${BACKEND_KIND:-supabase}"
+      SUPABASE_URL: "http://kong:8000"
+      SUPABASE_PUBLIC_URL: "https://${SUPABASE_DOMAIN}"
+      SUPABASE_ANON_KEY: "${ANON_KEY}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SERVICE_ROLE_KEY}"
+      MQTT_BROKER_URL: "mqtt://emqx:1883"
+      MQTT_PUBLIC_BROKER_URL: "${MQTT_PUBLIC_BROKER_URL:-}"
+      MQTT_USERNAME: "fc-service"
+      MQTT_PASSWORD: "${MQTT_SERVICE_TOKEN}"
+      MQTT_USE_TLS: "false"
+      CRON_TRIGGER_SECRET: "${CRON_TRIGGER_SECRET}"
+      DATABASE_URL: "${DATABASE_URL:-}"
+      ACCESS_KEY_ID: "${ACCESS_KEY_ID:-}"
+      ACCESS_KEY_SECRET: "${ACCESS_KEY_SECRET:-}"
+      ROLE_ARN: "${ROLE_ARN:-}"
+      BUCKET: "${BUCKET:-teamclaw-team}"
+      REGION: "${REGION:-cn-shenzhen}"
+      ENDPOINT: "${ENDPOINT:-}"
+      LITELLM_URL: "${LITELLM_URL:-}"
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:-}"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    environment:
+      FC_DOMAIN: "${FC_DOMAIN}"
+      SUPABASE_DOMAIN: "${SUPABASE_DOMAIN}"
+      MQTT_DOMAIN: "${MQTT_DOMAIN}"
+      STUDIO_DOMAIN: "${STUDIO_DOMAIN}"
+      EMQX_DASHBOARD_DOMAIN: "${EMQX_DASHBOARD_DOMAIN}"
+      ACME_EMAIL: "${ACME_EMAIL}"
+      CADDY_GLOBAL_TLS: "${CADDY_GLOBAL_TLS:-}"
+      CADDY_SITE_TLS: "${CADDY_SITE_TLS:-}"
+      CADDY_SITE_SCHEME: "${CADDY_SITE_SCHEME:-}"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - fc
+      - kong
+      - emqx
+
+  # ── opt-in: scheduled cron (docker compose --profile cron up) ──
+  cron:
+    image: curlimages/curl:8.10.1
+    restart: unless-stopped
+    profiles: ["cron"]
+    depends_on:
+      fc:
+        condition: service_started
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          curl -fsS -X POST http://fc:9000/internal/cron \
+            -H "x-cron-secret: ${CRON_TRIGGER_SECRET}" \
+            -H "content-type: application/json" \
+            -d '{"task":"oss-abandon-sessions"}' || true
+          # gc-blobs hourly check (script runs every 15m; gate daily inside FC if needed)
+          curl -fsS -X POST http://fc:9000/internal/cron \
+            -H "x-cron-secret: ${CRON_TRIGGER_SECRET}" \
+            -H "content-type: application/json" \
+            -d '{"task":"oss-gc-blobs"}' || true
+          sleep 900
+        done
+
+  # ── opt-in: TeamClaw daemon (docker compose --profile daemon up) ──
+  # Auto-joins a team on first start via AMUXD_JOIN_TOKEN (mint one with
+  # ./amuxd/mint-invite.sh after a team exists), persists identity to the
+  # amuxd_state volume, connects to EMQX, and registers as an agent actor.
+  # The image bundles opencode; set OPENCODE_* to run agent sessions. With no
+  # OPENCODE_API_KEY the entrypoint disables agent discovery (presence-only).
+  amuxd:
+    build:
+      context: ../..
+      dockerfile: deploy/self-host/amuxd/Dockerfile
+    image: teamclaw-amuxd:self-host
+    restart: unless-stopped
+    profiles: ["daemon"]
+    depends_on:
+      fc:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+    environment:
+      TEAMCLAW_CLOUD_API_URL: "http://fc:9000"
+      AMUXD_JOIN_TOKEN: "${AMUXD_JOIN_TOKEN:-}"
+      HOME: "/state"
+      # opencode LLM provider (OpenAI-compatible). Set these to let the daemon
+      # run agent sessions; leave OPENCODE_API_KEY blank for presence-only (the
+      # entrypoint then disables agent discovery). baseURL/model are yours to set.
+      OPENCODE_BASE_URL: "${OPENCODE_BASE_URL:-}"
+      OPENCODE_API_KEY: "${OPENCODE_API_KEY:-}"
+      OPENCODE_MODEL: "${OPENCODE_MODEL:-}"
+      OPENCODE_PROVIDER_ID: "${OPENCODE_PROVIDER_ID:-selfhost}"
+      OPENCODE_PROVIDER_NAME: "${OPENCODE_PROVIDER_NAME:-Self-host LLM}"
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    volumes:
+      - amuxd_state:/state
+      - ./amuxd/entrypoint.sh:/entrypoint.sh:ro
+
+  # ── opt-in: standalone postgres backend (docker compose --profile postgres up) ──
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_BACKEND_PASSWORD:-postgres}"
+    volumes:
+      - postgres_backend_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  emqx_data:
+  caddy_data:
+  caddy_config:
+  postgres_backend_data:
+  amuxd_state:

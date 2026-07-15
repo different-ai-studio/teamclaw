@@ -1,0 +1,154 @@
+[package]
+name = "teamclaw"
+version = "0.2.24"
+description = "TeamClaw - AI Agent Desktop Platform"
+authors = ["TeamClaw Team"]
+edition = "2021"
+
+[lib]
+name = "teamclaw_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = []
+stt-whisper = ["teamclaw-stt/whisper"]
+# Enables the WebKit/WebView2 inspector ("Inspect Element" + open_devtools) in
+# RELEASE builds. Off by default so stable/branded builds ship without devtools;
+# the beta pipeline (release-beta.yml) passes `--features beta-devtools` so we can
+# inspect the live beta app's console/network. Does not affect build profile or
+# cloud config.
+beta-devtools = ["tauri/devtools"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+serde_json = "1"
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "unstable", "tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-aptabase = "1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+prost = "0.13"
+prost-types = "0.13"
+teamclaw-proto = { path = "../../crates/teamclaw-proto" }
+teamclaw-types = { path = "../../crates/teamclaw-types" }
+teamclaw-runtime-env = { path = "../../crates/teamclaw-runtime-env" }
+indexmap = { version = "2", features = ["serde"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
+reqwest = { version = "0.11", features = ["json", "blocking", "stream", "rustls-tls-native-roots"], default-features = false }
+rumqttc = { version = "0.24", features = ["websocket"] }
+notify = { version = "8", features = ["macos_fsevent"] }
+notify-debouncer-mini = "0.7"
+futures = "0.3"
+base64 = "0.22"
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
+flate2 = "1"
+tar = "0.4"
+minisign-verify = "0.2"
+semver = "1"
+futures-util = "0.3"
+tempfile = "3"
+cron = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.9"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+jsonwebtoken = "9"
+regex = "1"
+libsql = "0.9"
+nanoid = "0.4"
+markitdown = "0.1.10"
+# STT crate
+teamclaw-stt = { path = "crates/teamclaw-stt" }
+
+# Gateway crate
+teamclaw-gateway = { path = "../../crates/teamclaw-gateway" }
+
+
+# RAG crate
+teamclaw-rag = { path = "crates/teamclaw-rag" }
+
+# RAG dependencies (still used by main crate)
+anyhow = "1"
+sha2 = "0.10"
+walkdir = "2"
+# zstd: also a transitive dep of tantivy (via teamclaw-rag).
+# A direct dep on zstd-sys unifies features and links bundled libzstd (avoids wrong-arch pkg-config).
+zstd-sys = { version = "2.0.16", default-features = false, features = ["legacy", "zdict_builder", "bindgen"] }
+zstd = "0.13"
+thiserror = "2"
+tracing = { version = "0.1", features = ["log"] }
+tauri-plugin-log = "2"
+
+filetime = "0.2"
+arboard = "3"
+futures-lite = "2"
+
+# axum: E2E test control server (debug builds only, lib.rs)
+axum = "0.7"
+tower-http = { version = "0.6", features = ["cors"] }
+gethostname = "1.1.0"
+# whoami: cross-platform OS account real-name / username for seeding default
+# member display names (macOS/Windows/Linux via one API).
+whoami = "1"
+ignore = "0.4"
+
+# ClawHub skill registry
+zip = "8"
+urlencoding = "2"
+dirs = "5"
+toml = "0.8"
+
+# HTML parsing for skills.sh scraping
+scraper = "0.20"
+md5 = "0.7"
+rayon = "1.10"  # Parallel iterator for recursive skill search
+
+# MCP plugin for AI agent integration (debug only)
+tauri-plugin-mcp = { path = "tauri-plugin-mcp-local" }
+
+# Crypto (used by shared_secrets_crypto, device_token)
+aes-gcm = "0.10"
+hmac = "0.12"
+hkdf = "0.12"
+hex = "0.4"
+getrandom = "0.2"
+url = "2"
+log = "0.4"
+rand = "0.8"
+tokio-util = "0.7"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+sentry = { version = "0.47.0", features = ["backtrace", "debug-images"] }
+portable-pty = "0.8"
+
+# macOS native APIs for traffic light control
+[target.'cfg(unix)'.dependencies]
+# kill(pid, 0) liveness probe + setsid for detaching a restarted amuxd (setup.rs).
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.24"
+objc = "0.2"
+objc2 = "0.6"
+objc2-web-kit = { version = "0.3", features = ["WKWebViewConfiguration", "WKWebView"] }
+block2 = "0.6"
+
+# Windows native WebView2 APIs (ICoreWebView2::ExecuteScript). Versions pinned
+# to match wry's transitive deps so the controller()/ICoreWebView2 types unify.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows = "0.61"
+# Process liveness probe for the running-amuxd restart path (setup.rs).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[dev-dependencies]
+wiremock = "0.5"
+loro = "1"

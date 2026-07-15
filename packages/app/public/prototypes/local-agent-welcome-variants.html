@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>本机 Agent 待命页 — V1 / V7 保留</title>
+  <style>
+    :root {
+      --background: #fbfaf7;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --selected: #e7e2d6;
+      --foreground: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --success: #2eb872;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); background: #e8e5de; color: var(--foreground); }
+
+    .spec { background: var(--paper); border-bottom: 1px solid var(--border); padding: 22px 28px 20px; }
+    .spec h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
+    .spec .lead { margin-top: 8px; font-size: 13px; color: var(--muted-foreground); line-height: 1.65; max-width: 58rem; }
+    .spec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 14px; max-width: 58rem; }
+    .spec-card { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; background: var(--background); font-size: 11.5px; color: var(--ink-2); line-height: 1.5; }
+    .spec-card strong { color: var(--foreground); }
+    .spec-card.keep { border-color: var(--coral-soft); background: #fff9f7; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 20px; padding: 24px 28px 40px; }
+
+    .frame { display: flex; flex-direction: column; background: var(--background); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: 0 16px 40px -18px rgba(20,20,15,0.18); height: 440px; }
+    .frame.keep { border-color: rgba(232,90,74,0.35); box-shadow: 0 16px 40px -18px rgba(232,90,74,0.12); }
+    .frame-tag { padding: 9px 14px; background: var(--paper); border-bottom: 1px solid var(--border-soft); font-size: 11.5px; font-weight: 600; color: var(--ink-2); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .frame-tag .id { font-family: var(--font-mono); font-size: 10px; color: var(--coral); font-weight: 700; }
+    .frame-tag em { font-style: normal; font-weight: 500; color: var(--faint); font-size: 11px; }
+    .frame-tag .keep-badge { margin-left: auto; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--coral); border: 1px solid var(--coral-soft); background: var(--coral-soft); padding: 2px 6px; border-radius: 4px; }
+
+    .frame-header { padding: 11px 16px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+    .frame-header h3 { font-size: 14px; font-weight: 700; }
+    .frame-header .sub { font-size: 11.5px; color: var(--muted-foreground); margin-top: 2px; }
+
+    .frame-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+    .empty-center { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px 22px; min-height: 0; overflow: hidden; }
+    .empty-bottom { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding: 20px 22px 24px; min-height: 0; }
+    .empty-top { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; padding: 24px 22px; min-height: 0; overflow: hidden; }
+    .empty-rel { flex: 1; position: relative; min-height: 0; overflow: hidden; }
+
+    .no-composer-hint { flex-shrink: 0; padding: 10px 16px 14px; text-align: center; font-family: var(--font-mono); font-size: 10px; color: var(--faint); border-top: 1px dashed var(--border-soft); }
+
+    .cta { font: 600 13px inherit; padding: 8px 16px; border-radius: 8px; border: none; background: var(--coral); color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+    .cta kbd { font-family: var(--font-mono); font-size: 10px; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.15); font-weight: 500; }
+    .continue { font-size: 12px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border: none; background: none; font-family: inherit; }
+    .continue .mono { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); }
+    button { font-family: inherit; cursor: pointer; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ═══ V1 · 杂志标题（保留）═══ */
+    .v1 { text-align: center; max-width: 17rem; }
+    .v1 .eyebrow { font-size: 10.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+    .v1 h2 { margin-top: 10px; font-size: 28px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.1; }
+    .v1 .status { margin-top: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--success); }
+    .v1 .hint { margin-top: 14px; font-size: 13px; color: var(--muted-foreground); line-height: 1.6; }
+    .v1 .cta { margin-top: 20px; }
+    .v1 .links { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+    .v1 .link-chip { font-size: 12px; color: var(--ink-2); background: none; border: none; padding: 2px 0; border-bottom: 1px solid var(--border-soft); }
+    .v1 .link-chip:hover { color: var(--foreground); border-color: var(--border); }
+    .v1 .continue { margin-top: 14px; }
+
+    /* ═══ V2 · 剧本台本 ═══ */
+    .v2 { width: 100%; max-width: 20rem; font-size: 12.5px; line-height: 1.7; }
+    .v2-scene { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); text-align: center; margin-bottom: 14px; }
+    .v2-scene::before, .v2-scene::after { content: "— "; color: var(--border); }
+    .v2-char { text-align: center; font-weight: 700; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; margin: 12px 0 4px; color: var(--ink-2); }
+    .v2-dialogue { text-align: center; font-size: 13.5px; color: var(--foreground); max-width: 16rem; margin: 0 auto; }
+    .v2-stage { text-align: center; font-style: italic; font-size: 11.5px; color: var(--muted-foreground); margin: 10px auto 0; max-width: 15rem; }
+    .v2-stage em { font-style: normal; color: var(--coral); }
+    .v2-actions { margin-top: 18px; display: flex; flex-direction: column; gap: 5px; align-items: center; }
+    .v2-act { font-size: 11px; color: var(--ink-2); background: none; border: none; padding: 4px 0; border-bottom: 1px dotted var(--border-soft); width: 100%; max-width: 14rem; text-align: center; }
+    .v2-act.primary { color: var(--coral); font-weight: 600; border-bottom-style: solid; border-color: var(--coral-soft); }
+    .v2 .continue { margin-top: 12px; width: 100%; justify-content: center; font-size: 11px; }
+
+    /* ═══ V3 · 右下角浮岛 ═══ */
+    .v3-hint { position: absolute; top: 28%; left: 50%; transform: translateX(-50%); text-align: center; max-width: 14rem; }
+    .v3-hint .big { font-size: 13px; color: var(--muted-foreground); line-height: 1.6; }
+    .v3-hint .name { font-weight: 700; color: var(--foreground); font-size: 15px; display: block; margin-bottom: 4px; }
+    .v3-island { position: absolute; bottom: 18px; right: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+    .v3-fab { width: 48px; height: 48px; border-radius: 14px; border: none; background: var(--coral); color: #fff; font-size: 18px; font-weight: 700; box-shadow: 0 8px 24px -6px rgba(232,90,74,0.55); display: grid; place-items: center; }
+    .v3-menu { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+    .v3-item { font-size: 11.5px; padding: 6px 11px; border-radius: 20px; border: 1px solid var(--border); background: var(--paper); color: var(--ink-2); box-shadow: 0 4px 12px -6px rgba(20,20,15,0.12); white-space: nowrap; }
+    .v3-item:hover { background: var(--selected); }
+    .v3-status { font-family: var(--font-mono); font-size: 9.5px; color: var(--success); margin-bottom: 2px; }
+
+    /* ═══ V4 · 打字机纸带 ═══ */
+    .v4 { width: 100%; max-width: 20rem; }
+    .v4-machine { background: var(--panel); border-radius: 10px; padding: 10px 10px 6px; border: 1px solid var(--border); }
+    .v4-paper {
+      background: #f4f0e6; padding: 16px 14px 20px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.75; color: var(--ink-2);
+      border-radius: 2px; position: relative;
+      background-image: repeating-linear-gradient(transparent, transparent 21px, rgba(26,26,20,0.06) 21px, rgba(26,26,20,0.06) 22px);
+    }
+    .v4-paper::before, .v4-paper::after {
+      content: ""; position: absolute; left: 0; right: 0; height: 8px;
+      background: repeating-linear-gradient(90deg, transparent 0, transparent 6px, var(--panel) 6px, var(--panel) 10px);
+    }
+    .v4-paper::before { top: -4px; } .v4-paper::after { bottom: -4px; }
+    .v4-typed { margin-top: 6px; }
+    .v4-typed .err { text-decoration: line-through; opacity: 0.4; }
+    .v4-typed .fix { color: var(--foreground); }
+    .v4-keys { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+    .v4-key { font-family: var(--font-mono); font-size: 10px; padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--paper); color: var(--ink-2); box-shadow: 0 2px 0 var(--border-soft); }
+    .v4-key.enter { background: var(--coral); color: #fff; border-color: var(--coral); box-shadow: 0 2px 0 #c44a3c; }
+    .v4 .continue { margin-top: 10px; width: 100%; justify-content: center; font-size: 11px; }
+
+    /* ═══ V5 · 目录索引 ═══ */
+    .v5 { width: 100%; max-width: 20rem; }
+    .v5-title { font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin-bottom: 12px; }
+    .v5-entry { display: flex; align-items: baseline; gap: 4px; width: 100%; padding: 7px 0; border: none; background: none; text-align: left; font-size: 12.5px; color: var(--ink-2); border-bottom: 1px solid var(--border-soft); }
+    .v5-entry:hover { color: var(--foreground); }
+    .v5-entry .num { font-family: var(--font-mono); font-size: 10px; color: var(--faint); width: 18px; flex-shrink: 0; }
+    .v5-entry .label { flex-shrink: 0; }
+    .v5-entry .dots { flex: 1; border-bottom: 1px dotted var(--border); margin: 0 4px 3px; min-width: 12px; }
+    .v5-entry .page { font-family: var(--font-mono); font-size: 10px; color: var(--faint); flex-shrink: 0; }
+    .v5-entry.hero .label { font-weight: 700; color: var(--foreground); }
+    .v5-entry.hero .page { color: var(--coral); font-weight: 600; }
+    .v5-meta { margin-top: 12px; font-size: 11px; color: var(--muted-foreground); display: flex; justify-content: space-between; }
+    .v5-meta .on { color: var(--success); font-family: var(--font-mono); font-size: 10px; }
+
+    /* ═══ V6 · 工位名牌 ═══ */
+    .v6 { text-align: center; }
+    .v6-plate {
+      width: 200px; padding: 20px 16px 16px; background: linear-gradient(180deg, var(--paper) 0%, var(--background) 100%);
+      border: 2px solid var(--border); border-radius: 4px; box-shadow: 0 6px 0 var(--panel), 0 10px 24px -8px rgba(20,20,15,0.15);
+      position: relative;
+    }
+    .v6-plate::before {
+      content: ""; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+      width: 28px; height: 5px; border-radius: 2px; background: var(--panel); border: 1px solid var(--border-soft);
+    }
+    .v6-dept { font-size: 9px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin-top: 6px; }
+    .v6-name { margin-top: 8px; font-size: 22px; font-weight: 700; letter-spacing: 0.06em; }
+    .v6-role { margin-top: 4px; font-size: 11px; color: var(--muted-foreground); }
+    .v6-led { margin: 10px auto 0; width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .v6-btns { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+    .v6-btn { font-size: 11.5px; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--paper); color: var(--ink-2); }
+    .v6-btn.main { background: var(--foreground); color: #fefdfa; border-color: var(--foreground); font-weight: 600; }
+    .v6 .continue { margin-top: 12px; font-size: 11px; }
+
+    /* ═══ V7 · 呼吸单行（保留）═══ */
+    .v7 { max-width: 20rem; text-align: center; }
+    .v7-line { font-size: 15px; font-weight: 500; color: var(--ink-2); line-height: 1.65; letter-spacing: -0.01em; }
+    .v7-line em { font-style: normal; font-weight: 700; color: var(--foreground); }
+    .v7-cursor { display: inline-block; width: 2px; height: 1.1em; background: var(--coral); margin-left: 2px; vertical-align: text-bottom; animation: blink 1.1s step-end infinite; }
+    .v7-sub { margin-top: 20px; font-size: 11px; color: var(--faint); font-family: var(--font-mono); }
+    .v7-row { margin-top: 14px; display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
+    .v7-link { font-size: 12px; color: var(--ink-2); background: none; border: none; padding: 0; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border); }
+    .v7-link.primary { color: var(--coral); font-weight: 600; text-decoration: none; }
+    .v7-link.primary:hover { text-decoration: underline; }
+
+    /* ═══ V8 · 等待室叫号 ═══ */
+    .v8 { width: 100%; max-width: 18rem; text-align: center; }
+    .v8-board { background: var(--foreground); color: #fefdfa; border-radius: 10px; padding: 18px 16px 14px; }
+    .v8-now { font-size: 9px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.55; }
+    .v8-number { margin-top: 6px; font-family: var(--font-mono); font-size: 36px; font-weight: 700; letter-spacing: 0.08em; line-height: 1; }
+    .v8-queue { margin-top: 4px; font-size: 11px; opacity: 0.7; }
+    .v8-ticket { margin-top: 14px; background: var(--paper); color: var(--foreground); border-radius: 8px; padding: 10px 12px; text-align: left; border: 1px dashed var(--border); }
+    .v8-ticket .row { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted-foreground); }
+    .v8-ticket .row strong { color: var(--foreground); font-size: 12.5px; }
+    .v8-ticket .barcode { margin-top: 8px; height: 18px; background: repeating-linear-gradient(90deg, var(--foreground) 0 2px, transparent 2px 4px); opacity: 0.2; border-radius: 2px; }
+    .v8-actions { margin-top: 12px; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+    .v8-actions button { font-size: 11px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--paper); color: var(--ink-2); }
+    .v8-actions .take { background: var(--coral); color: #fff; border-color: var(--coral); font-weight: 600; }
+    .v8 .continue { margin-top: 10px; font-size: 11px; width: 100%; justify-content: center; }
+  </style>
+</head>
+<body>
+
+<header class="spec">
+  <h1>本机 Agent 待命页 — V1 / V7 保留，其余换新</h1>
+  <p class="lead">V1 杂志标题、V7 呼吸单行已定稿保留。V2–V6、V8 为第三批全新方向，互不衍生。</p>
+  <div class="spec-grid">
+    <div class="spec-card keep"><strong>V1 杂志标题 ✓</strong></div>
+    <div class="spec-card"><strong>V2 剧本台本</strong> — 场景/角色/对白/舞台指示</div>
+    <div class="spec-card"><strong>V3 右下角浮岛</strong> — 空白 + FAB 菜单簇</div>
+    <div class="spec-card"><strong>V4 打字机纸带</strong> — 横线纸 + 键帽按钮</div>
+    <div class="spec-card"><strong>V5 目录索引</strong> — 点线目录 + 页码</div>
+    <div class="spec-card"><strong>V6 工位名牌</strong> — 桌面立牌 + LED 在线灯</div>
+    <div class="spec-card keep"><strong>V7 呼吸单行 ✓</strong></div>
+    <div class="spec-card"><strong>V8 等待室叫号</strong> — 叫号屏 + 取票小条</div>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- V1 保留 -->
+  <div class="frame keep">
+    <div class="frame-tag"><span class="id">V1</span> 杂志标题 <em>大字号 · 居中 · 无框</em><span class="keep-badge">保留</span></div>
+    <div class="frame-header"><h3>MACMINI</h3><div class="sub">本机 Agent · 等待开始</div></div>
+    <div class="frame-body">
+      <div class="empty-center">
+        <div class="v1">
+          <div class="eyebrow">Local · Standby</div>
+          <h2>MACMINI</h2>
+          <div class="status">● 在线 · 本机</div>
+          <p class="hint">Agent 已就绪。<br>随时可以开始。</p>
+          <button type="button" class="cta">开始对话 <kbd>⌘N</kbd></button>
+          <div class="links">
+            <button type="button" class="link-chip">查看 workspace 改动</button>
+            <button type="button" class="link-chip">总结项目结构</button>
+            <button type="button" class="link-chip">写一份报告</button>
+          </div>
+          <button type="button" class="continue">与 MACMINI 还有 5 个进行中 <span class="mono">→</span></button>
+        </div>
+      </div>
+      <div class="no-composer-hint">— 无 Composer —</div>
+    </div>
+  </div>
+
+  <!-- V2 剧本 -->
+  <div class="frame">
+    <div class="frame-tag"><span class="id">V2</span> 剧本台本 <em>scene · dialogue · stage</em></div>
+    <div class="frame-header"><h3>MACMINI</h3><div class="sub">本机 Agent · 等待开始</div></div>
+    <div class="frame-body">
+      <div class="empty-center">
+        <div class="v2">
+          <div class="v2-scene">第一幕 · 待命</div>
+          <div class="v2-char">MACMINI</div>
+          <p class="v2-dialogue">我已在本机就绪，等你开口。</p>
+          <p class="v2-stage">（<em>在线</em> · 本机 · 随时可开始新对话）</p>
+          <div class="v2-actions">
+            <button type="button" class="v2-act primary">▸ 开始对话 · ⌘N</button>
+            <button type="button" class="v2-act">▸ 查看 workspace 改动</button>
+            <button type="button" class="v2-act">▸ 总结项目结构</button>
+            <button type="button" class="v2-act">▸ 写一份报告</button>
+          </div>
+          <button type="button" class="continue">幕间 · 继续 5 个会话 <span class="mono">→</span></button>
+        </div>
+      </div>
+      <div class="no-composer-hint">— 无 Composer —</div>
+    </div>
+  </div>
+
+  <!-- V3 浮岛 -->
+  <div class="frame">
+    <div class="frame-tag"><span class="id">V3</span> 右下角浮岛 <em>FAB · 空白画布</em></div>
+    <div class="frame-header"><h3>MACMINI</h3><div class="sub">本机 Agent · 等待开始</div></div>
+    <div class="frame-body">
+      <div class="empty-rel">
+        <div class="v3-hint">
+          <span class="name">MACMINI</span>
+          <span class="big">本机 Agent 在线<br>从右下角选行动</span>
+        </div>
+        <div class="v3-island">
+          <div class="v3-status">● ONLINE</div>
+          <div class="v3-menu">
+            <button type="button" class="v3-item">继续 ×5</button>
+            <button type="button" class="v3-item">写报告</button>
+            <button type="button" class="v3-item">项目结构</button>
+            <button type="button" class="v3-item">workspace 改动</button>
+          </div>
+          <button type="button" class="v3-fab" title="开始对话 ⌘N">+</button>
+        </div>
+      </div>
+      <div class="no-composer-hint">— 无 Composer —</div>
+    </div>
+  </div>
+
+  <!-- V4 打字机 -->
+  <div class="frame">
+    <div class="frame-tag"><span class="id">V4</span> 打字机纸带 <em>纸带 · 键帽</em></div>
+    <div class="frame-header"><h3>MACMINI</h3><div class="sub">本机 Agent · 等待开始</div></div>
+    <div class="frame-body">
+      <div class="empty-center">
+        <div class="v4">
+          <div class="v4-machine">
+            <div class="v4-paper">
+              MACMINI agent: <span style="color:var(--success)">CONNECTED</span><br>
+              host: local · latency 14ms<br><br>
+              <div class="v4-typed">
+                <span class="err">start new sesion</span><br>
+                <span class="fix">→ start new session ⌘N</span>
+              </div>
+            </div>
+          </div>
+          <div class="v4-keys">
+            <button type="button" class="v4-key enter">ENTER</button>
+            <button type="button" class="v4-key">workspace</button>
+            <button type="button" class="v4-key">structure</button>
+            <button type="button" class="v4-key">report</button>
+            <button type="button" class="v4-key">resume×5</button>
+          </div>
+          <button type="button" class="continue">纸带继续打印… <span class="mono">→</span></button>
+        </div>
+      </div>
+      <div class="no-composer-hint">— 无 Composer —</div>
+    </div>
+  </div>
+
+  <!-- V5 目录 -->
+  <div class="frame">
+    <div class="frame-tag"><span class="id">V5</span> 目录索引 <em>contents · dot leaders</em></div>
+    <div class="frame-header"><h3>MACMINI</h3><div class="sub">本机 Agent · 等待开始</div></div>
+    <div class="frame-body">
+      <div class="empty-top">
+        <div class="v5">
+          <div class="v5-title">Contents · MACMINI</div>
+          <button type="button" class="v5-entry hero">
+            <span class="num">01</span><span class="label">开始对话</span><span class="dots"></span><span class="page">⌘N</span>
+          </button>
+          <button type="button" class="v5-entry">
+            <span class="num">02</span><span class="label">workspace 改动</span><span class="dots"></span><span class="page">go</span>
+          </button>
+          <button type="button" class="v5-entry">
+            <span class="num">03</span><span class="label">项目结构</span><span class="dots"></span><span class="page">go</span>
+          </button>
+          <button type="button" class="v5-entry">
+            <span class="num">04</span><span class="label">写一份报告</span><span class="dots"></span><span class="page">go</span>
+          </button>
+          <button type="button" class="v5-entry">
+            <span class="num">§</span><span class="label">继续进行中会话</span><span class="dots"></span><span class="page">×5</span>
+          </button>
+          <div class="v5-meta">
+            <span class="on">● 在线 · 本机</span>
+            <span>agent ready</span>
+          </div>
+        </div>
+      </div>
+      <div class="no-composer-hint">— 无 Composer —</div>
+    </div>
+  </div>
+
+  <!-- V6 名牌 -->
+  <div class="frame">
+    <div class="frame-tag"><span class="id">V6</span> 工位名牌 <em>desk plate · LED</em></div>
+    <div class="frame-header"><h3>MACMINI</h3><div class="sub">本机 Agent · 等待开始</div></div>
+    <div class="frame-body">
+      <div class="empty-center">
+        <div class="v6">
+          <div class="v6-plate">
+            <div class="v6-dept">Local Agent</div>
+            <div class="v6-name">MACMINI</div>
+            <div class="v6-role">AI · amuxd daemon</div>
+            <div class="v6-led" title="在线"></div>
+          </div>
+          <div class="v6-btns">
+            <button type="button" class="v6-btn main">开始对话 ⌘N</button>
+            <button type="button" class="v6-btn">workspace 改动</button>
+            <button type="button" class="v6-btn">项目结构</button>
+            <button type="button" class="v6-btn">写报告</button>
+          </div>
+          <button type="button" class="continue">5 个进行中 <span class="mono">→</span></button>
+        </div>
+      </div>
+      <div class="no-composer-hint">— 无 Composer —</div>
+    </div>
+  </div>
+
+  <!-- V7 保留 -->
+  <div class="frame keep">
+    <div class="frame-tag"><span class="id">V7</span> 呼吸单行 <em>极简 · 光标呼吸</em><span class="keep-badge">保留</span></div>
+    <div class="frame-header"><h3>MACMINI</h3><div class="sub">本机 Agent · 等待开始</div></div>
+    <div class="frame-body">
+      <div class="empty-center">
+        <div class="v7">
+          <p class="v7-line"><em>MACMINI</em> 在本机等你开口<span class="v7-cursor"></span></p>
+          <p class="v7-sub">● online · local · ai</p>
+          <div class="v7-row">
+            <button type="button" class="v7-link primary">开始对话 ⌘N</button>
+            <button type="button" class="v7-link">workspace</button>
+            <button type="button" class="v7-link">结构</button>
+            <button type="button" class="v7-link">报告</button>
+            <button type="button" class="v7-link">继续 ×5</button>
+          </div>
+        </div>
+      </div>
+      <div class="no-composer-hint">— 无 Composer —</div>
+    </div>
+  </div>
+
+  <!-- V8 叫号 -->
+  <div class="frame">
+    <div class="frame-tag"><span class="id">V8</span> 等待室叫号 <em>queue board · ticket</em></div>
+    <div class="frame-header"><h3>MACMINI</h3><div class="sub">本机 Agent · 等待开始</div></div>
+    <div class="frame-body">
+      <div class="empty-center">
+        <div class="v8">
+          <div class="v8-board">
+            <div class="v8-now">Now Serving</div>
+            <div class="v8-number">A-07</div>
+            <div class="v8-queue">MACMINI · 本机 Agent · 在线</div>
+          </div>
+          <div class="v8-ticket">
+            <div class="row"><span>您的号码</span><strong>A-07</strong></div>
+            <div class="row" style="margin-top:4px"><span>窗口</span><strong>MACMINI</strong></div>
+            <div class="barcode"></div>
+          </div>
+          <div class="v8-actions">
+            <button type="button" class="take">取票开始 ⌘N</button>
+            <button type="button">workspace</button>
+            <button type="button">结构</button>
+            <button type="button">报告</button>
+          </div>
+          <button type="button" class="continue">过号重排 · 5 个进行中 <span class="mono">→</span></button>
+        </div>
+      </div>
+      <div class="no-composer-hint">— 无 Composer —</div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

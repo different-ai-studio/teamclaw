@@ -1,0 +1,241 @@
+# TeamClaw
+
+本地智能体，你的 AI 搭档
+
+> **你的搭档，并肩同行。**
+
+- **👥 为团队而生** — Skills、知识库、快捷入口可通过 Git 或 S3/OSS 在团队内共享，同时保留每位成员的私有上下文
+- **🎭 Skills × 角色** — 可组合的角色库，让同一个智能体适配销售、客服、运营、研发等各类岗位
+- **🔋 开箱即用** — 内置 RAG 知识库、Auto UI 视觉识别、浏览器控制以及六大渠道网关（企业微信、飞书、Discord、Kook、微信、邮件），无需胶水代码
+- **🧑‍💻 个人到中小企业** — 本地优先、默认私有、零运维；从单人使用扩展到小型公司
+
+[English](README.md) | 简体中文 | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+
+## 功能特性
+
+- **三栏布局** — 侧边栏、聊天区、详情面板
+- **本地 Agent 运行时** — 完整的 Agent 能力支持
+- **渠道网关** — 支持 Discord、Feishu、Email、Kook、WeCom、WeChat
+- **自动化任务** — 支持定时任务（Cron）
+- **团队协作模式** — 支持 P2P 与 S3/OSS
+- **MCP 支持** — Model Context Protocol，连接企业系统
+- **Skills / 插件扩展** — 可扩展的技能系统
+- **知识库能力** — knowledge 文档索引与检索
+- **本地文件操作** — 带权限管理的文件读写
+
+## 界面截图
+
+### 主页
+
+![TeamClaw 主页](images/home.png)
+
+### 频道
+
+![TeamClaw 频道](images/channel.png)
+
+### 团队
+
+![TeamClaw 团队](images/team.png)
+
+## 技术栈
+
+- **桌面端**：Tauri 2.0 (Rust)
+- **前端**：React 19 + TypeScript
+- **样式**：Tailwind CSS 4
+- **状态**：Zustand
+- **编辑器**：Tiptap (Markdown/HTML)、CodeMirror 6 (代码)
+- **Diff**：自定义 Diff 渲染器，Shiki 语法高亮
+
+## 安装
+
+从 [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) 下载对应平台的安装包（macOS 为 `.dmg`，Windows 为 `.exe`）。
+
+- **Windows 用户**：详见 [Windows 安装指南](docs/windows-install-guide.md)。
+
+### macOS 提示「已损毁」时
+
+若从网上下载安装后打开应用时提示 **「已损毁」** 或 **「无法打开，因为无法验证开发者」**，是 macOS 安全策略（Gatekeeper）导致的。在终端执行以下命令即可解除限制并正常打开：
+
+```bash
+xattr -cr /Applications/TeamClaw.app
+```
+
+然后即可正常打开 TeamClaw。若仓库配置了 Apple 开发者签名与公证，则无需此步骤。
+
+## 开发
+
+### 前置要求
+
+- Node.js >= 20
+- pnpm >= 10
+- Rust >= 1.70
+
+### 快速开始
+
+```bash
+# 1. 安装依赖
+pnpm install
+
+# 2. 启动 Tauri 开发模式
+pnpm tauri dev
+```
+
+启动后，在 TeamClaw 界面中选择一个 Workspace 目录即可。
+
+### 更快的 Rust 开发迭代
+
+现在 Rust 和 Tauri 命令会在不同 worktree 之间共享 `.cargo-target/`，并在本机安装了 `sccache` 时自动启用它。
+
+```bash
+# 快速检查 Rust 编译是否通过
+pnpm rust:check
+
+# 使用同一份共享缓存执行完整 Rust build
+pnpm rust:build
+```
+
+说明：
+- `pnpm tauri:dev` 和 `pnpm tauri:build` 也会使用同一套共享 Rust 构建环境。
+- `.cargo-target/` 只用于本地缓存，已被 git 忽略。
+- 如果希望额外获得编译缓存命中，请先安装 `sccache`。
+
+## 团队协作
+
+TeamClaw 支持多种团队协作方式：
+
+- **P2P 模式**：基于票据加入局域网团队，支持成员角色管理
+- **S3/OSS 模式**：基于对象存储的团队同步
+
+### 配置团队共享仓库
+
+1. 打开 **Settings** > **Team**
+2. 输入团队 Git 仓库地址（支持 HTTPS 或 SSH）
+3. 点击「连接」按钮
+4. TeamClaw 会自动：
+   - 初始化本地 Git 仓库
+   - 拉取远程仓库内容
+   - 生成白名单 `.gitignore`（只同步共享层目录）
+
+### 共享内容
+
+团队仓库会自动同步以下内容：
+
+- **Skills**：`skills/` — 共享的 Agent 技能
+- **MCP 配置**：`.mcp/` — MCP 服务器配置
+- **知识库**：`knowledge/` — 团队知识库文档
+
+个人文件和工作区配置不会被同步，确保隐私安全。
+
+### 自动同步
+
+- 应用启动时自动同步最新内容
+- 可在 Settings > Team 中手动触发同步
+- 查看最后同步时间
+
+### 注意事项
+
+- 工作区不能已有 `.git` 目录（避免冲突）
+- 需要配置 Git 认证（SSH key 或 HTTPS token）
+- 共享层文件以远程仓库为准，本地修改会被覆盖
+
+### 开发命令
+
+```bash
+# 仅启动前端（不含 Tauri）
+pnpm dev
+
+# 启动完整 Tauri 应用
+pnpm tauri dev
+
+# 或使用别名
+pnpm tauri:dev
+```
+
+### 构建
+
+```bash
+pnpm tauri:build
+```
+
+### 测试
+
+#### 单元测试
+
+```bash
+# 运行所有单元测试
+pnpm test:unit
+
+# 监听模式运行测试
+pnpm --filter @teamclaw/app test:unit --watch
+```
+
+#### E2E 测试（Tauri-mcp）
+
+E2E 测试使用 `tauri-mcp` 与运行的 Tauri 应用交互，提供原生 UI 自动化。
+
+**前置要求：**
+
+- 安装 `tauri-mcp`：`cargo install tauri-mcp`
+- 构建 Tauri 应用：`pnpm tauri:build`
+
+**运行 E2E 测试（需在仓库根目录；需先构建 Tauri 应用并安装 tauri-mcp）：**
+
+```bash
+# 运行全部 E2E
+pnpm test:e2e
+
+# 按分类运行
+pnpm test:e2e:regression
+pnpm test:e2e:performance
+pnpm test:e2e:e2e
+pnpm test:e2e:functional
+
+# 仅 Smoke
+pnpm test:smoke
+```
+
+详见 `[packages/app/e2e/README.md](./packages/app/e2e/README.md)` 与 `tests/` 目录。
+
+## 项目结构
+
+```
+teamclaw/
+├── packages/
+│   └── app/                 # React 前端
+│       └── src/
+│           ├── components/
+│           │   ├── editors/      # 文件编辑器
+│           │   ├── diff/         # Diff 渲染器
+│           │   └── ...           # 其他 UI 组件
+│           ├── hooks/
+│           ├── lib/
+│           ├── stores/
+│           └── styles/
+├── apps/desktop/              # Tauri 后端
+│   └── src/
+│       └── commands/       # Rust 命令
+├── doc/                    # 文档
+└── package.json
+```
+
+## 编辑器架构
+
+文件编辑器根据文件类型路由到不同的专用编辑器：
+
+- **Markdown 文件**（`.md`、`.mdx`）：Tiptap 所见即所得编辑器，支持 Markdown 扩展、预览切换和剪贴板图片粘贴上传
+- **HTML 文件**（`.html`、`.htm`）：Tiptap HTML 编辑器，沙箱 iframe 预览
+- **代码文件**（其他类型）：CodeMirror 6，语法高亮、行号、代码折叠和 Git gutter 装饰
+
+### Diff 渲染器
+
+自定义 Diff 渲染器提供 Agent 优先的代码审查体验：
+
+- 将 unified diff 解析为结构化 AST（文件 > hunk > 行）
+- 支持行级、hunk 级和文件级选择
+- 与 Agent 聊天集成，「发送给 Agent」支持：Review、Explain、Refactor、Generate Patch
+- 大文件 diff 虚拟滚动（基于 IntersectionObserver 懒加载）
+- 通过 Shiki 语法高亮，按需加载语言
+
+## License
+
+MIT

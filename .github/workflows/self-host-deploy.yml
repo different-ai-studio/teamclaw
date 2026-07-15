@@ -1,0 +1,55 @@
+name: Self-Host Deploy
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/self-host/**'
+      - 'services/fc/**'
+      - 'services/supabase/migrations/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: self-host-production
+
+    steps:
+      - name: Deploy to ECS
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
+          command_timeout: 30m
+          script: |
+            set -e
+            cd /opt/teamclaw
+
+            echo "=== git pull ==="
+            git fetch origin main
+            git reset --hard origin/main
+
+            cd deploy/self-host
+
+            echo "=== build fc ==="
+            docker compose build fc
+
+            echo "=== up ==="
+            docker compose up -d --pull never --remove-orphans
+
+            echo "=== wait for fc healthy ==="
+            timeout 90 sh -c \
+              'until docker compose ps fc | grep -q healthy; do sleep 5; done'
+
+            echo "=== restart caddy (Caddyfile is a bind-mount; up -d / reload don't reliably pick up edits) ==="
+            docker compose restart caddy
+            timeout 60 sh -c \
+              'until docker compose ps caddy | grep -q "Up\|running"; do sleep 3; done'
+
+            echo "=== e2e verification ==="
+            cd /opt/teamclaw/services/fc
+            npm ci --prefer-offline --silent
+            sh /opt/teamclaw/deploy/self-host/smoke/run-e2e.sh
+
+            echo "=== deploy complete ==="

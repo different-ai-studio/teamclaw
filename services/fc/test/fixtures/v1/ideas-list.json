@@ -1,0 +1,27 @@
+{
+  "items": [
+    {
+      "id": "00000000-0000-0000-0000-000000000101",
+      "teamId": "00000000-0000-0000-0000-000000000010",
+      "title": "Refactor messaging layer",
+      "description": "Move to event-driven architecture",
+      "archived": false,
+      "authorActorId": "00000000-0000-0000-0000-000000000201",
+      "actorIds": ["00000000-0000-0000-0000-000000000201"],
+      "createdAt": "2026-05-01T00:00:00Z",
+      "updatedAt": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000102",
+      "teamId": "00000000-0000-0000-0000-000000000010",
+      "title": "Add dark mode",
+      "description": null,
+      "archived": false,
+      "authorActorId": "00000000-0000-0000-0000-000000000201",
+      "actorIds": [],
+      "createdAt": "2026-05-01T00:00:00Z",
+      "updatedAt": "2026-05-01T00:00:00Z"
+    }
+  ],
+  "nextCursor": null
+}

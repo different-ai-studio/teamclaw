@@ -1,0 +1,250 @@
+openapi: 3.1.0
+info:
+  title: amuxd Workspace HTTP API (local control plane)
+  version: 1.0.0
+  description: |
+    Local daemon HTTP API bound on loopback (`~/.amuxd/amuxd.http.port`).
+    Desktop and automation clients authenticate with a bearer token from
+    `POST /v1/auth/exchange`.
+
+    Provider OAuth is proxied to a per-workspace loopback `opencode serve`
+    instance. OpenCode data (OAuth, DB, cache) is shared globally under the
+    user's default paths. ACP `opencode acp` uses the same global store so
+    OAuth credentials apply to chat sessions. After OAuth,
+    API key connect, or disconnect, authorize/callback/delete responses include
+    a runtime reload outcome (`reload_required` or `restart_required`).
+
+servers:
+  - url: http://127.0.0.1:{port}
+    variables:
+      port:
+        default: "0"
+
+paths:
+  /v1/workspaces/{workspaceId}/provider-auth-methods:
+    get:
+      operationId: getProviderAuthMethods
+      summary: Auth methods per provider (OAuth vs API key)
+      tags: [providers]
+      parameters:
+        - $ref: '#/components/parameters/workspaceId'
+      responses:
+        '200':
+          description: Map of provider id → auth method list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAuthMethodsMap'
+        '404':
+          $ref: '#/components/responses/problemNotFound'
+
+  /v1/workspaces/{workspaceId}/providers/{providerId}/oauth/authorize:
+    post:
+      operationId: postProviderOAuthAuthorize
+      summary: Start provider OAuth (proxy to OpenCode settings server)
+      tags: [providers]
+      parameters:
+        - $ref: '#/components/parameters/workspaceId'
+        - $ref: '#/components/parameters/providerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderOAuthAuthorizeRequest'
+      responses:
+        '200':
+          description: Browser URL and instructions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderOAuthAuthorizeResponse'
+        '404':
+          $ref: '#/components/responses/problemNotFound'
+        '503':
+          $ref: '#/components/responses/problemRuntimeUnavailable'
+
+  /v1/workspaces/{workspaceId}/providers/{providerId}/oauth/callback:
+    post:
+      operationId: postProviderOAuthCallback
+      summary: Complete provider OAuth (proxy to OpenCode settings server)
+      tags: [providers]
+      parameters:
+        - $ref: '#/components/parameters/workspaceId'
+        - $ref: '#/components/parameters/providerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderOAuthCallbackRequest'
+      responses:
+        '200':
+          description: Credentials stored; workspace runtimes reloaded when supervisor is configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplyResponse'
+        '404':
+          $ref: '#/components/responses/problemNotFound'
+        '503':
+          $ref: '#/components/responses/problemRuntimeUnavailable'
+
+  /v1/workspaces/{workspaceId}/mcp/tools:
+    get:
+      operationId: getMcpTools
+      summary: Probe MCP server tools
+      tags: [mcp]
+      parameters:
+        - $ref: '#/components/parameters/workspaceId'
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Force re-probe and bypass cache
+      responses:
+        '200':
+          description: Per-server probe status and tool names
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpToolsResponse'
+        '404':
+          $ref: '#/components/responses/problemNotFound'
+
+components:
+  parameters:
+    workspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      description: Base64url-encoded absolute workspace path (no padding)
+      schema:
+        type: string
+    providerId:
+      name: providerId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    ProviderAuthMethod:
+      type: object
+      required: [type, label]
+      properties:
+        type:
+          type: string
+          enum: [oauth, api]
+        label:
+          type: string
+
+    ProviderAuthMethodsMap:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          $ref: '#/components/schemas/ProviderAuthMethod'
+
+    ProviderOAuthAuthorizeRequest:
+      type: object
+      properties:
+        method_index:
+          type: integer
+          minimum: 0
+          default: 0
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+
+    ProviderOAuthAuthorizeResponse:
+      type: object
+      required: [url, method, instructions]
+      properties:
+        url:
+          type: string
+          format: uri
+        method:
+          type: string
+          enum: [auto, code]
+        instructions:
+          type: string
+
+    ProviderOAuthCallbackRequest:
+      type: object
+      properties:
+        method_index:
+          type: integer
+          minimum: 0
+          default: 0
+        code:
+          type: string
+          description: Required when authorize `method` was `code`
+
+    ApplyResponse:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [applied_live, reload_required, restart_required]
+
+    ProbeStatus:
+      type: string
+      enum: [skipped, ready, failed]
+
+    McpServerProbeResult:
+      type: object
+      required: [probe_status, tools]
+      properties:
+        probe_status:
+          $ref: '#/components/schemas/ProbeStatus'
+        tools:
+          type: array
+          items:
+            type: string
+        error:
+          type: string
+          nullable: true
+        probed_at:
+          type: string
+          nullable: true
+
+    McpToolsResponse:
+      type: object
+      required: [servers]
+      properties:
+        servers:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/McpServerProbeResult'
+
+    Problem:
+      type: object
+      required: [code, detail, status, title]
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+        status:
+          type: integer
+        title:
+          type: string
+
+  responses:
+    problemNotFound:
+      description: Workspace or resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    problemRuntimeUnavailable:
+      description: OpenCode settings server not configured or failed to start
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

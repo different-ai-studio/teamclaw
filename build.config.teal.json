@@ -1,0 +1,8 @@
+{
+  "app": {
+    "palette": "teal"
+  },
+  "opencode": {
+    "downloadBase": "https://teamclaw.ucar.cc/opencode/stable"
+  }
+}

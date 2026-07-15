@@ -1,0 +1,414 @@
+<!doctype html>
+<!--
+  amuxd embedded protocol console. Served at GET /v1/ui and inlined into the
+  daemon binary via include_str! (see http/routes.rs). Zero dependencies —
+  plain JS driving this same daemon's /v1/sessions API so every endpoint and
+  every SSE frame is visible for debugging.
+
+  Auth: reads a session token from the `access_token` URL query param (the
+  desktop mints one via /v1/auth/exchange and opens this URL); the token can
+  also be pasted into the header field. SSE uses the documented
+  ?access_token= fallback; other calls use the Bearer header.
+
+  Wire vocabulary mirrored here (see http/events.rs EventKind): session.created,
+  session.state, prompt.accepted, turn.started, token.delta, tool.call,
+  tool.result, message.completed, turn.finished, session.error, session.closed.
+-->
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>amuxd 协议调试台</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f4ef; --fg: #222; --muted: #6b6459; --line: #e2ddd3;
+      --panel: #fdfcf9; --chip: #ece8df; --accent: #e2603f;
+      --ok: #4a9d6b; --warn: #c98a1b; --err: #e2603f;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1b19; --fg: #e8e4dc; --muted: #a49d90; --line: #34322e;
+        --panel: #232220; --chip: #2e2c28;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: system-ui, -apple-system, "PingFang SC", sans-serif;
+      font-size: 13px; background: var(--bg); color: var(--fg);
+      display: flex; flex-direction: column;
+    }
+    button, input, select {
+      font: inherit; color: inherit; background: var(--panel);
+      border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+    }
+    button { cursor: pointer; white-space: nowrap; }
+    button:hover { border-color: var(--muted); }
+    button:disabled { opacity: .45; cursor: default; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    label.inline { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+    #filters { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; }
+
+    header {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 8px 12px; border-bottom: 1px solid var(--line);
+    }
+    header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chip); flex: none; }
+    header .dot.ok { background: var(--ok); }
+    header .dot.err { background: var(--err); }
+    #status { color: var(--muted); margin-right: auto; }
+    #token { width: 170px; font-family: var(--mono); font-size: 11px; }
+
+    #controls {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding: 6px 12px; border-bottom: 1px solid var(--line);
+    }
+    #controls .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+    #model-id, #perm-request-id, #perm-option-id { width: 130px; font-family: var(--mono); font-size: 11px; }
+    #session-pick { max-width: 230px; font-family: var(--mono); font-size: 11px; }
+
+    main { flex: 1; display: flex; min-height: 0; }
+    #log-pane { flex: 3; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--line); }
+    #text-pane { flex: 2; display: flex; flex-direction: column; min-width: 0; }
+    .pane-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 6px 12px; border-bottom: 1px solid var(--line);
+      color: var(--muted); font-size: 12px;
+    }
+    .pane-body { flex: 1; overflow-y: auto; padding: 6px 0; }
+
+    /* Event log rows */
+    .row { display: flex; gap: 8px; padding: 2px 12px; font-family: var(--mono); font-size: 11.5px; align-items: baseline; }
+    .row:hover { background: var(--panel); }
+    .row .seq { color: var(--muted); flex: none; width: 42px; text-align: right; }
+    .row .at { color: var(--muted); flex: none; }
+    .row .kind {
+      flex: none; padding: 0 6px; border-radius: 4px; background: var(--chip);
+      font-size: 10.5px; line-height: 16px;
+    }
+    .row .kind.k-token_delta { color: var(--ok); }
+    .row .kind.k-tool_call, .row .kind.k-tool_result { color: var(--warn); }
+    .row .kind.k-session_error { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+    .row .kind.k-http { color: var(--muted); }
+    .row .kind.k-gap { color: #fff; background: var(--err); }
+    .row .data { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; cursor: pointer; }
+    .row .data.clipped { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* Transcript */
+    #transcript { padding: 10px 14px; }
+    #transcript .turn { margin-bottom: 14px; }
+    #transcript .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+    #transcript .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+    #transcript .turn.user .body { color: var(--muted); }
+    #transcript .turn .body.streaming::after { content: "▍"; color: var(--accent); }
+
+    footer { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--line); }
+    #prompt { flex: 1; font-family: inherit; resize: none; height: 54px; padding: 6px 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="dot" id="dot"></span>
+    <span id="status">初始化…</span>
+    <input id="token" placeholder="access_token" spellcheck="false" />
+    <select id="agent-type">
+      <option value="claude">claude</option>
+      <option value="opencode">opencode</option>
+      <option value="codex">codex</option>
+    </select>
+    <button id="btn-create" class="primary">新建会话</button>
+    <select id="session-pick"><option value="">— 选择已有会话 —</option></select>
+    <button id="btn-refresh-sessions" title="GET /v1/sessions">刷新列表</button>
+  </header>
+
+  <div id="controls">
+    <button id="btn-cancel" disabled title="POST /v1/sessions/:id/cancel">Cancel</button>
+    <button id="btn-restart" disabled title="POST /v1/sessions/:id/restart">Restart</button>
+    <button id="btn-delete" disabled title="DELETE /v1/sessions/:id">Delete</button>
+    <span class="sep"></span>
+    <input id="model-id" placeholder="model_id" spellcheck="false" />
+    <button id="btn-model" disabled title="POST /v1/sessions/:id/model">Set model</button>
+    <span class="sep"></span>
+    <input id="perm-request-id" placeholder="request_id" spellcheck="false" />
+    <input id="perm-option-id" placeholder="option_id (可选)" spellcheck="false" />
+    <button id="btn-allow" disabled title="POST .../permissions/:request_id {granted:true}">Allow</button>
+    <button id="btn-deny" disabled title="POST .../permissions/:request_id {granted:false}">Deny</button>
+    <span class="sep"></span>
+    <button id="btn-replay" disabled title="GET /v1/sessions/:id/events?since=0">回放 /events</button>
+    <button id="btn-snapshot" disabled title="GET /v1/sessions/:id">Snapshot</button>
+  </div>
+
+  <main>
+    <section id="log-pane">
+      <div class="pane-head">
+        <span>事件流</span>
+        <span id="filters"></span>
+        <label class="inline" style="margin-left:auto"><input type="checkbox" id="autoscroll" checked />自动滚动</label>
+        <button id="btn-clear">清空</button>
+      </div>
+      <div class="pane-body" id="log"></div>
+    </section>
+    <section id="text-pane">
+      <div class="pane-head"><span>文本输出（token.delta 累积）</span></div>
+      <div class="pane-body"><div id="transcript"></div></div>
+    </section>
+  </main>
+
+  <footer>
+    <textarea id="prompt" placeholder="输入 prompt，Cmd/Ctrl+Enter 发送 → POST /v1/sessions/:id/prompt"></textarea>
+    <button id="btn-send" class="primary" disabled>发送</button>
+  </footer>
+
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const params = new URLSearchParams(location.search);
+    $('token').value = params.get('access_token') || '';
+    if (params.get('agent')) $('agent-type').value = params.get('agent');
+    const base = location.origin; // same daemon that served this page
+
+    // event: 名与 http/events.rs EventKind::as_str() 一一对应
+    const KINDS = [
+      'session.created', 'session.state', 'prompt.accepted', 'turn.started',
+      'token.delta', 'tool.call', 'tool.result', 'message.completed',
+      'turn.finished', 'session.error', 'session.closed',
+    ];
+
+    let sessionId = null;
+    let es = null;       // active EventSource
+    let lastSeq = null;  // gap detection
+    let streamBody = null; // current streaming transcript node
+
+    const setStatus = (text, cls) => {
+      $('status').textContent = text;
+      $('dot').className = 'dot' + (cls ? ' ' + cls : '');
+    };
+    const token = () => $('token').value.trim();
+
+    // ── event log ──────────────────────────────────────────────────────────
+    const kindClass = (k) => 'k-' + k.replace(/\./g, '_');
+    function logRow(kind, data, seq, at) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.dataset.kind = kind;
+      if (hiddenKinds.has(kind)) row.style.display = 'none';
+      const time = (at ? new Date(at) : new Date()).toLocaleTimeString('en-GB');
+      const text = typeof data === 'string' ? data : JSON.stringify(data);
+      row.innerHTML =
+        `<span class="seq">${seq ?? ''}</span><span class="at">${time}</span>` +
+        `<span class="kind ${kindClass(kind)}">${kind}</span>`;
+      const dataEl = document.createElement('span');
+      dataEl.className = 'data clipped';
+      dataEl.textContent = text;
+      dataEl.title = '点击展开/收起';
+      dataEl.onclick = () => {
+        const expand = dataEl.classList.contains('clipped');
+        dataEl.classList.toggle('clipped');
+        dataEl.textContent = expand && typeof data === 'object'
+          ? JSON.stringify(data, null, 2) : text;
+      };
+      row.appendChild(dataEl);
+      $('log').appendChild(row);
+      if ($('autoscroll').checked) $('log').scrollTop = $('log').scrollHeight;
+    }
+    $('btn-clear').onclick = () => { $('log').replaceChildren(); };
+
+    // kind filters
+    const hiddenKinds = new Set();
+    for (const k of [...KINDS, 'http']) {
+      const label = document.createElement('label');
+      label.className = 'inline';
+      const cb = Object.assign(document.createElement('input'), { type: 'checkbox', checked: true });
+      cb.onchange = () => {
+        cb.checked ? hiddenKinds.delete(k) : hiddenKinds.add(k);
+        for (const row of $('log').querySelectorAll(`[data-kind="${k}"]`))
+          row.style.display = cb.checked ? '' : 'none';
+      };
+      label.append(cb, k.replace('session.', 's.').replace('message.', 'm.'));
+      $('filters').appendChild(label);
+    }
+
+    // ── HTTP helper：每个调用连同响应记进事件流 ─────────────────────────────
+    async function api(method, path, body) {
+      logRow('http', `→ ${method} ${path}` + (body ? ' ' + JSON.stringify(body) : ''));
+      const res = await fetch(base + path, {
+        method,
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token()}`,
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const raw = await res.text();
+      let parsed = null;
+      try { parsed = raw ? JSON.parse(raw) : null; } catch { /* non-JSON body */ }
+      logRow('http', `← ${res.status} ${method} ${path} ${raw.slice(0, 2000)}`);
+      if (!res.ok) throw new Error(`${res.status} ${raw.slice(0, 300)}`);
+      return parsed;
+    }
+
+    // ── transcript（右栏文本累积） ──────────────────────────────────────────
+    function addTurn(who, text, streaming) {
+      const turn = document.createElement('div');
+      turn.className = 'turn ' + who;
+      turn.innerHTML = `<div class="who">${who === 'user' ? '你' : 'agent'}</div>`;
+      const body = document.createElement('div');
+      body.className = 'body' + (streaming ? ' streaming' : '');
+      body.textContent = text;
+      turn.appendChild(body);
+      $('transcript').appendChild(turn);
+      body.scrollIntoView({ block: 'end' });
+      return body;
+    }
+
+    // ── SSE ────────────────────────────────────────────────────────────────
+    function connectStream() {
+      if (es) { es.close(); es = null; }
+      lastSeq = null;
+      const url = `${base}/v1/sessions/${sessionId}/stream?access_token=${encodeURIComponent(token())}`;
+      es = new EventSource(url);
+      es.onopen = () => setStatus(`SSE 已连接 · session ${sessionId.slice(0, 8)}`, 'ok');
+      es.onerror = () => setStatus('SSE 断开（EventSource 会自动重连并带 Last-Event-ID）', 'err');
+      for (const kind of KINDS) {
+        es.addEventListener(kind, (ev) => {
+          let payload = {};
+          try { payload = JSON.parse(ev.data); } catch { payload = { raw: ev.data }; }
+          // seq 断号检测：回放窗口掉队时一眼可见
+          if (lastSeq !== null && payload.seq > lastSeq + 1)
+            logRow('gap', `seq 跳变 ${lastSeq} → ${payload.seq}（丢 ${payload.seq - lastSeq - 1} 帧）`);
+          if (typeof payload.seq === 'number') lastSeq = payload.seq;
+          logRow(kind, payload.data ?? payload, payload.seq, payload.at);
+          handleEvent(kind, payload.data ?? {});
+        });
+      }
+    }
+
+    function handleEvent(kind, data) {
+      switch (kind) {
+        case 'turn.started':
+          streamBody = addTurn('agent', '', true);
+          break;
+        case 'token.delta':
+          if (!streamBody) streamBody = addTurn('agent', '', true);
+          streamBody.textContent += data.text ?? '';
+          if ($('autoscroll').checked) streamBody.scrollIntoView({ block: 'end' });
+          break;
+        case 'message.completed':
+          // 完成态以 message.completed.content 为准（对齐流式单一来源原则）
+          if (streamBody && typeof data.content === 'string' && data.content)
+            streamBody.textContent = data.content;
+          break;
+        case 'turn.finished':
+          if (streamBody) { streamBody.classList.remove('streaming'); streamBody = null; }
+          break;
+        case 'session.error':
+          if (streamBody) { streamBody.classList.remove('streaming'); streamBody = null; }
+          setStatus(`session.error: ${data.message ?? ''}`, 'err');
+          break;
+        case 'session.state':
+          setStatus(`session ${sessionId.slice(0, 8)} · ${data.state ?? ''}`, 'ok');
+          break;
+        case 'session.closed':
+          setStatus('会话已关闭', 'err');
+          break;
+      }
+    }
+
+    // ── session 生命周期 ───────────────────────────────────────────────────
+    function setAttached(on) {
+      for (const id of ['btn-cancel', 'btn-restart', 'btn-delete', 'btn-model',
+                        'btn-allow', 'btn-deny', 'btn-replay', 'btn-snapshot', 'btn-send'])
+        $(id).disabled = !on;
+    }
+
+    function attach(id) {
+      sessionId = id;
+      setAttached(true);
+      connectStream();
+    }
+
+    $('btn-create').onclick = async () => {
+      try {
+        const snap = await api('POST', '/v1/sessions', { agent_type: $('agent-type').value });
+        attach(snap.session_id);
+        await refreshSessions();
+      } catch (e) { setStatus('创建失败: ' + e.message, 'err'); }
+    };
+
+    async function refreshSessions() {
+      const list = await api('GET', '/v1/sessions');
+      const pick = $('session-pick');
+      pick.replaceChildren(new Option('— 选择已有会话 —', ''));
+      for (const s of list) {
+        const label = `${s.session_id.slice(0, 8)} · ${s.agent_type} · ${s.state}`;
+        pick.appendChild(new Option(label, s.session_id));
+      }
+      if (sessionId) pick.value = sessionId;
+    }
+    $('btn-refresh-sessions').onclick = () => refreshSessions().catch((e) => setStatus(e.message, 'err'));
+    $('session-pick').onchange = () => { if ($('session-pick').value) attach($('session-pick').value); };
+
+    $('btn-send').onclick = async () => {
+      const text = $('prompt').value.trim();
+      if (!text || !sessionId) return;
+      addTurn('user', text, false);
+      $('prompt').value = '';
+      try { await api('POST', `/v1/sessions/${sessionId}/prompt`, { text }); }
+      catch (e) { setStatus('prompt 失败: ' + e.message, 'err'); }
+    };
+    $('prompt').addEventListener('keydown', (ev) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') $('btn-send').click();
+    });
+
+    $('btn-cancel').onclick = () => api('POST', `/v1/sessions/${sessionId}/cancel`, {}).catch(() => {});
+    $('btn-restart').onclick = async () => {
+      try { await api('POST', `/v1/sessions/${sessionId}/restart`); connectStream(); }
+      catch (e) { setStatus('restart 失败: ' + e.message, 'err'); }
+    };
+    $('btn-delete').onclick = async () => {
+      try {
+        await api('DELETE', `/v1/sessions/${sessionId}`);
+        if (es) { es.close(); es = null; }
+        sessionId = null;
+        setAttached(false);
+        setStatus('会话已删除');
+        await refreshSessions();
+      } catch (e) { setStatus('delete 失败: ' + e.message, 'err'); }
+    };
+    $('btn-model').onclick = () => {
+      const model_id = $('model-id').value.trim();
+      if (model_id) api('POST', `/v1/sessions/${sessionId}/model`, { model_id }).catch(() => {});
+    };
+    const replyPermission = (granted) => {
+      const rid = $('perm-request-id').value.trim();
+      if (!rid) { setStatus('缺 request_id', 'err'); return; }
+      const option_id = $('perm-option-id').value.trim() || undefined;
+      api('POST', `/v1/sessions/${sessionId}/permissions/${encodeURIComponent(rid)}`,
+        { granted, ...(option_id ? { option_id } : {}) }).catch(() => {});
+    };
+    $('btn-allow').onclick = () => replyPermission(true);
+    $('btn-deny').onclick = () => replyPermission(false);
+    $('btn-replay').onclick = async () => {
+      try {
+        const page = await api('GET', `/v1/sessions/${sessionId}/events?since=0&limit=200`);
+        // 回放 JSON 里 kind 是 snake_case（serde），转回 SSE 的点分格式统一过滤
+        for (const ev of page.events ?? [])
+          logRow((ev.kind ?? 'replay').replace(/_/g, '.'), ev.data, ev.seq, ev.at);
+      } catch (e) { setStatus('replay 失败: ' + e.message, 'err'); }
+    };
+    $('btn-snapshot').onclick = () => api('GET', `/v1/sessions/${sessionId}`).catch(() => {});
+
+    // ── boot ───────────────────────────────────────────────────────────────
+    if (!token()) {
+      setStatus('缺少 access_token — 粘贴到右侧输入框，或由桌面端带 ?access_token= 打开', 'err');
+    } else {
+      setStatus('就绪 — 新建会话或从列表选择');
+      refreshSessions().catch((e) => setStatus('无法列出会话: ' + e.message, 'err'));
+      // ?session=<uuid> 直接附着已有会话（backlog 会经 SSE 回放进事件流）
+      if (params.get('session')) attach(params.get('session'));
+    }
+  </script>
+</body>
+</html>

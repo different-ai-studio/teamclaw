@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "TeamClaw Expo",
+    "slug": "teamclaw-expo",
+    "scheme": "teamclaw",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "package": "com.bertrand319.teamclawexpo"
+    },
+    "plugins": [
+      "./plugins/withTeamClawMqtt",
+      "expo-audio",
+      "expo-web-browser"
+    ],
+    "ios": {
+      "bundleIdentifier": "com.bertrand319.teamclawexpo"
+    }
+  }
+}

@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TeamClaw · 链接悬停按钮 · 设计方案</title>
+  <style>
+    :root {
+      --bg: #fbfaf7;
+      --paper: #ffffff;
+      --ink: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --font: "PingFang SC", "Noto Sans SC", -apple-system, system-ui, sans-serif;
+      --mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+      --sidebar-dark: #0f172a;
+      --sidebar-active: #2563eb;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+
+    header {
+      padding: 28px 32px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--paper);
+    }
+    header h1 { margin: 0 0 6px; font-size: 20px; font-weight: 700; }
+    header p { margin: 0; color: var(--muted); font-size: 13px; max-width: 720px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 20px;
+      padding: 24px 32px 48px;
+    }
+
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 1px 0 rgba(20, 20, 15, 0.04);
+    }
+    .card-head {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-head h2 { margin: 0; font-size: 14px; font-weight: 700; }
+    .card-head p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+
+    .preview { position: relative; min-height: 200px; }
+
+    /* ── Mock contexts ── */
+    .mock-light {
+      padding: 28px 24px;
+      background: var(--bg);
+    }
+    .mock-light a {
+      color: #2563eb;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .mock-light a:hover { text-decoration: underline; }
+
+    .mock-dark {
+      padding: 20px 16px;
+      background: var(--sidebar-dark);
+      color: #cbd5e1;
+      font-size: 13px;
+    }
+    .mock-dark .nav-item {
+      padding: 10px 12px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      position: relative;
+    }
+    .mock-dark .nav-item.active {
+      background: var(--sidebar-active);
+      color: #fff;
+    }
+    .mock-dark a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .row-label {
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin: 0 0 10px;
+    }
+
+    /* Shared: link row + affordance slot */
+    .link-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+      max-width: 100%;
+    }
+    .link-row .demo-link { flex: 0 1 auto; }
+
+    /* Hover zone — move mouse over the whole row */
+    .link-row .affordance {
+      opacity: 0;
+      transform: translateY(2px);
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    .link-row:hover .affordance,
+    .link-row:focus-within .affordance {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    /* ═══ A · 纸卡幽灵（推荐）═══ */
+    .afford-a {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px 4px 7px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 4px 14px -8px rgba(20, 20, 15, 0.28);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-2);
+      white-space: nowrap;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+    }
+    .afford-a::before {
+      content: "";
+      width: 2px;
+      height: 12px;
+      border-radius: 1px;
+      background: var(--coral);
+      flex-shrink: 0;
+    }
+    .afford-a .ai-pill {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 4px;
+      border-radius: 3px;
+      border: 1px solid var(--coral);
+      color: var(--coral);
+      line-height: 1.2;
+    }
+    .afford-a:hover { background: #fff; border-color: rgba(26, 26, 20, 0.12); }
+
+    /* dark context variant */
+    .on-dark .afford-a {
+      background: rgba(15, 23, 42, 0.92);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: #e2e8f0;
+      box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.5);
+    }
+    .on-dark .afford-a:hover {
+      background: rgba(30, 41, 59, 0.98);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    /* ═══ B · 图标锚点（最省空间）═══ */
+    .afford-b {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: var(--paper);
+      border: 1.5px solid var(--coral);
+      box-shadow: 0 2px 10px -4px rgba(232, 90, 74, 0.45);
+      cursor: pointer;
+      position: relative;
+    }
+    .afford-b::after {
+      content: "✦";
+      font-size: 11px;
+      color: var(--coral);
+      line-height: 1;
+    }
+    .afford-b .tip {
+      position: absolute;
+      left: calc(100% + 6px);
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 3px 7px;
+      border-radius: 6px;
+      background: var(--ink);
+      color: #fefdfa;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.12s;
+    }
+    .afford-b:hover .tip { opacity: 1; }
+    .on-dark .afford-b {
+      background: #1e293b;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    /* ═══ C · 内联尾标（最不遮挡）═══ */
+    .afford-c-wrap { display: inline; position: relative; }
+    .afford-c {
+      display: inline-flex;
+      align-items: center;
+      vertical-align: middle;
+      margin-left: 4px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--coral);
+      background: var(--coral-soft);
+      border: 1px solid rgba(232, 90, 74, 0.25);
+      cursor: pointer;
+      transform: translateY(-1px);
+    }
+    .afford-c:hover { background: #f9e8e4; }
+    .on-dark .afford-c {
+      background: rgba(232, 90, 74, 0.15);
+      border-color: rgba(232, 90, 74, 0.35);
+      color: #fca89e;
+    }
+
+    /* ═══ D · 中性描边（适配任意站点）═══ */
+    .afford-d {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(26, 26, 20, 0.14);
+      background: color-mix(in srgb, var(--paper) 88%, transparent);
+      backdrop-filter: blur(10px) saturate(1.2);
+      font-size: 11px;
+      color: var(--ink-2);
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(20, 20, 15, 0.06);
+    }
+    .afford-d .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--coral);
+      box-shadow: 0 0 0 2px rgba(232, 90, 74, 0.2);
+    }
+    .afford-d:hover {
+      border-color: rgba(26, 26, 20, 0.22);
+      box-shadow: 0 4px 12px rgba(20, 20, 15, 0.1);
+    }
+    .on-dark .afford-d {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+      box-shadow: none;
+    }
+    .on-dark .afford-d:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.22);
+    }
+
+    .tag-rec {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--coral-soft);
+      color: var(--coral);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .compare-old {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+    }
+    .afford-old {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 8px;
+      border-radius: 7px;
+      background: var(--coral);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      box-shadow: 0 2px 10px rgba(20, 20, 15, 0.18);
+    }
+    .afford-old img {
+      width: 12px;
+      height: 12px;
+      background: #fff3;
+      border-radius: 2px;
+    }
+
+    footer {
+      padding: 16px 32px 32px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    code { font-family: var(--mono); font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>链接悬停按钮 · 4 套方案</h1>
+    <p>
+      把鼠标移到下方链接整行上，查看按钮出现效果。目标：不遮挡宿主页面文字、深色/浅色后台都能融入、珊瑚色只做小点缀。
+      打开方式：<code>open apps/extension/design/link-affordance-preview.html</code>
+    </p>
+  </header>
+
+  <div class="grid">
+    <!-- A -->
+    <article class="card">
+      <div class="card-head">
+        <h2>方案 A · 纸卡幽灵 <span class="tag-rec">推荐</span></h2>
+        <p>白/深色自适应 + 2px 珊瑚竖条 + AI 描边 pill。放在链接右侧，不盖住菜单字。</p>
+      </div>
+      <div class="preview">
+        <div class="mock-light">
+          <p class="row-label">浅色页</p>
+          <div class="link-row">
+            <a class="demo-link" href="#">查看 Discrepancy Details 文档</a>
+            <button type="button" class="affordance afford-a" title="TeamClaw">
+              <span class="ai-pill">AI</span> 问 Agent
+            </button>
+          </div>
+        </div>
+        <div class="mock-dark on-dark">
+          <p class="row-label" style="color:#64748b">深色侧栏（你截图的场景）</p>
+          <div class="nav-item">
+            <div class="link-row">
+              <a class="demo-link" href="#">Discrepancy Handling</a>
+              <button type="button" class="affordance afford-a">
+                <span class="ai-pill">AI</span> 问 Agent
+              </button>
+            </div>
+          </div>
+          <div class="nav-item active">
+            <div class="link-row">
+              <a class="demo-link" href="#">Discrepancy Details</a>
+              <button type="button" class="affordance afford-a">
+                <span class="ai-pill">AI</span> 问 Agent
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- B -->
+    <article class="card">
+      <div class="card-head">
+        <h2>方案 B · 图标锚点</h2>
+        <p>最小占位：圆角方块 + 珊瑚描边。悬停显示「问 Agent」tooltip，适合窄侧栏。</p>
+      </div>
+      <div class="preview">
+        <div class="mock-light">
+          <p class="row-label">浅色页</p>
+          <div class="link-row">
+            <a class="demo-link" href="#">Pending Approval Request</a>
+            <button type="button" class="affordance afford-b" aria-label="问 Agent">
+              <span class="tip">问 Agent</span>
+            </button>
+          </div>
+        </div>
+        <div class="mock-dark on-dark">
+          <p class="row-label" style="color:#64748b">深色侧栏</p>
+          <div class="nav-item">
+            <div class="link-row">
+              <a class="demo-link" href="#">Ticket Center</a>
+              <button type="button" class="affordance afford-b" aria-label="问 Agent">
+                <span class="tip">问 Agent</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- C -->
+    <article class="card">
+      <div class="card-head">
+        <h2>方案 C · 内联尾标</h2>
+        <p>紧贴链接末尾的小 chip，像脚注。几乎不浮动，但会占用链接行宽。</p>
+      </div>
+      <div class="preview">
+        <div class="mock-light">
+          <p class="row-label">浅色页</p>
+          <p style="font-size:14px;margin:0">
+            请阅读
+            <span class="afford-c-wrap link-row" style="display:inline">
+              <a class="demo-link" href="#">操作手册第三章</a>
+              <button type="button" class="affordance afford-c">AI</button>
+            </span>
+            后继续。
+          </p>
+        </div>
+        <div class="mock-dark on-dark">
+          <p class="row-label" style="color:#64748b">深色侧栏</p>
+          <div class="nav-item">
+            <span class="afford-c-wrap link-row" style="display:inline">
+              <a class="demo-link" href="#">Discrepancy Handling</a>
+              <button type="button" class="affordance afford-c">AI</button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- D -->
+    <article class="card">
+      <div class="card-head">
+        <h2>方案 D · 中性胶囊</h2>
+        <p>无大面积珊瑚底，仅小圆点作品牌点缀。最「安静」，适合企业后台。</p>
+      </div>
+      <div class="preview">
+        <div class="mock-light">
+          <p class="row-label">浅色页</p>
+          <div class="link-row">
+            <a class="demo-link" href="#">https://api.example.com/docs</a>
+            <button type="button" class="affordance afford-d">
+              <span class="dot"></span> TeamClaw
+            </button>
+          </div>
+        </div>
+        <div class="mock-dark on-dark">
+          <p class="row-label" style="color:#64748b">深色侧栏</p>
+          <div class="nav-item">
+            <div class="link-row">
+              <a class="demo-link" href="#">Configuration</a>
+              <button type="button" class="affordance afford-d">
+                <span class="dot"></span> TeamClaw
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- Old vs new -->
+    <article class="card" style="grid-column: 1 / -1; max-width: 520px;">
+      <div class="card-head">
+        <h2>现状 vs 方案 A</h2>
+        <p>当前实现：大块珊瑚底 + 占位图标，在深蓝菜单上对比过强且压住文字。</p>
+      </div>
+      <div class="preview mock-dark on-dark" style="min-height:auto">
+        <div class="nav-item">
+          <span style="opacity:.55;font-size:12px">现状（压字）</span>
+          <div style="margin-top:8px;position:relative;display:inline-block">
+            <span>Discrepancy Handling</span>
+            <span class="afford-old" style="position:absolute;left:0;top:0">
+              <img alt="" /> 问 Agent
+            </span>
+          </div>
+        </div>
+        <div class="compare-old">
+          <span style="opacity:.55;font-size:12px">方案 A（右侧，不挡字）</span>
+          <div class="nav-item" style="margin-top:8px;background:transparent">
+            <div class="link-row">
+              <a class="demo-link" href="#">Discrepancy Handling</a>
+              <button type="button" class="affordance afford-a" style="opacity:1;transform:none;pointer-events:auto">
+                <span class="ai-pill">AI</span> 问 Agent
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <footer>
+    交互说明：真实插件里按钮应定位在链接<strong>右上方外侧</strong>（<code>getBoundingClientRect().right + gap</code>），
+    并根据页面亮度切换 <code>on-dark</code> 样式（可读 <code>getComputedStyle</code> 或采样背景亮度）。
+  </footer>
+</body>
+</html>

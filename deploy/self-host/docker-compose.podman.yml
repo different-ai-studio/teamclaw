@@ -1,0 +1,116 @@
+# Podman / podman-compose compatibility overlay.
+#
+# podman-compose 1.x mishandles `depends_on.condition` (service_healthy /
+# service_completed_successfully): stale container IDs in the dependency graph
+# prevent downstream services from starting. This file replaces conditional
+# depends_on with simple ordering and stubs vector (log shipper — optional for
+# FC/auth/mqtt core paths; needs docker.sock which podman on macOS often can't
+# expose into the container the same way Docker Desktop does).
+#
+# Usage (always with the base compose):
+#   podman-compose --in-pod false -f docker-compose.yml -f docker-compose.podman.yml up -d
+# or: ./bootstrap/up.sh
+
+name: teamclaw-self-host
+
+services:
+  vector:
+    entrypoint: ["sh", "-c", "sleep infinity"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      timeout: 3s
+      retries: 1
+      start_period: 0s
+
+  db:
+    depends_on:
+      - vector
+
+  analytics:
+    depends_on:
+      - db
+
+  studio:
+    depends_on:
+      - analytics
+
+  kong:
+    depends_on:
+      - analytics
+
+  auth:
+    depends_on:
+      - db
+      - analytics
+
+  rest:
+    depends_on:
+      - db
+      - analytics
+
+  realtime:
+    depends_on:
+      - db
+      - analytics
+
+  storage:
+    depends_on:
+      - db
+      - rest
+      - imgproxy
+
+  meta:
+    depends_on:
+      - db
+      - analytics
+
+  functions:
+    depends_on:
+      - analytics
+
+  supavisor:
+    depends_on:
+      - db
+      - analytics
+
+  migrate:
+    depends_on:
+      - db
+      - auth
+      - storage
+
+  fc:
+    # No depends_on — podman-compose stores container dependency IDs that go stale
+    # after migrate exits; up.sh starts fc explicitly after migrate completes.
+    depends_on: []
+    # Expose FC directly for local podman dev when caddy TLS/port mapping is awkward.
+    ports:
+      - "9000:9000"
+
+  caddy:
+    depends_on: []
+
+  cron:
+    depends_on:
+      - fc
+
+  emqx:
+    # Podman machine default is 2GiB; Supabase alone can use ~1.5GiB. Belt-and-
+    # suspenders disable of SSL/WSS (also in emqx.conf) and a longer start_period
+    # so healthcheck does not mark the container unhealthy mid-boot.
+    environment:
+      EMQX_LISTENERS__SSL__DEFAULT__ENABLE: "false"
+      EMQX_LISTENERS__WSS__DEFAULT__ENABLE: "false"
+      EMQX_NODE__NAME: "emqx@127.0.0.1"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/emqx/bin/emqx ctl listeners list | grep -q '1883'"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+
+  amuxd:
+    depends_on:
+      - fc
+      - emqx

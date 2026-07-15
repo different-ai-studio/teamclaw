@@ -1,0 +1,18 @@
+import { defineConfig } from 'vitest/config'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const appLib = resolve(here, '../../packages/app/src/lib')
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@teamclaw/extension-link-hover': resolve(appLib, 'extension-link-hover/index.ts'),
+      '@teamclaw/extension-link-session': resolve(appLib, 'extension-link-session/index.ts'),
+    },
+  },
+  test: {
+    environment: 'node',
+  },
+})

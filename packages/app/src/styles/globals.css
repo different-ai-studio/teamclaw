@@ -1,0 +1,1020 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+    --radius: 0.625rem;
+
+    /* Direction B — Editorial Calm paper palette.
+       Spec: AGENTS.md §1. */
+    --background: #fbfaf7;
+    --foreground: #1a1a14;
+    --paper: #ffffff;
+    --panel: #efece4;
+    --selected: #e7e2d6;
+    --ink-2: #3d3c34;
+    --faint: #a8a6a0;
+
+    --card: #ffffff;
+    --card-foreground: #1a1a14;
+    --popover: #ffffff;
+    --popover-foreground: #1a1a14;
+    --primary: #1a1a14;
+    --primary-foreground: #fefdfa;
+    --secondary: #efece4;
+    --secondary-foreground: #1a1a14;
+    --muted: #efece4;
+    --muted-foreground: #75736a;
+    --accent: #e7e2d6;
+    --accent-foreground: #1a1a14;
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: rgba(26, 26, 20, 0.08);
+    --border-soft: rgba(26, 26, 20, 0.05);
+    --input: rgba(26, 26, 20, 0.08);
+    --ring: rgba(26, 26, 20, 0.18);
+    /* System accent — set at runtime by main.tsx from
+       NSColor.controlAccentColor on macOS. Falls back to --ring so existing
+       focus styles still work when the system value is unavailable
+       (Windows/Linux today, or non-Tauri context). */
+    --system-accent: var(--ring);
+
+    /* Brand coral — use sparingly. See AGENTS.md §1 "Where coral is allowed". */
+    --coral: #e85a4a;
+    --coral-soft: #f5d6cf;
+    --coral-foreground: #ffffff;
+
+    /* Type stacks: Chinese-first sans, JetBrains-leaning mono. */
+    --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC",
+        -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui,
+        sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas,
+        monospace;
+
+    --chart-1: oklch(0.646 0.222 41.116);
+    --chart-2: oklch(0.6 0.118 184.704);
+    --chart-3: oklch(0.398 0.07 227.392);
+    --chart-4: oklch(0.828 0.189 84.429);
+    --chart-5: oklch(0.769 0.188 70.08);
+    --sidebar: #efece4;
+    --sidebar-foreground: #1a1a14;
+    --sidebar-primary: #1a1a14;
+    --sidebar-primary-foreground: #fefdfa;
+    --sidebar-accent: #e7e2d6;
+    --sidebar-accent-foreground: #1a1a14;
+    --sidebar-border: rgba(26, 26, 20, 0.08);
+    --sidebar-ring: rgba(26, 26, 20, 0.18);
+}
+
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --paper: oklch(0.205 0 0);
+    --panel: oklch(0.205 0 0);
+    --selected: oklch(0.269 0 0);
+    --ink-2: oklch(0.85 0 0);
+    --faint: oklch(0.556 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.985 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --border-soft: oklch(1 0 0 / 6%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --system-accent: var(--ring);
+    --coral: #e85a4a;
+    --coral-soft: oklch(0.45 0.13 28);
+    --coral-foreground: #ffffff;
+    --chart-1: oklch(0.488 0.243 264.376);
+    --chart-2: oklch(0.696 0.17 162.48);
+    --chart-3: oklch(0.769 0.188 70.08);
+    --chart-4: oklch(0.627 0.265 303.9);
+    --chart-5: oklch(0.645 0.246 16.439);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* ---------------------------------------------------------------------------
+   Build flavor: "anodized teal" (阳极蓝绿) — opt-in via build config
+   (app.palette = "teal", e.g. BUILD_ENV=teal). Applied as data-palette="teal"
+   on <html> by the early script in index.html / main.tsx.
+
+   Four anchors from the spec: teal #0F6E62 (主色), bright #16998A (亮·交互),
+   chalk #F2F0EA (底), basalt #20242A (正文). teal-forward — primary/CTA is
+   teal, bright drives interaction/focus/links; the coral accent slot becomes
+   bright teal. Light-only by design: the selector outranks `.dark`
+   (`:root[data-palette]` = (0,1,1) beats `.dark` = (0,1,0)), so toggling dark
+   mode stays on the teal-light surface instead of breaking into a half-grey
+   state. No teal dark variant exists yet — that's intentional.
+   --------------------------------------------------------------------------- */
+:root[data-palette="teal"] {
+    --background: #f2f0ea;          /* chalk · 底 */
+    --foreground: #20242a;          /* basalt · 正文 */
+    --paper: #fafaf8;               /* card surface lifted above chalk */
+    --panel: #e5e6e1;              /* secondary surface / sidebar (cool pebble) */
+    --selected: #d8ddd7;           /* selected state, faint teal tint */
+    --ink-2: #4a4f55;              /* secondary text */
+    --faint: #9aa0a0;              /* tertiary text, cool gray */
+
+    --card: #fafaf8;
+    --card-foreground: #20242a;
+    --popover: #fafaf8;
+    --popover-foreground: #20242a;
+    --primary: #0f6e62;            /* teal · 主色 — primary buttons / CTA */
+    --primary-foreground: #f4f4ef;
+    --secondary: #e5e6e1;
+    --secondary-foreground: #20242a;
+    --muted: #e5e6e1;
+    --muted-foreground: #6b7076;
+    --accent: #d8ddd7;
+    --accent-foreground: #20242a;
+    /* --destructive kept out-of-palette (red), inherited from :root above. */
+    --border: rgba(32, 36, 42, 0.08);
+    --border-soft: rgba(32, 36, 42, 0.05);
+    --input: rgba(32, 36, 42, 0.08);
+    --ring: rgba(22, 153, 138, 0.4);   /* bright teal focus ring */
+    --system-accent: #16998a;          /* 亮·交互 */
+
+    /* The single accent slot — coral becomes bright teal here. */
+    --coral: #16998a;
+    --coral-soft: #cfe3df;
+    --coral-foreground: #ffffff;
+
+    /* --chart-* kept as-is (data viz, orthogonal to brand). */
+    --sidebar: #e5e6e1;
+    --sidebar-foreground: #20242a;
+    --sidebar-primary: #0f6e62;
+    --sidebar-primary-foreground: #f4f4ef;
+    --sidebar-accent: #d8ddd7;
+    --sidebar-accent-foreground: #20242a;
+    --sidebar-border: rgba(32, 36, 42, 0.08);
+    --sidebar-ring: rgba(22, 153, 138, 0.4);
+}
+
+@theme inline {
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+    --radius-2xl: calc(var(--radius) + 8px);
+    --radius-3xl: calc(var(--radius) + 12px);
+    --radius-4xl: calc(var(--radius) + 16px);
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-coral: var(--coral);
+    --color-coral-soft: var(--coral-soft);
+    --color-coral-foreground: var(--coral-foreground);
+    --color-paper: var(--paper);
+    --color-panel: var(--panel);
+    --color-selected: var(--selected);
+    --color-faint: var(--faint);
+    --color-ink-2: var(--ink-2);
+    --color-border-soft: var(--border-soft);
+    --font-sans: var(--font-sans);
+    --font-mono: var(--font-mono);
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+    body {
+        @apply bg-background text-foreground;
+        font-family: var(--font-sans);
+        font-feature-settings: "ss01", "cv11";
+        -webkit-font-smoothing: antialiased;
+    }
+    /* Default cursor on chrome controls — native AppKit / Win32 don't switch
+       to the pointer hand on buttons, rows, or menu items. The pointer cursor
+       on hoverable UI is the single strongest "this is a web app" tell. We
+       keep it on content links (.tiptap a, .tiptap .wiki-link below) where
+       NSAttributedString hyperlinks actually do show it. */
+    button,
+    a,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="option"],
+    [role="switch"],
+    [role="link"],
+    select,
+    summary,
+    input[type="checkbox"],
+    input[type="radio"],
+    label[for],
+    [onclick],
+    [tabindex]:not([tabindex="-1"]) {
+        cursor: default;
+    }
+    button:disabled,
+    [role="button"][aria-disabled="true"],
+    [disabled] {
+        cursor: not-allowed;
+    }
+}
+
+/* Base app styles */
+html,
+body,
+#root {
+    height: 100%;
+    overscroll-behavior: none;
+}
+
+html,
+body {
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Allow text selection in specific content areas */
+.selectable-text,
+.markdown-preview,
+.tiptap,
+[data-chat-messages],
+[data-chat-messages] *,
+pre,
+code,
+textarea,
+input,
+[contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* Focus styling is owned per-component (Input/Textarea via Tailwind
+   `focus-visible:ring-*`, cmdk via `outline-hidden`, etc.) rather than
+   imposed globally. The previous global outline+halo here felt heavy
+   inside popovers and small surfaces. */
+
+/* Honor system "Reduce motion" preference (macOS System Settings →
+   Accessibility → Display → Reduce motion; Windows Settings → Accessibility
+   → Visual effects → Animation effects). Native apps drop transitions when
+   this is on; users who enable it expect every app to respect it. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* Tauri window drag region support */
+[data-tauri-drag-region] {
+    -webkit-app-region: drag;
+}
+
+/* Prevent buttons and interactive elements from blocking drag */
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] [role="button"],
+[data-tauri-drag-region] .no-drag {
+    -webkit-app-region: no-drag;
+}
+
+/* Tiptap WYSIWYG editor styles */
+.tiptap {
+    line-height: 1.7;
+    color: var(--foreground);
+    outline: none;
+}
+
+.tiptap > *:first-child {
+    margin-top: 0;
+}
+
+.tiptap h1 {
+    font-size: 2em;
+    font-weight: 700;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3em;
+}
+
+.tiptap h2 {
+    font-size: 1.5em;
+    font-weight: 600;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3em;
+}
+
+.tiptap h3 {
+    font-size: 1.25em;
+    font-weight: 600;
+    margin-top: 1.25em;
+    margin-bottom: 0.5em;
+}
+
+.tiptap h4,
+.tiptap h5,
+.tiptap h6 {
+    font-size: 1em;
+    font-weight: 600;
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+}
+
+.tiptap p {
+    margin-top: 0.75em;
+    margin-bottom: 0.75em;
+}
+
+.tiptap ul,
+.tiptap ol {
+    margin-top: 0.75em;
+    margin-bottom: 0.75em;
+    padding-left: 1.5em;
+}
+
+.tiptap ul {
+    list-style-type: disc;
+}
+
+.tiptap ol {
+    list-style-type: decimal;
+}
+
+.tiptap li {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+}
+
+.tiptap li > ul,
+.tiptap li > ol {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+}
+
+.tiptap strong {
+    font-weight: 600;
+}
+
+.tiptap em {
+    font-style: italic;
+}
+
+.tiptap s {
+    text-decoration: line-through;
+    color: var(--muted-foreground);
+}
+
+.tiptap u {
+    text-decoration: underline;
+}
+
+.tiptap code {
+    font-family:
+        "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New",
+        monospace;
+    font-size: 0.875em;
+    background-color: var(--muted);
+    padding: 0.2em 0.4em;
+    border-radius: 0.25rem;
+}
+
+.tiptap pre {
+    margin-top: 1em;
+    margin-bottom: 1em;
+    padding: 1em;
+    background-color: var(--muted);
+    border-radius: 0.5rem;
+    overflow-x: auto;
+}
+
+.tiptap pre code {
+    background-color: transparent;
+    padding: 0;
+    font-size: 0.875em;
+    line-height: 1.5;
+}
+
+.tiptap blockquote {
+    margin-top: 1em;
+    margin-bottom: 1em;
+    padding-left: 1em;
+    border-left: 4px solid var(--border);
+    color: var(--muted-foreground);
+    font-style: italic;
+}
+
+.tiptap a {
+    color: oklch(0.546 0.245 262.881);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.tiptap a:hover {
+    color: oklch(0.488 0.243 264.376);
+}
+
+/* Wiki links */
+.tiptap .wiki-link {
+    color: var(--primary);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    cursor: pointer;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+.tiptap .wiki-link:hover {
+    text-decoration-style: solid;
+    background-color: var(--primary-foreground);
+}
+.tiptap .wiki-link--unresolved {
+    color: var(--muted-foreground);
+    text-decoration-style: dashed;
+    opacity: 0.6;
+}
+
+.tiptap hr {
+    margin-top: 2em;
+    margin-bottom: 2em;
+    border: 0;
+    border-top: 1px solid var(--border);
+}
+
+.tiptap img {
+    max-width: 100%;
+    height: auto;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    border-radius: 0.5rem;
+    transition: box-shadow 0.15s ease;
+}
+
+.tiptap img.ProseMirror-selectednode {
+    outline: 3px solid oklch(0.546 0.245 262.881);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+}
+
+/* Task list styles */
+.tiptap ul[data-type="taskList"] {
+    list-style-type: none;
+    padding-left: 0;
+}
+
+.tiptap ul[data-type="taskList"] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+}
+
+.tiptap ul[data-type="taskList"] li > label {
+    flex-shrink: 0;
+    margin-top: 0.25em;
+}
+
+.tiptap ul[data-type="taskList"] li > div {
+    flex: 1;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    color: var(--muted-foreground);
+    pointer-events: none;
+    height: 0;
+}
+
+/* Composer input chips — remove button expands in on hover */
+.composer-chip,
+.member-chip {
+    vertical-align: middle;
+    line-height: 1;
+}
+
+.composer-chip {
+    transition: padding-right 160ms ease-out;
+}
+
+.composer-chip .composer-chip-remove-slot {
+    display: inline-flex;
+    overflow: hidden;
+    flex-shrink: 0;
+    max-width: 0;
+    opacity: 0;
+    margin-left: 0;
+    pointer-events: none;
+    transition:
+        max-width 160ms ease-out,
+        opacity 140ms ease-out,
+        margin-left 160ms ease-out;
+}
+
+.composer-chip:hover .composer-chip-remove-slot,
+.composer-chip:focus-within .composer-chip-remove-slot {
+    max-width: 16px;
+    opacity: 1;
+    margin-left: 2px;
+    pointer-events: auto;
+}
+
+.composer-chip:hover,
+.composer-chip:focus-within {
+    padding-right: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .composer-chip,
+    .composer-chip .composer-chip-remove-slot {
+        transition: none;
+    }
+}
+
+.message-inline-chip {
+    vertical-align: middle;
+}
+
+.human-mention-inline {
+    line-height: 1.35;
+    overflow: visible;
+}
+
+.composer-chip.human-mention-inline,
+.member-chip.human-mention-inline {
+    line-height: 1.35;
+    overflow: visible;
+}
+
+/* Agent highlight styles — decorations for agent-modified text */
+.agent-highlight {
+    background-color: rgba(74, 222, 128, 0.3);
+    border-radius: 2px;
+    transition: background-color 0.5s ease-out;
+}
+
+.dark .agent-highlight {
+    background-color: rgba(74, 222, 128, 0.2);
+}
+
+.agent-highlight-fading {
+    background-color: rgba(74, 222, 128, 0.1);
+}
+
+.dark .agent-highlight-fading {
+    background-color: rgba(74, 222, 128, 0.05);
+}
+
+/* Tiptap search & replace highlight styles */
+.tiptap-search-match {
+    background-color: color-mix(in oklch, var(--primary) 25%, transparent);
+    border-radius: 2px;
+}
+
+.tiptap-search-active {
+    background-color: color-mix(in oklch, var(--primary) 55%, transparent);
+    border-radius: 2px;
+    outline: 1.5px solid var(--primary);
+}
+
+/* Tiptap table styles */
+.tiptap-table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    overflow: hidden;
+}
+
+.tiptap-table td,
+.tiptap-table th {
+    border: 1px solid var(--border);
+    padding: 0.5em 0.75em;
+    vertical-align: top;
+    position: relative;
+    min-width: 80px;
+}
+
+.tiptap-table th {
+    font-weight: 600;
+    background-color: hsl(var(--muted));
+    text-align: left;
+}
+
+.tiptap-table tr:hover td {
+    background-color: hsl(var(--muted) / 0.4);
+}
+
+.dark .tiptap-table td,
+.dark .tiptap-table th {
+    border-color: hsl(var(--border));
+}
+
+/* Table cell selection (ProseMirror adds .selectedCell) */
+.tiptap-table .selectedCell {
+    background-color: hsl(var(--primary) / 0.12);
+}
+
+.dark .tiptap-table .selectedCell {
+    background-color: hsl(var(--primary) / 0.18);
+}
+
+/* Column/row resize handle */
+.tiptap-table .column-resize-handle {
+    position: absolute;
+    right: -2px;
+    top: 0;
+    bottom: -2px;
+    width: 4px;
+    background-color: hsl(var(--primary));
+    pointer-events: none;
+}
+
+/* Markdown preview styles */
+.markdown-preview {
+    line-height: 1.7;
+    color: var(--foreground);
+}
+
+.markdown-preview h1 {
+    font-size: 2em;
+    font-weight: 700;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3em;
+}
+
+.markdown-preview h2 {
+    font-size: 1.5em;
+    font-weight: 600;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3em;
+}
+
+.markdown-preview h3 {
+    font-size: 1.25em;
+    font-weight: 600;
+    margin-top: 1.25em;
+    margin-bottom: 0.5em;
+}
+
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+    font-size: 1em;
+    font-weight: 600;
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+}
+
+.markdown-preview p {
+    margin-top: 0.75em;
+    margin-bottom: 0.75em;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+    margin-top: 0.75em;
+    margin-bottom: 0.75em;
+    padding-left: 1.5em;
+}
+
+.markdown-preview ul {
+    list-style-type: disc;
+}
+
+.markdown-preview ol {
+    list-style-type: decimal;
+}
+
+.markdown-preview li {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+}
+
+.markdown-preview li > ul,
+.markdown-preview li > ol {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+}
+
+.markdown-preview code {
+    font-family:
+        "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New",
+        monospace;
+    font-size: 0.875em;
+    background-color: var(--muted);
+    padding: 0.2em 0.4em;
+    border-radius: 0.25rem;
+}
+
+.markdown-preview pre {
+    margin-top: 1em;
+    margin-bottom: 1em;
+    padding: 1em;
+    background-color: var(--muted);
+    border-radius: 0.5rem;
+    overflow-x: auto;
+}
+
+.markdown-preview pre code {
+    background-color: transparent;
+    padding: 0;
+    font-size: 0.875em;
+    line-height: 1.5;
+}
+
+.markdown-preview blockquote {
+    margin-top: 1em;
+}
+
+/* Git gutter decorations for Monaco Editor */
+/* Monaco Editor applies glyphMarginClassName to elements in the glyph margin */
+/* The element is created in the .glyph-margin-widgets container (not .monaco-glyph-margin) */
+
+/* Target the glyph margin element directly - Monaco uses .glyph-margin-widgets */
+/* These elements are positioned absolutely within the glyph margin, so we need to ensure they have height */
+.monaco-editor .glyph-margin-widgets .git-gutter-added,
+.monaco-editor .glyph-margin-widgets .git-gutter-deleted,
+.monaco-editor .glyph-margin-widgets .git-gutter-modified {
+    position: absolute !important;
+    left: 0 !important;
+    width: 3px !important;
+    height: 100% !important;
+    min-height: 1em !important;
+    background-color: transparent !important;
+    pointer-events: none !important;
+}
+
+/* Use the element itself as the colored bar (simpler than ::before) */
+.monaco-editor .glyph-margin-widgets .git-gutter-added {
+    background-color: #22c55e !important;
+}
+
+.monaco-editor .glyph-margin-widgets .git-gutter-deleted {
+    background-color: #ef4444 !important;
+}
+
+.monaco-editor .glyph-margin-widgets .git-gutter-modified {
+    background-color: #eab308 !important;
+}
+
+/* Fallback: also style elements without the glyph-margin-widgets parent */
+.monaco-editor .git-gutter-added,
+.monaco-editor .git-gutter-deleted,
+.monaco-editor .git-gutter-modified {
+    position: absolute !important;
+    left: 0 !important;
+    width: 3px !important;
+    height: 100% !important;
+    min-height: 1em !important;
+    display: block !important;
+    pointer-events: none !important;
+}
+
+.monaco-editor .git-gutter-added {
+    background-color: #22c55e !important;
+}
+
+.monaco-editor .git-gutter-deleted {
+    background-color: #ef4444 !important;
+}
+
+.monaco-editor .git-gutter-modified {
+    background-color: #eab308 !important;
+}
+
+/* Dark mode adjustments */
+.dark .monaco-editor .glyph-margin-widgets .git-gutter-added,
+.dark .monaco-editor .git-gutter-added {
+    background-color: #16a34a !important;
+}
+
+.dark .monaco-editor .glyph-margin-widgets .git-gutter-deleted,
+.dark .monaco-editor .git-gutter-deleted {
+    background-color: #dc2626 !important;
+}
+
+.dark .monaco-editor .glyph-margin-widgets .git-gutter-modified,
+.dark .monaco-editor .git-gutter-modified {
+    background-color: #ca8a04 !important;
+}
+
+.markdown-preview blockquote {
+    margin-top: 1em;
+    margin-bottom: 1em;
+    padding-left: 1em;
+    border-left: 4px solid var(--border);
+    color: var(--muted-foreground);
+    font-style: italic;
+}
+
+.markdown-preview a {
+    color: oklch(0.546 0.245 262.881);
+    text-decoration: underline;
+}
+
+.markdown-preview a:hover {
+    color: oklch(0.488 0.243 264.376);
+}
+
+.markdown-preview hr {
+    margin-top: 2em;
+    margin-bottom: 2em;
+    border: 0;
+    border-top: 1px solid var(--border);
+}
+
+.markdown-preview table {
+    width: 100%;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    border-collapse: collapse;
+    font-size: 0.875em;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+    padding: 0.5em 1em;
+    border: 1px solid var(--border);
+    text-align: left;
+}
+
+.markdown-preview th {
+    background-color: var(--muted);
+    font-weight: 600;
+}
+
+.markdown-preview tr:nth-child(even) {
+    background-color: var(--muted);
+}
+
+.markdown-preview img {
+    max-width: 100%;
+    height: auto;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    border-radius: 0.5rem;
+}
+
+/* Task list styles */
+.markdown-preview input[type="checkbox"] {
+    margin-right: 0.5em;
+}
+
+.markdown-preview strong {
+    font-weight: 600;
+}
+
+.markdown-preview em {
+    font-style: italic;
+}
+
+.markdown-preview del {
+    text-decoration: line-through;
+    color: var(--muted-foreground);
+}
+
+/* Lobster splash — body breathes, claws wave outward in sync (ported from iOS LobsterSplashView).
+   Anchor points 39%/61% × 70% match the wrists in the 1024×1024 source art. */
+@keyframes lobster-body-breathe {
+    from { transform: scale(1); }
+    to { transform: scale(1.035); }
+}
+@keyframes lobster-left-claw {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(-8deg); }
+}
+@keyframes lobster-right-claw {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(8deg); }
+}
+.lobster-body { animation: lobster-body-breathe 0.95s ease-in-out infinite alternate; }
+.lobster-left-claw {
+    transform-origin: 39% 70%;
+    animation: lobster-left-claw 0.95s ease-in-out infinite alternate;
+}
+.lobster-right-claw {
+    transform-origin: 61% 70%;
+    animation: lobster-right-claw 0.95s ease-in-out infinite alternate;
+}
+
+/* Shimmer text animation - Cursor-style light sweep effect */
+@keyframes shimmer-sweep {
+    0% {
+        background-position: -200% center;
+    }
+    100% {
+        background-position: 200% center;
+    }
+}
+
+.shimmer-text {
+    background: linear-gradient(
+        90deg,
+        var(--muted-foreground) 0%,
+        var(--muted-foreground) 35%,
+        var(--foreground) 50%,
+        var(--muted-foreground) 65%,
+        var(--muted-foreground) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer-sweep 2.5s ease-in-out infinite;
+}
+
+/* Bouncing dots while waiting for the next ACP stream event */
+@keyframes stream-loading-dot {
+    0%,
+    60%,
+    100% {
+        opacity: 0.35;
+        transform: translateY(0);
+    }
+    30% {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+}
+
+.stream-loading-dot {
+    animation: stream-loading-dot 1s ease-in-out infinite;
+}
+
+/* Terminal-style block caret — sharp on/off blink */
+@keyframes terminal-caret-blink {
+    0%,
+    49% {
+        opacity: 1;
+    }
+    50%,
+    100% {
+        opacity: 0;
+    }
+}
+
+.terminal-caret {
+    display: inline-block;
+    width: 3px;
+    height: 1.05em;
+    flex-shrink: 0;
+    margin-left: 3px;
+    border-radius: 1px;
+    background-color: var(--coral);
+    animation: terminal-caret-blink 1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .terminal-caret {
+        animation: none;
+        opacity: 1;
+    }
+}

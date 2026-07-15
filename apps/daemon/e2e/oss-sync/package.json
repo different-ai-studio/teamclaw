@@ -1,0 +1,12 @@
+{
+  "name": "amuxd-oss-sync-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --env-file=.env.local --test 'tests/*.test.mjs'",
+    "test:unit": "node --test 'tests/unit-*.test.mjs'",
+    "test:scenarios": "node --env-file=.env.local --test 'tests/[0-9][0-9]-*.test.mjs'",
+    "test:one": "node --env-file=.env.local --test"
+  },
+  "engines": { "node": ">=20.6" }
+}

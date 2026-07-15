@@ -1,0 +1,30 @@
+{
+  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
+  "team": {
+    "lockLlmConfig": false
+  },
+  "app": {
+    "name": "TeamClaw Dev",
+    "shortName": "teamclawdev",
+    "palette": "default"
+  },
+  "features": {
+    "updater": false,
+    "channels": {
+      "discord": true,
+      "feishu": true,
+      "email": true,
+      "kook": true,
+      "wecom": true,
+      "wechat": true
+    },
+    "auth": { "google": false, "wechat": false, "phone": false },
+    "teamShareBrowser": true
+  },
+  "opencode": {
+    "downloadBase": "https://teamclaw.ucar.cc/opencode/stable"
+  },
+  "defaults": {
+    "theme": "system"
+  }
+}

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-element-value"
+description = "Enables the set_element_value command without any pre-configured scope."
+commands.allow = ["set_element_value"]
+
+[[permission]]
+identifier = "deny-set-element-value"
+description = "Denies the set_element_value command without any pre-configured scope."
+commands.deny = ["set_element_value"]

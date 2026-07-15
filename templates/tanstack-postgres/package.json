@@ -1,0 +1,24 @@
+{
+  "name": "teamclaw-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "start": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.168.0",
+    "@tanstack/react-start": "^1.168.0",
+    "postgres": "^3.4.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tanstack/nitro-v2-vite-plugin": "^1.155.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0",
+    "vite-tsconfig-paths": "^5.1.4"
+  }
+}

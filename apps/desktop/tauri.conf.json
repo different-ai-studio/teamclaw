@@ -1,0 +1,88 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TeamClaw",
+  "version": "0.2.24",
+  "identifier": "com.teamclaw.app",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @teamclaw/app dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm --filter @teamclaw/app build",
+    "frontendDist": "../../packages/app/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "TeamClaw",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "visible": true,
+        "dragDropEnabled": true,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "alwaysOnTop": false,
+        "skipTaskbar": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/**",
+          "/**"
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "teamclaw"
+        ]
+      }
+    },
+    "shell": {
+      "open": true
+    },
+    "fs": {
+      "requireLiteralLeadingDot": false
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFEMDg3REY5MEI2RDAyMzMKUldRekFtMEwrWDBJSFhTdHYvbStkclEvTEVRNFlpZExxSHNTSTA2V2ZHS0xPUEZ4WnF5d2RxQ0gK",
+      "endpoints": [
+        "https://github.com/different-ai-studio/teamclaw-next/releases/latest/download/latest.json"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "entitlements": "./Entitlements.plist"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/teamclaw-introspect",
+      "binaries/amuxd"
+    ],
+    "resources": [
+      "binaries/teamclaw-askpass.sh"
+    ]
+  }
+}

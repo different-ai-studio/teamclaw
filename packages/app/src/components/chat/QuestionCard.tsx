@@ -1,0 +1,220 @@
+import * as React from 'react'
+import { useTranslation } from 'react-i18next'
+import { HelpCircle, Check, ChevronRight, Send } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { useSessionStore } from '@/stores/session'
+import type { Question } from '@/stores/session-types'
+
+interface QuestionCardProps {
+  toolCallId: string
+  questions?: Question[] | unknown
+  isCompleted?: boolean
+}
+
+export const QuestionCard = React.memo(function QuestionCard({ toolCallId, questions, isCompleted }: QuestionCardProps) {
+  const { t } = useTranslation()
+  const questionList = Array.isArray(questions) ? (questions as Question[]) : []
+  const pendingQuestions = useSessionStore(s => s.pendingQuestions)
+  const pendingQuestion = pendingQuestions.find(q => q.toolCallId === toolCallId)
+  const answerQuestion = useSessionStore(s => s.answerQuestion)
+  const [answers, setAnswers] = React.useState<Record<string, string>>({})
+  const [customInputs, setCustomInputs] = React.useState<Record<string, string>>({})
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [hasSubmitted, setHasSubmitted] = React.useState(false)
+
+  const isPending = !!pendingQuestion
+  // questionId arrives via question.asked SSE event (may lag behind tool executing event)
+  const hasQuestionId = !!pendingQuestion?.questionId
+  // Show as waiting for completion if submitted but not yet completed
+  const isWaitingForCompletion = hasSubmitted && !isCompleted
+
+  const handleOptionSelect = (questionIndex: number, option: string) => {
+    const questionId = questionList[questionIndex]?.id || String(questionIndex)
+    setAnswers(prev => ({ ...prev, [questionId]: option }))
+  }
+
+  const handleCustomInput = (questionIndex: number, value: string) => {
+    const questionId = questionList[questionIndex]?.id || String(questionIndex)
+    setCustomInputs(prev => ({ ...prev, [questionId]: value }))
+  }
+
+  const handleSubmit = async () => {
+    // Merge selected options with custom inputs (custom input takes precedence if filled)
+    const finalAnswers: Record<string, string> = {}
+    questionList.forEach((q, idx) => {
+      const questionId = q.id || String(idx)
+      const customInput = customInputs[questionId]?.trim()
+      if (customInput) {
+        finalAnswers[questionId] = customInput
+      } else if (answers[questionId]) {
+        finalAnswers[questionId] = answers[questionId]
+      }
+    })
+
+    if (Object.keys(finalAnswers).length === 0) return
+
+    setIsSubmitting(true)
+    try {
+      await answerQuestion(finalAnswers, pendingQuestion?.questionId)
+      setHasSubmitted(true)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const hasAllAnswers =
+    questionList.length > 0 &&
+    questionList.every((q, idx) => {
+      const questionId = q.id || String(idx)
+      return answers[questionId] || customInputs[questionId]?.trim()
+    })
+  
+  // Determine if we should show the interactive UI (options to select)
+  const showInteractiveUI = isPending && !hasSubmitted
+
+  return (
+    <div data-testid="question-card" className="rounded-xl border border-border/80 bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-3 bg-muted/20 border-b border-border/50">
+        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">
+          {t('chat.toolCall.question.title', 'Question')}
+        </span>
+        {isCompleted && (
+          <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1">
+            <Check className="h-3 w-3 text-foreground/60" />
+            {t('chat.toolCall.question.answered', 'Answered')}
+          </span>
+        )}
+        {isWaitingForCompletion && (
+          <span className="ml-auto text-xs text-muted-foreground animate-pulse">
+            {t('chat.toolCall.question.processingAnswer', 'Processing answer...')}
+          </span>
+        )}
+        {isPending && !hasSubmitted && (
+          <span className="ml-auto text-xs text-muted-foreground animate-pulse">
+            {t('chat.toolCall.question.waitingForResponse', 'Waiting for response...')}
+          </span>
+        )}
+      </div>
+
+      {/* Questions */}
+      <div className="px-4 py-3 space-y-4 bg-background/20">
+        {questionList.map((question, qIndex) => {
+          const questionId = question.id || String(qIndex)
+          const selectedOption = answers[questionId]
+          const customInput = customInputs[questionId] || ''
+
+          return (
+            <div key={questionId} className="space-y-1.5">
+              {/* Question header and text */}
+              {question.header && (
+                <div className="text-sm font-medium text-foreground">
+                  {question.header}
+                </div>
+              )}
+              <div className="text-sm text-muted-foreground mb-2">
+                {question.question}
+              </div>
+
+              {/* Options */}
+              {showInteractiveUI && question.options && question.options.length > 0 &&
+                question.options.map((option: any, optIndex: number) => {
+                  const optionValue = option.value || option.label
+                  const isSelected = selectedOption === optionValue
+
+                  return (
+                    <button
+                      key={optIndex}
+                      onClick={() => handleOptionSelect(qIndex, optionValue)}
+                      className={cn(
+                        'w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md border text-left transition-all',
+                        isSelected
+                          ? 'border-foreground/20 bg-muted/40 text-foreground'
+                          : 'border-border/70 hover:border-foreground/15 hover:bg-muted/25'
+                      )}
+                      disabled={isCompleted || isSubmitting}
+                    >
+                      <div
+                        className={cn(
+                          'flex-shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors',
+                          isSelected
+                            ? 'border-foreground/60 bg-foreground/10'
+                            : 'border-muted-foreground/50'
+                        )}
+                      >
+                        {isSelected && <Check className="h-2.5 w-2.5 text-foreground" />}
+                      </div>
+                      <span className="text-sm flex-1">{option.label}</span>
+                      <ChevronRight
+                        className={cn(
+                          'h-3.5 w-3.5 transition-opacity',
+                          isSelected ? 'opacity-100 text-foreground/70' : 'opacity-0'
+                        )}
+                      />
+                    </button>
+                  )
+                })
+              }
+
+              {/* Text input - always shown when interactive */}
+              {showInteractiveUI && (
+                <div className="pt-1">
+                  <Input
+                    type="text"
+                    placeholder={
+                      question.options?.length
+                        ? t('chat.toolCall.question.customAnswerPlaceholder', 'Or type a custom answer...')
+                        : t('chat.toolCall.question.answerPlaceholder', 'Type your answer...')
+                    }
+                    value={customInput}
+                    onChange={(e) => handleCustomInput(qIndex, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && hasAllAnswers) {
+                        e.preventDefault()
+                        handleSubmit()
+                      }
+                    }}
+                    disabled={isCompleted || isSubmitting}
+                    className="text-sm"
+                  />
+                </div>
+              )}
+
+              {/* Show selected answer for completed or submitted questions */}
+              {(isCompleted || isWaitingForCompletion) && (selectedOption || customInput) && (
+                <div className="px-4 py-2 rounded-lg bg-muted/30 text-sm">
+                  <span className="text-muted-foreground">
+                    {t('chat.toolCall.question.answerLabel', 'Answer: ')}
+                  </span>
+                  <span className="font-medium">{customInput || selectedOption}</span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Submit button */}
+      {showInteractiveUI && (
+        <div className="px-4 pb-3">
+          <Button
+            onClick={handleSubmit}
+            disabled={!hasAllAnswers || isSubmitting || !hasQuestionId}
+            className="w-full gap-2"
+            size="sm"
+          >
+            <Send className="h-3.5 w-3.5" />
+            {isSubmitting
+              ? t('chat.toolCall.question.submitting', 'Submitting...')
+              : !hasQuestionId
+                ? t('chat.toolCall.question.preparing', 'Preparing...')
+                : t('chat.toolCall.question.submitAnswer', 'Submit Answer')}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+});

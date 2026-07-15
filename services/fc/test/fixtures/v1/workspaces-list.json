@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "teamId": "00000000-0000-0000-0000-000000000010",
+      "name": "Alpha",
+      "slug": null,
+      "archived": false,
+      "metadata": null,
+      "createdAt": "2026-05-01T00:00:00Z",
+      "updatedAt": "2026-05-01T00:00:00Z"
+    }
+  ],
+  "nextCursor": null
+}

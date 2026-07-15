@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>审批嵌入 Streaming Bar — UI 原型</title>
+  <style>
+    /* Editorial Calm tokens (AGENTS.md) */
+    :root {
+      --background: #fbfaf7;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --foreground: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --bar-radius: 14px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--background);
+      color: var(--foreground);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .demo-header {
+      padding: 20px 24px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--paper);
+    }
+
+    .demo-header h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .demo-header p {
+      margin-top: 6px;
+      font-size: 12.5px;
+      color: var(--muted-foreground);
+      line-height: 1.55;
+      max-width: 52rem;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .controls button {
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--ink-2);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .controls button:hover { background: #e7e2d6; }
+    .controls button.is-active {
+      background: var(--foreground);
+      color: #fefdfa;
+      border-color: var(--foreground);
+    }
+
+    .stage {
+      flex: 1;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 32px 20px 48px;
+      background:
+        linear-gradient(180deg, transparent 0%, rgba(26, 26, 20, 0.03) 100%),
+        var(--background);
+    }
+
+    .composer-wrap {
+      width: min(100%, 42rem);
+    }
+
+    .stream-shell {
+      margin-bottom: 10px;
+      border-radius: var(--bar-radius);
+      border: 1px solid var(--border);
+      background: var(--paper);
+      box-shadow: 0 4px 20px -12px rgba(20, 20, 15, 0.12);
+      overflow: hidden;
+      transition:
+        box-shadow 0.35s var(--ease),
+        border-color 0.35s var(--ease);
+    }
+
+    .stream-shell.has-approval {
+      border-color: rgba(232, 90, 74, 0.22);
+      box-shadow:
+        0 4px 24px -10px rgba(232, 90, 74, 0.15),
+        0 0 0 1px rgba(232, 90, 74, 0.06);
+    }
+
+    .approval-slot {
+      display: grid;
+      transition: grid-template-rows 0.42s var(--ease);
+    }
+
+    .approval-slot[data-open="false"] { grid-template-rows: 0fr; }
+    .approval-slot[data-open="true"] { grid-template-rows: 1fr; }
+
+    .approval-inner {
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .approval-panel {
+      border-top: 1px solid var(--border-soft);
+      background: linear-gradient(180deg, #fffdfb 0%, var(--paper) 100%);
+      padding: 12px 14px 14px;
+      opacity: 0;
+      transform: translateY(6px);
+      transition:
+        opacity 0.32s var(--ease) 0.06s,
+        transform 0.38s var(--ease) 0.04s;
+    }
+
+    .approval-slot[data-open="true"] .approval-panel {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .approval-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .approval-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--coral);
+    }
+
+    .approval-badge::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--coral);
+      animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+
+    .queue-pager {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--faint);
+    }
+
+    .queue-pager strong { color: var(--ink-2); font-weight: 600; }
+
+    .approval-body {
+      display: grid;
+      grid-template-columns: 32px 1fr auto;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .perm-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--background);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--muted-foreground);
+    }
+
+    .perm-copy h3 {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+
+    .perm-copy .cmd {
+      margin-top: 4px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      word-break: break-all;
+    }
+
+    .perm-copy .sub {
+      margin-top: 3px;
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    .perm-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 88px;
+    }
+
+    .btn {
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      color: var(--ink-2);
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--coral);
+      border-color: var(--coral);
+      color: #fff;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: transparent;
+      color: var(--muted-foreground);
+      font-weight: 500;
+    }
+
+    .agent-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      min-height: 40px;
+    }
+
+    .avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: #c45c4a;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .agent-meta {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .agent-name { font-size: 12.5px; font-weight: 600; }
+
+    .agent-status {
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    .shimmer {
+      background: linear-gradient(90deg, var(--faint) 0%, #d4d2cb 50%, var(--faint) 100%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: shimmer 1.8s linear infinite;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--muted-foreground);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .stop-btn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 8px;
+      background: var(--coral-soft);
+      color: var(--coral);
+      cursor: pointer;
+    }
+
+    .composer {
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      box-shadow: 0 4px 16px -10px rgba(20, 20, 15, 0.1);
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 72px;
+      border: none;
+      padding: 14px 16px;
+      font-family: inherit;
+      font-size: 13.5px;
+      background: transparent;
+      outline: none;
+    }
+
+    .composer-footer {
+      padding: 8px 12px 10px;
+      border-top: 1px solid var(--border-soft);
+      font-size: 11px;
+      color: var(--faint);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .legend {
+      margin-top: 20px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: var(--paper);
+      border: 1px dashed var(--border);
+      font-size: 11.5px;
+      color: var(--muted-foreground);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <header class="demo-header">
+    <h1>审批卡片 × Streaming Bar — 交互原型</h1>
+    <p>审批出现时外壳增高；多条 FIFO 分页。用顶部按钮切换状态，点「允许」可模拟处理下一条。</p>
+    <div class="controls">
+      <button type="button" data-state="streaming" class="is-active">仅输出中</button>
+      <button type="button" data-state="approval-1">输出 + 1 条审批</button>
+      <button type="button" data-state="approval-3">输出 + 3 条排队</button>
+      <button type="button" data-state="hidden">无 bar</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="composer-wrap">
+      <div id="streamShell" class="stream-shell">
+        <div id="approvalSlot" class="approval-slot" data-open="false" aria-hidden="true">
+          <div class="approval-inner">
+            <section class="approval-panel">
+              <div class="approval-head">
+                <span class="approval-badge">等待审批</span>
+                <span id="queuePager" class="queue-pager" hidden></span>
+              </div>
+              <div class="approval-body">
+                <div class="perm-icon" id="permIcon">&gt;</div>
+                <div class="perm-copy">
+                  <h3 id="permTitle">Bash · 请求执行命令</h3>
+                  <p class="cmd" id="permDetail">ps aux | head -20</p>
+                  <p class="sub" id="permSub">来自 Bash 工具调用</p>
+                </div>
+                <div class="perm-actions">
+                  <button type="button" class="btn btn-primary" id="btnAllow">允许</button>
+                  <button type="button" class="btn" id="btnAlways">总是允许</button>
+                  <button type="button" class="btn btn-ghost" id="btnDeny">拒绝</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="agent-row">
+          <span class="avatar">M</span>
+          <div class="agent-meta">
+            <span class="agent-name">MACMINI</span>
+            <span class="agent-status" id="agentStatus"><span class="shimmer">正在输出…</span></span>
+          </div>
+          <span class="spinner"></span>
+          <button type="button" class="stop-btn">■</button>
+        </div>
+      </div>
+      <div class="composer">
+        <textarea placeholder="输入消息排队发送…" readonly></textarea>
+        <div class="composer-footer"><span>+ 附件</span><span>⌘↵ 发送</span></div>
+      </div>
+      <div class="legend"><strong>实现提示</strong>：合并 StreamingAgentsBar + PendingPermissionInline；按 actorId 匹配审批与 bar；grid 0fr→1fr 撑高。</div>
+    </div>
+  </main>
+  <script>
+    const QUEUE = [
+      { icon: ">", title: "Bash · 请求执行命令", detail: "ps aux | head -20", sub: "来自 Bash 工具调用" },
+      { icon: "✎", title: "Write · 请求写入文件", detail: "packages/app/src/lib/foo.ts", sub: "来自 Write 工具调用" },
+      { icon: "⚡", title: "Skill · 请求运行技能", detail: "caveman", sub: "来自 Skill 工具调用" },
+    ];
+    let queueIndex = 0, queueTotal = 0;
+    const slot = document.getElementById("approvalSlot");
+    const shell = document.getElementById("streamShell");
+    const pager = document.getElementById("queuePager");
+    const agentStatus = document.getElementById("agentStatus");
+
+    function renderQueueItem() {
+      const item = QUEUE[queueIndex];
+      document.getElementById("permIcon").textContent = item.icon;
+      document.getElementById("permTitle").textContent = item.title;
+      document.getElementById("permDetail").textContent = item.detail;
+      document.getElementById("permSub").textContent = item.sub;
+      pager.hidden = queueTotal <= 1;
+      if (queueTotal > 1) pager.innerHTML = `第 <strong>${queueIndex + 1}</strong> / ${queueTotal} 条`;
+    }
+
+    function applyState(next) {
+      document.querySelectorAll(".controls button").forEach((b) => b.classList.toggle("is-active", b.dataset.state === next));
+      shell.style.display = next === "hidden" ? "none" : "";
+      const has = next.startsWith("approval");
+      shell.classList.toggle("has-approval", has);
+      slot.dataset.open = has ? "true" : "false";
+      slot.setAttribute("aria-hidden", has ? "false" : "true");
+      queueTotal = next === "approval-3" ? 3 : next === "approval-1" ? 1 : 0;
+      queueIndex = 0;
+      if (has) { renderQueueItem(); agentStatus.innerHTML = '<span class="shimmer">等待你审批后继续…</span>'; }
+      else { agentStatus.innerHTML = '<span class="shimmer">正在输出…</span>'; }
+    }
+
+    document.querySelectorAll(".controls button").forEach((b) => b.addEventListener("click", () => applyState(b.dataset.state)));
+    function advance() {
+      if (queueTotal <= 1 || queueIndex >= queueTotal - 1) { applyState("streaming"); return; }
+      queueIndex++;
+      slot.dataset.open = "false";
+      setTimeout(() => { renderQueueItem(); slot.dataset.open = "true"; }, 200);
+    }
+    ["btnAllow", "btnAlways", "btnDeny"].forEach((id) => document.getElementById(id).addEventListener("click", advance));
+    applyState("streaming");
+  </script>
+</body>
+</html>

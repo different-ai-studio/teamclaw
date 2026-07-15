@@ -1,0 +1,523 @@
+import Foundation
+import Testing
+@testable import AMUXCore
+
+@Suite("AppOnboardingCoordinator")
+struct AppOnboardingCoordinatorTests {
+
+    @MainActor
+    @Test("bootstrap auto-creates a team for signed-in users without teams")
+    func bootstrapWithoutTeamsAutoCreatesTeam() async throws {
+        let created = CreatedTeam(
+            team: TeamSummary(id: "team-auto", name: "Auto Team", slug: "auto-team", role: "owner"),
+            memberActorID: "member-auto",
+            workspaceID: "workspace-auto",
+            workspaceName: "General"
+        )
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            createdTeam: created
+        )
+        let coordinator = AppOnboardingCoordinator(store: store)
+
+        await coordinator.bootstrap()
+
+        #expect(await store.recordedEnsureSessionCallCount() == 1)
+        #expect(await store.recordedCreatedTeamNames().count == 1)
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-auto")
+        #expect(coordinator.currentContext?.memberActorID == "member-auto")
+        #expect(coordinator.pendingCreatedTeam == created)
+    }
+
+    @MainActor
+    @Test("bootstrap routes users with a team into the app")
+    func bootstrapWithTeamShowsApp() async throws {
+        let team = TeamSummary(
+            id: "team-1",
+            name: "Alpha",
+            slug: "alpha",
+            role: "owner"
+        )
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: "member-1", teams: [team])
+        )
+        let coordinator = AppOnboardingCoordinator(store: store)
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-1")
+        #expect(coordinator.currentContext?.memberActorID == "member-1")
+    }
+
+    @MainActor
+    @Test("create team transitions into ready")
+    func createTeamTransitionsToReady() async throws {
+        let created = CreatedTeam(
+            team: TeamSummary(id: "team-2", name: "Beta", slug: "beta", role: "owner"),
+            memberActorID: "member-2",
+            workspaceID: "workspace-1",
+            workspaceName: "General"
+        )
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            createdTeam: created
+        )
+        let coordinator = AppOnboardingCoordinator(store: store)
+
+        await coordinator.createTeam(named: "Beta")
+
+        #expect(await store.recordedCreatedTeamNames() == ["Beta"])
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-2")
+    }
+
+    @MainActor
+    @Test("blank team names are rejected without store calls")
+    func blankTeamNamesAreRejected() async throws {
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: [])
+        )
+        let coordinator = AppOnboardingCoordinator(store: store)
+
+        await coordinator.createTeam(named: "   ")
+
+        #expect(await store.recordedCreatedTeamNames().isEmpty)
+        #expect(coordinator.route == .createTeam)
+        #expect(coordinator.errorMessage == "Team name is required.")
+    }
+
+    // MARK: - Active team persistence
+
+    private func ephemeralDefaults() -> UserDefaults {
+        let suite = "coordinator-test-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        d.removePersistentDomain(forName: suite)
+        return d
+    }
+
+    @MainActor
+    @Test("bootstrap honors the persisted active team for a multi-team user")
+    func bootstrapHonorsPersistedActiveTeam() async throws {
+        let teamA = TeamSummary(id: "team-a", name: "A", slug: "a", role: "member")
+        let teamB = TeamSummary(id: "team-b", name: "B", slug: "b", role: "member")
+        let defaults = ephemeralDefaults()
+        defaults.set("team-b", forKey: "teamclaw.activeTeamID")
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: "m", teams: [teamA, teamB])
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: defaults)
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.currentContext?.team.id == "team-b")
+    }
+
+    @MainActor
+    @Test("bootstrap falls back to first team when the persisted team is gone")
+    func bootstrapFallsBackWhenPersistedTeamGone() async throws {
+        let teamA = TeamSummary(id: "team-a", name: "A", slug: "a", role: "member")
+        let defaults = ephemeralDefaults()
+        defaults.set("team-removed", forKey: "teamclaw.activeTeamID")
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: "m", teams: [teamA])
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: defaults)
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.currentContext?.team.id == "team-a")
+    }
+
+    @MainActor
+    @Test("active team is persisted on land and cleared on sign-out")
+    func activeTeamPersistedAndClearedOnSignOut() async throws {
+        let teamA = TeamSummary(id: "team-a", name: "A", slug: "a", role: "member")
+        let defaults = ephemeralDefaults()
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: "m", teams: [teamA])
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: defaults)
+
+        await coordinator.bootstrap()
+        #expect(defaults.string(forKey: "teamclaw.activeTeamID") == "team-a")
+
+        await coordinator.signOut()
+        #expect(defaults.string(forKey: "teamclaw.activeTeamID") == nil)
+    }
+
+    // MARK: - Invite claim during bootstrap
+
+    @MainActor
+    @Test("signed-in user claiming an invite lands on the joined team, keeping others")
+    func signedInClaimPrefersJoinedTeam() async throws {
+        let teamZ = TeamSummary(id: "team-z", name: "Z", slug: "z", role: "member")
+        let teamY = TeamSummary(id: "team-y", name: "Y", slug: "y", role: "member")
+        let claim = ClaimResult(actorID: "actor-y", teamID: "team-y",
+                                actorType: "human", displayName: "Me", refreshToken: nil)
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: "m", teams: [teamZ]),
+            isAnonymous: false,
+            claimResult: claim,
+            bootstrapAfterClaim: AppBootstrap(memberActorID: "m", teams: [teamZ, teamY])
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: ephemeralDefaults())
+        coordinator.pendingInviteToken = "tok"
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-y")
+        #expect(await store.recordedSignOutCallCount() == 0)
+    }
+
+    @MainActor
+    @Test("signed-in user already a member is not signed out and stays in the app")
+    func signedInAlreadyMemberIsBenign() async throws {
+        let teamY = TeamSummary(id: "team-y", name: "Y", slug: "y", role: "member")
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: "m", teams: [teamY]),
+            isAnonymous: false,
+            claimError: CloudAPIError.requestFailed(status: 409, code: nil,
+                                                    message: "already a member of this team")
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: ephemeralDefaults())
+        coordinator.pendingInviteToken = "tok"
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-y")
+        #expect(coordinator.errorMessage == nil)
+        #expect(await store.recordedSignOutCallCount() == 0)
+    }
+
+    @MainActor
+    @Test("signed-in user with a consumed invite keeps their session but sees a note")
+    func signedInConsumedInviteKeepsSession() async throws {
+        let teamZ = TeamSummary(id: "team-z", name: "Z", slug: "z", role: "member")
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: "m", teams: [teamZ]),
+            isAnonymous: false,
+            claimError: CloudAPIError.requestFailed(status: 409, code: nil,
+                                                    message: "invite already consumed")
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: ephemeralDefaults())
+        coordinator.pendingInviteToken = "tok"
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-z")
+        #expect(coordinator.errorMessage != nil)
+        #expect(await store.recordedSignOutCallCount() == 0)
+    }
+
+    @MainActor
+    @Test("anonymous user with a failed claim is rolled back to auth")
+    func anonymousClaimFailureRollsBack() async throws {
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            isAnonymous: true,
+            claimError: CloudAPIError.requestFailed(status: 410, code: nil,
+                                                    message: "invite already consumed")
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: ephemeralDefaults())
+        coordinator.pendingInviteToken = "tok"
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .needsAuth)
+        #expect(coordinator.currentContext == nil)
+        #expect(await store.recordedSignOutCallCount() == 1)
+    }
+
+    @MainActor
+    @Test("cold-launch invite deeplink token claims instead of auto-creating a team")
+    func coldLaunchDeeplinkTokenClaimsBeforeAutoCreate() async throws {
+        // Regression: opening amux://invite?token=… on a fresh anonymous iOS
+        // device used to auto-create a throwaway team because the deeplink token
+        // (delivered via NotificationCenter to a not-yet-mounted listener) never
+        // reached bootstrap's claim-before-auto-create check. AMUXApp.handle(url)
+        // now stashes the token in UserDefaults; bootstrap must pick it up.
+        let teamY = TeamSummary(id: "team-y", name: "Y", slug: "y", role: "member")
+        let claim = ClaimResult(actorID: "actor-y", teamID: "team-y",
+                                actorType: "human", displayName: "Me", refreshToken: nil)
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),   // anonymous, no team
+            isAnonymous: true,
+            claimResult: claim,
+            bootstrapAfterClaim: AppBootstrap(memberActorID: "m", teams: [teamY])
+        )
+        let defaults = ephemeralDefaults()
+        defaults.set("tok", forKey: InviteDeepLink.pendingTokenDefaultsKey)
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: defaults)
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-y")        // joined the invited team
+        #expect(await store.recordedCreatedTeamNames().isEmpty)         // did NOT auto-create a junk team
+        // Token consumed exactly once — must not replay on the next launch.
+        #expect(defaults.string(forKey: InviteDeepLink.pendingTokenDefaultsKey) == nil)
+    }
+
+    @MainActor
+    @Test("re-invite deeplink adopts the returned refresh token and joins the invited team")
+    func reinviteDeeplinkAdoptsRefreshTokenSession() async throws {
+        // A member/agent re-invite (target_actor_id set) returns a refresh token
+        // bound to the TARGET actor's user. bootstrap must adopt that session
+        // before reloading — otherwise the device stays on the throwaway
+        // anonymous user that opened the link, finds no team, and auto-creates a
+        // junk team (the "still anonymous + wrong team" bug).
+        let teamY = TeamSummary(id: "team-y", name: "Y", slug: "y", role: "admin")
+        let claim = ClaimResult(actorID: "actor-y", teamID: "team-y",
+                                actorType: "human", displayName: "Me", refreshToken: "rt-target")
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),   // throwaway anon, no team
+            isAnonymous: true,
+            claimResult: claim,
+            bootstrapAfterClaim: AppBootstrap(memberActorID: "actor-y", teams: [teamY])
+        )
+        let defaults = ephemeralDefaults()
+        defaults.set("tok", forKey: InviteDeepLink.pendingTokenDefaultsKey)
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: defaults)
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-y")          // joined the invited team
+        #expect(await store.recordedSetSessionTokens() == ["rt-target"])  // adopted the target session
+        #expect(await store.recordedCreatedTeamNames().isEmpty)           // did NOT auto-create a junk team
+    }
+
+    @MainActor
+    @Test("claimInviteSmart clears the deeplink stash so bootstrap does not double-claim and sign out")
+    func claimInviteSmartClearsStashNoDoubleClaim() async throws {
+        // Regression: a cold-launch deeplink stashes the token in UserDefaults.
+        // When the user then claims via the Continue-to-join sheet
+        // (claimInviteSmart), the claim succeeds and adopts the target session —
+        // but the trailing bootstrap() would re-read the stash, re-claim the now
+        // consumed token, fail "already consumed", and (being anonymous) SIGN OUT
+        // the good session, dumping the user back to Welcome. claimInviteSmart
+        // must clear the stash so bootstrap claims at most once.
+        let teamY = TeamSummary(id: "team-y", name: "Y", slug: "y", role: "admin")
+        let claim = ClaimResult(actorID: "actor-y", teamID: "team-y",
+                                actorType: "human", displayName: "Me", refreshToken: "rt-target")
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            isAnonymous: true,
+            claimResult: claim,
+            bootstrapAfterClaim: AppBootstrap(memberActorID: "actor-y", teams: [teamY])
+        )
+        let defaults = ephemeralDefaults()
+        defaults.set("tok", forKey: InviteDeepLink.pendingTokenDefaultsKey)
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: defaults)
+
+        await coordinator.claimInviteSmart(token: "tok")
+
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-y")
+        #expect(await store.recordedClaimCallCount() == 1)   // claimed once, not twice
+        #expect(await store.recordedSignOutCallCount() == 1)  // only the intentional pre-claim signOut
+        #expect(defaults.string(forKey: InviteDeepLink.pendingTokenDefaultsKey) == nil)
+    }
+
+    @MainActor
+    @Test("a deleted session user (invalid JWT) clears the session and routes to auth, not a Setup-Failed dead-end")
+    func invalidSessionUserRecoversToAuth() async throws {
+        // The stored anonymous user was deleted server-side, so an authenticated
+        // call rejects the still-locally-valid JWT. This must NOT dead-end on the
+        // Setup-Failed/Retry screen (Retry loops the same dead token) — clear the
+        // session and route to needsAuth so a fresh session can be minted.
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            isAnonymous: true,
+            loadBootstrapError: CloudAPIError.requestFailed(
+                status: 403, code: nil, message: "User from sub claim in JWT does not exist")
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: ephemeralDefaults())
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .needsAuth)              // NOT .failed
+        #expect(coordinator.currentContext == nil)
+        #expect(await store.recordedSignOutCallCount() == 1)  // dead session cleared
+        #expect(await store.recordedCreatedTeamNames().isEmpty)
+    }
+}
+
+private actor InMemoryOnboardingStore: AppOnboardingStore {
+    let bootstrapResult: AppBootstrap
+    let bootstrapAfterClaimResult: AppBootstrap?
+    let createdTeamResult: CreatedTeam?
+    let anonymous: Bool
+    let claimResult: ClaimResult?
+    let claimError: Error?
+    let loadBootstrapError: Error?
+    var ensureSessionCallCount = 0
+    var createdTeamNames: [String] = []
+    var signOutCallCount = 0
+    var didClaim = false
+    var setSessionRefreshTokens: [String] = []
+
+    init(bootstrap: AppBootstrap,
+         createdTeam: CreatedTeam? = nil,
+         isAnonymous: Bool = false,
+         claimResult: ClaimResult? = nil,
+         claimError: Error? = nil,
+         bootstrapAfterClaim: AppBootstrap? = nil,
+         loadBootstrapError: Error? = nil) {
+        self.bootstrapResult = bootstrap
+        self.createdTeamResult = createdTeam
+        self.anonymous = isAnonymous
+        self.claimResult = claimResult
+        self.claimError = claimError
+        self.bootstrapAfterClaimResult = bootstrapAfterClaim
+        self.loadBootstrapError = loadBootstrapError
+    }
+
+    func ensureSession() async throws {
+        ensureSessionCallCount += 1
+    }
+
+    func loadBootstrap() async throws -> AppBootstrap {
+        if let loadBootstrapError { throw loadBootstrapError }
+        if didClaim, let after = bootstrapAfterClaimResult { return after }
+        return bootstrapResult
+    }
+
+    func recordedSignOutCallCount() -> Int { signOutCallCount }
+
+    func createTeam(named name: String) async throws -> CreatedTeam {
+        createdTeamNames.append(name)
+        if let createdTeamResult {
+            return createdTeamResult
+        }
+        throw InMemoryError.missingCreatedTeam
+    }
+    func listAllMyTeams() async throws -> [MembershipTeam] { [] }
+    func switchActiveTeam(teamID: String) async throws -> TeamSwitchResult {
+        TeamSwitchResult(actorID: nil, teamID: teamID, refreshToken: "")
+    }
+
+    func recordedEnsureSessionCallCount() -> Int {
+        ensureSessionCallCount
+    }
+
+    func recordedCreatedTeamNames() -> [String] {
+        createdTeamNames
+    }
+
+    // MARK: - Auth stub methods (not used in tests)
+
+    func signIn(email: String, password: String) async throws {
+        // no-op
+    }
+
+    func signUp(email: String, password: String) async throws {
+        // no-op
+    }
+
+    func sendEmailOTP(email: String) async throws {
+        // no-op
+    }
+
+    func verifyOTP(email: String, token: String) async throws {
+        // no-op
+    }
+
+    func sendPhoneOTP(phone: String) async throws {
+        // no-op
+    }
+
+    func verifyPhoneOTP(phone: String, token: String) async throws {
+        // no-op
+    }
+
+    func signInWithAppleCredential(idToken: String, nonce: String) async throws {
+        // no-op
+    }
+
+    func signInWithGoogle() async throws {
+        // no-op
+    }
+
+    func handleAuthCallback(url: URL) async throws {
+        // no-op
+    }
+
+    func accessToken() async throws -> String {
+        ""
+    }
+
+    func signOut() async throws {
+        signOutCallCount += 1
+    }
+
+    func signInAnonymously() async throws {
+        // no-op
+    }
+
+    func isAnonymous() async -> Bool { anonymous }
+
+    func currentUserEmail() async -> String? { nil }
+
+    func upgradeWithPassword(email: String, password: String) async throws {
+        // no-op
+    }
+
+    func sendUpgradeEmailOTP(email: String) async throws {
+        // no-op
+    }
+
+    func verifyUpgradeEmailOTP(email: String, token: String) async throws {
+        // no-op
+    }
+
+    func sendUpgradePhoneOTP(phone: String) async throws {
+        // no-op
+    }
+
+    func verifyUpgradePhoneOTP(phone: String, token: String) async throws {
+        // no-op
+    }
+
+    func upgradeWithAppleCredential(idToken: String, nonce: String) async throws {
+        // no-op
+    }
+
+    var claimCallCount = 0
+    func recordedClaimCallCount() -> Int { claimCallCount }
+
+    func claimInvite(token: String) async throws -> ClaimResult {
+        claimCallCount += 1
+        // A token can only be claimed once. A second claim of the same token
+        // (the double-claim bug) realistically fails "already consumed".
+        if claimCallCount > 1 {
+            throw CloudAPIError.requestFailed(status: 410, code: nil, message: "invite already consumed")
+        }
+        if let claimError { throw claimError }
+        if let claimResult {
+            didClaim = true
+            return claimResult
+        }
+        throw InMemoryError.claimNotConfigured
+    }
+
+    func setSession(refreshToken: String) async throws {
+        setSessionRefreshTokens.append(refreshToken)
+    }
+
+    func recordedSetSessionTokens() -> [String] { setSessionRefreshTokens }
+
+    nonisolated func tokenRefreshes() -> AsyncStream<Void> {
+        AsyncStream { $0.finish() }
+    }
+
+    enum InMemoryError: Error {
+        case missingCreatedTeam
+        case claimNotConfigured
+    }
+}

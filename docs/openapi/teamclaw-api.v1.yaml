@@ -1,0 +1,4516 @@
+openapi: 3.1.0
+info:
+  title: TeamClaw Cloud API
+  version: 1.0.0
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://api.teamclaw.local
+security:
+  - bearerAuth: []
+tags:
+  - name: Teams
+    description: Team membership and team metadata.
+  - name: Sessions
+    description: Conversation session list and detail surfaces.
+  - name: Messages
+    description: Session message read and write operations.
+  - name: Invites
+    description: Team invite claim operations.
+  - name: Workspaces
+    description: Workspace CRUD operations.
+  - name: Actors
+    description: Actor directory and agent access management.
+  - name: Notifications
+    description: Notification preferences and session mute management.
+  - name: Shortcuts
+    description: Shortcut management and visibility control.
+  - name: Config
+    description: Runtime configuration delivered to authenticated clients (MQTT broker, feature flags).
+paths:
+  /v1/auth/refresh:
+    post:
+      operationId: refreshAccessToken
+      summary: Exchange a refresh token for a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        "200":
+          description: New token pair
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, refreshToken, expiresAt]
+                properties:
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+                  expiresAt:
+                    type: integer
+                    format: int64
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams:
+    get:
+      operationId: listTeams
+      summary: List teams
+      tags: [Teams]
+      responses:
+        "200":
+          description: Current user's teams.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Team"
+                  nextCursor:
+                    type:
+                      - string
+                      - "null"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createTeam
+      summary: Create team
+      tags: [Teams]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                slug:
+                  type:
+                    - string
+                    - "null"
+                displayName:
+                  description: |
+                    Owner's display name for the auto-created member actor (e.g.
+                    the OS full name or account email prefix). When omitted or
+                    blank, the server synthesizes a stable "Adjective Animal"
+                    handle seeded from the actor id. Replaces the legacy "You"
+                    default.
+                  type:
+                    - string
+                    - "null"
+      responses:
+        "200":
+          description: |
+            Created team. Server-side this provisions a LiteLLM team + default
+            key and seeds team_workspace_config in one call. When
+            LITELLM_MASTER_KEY is unset on the FC side (local dev / tests),
+            provisioning is skipped and `aiGatewayEndpoint` / `litellmKey` are
+            `null` in the response.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Team"
+                  - type: object
+                    properties:
+                      aiGatewayEndpoint:
+                        description: LiteLLM-fronted OpenAI-compatible gateway base URL (e.g. `https://ai.ucar.cc/v1`). Null when provisioning was skipped.
+                        type:
+                          - string
+                          - "null"
+                      litellmKey:
+                        description: One-shot default LiteLLM key for the new team. Returned only at creation time; store it locally on receipt. Null when provisioning was skipped.
+                        type:
+                          - string
+                          - "null"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "502":
+          description: LiteLLM provisioning failed; no DB rows were written.
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}:
+    get:
+      operationId: getTeam
+      summary: Get team
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Team.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: renameTeam
+      summary: Rename team
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Renamed team.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/invites:
+    post:
+      operationId: createTeamInvite
+      summary: Create team invite
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actorType, displayName]
+              properties:
+                actorType:
+                  type: string
+                  enum: [agent, user, external]
+                displayName:
+                  type: string
+                  minLength: 1
+                role:
+                  type: string
+                expiresAt:
+                  type:
+                    - string
+                    - "null"
+                  format: date-time
+      responses:
+        "201":
+          description: Created invite.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, inviteId, expiresAt]
+                properties:
+                  token:
+                    type: string
+                  inviteId:
+                    type: string
+                    format: uuid
+                  expiresAt:
+                    type:
+                      - string
+                      - "null"
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/members/{actorId}:
+    delete:
+      operationId: removeTeamActor
+      summary: Remove team actor
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - name: actorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions:
+    get:
+      operationId: listSessions
+      summary: List sessions
+      tags: [Sessions]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current actor sessions.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Session"
+                  nextCursor:
+                    type:
+                      - string
+                      - "null"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createSession
+      summary: Create session
+      tags: [Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionCreate"
+      responses:
+        "201":
+          description: Created session with participants.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionWithParticipants"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/{sessionId}:
+    get:
+      operationId: getSession
+      summary: Get session with participants
+      tags: [Sessions]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Session with participants.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionWithParticipants"
+        "404":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: patchSession
+      summary: Update session
+      tags: [Sessions]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                mode:
+                  type: string
+                  enum: [solo, collab, control]
+                ideaId:
+                  type:
+                    - string
+                    - "null"
+                  format: uuid
+                archived:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated session.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/{sessionId}/mark-viewed:
+    post:
+      operationId: markSessionViewed
+      summary: Mark session viewed
+      tags: [Sessions]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lastReadMessageId:
+                  type:
+                    - string
+                    - "null"
+                  description: Pin the read marker to a specific message id. If omitted, the marker advances to the most recent message.
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/{sessionId}/mark-unread:
+    post:
+      operationId: markSessionUnread
+      summary: Mark session unread
+      description: Deletes the calling actor's read marker so the session re-derives as unread.
+      tags: [Sessions]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/sessions:
+    get:
+      operationId: listTeamSessions
+      summary: List all sessions for a team with display-row fields populated
+      description: |
+        Returns the full SessionFull shape (summary, createdByActorId,
+        primaryAgentId, participantCount) for every session in the team that
+        the caller can see. Used by iOS to populate the session list without
+        following up per-row participant queries.
+      tags: [Sessions]
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Sessions for team.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, teamId, title, mode, hasUnread, participantCount]
+                      properties:
+                        id: { type: string }
+                        teamId: { type: string }
+                        title: { type: string }
+                        mode: { type: string }
+                        ideaId: { type: [string, "null"] }
+                        primaryAgentId: { type: [string, "null"] }
+                        createdByActorId: { type: [string, "null"] }
+                        summary: { type: [string, "null"] }
+                        lastMessageAt: { type: [string, "null"], format: date-time }
+                        lastMessagePreview: { type: [string, "null"] }
+                        participantCount: { type: integer }
+                        hasUnread: { type: boolean }
+                        createdAt: { type: [string, "null"], format: date-time }
+                        updatedAt: { type: [string, "null"], format: date-time }
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/agent-runtimes:
+    get:
+      operationId: listTeamAgentRuntimes
+      summary: List all agent runtimes for a team
+      description: |
+        Returns every row in `agent_runtimes` for the team that the caller
+        can see. Used by iOS to merge backend runtime state into the local
+        session list.
+      tags: [Agents]
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Agent runtimes for team.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, teamId, agentId, backendType, status, createdAt, updatedAt]
+                      properties:
+                        id: { type: string }
+                        teamId: { type: string }
+                        agentId: { type: string }
+                        sessionId: { type: [string, "null"] }
+                        workspaceId: { type: [string, "null"] }
+                        backendType: { type: string }
+                        status: { type: string }
+                        backendSessionId: { type: [string, "null"] }
+                        runtimeId: { type: [string, "null"] }
+                        currentModel: { type: [string, "null"] }
+                        lastSeenAt: { type: [string, "null"], format: date-time }
+                        createdAt: { type: string, format: date-time }
+                        updatedAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/{sessionId}/participants:
+    get:
+      operationId: listSessionParticipants
+      summary: List session participants
+      tags: [Sessions]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Session participants.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionParticipantList"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: upsertSessionParticipant
+      summary: Add or update session participant
+      tags: [Sessions]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actorId]
+              properties:
+                actorId:
+                  type: string
+                  format: uuid
+                role:
+                  type: string
+      responses:
+        "200":
+          description: Upserted participant.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionParticipant"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/{sessionId}/participants/{actorId}:
+    delete:
+      operationId: removeSessionParticipant
+      summary: Remove session participant
+      tags: [Sessions]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: actorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/by-acp/{acpSessionId}:
+    get:
+      operationId: getSessionByAcp
+      summary: Get session by ACP session ID
+      tags: [Sessions]
+      parameters:
+        - name: acpSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session ACP binding.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId]
+                properties:
+                  sessionId:
+                    type: string
+                    format: uuid
+                  gatewaySessionId:
+                    type:
+                      - string
+                      - "null"
+        "404":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/gateway/ensure:
+    post:
+      operationId: ensureGatewaySession
+      summary: Ensure gateway session
+      tags: [Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, binding, title, primaryAgentActorId]
+              properties:
+                teamId:
+                  type: string
+                  format: uuid
+                binding:
+                  type: string
+                title:
+                  type: string
+                primaryAgentActorId:
+                  type: string
+                  format: uuid
+                ownerMemberActorIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                participantActorIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "200":
+          description: Gateway session result.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, gatewaySessionId, created]
+                properties:
+                  sessionId:
+                    type: string
+                    format: uuid
+                  gatewaySessionId:
+                    type: string
+                  created:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/cron:
+    post:
+      operationId: createCronSession
+      summary: Create cron session
+      tags: [Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, primaryAgentActorId, title]
+              properties:
+                teamId:
+                  type: string
+                  format: uuid
+                primaryAgentActorId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+      responses:
+        "200":
+          description: Cron session result.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId]
+                properties:
+                  sessionId:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/{sessionId}/messages:
+    get:
+      operationId: listMessages
+      summary: List messages
+      tags: [Messages]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session messages.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Message"
+                  nextCursor:
+                    type:
+                      - string
+                      - "null"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: insertMessage
+      summary: Insert message
+      tags: [Messages]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertMessageRequest"
+      responses:
+        "200":
+          description: Inserted or replayed message.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/messages/{messageId}:
+    patch:
+      operationId: patchMessage
+      summary: Update message content or metadata
+      tags: [Messages]
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                metadata:
+                  type:
+                    - object
+                    - "null"
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Updated message.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteMessage
+      summary: Delete message
+      tags: [Messages]
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/invites/claim:
+    post:
+      operationId: claimInvite
+      summary: Claim invite
+      tags: [Invites]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Claimed invite.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimInviteResult"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/heartbeat:
+    post:
+      operationId: heartbeat
+      summary: Daemon liveness ping (updates last_seen)
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/presence/foreground:
+    post:
+      operationId: writeForegroundPresence
+      summary: Report that a client device is in the foreground until a deadline
+      description: |
+        Upserts a `client_presence` row keyed by (user_id, device_id). The
+        push dispatcher reads this row to suppress notifications while the
+        device is in the foreground.
+      tags: [System]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceId, foregroundUntil]
+              properties:
+                deviceId:
+                  type: string
+                  description: Stable per-installation device identifier.
+                foregroundUntil:
+                  type: string
+                  format: date-time
+                  description: ISO 8601 timestamp until which the device should be treated as foreground.
+      responses:
+        "204":
+          description: Presence recorded.
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/config/bootstrap:
+    get:
+      operationId: getBootstrapConfig
+      summary: Runtime configuration for authenticated clients (MQTT broker, feature flags, etc.)
+      tags: [Config]
+      responses:
+        "200":
+          description: Bootstrap configuration payload.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BootstrapConfig"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/workspaces:
+    get:
+      operationId: listWorkspaces
+      summary: List workspaces by team
+      tags: [Workspaces]
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workspace page.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspacePage"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: upsertWorkspace
+      summary: Upsert workspace
+      tags: [Workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceUpsert"
+      responses:
+        "200":
+          description: Upserted workspace.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/workspaces/{workspaceId}:
+    get:
+      operationId: getWorkspace
+      summary: Get single workspace
+      tags: [Workspaces]
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Workspace.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "404":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: patchWorkspace
+      summary: Update workspace name, archived status, path, or bound agent
+      tags: [Workspaces]
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                archived:
+                  type: boolean
+                path:
+                  type:
+                    - string
+                    - "null"
+                agentId:
+                  type:
+                    - string
+                    - "null"
+                  description: Bind (uuid) or unbind (null) the agent that owns this workspace.
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Updated workspace.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/workspace-defaults:
+    get:
+      operationId: getTeamWorkspaceDefaults
+      summary: Get team workspace defaults (legacy default + pinned workspace list)
+      description: |
+        Returns the legacy team workspace defaults shape:
+        `{ defaultWorkspaceId, pinnedWorkspaceIds, updatedAt }`.
+        Distinct from `GET /v1/teams/{teamId}/workspace-config`, which returns
+        the merged share-mode + litellm shape introduced in the team-share
+        onboarding refactor.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Team workspace defaults.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamWorkspaceConfig"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/workspace-config:
+    get:
+      operationId: getTeamWorkspaceConfig
+      summary: Get merged team workspace config (share mode + litellm)
+      description: |
+        Returns the merged team workspace config introduced in the team-share
+        onboarding refactor: share mode, git remote/auth (when applicable),
+        sync mode, and the provisioned LiteLLM team id. The legacy default
+        workspace shape now lives at `GET /v1/teams/{teamId}/workspace-defaults`.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Merged team workspace config.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MergedWorkspaceConfig"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putTeamWorkspaceConfig
+      summary: Put team workspace config (legacy defaults shape)
+      description: |
+        Upserts the legacy team workspace defaults shape
+        (`defaultWorkspaceId`, `pinnedWorkspaceIds`). Does not modify
+        share-mode or litellm fields — those are managed via the
+        `/share-mode` and `/litellm/setup` endpoints.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamWorkspaceConfig"
+      responses:
+        "200":
+          description: Upserted team workspace config.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamWorkspaceConfig"
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/default-agent:
+    get:
+      operationId: getTeamDefaultAgent
+      summary: Get team default agent
+      description: |
+        Returns the team's configured default agent. Any team member may call
+        this endpoint. `defaultAgentId` is null when no default has been set.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Team default agent (null when unset).
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  defaultAgentId:
+                    type: [string, "null"]
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putTeamDefaultAgent
+      summary: Set or clear team default agent
+      description: |
+        Sets or clears the team's default agent. Pass `agentId: null` to clear.
+        The caller must be a team owner or admin. Returns 409 when the specified
+        agent is not a member of the team, is not active, or is not
+        team-visible.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agentId:
+                  type: [string, "null"]
+                  format: uuid
+      responses:
+        "200":
+          description: Updated team default agent.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  defaultAgentId:
+                    type: [string, "null"]
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/members/me/effective-default-agent:
+    get:
+      operationId: getMyEffectiveDefaultAgent
+      summary: Get calling member's effective default agent
+      description: |
+        Returns the effective default agent for the calling member: the
+        member's own default agent when set, otherwise the team default,
+        otherwise null.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Effective default agent for the calling member.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  defaultAgentId:
+                    type: [string, "null"]
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/share-mode:
+    post:
+      operationId: enableTeamShareMode
+      summary: Enable team share mode (one-shot lock)
+      description: |
+        Atomically locks the team's share mode to one of `oss`, `managed_git`,
+        or `custom_git`. Once locked, the mode cannot be changed — a second
+        call returns 409 `share_mode_locked`. For `managed_git` and
+        `custom_git`, a `gitConfig.remoteUrl` is required. For `custom_git`,
+        the caller must also supply `gitConfig.authKind` and
+        `gitConfig.credentialRef`.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnableShareModeRequest"
+      responses:
+        "200":
+          description: Team after share mode is enabled.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: getTeamShareMode
+      summary: Get team share mode status
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Current team share status. `mode` is null when share has not been opened.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShareStatus"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/litellm/setup:
+    post:
+      operationId: setupTeamLiteLlm
+      summary: Provision LiteLLM team for AI gateway
+      description: |
+        Provisions a LiteLLM team for the given TeamClaw team and persists
+        the resulting `litellm_team_id` and `ai_gateway_endpoint` on the team
+        workspace config. Returns the `aiGatewayEndpoint` and the freshly
+        minted `litellmKey` (the caller is responsible for storing the key
+        securely on the device). Returns 503 `litellm_unavailable` when the
+        FC environment is not configured to talk to LiteLLM.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: LiteLLM provisioning result.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiteLlmSetupResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/litellm/member-key:
+    post:
+      operationId: ensureTeamLiteLlmMemberKey
+      summary: Self-service ensure caller's LiteLLM member key
+      description: |
+        Idempotently ensures a LiteLLM member key exists for the calling
+        actor's own membership in this team, auto-provisioning the team's
+        LiteLLM (via the same flow as `/litellm/setup`) if it has not been
+        set up yet. Self-only: the key is scoped to the caller, resolved
+        from the bearer token; there is no way to request another member's
+        key via this endpoint. Returns 403 if the caller is not a member of
+        the team, and 503 `litellm_unavailable` when the FC environment is
+        not configured to talk to LiteLLM.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Member key ensured.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiteLlmMemberKeyResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/litellm/keys:
+    get:
+      operationId: listTeamLiteLlmKeys
+      summary: List team LiteLLM keys (masked)
+      description: |
+        Lists the team's LiteLLM virtual keys (masked). Any team member may
+        read. The LiteLLM team id used is the one persisted on
+        team_workspace_config.litellm_team_id (via `/litellm/setup` or
+        `/litellm/member-key`) — never a deterministic `tc-{teamId}` value.
+        If the team has never provisioned LiteLLM, returns `{ teamId: null,
+        keys: [] }` without calling LiteLLM. Returns 403 if the caller is not
+        a member of the team.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: LiteLLM keys for the team.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiteLlmKeysResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/litellm/budget:
+    put:
+      operationId: setTeamLiteLlmBudget
+      summary: Set team LiteLLM max budget
+      description: |
+        Sets the team's LiteLLM max budget. Owner-only. The LiteLLM team id
+        used is the one persisted on team_workspace_config.litellm_team_id
+        (via `/litellm/setup` or `/litellm/member-key`) — never a
+        deterministic `tc-{teamId}` value. Returns 409 `litellm_not_provisioned`
+        if the team has never provisioned LiteLLM (no implicit setup).
+        Returns 403 if the caller is not the team owner, and 400 if
+        `maxBudget` is missing or not numeric.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [maxBudget]
+              properties:
+                maxBudget:
+                  type: number
+      responses:
+        "200":
+          description: Updated LiteLLM budget.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiteLlmBudgetResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/actors:
+    get:
+      operationId: listTeamActors
+      summary: List team actors
+      tags: [Actors]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [agent, user, external]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+      responses:
+        "200":
+          description: Actor page.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActorPage"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/actors/{actorId}:
+    get:
+      operationId: getActor
+      summary: Get single actor
+      tags: [Actors]
+      parameters:
+        - name: actorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Actor.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Actor"
+        "404":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/actors/external:
+    post:
+      operationId: upsertExternalActor
+      summary: Upsert external actor
+      tags: [Actors]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, source, sourceId, displayName]
+              properties:
+                teamId:
+                  type: string
+                  format: uuid
+                source:
+                  type: string
+                sourceId:
+                  type: string
+                displayName:
+                  type: string
+      responses:
+        "200":
+          description: Upserted actor.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [actorId]
+                properties:
+                  actorId:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/agents/connected:
+    get:
+      operationId: listConnectedAgents
+      summary: List connected agents
+      tags: [Actors]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Connected agents.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ConnectedAgent"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/{agentActorId}:
+    patch:
+      operationId: updateOwnedAgentProfile
+      summary: Update owned agent profile
+      tags: [Actors]
+      parameters:
+        - name: agentActorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentProfilePatch"
+      responses:
+        "204":
+          description: OK
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/{agentActorId}/defaults:
+    patch:
+      operationId: updateAgentDefaults
+      summary: Update agent defaults
+      tags: [Actors]
+      parameters:
+        - name: agentActorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentDefaultsPatch"
+      responses:
+        "204":
+          description: OK
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/{agentActorId}/permission:
+    get:
+      operationId: checkAgentPermission
+      summary: Check agent permission
+      tags: [Actors]
+      parameters:
+        - name: agentActorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: actorId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Permission check result.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [allowed]
+                properties:
+                  allowed:
+                    type: boolean
+                  role:
+                    type:
+                      - string
+                      - "null"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/{agentActorId}/access:
+    get:
+      operationId: listAgentAccess
+      summary: List agent access
+      tags: [Actors]
+      parameters:
+        - name: agentActorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Agent access list.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AgentAccess"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: grantAgentAccess
+      summary: Grant agent access
+      tags: [Actors]
+      parameters:
+        - name: agentActorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actorId, role]
+              properties:
+                actorId:
+                  type: string
+                  format: uuid
+                role:
+                  type: string
+      responses:
+        "200":
+          description: Granted access.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentAccess"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/{agentActorId}/access/{actorId}:
+    delete:
+      operationId: revokeAgentAccess
+      summary: Revoke agent access
+      tags: [Actors]
+      parameters:
+        - name: agentActorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: actorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/{agentActorId}/admin-members:
+    get:
+      operationId: listAgentAdminMembers
+      summary: List agent admin member actor IDs
+      tags: [Actors]
+      parameters:
+        - name: agentActorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Admin member IDs.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/runtimes:
+    get:
+      operationId: getAgentRuntime
+      summary: Get agent runtime by session/runtime/backendSession
+      tags: [Agents]
+      parameters:
+        - { in: query, name: agentId, schema: { type: string, format: uuid } }
+        - { in: query, name: sessionId, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: runtimeId, schema: { type: string } }
+        - { in: query, name: backendSessionId, schema: { type: string } }
+      responses:
+        "200":
+          description: Agent runtime.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRuntime"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: upsertAgentRuntime
+      summary: Upsert agent runtime
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRuntimeUpsert"
+      responses:
+        "200":
+          description: Upserted runtime id.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type:
+                      - string
+                      - "null"
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/runtimes/latest:
+    get:
+      operationId: getLatestAgentRuntime
+      summary: Get latest agent runtime for agent+session
+      tags: [Agents]
+      parameters:
+        - { in: query, name: agentId, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: sessionId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Latest agent runtime.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRuntime"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/runtimes/{runtimeRowId}/cursor:
+    patch:
+      operationId: updateRuntimeCursor
+      summary: Update runtime cursor (last processed message)
+      tags: [Agents]
+      parameters:
+        - in: path
+          name: runtimeRowId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lastProcessedMessageId]
+              properties:
+                lastProcessedMessageId:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/agents/types/ensure:
+    post:
+      operationId: ensureAgentTypes
+      summary: Ensure agent supported types and default
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [supportedTypes, defaultAgentType]
+              properties:
+                supportedTypes:
+                  type: array
+                  items:
+                    type: string
+                defaultAgentType:
+                  type: string
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/attachments:
+    post:
+      operationId: uploadAttachment
+      summary: Upload a binary attachment to storage
+      tags: [Attachments]
+      parameters:
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+          description: Storage path for the attachment (e.g. team-id/file.png)
+        - in: query
+          name: bucket
+          required: false
+          schema:
+            type: string
+            enum: [attachments, avatars]
+            default: attachments
+          description: Storage bucket. Defaults to `attachments`. `avatars` is reserved for actor avatar images.
+        - in: header
+          name: Content-Type
+          required: true
+          schema:
+            type: string
+          description: MIME type of the attachment
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Attachment uploaded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [path, url]
+                properties:
+                  path:
+                    type: string
+                  url:
+                    type: string
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/attachments/{path}:
+    get:
+      operationId: downloadAttachment
+      summary: Download a binary attachment from storage
+      tags: [Attachments]
+      parameters:
+        - in: path
+          name: path
+          required: true
+          schema:
+            type: string
+          description: Storage path of the attachment
+        - in: query
+          name: bucket
+          required: false
+          schema:
+            type: string
+            enum: [attachments, avatars]
+            default: attachments
+          description: Storage bucket. Defaults to `attachments`.
+      responses:
+        "200":
+          description: Attachment bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/teams/{teamId}/directory:
+    get:
+      operationId: getTeamDirectory
+      summary: Get team directory (actors + members)
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Team directory.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamDirectory"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/notifications/prefs:
+    get:
+      operationId: getNotificationPrefs
+      summary: Get notification preferences
+      tags: [Notifications]
+      responses:
+        "200":
+          description: Notification preferences.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPrefs"
+        "401":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putNotificationPrefs
+      summary: Update notification preferences
+      tags: [Notifications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPrefs"
+      responses:
+        "200":
+          description: Updated notification preferences.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPrefs"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/{sessionId}/mute:
+    post:
+      operationId: muteSession
+      summary: Mute session notifications
+      tags: [Notifications]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                until:
+                  type:
+                    - string
+                    - "null"
+                  format: date-time
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: unmuteSession
+      summary: Unmute session notifications
+      tags: [Notifications]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/muted:
+    get:
+      operationId: listMutedSessions
+      summary: List muted session IDs
+      tags: [Notifications]
+      responses:
+        "200":
+          description: Muted session IDs.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/shortcuts:
+    get:
+      operationId: listShortcuts
+      summary: List team shortcuts
+      tags: [Shortcuts]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - name: parentId
+          in: query
+          schema:
+            type:
+              - string
+              - "null"
+            format: uuid
+      responses:
+        "200":
+          description: Team shortcuts.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Shortcut"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/shortcuts:
+    post:
+      operationId: createShortcut
+      summary: Create shortcut
+      tags: [Shortcuts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShortcutCreate"
+      responses:
+        "201":
+          description: Created shortcut.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shortcut"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/shortcuts/{shortcutId}:
+    patch:
+      operationId: updateShortcut
+      summary: Update shortcut
+      tags: [Shortcuts]
+      parameters:
+        - name: shortcutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShortcutPatch"
+      responses:
+        "200":
+          description: Updated shortcut.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shortcut"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteShortcut
+      summary: Delete shortcut
+      tags: [Shortcuts]
+      parameters:
+        - name: shortcutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Shortcut deleted.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/shortcuts/batch-move:
+    post:
+      operationId: batchMoveShortcuts
+      summary: Batch move shortcuts
+      tags: [Shortcuts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [moves]
+              properties:
+                moves:
+                  type: array
+                  items:
+                    type: object
+                    required: [shortcutId, parentId, position]
+                    properties:
+                      shortcutId:
+                        type: string
+                        format: uuid
+                      parentId:
+                        type:
+                          - string
+                          - "null"
+                        format: uuid
+                      position:
+                        type: integer
+      responses:
+        "204":
+          description: Shortcuts moved.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/shortcuts/{shortcutId}/visible-roles:
+    put:
+      operationId: setShortcutVisibleRoles
+      summary: Set shortcut visible roles
+      tags: [Shortcuts]
+      parameters:
+        - name: shortcutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roleIds]
+              properties:
+                roleIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "204":
+          description: Visible roles set.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/roles:
+    get:
+      operationId: listTeamRoles
+      summary: List team roles
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Team roles.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeamRole"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/permissions:
+    get:
+      operationId: listTeamPermissions
+      summary: List team permissions
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Team permissions.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Permission"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/ideas:
+    get:
+      operationId: listIdeas
+      summary: List ideas
+      tags: [Ideas]
+      parameters:
+        - in: query
+          name: teamId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: archived
+          schema:
+            type: boolean
+            default: false
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - in: query
+          name: cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Idea page.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdeaPage"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createIdea
+      summary: Create idea
+      tags: [Ideas]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdeaCreate"
+      responses:
+        "201":
+          description: Created idea.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Idea"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/ideas/{ideaId}:
+    get:
+      operationId: getIdea
+      summary: Get idea
+      tags: [Ideas]
+      parameters:
+        - in: path
+          name: ideaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Idea.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Idea"
+        "404":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateIdea
+      summary: Update idea
+      tags: [Ideas]
+      parameters:
+        - in: path
+          name: ideaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdeaUpdate"
+      responses:
+        "200":
+          description: Updated idea.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Idea"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/ideas/{ideaId}/archive:
+    post:
+      operationId: archiveIdea
+      summary: Archive idea
+      tags: [Ideas]
+      parameters:
+        - in: path
+          name: ideaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/ideas/{ideaId}/activities:
+    post:
+      operationId: createIdeaActivity
+      summary: Create idea activity
+      tags: [Ideas]
+      parameters:
+        - in: path
+          name: ideaId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, actorId]
+              properties:
+                kind:
+                  type: string
+                content:
+                  type:
+                    - string
+                    - "null"
+                actorId:
+                  type: string
+                  format: uuid
+                metadata:
+                  type:
+                    - object
+                    - "null"
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Created activity.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdeaActivity"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/feedback:
+    post:
+      operationId: submitFeedback
+      summary: Submit feedback for a message
+      tags: [Telemetry]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messageId, actorId, teamId, kind]
+              properties:
+                messageId:
+                  type: string
+                  format: uuid
+                actorId:
+                  type: string
+                  format: uuid
+                teamId:
+                  type: string
+                  format: uuid
+                sessionId:
+                  type:
+                    - string
+                    - "null"
+                  format: uuid
+                kind:
+                  type: string
+                  enum: [positive, negative]
+                starRating:
+                  type:
+                    - integer
+                    - "null"
+                  minimum: 1
+                  maximum: 5
+                skill:
+                  type:
+                    - string
+                    - "null"
+      responses:
+        "201":
+          description: Feedback submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Feedback"
+        "401":
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: listFeedback
+      summary: List feedback for a session
+      tags: [Telemetry]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: sessionId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Feedback list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Feedback"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/feedback/{messageId}:
+    delete:
+      operationId: deleteFeedback
+      summary: Delete feedback for a message
+      tags: [Telemetry]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: messageId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/leaderboard:
+    get:
+      operationId: getTeamLeaderboard
+      summary: Get the leaderboard for a team
+      tags: [Telemetry]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: period
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: week
+      responses:
+        "200":
+          description: Leaderboard
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LeaderboardEntry"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/session-report:
+    post:
+      operationId: submitSessionReport
+      summary: Submit a completed-session telemetry report
+      tags: [Telemetry]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actorId, teamId, sessionId, tokensUsed, costUsd]
+              properties:
+                actorId: { type: string, format: uuid }
+                teamId: { type: string, format: uuid }
+                sessionId: { type: string, format: uuid }
+                tokensUsed: { type: integer }
+                costUsd: { type: number }
+                model: { type: [string, "null"] }
+                agentKind: { type: [string, "null"] }
+                endedAt: { type: [string, "null"], format: date-time }
+                skillUsage:
+                  type: object
+                  additionalProperties: { type: integer }
+      responses:
+        "201":
+          description: Report stored
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/skill-usage:
+    post:
+      operationId: submitSkillUsage
+      summary: Increment per-skill usage for an actor
+      tags: [Telemetry]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actorId, teamId, skill]
+              properties:
+                actorId: { type: string, format: uuid }
+                teamId: { type: string, format: uuid }
+                sessionId: { type: [string, "null"], format: uuid }
+                skill: { type: string }
+                count: { type: integer, minimum: 1, default: 1 }
+      responses:
+        "201":
+          description: Skill usage recorded
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/feedback-summary:
+    get:
+      operationId: listFeedbackSummary
+      summary: Per-actor feedback counts for a team
+      tags: [Telemetry]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: teamId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Feedback summary
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [actorId, positive, negative, total]
+                      properties:
+                        actorId: { type: string, format: uuid }
+                        displayName: { type: [string, "null"] }
+                        positive: { type: integer }
+                        negative: { type: integer }
+                        total: { type: integer }
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/directory/current-member-actor:
+    get:
+      operationId: resolveCurrentMemberActor
+      summary: Resolve current user's member actor in a team
+      tags: [Directory]
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: userId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Member actor or null
+          content:
+            application/json:
+              schema:
+                type: [object, "null"]
+                properties:
+                  id: { type: string }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/directory/first-member-actor-for-user:
+    get:
+      operationId: resolveFirstMemberActorForUser
+      summary: Resolve first member actor for a user across teams
+      tags: [Directory]
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Member actor or null
+          content:
+            application/json:
+              schema:
+                type: [object, "null"]
+                properties:
+                  id: { type: string }
+                  team_id: { type: [string, "null"] }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/directory/current-team-member:
+    get:
+      operationId: getCurrentTeamMember
+      summary: Get the current user's team member summary
+      tags: [Directory]
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: userId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Team member summary or null
+          content:
+            application/json:
+              schema:
+                type: [object, "null"]
+                properties:
+                  id: { type: string }
+                  displayName: { type: string }
+                  role: { type: [string, "null"] }
+                  joinedAt: { type: [string, "null"] }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/sync/actor-directory:
+    get:
+      operationId: listActorDirectoryForSync
+      summary: Incremental sync — actor directory rows
+      tags: [Sync]
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Actor directory rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/sync/ideas:
+    get:
+      operationId: listIdeasForSync
+      summary: Incremental sync — ideas rows
+      tags: [Sync]
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Idea rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/sync/session-participants:
+    get:
+      operationId: listSessionParticipantsForSync
+      summary: Incremental sync — session participants
+      tags: [Sync]
+      parameters:
+        - name: sessionId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Session participant rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/sync/sessions:
+    get:
+      operationId: listSessionsForTeamSince
+      summary: Incremental sync — sessions for a team since updated_at
+      tags: [Sync]
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Session sync rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/sync/messages:
+    get:
+      operationId: listMessagesForSessionSince
+      summary: Incremental sync — messages for a session since updated_at
+      tags: [Sync]
+      parameters:
+        - name: sessionId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Message sync rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/display-rows:
+    post:
+      operationId: listSessionDisplayRows
+      summary: Look up minimal session display rows (id, title) for a team
+      tags: [Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, sessionIds]
+              properties:
+                teamId: { type: string }
+                sessionIds:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Display rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        title: { type: [string, "null"] }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/actors/{actorId}/sessions:
+    get:
+      operationId: listSessionIdsForActor
+      summary: List session ids an actor participates in
+      tags: [Actors]
+      parameters:
+        - name: actorId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Session id list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: string }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/workspaces/by-ids:
+    post:
+      operationId: listWorkspacesByIds
+      summary: Look up workspaces (id, name, path) by id list
+      tags: [Workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, ids]
+              properties:
+                teamId: { type: string }
+                ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Matching workspaces
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: [string, "null"] }
+                        path: { type: [string, "null"] }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/shortcut-role-bindings:
+    get:
+      operationId: listShortcutRoleBindings
+      summary: List shortcut resource → role bindings for a team
+      tags: [Shortcuts]
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Role bindings
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        resource_id: { type: string }
+                        permission_roles:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              role_id: { type: string }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/actors/by-ids:
+    post:
+      operationId: listActorDirectoryByIds
+      summary: Look up actor directory entries by id list
+      tags: [Actors]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actorIds]
+              properties:
+                actorIds:
+                  type: array
+                  items: { type: string }
+                teamId:
+                  type: [string, "null"]
+      responses:
+        "200":
+          description: Matching actor directory entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/actors/access/{accessId}:
+    delete:
+      operationId: removeAgentAccessById
+      summary: Remove an agent_member_access row by id
+      tags: [Actors]
+      parameters:
+        - name: accessId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Removed
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/actors/{actorId}:
+    delete:
+      operationId: removeTeamActorScoped
+      summary: Remove team actor (teamId + actorId path)
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - name: actorId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Removed
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/workspace-git-config:
+    get:
+      operationId: loadTeamWorkspaceGitConfig
+      summary: Load team workspace git/AI gateway config
+      tags: [Workspaces]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Config row or null
+          content:
+            application/json:
+              schema:
+                type: [object, "null"]
+                properties:
+                  team_id: { type: string }
+                  workspace_path: { type: [string, "null"] }
+                  git_url: { type: [string, "null"] }
+                  git_branch: { type: [string, "null"] }
+                  git_token: { type: [string, "null"] }
+                  ai_gateway_endpoint: { type: [string, "null"] }
+                  enabled: { type: boolean }
+                  metadata: { type: [object, "null"] }
+                  updated_at: { type: [string, "null"] }
+    put:
+      operationId: saveTeamWorkspaceGitConfig
+      summary: Upsert team workspace git/AI gateway config
+      tags: [Workspaces]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_path: { type: [string, "null"] }
+                git_url: { type: [string, "null"] }
+                git_branch: { type: [string, "null"] }
+                git_token: { type: [string, "null"] }
+                ai_gateway_endpoint: { type: [string, "null"] }
+                enabled: { type: boolean }
+                metadata: { type: [object, "null"] }
+      responses:
+        "204":
+          description: Saved
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/auth/signin-anonymous:
+    post:
+      operationId: signInAnonymous
+      summary: Proxy to Supabase GoTrue anonymous signup
+      tags: [Auth]
+      security: []
+      responses:
+        "200":
+          description: GoTrue session payload
+          content:
+            application/json:
+              schema: { type: object }
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/auth/signin-otp:
+    post:
+      operationId: signInOtp
+      summary: Proxy to Supabase GoTrue /auth/v1/otp (email or SMS OTP)
+      description: >
+        Provide either `email` or `phone` (E.164, e.g. +8613800138000). For
+        phone, an SMS code is sent; pass `options.channel` to override the
+        default "sms" delivery channel.
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Exactly one of email or phone must be provided.
+              properties:
+                email: { type: string, format: email }
+                phone: { type: string, description: "E.164 phone, e.g. +8613800138000" }
+                options: { type: object }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/auth/verify-otp:
+    post:
+      operationId: verifyOtp
+      summary: Proxy to Supabase GoTrue /auth/v1/verify
+      description: >
+        Provide either `email` or `phone` (matching the signin-otp request)
+        plus `token`. `type` defaults to "email"; phone verification uses "sms".
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              description: Exactly one of email or phone must be provided.
+              properties:
+                email: { type: string, format: email }
+                phone: { type: string, description: "E.164 phone, e.g. +8613800138000" }
+                token: { type: string }
+                type: { type: string, default: email, enum: [email, sms, signup, email_change, phone_change, recovery] }
+      responses:
+        "200":
+          description: GoTrue session payload
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/auth/signout:
+    post:
+      operationId: signOut
+      summary: Proxy to Supabase GoTrue /auth/v1/logout
+      tags: [Auth]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/auth/user:
+    patch:
+      operationId: updateAuthUser
+      summary: Proxy to Supabase GoTrue PUT /auth/v1/user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { type: object }
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/auth/signin-idtoken:
+    post:
+      operationId: signInWithIdToken
+      summary: Native OIDC sign-in / identity link (Apple, Google) via GoTrue id_token grant
+      description: |
+        Exchanges a provider ID token for a Supabase session. When called with
+        a Bearer access token, GoTrue links the OIDC identity to the current
+        user instead of minting a new one — powering the anonymous → Apple
+        upgrade flow.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, idToken]
+              properties:
+                provider:
+                  type: string
+                  enum: [apple, google]
+                idToken:
+                  type: string
+                nonce:
+                  type: [string, "null"]
+      responses:
+        "200":
+          description: GoTrue session
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/auth/signin-password:
+    post:
+      operationId: signInWithPassword
+      summary: Proxy to Supabase GoTrue password grant
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: GoTrue session payload
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/auth/signup:
+    post:
+      operationId: signUp
+      summary: Proxy to Supabase GoTrue /signup with email + password
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: GoTrue session payload (or confirmation pending)
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+  "/v1/auth/oauth/{provider}/authorize":
+    get:
+      operationId: oauthAuthorize
+      summary: Stateless PKCE OAuth authorize redirect
+      description: |
+        Builds a GoTrue authorize URL for the given provider and returns a 302
+        redirect. The client supplies its own PKCE `code_challenge`; FC holds no
+        state. GoTrue redirects to `redirect` (app scheme URL) with a single-use
+        authorization code.
+      tags: [Auth]
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, example: google }
+        - name: redirect
+          in: query
+          required: true
+          schema: { type: string, example: "teamclaw://auth-callback" }
+        - name: code_challenge
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to GoTrue authorize URL
+          headers:
+            Location:
+              schema: { type: string }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/auth/oauth/exchange:
+    post:
+      operationId: oauthExchangePkce
+      summary: Exchange PKCE authorization code for session tokens
+      description: |
+        Forwards `{ auth_code, code_verifier }` to GoTrue's
+        `POST /auth/v1/token?grant_type=pkce` and returns the session payload.
+        FC holds no state — the client supplies the `codeVerifier` it generated
+        before the authorize redirect.
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, codeVerifier]
+              properties:
+                code: { type: string }
+                codeVerifier: { type: string }
+      responses:
+        "200":
+          description: GoTrue session payload
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/me/bootstrap:
+    get:
+      operationId: getMeBootstrap
+      summary: Member actor + team memberships for the authenticated user
+      description: |
+        Returns the caller's member-actor id, the teams they belong to, and a
+        per-team member-actor map. Backs the iOS onboarding bootstrap that
+        previously read actors + team_members directly from Supabase.
+      tags: [Config]
+      responses:
+        "200":
+          description: Bootstrap payload.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [memberActorId, teams, memberActorIdByTeam]
+                properties:
+                  memberActorId:
+                    type: [string, "null"]
+                  teams:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, role]
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        slug: { type: [string, "null"] }
+                        role: { type: string }
+                  memberActorIdByTeam:
+                    type: object
+                    additionalProperties: { type: string }
+        "401":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  headers:
+    RequestId:
+      schema:
+        type: string
+  parameters:
+    TeamId:
+      name: teamId
+      in: path
+      required: true
+      schema:
+        type: string
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    NotFound:
+      description: Resource not found.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Error:
+      description: Error response.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    BootstrapConfig:
+      type: object
+      description: Runtime configuration delivered to authenticated clients on startup. Fields are optional; clients fall back to local defaults when omitted.
+      properties:
+        mqtt:
+          $ref: "#/components/schemas/BootstrapMqttConfig"
+      additionalProperties: true
+    BootstrapMqttConfig:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: Full broker URL including scheme (mqtt://, mqtts://, ws://, wss://) and port.
+        username:
+          type:
+            - string
+            - "null"
+        password:
+          type:
+            - string
+            - "null"
+        useTls:
+          type:
+            - boolean
+            - "null"
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+              enum:
+                - missing_auth
+                - invalid_json
+                - validation_failed
+                - forbidden
+                - not_found
+                - conflict
+                - rate_limited
+                - upstream_unavailable
+                - internal
+            message:
+              type: string
+            requestId:
+              type: string
+    Team:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type:
+            - string
+            - "null"
+    Session:
+      type: object
+      required: [id, teamId, title, mode, hasUnread]
+      properties:
+        id:
+          type: string
+        teamId:
+          type: string
+        title:
+          type: string
+        mode:
+          type: string
+          enum: [solo, collab, control]
+        ideaId:
+          type:
+            - string
+            - "null"
+        lastMessageAt:
+          type:
+            - string
+            - "null"
+        lastMessagePreview:
+          type:
+            - string
+            - "null"
+        hasUnread:
+          type: boolean
+        createdAt:
+          type:
+            - string
+            - "null"
+        updatedAt:
+          type:
+            - string
+            - "null"
+    Message:
+      type: object
+      required: [id, teamId, sessionId, kind, content, createdAt]
+      properties:
+        id:
+          type: string
+        teamId:
+          type: string
+        sessionId:
+          type: string
+        turnId:
+          type:
+            - string
+            - "null"
+        senderActorId:
+          type:
+            - string
+            - "null"
+        replyToMessageId:
+          type:
+            - string
+            - "null"
+        kind:
+          type: string
+        content:
+          type: string
+        metadata:
+          type:
+            - object
+            - "null"
+        model:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
+        updatedAt:
+          type:
+            - string
+            - "null"
+    InsertMessageRequest:
+      type: object
+      required: [id, teamId, senderActorId, content]
+      properties:
+        id:
+          type: string
+        teamId:
+          type: string
+        senderActorId:
+          type: string
+        content:
+          type: string
+        kind:
+          type: string
+          default: text
+        metadata:
+          type:
+            - object
+            - "null"
+        turnId:
+          type:
+            - string
+            - "null"
+        replyToMessageId:
+          type:
+            - string
+            - "null"
+        model:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type:
+            - string
+            - "null"
+    ClaimInviteResult:
+      type: object
+      required: [actorId, teamId, actorType, displayName]
+      properties:
+        actorId:
+          type: string
+        teamId:
+          type: string
+        actorType:
+          type: string
+        displayName:
+          type: string
+        refreshToken:
+          type:
+            - string
+            - "null"
+    TeamWorkspaceConfig:
+      type: object
+      required: [teamId, defaultWorkspaceId]
+      properties:
+        teamId:
+          type: string
+        defaultWorkspaceId:
+          type:
+            - string
+            - "null"
+        pinnedWorkspaceIds:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type:
+            - string
+            - "null"
+    TeamShareMode:
+      type: string
+      enum: [oss, managed_git, custom_git]
+      description: |
+        Team share mode. `oss` uses Alibaba OSS / WebDAV; `managed_git` uses a
+        TeamClaw-provisioned git remote; `custom_git` uses a caller-supplied
+        git remote with explicit credential metadata.
+    EnableShareModeRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          $ref: "#/components/schemas/TeamShareMode"
+        gitConfig:
+          type: object
+          description: |
+            Required when `mode` is `managed_git` or `custom_git`. For
+            `custom_git`, `authKind` and `credentialRef` are also required.
+            `credentialRef` references a device-local secret entry; the FC
+            never sees the raw credential material.
+          required: [remoteUrl]
+          properties:
+            remoteUrl:
+              type: string
+            authKind:
+              type: string
+              enum: [ssh_key, https_token]
+            credentialRef:
+              type: string
+    ShareStatus:
+      type: object
+      required: [mode, enabledAt, gitRemoteUrl, gitAuthKind]
+      properties:
+        mode:
+          oneOf:
+            - $ref: "#/components/schemas/TeamShareMode"
+            - type: "null"
+        enabledAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        gitRemoteUrl:
+          type:
+            - string
+            - "null"
+        gitAuthKind:
+          type:
+            - string
+            - "null"
+          enum: [ssh_key, https_token, null]
+    MergedWorkspaceConfig:
+      type: object
+      required: [shareMode, gitRemoteUrl, gitAuthKind, syncMode, litellmTeamId]
+      properties:
+        shareMode:
+          oneOf:
+            - $ref: "#/components/schemas/TeamShareMode"
+            - type: "null"
+        gitRemoteUrl:
+          type:
+            - string
+            - "null"
+        gitAuthKind:
+          type:
+            - string
+            - "null"
+          enum: [ssh_key, https_token, null]
+        syncMode:
+          type:
+            - string
+            - "null"
+        litellmTeamId:
+          type:
+            - string
+            - "null"
+    LiteLlmSetupResponse:
+      type: object
+      required: [aiGatewayEndpoint, litellmKey]
+      properties:
+        aiGatewayEndpoint:
+          type: string
+        litellmKey:
+          type: string
+    LiteLlmMemberKeyResponse:
+      type: object
+      required: [key, aiGatewayEndpoint]
+      properties:
+        key:
+          type: string
+        aiGatewayEndpoint:
+          type: string
+    LiteLlmKeyEntry:
+      type: object
+      required: [key, alias, spend, created_at]
+      properties:
+        key:
+          type: string
+          description: Masked LiteLLM virtual key token (first 10 chars + "...").
+        alias:
+          type: string
+        spend:
+          type: number
+        created_at:
+          type: string
+    LiteLlmKeysResponse:
+      type: object
+      required: [teamId, keys]
+      properties:
+        teamId:
+          type:
+            - string
+            - "null"
+          description: The persisted LiteLLM team id, or null if the team has never provisioned LiteLLM.
+        keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/LiteLlmKeyEntry"
+    LiteLlmBudgetResponse:
+      type: object
+      required: [maxBudget]
+      properties:
+        maxBudget:
+          type: number
+    Workspace:
+      type: object
+      required: [id, teamId, name, archived, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type:
+            - string
+            - "null"
+        archived:
+          type: boolean
+        metadata:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        updatedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    WorkspacePage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Workspace"
+        nextCursor:
+          type:
+            - string
+            - "null"
+    WorkspaceUpsert:
+      type: object
+      required: [teamId, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type:
+            - string
+            - "null"
+        archived:
+          type: boolean
+        metadata:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+    Actor:
+      type: object
+      required: [id, teamId, kind, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [agent, user, external]
+        displayName:
+          type: string
+        avatarUrl:
+          type:
+            - string
+            - "null"
+        teamRole:
+          description: Member's role in the team. Null for agents/external.
+          type:
+            - string
+            - "null"
+          enum: [owner, admin, member, null]
+        visibility:
+          description: Agent visibility scope. Null for members/external.
+          type:
+            - string
+            - "null"
+          enum: [team, personal, null]
+        metadata:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+    ActorPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Actor"
+        nextCursor:
+          type:
+            - string
+            - "null"
+    ConnectedAgent:
+      allOf:
+        - $ref: "#/components/schemas/Actor"
+        - type: object
+          properties:
+            lastSeenAt:
+              type:
+                - string
+                - "null"
+              format: date-time
+            agentType:
+              type: string
+    AgentProfilePatch:
+      type: object
+      properties:
+        displayName:
+          type: string
+        avatarUrl:
+          type:
+            - string
+            - "null"
+        description:
+          type:
+            - string
+            - "null"
+    AgentDefaultsPatch:
+      type: object
+      properties:
+        defaultAgentType:
+          type: string
+        supportedAgentTypes:
+          type: array
+          items:
+            type: string
+    AgentAccess:
+      type: object
+      required: [agentActorId, actorId, role]
+      properties:
+        agentActorId:
+          type: string
+          format: uuid
+        actorId:
+          type: string
+          format: uuid
+        role:
+          type: string
+    SessionCreate:
+      type: object
+      required: [teamId, title, mode]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        mode:
+          type: string
+          enum: [solo, collab, control]
+        ideaId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        primaryAgentActorId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        participantActorIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    SessionWithParticipants:
+      allOf:
+        - $ref: "#/components/schemas/Session"
+        - type: object
+          properties:
+            participants:
+              type: array
+              items:
+                $ref: "#/components/schemas/SessionParticipant"
+    SessionParticipant:
+      type: object
+      required: [sessionId, actorId, role]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        actorId:
+          type: string
+          format: uuid
+        role:
+          type: string
+        joinedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    SessionParticipantList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionParticipant"
+    TeamMember:
+      type: object
+      required: [actorId, teamId, role]
+      properties:
+        actorId:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        role:
+          type: string
+        joinedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    TeamDirectory:
+      type: object
+      required: [actors, members]
+      properties:
+        actors:
+          type: array
+          items:
+            $ref: "#/components/schemas/Actor"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
+    NotificationPrefs:
+      type: object
+      # Returned as the raw snake_case row; clients consume it directly (no
+      # mapper) and fall back to their own defaults when the response is null.
+      required: [enabled]
+      properties:
+        user_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        enabled:
+          type: boolean
+        dnd_start_min:
+          type:
+            - integer
+            - "null"
+          description: Quiet-hours start as local minute-of-day (0..1439).
+        dnd_end_min:
+          type:
+            - integer
+            - "null"
+          description: Quiet-hours end as local minute-of-day (0..1439).
+        dnd_tz:
+          type:
+            - string
+            - "null"
+          description: IANA timezone used to evaluate quiet hours.
+        updated_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    Shortcut:
+      type: object
+      # Returned as the raw snake_case row; the desktop client consumes it
+      # directly (no mapper). Role visibility is exposed separately via
+      # GET /v1/teams/{teamId}/shortcut-role-bindings.
+      required: [id, team_id, node_type, label, order]
+      properties:
+        id:
+          type: string
+          format: uuid
+        scope:
+          type: string
+        label:
+          type: string
+        owner_member_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        team_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        parent_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        icon:
+          type:
+            - string
+            - "null"
+        order:
+          type: integer
+        node_type:
+          type: string
+        target:
+          type: string
+        created_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        updated_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    ShortcutCreate:
+      type: object
+      required: [teamId, kind, label]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        parentId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        kind:
+          type: string
+        label:
+          type: string
+        payload:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        position:
+          type: integer
+        visibleRoleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    ShortcutPatch:
+      type: object
+      properties:
+        parentId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        label:
+          type: string
+        payload:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        position:
+          type: integer
+        visibleRoleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    TeamRole:
+      type: object
+      required: [id, teamId, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+    Permission:
+      type: object
+      required: [resourceId, roleIds]
+      properties:
+        resourceId:
+          type: string
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    Idea:
+      type: object
+      required: [id, teamId, title, archived, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        archived:
+          type: boolean
+        authorActorId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        actorIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        updatedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    AgentRuntime:
+      type: object
+      required: [id, agentActorId, sessionId, runtimeId, backendSessionId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        agentActorId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        runtimeId:
+          type: string
+        backendSessionId:
+          type: string
+        lastProcessedMessageId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        metadata:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        updatedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    AgentRuntimeUpsert:
+      type: object
+      required: [agentActorId, sessionId, runtimeId, backendSessionId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        agentActorId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        runtimeId:
+          type: string
+        backendSessionId:
+          type: string
+        metadata:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+    IdeaCreate:
+      type: object
+      required: [teamId, title, authorActorId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        authorActorId:
+          type: string
+          format: uuid
+        actorIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    IdeaUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        actorIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    IdeaPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Idea"
+        nextCursor:
+          type:
+            - string
+            - "null"
+    IdeaActivity:
+      type: object
+      required: [id, ideaId, kind, actorId, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ideaId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        content:
+          type:
+            - string
+            - "null"
+        actorId:
+          type: string
+          format: uuid
+        metadata:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    Feedback:
+      type: object
+      required: [messageId, actorId, kind, createdAt]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        actorId:
+          type: string
+          format: uuid
+        teamId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        sessionId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        kind:
+          type: string
+          enum: [positive, negative]
+        starRating:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+          maximum: 5
+        skill:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    LeaderboardEntry:
+      type: object
+      required: [actorId, period, score]
+      properties:
+        actorId:
+          type: string
+          format: uuid
+        teamId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        displayName:
+          type:
+            - string
+            - "null"
+        period:
+          type: string
+          enum: [day, week, month]
+        tokensUsed:
+          type: number
+        costUsd:
+          type: number
+        positiveFeedback:
+          type: integer
+        negativeFeedback:
+          type: integer
+        sessionCount:
+          type: integer
+        skillUsage:
+          type: object
+          additionalProperties:
+            type: integer
+        score:
+          type: number

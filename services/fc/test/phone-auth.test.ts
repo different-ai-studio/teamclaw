@@ -1,0 +1,200 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createPhoneAuthRepository } from "../src/lib/supabase-repo/phone-auth.js";
+
+// ── Minimal in-memory fake of the Supabase query builder + auth admin ────────
+// Supports exactly the chains phone-auth.ts uses.
+function makeFakeSupabase(db: { auth_verify_code: any[]; users: any[] }, authStore: any) {
+  let idSeq = 1;
+  function builder(table: string) {
+    const filters: Array<[string, string, any]> = [];
+    let op: "select" | "insert" | "update" | "delete" = "select";
+    let payload: any = null;
+    let single = false;
+    let maybe = false;
+
+    const rowsMatching = () =>
+      db[table].filter((r: any) =>
+        filters.every(([col, kind, val]) => {
+          if (kind === "eq") return r[col] === val;
+          if (kind === "gt") return r[col] > val;
+          if (kind === "is_null") return r[col] == null;
+          return true;
+        }),
+      );
+
+    const resolve = () => {
+      if (op === "insert") {
+        const row = { id: `row-${idSeq++}`, used: false, created_at: new Date().toISOString(), ...payload };
+        db[table].push(row);
+        return { data: single ? row : [row], error: null };
+      }
+      if (op === "update") {
+        const matched = rowsMatching();
+        matched.forEach((r: any) => Object.assign(r, payload));
+        return { data: matched, error: null };
+      }
+      if (op === "delete") {
+        const keep = db[table].filter((r: any) => !rowsMatching().includes(r));
+        db[table] = keep;
+        return { data: null, error: null };
+      }
+      const rows = rowsMatching();
+      if (single) return { data: rows[0] ?? null, error: null };
+      if (maybe) return { data: rows[0] ?? null, error: null };
+      return { data: rows, error: null };
+    };
+
+    const api: any = {
+      select() { /* returning select; never overrides a mutation op */ return api; },
+      insert(p: any) { op = "insert"; payload = p; return api; },
+      update(p: any) { op = "update"; payload = p; return api; },
+      delete() { op = "delete"; return api; },
+      eq(c: string, v: any) { filters.push([c, "eq", v]); return api; },
+      gt(c: string, v: any) { filters.push([c, "gt", v]); return api; },
+      is(c: string, v: any) { filters.push([c, "is_null", v]); return api; },
+      order() { return api; },
+      limit() { return api; },
+      single() { single = true; return Promise.resolve(resolve()); },
+      maybeSingle() { maybe = true; return Promise.resolve(resolve()); },
+      then(onF: any, onR: any) { return Promise.resolve(resolve()).then(onF, onR); },
+    };
+    return api;
+  }
+
+  const client = {
+    from: (t: string) => builder(t),
+    auth: {
+      admin: {
+        generateLink: async () => ({ data: { properties: { hashed_token: "ht_123" } }, error: null }),
+        getUserById: async (id: string) => {
+          const u = authStore.users.find((x: any) => x.id === id);
+          return { data: { user: u ?? null }, error: u ? null : { message: "not found" } };
+        },
+        createUser: async ({ email, app_metadata }: any) => {
+          const u = { id: `auth-${idSeq++}`, email, app_metadata };
+          authStore.users.push(u);
+          return { data: { user: u }, error: null };
+        },
+        deleteUser: async (id: string) => {
+          authStore.users = authStore.users.filter((x: any) => x.id !== id);
+          return { data: null, error: null };
+        },
+      },
+      verifyOtp: async () => ({
+        data: { session: { access_token: "at", refresh_token: "rt", expires_in: 3600, expires_at: 9999 } },
+        error: null,
+      }),
+    },
+  };
+  return client;
+}
+
+function repoWith(db: any, authStore: any, extra: any = {}) {
+  const client = makeFakeSupabase(db, authStore);
+  return createPhoneAuthRepository({
+    supabaseUrl: "http://sb",
+    publishableKey: "anon",
+    serviceRoleKey: "service",
+    defaultOrgId: "org-default",
+    encryptionKey: "k",
+    sendSms: async () => {},
+    createClient: () => client,
+    nowMs: () => 1_000_000_000_000,
+    genCode: () => "123456",
+    ...extra,
+  });
+}
+
+test("sendCode (debug) returns the code and persists a row", async () => {
+  const db = { auth_verify_code: [] as any[], users: [] as any[] };
+  const repo = repoWith(db, { users: [] }, { smsDebugMode: true });
+  const r: any = await repo.sendCode({ phone: "13700000000" });
+  assert.equal(r.debugCode, "123456");
+  assert.equal(db.auth_verify_code.length, 1);
+});
+
+test("sendCode rejects invalid phone", async () => {
+  const repo = repoWith({ auth_verify_code: [], users: [] }, { users: [] }, { smsDebugMode: true });
+  await assert.rejects(() => repo.sendCode({ phone: "999" }), /有效的手机号/);
+});
+
+test("sendCode normalizes an E.164 +86 number to the bare form", async () => {
+  const db = { auth_verify_code: [] as any[], users: [] as any[] };
+  const repo = repoWith(db, { users: [] }, { smsDebugMode: true });
+  // Clients send the E.164 form; it must not be rejected and must persist bare.
+  const r: any = await repo.sendCode({ phone: "+8613700000000" });
+  assert.equal(r.debugCode, "123456");
+  assert.equal(db.auth_verify_code.length, 1);
+  assert.equal(db.auth_verify_code[0].phone, "13700000000");
+});
+
+test("sendCode requires captcha when not in debug mode", async () => {
+  const repo = repoWith({ auth_verify_code: [], users: [] }, { users: [] });
+  await assert.rejects(() => repo.sendCode({ phone: "13700000000" }), /验证码验证失败/);
+});
+
+test("sendCode 429 when a code was sent within 60s", async () => {
+  const db = { auth_verify_code: [], users: [] };
+  const repo = repoWith(db, { users: [] });
+  // First send (with captcha) seeds a recent row.
+  await repo.sendCode({ phone: "13700000000", captchaVerify: "ok" });
+  await assert.rejects(() => repo.sendCode({ phone: "13700000000", captchaVerify: "ok" }), /过于频繁/);
+});
+
+test("login reuses an existing public.users row (no new user)", async () => {
+  const authStore = { users: [{ id: "auth-existing", email: "13700000000@phone.betly.app" }] };
+  const db = {
+    auth_verify_code: [
+      { id: "c1", phone: "13700000000", code: "123456", used: false, expires_at: new Date(2_000_000_000_000).toISOString(), created_at: "x" },
+    ],
+    users: [{ id: "u1", org_id: "org-default", mobile: "13700000000", auth_user_id: "auth-existing", deleted_at: null }],
+  };
+  const repo = repoWith(db, authStore);
+  const r: any = await repo.login({ phone: "13700000000", code: "123456" });
+  assert.equal(r.created, undefined);
+  assert.equal(r.user.id, "u1");
+  assert.equal(r.session.access_token, "at");
+  assert.equal(db.auth_verify_code[0].used, true);
+  assert.equal(authStore.users.length, 1); // no new auth user
+});
+
+test("login creates a new user when none exists in the default org", async () => {
+  const authStore = { users: [] as any[] };
+  const db = {
+    auth_verify_code: [
+      { id: "c1", phone: "13700000001", code: "123456", used: false, expires_at: new Date(2_000_000_000_000).toISOString(), created_at: "x" },
+    ],
+    users: [] as any[],
+  };
+  const repo = repoWith(db, authStore);
+  const r: any = await repo.login({ phone: "13700000001", code: "123456" });
+  assert.equal(r.created, true);
+  assert.equal(r.user.org_id, "org-default");
+  assert.equal(r.user.mobile, "13700000001");
+  assert.equal(authStore.users.length, 1);
+  assert.equal(db.users.length, 1);
+});
+
+test("login returns MULTI_USER when the phone maps to >1 user in the org", async () => {
+  const db = {
+    auth_verify_code: [
+      { id: "c1", phone: "13700000002", code: "123456", used: false, expires_at: new Date(2_000_000_000_000).toISOString(), created_at: "x" },
+    ],
+    users: [
+      { id: "u1", org_id: "org-default", mobile: "13700000002", auth_user_id: "a1", deleted_at: null },
+      { id: "u2", org_id: "org-default", mobile: "13700000002", auth_user_id: "a2", deleted_at: null },
+    ],
+  };
+  const repo = repoWith(db, { users: [] });
+  const r: any = await repo.login({ phone: "13700000002", code: "123456" });
+  assert.equal(r.multiUser, true);
+  assert.equal(r.users.length, 2);
+  assert.equal(db.auth_verify_code[0].used, false); // code not consumed
+});
+
+test("login rejects a wrong/expired code", async () => {
+  const db = { auth_verify_code: [] as any[], users: [] as any[] };
+  const repo = repoWith(db, { users: [] });
+  await assert.rejects(() => repo.login({ phone: "13700000003", code: "000000" }), /验证码错误或已过期/);
+});

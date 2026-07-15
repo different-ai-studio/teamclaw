@@ -1,0 +1,38 @@
+{
+  "cloudApiUrl": "https://cloud.ucar.cc",
+  "team": {
+    "lockLlmConfig": false
+  },
+  "app": {
+    "name": "TeamClaw",
+    "shortName": "teamclaw",
+    "palette": "default",
+    "logo": "branding/acme/logo.png",
+    "updater": {
+      "endpoints": [
+        "__OSS_BASE_URL__/releases/latest.json",
+        "https://github.com/different-ai-studio/teamclaw-next/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFEMDg3REY5MEI2RDAyMzMKUldRekFtMEwrWDBJSFhTdHYvbStkclEvTEVRNFlpZExxSHNTSTA2V2ZHS0xPUEZ4WnF5d2RxQ0gK"
+    }
+  },
+  "features": {
+    "updater": true,
+    "channels": {
+      "discord": true,
+      "feishu": true,
+      "email": true,
+      "kook": true,
+      "wecom": true,
+      "wechat": true
+    },
+    "auth": { "google": false, "wechat": false, "phone": false },
+    "teamShareBrowser": false
+  },
+  "opencode": {
+    "downloadBase": "https://teamclaw.ucar.cc/opencode/stable"
+  },
+  "defaults": {
+    "theme": "system"
+  }
+}

@@ -1,0 +1,17 @@
+services:
+  seed:
+    image: registry.cn-shenzhen.aliyuncs.com/teamclaw/teamclaw-seed:latest
+    restart: unless-stopped
+    networks:
+      - admin_default
+    volumes:
+      - seed-data:/data
+    environment:
+      SEED_API_KEY: "${SEED_API_KEY}"
+
+volumes:
+  seed-data:
+
+networks:
+  admin_default:
+    external: true

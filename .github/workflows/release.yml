@@ -1,0 +1,483 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Cancel in-progress release if a new tag is pushed
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Gate: refuse to build a release whose bundled amuxd (apps/daemon/Cargo.toml)
+  # version was not bumped. The client only force-upgrades ~/.amuxd/bin/amuxd when
+  # the bundled crate version is strictly greater than the installed one, so a
+  # release that leaves the version unchanged silently keeps the old daemon.
+  verify-version-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+      - name: Verify desktop + amuxd version bump
+        run: ./scripts/verify-release-version-bump.sh "${{ github.ref_name }}" "${{ github.ref_name }}"
+
+  # macOS job creates the GitHub Release and uploads macOS artifacts
+  release-macos:
+    needs: verify-version-bump
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Write production build config from secret
+        env:
+          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
+        run: |
+          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.json
+            echo "✅ Production build config written (replaces repo default)"
+          else
+            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
+          fi
+
+      - name: Fetch branding assets (private repo)
+        env:
+          BRANDING_REPO: ${{ vars.BRANDING_REPO }}
+          BRANDING_REPO_PAT: ${{ secrets.BRANDING_REPO_PAT }}
+          BRANDING_CONFIG_FILE: ${{ vars.BRANDING_CONFIG_FILE }}
+        shell: bash
+        run: |
+          if [ -z "$BRANDING_REPO" ] || [ -z "$BRANDING_REPO_PAT" ]; then
+            echo "ℹ️ No branding repo configured (BRANDING_REPO / BRANDING_REPO_PAT) — non-branded build"
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:${BRANDING_REPO_PAT}@github.com/${BRANDING_REPO}.git" .branding-src
+          if [ -d .branding-src/branding ]; then
+            mkdir -p ./branding
+            cp -R .branding-src/branding/. ./branding/
+            echo "✅ Branding assets placed under ./branding"
+          fi
+          cfg="${BRANDING_CONFIG_FILE:-build.config.copilot361.json}"
+          if [ -f ".branding-src/${cfg}" ]; then
+            cp ".branding-src/${cfg}" build.config.json
+            echo "✅ Branding build config applied: ${cfg} (overrides BUILD_CONFIG_PRODUCTION)"
+          else
+            echo "⚠️ Branding config ${cfg} not found in branding repo; keeping existing build.config.json"
+          fi
+          rm -rf .branding-src
+
+      - name: Verify Tauri signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npm install --no-save @tauri-apps/cli
+          echo "test" > /tmp/test_sign_file
+          npx @tauri-apps/cli signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" /tmp/test_sign_file
+          echo "✅ Signing key verified successfully"
+          rm -f /tmp/test_sign_file /tmp/test_sign_file.sig
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/pnpm/store/v3
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./apps/desktop -> target
+          key: ${{ matrix.target }}
+
+      - name: Install protoc (for prost_build)
+        run: brew install protobuf
+
+      # Apply OS-level white-label branding BEFORE the frontend build.
+      # tauri-action runs `tauri build` directly and never invokes the
+      # `pnpm tauri:build` npm script, so scripts/update-tauri-config.js (which
+      # writes productName/window title, bundle identifier, deep-link scheme,
+      # regenerates the icon set, and copies the in-app logo PNG into
+      # packages/app/public/) would otherwise never run — leaving the OS app
+      # name and icons stuck on the default TeamClaw. The in-app logo PNGs must
+      # land before the Vite build bundles them, so this runs first.
+      - name: Apply branding to tauri.conf + icons
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          pnpm install
+          if [ -n "$OSS_BUCKET" ] && [ -n "$OSS_ENDPOINT" ]; then
+            host=$(printf '%s' "$OSS_ENDPOINT" | sed -e 's#^https\?://##' -e 's#/*$##')
+            export OSS_BASE_URL="https://${OSS_BUCKET}.${host}"
+          fi
+          node scripts/update-tauri-config.js
+
+      # Parallel: pnpm install + frontend build, introspect sidecar build, certificate import
+      - name: Build all (parallel)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          mkdir -p apps/desktop/binaries
+
+          # 1) pnpm install → then frontend build (sequential chain, backgrounded)
+          (
+            set -e
+            pnpm install
+            echo "pnpm install done, building frontend..."
+            BUILD_ENV=production pnpm --filter @teamclaw/app build
+            echo "frontend build done"
+          ) > /tmp/frontend.log 2>&1 &
+          PID_FRONTEND=$!
+
+          # 2) Build teamclaw-introspect sidecar (background)
+          (
+            set -e
+            echo "Building teamclaw-introspect for ${{ matrix.target }}..."
+            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target ${{ matrix.target }} --target-dir apps/desktop/target
+            cp apps/desktop/target/${{ matrix.target }}/release/teamclaw-introspect apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
+            chmod +x apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
+            echo "teamclaw-introspect ready"
+          ) > /tmp/introspect.log 2>&1 &
+          PID_INTROSPECT=$!
+
+          # 2b) Build amuxd sidecar (background)
+          (
+            set -e
+            echo "Building amuxd for ${{ matrix.target }}..."
+            cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }} --target-dir apps/desktop/target
+            cp apps/desktop/target/${{ matrix.target }}/release/amuxd apps/desktop/binaries/amuxd-${{ matrix.target }}
+            chmod +x apps/desktop/binaries/amuxd-${{ matrix.target }}
+            echo "amuxd ready"
+          ) > /tmp/amuxd.log 2>&1 &
+          PID_AMUXD=$!
+
+          # 3) Import Apple certificate (background, fast but independent)
+          (
+            if [ -z "$APPLE_CERTIFICATE" ]; then
+              echo "No certificate, using ad-hoc signing."
+              exit 0
+            fi
+            set -e
+            echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+            security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security set-keychain-settings -t 3600 -u build.keychain
+            security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+            CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1)
+            CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+            echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
+            echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+            echo "Certificate imported: $CERT_ID"
+          ) > /tmp/cert.log 2>&1 &
+          PID_CERT=$!
+
+          # Wait for all; dump logs on failure
+          FAILED=0
+          wait $PID_FRONTEND   || { echo "::error::Frontend build failed:"; cat /tmp/frontend.log; FAILED=1; }
+          wait $PID_INTROSPECT || { echo "::error::introspect build failed:"; cat /tmp/introspect.log; FAILED=1; }
+          wait $PID_AMUXD      || { echo "::error::amuxd build failed:"; cat /tmp/amuxd.log; FAILED=1; }
+          wait $PID_CERT       || { echo "::error::Certificate import failed:"; cat /tmp/cert.log; FAILED=1; }
+
+          if [ "$FAILED" -ne 0 ]; then exit 1; fi
+
+          echo "All parallel tasks completed"
+          ls -lh apps/desktop/binaries/
+          ls -lh packages/app/dist/ | head -5
+
+      # Skip beforeBuildCommand since frontend is already built above,
+      # and substitute __OSS_BASE_URL__ in updater endpoints (drop if OSS not configured).
+      - name: Finalize tauri.conf.json for build
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          with open('apps/desktop/tauri.conf.json', 'r') as f:
+              conf = json.load(f)
+          conf['build']['beforeBuildCommand'] = 'echo frontend already built'
+          endpoints = conf.get('plugins', {}).get('updater', {}).get('endpoints', [])
+          bucket = os.environ.get('OSS_BUCKET', '')
+          endpoint_host = os.environ.get('OSS_ENDPOINT', '').replace('https://', '').replace('http://', '').rstrip('/')
+          oss_base = f'https://{bucket}.{endpoint_host}' if bucket and endpoint_host else ''
+          if oss_base:
+              endpoints = [e.replace('__OSS_BASE_URL__', oss_base) for e in endpoints]
+          endpoints = [e for e in endpoints if '__OSS_BASE_URL__' not in e]
+          conf.setdefault('plugins', {}).setdefault('updater', {})['endpoints'] = endpoints
+          with open('apps/desktop/tauri.conf.json', 'w') as f:
+              json.dump(conf, f, indent=2)
+          print('Final updater endpoints:')
+          for e in endpoints:
+              print(f'  - {e}')
+          EOF
+
+      - name: Render release notes
+        id: release_notes
+        run: |
+          APP_NAME=$(node -e "import('./scripts/lib/read-app-name.mjs').then((m) => console.log(m.readAppName()))")
+          echo "app_name=${APP_NAME}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'body<<EOF'
+            node scripts/render-desktop-release-body.mjs
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          # MUST match the frontend build's BUILD_ENV (see "Build all" above).
+          # tauri-action compiles the Rust app, which runs apps/desktop/build.rs;
+          # build.rs only deep-merges build.config.<BUILD_ENV>.json when BUILD_ENV
+          # is set. Without it the Rust CLOUD_API_URL is baked from the un-merged
+          # build.config.json (the branding base, whose cloudApiUrl points at the
+          # brand's own backend) while the frontend — built with BUILD_ENV=production
+          # — resolves cloudApiUrl from the production merge. The two desync: the
+          # frontend talks to the production Cloud API while the Rust team-share /
+          # OSS commands hit the branding backend, which manifests as Team Shared
+          # hanging on "Loading team share status…".
+          BUILD_ENV: production
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATER_GITHUB_TOKEN: ${{ secrets.UPDATER_GITHUB_TOKEN }}
+          DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
+          CARGO_INCREMENTAL: "0"
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "${{ steps.release_notes.outputs.app_name }} ${{ github.ref_name }}"
+          releaseBody: ${{ steps.release_notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          args: "--target ${{ matrix.target }}"
+
+  # Windows job uploads artifacts to the same GitHub Release created by macOS job
+  release-windows:
+    needs: verify-version-bump
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Write production build config from secret
+        env:
+          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
+        shell: bash
+        run: |
+          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.json
+            echo "✅ Production build config written (replaces repo default)"
+          else
+            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
+          fi
+
+      - name: Fetch branding assets (private repo)
+        env:
+          BRANDING_REPO: ${{ vars.BRANDING_REPO }}
+          BRANDING_REPO_PAT: ${{ secrets.BRANDING_REPO_PAT }}
+          BRANDING_CONFIG_FILE: ${{ vars.BRANDING_CONFIG_FILE }}
+        shell: bash
+        run: |
+          if [ -z "$BRANDING_REPO" ] || [ -z "$BRANDING_REPO_PAT" ]; then
+            echo "ℹ️ No branding repo configured (BRANDING_REPO / BRANDING_REPO_PAT) — non-branded build"
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:${BRANDING_REPO_PAT}@github.com/${BRANDING_REPO}.git" .branding-src
+          if [ -d .branding-src/branding ]; then
+            mkdir -p ./branding
+            cp -R .branding-src/branding/. ./branding/
+            echo "✅ Branding assets placed under ./branding"
+          fi
+          cfg="${BRANDING_CONFIG_FILE:-build.config.copilot361.json}"
+          if [ -f ".branding-src/${cfg}" ]; then
+            cp ".branding-src/${cfg}" build.config.json
+            echo "✅ Branding build config applied: ${cfg} (overrides BUILD_CONFIG_PRODUCTION)"
+          else
+            echo "⚠️ Branding config ${cfg} not found in branding repo; keeping existing build.config.json"
+          fi
+          rm -rf .branding-src
+
+      - name: Verify Tauri signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          npm install --no-save @tauri-apps/cli
+          echo "test" > "$RUNNER_TEMP/test_sign_file"
+          npx @tauri-apps/cli signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$RUNNER_TEMP/test_sign_file"
+          echo "✅ Signing key verified successfully"
+          rm -f "$RUNNER_TEMP/test_sign_file" "$RUNNER_TEMP/test_sign_file.sig"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ~/AppData/Local/pnpm/store/v3
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./apps/desktop -> target
+
+      - name: Install protoc (for prost_build)
+        shell: bash
+        run: choco install protoc -y
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Apply OS-level white-label branding BEFORE the frontend build (see the
+      # macOS job for the full rationale). The in-app logo PNGs must land in
+      # packages/app/public/ before Vite bundles them.
+      - name: Apply branding to tauri.conf + icons
+        shell: bash
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          if [ -n "$OSS_BUCKET" ] && [ -n "$OSS_ENDPOINT" ]; then
+            host=$(printf '%s' "$OSS_ENDPOINT" | sed -e 's#^https\?://##' -e 's#/*$##')
+            export OSS_BASE_URL="https://${OSS_BUCKET}.${host}"
+          fi
+          node scripts/update-tauri-config.js
+
+      - name: Build frontend
+        env:
+          BUILD_ENV: production
+        run: pnpm --filter @teamclaw/app build
+
+      - name: Prepare binaries directory
+        shell: bash
+        run: mkdir -p apps/desktop/binaries
+
+      - name: Build teamclaw-introspect sidecar
+        shell: bash
+        run: |
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target-dir apps/desktop/target
+          cp apps/desktop/target/release/teamclaw-introspect.exe apps/desktop/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
+          echo "teamclaw-introspect ready"
+
+      - name: Build amuxd sidecar
+        shell: bash
+        run: |
+          cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd --target-dir apps/desktop/target
+          cp apps/desktop/target/release/amuxd.exe apps/desktop/binaries/amuxd-x86_64-pc-windows-msvc.exe
+          echo "amuxd sidecar ready"
+
+      # Skip beforeBuildCommand since frontend is already built above
+      - name: Finalize tauri.conf.json for build
+        shell: python
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          import json, os
+          with open('apps/desktop/tauri.conf.json', 'r') as f:
+              conf = json.load(f)
+          conf['build']['beforeBuildCommand'] = 'echo frontend already built'
+          endpoints = conf.get('plugins', {}).get('updater', {}).get('endpoints', [])
+          bucket = os.environ.get('OSS_BUCKET', '')
+          endpoint_host = os.environ.get('OSS_ENDPOINT', '').replace('https://', '').replace('http://', '').rstrip('/')
+          oss_base = f'https://{bucket}.{endpoint_host}' if bucket and endpoint_host else ''
+          if oss_base:
+              endpoints = [e.replace('__OSS_BASE_URL__', oss_base) for e in endpoints]
+          endpoints = [e for e in endpoints if '__OSS_BASE_URL__' not in e]
+          conf.setdefault('plugins', {}).setdefault('updater', {})['endpoints'] = endpoints
+          with open('apps/desktop/tauri.conf.json', 'w') as f:
+              json.dump(conf, f, indent=2)
+          print('Final updater endpoints:')
+          for e in endpoints:
+              print(f'  - {e}')
+
+      - name: Render release notes
+        id: release_notes
+        shell: bash
+        run: |
+          APP_NAME=$(node -e "import('./scripts/lib/read-app-name.mjs').then((m) => console.log(m.readAppName()))")
+          echo "app_name=${APP_NAME}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'body<<EOF'
+            node scripts/render-desktop-release-body.mjs --no-arch-hint
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          # Must match the frontend build's BUILD_ENV (see the macOS job for the
+          # full rationale) so build.rs bakes the production-merged cloudApiUrl
+          # into the Rust binary instead of the un-merged branding backend.
+          BUILD_ENV: production
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
+          CARGO_INCREMENTAL: "0"
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "${{ steps.release_notes.outputs.app_name }} ${{ github.ref_name }}"
+          releaseBody: ${{ steps.release_notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          # Windows: NSIS installer, no p2p feature (avoids wmi/windows-core conflicts)
+          args: "--bundles nsis -- --no-default-features"

@@ -1,0 +1,113 @@
+name: Branch Cleanup
+
+# Weekly digest of remote branches already merged into main, posted to WeCom.
+# This repo accumulates merged-but-undeleted agent/* branches; this surfaces
+# them so they don't pile up.
+#
+# SAFE BY DEFAULT: the scheduled run NEVER deletes anything — it only reports.
+# To actually delete, trigger manually (Run workflow) with `delete = true`.
+# Protected branches are never touched, in particular agent/preview-integration,
+# which is a permanent fixture of the local worktree workflow.
+
+on:
+  schedule:
+    - cron: "30 1 * * 1" # Mondays 01:30 UTC
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: "Actually delete merged remote branches (default: report only)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: branch-cleanup
+  cancel-in-progress: false
+
+permissions:
+  contents: write # needed to delete remote branches in delete mode
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history so --merged is accurate
+
+      - name: Find merged branches
+        id: find
+        env:
+          # Branches that must never be deleted or reported as stale.
+          PROTECTED: "main master gh-pages agent/preview-integration"
+        run: |
+          set -uo pipefail
+          git fetch origin --prune --quiet
+
+          mapfile -t merged < <(
+            git branch -r --merged origin/main \
+              | sed 's#^[[:space:]]*origin/##' \
+              | grep -vE '^HEAD' \
+              | grep -vE '\->'
+          )
+
+          stale=()
+          for b in "${merged[@]}"; do
+            skip=false
+            for p in $PROTECTED; do
+              [ "$b" = "$p" ] && skip=true && break
+            done
+            $skip && continue
+            stale+=("$b")
+          done
+
+          echo "count=${#stale[@]}" >> "$GITHUB_OUTPUT"
+
+          if [ "${#stale[@]}" -gt 0 ]; then
+            # Build a markdown list with last-commit age per branch.
+            lines=""
+            printf '%s\n' "${stale[@]}" > /tmp/stale.txt
+            while IFS= read -r b; do
+              when=$(git log -1 --format='%cr' "origin/$b" 2>/dev/null || echo "?")
+              who=$(git log -1 --format='%an' "origin/$b" 2>/dev/null || echo "?")
+              lines="${lines}\n> • \`$b\` — $when, $who"
+            done < /tmp/stale.txt
+            {
+              echo "report<<EOF"
+              echo -e "$lines"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Delete merged branches (manual delete mode only)
+        if: github.event_name == 'workflow_dispatch' && inputs.delete && steps.find.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # Skip any branch that still backs an OPEN PR, just in case.
+          open_heads=$(gh pr list --state open --json headRefName -q '.[].headRefName' | tr '\n' ' ')
+          while IFS= read -r b; do
+            case " $open_heads " in
+              *" $b "*) echo "skip (open PR): $b"; continue;;
+            esac
+            echo "deleting origin/$b"
+            git push origin --delete "$b" || echo "  failed to delete $b"
+          done < /tmp/stale.txt
+
+      - name: Report to WeCom
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          COUNT: ${{ steps.find.outputs.count }}
+          REPORT: ${{ steps.find.outputs.report }}
+          DELETED: ${{ (github.event_name == 'workflow_dispatch' && inputs.delete) && '已删除' || '仅报告' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "${COUNT:-0}" = "0" ]; then
+            content=$(printf '## 🌿 分支清理 · 周报\n> 没有已合并待清理的远端分支，干净 ✨')
+          else
+            content=$(printf '## 🌿 分支清理 · 周报（%s）\n> 已合并进 main 的远端分支共 **%s** 个：\n%s\n> 手动删除：Actions → Branch Cleanup → Run workflow（勾选 delete）\n> [查看 Run](%s)' \
+              "$DELETED" "$COUNT" "$REPORT" "$RUN_URL")
+          fi
+          jq -nc --arg content "$content" '{msgtype:"markdown",markdown:{content:$content}}' \
+            | curl -s -X POST "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_WEBHOOK_KEY" \
+                -H 'Content-Type: application/json' --data-binary @- >/dev/null

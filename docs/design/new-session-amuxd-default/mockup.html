@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>新建会话 · amuxd 默认路径 — TeamClaw 交互原型</title>
+  <style>
+    /* Editorial Calm tokens — AGENTS.md §1 */
+    :root {
+      --background: #fbfaf7;
+      --foreground: #1a1a14;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --selected: #e7e2d6;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: #e8e6df;
+      color: var(--foreground);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .page-header {
+      padding: 20px 24px 12px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .page-header h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .page-header p {
+      margin: 0;
+      color: var(--muted-foreground);
+      font-size: 13px;
+      max-width: 720px;
+    }
+    .proto-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 24px 16px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .proto-tab {
+      border: 1px solid var(--border);
+      background: var(--paper);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      cursor: pointer;
+      color: var(--ink-2);
+    }
+    .proto-tab.active {
+      background: var(--selected);
+      font-weight: 600;
+      color: var(--foreground);
+    }
+    .proto-note {
+      max-width: 1280px;
+      margin: 0 auto 16px;
+      padding: 0 24px;
+      font-size: 12px;
+      color: var(--muted-foreground);
+    }
+    .proto-note strong { color: var(--foreground); }
+
+    /* App shell */
+    .app {
+      display: none;
+      max-width: 1280px;
+      margin: 0 auto 40px;
+      padding: 0 24px;
+      height: 640px;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px -12px rgba(20, 20, 15, 0.18);
+      border: 1px solid var(--border);
+    }
+    .app.visible { display: grid; grid-template-columns: 200px 280px 1fr; }
+    .sidebar {
+      background: var(--panel);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .traffic { height: 28px; display: flex; align-items: center; justify-content: flex-end; font-size: 10.5px; color: var(--faint); }
+    .split-btn {
+      display: flex;
+      width: 100%;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(20,20,15,0.06);
+    }
+    .split-primary {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      background: var(--coral);
+      color: #fff;
+      border: none;
+      font: inherit;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .split-primary:hover { filter: brightness(0.95); }
+    .split-chevron {
+      width: 32px;
+      background: var(--coral);
+      color: #fff;
+      border: none;
+      border-left: 1px solid rgba(255,255,255,0.2);
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .split-chevron:hover { filter: brightness(0.92); }
+    .split-chevron[aria-expanded="true"] { background: #d94f40; }
+    .menu-pop {
+      display: none;
+      position: relative;
+      margin-top: -4px;
+    }
+    .menu-pop.open { display: block; }
+    .menu-pop ul {
+      list-style: none;
+      margin: 0;
+      padding: 4px;
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 6px 20px -8px rgba(20,20,15,0.15);
+    }
+    .menu-pop li button {
+      width: 100%;
+      text-align: left;
+      border: none;
+      background: transparent;
+      padding: 7px 10px;
+      border-radius: 6px;
+      font: inherit;
+      font-size: 12.5px;
+      color: var(--ink-2);
+      cursor: pointer;
+    }
+    .menu-pop li button:hover { background: var(--selected); }
+    .menu-pop .hint {
+      display: block;
+      font-size: 11px;
+      color: var(--faint);
+      margin-top: 2px;
+    }
+    .nav-item {
+      padding: 7px 9px;
+      border-radius: 6px;
+      color: var(--ink-2);
+      font-size: 13px;
+    }
+    .nav-item.active { background: var(--selected); font-weight: 600; }
+    .session-col {
+      background: var(--background);
+      border-right: 1px solid var(--border-soft);
+      padding: 14px 12px;
+      overflow: hidden;
+    }
+    .session-col h2 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .session-card {
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      border-left: 2px solid transparent;
+    }
+    .session-card.active {
+      background: var(--paper);
+      border-left-color: var(--coral);
+    }
+    .session-card .title { font-size: 13px; font-weight: 600; }
+    .session-card .meta { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+    .chat-col {
+      background: var(--background);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .chat-header {
+      padding: 14px 26px 8px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .chat-header h3 { margin: 0; font-size: 15px; font-weight: 700; }
+    .chat-header .sub { font-size: 12px; color: var(--muted-foreground); margin-top: 4px; }
+    .chat-thread {
+      flex: 1;
+      padding: 24px 26px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      text-align: center;
+      color: var(--muted-foreground);
+      font-size: 13px;
+    }
+    .composer {
+      margin: 0 20px 16px;
+      background: var(--paper);
+      border-radius: 14px;
+      box-shadow: 0 4px 16px -10px rgba(20, 20, 15, 0.1);
+      border: 1px solid var(--border-soft);
+    }
+    .composer textarea {
+      width: 100%;
+      border: none;
+      resize: none;
+      padding: 12px 14px;
+      font: inherit;
+      font-size: 13.5px;
+      outline: none;
+      min-height: 56px;
+      border-radius: 14px 14px 0 0;
+      background: transparent;
+    }
+    .composer-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-top: 1px solid var(--border-soft);
+      font-size: 12px;
+    }
+    .agent-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--panel);
+      padding: 4px 9px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .agent-pill .av {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: #6b8f71;
+      color: #fff;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      box-shadow: 0 0 0 1.5px var(--coral);
+    }
+    .send {
+      margin-left: auto;
+      background: var(--coral);
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 12.5px;
+      cursor: pointer;
+    }
+
+    /* Toast */
+    .toast {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--paper);
+      border: 1px solid var(--border);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      box-shadow: 0 4px 16px -8px rgba(20,20,15,0.12);
+      display: none;
+      z-index: 5;
+      white-space: nowrap;
+    }
+    .toast.show { display: flex; align-items: center; gap: 8px; animation: fade 2.2s ease forwards; }
+    @keyframes fade {
+      0%, 15% { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+      25%, 75% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      100% { opacity: 0; }
+    }
+
+    /* Modal — multi-person (existing) */
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(26, 26, 20, 0.35);
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .overlay.open { display: flex; }
+    .modal {
+      width: 560px;
+      max-width: calc(100vw - 32px);
+      background: var(--paper);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px -16px rgba(20, 20, 15, 0.25);
+    }
+    .modal-head {
+      display: flex;
+      gap: 12px;
+      padding: 20px 20px 12px;
+      align-items: flex-start;
+    }
+    .modal-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--coral-soft);
+      color: var(--coral);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+    .modal-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .modal-head .sub { font-size: 13px; font-weight: 400; color: var(--muted-foreground); }
+    .modal-body { padding: 0 20px 16px; }
+    .modal-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+    .modal-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border: none;
+      width: 100%;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+    .modal-row.checked { background: rgba(245, 214, 207, 0.4); }
+    .modal-foot {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      background: rgba(239, 236, 228, 0.35);
+    }
+    .btn-ghost {
+      border: none;
+      background: transparent;
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font: inherit;
+      color: var(--ink-2);
+    }
+    .btn-primary {
+      border: none;
+      background: var(--foreground);
+      color: #fefdfa;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+    }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Spec panel */
+    .spec {
+      max-width: 1280px;
+      margin: 0 auto 48px;
+      padding: 0 24px;
+    }
+    .spec section {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+    .spec h2 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+    .spec ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+    .spec li { margin-bottom: 6px; }
+    .flow {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      background: var(--background);
+      padding: 12px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      color: var(--ink-2);
+      line-height: 1.6;
+    }
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 900px) {
+      .app.visible { grid-template-columns: 1fr; height: auto; }
+      .compare { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <h1>新建会话 · 默认与本机 amuxd 对话</h1>
+    <p>
+      交互原型（仅 HTML，未接入产品）。主路径：点击「新聊天」立即创建「你 + 本机 amuxd Agent」的空会话并聚焦输入框；
+      多人路径：通过拆分按钮菜单进入现有选人弹窗。
+    </p>
+  </header>
+
+  <div class="proto-tabs" role="tablist">
+    <button type="button" class="proto-tab active" data-view="fast">① 默认快路径（推荐）</button>
+    <button type="button" class="proto-tab" data-view="multi">② 多人会话弹窗</button>
+    <button type="button" class="proto-tab" data-view="edge">③ 未绑定 amuxd</button>
+    <button type="button" class="proto-tab" data-view="spec">设计说明</button>
+  </div>
+  <p class="proto-note" id="proto-hint">
+    <strong>操作：</strong>点击珊瑚色「新聊天」→ 约 300ms 内进入空会话（无弹窗）；点击右侧 ▾ →「多人会话…」打开选人弹窗。
+  </p>
+
+  <!-- View 1: Fast path -->
+  <div class="app visible" id="view-fast" data-view-panel="fast">
+    <aside class="sidebar">
+      <div class="traffic">TeamClaw · workspace</div>
+      <div>
+        <div class="split-btn">
+          <button type="button" class="split-primary" id="btn-fast-create" title="⌘N">
+            <span>✎</span>
+            <span style="flex:1">新聊天</span>
+            <span style="font-family:var(--font-mono);font-size:10px;opacity:0.9">⌘N</span>
+          </button>
+          <button type="button" class="split-chevron" id="btn-menu" aria-expanded="false" aria-label="更多新建选项">▾</button>
+        </div>
+        <div class="menu-pop" id="new-menu">
+          <ul>
+            <li>
+              <button type="button" id="btn-open-multi">
+                多人会话…
+                <span class="hint">选择成员与其它 Agent，可写开场白</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div class="nav-item active">会话</div>
+      <div class="nav-item">@提及</div>
+      <div class="nav-item">置顶</div>
+    </aside>
+    <div class="session-col">
+      <h2>会话</h2>
+      <div class="session-card active" id="new-session-card">
+        <div class="title">MACPRO AI (14:32)</div>
+        <div class="meta">刚刚 · 新</div>
+      </div>
+      <div class="session-card">
+        <div class="title">123</div>
+        <div class="meta">1 小时前</div>
+      </div>
+      <div class="session-card">
+        <div class="title">subagent</div>
+        <div class="meta">昨天</div>
+      </div>
+    </div>
+    <main class="chat-col">
+      <div class="toast" id="toast">已与 <strong>MACPRO AI</strong> 开始新会话</div>
+      <header class="chat-header">
+        <h3 id="chat-title">MACPRO AI (14:32)</h3>
+        <div class="sub">2 位参与者 · 你 + 本机 Agent · 0 条消息</div>
+      </header>
+      <div class="chat-thread" id="empty-hint">
+        <p style="margin:0 0 8px;color:var(--foreground);font-weight:600">直接输入第一条消息</p>
+        <p style="margin:0;font-size:12px">无需先选参与者；Agent 已在输入栏预选</p>
+      </div>
+      <div class="composer">
+        <textarea placeholder="用 @ 提及，用 # 引用文件…" autofocus></textarea>
+        <div class="composer-bar">
+          <span class="agent-pill">
+            <span class="av">M</span>
+            MACPRO AI ▾
+          </span>
+          <span style="color:var(--faint);font-family:var(--font-mono);font-size:11px">⌘↵</span>
+          <button type="button" class="send">发送 →</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- View 2: hidden until tab -->
+  <div class="app" id="view-multi-static" data-view-panel="multi">
+    <aside class="sidebar">
+      <div class="traffic">TeamClaw · workspace</div>
+      <button type="button" class="split-primary" style="width:100%;border-radius:8px" disabled>新聊天（示意）</button>
+      <div class="nav-item active">会话</div>
+    </aside>
+    <div class="session-col"><h2>会话</h2></div>
+    <main class="chat-col" style="filter:blur(1px);opacity:0.7">
+      <header class="chat-header"><h3>背景</h3></header>
+      <div class="chat-thread">主界面被遮罩</div>
+    </main>
+  </div>
+
+  <div class="app" id="view-edge" data-view-panel="edge">
+    <aside class="sidebar">
+      <div class="traffic">TeamClaw · workspace</div>
+      <div class="split-btn">
+        <button type="button" class="split-primary" style="opacity:0.55" disabled>新聊天</button>
+        <button type="button" class="split-chevron" disabled>▾</button>
+      </div>
+      <p style="font-size:11.5px;color:var(--muted-foreground);margin:8px 0 0;line-height:1.45">
+        未检测到本机 amuxd Agent。请完成初始化或启动 daemon。
+      </p>
+      <button type="button" style="margin-top:8px;width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--paper);font:inherit;cursor:pointer">
+        打开 Agent 设置
+      </button>
+    </aside>
+    <div class="session-col"><h2>会话</h2></div>
+    <main class="chat-col">
+      <div class="chat-thread">
+        <p>无本机 Agent 时：主按钮禁用 + 说明；「多人会话」仍可走团队内其它 Agent（若目录非空）。</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Multi-person modal -->
+  <div class="overlay" id="overlay-multi" aria-hidden="true">
+    <div class="modal" role="dialog" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <div class="modal-icon">✎</div>
+        <div>
+          <h2 id="modal-title">新会话 <span class="sub">· 从一条消息开始</span></h2>
+        </div>
+        <button type="button" class="btn-ghost" style="margin-left:auto" id="btn-close-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--muted-foreground);margin-bottom:6px">
+          参与者 · <span style="font-family:var(--font-mono)">1</span>
+          <button type="button" class="btn-ghost" style="float:right;padding:0;font-size:12px">清空</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 2px;border:1px solid var(--border);border-radius:999px;font-size:12px">
+            <span style="width:20px;height:20px;border-radius:4px;background:#6b8f71;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center">M</span>
+            MACPRO AI <span style="font-family:var(--font-mono);font-size:9px;color:var(--coral)">AI</span>
+          </span>
+        </div>
+        <input type="search" placeholder="搜索成员或 Agent…" style="width:100%;height:36px;border:1px solid var(--border);border-radius:8px;padding:0 12px;font:inherit;margin-bottom:8px" />
+        <div class="modal-list">
+          <button type="button" class="modal-row checked">
+            <span style="width:32px;height:32px;border-radius:6px;background:#6b8f71;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600">M</span>
+            <span style="flex:1">MACPRO AI <span style="font-size:9px;color:var(--coral);border:1px solid rgba(232,90,74,0.4);padding:1px 4px;border-radius:3px;margin-left:4px">AI</span></span>
+            <span style="width:16px;height:16px;border-radius:4px;background:var(--coral);color:#fff;font-size:10px">✓</span>
+          </button>
+          <button type="button" class="modal-row">
+            <span style="width:32px;height:32px;border-radius:50%;background:#7a6b9e;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600">I</span>
+            <span style="flex:1">IOS</span>
+            <span style="width:16px;height:16px;border:1px solid var(--border);border-radius:4px"></span>
+          </button>
+        </div>
+        <label style="display:block;margin-top:14px;font-size:12px;color:var(--muted-foreground)">开场消息</label>
+        <textarea rows="3" placeholder="想聊点什么？" style="width:100%;margin-top:6px;border:1px solid var(--border);border-radius:8px;padding:10px;font:inherit"></textarea>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn-ghost" id="btn-cancel-modal">取消</button>
+        <button type="button" class="btn-primary" disabled>创建会话 ⌘↵</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec" id="view-spec" data-view-panel="spec" style="display:none">
+    <section>
+      <h2>推荐方案：拆分主按钮（Split Button）</h2>
+      <ul>
+        <li><strong>主区域（珊瑚色，⌘N）</strong>：调用 <code>getCurrentDaemonAgent(teamId)</code>，用 <code>createSessionShell</code> 创建仅含「你 + 本机 Agent」的会话，<code>setEngagedAgent</code> 预选 Agent，<strong>不弹窗</strong>，聚焦输入框。</li>
+        <li><strong>▾ 菜单项「多人会话…」</strong>：打开现有 <code>NewSessionDialog</code>（选人 + 可选开场白），行为与今天一致。</li>
+        <li><strong>标题</strong>：沿用 ChatPanel 逻辑 <code>AgentName (HH:mm)</code>，便于同 Agent 多会话区分。</li>
+      </ul>
+    </section>
+    <section>
+      <h2>与现状对比</h2>
+      <div class="compare">
+        <div>
+          <p style="margin:0 0 8px;font-weight:600">现在</p>
+          <div class="flow">新聊天 / ⌘N
+  → NewSessionDialog（必选参与者）
+  → 必填开场消息
+  → 创建</div>
+        </div>
+        <div>
+          <p style="margin:0 0 8px;font-weight:600">目标</p>
+          <div class="flow">新聊天 / ⌘N
+  → createSessionShell([me, myAmuxd])
+  → 空线程 + 输入框聚焦
+
+多人会话…
+  → NewSessionDialog（不变）</div>
+        </div>
+      </div>
+    </section>
+    <section>
+      <h2>其它方案（未采用）</h2>
+      <ul>
+        <li><strong>双按钮纵向堆叠</strong>：「与 amuxd 聊」+ 次要链接「多人…」— 占用侧栏高度，弱于拆分按钮的一体感。</li>
+        <li><strong>零会话壳、仅切空白 ChatPanel</strong>：与列表/实时订阅模型不一致，需更大重构。</li>
+      </ul>
+    </section>
+    <section>
+      <h2>边界与实现备注（供后续开发）</h2>
+      <ul>
+        <li>本机 Agent 解析：已有 <code>getCurrentDaemonAgent</code>（device_id / is_owner 回退）。</li>
+        <li>无 Agent：禁用主按钮 + 链到 Daemon  onboarding / 设置；多人入口仍可尝试（团队目录）。</li>
+        <li>ChatPanel 带正文触发新建：若已 @ 多人，仍走 Dialog；仅「单 Agent 且为本机」时可快路径。</li>
+        <li>Web 非 Tauri：无 device 时回退 owner Agent 或提示绑定。</li>
+        <li>i18n 建议键：<code>chat.newChatWithDaemon</code>、<code>chat.newMultiPersonSession</code>。</li>
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.proto-tab');
+    const panels = document.querySelectorAll('[data-view-panel]');
+    const hints = {
+      fast: '<strong>操作：</strong>点击珊瑚色「新聊天」→ 约 300ms 内进入空会话（无弹窗）；点击右侧 ▾ →「多人会话…」打开选人弹窗。',
+      multi: '<strong>示意：</strong>多人路径保留现有弹窗（参与者 + 开场消息必填）。',
+      edge: '<strong>边界：</strong>未绑定本机 amuxd 时主按钮禁用，引导初始化。',
+      spec: '设计说明与实现备注（不交互）。',
+    };
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((t) => t.classList.remove('active'));
+        tab.classList.add('active');
+        const view = tab.dataset.view;
+        document.getElementById('proto-hint').innerHTML = hints[view];
+        panels.forEach((p) => {
+          const match = p.dataset.viewPanel === view;
+          if (p.classList.contains('app')) p.classList.toggle('visible', match);
+          else p.style.display = match ? 'block' : 'none';
+        });
+        document.getElementById('overlay-multi').classList.remove('open');
+      });
+    });
+
+    const menu = document.getElementById('new-menu');
+    const btnMenu = document.getElementById('btn-menu');
+    btnMenu?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = menu.classList.toggle('open');
+      btnMenu.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    document.addEventListener('click', () => {
+      menu?.classList.remove('open');
+      btnMenu?.setAttribute('aria-expanded', 'false');
+    });
+
+    const overlay = document.getElementById('overlay-multi');
+    const openMulti = () => {
+      overlay.classList.add('open');
+      overlay.setAttribute('aria-hidden', 'false');
+    };
+    const closeMulti = () => {
+      overlay.classList.remove('open');
+      overlay.setAttribute('aria-hidden', 'true');
+    };
+    document.getElementById('btn-open-multi')?.addEventListener('click', openMulti);
+    document.getElementById('btn-close-modal')?.addEventListener('click', closeMulti);
+    document.getElementById('btn-cancel-modal')?.addEventListener('click', closeMulti);
+    overlay?.addEventListener('click', (e) => { if (e.target === overlay) closeMulti(); });
+
+    document.getElementById('btn-fast-create')?.addEventListener('click', () => {
+      const toast = document.getElementById('toast');
+      toast.classList.remove('show');
+      void toast.offsetWidth;
+      toast.classList.add('show');
+      document.getElementById('empty-hint')?.scrollIntoView({ block: 'nearest' });
+      document.querySelector('#view-fast textarea')?.focus();
+    });
+  </script>
+</body>
+</html>

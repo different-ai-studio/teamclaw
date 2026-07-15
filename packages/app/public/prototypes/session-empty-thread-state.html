@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>空会话 Thread 占位 — In-Session Empty State</title>
+  <style>
+    :root {
+      --background: #fbfaf7;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --selected: #e7e2d6;
+      --foreground: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --success: #2eb872;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --shadow-composer: 0 4px 16px -10px rgba(20, 20, 15, 0.1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); background: #e8e5de; color: var(--foreground); min-height: 100vh; }
+    .hidden { display: none !important; }
+
+    .spec { background: var(--paper); border-bottom: 1px solid var(--border); padding: 22px 28px 20px; }
+    .spec h1 { font-size: 15px; font-weight: 700; }
+    .spec .lead { margin-top: 8px; font-size: 13px; color: var(--muted-foreground); line-height: 1.65; max-width: 54rem; }
+    .spec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
+    .spec-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--background); }
+    .spec-card h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
+    .spec-card li { font-size: 12.5px; color: var(--ink-2); line-height: 1.55; list-style: none; padding-left: 12px; position: relative; margin-top: 4px; }
+    .spec-card li::before { content: "·"; position: absolute; left: 0; color: var(--faint); font-weight: 700; }
+    .spec-card ul { padding: 0; }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+    .controls label { font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: 0.04em; text-transform: uppercase; }
+    .controls button { font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--ink-2); cursor: pointer; }
+    .controls button:hover { background: var(--selected); }
+    .controls button.is-active { background: var(--foreground); color: #fefdfa; border-color: var(--foreground); }
+    .rec-badge { margin-left: 6px; font-size: 9px; font-weight: 700; color: var(--coral); background: var(--coral-soft); border: 1px solid var(--coral-soft); padding: 1px 5px; border-radius: 4px; vertical-align: middle; }
+    .compare-note { margin-top: 12px; font-size: 12px; color: var(--muted-foreground); line-height: 1.6; max-width: 54rem; }
+
+    .stage { padding: 28px; display: flex; justify-content: center; }
+    .app-shell { width: min(100%, 880px); height: 640px; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px -24px rgba(20,20,15,0.28); display: flex; flex-direction: column; background: var(--background); border: 1px solid var(--border); }
+
+    .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--border-soft); }
+    .chat-header h2 { font-size: 15px; font-weight: 700; }
+    .chat-header .meta { font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+
+    .thread { flex: 1; overflow-y: auto; padding: 4px 26px; display: flex; flex-direction: column; justify-content: flex-end; min-height: 0; }
+    .thread-inner { width: 100%; max-width: 48rem; margin: 0 auto; padding: 24px 0 12px; }
+
+    /* shared agent note tokens */
+    .ai-pill { font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--coral); color: var(--coral); }
+    .agent-avatar { width: 28px; height: 28px; border-radius: 6px; background: rgba(232,90,74,0.14); color: var(--coral); display: grid; place-items: center; flex-shrink: 0; box-shadow: 0 0 0 1.5px var(--coral); position: relative; }
+    .agent-avatar .dot { position: absolute; bottom: -2px; right: -2px; width: 7px; height: 7px; border-radius: 50%; background: var(--coral); border: 1.5px solid var(--background); }
+
+    .chip { font-size: 12px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--paper); color: var(--ink-2); cursor: pointer; font-family: inherit; transition: background 0.15s; }
+    .chip:hover { background: var(--selected); }
+
+    .toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px; background: var(--foreground); color: #fefdfa; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 20; }
+    .toast.show { opacity: 1; }
+
+    /* ── Variant B (recommended): Agent opening note ── */
+    .opening-note { text-align: left; }
+    .note-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .note-meta-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .note-name { font-size: 13px; font-weight: 600; }
+    .note-sub { font-family: var(--font-mono); font-size: 11px; color: var(--faint); margin-top: 2px; }
+    .note-body { padding-left: 38px; font-size: 13.5px; line-height: 1.7; color: var(--ink-2); }
+    .note-body p + p { margin-top: 10px; }
+
+    .cap-grid { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border-soft); display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12.5px; }
+    .cap-grid dt { color: var(--muted-foreground); }
+    .cap-grid dd { color: var(--foreground); }
+
+    .follow-ups { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; padding-left: 38px; }
+
+    /* ── Variant A: Session context card ── */
+    .context-card { max-width: 22rem; margin: 0 auto; text-align: center; padding: 24px 22px; background: var(--paper); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 6px 28px -14px rgba(20,20,15,0.1); }
+    .context-card .agent-avatar { margin: 0 auto 12px; width: 44px; height: 44px; border-radius: 10px; }
+    .context-card .agent-avatar svg { width: 20px; height: 20px; }
+    .context-title { font-size: 16px; font-weight: 700; }
+    .context-meta { margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+    .context-hint { margin-top: 12px; font-size: 13px; color: var(--muted-foreground); line-height: 1.6; }
+    .context-card .follow-ups { padding-left: 0; justify-content: center; margin-top: 14px; }
+
+    /* ── Variant C: Whisper + chips ── */
+    .whisper { text-align: center; padding: 32px 16px; }
+    .whisper-line { font-size: 13px; color: var(--muted-foreground); }
+    .whisper-line strong { color: var(--ink-2); font-weight: 600; }
+    .whisper .follow-ups { padding-left: 0; justify-content: center; margin-top: 14px; }
+
+    /* composer mock */
+    .composer-area { padding: 0 26px 16px; flex-shrink: 0; }
+    .composer { background: var(--paper); border-radius: 14px; box-shadow: var(--shadow-composer); border: 1px solid var(--border-soft); overflow: hidden; }
+    .composer-strip { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; font-weight: 600; }
+    .composer-strip .sub { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; color: var(--faint); }
+    .composer-input { padding: 12px 14px; font-size: 13.5px; color: var(--faint); min-height: 44px; }
+    .composer-foot { padding: 8px 12px; border-top: 1px solid var(--border-soft); font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); text-align: right; }
+
+    .flow { padding: 14px 18px; border-top: 1px solid var(--border); background: var(--paper); font-size: 12px; color: var(--ink-2); }
+    .flow strong { color: var(--foreground); }
+  </style>
+</head>
+<body>
+  <div class="toast" id="toast"></div>
+
+  <header class="spec">
+    <h1>空会话 Thread 占位 — In-Session Empty State</h1>
+    <p class="lead">
+      场景：<strong>已有 activeSessionId</strong>、消息列表为空、底部 Composer 已显示。
+      与「无会话待命页」不同——<strong>不再创建会话</strong>，不再出现「开始对话」主按钮；
+      中间区域应像 thread 里的第一条 Agent 便签，引导用户在下方输入或点 chip 预填 Composer。
+    </p>
+    <div class="spec-grid">
+      <div class="spec-card">
+        <h3>与待命页差异</h3>
+        <ul>
+          <li>无「开始对话」CTA（已在会话内）</li>
+          <li>无 SessionContinueBanner（续聊在待命页）</li>
+          <li>chip → 预填 / 发送 Composer，不 createSession</li>
+          <li>可展示 model、workspace 等会话上下文</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h3>视觉原则</h3>
+        <ul>
+          <li>复用 Agent 回复 memo 结构（AGENTS.md §3）</li>
+          <li>内容贴 thread 底部（justify-end）</li>
+          <li>coral 仅用于 AI pill / avatar ring</li>
+          <li>首条真实消息后整块消失</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h3>实现锚点</h3>
+        <ul>
+          <li><code>ChatPanel</code> emptyState when activeSessionId</li>
+          <li>新组件 <code>SessionEmptyThreadState</code></li>
+          <li>chip onClick → requestComposerFocus + setInputValue</li>
+        </ul>
+      </div>
+    </div>
+    <div class="controls">
+      <label>方案</label>
+      <button type="button" data-variant="a">A · 会话卡片</button>
+      <button type="button" data-variant="b" class="is-active">B · Agent 开场便签<span class="rec-badge">推荐</span></button>
+      <button type="button" data-variant="c">C · 轻提示</button>
+    </div>
+    <p class="compare-note">
+      <strong>推荐 B</strong>：像 Agent 已经发来一条「开场 memo」——avatar + model 元信息 + 简短能力说明 + dashed 能力网格 + follow-up chips。
+      与有消息时的 note 视觉连续，空 thread 不再是大片留白。A 偏卡片居中，_session 感弱；C 太淡。
+    </p>
+  </header>
+
+  <div class="stage">
+    <div class="app-shell">
+      <div class="chat-header">
+        <div>
+          <h2>MACMINI (14:54)</h2>
+          <div class="meta">1 位 Agent · 0 条消息</div>
+        </div>
+      </div>
+
+      <div class="thread">
+        <div class="thread-inner">
+          <!-- B: Agent opening note -->
+          <div id="variant-b" class="opening-note">
+            <div class="note-header">
+              <div class="agent-avatar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                <span class="dot"></span>
+              </div>
+              <div>
+                <div class="note-meta-row">
+                  <span class="note-name">MACMINI</span>
+                  <span class="ai-pill">AI</span>
+                </div>
+                <div class="note-sub">DeepSeek/DeepSeek V4 Pro · 本机 · 在线</div>
+              </div>
+            </div>
+            <div class="note-body">
+              <p>会话已就绪。你可以直接提问，或从下面选一条开始。</p>
+              <dl class="cap-grid">
+                <dt>工作区</dt>
+                <dd>teamclaw-next</dd>
+                <dt>擅长</dt>
+                <dd>读代码、改 diff、跑命令、写报告</dd>
+              </dl>
+            </div>
+            <div class="follow-ups">
+              <button type="button" class="chip" data-fill="帮我看看当前 workspace 有什么未提交的改动">查看 workspace 改动</button>
+              <button type="button" class="chip" data-fill="用几句话总结这个 repo 的结构">总结项目结构</button>
+              <button type="button" class="chip" data-fill="/{写报告} ">写一份报告</button>
+            </div>
+          </div>
+
+          <!-- A: context card -->
+          <div id="variant-a" class="context-card hidden">
+            <div class="agent-avatar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+              <span class="dot"></span>
+            </div>
+            <div class="context-title">MACMINI</div>
+            <div class="context-meta">DeepSeek V4 Pro · teamclaw-next</div>
+            <p class="context-hint">在下方输入第一条消息，或选择快捷指令预填到输入框。</p>
+            <div class="follow-ups">
+              <button type="button" class="chip" data-fill="帮我看看当前 workspace 有什么未提交的改动">查看 workspace 改动</button>
+              <button type="button" class="chip" data-fill="用几句话总结这个 repo 的结构">总结项目结构</button>
+            </div>
+          </div>
+
+          <!-- C: whisper -->
+          <div id="variant-c" class="whisper hidden">
+            <p class="whisper-line">向 <strong>MACMINI</strong> 发送第一条消息</p>
+            <div class="follow-ups">
+              <button type="button" class="chip" data-fill="帮我看看当前 workspace 有什么未提交的改动">查看 workspace 改动</button>
+              <button type="button" class="chip" data-fill="用几句话总结这个 repo 的结构">总结项目结构</button>
+              <button type="button" class="chip" data-fill="/{写报告} ">写一份报告</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-area">
+        <div class="composer">
+          <div class="composer-strip">
+            <div class="agent-avatar" style="width:22px;height:22px;border-radius:5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/></svg></div>
+            <span>MACMINI</span>
+            <span class="sub">DeepSeek/DeepSeek V4 Pro</span>
+          </div>
+          <div class="composer-input" id="composer-preview">在下方输入…</div>
+          <div class="composer-foot">⌘↵ 发送</div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <strong>交互</strong>：点击 chip → 预填 Composer 并 focus（原型仅更新灰色 placeholder 文案模拟）
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let variant = 'b';
+    const toast = document.getElementById('toast');
+    const preview = document.getElementById('composer-preview');
+
+    document.querySelectorAll('[data-variant]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        variant = btn.dataset.variant;
+        document.querySelectorAll('[data-variant]').forEach(b => b.classList.toggle('is-active', b.dataset.variant === variant));
+        ['a','b','c'].forEach(v => document.getElementById('variant-' + v).classList.toggle('hidden', v !== variant));
+      });
+    });
+
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const text = chip.dataset.fill || chip.textContent;
+        preview.textContent = text;
+        preview.style.color = 'var(--foreground)';
+        toast.textContent = '预填 Composer 并 focus：「' + text.slice(0, 24) + '…」';
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 1800);
+      });
+    });
+  </script>
+</body>
+</html>

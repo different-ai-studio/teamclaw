@@ -1,0 +1,26 @@
+{
+  "id": "session-1",
+  "teamId": "team-1",
+  "title": "Architecture plan",
+  "mode": "collab",
+  "ideaId": "idea-1",
+  "lastMessageAt": "2026-05-27T00:30:00Z",
+  "lastMessagePreview": "Start with OpenAPI.",
+  "hasUnread": false,
+  "createdAt": "2026-05-26T23:00:00Z",
+  "updatedAt": "2026-05-27T00:30:00Z",
+  "participants": [
+    {
+      "sessionId": "session-1",
+      "actorId": "actor-1",
+      "role": "owner",
+      "joinedAt": "2026-05-26T23:00:00Z"
+    },
+    {
+      "sessionId": "session-1",
+      "actorId": "actor-2",
+      "role": "member",
+      "joinedAt": "2026-05-27T00:00:00Z"
+    }
+  ]
+}

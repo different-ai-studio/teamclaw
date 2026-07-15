@@ -1,0 +1,80 @@
+name: TestFlight
+
+on:
+  push:
+    tags:
+      - "ios-v*"
+    branches:
+      - main
+    paths:
+      - "apps/ios/**"
+  workflow_dispatch:
+
+concurrency:
+  group: testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-upload:
+    runs-on: macos-26
+
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    env:
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+      FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 60
+      FASTLANE_XCODEBUILD_SETTINGS_RETRIES: 6
+
+    steps:
+      # Debounce: wait before starting the real build so that a burst of
+      # iOS PRs merged in quick succession collapses into a single release.
+      # Each new push cancels the in-progress run (concurrency above) and
+      # restarts this timer. Tag pushes and workflow_dispatch skip the wait.
+      - name: Debounce (batch consecutive iOS merges)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: sleep 300
+
+      - uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: apps/ios
+
+      - name: Select Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app /Applications/Xcode.app 2>/dev/null | head -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer" || sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          swift --version
+
+      - name: Install iOS platform
+        run: |
+          set -euo pipefail
+          echo "Ensuring iOS platform is installed..."
+          xcodebuild -downloadPlatform iOS
+          xcodebuild -showsdks
+          xcodebuild -showsdks | grep -qi iphoneos
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build and upload to TestFlight
+        run: bundle exec fastlane beta

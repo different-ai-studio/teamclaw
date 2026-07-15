@@ -1,0 +1,13 @@
+services:
+  fc:
+    build: .
+    image: teamclaw-fc:dev
+    env_file:
+      - .env
+    environment:
+      PORT: "9000"
+      HOST: "0.0.0.0"
+      CORS_HANDLED_BY_PROXY: "true"
+    ports:
+      - "9000:9000"
+    restart: unless-stopped

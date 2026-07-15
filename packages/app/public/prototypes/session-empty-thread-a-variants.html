@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>方案 A 变体 — 空会话中间区（Composer 固定参照）</title>
+  <style>
+    :root {
+      --background: #fbfaf7;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --selected: #e7e2d6;
+      --foreground: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --success: #2eb872;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); background: #e8e5de; color: var(--foreground); }
+
+    .spec { background: var(--paper); border-bottom: 1px solid var(--border); padding: 20px 24px 18px; }
+    .spec h1 { font-size: 15px; font-weight: 700; }
+    .spec p { margin-top: 8px; font-size: 13px; color: var(--muted-foreground); line-height: 1.6; max-width: 56rem; }
+    .note { margin-top: 10px; font-size: 12px; color: var(--ink-2); padding: 10px 12px; background: var(--panel); border-radius: 8px; border: 1px solid var(--border-soft); max-width: 56rem; }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+    .controls span { font-size: 11px; font-weight: 600; color: var(--faint); text-transform: uppercase; letter-spacing: 0.05em; }
+    .controls button { font: 600 12px inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--ink-2); cursor: pointer; }
+    .controls button.is-active { background: var(--foreground); color: #fefdfa; border-color: var(--foreground); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; padding: 20px 24px 32px; }
+
+    /* ── Frame: only middle varies; header + composer fixed ── */
+    .frame { display: flex; flex-direction: column; background: var(--background); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: 0 16px 40px -18px rgba(20,20,15,0.2); height: 480px; }
+    .frame-tag { padding: 8px 12px; background: var(--paper); border-bottom: 1px solid var(--border-soft); font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+    .frame-tag em { font-style: normal; color: var(--faint); font-weight: 500; }
+
+    .frame-header { padding: 10px 14px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+    .frame-header h3 { font-size: 14px; font-weight: 700; }
+    .frame-header .sub { font-size: 11.5px; color: var(--muted-foreground); margin-top: 2px; }
+
+    .frame-thread { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 14px; }
+    .frame-thread-inner { width: 100%; max-width: 100%; padding-bottom: 6px; }
+
+    /* ── SHARED: current Composer Stack (参照现网，实现时不改) ── */
+    .composer-slot { flex-shrink: 0; padding: 20px 12px 14px; background: linear-gradient(to top, var(--background) 42%, rgba(251,250,247,0.92) 70%, transparent); position: relative; }
+    .composer-slot::before { content: ""; position: absolute; inset: 0; top: 20%; background: var(--background); z-index: 0; pointer-events: none; }
+    .composer-stack { position: relative; z-index: 1; border-radius: 14px; border: 1px solid var(--border); background: var(--paper); box-shadow: 0 6px 28px -14px rgba(20,20,15,0.14); overflow: hidden; }
+    .input-zone { padding: 12px 14px 0; }
+    .input-zone textarea { width: 100%; min-height: 42px; border: none; outline: none; resize: none; font: 13.5px/1.55 inherit; color: var(--foreground); background: transparent; }
+    .input-zone textarea::placeholder { color: var(--faint); }
+    .input-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px 10px; border-top: 1px solid var(--border-soft); margin-top: 8px; }
+    .tool-icon { width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent; color: var(--muted-foreground); font-size: 16px; display: grid; place-items: center; flex-shrink: 0; }
+    .perm-pill { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 7px; background: var(--panel); border: 1px solid var(--border-soft); font-size: 11.5px; color: var(--ink-2); max-width: 118px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .perm-pill svg { width: 10px; height: 10px; flex-shrink: 0; opacity: 0.5; }
+    .agent-dock { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px 4px 5px; border-radius: 7px; background: var(--panel); border: 1px solid var(--border-soft); font-size: 11px; color: var(--ink-2); max-width: 200px; min-width: 0; }
+    .agent-dock .av { width: 18px; height: 18px; border-radius: 4px; background: #c45c4a; color: #fff; font-size: 9px; font-weight: 700; display: grid; place-items: center; box-shadow: 0 0 0 1.5px var(--coral); flex-shrink: 0; }
+    .agent-dock .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+    .agent-dock .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .toolbar-spacer { flex: 1; }
+    .btn-send { width: 32px; height: 32px; border: none; border-radius: 8px; background: var(--coral); color: #fff; display: grid; place-items: center; flex-shrink: 0; opacity: 0.45; cursor: default; }
+    .btn-send svg { width: 14px; height: 14px; }
+
+    /* ── shared thread tokens ── */
+    .day-divider { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+    .day-divider::before, .day-divider::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
+    .disc { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0; border: 2px solid var(--background); margin-left: -6px; }
+    .disc:first-child { margin-left: 0; }
+    .disc.agent { border-radius: 5px; box-shadow: 0 0 0 1.5px var(--coral); }
+    .disc.agent::after { content: ""; position: absolute; /* noop without relative parent */ }
+    .ai-pill { font-family: var(--font-mono); font-size: 8.5px; font-weight: 600; padding: 1px 4px; border-radius: 3px; border: 1px solid var(--coral); color: var(--coral); }
+    .routing { font-size: 11.5px; color: var(--muted-foreground); line-height: 1.55; }
+    .routing code { font-family: var(--font-mono); font-size: 10px; padding: 1px 4px; border-radius: 3px; background: var(--paper); border: 1px solid var(--border-soft); color: var(--ink-2); }
+    .starters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .starter { font: 11.5px inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--paper); color: var(--ink-2); cursor: pointer; }
+    .starter:hover { background: var(--selected); }
+    .starter .at { font-family: var(--font-mono); font-size: 10.5px; color: var(--coral); font-weight: 600; }
+    .invite { font-size: 11px; font-weight: 600; color: var(--ink-2); padding: 5px 8px; border-radius: 7px; border: 1px dashed var(--border); background: transparent; cursor: pointer; white-space: nowrap; }
+    .invite:hover { background: var(--selected); }
+
+    /* A1 baseline */
+    .a1-roster { display: flex; align-items: center; gap: 10px; padding: 11px 12px; background: var(--paper); border: 1px solid var(--border); border-radius: 14px; }
+    .a1-roster .names { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
+    .a1-roster .sub { font-size: 11.5px; color: var(--muted-foreground); margin-top: 2px; }
+    .a1-roster .avatars { display: flex; padding-right: 2px; }
+
+    /* A2 compact strip */
+    .a2-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .a2-strip .avatars { display: flex; }
+    .a2-strip .line { font-size: 12.5px; color: var(--ink-2); }
+    .a2-strip .line strong { font-weight: 600; }
+    .a2-strip .invite { margin-left: auto; }
+
+    /* A3 roster card tall */
+    .a3-card { background: var(--paper); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .a3-top { padding: 12px 12px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .a3-avatars { display: flex; justify-content: center; padding: 4px 12px 8px; }
+    .a3-avatars .disc { width: 30px; height: 30px; font-size: 11px; margin-left: -8px; }
+    .a3-pills { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 12px 10px; justify-content: center; }
+    .a3-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 7px; border: 1px solid var(--border-soft); background: var(--background); font-size: 11px; }
+    .a3-pill .mini { width: 16px; height: 16px; font-size: 8px; border-radius: 50%; margin: 0; border-width: 1px; }
+    .a3-pill.agent .mini { border-radius: 3px; }
+    .a3-foot { padding: 8px 12px; border-top: 1px dashed var(--border-soft); font-size: 11.5px; color: var(--muted-foreground); }
+
+    /* A4 thread-aligned (33px gutter) */
+    .a4 { padding-left: 0; }
+    .a4-row { display: flex; gap: 10px; align-items: flex-start; }
+    .a4-gutter { width: 28px; flex-shrink: 0; display: flex; justify-content: center; padding-top: 2px; }
+    .a4-gutter .disc { margin: 0; width: 22px; height: 22px; font-size: 9px; }
+    .a4-body { min-width: 0; flex: 1; }
+    .a4-title { font-size: 12.5px; font-weight: 600; }
+    .a4-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); margin-top: 2px; }
+    .a4-participants { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    .a4-p { font-size: 11px; padding: 3px 7px; border-radius: 6px; background: var(--paper); border: 1px solid var(--border); color: var(--ink-2); }
+
+    /* A5 minimal */
+    .a5 { text-align: center; padding-bottom: 4px; }
+    .a5 .avatars { display: flex; justify-content: center; margin-bottom: 8px; }
+    .a5 .avatars .disc { width: 28px; height: 28px; font-size: 11px; }
+    .a5 .whisper { font-size: 12.5px; color: var(--muted-foreground); }
+    .a5 .whisper strong { color: var(--ink-2); font-weight: 600; }
+    .a5 .starters { justify-content: center; }
+
+    .toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--foreground); color: #fefdfa; font-size: 12px; padding: 8px 12px; border-radius: 8px; opacity: 0; transition: opacity 0.2s; z-index: 9; pointer-events: none; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="toast" id="toast"></div>
+
+  <header class="spec">
+    <h1>方案 A 变体 — 只设计中间空白区</h1>
+    <p>
+      下方每个画框：<strong>仅中间 thread 区域随版本变化</strong>；顶栏标题与底部 Composer 为现网固定参照（实现时不改输入框）。
+      群聊语义：参与者名册 + 路由说明 + @ 快速开始。
+    </p>
+    <div class="note">
+      <strong>A1</strong> 基线卡片 · <strong>A2</strong> 单行紧凑 · <strong>A3</strong> 名册展开 · <strong>A4</strong> 贴 thread 左对齐 · <strong>A5</strong> 极简叠头像
+    </div>
+    <div class="controls">
+      <span>场景</span>
+      <button type="button" data-scenario="duo" class="is-active">双人</button>
+      <button type="button" data-scenario="trio">三人</button>
+      <button type="button" data-scenario="group">五人</button>
+    </div>
+  </header>
+
+  <div class="grid" id="grid"></div>
+
+  <script>
+    const PALETTE = ['#e85a4a','#7a6cf5','#3a8f63','#c98a3c','#3a6dbf','#a5527c'];
+    function color(id) { let h=0; for (const c of id) h=((h<<5)+h+c.charCodeAt(0))|0; return PALETTE[Math.abs(h)%PALETTE.length]; }
+
+    const SCENARIOS = {
+      duo: { title: 'MACMINI (16:05)', roster: [
+        { id:'you', name:'你', type:'member', self:true },
+        { id:'mac', name:'MACMINI', type:'agent' },
+      ]},
+      trio: { title: '产品讨论', roster: [
+        { id:'you', name:'你', type:'member', self:true },
+        { id:'matt', name:'Matt', type:'member' },
+        { id:'mac', name:'MACMINI', type:'agent' },
+      ]},
+      group: { title: '团队 · 发版前对齐', roster: [
+        { id:'you', name:'你', type:'member', self:true },
+        { id:'matt', name:'Matt', type:'member' },
+        { id:'liang', name:'LiangLiang', type:'member' },
+        { id:'mac', name:'MACMINI', type:'agent' },
+        { id:'codex', name:'Codex', type:'agent' },
+      ]},
+    };
+
+    const VARIANTS = [
+      { id:'a1', label:'A1 · 基线卡片', desc:'名册横卡 + 路由 + chip' },
+      { id:'a2', label:'A2 · 单行紧凑', desc:'头像与文案一行，省垂直空间' },
+      { id:'a3', label:'A3 · 名册展开', desc:'头像居中 + 参与者 pill 行' },
+      { id:'a4', label:'A4 · Thread 对齐', desc:'28px 头像槽，像消息行' },
+      { id:'a5', label:'A5 · 极简', desc:'叠头像 + 一句 whisper + chip' },
+    ];
+
+    let scenario = 'duo';
+
+    function disc(p, size=24) {
+      const bg = p.self ? '#1a1a14' : color(p.id);
+      const cls = p.type === 'agent' ? 'disc agent' : 'disc';
+      return `<span class="${cls}" style="width:${size}px;height:${size}px;font-size:${Math.round(size*0.42)}px;background:${bg}" title="${p.name}">${p.name.charAt(0).toUpperCase()}</span>`;
+    }
+
+    function names(r) { return r.map(p => p.self ? '你' : p.name).join('、'); }
+    function agents(r) { return r.filter(p => p.type === 'agent'); }
+    function members(r) { return r.filter(p => p.type === 'member' && !p.self); }
+
+    function routing(r) {
+      const ag = agents(r);
+      if (ag.length === 1 && r.length === 2) return '仅一位 Agent——直接发送即可，无需 <code>@</code>。';
+      if (ag.length === 1) return `广播消息，或 <code>@${ag[0].name}</code> 指定 Agent。`;
+      return '多位 Agent——请 <code>@名字</code> 指定回复对象。';
+    }
+
+    function starters(r) {
+      const ag = agents(r), mem = members(r), out = [];
+      if (ag.length === 1 && r.length <= 2) {
+        out.push(['查看 workspace 改动','帮我看看当前 workspace 有什么改动']);
+        out.push(['总结项目结构','用几句话总结这个 repo 的结构']);
+      } else {
+        ag.forEach(a => out.push([`@${a.name} 总结现状`, `@${a.name} 用几句话总结当前状态`]));
+        if (mem[0]) out.push([`@${mem[0].name} 你怎么看？`, `@${mem[0].name} 有什么想法？`]);
+        out.push(['向所有人同步', '各位，对齐一下今天的目标：']);
+      }
+      return out.slice(0, 4).map(([label, fill]) =>
+        `<button type="button" class="starter" data-fill="${fill.replace(/"/g,'&quot;')}">${label.startsWith('@') ? `<span class="at">${label.split(' ')[0]}</span> ${label.split(' ').slice(1).join(' ')}` : label}</button>`
+      ).join('');
+    }
+
+    function renderMiddle(id, r) {
+      const av = r.map(p => disc(p)).join('');
+      const st = starters(r);
+      const rt = routing(r);
+      const divider = '<div class="day-divider">今天 · 会话开始</div>';
+
+      if (id === 'a1') return `${divider}
+        <div class="a1-roster">
+          <div class="avatars">${av}</div>
+          <div style="flex:1;min-width:0">
+            <div class="names">${names(r)}</div>
+            <div class="sub">${r.length} 位参与者 · 等待第一条消息</div>
+          </div>
+          <button type="button" class="invite" data-invite>+ 邀请</button>
+        </div>
+        <div class="routing" style="margin-top:10px">${rt}</div>
+        <div class="starters">${st}</div>`;
+
+      if (id === 'a2') return `${divider}
+        <div class="a2-strip">
+          <div class="avatars">${av}</div>
+          <div class="line"><strong>${names(r)}</strong> · ${r.length} 人 · 等待开口</div>
+          <button type="button" class="invite" data-invite>+ 邀请</button>
+        </div>
+        <div class="routing" style="margin-top:8px">${rt}</div>
+        <div class="starters">${st}</div>`;
+
+      if (id === 'a3') {
+        const pills = r.filter(p => !p.self).map(p => {
+          const bg = color(p.id);
+          const br = p.type === 'agent' ? 'border-radius:3px;box-shadow:0 0 0 1px var(--coral)' : 'border-radius:50%';
+          return `<span class="a3-pill ${p.type}">
+            <span class="mini" style="width:16px;height:16px;font-size:8px;display:grid;place-items:center;color:#fff;background:${bg};${br}">${p.name.charAt(0)}</span>
+            ${p.name}${p.type==='agent'?' <span class="ai-pill">AI</span>':''}
+          </span>`;
+        }).join('');
+        return `${divider}
+        <div class="a3-card">
+          <div class="a3-top"><span style="font-size:12.5px;font-weight:600">参与者</span><button type="button" class="invite" data-invite>+ 邀请</button></div>
+          <div class="a3-avatars">${r.map(p => disc(p,30)).join('')}</div>
+          <div class="a3-pills">${pills}</div>
+          <div class="a3-foot">${rt.replace(/<code>/g,'').replace(/<\/code>/g,'')}</div>
+        </div>
+        <div class="starters">${st}</div>`;
+      }
+
+      if (id === 'a4') {
+        const others = r.filter(p => !p.self);
+        const lead = others[0] || r[0];
+        const ptags = r.filter(p => !p.self).map(p =>
+          `<span class="a4-p">${p.name}${p.type==='agent'?' AI':''}</span>`
+        ).join('');
+        return `${divider}
+        <div class="a4">
+          <div class="a4-row">
+            <div class="a4-gutter">${disc(lead, 22)}</div>
+            <div class="a4-body">
+              <div class="a4-title">会话已开始</div>
+              <div class="a4-meta">${r.length} 位参与者 · 0 条消息</div>
+              <div class="a4-participants">${ptags}</div>
+              <div class="routing" style="margin-top:8px">${rt}</div>
+              <div class="starters">${st}</div>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      /* a5 */
+      return `${divider}
+        <div class="a5">
+          <div class="avatars">${r.map(p => disc(p,28)).join('')}</div>
+          <p class="whisper"><strong>${names(r)}</strong> 在等第一条消息</p>
+          <div class="routing" style="margin-top:6px;font-size:11.5px">${rt}</div>
+          <div class="starters">${st}</div>
+        </div>`;
+    }
+
+    function composerHtml() {
+      return `<div class="composer-slot">
+        <div class="composer-stack">
+          <div class="input-zone">
+            <textarea rows="2" placeholder="Mention with @, reference files with #..." readonly></textarea>
+          </div>
+          <div class="input-toolbar">
+            <button type="button" class="tool-icon" title="附件">+</button>
+            <span class="perm-pill"><svg viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="currentColor" fill="none" stroke-width="1.2"/></svg>Default permissi…</span>
+            <span class="agent-dock">
+              <span class="av">M</span>
+              <span class="dot"></span>
+              <span class="label">MACMINI · DeepSeek/DeepSeek V4 P…</span>
+            </span>
+            <span class="toolbar-spacer"></span>
+            <button type="button" class="btn-send" title="发送">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function buildFrame(v, data) {
+      const meta = `${data.roster.length} 位参与者 · 0 条消息`;
+      return `<div class="frame" data-variant="${v.id}">
+        <div class="frame-tag">${v.label} <em>— ${v.desc}</em></div>
+        <div class="frame-header">
+          <h3>${data.title}</h3>
+          <div class="sub">${meta}</div>
+        </div>
+        <div class="frame-thread">
+          <div class="frame-thread-inner" data-middle="${v.id}">${renderMiddle(v.id, data.roster)}</div>
+        </div>
+        ${composerHtml()}
+      </div>`;
+    }
+
+    function render() {
+      const data = SCENARIOS[scenario];
+      document.getElementById('grid').innerHTML = VARIANTS.map(v => buildFrame(v, data)).join('');
+      bind();
+    }
+
+    function bind() {
+      document.querySelectorAll('.starter').forEach(b => {
+        b.onclick = () => {
+          const t = document.getElementById('toast');
+          t.textContent = '预填 Composer（实现不改输入框）：' + (b.dataset.fill || '').slice(0, 36) + '…';
+          t.classList.add('show');
+          setTimeout(() => t.classList.remove('show'), 1800);
+        };
+      });
+      document.querySelectorAll('[data-invite]').forEach(b => {
+        b.onclick = () => {
+          const t = document.getElementById('toast');
+          t.textContent = '打开 Actors 面板';
+          t.classList.add('show');
+          setTimeout(() => t.classList.remove('show'), 1500);
+        };
+      });
+    }
+
+    document.querySelectorAll('[data-scenario]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        scenario = btn.dataset.scenario;
+        document.querySelectorAll('[data-scenario]').forEach(b => b.classList.toggle('is-active', b.dataset.scenario === scenario));
+        render();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>

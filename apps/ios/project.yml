@@ -1,0 +1,88 @@
+name: AMUX
+options:
+  bundleIdPrefix: tech.teamclaw
+  deploymentTarget:
+    iOS: "26.0"
+  xcodeVersion: "26"
+
+packages:
+  AMUXCore:
+    path: Packages/AMUXCore
+  AMUXUI:
+    path: Packages/AMUXUI
+  AMUXSharedUI:
+    path: Packages/AMUXSharedUI
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: "8.0.0"
+  Aptabase:
+    url: https://github.com/aptabase/aptabase-swift
+    from: "0.3.0"
+
+targets:
+  AMUX:
+    type: application
+    platform: iOS
+    sources:
+      - path: AMUXApp
+    dependencies:
+      - package: AMUXCore
+      - package: AMUXUI
+      - package: AMUXSharedUI
+      - package: Sentry
+        product: SentrySwiftUI
+      - package: Aptabase
+        product: Aptabase
+    settings:
+      base:
+        INFOPLIST_FILE: AMUXApp/Info.plist
+        # CODE_SIGN_ENTITLEMENTS temporarily removed — see
+        # AMUXApp/AMUX.entitlements.disabled. Restore after enabling
+        # "Sign In with Apple" on the App ID and running
+        # `fastlane match appstore --force` to refresh the profile.
+        PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile
+        DEVELOPMENT_TEAM: 43G5A6G9QV
+        MARKETING_VERSION: "1.1.5"
+        CURRENT_PROJECT_VERSION: 23
+        SWIFT_VERSION: "6.0"
+
+  AMUXUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: AMUXUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile.uitests
+        DEVELOPMENT_TEAM: 43G5A6G9QV
+        SWIFT_VERSION: "6.0"
+        TEST_TARGET_NAME: AMUX
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  AMUX:
+    build:
+      targets:
+        AMUX: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - AMUXUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  AMUXUITests:
+    build:
+      targets:
+        AMUXUITests: test
+    test:
+      targets:
+        - AMUXUITests
+      environmentVariables:
+        TEAMCLAW_TEST_EMAIL: $(TEAMCLAW_TEST_EMAIL)
+        TEAMCLAW_TEST_PASSWORD: $(TEAMCLAW_TEST_PASSWORD)

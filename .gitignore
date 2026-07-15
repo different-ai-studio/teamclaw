@@ -1,0 +1,168 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+target/
+.cargo-target/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.claude/
+.ai
+.agent/
+.cursor/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.release
+config.json
+build.config.local.json
+
+services/pocketbase/pb_data/
+build.config.production.json
+
+
+# Tauri
+apps/desktop/gen/schemas/
+apps/desktop/target/
+apps/desktop/binaries/*
+!apps/desktop/binaries/.gitkeep
+!apps/desktop/binaries/README.md
+!apps/desktop/binaries/build-rag-mcp-server.sh
+!apps/desktop/binaries/build-autoui-mcp-server.sh
+apps/desktop/.tauri_private_key
+apps/desktop/.tauri_private_key.pub
+
+# Testing
+coverage/
+tests/screenshots/
+apps/ios/build/
+apps/ios/DerivedData/
+apps/ios/**/.build/
+apps/ios/**/xcuserdata/
+apps/ios/**/*.xcuserstate
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+.Python
+
+# TeamClaw local runtime data (all config/data stored in .teamclaw/ directory)
+.teamclaw/
+
+# Spec workflow config (copy from .spec.example.json)
+.spec.json
+
+# Misc
+*.lock
+!pnpm-lock.yaml
+!/Cargo.lock
+logs
+playwright-report/
+screenshots/
+test-results/
+playwright-report/
+
+# Worktrees
+.worktrees/
+
+# Tauri MCP plugin (cloned dependency)
+.tauri-plugin-mcp/
+
+
+# Session context (per-workspace, do not commit)
+.claude/session-context/current.md
+
+.workspace/
+
+teamclaw-team/
+
+# Sensitive information
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# IDE settings (keep .vscode/ but not settings.json)
+.vscode/settings.json
+
+# Windows
+Thumbs.db
+
+docs/superpowers/
+
+# Internal planning documents
+docs/superpowers/*
+docs/SDLC.md
+docs/prototypes/
+docs/design/
+
+# Scripts
+scripts/sync-task-to-preview.sh
+scripts/ship-pr.sh
+scripts/release-to-backend.sh
+
+# Stress test reports
+tests/stress/reports/
+
+sre/
+.superpowers/
+
+# TeamClaw system directories
+.ac360/
+
+# gstack / codex CLI skills (per-machine tool install, not project config)
+.codex/
+
+build.config.json
+
+.opencode/
+opencode.json
+
+# Local-only manual belayo deploy workflow (not committed; deploy via deploy-local.sh)
+.github/workflows/belayo-deploy.yml
+
+# S4 local pg_dump artifacts (never commit)
+services/supabase/s4/_dump/
+
+# White-label icon generation: `tauri icon` emits extra outputs that are NOT in
+# tauri.conf.json's bundle.icon list. Branded builds regenerate them; keep them
+# out of git so a branded build's working tree stays clean.
+apps/desktop/icons/64x64.png
+apps/desktop/icons/icon.png
+apps/desktop/icons/StoreLogo.png
+apps/desktop/icons/Square*Logo.png
+apps/desktop/icons/android/
+apps/desktop/icons/ios/
+
+# OEM brand assets — kept local to the build machine, never in the shared repo.
+# Brand owners supply branding/<brand>/{logo.png,theme.json} + build.config.<brand>.json
+# locally; the white-label build reads them from disk at build time.
+/branding/
+# Ignore all root build.config.<brand>.json except the in-repo flavors.
+/build.config.*.json
+!/build.config.example.json
+!/build.config.production.json
+!/build.config.teal.json
+
+server.info

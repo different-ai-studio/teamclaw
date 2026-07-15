@@ -1,0 +1,14 @@
+.env
+# podman-compose bind-mount shim (see bootstrap/link-volumes.sh)
+volumes
+caddy_data/
+caddy_config/
+
+# Runtime data written by containers into the vendored bind-mount dirs
+# (Postgres data, storage objects, pooler runtime). NOT the tracked configs.
+supabase/volumes/db/data/
+supabase/volumes/storage/
+
+# Vendored Supabase vector config (root .gitignore "logs" pattern would exclude it)
+!supabase/volumes/logs/
+!supabase/volumes/logs/vector.yml

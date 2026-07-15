@@ -1,0 +1,35 @@
+{
+  "items": [
+    {
+      "id": "message-1",
+      "teamId": "team-1",
+      "sessionId": "session-1",
+      "turnId": null,
+      "senderActorId": "actor-1",
+      "replyToMessageId": null,
+      "kind": "text",
+      "content": "Start with OpenAPI.",
+      "metadata": null,
+      "model": null,
+      "createdAt": "2026-05-27T00:00:00Z",
+      "updatedAt": null
+    },
+    {
+      "id": "message-2",
+      "teamId": "team-1",
+      "sessionId": "session-1",
+      "turnId": null,
+      "senderActorId": "actor-2",
+      "replyToMessageId": null,
+      "kind": "text",
+      "content": "FC facade is the boundary.",
+      "metadata": {
+        "mentions": ["actor-1"]
+      },
+      "model": null,
+      "createdAt": "2026-05-27T00:30:00Z",
+      "updatedAt": null
+    }
+  ],
+  "nextCursor": null
+}

@@ -1,0 +1,9 @@
+alter function app.bump_updated_at() set search_path = public;
+alter function app.actor_team_id(uuid) set search_path = public;
+alter function app.table_team_id(regclass, uuid) set search_path = public;
+alter function app.require_same_team(uuid, uuid, text) set search_path = public;
+alter function app.require_actor_type(uuid, text, text) set search_path = public;
+alter function app.reject_team_reassignment(text) set search_path = public;
+alter function app.enforce_actor_subtype() set search_path = public;
+alter function app.enforce_parent_integrity() set search_path = public;
+alter function app.enforce_core_team_integrity() set search_path = public;

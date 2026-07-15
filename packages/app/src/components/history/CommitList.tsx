@@ -1,0 +1,69 @@
+import { useTranslation } from 'react-i18next'
+import { Loader2 } from 'lucide-react'
+import type { HistoryEntry } from '@/lib/history/types'
+
+interface CommitListProps {
+  entries: HistoryEntry[]
+  selectedRef: string | null
+  onSelect: (ref: string) => void
+  onLoadMore: () => void
+  hasMore: boolean
+  loadingMore: boolean
+}
+
+function formatRelative(iso: string, language: string): string {
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return iso
+  const diffSec = Math.round((t - Date.now()) / 1000)
+  const abs = Math.abs(diffSec)
+  const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' })
+  if (abs < 60) return rtf.format(diffSec, 'second')
+  if (abs < 3600) return rtf.format(Math.round(diffSec / 60), 'minute')
+  if (abs < 86400) return rtf.format(Math.round(diffSec / 3600), 'hour')
+  return rtf.format(Math.round(diffSec / 86400), 'day')
+}
+
+export function CommitList({
+  entries,
+  selectedRef,
+  onSelect,
+  onLoadMore,
+  hasMore,
+  loadingMore,
+}: CommitListProps) {
+  const { t, i18n } = useTranslation()
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto">
+      {entries.map((e) => {
+        const active = e.ref === selectedRef
+        return (
+          <button
+            key={e.ref || e.label}
+            type="button"
+            onClick={() => onSelect(e.ref)}
+            className={`text-left px-3 py-2 border-b border-border/50 transition-colors ${
+              active ? 'text-primary bg-primary/10' : 'hover:bg-muted'
+            }`}
+          >
+            <div className="text-xs text-muted-foreground truncate">
+              {formatRelative(e.timestamp, i18n.language)}
+              {e.author ? ' · ' + e.author : ''}
+            </div>
+            <div className="text-sm truncate">{e.message || e.label}</div>
+          </button>
+        )
+      })}
+      {hasMore && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          disabled={loadingMore}
+          className="px-3 py-2 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
+        >
+          {loadingMore ? <Loader2 className="h-3 w-3 animate-spin inline" /> : t('sidebar.loadMore', 'Load More')}
+        </button>
+      )}
+    </div>
+  )
+}

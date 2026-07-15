@@ -1,0 +1,21 @@
+# Used by `cross` when cross-compiling amuxd for Linux arm64 in the
+# release-beta workflow. amuxd pulls in openssl-sys (needs OpenSSL 1.1.0+) and
+# protoc (prost-build). $CROSS_DEB_ARCH resolves to `arm64` for this target.
+#
+# cross 0.2.5's default image is Ubuntu 16.04 whose libssl-dev is OpenSSL 1.0.2
+# — too old for openssl-sys. Pin the modern edge image (Ubuntu 22.04+, OpenSSL
+# 3.x). pre-build installs the arm64 OpenSSL + protoc; the multiarch libs
+# aren't found via pkg-config cross-lookup, so point openssl-sys straight at
+# /usr/lib/aarch64-linux-gnu + /usr/include.
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+    "apt-get update && apt-get install --assume-yes libssl-dev:$CROSS_DEB_ARCH protobuf-compiler",
+]
+
+[target.aarch64-unknown-linux-gnu.env]
+passthrough = [
+    "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu",
+    "OPENSSL_INCLUDE_DIR=/usr/include",
+]

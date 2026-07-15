@@ -1,0 +1,21 @@
+{
+  "name": "@teamclaw/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:test": "EXT_ENV=test node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@teamclaw/app": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.270",
+    "esbuild": "^0.24.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

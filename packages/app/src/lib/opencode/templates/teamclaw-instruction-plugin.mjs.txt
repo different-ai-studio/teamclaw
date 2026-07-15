@@ -1,0 +1,47 @@
+// managed-plugin: teamclaw-instruction
+// version: 1
+
+import fs from "node:fs/promises"
+import path from "node:path"
+
+async function loadSystemPrompt(workspaceDir) {
+  const configPath = path.join(workspaceDir, ".teamclaw", "teamclaw.json")
+  try {
+    const raw = await fs.readFile(configPath, "utf8")
+    const cfg = JSON.parse(raw)
+    return String(cfg.systemPrompt ?? "").trim()
+  } catch {
+    return ""
+  }
+}
+
+export const TeamclawInstructionPlugin = async ({ directory, worktree }) => {
+  const pluginWorkspaceDir = directory || worktree
+
+  return {
+    "experimental.chat.system.transform": async (_input, output) => {
+      const workspaceDir =
+        pluginWorkspaceDir ||
+        output.session?.directory ||
+        output.session?.worktree ||
+        output.directory ||
+        output.worktree
+      if (!workspaceDir) {
+        return
+      }
+
+      const prompt = await loadSystemPrompt(workspaceDir)
+      if (!prompt) {
+        return
+      }
+
+      if (!Array.isArray(output.system)) {
+        output.system = []
+      }
+
+      output.system.unshift(prompt)
+    },
+  }
+}
+
+export default TeamclawInstructionPlugin

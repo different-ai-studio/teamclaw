@@ -1,0 +1,103 @@
+name: WeCom Notification
+
+on:
+  pull_request:
+    types: [opened]
+  issues:
+    types: [opened]
+  release:
+    types: [published]
+  watch:
+    types: [started]
+  fork:
+
+# Untrusted, user-controlled fields (PR/issue titles, release names, branch
+# refs, logins, repo names) are passed via `env:` and never interpolated
+# directly into the `run:` shell. The JSON body is built with `jq`, which
+# escapes the values safely. This avoids both the quoting breakage (a `'` or
+# `(` in a title used to abort the step) and the shell-injection vector that
+# direct `${{ … }}` interpolation in `run:` exposes.
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify on PR opened
+        if: github.event_name == 'pull_request'
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          content=$(printf '## 🔀 新的 Pull Request\n> **标题**: %s\n> **作者**: %s\n> **分支**: `%s` → `%s`\n> **链接**: [查看 PR](%s)' \
+            "$PR_TITLE" "$PR_AUTHOR" "$PR_HEAD" "$PR_BASE" "$PR_URL")
+          jq -nc --arg content "$content" '{msgtype:"markdown",markdown:{content:$content}}' \
+            | curl -s -X POST \
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_WEBHOOK_KEY" \
+                -H 'Content-Type: application/json' \
+                --data-binary @-
+
+      - name: Notify on Issue opened
+        if: github.event_name == 'issues'
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          content=$(printf '## 🐛 新的 Issue\n> **标题**: %s\n> **作者**: %s\n> **链接**: [查看 Issue](%s)' \
+            "$ISSUE_TITLE" "$ISSUE_AUTHOR" "$ISSUE_URL")
+          jq -nc --arg content "$content" '{msgtype:"markdown",markdown:{content:$content}}' \
+            | curl -s -X POST \
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_WEBHOOK_KEY" \
+                -H 'Content-Type: application/json' \
+                --data-binary @-
+
+      - name: Notify on Star
+        if: github.event_name == 'watch'
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          content=$(printf '## ⭐ 新的 Star\n> **用户**: [%s](https://github.com/%s)\n> **仓库**: [%s](https://github.com/%s)' \
+            "$ACTOR" "$ACTOR" "$REPO" "$REPO")
+          jq -nc --arg content "$content" '{msgtype:"markdown",markdown:{content:$content}}' \
+            | curl -s -X POST \
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_WEBHOOK_KEY" \
+                -H 'Content-Type: application/json' \
+                --data-binary @-
+
+      - name: Notify on Fork
+        if: github.event_name == 'fork'
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          ACTOR: ${{ github.actor }}
+          FORKEE: ${{ github.event.forkee.full_name }}
+        run: |
+          content=$(printf '## 🍴 仓库被 Fork\n> **用户**: [%s](https://github.com/%s)\n> **Fork 仓库**: [%s](https://github.com/%s)' \
+            "$ACTOR" "$ACTOR" "$FORKEE" "$FORKEE")
+          jq -nc --arg content "$content" '{msgtype:"markdown",markdown:{content:$content}}' \
+            | curl -s -X POST \
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_WEBHOOK_KEY" \
+                -H 'Content-Type: application/json' \
+                --data-binary @-
+
+      - name: Notify on Release published
+        if: github.event_name == 'release'
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_AUTHOR: ${{ github.event.release.author.login }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          content=$(printf '## 🚀 新版本发布\n> **版本**: %s\n> **名称**: %s\n> **作者**: %s\n> **链接**: [查看 Release](%s)' \
+            "$RELEASE_TAG" "$RELEASE_NAME" "$RELEASE_AUTHOR" "$RELEASE_URL")
+          jq -nc --arg content "$content" '{msgtype:"markdown",markdown:{content:$content}}' \
+            | curl -s -X POST \
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_WEBHOOK_KEY" \
+                -H 'Content-Type: application/json' \
+                --data-binary @-

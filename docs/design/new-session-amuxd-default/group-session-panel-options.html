@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>多人会话入口 · 布局方案对比</title>
+  <style>
+    :root {
+      --background: #fbfaf7;
+      --foreground: #1a1a14;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --selected: #e7e2d6;
+      --ink-2: #3d3c34;
+      --muted: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --font-sans: "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: #e5e3dc;
+      color: var(--foreground);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .page { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    .lead { color: var(--muted); margin: 0 0 20px; max-width: 640px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--paper);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .card:hover { border-color: rgba(232, 90, 74, 0.35); }
+    .card.picked {
+      border-color: var(--coral);
+      box-shadow: 0 0 0 1px var(--coral);
+    }
+    .card-head {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-soft);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--coral);
+      border: 1px solid rgba(232, 90, 74, 0.35);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    .card-title { font-weight: 600; font-size: 13px; }
+    .card-desc { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+    .pick-hint {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--faint);
+    }
+    .card.picked .pick-hint { color: var(--coral); font-weight: 600; }
+
+    /* Sidebar strip mock */
+    .rail {
+      width: 100%;
+      background: var(--panel);
+      padding: 12px;
+    }
+    .split {
+      display: flex;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(20,20,15,0.06);
+    }
+    .split-main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--coral);
+      color: #fff;
+      padding: 7px 10px;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .split-chev {
+      width: 32px;
+      background: var(--coral);
+      color: #fff;
+      border-left: 1px solid rgba(255,255,255,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
+    .panel {
+      background: var(--paper);
+      border-top: 1px solid var(--border-soft);
+    }
+
+    /* —— Variant A: 单行信息行 + 右箭头 —— */
+    .opt-a .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 8px 10px;
+      border: none;
+      background: transparent;
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+      border-radius: 0;
+    }
+    .opt-a .row:hover { background: var(--selected); }
+    .opt-a .icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: var(--selected);
+      color: var(--ink-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .opt-a .text { flex: 1; min-width: 0; }
+    .opt-a .line1 {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .opt-a .line2 {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .opt-a .arrow { color: var(--faint); font-size: 14px; flex-shrink: 0; }
+
+    /* —— Variant B: 单行合并文案 —— */
+    .opt-b .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      width: 100%;
+      border: none;
+      background: transparent;
+      font: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .opt-b .row:hover { background: var(--selected); }
+    .opt-b .icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: rgba(232, 90, 74, 0.12);
+      color: var(--coral);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .opt-b .inline {
+      flex: 1;
+      min-width: 0;
+      font-size: 12.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .opt-b .inline strong { font-weight: 600; }
+    .opt-b .inline span { color: var(--muted); }
+    .opt-b .arrow { color: var(--faint); flex-shrink: 0; }
+
+    /* —— Variant C: 通栏分割条（无内卡片） —— */
+    .opt-c .row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px 8px 8px;
+      width: 100%;
+      border: none;
+      background: var(--background);
+      font: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .opt-c .row:hover { background: var(--selected); }
+    .opt-c .avatars {
+      display: flex;
+      align-items: center;
+    }
+    .opt-c .av {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 1.5px solid var(--paper);
+      margin-left: -6px;
+      font-size: 9px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .opt-c .av:first-child { margin-left: 0; }
+    .opt-c .av1 { background: #6b8f71; z-index: 2; }
+    .opt-c .av2 { background: #7a6b9e; z-index: 1; }
+    .opt-c .copy .t { font-size: 13px; font-weight: 600; }
+    .opt-c .copy .s { font-size: 11px; color: var(--muted); }
+    .opt-c .go {
+      font-size: 11px;
+      color: var(--ink-2);
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      flex-shrink: 0;
+    }
+
+    /* —— Variant D: 紧凑双列（推荐） —— */
+    .opt-d .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 8px;
+      margin: 4px 6px 6px;
+      width: calc(100% - 12px);
+      border: 1px solid var(--border-soft);
+      border-radius: 8px;
+      background: var(--background);
+      font: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .opt-d .row:hover {
+      background: var(--selected);
+      border-color: var(--border);
+    }
+    .opt-d .left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+    .opt-d .icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: var(--panel);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .opt-d .stack { min-width: 0; }
+    .opt-d .t {
+      font-size: 12.5px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .opt-d .s {
+      font-size: 10.5px;
+      color: var(--muted);
+      line-height: 1.25;
+    }
+    .opt-d .right {
+      flex-shrink: 0;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--faint);
+      letter-spacing: 0.02em;
+    }
+
+    .footer {
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: var(--paper);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .footer strong { display: block; margin-bottom: 6px; }
+    #choice { font-family: var(--font-mono); color: var(--coral); }
+    .rec { color: var(--coral); font-size: 11px; font-weight: 600; margin-left: 6px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>多人会话入口 · 布局方案</h1>
+    <p class="lead">
+      点击卡片选中方案。问题：当前为左对齐双行 + 大面积右侧空白。以下均在真实侧栏宽度（~220px）下预览。
+    </p>
+
+    <div class="grid" id="options">
+      <!-- A -->
+      <article class="card" data-opt="A" role="button" tabindex="0">
+        <div class="card-head">
+          <span class="badge">A</span>
+          <div>
+            <div class="card-title">标准列表行<span class="rec">推荐</span></div>
+            <div class="card-desc">图标 · 双行 · 右箭头，填满宽度</div>
+          </div>
+          <span class="pick-hint">点击选中</span>
+        </div>
+        <div class="rail opt-a">
+          <div class="split">
+            <div class="split-main">✎ 新聊天 <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;opacity:.9">⌘N</span></div>
+            <div class="split-chev">▴</div>
+          </div>
+          <div class="panel">
+            <button type="button" class="row">
+              <span class="icon">👥</span>
+              <span class="text">
+                <div class="line1">多人会话</div>
+                <div class="line2">选择参与者</div>
+              </span>
+              <span class="arrow">→</span>
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <!-- B -->
+      <article class="card" data-opt="B" role="button" tabindex="0">
+        <div class="card-head">
+          <span class="badge">B</span>
+          <div>
+            <div class="card-title">单行合并</div>
+            <div class="card-desc">标题与说明同一行，最省高度</div>
+          </div>
+          <span class="pick-hint">点击选中</span>
+        </div>
+        <div class="rail opt-b">
+          <div class="split">
+            <div class="split-main">✎ 新聊天 <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;opacity:.9">⌘N</span></div>
+            <div class="split-chev">▴</div>
+          </div>
+          <div class="panel">
+            <button type="button" class="row">
+              <span class="icon">+</span>
+              <span class="inline"><strong>多人会话</strong> <span>· 选择参与者</span></span>
+              <span class="arrow">›</span>
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <!-- C -->
+      <article class="card" data-opt="C" role="button" tabindex="0">
+        <div class="card-head">
+          <span class="badge">C</span>
+          <div>
+            <div class="card-title">通栏 + 行动按钮</div>
+            <div class="card-desc">头像叠层 + 右侧「选择」小按钮</div>
+          </div>
+          <span class="pick-hint">点击选中</span>
+        </div>
+        <div class="rail opt-c">
+          <div class="split">
+            <div class="split-main">✎ 新聊天 <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;opacity:.9">⌘N</span></div>
+            <div class="split-chev">▴</div>
+          </div>
+          <div class="panel">
+            <button type="button" class="row">
+              <span class="avatars">
+                <span class="av av1">你</span>
+                <span class="av av2">A</span>
+              </span>
+              <span class="copy">
+                <div class="t">多人会话</div>
+                <div class="s">选择参与者</div>
+              </span>
+              <span class="go">选择</span>
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <!-- D -->
+      <article class="card" data-opt="D" role="button" tabindex="0">
+        <div class="card-head">
+          <span class="badge">D</span>
+          <div>
+            <div class="card-title">内嵌小卡片</div>
+            <div class="card-desc">浅底圆角条，右侧 mono 提示</div>
+          </div>
+          <span class="pick-hint">点击选中</span>
+        </div>
+        <div class="rail opt-d">
+          <div class="split">
+            <div class="split-main">✎ 新聊天 <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;opacity:.9">⌘N</span></div>
+            <div class="split-chev">▴</div>
+          </div>
+          <div class="panel" style="padding-bottom:2px">
+            <button type="button" class="row">
+              <span class="left">
+                <span class="icon">👥</span>
+                <span class="stack">
+                  <span class="t">多人会话</span>
+                  <span class="s">选择参与者</span>
+                </span>
+              </span>
+              <span class="right">···</span>
+            </button>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <div class="footer">
+      <strong>当前选中：<span id="choice">（请点击上方方案）</span></strong>
+      <span style="color:var(--muted);font-size:12px">
+        选定后回复 <code>A / B / C / D</code>，我会按该方案改 <code>NewChatSplitButton.tsx</code>。
+      </span>
+    </div>
+  </div>
+
+  <script>
+    const cards = document.querySelectorAll('.card[data-opt]')
+    const choiceEl = document.getElementById('choice')
+    const labels = {
+      A: 'A · 标准列表行（图标 + 双行 + →）',
+      B: 'B · 单行合并文案',
+      C: 'C · 通栏 + 右侧「选择」按钮',
+      D: 'D · 内嵌浅底小卡片',
+    }
+    function pick(opt) {
+      cards.forEach((c) => c.classList.toggle('picked', c.dataset.opt === opt))
+      choiceEl.textContent = labels[opt] || opt
+      try { localStorage.setItem('group-session-panel-opt', opt) } catch (_) {}
+    }
+    cards.forEach((card) => {
+      card.addEventListener('click', () => pick(card.dataset.opt))
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(card.dataset.opt) }
+      })
+    })
+    try {
+      const saved = localStorage.getItem('group-session-panel-opt')
+      if (saved) pick(saved)
+    } catch (_) {}
+  </script>
+</body>
+</html>

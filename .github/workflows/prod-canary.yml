@@ -1,0 +1,87 @@
+name: Prod Canary
+
+# Periodically probes the production Cloud API (https://api.teamclaw-dev.ucar.cc) to catch
+# the failure mode we keep hitting: a deploy reports success but the service is
+# down, frozen on an old contract, or missing critical runtime config (e.g. the
+# FC mem/cpu incident in #362). Push-triggered CI cannot see this — only a live
+# probe can. Stays SILENT on success to avoid alert fatigue; only pings WeCom
+# when something is actually wrong.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # every 30 minutes
+  workflow_dispatch:
+
+concurrency:
+  group: prod-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe production endpoints
+        id: probe
+        env:
+          BASE: ${{ vars.PROD_API_URL || 'https://api.teamclaw-dev.ucar.cc' }}
+        run: |
+          set -uo pipefail
+          fails=""
+
+          # check <method> <path> <expected-code> <body?>
+          # A "healthy" reply proves the service is up AND still on the current
+          # contract: bootstrap rejects with 401 (auth required, not 404/5xx),
+          # and register/token reach validation and reject an empty body with 400.
+          check() {
+            local method="$1" path="$2" want="$3" body="${4:-}"
+            local code
+            if [ "$method" = "POST" ]; then
+              code=$(curl -s -m 12 -o /dev/null -w '%{http_code}' \
+                -X POST "$BASE$path" -H 'Content-Type: application/json' \
+                --data "${body:-{}}" || echo 000)
+            else
+              code=$(curl -s -m 12 -o /dev/null -w '%{http_code}' \
+                "$BASE$path" || echo 000)
+            fi
+            if [ "$code" != "$want" ]; then
+              echo "❌ $method $path -> $code (expected $want)"
+              fails="${fails}\n> ❌ \`$method $path\` → **$code** (期望 $want)"
+            else
+              echo "✅ $method $path -> $code"
+            fi
+          }
+
+          check GET  /v1/config/bootstrap 401
+          check POST /register            400
+          check POST /token               400
+
+          if [ -n "$fails" ]; then
+            {
+              echo "failed=true"
+              echo "report<<EOF"
+              echo -e "$fails"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Alert WeCom on failure
+        if: steps.probe.outputs.failed == 'true'
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          BASE: ${{ vars.PROD_API_URL || 'https://api.teamclaw-dev.ucar.cc' }}
+          DETAIL: ${{ steps.probe.outputs.report }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          content=$(printf '## 🚨 生产健康巡检失败\n> **目标**: %s\n%s\n> **时间**: %s\n> **日志**: [查看 Run](%s)' \
+            "$BASE" "$DETAIL" "$(date -u '+%Y-%m-%d %H:%M UTC')" "$RUN_URL")
+          jq -nc --arg content "$content" '{msgtype:"markdown",markdown:{content:$content}}' \
+            | curl -s -X POST \
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_WEBHOOK_KEY" \
+                -H 'Content-Type: application/json' \
+                --data-binary @-
+
+      - name: Fail the job on probe failure
+        if: steps.probe.outputs.failed == 'true'
+        run: exit 1

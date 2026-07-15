@@ -1,0 +1,438 @@
+syntax = "proto3";
+package amux;
+
+// ═══════════════════════════════════════════
+//  AMUX Envelope — wraps ACP payloads
+// ═══════════════════════════════════════════
+
+// Downstream: daemon → clients
+message Envelope {
+  string runtime_id = 1;
+  string actor_id = 2;            // routing identity == actor_id
+  string source_peer_id = 3;      // Who triggered (empty if agent-initiated)
+  int64 timestamp = 4;
+  uint64 sequence = 5;            // Monotonic per agent, for ordering
+  // Daemon-assigned per-turn correlation id. Stamped from the TurnAggregator
+  // on every envelope emitted within one ACP turn (Idle→Active→…→Idle).
+  // Clients dedupe `output isComplete=true` events by `(runtime_id, turn_id)`
+  // so a daemon replay with renumbered `sequence` doesn't produce a second
+  // bubble for the same logical turn. Empty when no active turn (rare; some
+  // session-control envelopes outside a turn).
+  string turn_id = 6;
+  // ACP session that originated this event (root or child subagent).
+  // Empty for legacy agents without subagent support.
+  string acp_session_id = 7;
+
+  oneof payload {
+    AcpEvent acp_event = 10;      // Agent event (ACP passthrough)
+    SessionEvent session_event = 11; // Session control (AMUX-only)
+  }
+}
+
+// Upstream: clients → daemon (sent to {team}/{actor}/runtime/{rid}/commands topic).
+message RuntimeCommandEnvelope {
+  string runtime_id = 1;
+  string actor_id = 2;
+  string peer_id = 3;
+  string command_id = 4;
+  int64 timestamp = 5;
+  // Supabase `actors.id` of the iOS user sending this command. The daemon
+  // uses it to look up `agent_member_access.permission_level` instead of
+  // the legacy MQTT token-derived role.
+  string sender_actor_id = 6;
+  // Actor-scoped reply target. When set, command results should be routed
+  // back to this actor's reply topic instead of the daemon's own actor
+  // namespace.
+  string reply_to_actor_id = 7;
+
+  AcpCommand acp_command = 10;
+}
+
+// ═══════════════════════════════════════════
+//  ACP Passthrough — re-encoded as Protobuf
+// ═══════════════════════════════════════════
+
+// ACP session/update notification types
+message AcpEvent {
+  oneof event {
+    AcpThinking thinking = 1;
+    AcpOutput output = 2;
+    AcpToolUse tool_use = 3;
+    AcpToolResult tool_result = 4;
+    AcpError error = 5;
+    AcpPermissionRequest permission_request = 6;
+    AcpStatusChange status_change = 7;
+    AcpAvailableCommands available_commands = 9;
+    AcpPlanUpdate plan_update = 10; // ACP Plan notification
+    AcpRawJson raw = 15;           // Catch-all for new ACP events not yet mapped
+  }
+  // Model id that produced this event. Set by the daemon for agent-reply
+  // events (Output, Thinking) so iOS bubbles can show which model spoke.
+  // Empty for non-reply events (status changes, tool calls, user prompts,
+  // permission requests, etc).
+  string model = 16;
+}
+
+message AcpThinking {
+  string text = 1;
+}
+
+message AcpOutput {
+  string text = 1;
+  bool is_complete = 2;
+}
+
+message AcpToolCallLocation {
+  string path = 1;
+  optional uint32 line = 2;
+}
+
+message AcpToolCallTextContent {
+  string text = 1;
+}
+
+message AcpToolCallDiff {
+  string path = 1;
+  optional string old_text = 2;
+  string new_text = 3;
+}
+
+message AcpToolCallTerminal {
+  string terminal_id = 1;
+}
+
+message AcpToolCallContent {
+  oneof payload {
+    AcpToolCallTextContent text = 1;
+    AcpToolCallDiff diff = 2;
+    AcpToolCallTerminal terminal = 3;
+  }
+}
+
+message AcpToolUse {
+  string tool_id = 1;
+  string tool_name = 2;           // ACP session/update title (human or tool id)
+  string description = 3;         // Deprecated: legacy misuse; clients should ignore
+  map<string, string> params = 4;
+  // ACP ToolKind enum as snake_case string: "read" | "edit" | "delete" |
+  // "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" |
+  // "other". Free-form text so future ACP enum additions don't require
+  // a proto bump; renderers must tolerate unknown values (treat as "other").
+  string tool_kind = 5;
+  // Phase 2 — ACP fidelity fields (additive; empty on older daemons)
+  string raw_input_json = 6;              // JSON-serialized ACP rawInput
+  repeated AcpToolCallContent content = 7;
+  repeated AcpToolCallLocation locations = 8;
+  string status = 9;                      // pending|in_progress|completed|failed
+  string raw_output_json = 10;            // JSON-serialized ACP rawOutput (task in_progress metadata)
+}
+
+message AcpToolResult {
+  string tool_id = 1;
+  bool success = 2;
+  string summary = 3;
+  string raw_output_json = 4;             // JSON-serialized ACP rawOutput
+  repeated AcpToolCallContent content = 5;
+}
+
+message AcpError {
+  string message = 1;
+  string details = 2;
+}
+
+// Mirrors ACP PermissionOption (session/request_permission).
+message AcpPermissionOption {
+  string option_id = 1;
+  // allow_once | allow_always | reject_once | reject_always
+  string kind = 2;
+  string name = 3;
+}
+
+message AcpPermissionRequest {
+  string request_id = 1;
+  string tool_name = 2;
+  string description = 3;
+  map<string, string> params = 4;
+  repeated AcpPermissionOption options = 5;
+}
+
+message AcpStatusChange {
+  AgentStatus old_status = 1;
+  AgentStatus new_status = 2;
+}
+
+message AcpAvailableCommand {
+  string name = 1;              // e.g. "clear", "compact"
+  string description = 2;       // human-readable
+  string input_hint = 3;        // "" = no input; non-empty = hint for unstructured arg
+}
+
+message AcpAvailableCommands {
+  repeated AcpAvailableCommand commands = 1;
+}
+
+message AcpRawJson {
+  string method = 1;              // ACP method name
+  bytes json_payload = 2;         // Raw JSON for forward compat
+}
+
+// ACP Plan notification — full replacement on every update (ACP spec).
+// priority: "high" | "medium" | "low"
+// status:   "pending" | "in_progress" | "completed"
+message AcpPlanUpdate {
+  repeated AcpPlanEntry entries = 1;
+}
+
+message AcpPlanEntry {
+  string content = 1;
+  string priority = 2;
+  string status = 3;
+}
+
+// ACP commands from client
+message AcpCommand {
+  oneof command {
+    AcpSendPrompt send_prompt = 1;
+    AcpCancel cancel = 2;
+    AcpGrantPermission grant_permission = 3;
+    AcpDenyPermission deny_permission = 4;
+    AcpStartAgent start_agent = 5;
+    AcpStopAgent stop_agent = 6;
+    AcpRequestHistory request_history = 7;
+    AcpRequestTurnHistory request_turn_history = 8;
+  }
+}
+
+// Request historical events for an agent session (incremental sync)
+message AcpRequestHistory {
+  uint64 after_sequence = 1;   // Send events with sequence > this (0 = from beginning)
+  uint32 page_size = 2;        // Max events per batch (default 50)
+  string request_id = 3;       // For correlation
+}
+
+// Request all envelopes for a specific turn from a specific runtime's
+// EventHistory. Used by iOS to lazy-load thinking/tool events when the
+// user opens a turn detail, and to resume mid-turn streaming after a
+// reconnect. Scoped to one runtime (turn_id is uuid v4 globally unique,
+// but kept per-runtime so callers don't conflate runtimes).
+message AcpRequestTurnHistory {
+  string turn_id = 1;
+  string request_id = 2;
+}
+
+message AcpSendPrompt {
+  string text = 1;
+  string model_id = 2;
+  // Supabase Storage URLs for attachments (legacy bare-runtime path).
+  // Session-backed chats carry these in Teamclaw_Message.attachment_urls instead.
+  repeated string attachment_urls = 3;
+}
+
+message AcpCancel {}
+
+message AcpGrantPermission {
+  string request_id = 1;
+  // Selected ACP option_id (e.g. OpenCode "once" / "always"). Empty = allow_once.
+  string option_id = 2;
+}
+
+message AcpDenyPermission {
+  string request_id = 1;
+}
+
+message AcpStartAgent {
+  AgentType agent_type = 1;
+  string worktree = 2;
+  string initial_prompt = 3;
+  string workspace_id = 4;
+  // Supabase sessions.id the spawned agent should be bound to. iOS sets
+  // this after `create_session` succeeds so daemon's agent_runtimes upsert
+  // carries the right linkage. Empty for legacy bare-agent spawns that
+  // live without a Supabase session.
+  string session_id = 5;
+}
+
+message AcpStopAgent {}
+
+// ═══════════════════════════════════════════
+//  Session control — AMUX-only, not in ACP
+// ═══════════════════════════════════════════
+
+// Agent-level session events (flow through agent's events topic in Envelope).
+// Renamed from CollabEvent now that the "collab vs control" distinction is
+// gone; the wire tag (Envelope field 11) and inner tags are unchanged so
+// rolling-upgrade between old and new clients keeps decoding.
+message SessionEvent {
+  oneof event {
+    PromptAccepted prompt_accepted = 1;
+    PromptRejected prompt_rejected = 2;
+    PermissionResolved permission_resolved = 3;
+    HistoryBatch history_batch = 4;
+  }
+}
+
+// Response to AcpRequestHistory — a page of historical events
+message HistoryBatch {
+  string request_id = 1;
+  repeated Envelope events = 2;   // Ordered by sequence
+  bool has_more = 3;              // More pages available
+  uint64 next_after_sequence = 4; // Use as after_sequence for next page
+}
+
+message PromptAccepted {
+  string command_id = 1;
+}
+
+message PromptRejected {
+  string command_id = 1;
+  string reason = 2;
+}
+
+message PermissionResolved {
+  string request_id = 1;
+  string resolved_by_peer_id = 2;
+  bool granted = 3;
+}
+
+// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
+message AddWorkspace {
+  string path = 1;
+}
+
+message RemoveWorkspace {
+  string workspace_id = 1;
+}
+
+message PeerAnnounce {
+  PeerInfo peer = 1;
+  string auth_token = 2;
+}
+
+message RemoveMember {
+  string member_id = 1;
+}
+
+// ═══════════════════════════════════════════
+//  Actor presence (LWT support)
+// ═══════════════════════════════════════════
+
+// Payload of {team}/{actor}/state (retained, LWT-backed from Phase 3 onward).
+// See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md
+message ActorPresence {
+  bool online = 1;
+  string display_name = 2;
+  int64 timestamp = 3;
+}
+
+// ═══════════════════════════════════════════
+//  Shared types
+// ═══════════════════════════════════════════
+
+enum AgentType {
+  AGENT_TYPE_UNKNOWN = 0;
+  AGENT_TYPE_CLAUDE_CODE = 1;
+  AGENT_TYPE_OPENCODE = 2;
+  AGENT_TYPE_CODEX = 3;
+}
+
+message WorkspaceInfo {
+  string workspace_id = 1;
+  string path = 2;
+  string display_name = 3;
+}
+
+message WorkspaceList {
+  repeated WorkspaceInfo workspaces = 1;
+}
+
+enum AgentStatus {
+  AGENT_STATUS_UNKNOWN = 0;
+  AGENT_STATUS_STARTING = 1;
+  AGENT_STATUS_ACTIVE = 2;
+  AGENT_STATUS_IDLE = 3;
+  AGENT_STATUS_ERROR = 4;
+  AGENT_STATUS_STOPPED = 5;
+}
+
+// Lifecycle state for a Claude Code runtime (subprocess).
+// Published on {team}/{actor}/runtime/{rid}/state topic.
+// See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md#runtime-lifecycle
+enum RuntimeLifecycle {
+  RUNTIME_LIFECYCLE_UNKNOWN = 0;
+  RUNTIME_LIFECYCLE_STARTING = 1;
+  RUNTIME_LIFECYCLE_ACTIVE = 2;
+  RUNTIME_LIFECYCLE_FAILED = 3;
+  RUNTIME_LIFECYCLE_STOPPED = 4;
+}
+
+// Payload of {team}/{actor}/runtime/{rid}/state (retained).
+// See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md
+message RuntimeInfo {
+  string runtime_id = 1;
+  AgentType agent_type = 2;
+  string worktree = 3;
+  string branch = 4;
+  AgentStatus status = 5;             // ACP-level status (kept); lifecycle is separate
+  int64 started_at = 6;
+  string current_prompt = 7;
+  string workspace_id = 8;
+  string session_title = 9;
+  string last_output_summary = 10;
+  int32 tool_use_count = 11;
+  repeated ModelInfo available_models = 12;
+  string current_model = 13;
+
+  // Lifecycle fields — see RuntimeLifecycle and Runtime lifecycle section in spec.
+  RuntimeLifecycle state = 14;
+  string stage = 15;                  // meaningful iff state == STARTING
+  string error_code = 16;             // meaningful iff state == FAILED
+  string error_message = 17;          // meaningful iff state == FAILED
+  string failed_stage = 18;           // meaningful iff state == FAILED
+
+  // Most recent slash commands the agent reported. Cached on the daemon so
+  // a fresh iOS subscription sees them in the retained state snapshot
+  // instead of having to wait for the next live AvailableCommandsUpdate
+  // on the events stream (which is not retained). Empty when the daemon
+  // has not yet observed any AvailableCommandsUpdate for the runtime
+  // (e.g. cold-spawned historical session before ACP boots).
+  repeated AcpAvailableCommand available_commands = 19;
+}
+
+message ModelInfo {
+  string id = 1;
+  string display_name = 2;
+}
+
+message AgentList {
+  repeated RuntimeInfo runtimes = 1;
+}
+
+enum MemberRole {
+  MEMBER_ROLE_OWNER = 0;
+  MEMBER_ROLE_MEMBER = 1;
+}
+
+message MemberInfo {
+  string member_id = 1;
+  string display_name = 2;
+  MemberRole role = 3;
+  int64 joined_at = 4;
+  string department = 5;
+}
+
+message MemberList {
+  repeated MemberInfo members = 1;
+}
+
+message PeerInfo {
+  string peer_id = 1;
+  string member_id = 2;
+  string display_name = 3;
+  string device_type = 4;
+  MemberRole role = 5;
+  int64 connected_at = 6;
+}
+
+message PeerList {
+  repeated PeerInfo peers = 1;
+}

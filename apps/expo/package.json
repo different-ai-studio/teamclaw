@@ -1,0 +1,47 @@
+{
+  "name": "@teamclaw/expo",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.12.0",
+    "@expo/vector-icons": "^15.1.1",
+    "@react-native-async-storage/async-storage": "3.1.1",
+    "@teamclaw/app": "workspace:*",
+    "buffer": "^6.0.3",
+    "expo": "~56.0.12",
+    "expo-audio": "^0.4.9",
+    "expo-clipboard": "^7.1.5",
+    "expo-constants": "~56.0.18",
+    "expo-document-picker": "^56.0.4",
+    "expo-file-system": "~56.0.7",
+    "expo-haptics": "^57.0.0",
+    "expo-image-picker": "^56.0.18",
+    "expo-linking": "~56.0.14",
+    "expo-notifications": "~0.31.5",
+    "expo-router": "~56.2.11",
+    "expo-sqlite": "~57.0.0",
+    "expo-status-bar": "~2.2.3",
+    "expo-web-browser": "~56.0.5",
+    "mqtt": "5.15.2",
+    "react": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-gesture-handler": "~3.0.0",
+    "react-native-markdown-display": "^7.0.2",
+    "react-native-safe-area-context": "5.8.0",
+    "react-native-screens": "~4.25.2",
+    "react-native-webview": "14.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.10",
+    "babel-preset-expo": "~13.0.0",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

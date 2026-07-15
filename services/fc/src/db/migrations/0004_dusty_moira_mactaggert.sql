@@ -1,0 +1,1 @@
+ALTER TABLE "agent_runtimes" ADD CONSTRAINT "agent_runtimes_agent_backend_uniq" UNIQUE("agent_id","backend_session_id");

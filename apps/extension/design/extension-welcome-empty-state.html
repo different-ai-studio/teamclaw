@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>插件模式 · 欢迎页方案 — TeamClaw</title>
+  <style>
+    /* Editorial Calm — AGENTS.md */
+    :root {
+      --background: #fbfaf7;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --foreground: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --success: #2eb872;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: #e8e5de;
+      color: var(--foreground);
+      min-height: 100vh;
+    }
+
+    /* ── Spec header ── */
+    .spec {
+      background: var(--paper);
+      border-bottom: 1px solid var(--border);
+      padding: 22px 28px 20px;
+    }
+
+    .spec h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .spec .lead {
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--muted-foreground);
+      line-height: 1.65;
+      max-width: 52rem;
+    }
+
+    .spec ul {
+      margin-top: 12px;
+      padding-left: 0;
+      list-style: none;
+      max-width: 52rem;
+    }
+
+    .spec li {
+      font-size: 12.5px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      padding-left: 14px;
+      position: relative;
+      margin-top: 4px;
+    }
+
+    .spec li::before {
+      content: "·";
+      position: absolute;
+      left: 0;
+      color: var(--faint);
+      font-weight: 700;
+    }
+
+    .spec .open-hint {
+      margin-top: 14px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    /* ── Variant grid ── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      gap: 22px;
+      padding: 24px 28px 48px;
+    }
+
+    .variant-card {
+      display: flex;
+      flex-direction: column;
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 16px 40px -18px rgba(20, 20, 15, 0.18);
+    }
+
+    .variant-card.rec {
+      border-color: rgba(232, 90, 74, 0.35);
+      box-shadow: 0 16px 40px -18px rgba(232, 90, 74, 0.12);
+    }
+
+    .variant-tag {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-soft);
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .variant-tag .id {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--coral);
+    }
+
+    .variant-tag h2 {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-2);
+    }
+
+    .variant-tag em {
+      font-style: normal;
+      font-size: 11px;
+      color: var(--faint);
+      font-weight: 500;
+    }
+
+    .rec-badge {
+      margin-left: auto;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--coral);
+      border: 1px solid var(--coral-soft);
+      background: var(--coral-soft);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* ── Extension side panel shell ── */
+    .panel {
+      width: 100%;
+      height: 520px;
+      display: flex;
+      flex-direction: column;
+      background: var(--background);
+    }
+
+    .panel-chrome {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-soft);
+      background: var(--paper);
+    }
+
+    .panel-brand {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .panel-brand .mark {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: var(--coral);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 10px;
+    }
+
+    .panel-tools {
+      display: flex;
+      gap: 4px;
+    }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      color: var(--muted-foreground);
+      font-size: 13px;
+      display: grid;
+      place-items: center;
+      cursor: default;
+    }
+
+    .panel-nav {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .panel-nav-left {
+      display: flex;
+      gap: 6px;
+    }
+
+    .panel-body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .empty-center {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px;
+    }
+
+    .empty-bottom {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 24px 20px 28px;
+    }
+
+    /* ── Shared components ── */
+    .cta-primary {
+      font: 600 13px var(--font-sans);
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: none;
+      background: var(--coral);
+      color: #fff;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: opacity 0.15s var(--ease);
+    }
+
+    .cta-primary:hover { opacity: 0.92; }
+
+    .cta-primary kbd {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.15);
+      font-weight: 500;
+    }
+
+    .cta-ghost {
+      font: 600 14px var(--font-sans);
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--coral);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cta-ghost kbd {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--faint);
+    }
+
+    .status-dot {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    .status-dot .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .caret {
+      display: inline-block;
+      width: 2px;
+      height: 1.05em;
+      margin-left: 2px;
+      background: var(--coral);
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
+    }
+
+    /* ═══ A · 一句话 ═══ */
+    .a-wrap { text-align: center; max-width: 16rem; }
+    .a-wrap h3 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      line-height: 1.35;
+      color: var(--foreground);
+    }
+    .a-wrap .sub {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted-foreground);
+      line-height: 1.55;
+    }
+    .a-wrap .cta-primary { margin-top: 22px; }
+
+    /* ═══ B · 终端光标（推荐）═══ */
+    .b-wrap { text-align: center; max-width: 18rem; }
+    .b-wrap .line {
+      font-size: 26px;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      line-height: 1.4;
+      color: var(--ink-2);
+    }
+    .b-wrap .status-dot { margin-top: 20px; justify-content: center; }
+    .b-wrap .cta-ghost { margin-top: 16px; }
+
+    /* ═══ C · 伪输入框 ═══ */
+    .c-wrap {
+      width: 100%;
+      max-width: 19rem;
+      text-align: center;
+    }
+    .c-wrap .hint {
+      font-size: 12.5px;
+      color: var(--muted-foreground);
+      margin-bottom: 14px;
+    }
+    .c-faux-input {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      box-shadow: 0 4px 16px -10px rgba(20, 20, 15, 0.1);
+      text-align: left;
+      cursor: pointer;
+      transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+    }
+    .c-faux-input:hover {
+      border-color: rgba(26, 26, 20, 0.14);
+      box-shadow: 0 6px 20px -8px rgba(20, 20, 15, 0.14);
+    }
+    .c-faux-input .placeholder {
+      font-size: 13.5px;
+      color: var(--faint);
+    }
+    .c-faux-input .row {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-soft);
+      display: flex;
+      justify-content: flex-end;
+    }
+    .c-faux-input .send {
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--coral);
+      border: none;
+      border-radius: 8px;
+      padding: 5px 12px;
+      opacity: 0.4;
+    }
+    .c-wrap .status-dot { margin-top: 14px; justify-content: center; }
+
+    /* ═══ D · 底部浮条 ═══ */
+    .d-hint {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .d-hint p {
+      font-size: 13px;
+      color: var(--faint);
+      text-align: center;
+      max-width: 14rem;
+      line-height: 1.6;
+    }
+    .d-bar {
+      margin: 0 16px 20px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: var(--paper);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 16px -10px rgba(20, 20, 15, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+      transition: background 0.15s var(--ease);
+    }
+    .d-bar:hover { background: #fefdfb; }
+    .d-bar .label {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--foreground);
+    }
+    .d-bar .meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--faint);
+    }
+    .d-bar .arrow {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--coral);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    /* ═══ E · 极简链接 ═══ */
+    .e-wrap { text-align: center; }
+    .e-wrap .ready {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 18px;
+    }
+    .e-wrap .cta-ghost {
+      font-size: 15px;
+      text-decoration: underline;
+      text-decoration-color: var(--border);
+      text-underline-offset: 4px;
+    }
+    .e-wrap .cta-ghost:hover {
+      text-decoration-color: var(--coral);
+    }
+  </style>
+</head>
+<body>
+
+  <header class="spec">
+    <h1>插件模式 · 欢迎页（无 Agent 名称）</h1>
+    <p class="lead">
+      目标：弱化「角色 / Agent」概念，插件侧默认就是和本机助手对话。去掉 MACPRO 等人名、去掉 resume 续聊，
+      只保留<strong>一个</strong>快速开聊入口。
+    </p>
+    <ul>
+      <li>不显示 agent 名称、AI 徽章、头像</li>
+      <li>不展示 resume / 快捷指令等多入口</li>
+      <li>在线状态可保留，但降为次要信息（mono 小字）</li>
+      <li>主操作：开始新对话（⌘N）</li>
+    </ul>
+    <p class="open-hint">open apps/extension/design/extension-welcome-empty-state.html</p>
+  </header>
+
+  <div class="grid">
+
+    <!-- A -->
+    <article class="variant-card">
+      <div class="variant-tag">
+        <span class="id">A</span>
+        <h2>一句话 + 主按钮</h2>
+        <em>最直接，信息最少</em>
+      </div>
+      <div class="panel">
+        <div class="panel-chrome">
+          <div class="panel-brand"><span class="mark">🦞</span> TeamClaw</div>
+          <div class="panel-tools">
+            <div class="icon-btn">⧉</div>
+            <div class="icon-btn">✕</div>
+          </div>
+        </div>
+        <div class="panel-nav">
+          <div class="panel-nav-left">
+            <div class="icon-btn">✎</div>
+            <div class="icon-btn">👥</div>
+          </div>
+          <div class="panel-tools">
+            <div class="icon-btn">☰</div>
+            <div class="icon-btn">⚙</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="empty-center">
+            <div class="a-wrap">
+              <h3>说点什么？</h3>
+              <p class="sub">本机助手已就绪，随时开始新对话。</p>
+              <button type="button" class="cta-primary">开始对话 <kbd>⌘N</kbd></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- B · 推荐 -->
+    <article class="variant-card rec">
+      <div class="variant-tag">
+        <span class="id">B</span>
+        <h2>终端光标 · 等你开口</h2>
+        <em>延续现有视觉语言，去掉人名</em>
+        <span class="rec-badge">推荐</span>
+      </div>
+      <div class="panel">
+        <div class="panel-chrome">
+          <div class="panel-brand"><span class="mark">🦞</span> TeamClaw</div>
+          <div class="panel-tools">
+            <div class="icon-btn">⧉</div>
+            <div class="icon-btn">✕</div>
+          </div>
+        </div>
+        <div class="panel-nav">
+          <div class="panel-nav-left">
+            <div class="icon-btn">✎</div>
+            <div class="icon-btn">👥</div>
+          </div>
+          <div class="panel-tools">
+            <div class="icon-btn">☰</div>
+            <div class="icon-btn">⚙</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="empty-center">
+            <div class="b-wrap">
+              <p class="line">随时可以开始<span class="caret"></span></p>
+              <div class="status-dot"><span class="dot"></span> online · local</div>
+              <button type="button" class="cta-ghost">开始对话 <kbd>⌘N</kbd></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- C -->
+    <article class="variant-card">
+      <div class="variant-tag">
+        <span class="id">C</span>
+        <h2>伪输入框</h2>
+        <em>点击即开聊，最接近「直接对话」</em>
+      </div>
+      <div class="panel">
+        <div class="panel-chrome">
+          <div class="panel-brand"><span class="mark">🦞</span> TeamClaw</div>
+          <div class="panel-tools">
+            <div class="icon-btn">⧉</div>
+            <div class="icon-btn">✕</div>
+          </div>
+        </div>
+        <div class="panel-nav">
+          <div class="panel-nav-left">
+            <div class="icon-btn">✎</div>
+            <div class="icon-btn">👥</div>
+          </div>
+          <div class="panel-tools">
+            <div class="icon-btn">☰</div>
+            <div class="icon-btn">⚙</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="empty-center">
+            <div class="c-wrap">
+              <p class="hint">有问题，直接问</p>
+              <div class="c-faux-input" role="button" tabindex="0">
+                <div class="placeholder">输入你的问题…</div>
+                <div class="row">
+                  <span class="send">发送 →</span>
+                </div>
+              </div>
+              <div class="status-dot"><span class="dot"></span> online · local</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- D -->
+    <article class="variant-card">
+      <div class="variant-tag">
+        <span class="id">D</span>
+        <h2>底部浮条</h2>
+        <em>留白多，操作贴底 — 适合窄侧栏</em>
+      </div>
+      <div class="panel">
+        <div class="panel-chrome">
+          <div class="panel-brand"><span class="mark">🦞</span> TeamClaw</div>
+          <div class="panel-tools">
+            <div class="icon-btn">⧉</div>
+            <div class="icon-btn">✕</div>
+          </div>
+        </div>
+        <div class="panel-nav">
+          <div class="panel-nav-left">
+            <div class="icon-btn">✎</div>
+            <div class="icon-btn">👥</div>
+          </div>
+          <div class="panel-tools">
+            <div class="icon-btn">☰</div>
+            <div class="icon-btn">⚙</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="d-hint">
+            <p>浏览当前页面时，随时可以把问题发过来。</p>
+          </div>
+          <div class="d-bar" role="button" tabindex="0">
+            <div>
+              <div class="label">开始新对话</div>
+              <div class="meta">⌘N · online</div>
+            </div>
+            <div class="arrow">→</div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- E -->
+    <article class="variant-card">
+      <div class="variant-tag">
+        <span class="id">E</span>
+        <h2>极简链接</h2>
+        <em>信息密度最低，几乎无欢迎语</em>
+      </div>
+      <div class="panel">
+        <div class="panel-chrome">
+          <div class="panel-brand"><span class="mark">🦞</span> TeamClaw</div>
+          <div class="panel-tools">
+            <div class="icon-btn">⧉</div>
+            <div class="icon-btn">✕</div>
+          </div>
+        </div>
+        <div class="panel-nav">
+          <div class="panel-nav-left">
+            <div class="icon-btn">✎</div>
+            <div class="icon-btn">👥</div>
+          </div>
+          <div class="panel-tools">
+            <div class="icon-btn">☰</div>
+            <div class="icon-btn">⚙</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="empty-center">
+            <div class="e-wrap">
+              <div class="ready">ready</div>
+              <button type="button" class="cta-ghost">开始对话 <kbd>⌘N</kbd></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/desktop",
+  "apps/desktop/crates/*",
+  "crates/*",
+  "apps/daemon",
+]
+
+[workspace.dependencies]
+prost = "0.13"
+prost-types = "0.13"
+prost-build = "0.13"
+
+[profile.release]
+# Use unwind so catch_unwind in email.rs and deps (e.g. html2md) work; abort would conflict.
+codegen-units = 16
+lto = false
+opt-level = "s"
+strip = "debuginfo"
+debug = 1
+
+[profile.dev.package."*"]
+opt-level = 0

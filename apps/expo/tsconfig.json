@@ -1,0 +1,9 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "strict": true
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}

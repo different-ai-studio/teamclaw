@@ -1,0 +1,144 @@
+name: Release Extension
+
+on:
+  push:
+    tags:
+      - "ext-v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to Chrome Web Store (requires CHROME_* secrets); if unset, only builds + uploads the zip artifact"
+        type: boolean
+        default: true
+
+# Cancel in-progress extension release if a new tag/dispatch comes in.
+concurrency:
+  group: release-extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Write production build config from secret
+        env:
+          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
+        run: |
+          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
+            echo "$BUILD_CONFIG_PRODUCTION" > build.config.json
+            echo "✅ Production build config written (replaces repo default)"
+          else
+            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
+          fi
+
+      # Same private-repo branding fetch as .github/workflows/release.yml (desktop),
+      # so the copilot361 brand config/assets stay in one place.
+      - name: Fetch branding assets (private repo)
+        env:
+          BRANDING_REPO: ${{ vars.BRANDING_REPO }}
+          BRANDING_REPO_PAT: ${{ secrets.BRANDING_REPO_PAT }}
+          BRANDING_CONFIG_FILE: ${{ vars.BRANDING_CONFIG_FILE }}
+        shell: bash
+        run: |
+          if [ -z "$BRANDING_REPO" ] || [ -z "$BRANDING_REPO_PAT" ]; then
+            echo "ℹ️ No branding repo configured (BRANDING_REPO / BRANDING_REPO_PAT) — non-branded build"
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:${BRANDING_REPO_PAT}@github.com/${BRANDING_REPO}.git" .branding-src
+          if [ -d .branding-src/branding ]; then
+            mkdir -p ./branding
+            cp -R .branding-src/branding/. ./branding/
+            echo "✅ Branding assets placed under ./branding"
+          fi
+          cfg="${BRANDING_CONFIG_FILE:-build.config.copilot361.json}"
+          if [ -f ".branding-src/${cfg}" ]; then
+            cp ".branding-src/${cfg}" build.config.json
+            echo "✅ Branding build config applied: ${cfg} (overrides BUILD_CONFIG_PRODUCTION)"
+          else
+            echo "⚠️ Branding config ${cfg} not found in branding repo; keeping existing build.config.json"
+          fi
+          rm -rf .branding-src
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/pnpm/store/v3
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Applies build.config.json (brand name + branding/extension/icons, if the
+      # branding repo shipped them) onto apps/extension/manifest.json BEFORE the
+      # bundle build, mirroring scripts/update-tauri-config.js for desktop.
+      - name: Apply branding to extension manifest + icons
+        run: node scripts/update-extension-manifest.js
+
+      - name: Build extension
+        env:
+          BUILD_ENV: production
+        run: pnpm --filter @teamclaw/extension build
+
+      - name: Zip extension
+        run: |
+          cd apps/extension/dist
+          zip -r ../../../extension.zip .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: chrome-extension
+          path: extension.zip
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/ext-v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: extension.zip
+          generate_release_notes: true
+
+      # Publishes to the Chrome Web Store via the Chrome Web Store API. Needs a
+      # one-time OAuth setup (Google Cloud OAuth client + refresh token scoped to
+      # https://www.googleapis.com/auth/chromewebstore) and an existing draft
+      # listing's item ID. Until those secrets are configured this step is a
+      # no-op — the zip above can still be uploaded to the dashboard by hand.
+      - name: Publish to Chrome Web Store
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$CHROME_EXTENSION_ID" ] || [ -z "$CHROME_CLIENT_ID" ] || [ -z "$CHROME_CLIENT_SECRET" ] || [ -z "$CHROME_REFRESH_TOKEN" ]; then
+            echo "ℹ️ Chrome Web Store secrets not configured (CHROME_EXTENSION_ID / CHROME_CLIENT_ID / CHROME_CLIENT_SECRET / CHROME_REFRESH_TOKEN)."
+            echo "   Built extension.zip is available as a workflow artifact for manual upload."
+            echo "   See docs/chrome-extension-design.md for how to obtain these once the Web Store listing exists."
+            exit 0
+          fi
+          npx --yes chrome-webstore-upload-cli@3 upload \
+            --source extension.zip \
+            --extension-id "$CHROME_EXTENSION_ID" \
+            --client-id "$CHROME_CLIENT_ID" \
+            --client-secret "$CHROME_CLIENT_SECRET" \
+            --refresh-token "$CHROME_REFRESH_TOKEN"
+          npx --yes chrome-webstore-upload-cli@3 publish \
+            --extension-id "$CHROME_EXTENSION_ID" \
+            --client-id "$CHROME_CLIENT_ID" \
+            --client-secret "$CHROME_CLIENT_SECRET" \
+            --refresh-token "$CHROME_REFRESH_TOKEN"
+          echo "✅ Published to Chrome Web Store"

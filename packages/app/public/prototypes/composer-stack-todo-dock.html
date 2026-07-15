@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Composer Stack — Agent + 任务 + 输入（统一栈）</title>
+  <style>
+    /* Editorial Calm — AGENTS.md */
+    :root {
+      --background: #fbfaf7;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --selected: #e7e2d6;
+      --foreground: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --success: #2eb872;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --radius-shell: 14px;
+      --radius-inner: 10px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --shadow: 0 6px 28px -14px rgba(20, 20, 15, 0.14);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--background);
+      color: var(--foreground);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .demo-header {
+      padding: 20px 24px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--paper);
+    }
+
+    .demo-header h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .demo-header .subtitle {
+      margin-top: 6px;
+      font-size: 12.5px;
+      color: var(--muted-foreground);
+      line-height: 1.6;
+      max-width: 54rem;
+    }
+
+    .principles {
+      margin-top: 12px;
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+
+    .principles li {
+      list-style: none;
+      padding-left: 14px;
+      position: relative;
+    }
+
+    .principles li::before {
+      content: "·";
+      position: absolute;
+      left: 0;
+      color: var(--faint);
+      font-weight: 700;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .controls button {
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--ink-2);
+      cursor: pointer;
+    }
+
+    .controls button:hover { background: var(--selected); }
+    .controls button.is-active {
+      background: var(--foreground);
+      color: #fefdfa;
+      border-color: var(--foreground);
+    }
+
+    .compare {
+      margin-top: 10px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--faint);
+    }
+
+    .stage {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      align-items: end;
+      padding: 28px 24px 56px;
+    }
+
+    @media (max-width: 960px) {
+      .stage { grid-template-columns: 1fr; }
+    }
+
+    .column-label {
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .composer-wrap {
+      width: min(100%, 40rem);
+      margin: 0 auto;
+    }
+
+    /* ─── BEFORE: 现状（三层漂浮） ─── */
+    .legacy-stack .legacy-agent,
+    .legacy-stack .legacy-todo,
+    .legacy-stack .legacy-input {
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      box-shadow: 0 2px 10px -6px rgba(15, 23, 42, 0.1);
+    }
+
+    .legacy-stack .legacy-agent {
+      margin-bottom: 10px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .legacy-stack .legacy-todo {
+      margin: 0 14px -12px;
+      border-radius: 24px;
+      border-color: rgba(214, 219, 228, 0.5);
+      backdrop-filter: blur(9px);
+      padding: 8px 14px 12px;
+      position: relative;
+      z-index: 0;
+    }
+
+    .legacy-stack .legacy-input {
+      margin-top: 0;
+      padding: 14px;
+      min-height: 120px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .legacy-todo h4 {
+      font-size: 12px;
+      color: var(--muted-foreground);
+      margin-bottom: 8px;
+    }
+
+    .legacy-todo ol {
+      font-size: 12px;
+      line-height: 1.7;
+      padding-left: 18px;
+      color: var(--ink-2);
+      max-height: 5.5rem;
+      overflow: hidden;
+    }
+
+    /* ─── AFTER: 统一 Composer Stack ─── */
+    .composer-stack {
+      border-radius: var(--radius-shell);
+      border: 1px solid var(--border);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transition: border-color 0.35s var(--ease), box-shadow 0.35s var(--ease);
+    }
+
+    .composer-stack.has-approval {
+      border-color: rgba(232, 90, 74, 0.2);
+      box-shadow:
+        var(--shadow),
+        0 0 0 1px rgba(232, 90, 74, 0.05);
+    }
+
+    /* 审批：嵌在栈顶，与 agent 条共享外壳 */
+    .approval-expand {
+      display: grid;
+      transition: grid-template-rows 0.4s var(--ease);
+    }
+
+    .approval-expand[data-open="false"] { grid-template-rows: 0fr; }
+    .approval-expand[data-open="true"] { grid-template-rows: 1fr; }
+
+    .approval-expand > div { min-height: 0; overflow: hidden; }
+
+    .approval-panel {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-soft);
+      background: linear-gradient(180deg, #fffdfb, var(--paper));
+    }
+
+    .approval-panel .badge {
+      font-size: 10.5px;
+      font-weight: 600;
+      color: var(--coral);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .approval-panel .cmd {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-2);
+    }
+
+    /* Agent 状态条：细条，panel 底，非独立卡片 */
+    .agent-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 12px;
+      min-height: 36px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .agent-strip[hidden] { display: none; }
+
+    .agent-avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: #c45c4a;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 0 0 1.5px var(--coral);
+    }
+
+    .agent-strip .meta {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .agent-strip .name {
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+
+    .agent-strip .status {
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    .agent-strip .status.is-live {
+      color: var(--muted-foreground);
+    }
+
+    .agent-strip .status.is-live::after {
+      content: "";
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      margin-left: 5px;
+      border-radius: 50%;
+      background: var(--coral);
+      vertical-align: middle;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .btn-stop {
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 8px;
+      background: var(--coral-soft);
+      color: var(--coral);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .btn-stop svg { width: 10px; height: 10px; fill: currentColor; }
+
+    /* 任务区：内嵌 panel 槽，不用 24px 毛玻璃浮层 */
+    .plan-slot {
+      border-bottom: 1px solid var(--border-soft);
+      background: color-mix(in srgb, var(--panel) 42%, var(--paper));
+    }
+
+    .plan-slot[hidden] { display: none; }
+
+    .plan-slot[data-collapsed="true"] .plan-body-wrap {
+      grid-template-rows: 0fr;
+    }
+
+    .plan-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .plan-head:hover { background: rgba(26, 26, 20, 0.02); }
+
+    .plan-head .icon {
+      color: var(--muted-foreground);
+      display: flex;
+    }
+
+    .plan-head .summary {
+      flex: 1;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--ink-2);
+    }
+
+    .plan-head .summary strong {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: 11px;
+      color: var(--foreground);
+    }
+
+    .plan-head .chevron {
+      color: var(--faint);
+      transition: transform 0.25s var(--ease);
+    }
+
+    .plan-slot[data-collapsed="true"] .plan-head .chevron {
+      transform: rotate(-90deg);
+    }
+
+    .plan-body-wrap {
+      display: grid;
+      transition: grid-template-rows 0.3s var(--ease);
+      grid-template-rows: 1fr;
+    }
+
+    .plan-body-wrap > div {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .plan-list {
+      padding: 0 12px 10px;
+      max-height: 7.5rem;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(113, 113, 122, 0.35) transparent;
+    }
+
+    .plan-item {
+      display: grid;
+      grid-template-columns: 14px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 5px 4px;
+      border-radius: 6px;
+    }
+
+    .plan-item:hover { background: rgba(255, 255, 255, 0.55); }
+
+    .plan-item .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 1.5px solid var(--faint);
+    }
+
+    .plan-item.is-progress .dot {
+      border-color: var(--coral);
+      background: var(--coral-soft);
+    }
+
+    .plan-item.is-done .dot {
+      border-color: var(--success);
+      background: var(--success);
+    }
+
+    .plan-item .text {
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--foreground);
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .plan-item .prio {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--faint);
+      text-transform: uppercase;
+    }
+
+    .plan-fade {
+      padding: 0 12px 8px;
+      font-size: 11px;
+      color: var(--faint);
+      text-align: center;
+    }
+
+    /* 输入区：与栈底无缝 */
+    .input-zone {
+      padding: 12px 14px 10px;
+      background: var(--paper);
+    }
+
+    .input-zone textarea {
+      width: 100%;
+      min-height: 44px;
+      border: none;
+      outline: none;
+      resize: none;
+      font-family: inherit;
+      font-size: 13.5px;
+      line-height: 1.55;
+      color: var(--foreground);
+      background: transparent;
+    }
+
+    .input-zone textarea::placeholder { color: var(--faint); }
+
+    .input-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-soft);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border-radius: 7px;
+      background: var(--panel);
+      font-size: 11.5px;
+      color: var(--ink-2);
+      border: 1px solid var(--border-soft);
+    }
+
+    .pill .dot-agent {
+      width: 8px;
+      height: 8px;
+      border-radius: 3px;
+      background: #c45c4a;
+    }
+
+    .input-toolbar .spacer { flex: 1; }
+
+    .btn-send {
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: none;
+      background: var(--coral);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .hint-kbd {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--faint);
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header class="demo-header">
+    <h1>Composer Stack — Agent 条 + 任务 + 输入（统一栈）</h1>
+    <p class="subtitle">
+      解决现状三层卡片（Streaming 条 / 24px 毛玻璃 Todo / 输入框）互相遮挡、负 margin 叠层的问题。
+      改为<strong>单一纸面卡片</strong>：上→下为 审批（可选）→ Agent 细条 → 任务内槽 → 输入，共用 14px 圆角与一条阴影。
+    </p>
+    <ul class="principles">
+      <li>Agent 不再是独立浮卡，而是 <code>panel</code> 色 36px 状态条，与任务区用 <code>border-soft</code> 分隔。</li>
+      <li>任务列表取消 24px 毛玻璃圆角与 <code>-mb-6</code>，改为栈内嵌 panel 槽，默认最多显示 5 行 +「还有 N 项」。</li>
+      <li>折叠后仅保留一行摘要（<code>10 项 · 0 完成</code>），不挤占输入框视觉重心。</li>
+      <li>审批仍可在栈顶展开，与 <code>approval-in-streaming-bar.html</code> 一致，不与 Agent 条拆成两张卡。</li>
+    </ul>
+    <div class="controls" role="tablist" aria-label="演示状态">
+      <button type="button" class="is-active" data-preset="stream-todo">流式 + 任务（你的场景）</button>
+      <button type="button" data-preset="stream-only">仅流式</button>
+      <button type="button" data-preset="todo-only">仅任务（Agent 已结束）</button>
+      <button type="button" data-preset="approval">流式 + 审批</button>
+      <button type="button" data-preset="collapsed">任务折叠</button>
+    </div>
+    <p class="compare">左：现状近似 · 右：提案 · 用上方按钮切换状态</p>
+  </header>
+
+  <main class="stage">
+    <!-- 现状对照 -->
+    <div>
+      <div class="column-label">现状（分离 + 干扰）</div>
+      <div class="composer-wrap legacy-stack" aria-hidden="true">
+        <div class="legacy-agent">
+          <div class="agent-avatar">M</div>
+          <div class="meta">
+            <span class="name">MACMINI</span>
+            <span class="status is-live">Streaming…</span>
+          </div>
+          <button type="button" class="btn-stop" aria-label="中断">
+            <svg viewBox="0 0 10 10"><rect width="10" height="10" rx="1"/></svg>
+          </button>
+        </div>
+        <div class="legacy-todo">
+          <h4>☰ 10 tasks, 0 completed</h4>
+          <ol>
+            <li>优化搜索结果页面加载速度</li>
+            <li>修复用户头像上传失败问题</li>
+            <li>添加暗黑模式切换功能</li>
+            <li>…（与下方输入框重叠）</li>
+          </ol>
+        </div>
+        <div class="legacy-input">
+          <span style="font-size:13px;color:var(--faint)">Type to queue message…</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 提案 -->
+    <div>
+      <div class="column-label">提案（Composer Stack）</div>
+      <div class="composer-wrap">
+        <div class="composer-stack" id="stack">
+          <div class="approval-expand" id="approval" data-open="false">
+            <div>
+              <div class="approval-panel">
+                <div class="badge">等待你审批</div>
+                <div class="cmd">bash · ls -la</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="agent-strip" id="agentStrip">
+            <div class="agent-avatar">M</div>
+            <div class="meta">
+              <span class="name">MACMINI</span>
+              <span class="status is-live" id="agentStatus">正在回复</span>
+            </div>
+            <button type="button" class="btn-stop" aria-label="中断">
+              <svg viewBox="0 0 10 10"><rect width="10" height="10" rx="1"/></svg>
+            </button>
+          </div>
+
+          <section class="plan-slot" id="planSlot" data-collapsed="false">
+            <div class="plan-head" id="planToggle" role="button" tabindex="0" aria-expanded="true">
+              <span class="icon" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
+              </span>
+              <span class="summary" id="planSummary"><strong>10</strong> 项任务 · <strong>0</strong> 已完成</span>
+              <span class="chevron" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </div>
+            <div class="plan-body-wrap" id="planBody">
+              <div>
+                <div class="plan-list" id="planList"></div>
+                <div class="plan-fade" id="planFade" hidden>还有 5 项 · 展开查看</div>
+              </div>
+            </div>
+          </section>
+
+          <div class="input-zone">
+            <textarea rows="2" placeholder="输入消息，@ 提及 · # 引用文件…"></textarea>
+            <div class="input-toolbar">
+              <span class="pill">+</span>
+              <span class="pill">默认权限 ▾</span>
+              <span class="pill"><span class="dot-agent"></span> MACMINI · DeepSeek V4 ▾</span>
+              <span class="spacer"></span>
+              <span class="hint-kbd">⌘↵</span>
+              <button type="button" class="btn-send">发送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const TODOS = [
+      { text: "优化搜索结果页面加载速度", status: "pending", prio: "high" },
+      { text: "修复用户头像上传失败问题", status: "pending", prio: "med" },
+      { text: "添加暗黑模式切换功能", status: "pending", prio: "low" },
+      { text: "编写消息模块单元测试", status: "pending", prio: "med" },
+      { text: "更新依赖至最新版本", status: "pending", prio: "low" },
+      { text: "排查内存泄漏问题", status: "in_progress", prio: "high" },
+      { text: "整理 API 文档目录", status: "pending", prio: "low" },
+      { text: "补充 E2E 登录用例", status: "pending", prio: "med" },
+      { text: "Review PR #372", status: "pending", prio: "med" },
+      { text: "同步 staging 配置", status: "pending", prio: "low" },
+    ];
+
+    const MAX_VISIBLE = 5;
+    const stack = document.getElementById("stack");
+    const approval = document.getElementById("approval");
+    const agentStrip = document.getElementById("agentStrip");
+    const agentStatus = document.getElementById("agentStatus");
+    const planSlot = document.getElementById("planSlot");
+    const planBody = document.getElementById("planBody");
+    const planList = document.getElementById("planList");
+    const planFade = document.getElementById("planFade");
+    const planToggle = document.getElementById("planToggle");
+
+    function renderTodos() {
+      const visible = TODOS.slice(0, MAX_VISIBLE);
+      const rest = TODOS.length - visible.length;
+      planList.innerHTML = visible.map((t, i) => {
+        const cls = t.status === "in_progress" ? "is-progress" : t.status === "completed" ? "is-done" : "";
+        return `<div class="plan-item ${cls}">
+          <span class="dot"></span>
+          <span class="text">${i + 1}. ${t.text}</span>
+          <span class="prio">${t.prio}</span>
+        </div>`;
+      }).join("");
+      planFade.hidden = rest <= 0;
+      if (rest > 0) planFade.textContent = `还有 ${rest} 项 · 展开查看`;
+      const done = TODOS.filter((t) => t.status === "completed").length;
+      document.getElementById("planSummary").innerHTML =
+        `<strong>${TODOS.length}</strong> 项任务 · <strong>${done}</strong> 已完成`;
+    }
+
+    function applyPreset(name) {
+      const showAgent = name === "stream-todo" || name === "stream-only" || name === "approval";
+      const showPlan = name !== "stream-only";
+      const showApproval = name === "approval";
+      const collapsed = name === "collapsed";
+
+      agentStrip.hidden = !showAgent;
+      planSlot.hidden = !showPlan;
+      approval.dataset.open = showApproval ? "true" : "false";
+      stack.classList.toggle("has-approval", showApproval);
+      planSlot.dataset.collapsed = collapsed ? "true" : "false";
+      planToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      planBody.style.gridTemplateRows = collapsed ? "0fr" : "1fr";
+
+      if (showAgent) {
+        agentStatus.textContent = showApproval ? "等待你审批…" : "正在回复";
+        agentStatus.classList.toggle("is-live", !showApproval);
+      }
+    }
+
+    document.querySelectorAll(".controls button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".controls button").forEach((b) => b.classList.remove("is-active"));
+        btn.classList.add("is-active");
+        applyPreset(btn.dataset.preset);
+      });
+    });
+
+    planToggle.addEventListener("click", () => {
+      const collapsed = planSlot.dataset.collapsed === "true";
+      planSlot.dataset.collapsed = collapsed ? "false" : "true";
+      planToggle.setAttribute("aria-expanded", collapsed ? "true" : "false");
+      planBody.style.gridTemplateRows = collapsed ? "1fr" : "0fr";
+    });
+
+    renderTodos();
+    applyPreset("stream-todo");
+  </script>
+</body>
+</html>

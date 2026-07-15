@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  frontend:
+    name: Lint, Typecheck & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/pnpm/store/v3
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Run TypeScript check
+        run: pnpm typecheck
+
+      - name: Run unit tests
+        run: pnpm test:unit
+
+      - name: Run script tests
+        run: pnpm test:scripts
+
+  rust-check:
+    name: Rust Format & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libglib2.0-dev patchelf libasound2-dev protobuf-compiler
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./apps/desktop -> target
+
+      - name: Create stub sidecar binaries (tauri-build requires them to exist)
+        run: |
+          mkdir -p apps/desktop/binaries
+          touch apps/desktop/binaries/teamclaw-introspect-x86_64-unknown-linux-gnu
+          touch apps/desktop/binaries/amuxd-x86_64-unknown-linux-gnu
+
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path apps/desktop/Cargo.toml
+
+      - name: Run Clippy
+        run: cargo clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings
+
+  daemon-linux:
+    name: Daemon Unit Tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install protoc (for prost_build)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Run amuxd unit tests
+        run: cargo test -p amuxd --locked
+
+  daemon-windows:
+    name: Daemon (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # `choco install protoc` intermittently fails / leaves protoc off PATH,
+      # making prost-build report "Could not find protoc" and reddening this job
+      # for reasons unrelated to the change under test. arduino/setup-protoc
+      # downloads a pinned protoc release and adds it to PATH deterministically.
+      - name: Install protoc (for prost_build)
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      # Compile + link gate only. amuxd now compiles and links on Windows.
+      # The full unit-test suite is NOT run here: the broader daemon tests
+      # carry Unix assumptions (paths, sockets) beyond this port's scope, so
+      # behavioral verification on Windows is done manually on a real machine.
+      - name: Check amuxd compiles on Windows
+        run: cargo check -p amuxd --locked
+
+      - name: Build amuxd on Windows
+        run: cargo build -p amuxd --locked

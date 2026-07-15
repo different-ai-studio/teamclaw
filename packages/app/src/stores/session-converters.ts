@@ -1,0 +1,197 @@
+// Legacy agent SDK types are stubbed; chat conversion is dead code in v2.
+type AgentSession = any;
+type SessionListItem = any;
+type AgentMessage = any;
+import type { ToolCall, MessagePart, Message, Session } from './session-types';
+
+function isCompactionContinueMetadata(metadata: unknown): boolean {
+  return !!(
+    metadata &&
+    typeof metadata === "object" &&
+    (metadata as Record<string, unknown>).compaction_continue === true
+  );
+}
+
+function archiveMetadata(
+  time: { archived?: number | null },
+): Pick<Session, "isArchived" | "archivedAt"> {
+  if (time.archived == null) return {};
+  return {
+    isArchived: true,
+    archivedAt: new Date(time.archived),
+  };
+}
+
+// Convert agent message to our format
+export function convertMessage(msg: AgentMessage): Message {
+  const hasCompactionPart = msg.parts.some((part: any) => part.type === "compaction");
+  const compactionPart = msg.parts.find((part: any) => part.type === "compaction");
+  const isCompactionSummary =
+    msg.info.role === "assistant" &&
+    (msg.info.summary === true ||
+      msg.info.agent === "compaction" ||
+      msg.info.mode === "compaction");
+  const isSyntheticCompactionContinue =
+    isCompactionContinueMetadata(msg.info.metadata) ||
+    (msg.info.synthetic === true && isCompactionContinueMetadata(msg.info.metadata));
+
+  const content = msg.parts
+    .filter((p: any) => p.type === "text" && p.text && !isSyntheticCompactionContinue)
+    .map((p: any) => p.text)
+    .join("");
+
+  // Extract tool calls and pair them with results
+  const toolParts = msg.parts.filter(
+    (p: any) => p.type === "tool-call" || p.type === "tool",
+  );
+  const toolResultParts = msg.parts.filter((p: any) => p.type === "tool-result");
+
+  const toolCalls: ToolCall[] = toolParts.map((p: any) => {
+    // For 'tool' type parts, get result and metadata from state
+    // For 'tool-call' type parts, find matching result from toolResultParts
+    const state = p.state as
+      | {
+          status?: string;
+          output?: string;
+          metadata?: Record<string, unknown>;
+          input?: Record<string, unknown>;
+        }
+      | undefined;
+
+    let toolResult: unknown;
+    let toolMetadata: ToolCall["metadata"] | undefined;
+
+    if (p.type === "tool" && state) {
+      // For "tool" type, result may be in raw, output, or result (agent runtime variance)
+      const s = state as { raw?: unknown; output?: unknown; result?: unknown };
+      toolResult = s.raw ?? s.output ?? s.result;
+      // metadata is in state.metadata (for task tool: sessionId, summary, etc.)
+      if (state.metadata) {
+        const meta = state.metadata as Record<string, unknown>;
+        toolMetadata = {
+          sessionId: meta.sessionId as string | undefined,
+          model: meta.model as
+            | { providerID: string; modelID: string }
+            | undefined,
+          summary: meta.summary as
+            | Array<{
+                id: string;
+                tool: string;
+                state: { status: string; title?: string };
+              }>
+            | undefined,
+          title: meta.title as string | undefined,
+        };
+      }
+    } else {
+      // For 'tool-call' type, find matching result
+      const matchingResult = toolResultParts.find((r: any) => r.toolResult?.content);
+      toolResult = matchingResult?.toolResult?.content;
+    }
+
+    // Determine status based on available info
+    let status: "calling" | "completed" | "failed" | "waiting" = "completed";
+    if (p.type === "tool" && state?.status === "pending") {
+      status = "calling";
+    } else if (p.type === "tool" && state?.status === "running") {
+      status = "calling";
+    } else if (p.type === "tool" && state?.status === "error") {
+      status = "failed";
+    } else if (p.time?.end === undefined && p.time?.start !== undefined) {
+      status = "calling";
+    }
+
+    // Handle both 'tool' type (from SSE) and 'tool-call' type
+    const toolName = p.toolCall?.name || p.tool || "unknown";
+    const toolId = p.toolCall?.id || p.callID || p.id;
+    const toolInput = p.toolCall?.input || state?.input || {};
+
+    return {
+      id: toolId,
+      name: toolName,
+      status,
+      arguments: toolInput,
+      result: toolResult,
+      startTime: new Date(p.time?.start || msg.info.time.created),
+      duration:
+        p.time?.end && p.time?.start ? p.time.end - p.time.start : undefined,
+      metadata: toolMetadata,
+    };
+  });
+
+  const parts: MessagePart[] = msg.parts.map((p: any) => ({
+    id: p.id,
+    type: p.type,
+    content: p.text,
+    text: p.text, // Keep text field for reasoning
+    auto: p.auto,
+    overflow: p.overflow,
+    completed: p.completed,
+    tool: p.toolCall,
+    result: p.toolResult,
+  }));
+
+  const displayKind = hasCompactionPart
+    ? "compaction"
+    : isCompactionSummary
+      ? "compaction-summary"
+      : isSyntheticCompactionContinue
+        ? "synthetic"
+        : undefined;
+
+  return {
+    id: msg.info.id,
+    sessionId: msg.info.sessionID,
+    role: msg.info.role,
+    content,
+    parts,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    timestamp: new Date(msg.info.time.created),
+    tokens: msg.info.tokens,
+    cost: msg.info.cost,
+    // Preserve model information from agent
+    modelID: msg.info.modelID,
+    providerID: msg.info.providerID,
+    agent: msg.info.agent,
+    parentID: msg.info.parentID,
+    displayKind,
+    hidden: displayKind === "compaction-summary" || displayKind === "synthetic" ? true : undefined,
+    compaction: hasCompactionPart
+      ? {
+          auto: compactionPart?.auto,
+          overflow: compactionPart?.overflow,
+          completed: compactionPart?.completed ?? true,
+        }
+      : undefined,
+  };
+}
+
+// Convert agent session to our format
+export function convertSession(session: AgentSession): Session {
+  const now = Date.now()
+  return {
+    id: session.id,
+    title: session.title || "New Chat",
+    messages: [],
+    createdAt: new Date(session.time?.created ?? now),
+    updatedAt: new Date(session.time?.updated ?? session.time?.created ?? now),
+    directory: session.directory,
+    parentID: session.parentID,
+    ...archiveMetadata(session.time ?? {}),
+  };
+}
+
+// Convert session list item
+export function convertSessionListItem(item: SessionListItem): Session {
+  const now = Date.now()
+  return {
+    id: item.id,
+    title: item.title || "New Chat",
+    messages: [],
+    createdAt: new Date(item.time?.created ?? now),
+    updatedAt: new Date(item.time?.updated ?? item.time?.created ?? now),
+    directory: item.directory,
+    parentID: item.parentID,
+    ...archiveMetadata(item.time ?? {}),
+  };
+}

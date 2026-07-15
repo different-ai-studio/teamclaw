@@ -1,0 +1,64 @@
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import { getPreferredLanguage, isSupportedLanguage, normalizeSupportedLanguage, persistLanguage } from './locale';
+
+// Import translation files
+import enTranslation from '../locales/en.json';
+import zhCnTranslation from '../locales/zh-CN.json';
+
+// Build-time locale selection via VITE_LOCALE env var:
+//   undefined or 'all' → both languages (default)
+//   'en'               → English only
+//   'zh-CN'            → Chinese only
+const FORCED_LOCALE = import.meta.env.VITE_LOCALE as string | undefined;
+const forcedSupportedLocale =
+  FORCED_LOCALE && FORCED_LOCALE !== 'all' && isSupportedLanguage(FORCED_LOCALE)
+    ? FORCED_LOCALE
+    : undefined;
+
+const allResources = {
+  en: { translation: enTranslation },
+  'zh-CN': { translation: zhCnTranslation },
+};
+
+const resources = forcedSupportedLocale
+  ? { [forcedSupportedLocale]: allResources[forcedSupportedLocale] }
+  : allResources;
+
+const getUserLanguage = (): string => {
+  if (forcedSupportedLocale) {
+    return forcedSupportedLocale;
+  }
+
+  return normalizeSupportedLanguage(getPreferredLanguage());
+};
+
+const defaultLng = forcedSupportedLocale ?? 'en';
+
+i18n
+  .use(initReactI18next) // Passes i18n down to react-i18next
+  .init({
+    resources,
+    lng: getUserLanguage(), // Set the initial language
+    fallbackLng: defaultLng, // Fallback language
+    interpolation: {
+      escapeValue: false // React already escapes values
+    },
+    keySeparator: '.' // Enable nested key lookup (e.g., 'common.save' → common → save)
+  });
+
+export default i18n;
+
+// Export utility functions for language switching and persistence
+export const changeLanguage = (lang: string) => {
+  const normalizedLang = normalizeSupportedLanguage(lang);
+  persistLanguage(normalizedLang);
+
+  if (Object.keys(resources).includes(normalizedLang)) {
+    i18n.changeLanguage(normalizedLang);
+  }
+};
+
+export const getCurrentLanguage = () => {
+  return i18n.language;
+};

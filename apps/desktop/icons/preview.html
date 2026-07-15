@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>TeamClaw Logo Preview</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 40px;
+      padding: 40px;
+      background: #f0f0f0;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: -apple-system, sans-serif;
+    }
+    .preview {
+      text-align: center;
+    }
+    .preview img {
+      border-radius: 20%;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    }
+    .label {
+      margin-top: 12px;
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="preview">
+    <img src="teamclaw-logo.svg" width="256" height="256" />
+    <div class="label">256x256</div>
+  </div>
+  <div class="preview">
+    <img src="teamclaw-logo.svg" width="128" height="128" />
+    <div class="label">128x128</div>
+  </div>
+  <div class="preview">
+    <img src="teamclaw-logo.svg" width="64" height="64" />
+    <div class="label">64x64</div>
+  </div>
+  <div class="preview">
+    <img src="teamclaw-logo.svg" width="32" height="32" />
+    <div class="label">32x32</div>
+  </div>
+</body>
+</html>

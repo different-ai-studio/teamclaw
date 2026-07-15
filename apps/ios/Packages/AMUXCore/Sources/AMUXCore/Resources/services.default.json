@@ -1,0 +1,6 @@
+{
+  "cloudApiUrl": "https://teamclaw-api.ucar.cc",
+  "mqttHost": "transport.service.ucar.cc",
+  "mqttPort": 1883,
+  "mqttUseTls": false
+}

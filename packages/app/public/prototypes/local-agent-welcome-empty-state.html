@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>本地 Agent 待命页 — Empty State 设计</title>
+  <style>
+    /* Editorial Calm — AGENTS.md */
+    :root {
+      --background: #fbfaf7;
+      --paper: #ffffff;
+      --panel: #efece4;
+      --selected: #e7e2d6;
+      --foreground: #1a1a14;
+      --ink-2: #3d3c34;
+      --muted-foreground: #75736a;
+      --faint: #a8a6a0;
+      --border: rgba(26, 26, 20, 0.08);
+      --border-soft: rgba(26, 26, 20, 0.05);
+      --coral: #e85a4a;
+      --coral-soft: #f5d6cf;
+      --success: #2eb872;
+      --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: #e8e5de;
+      color: var(--foreground);
+      min-height: 100vh;
+    }
+
+    .hidden { display: none !important; }
+
+    /* ── Spec header ── */
+    .spec {
+      background: var(--paper);
+      border-bottom: 1px solid var(--border);
+      padding: 22px 28px 20px;
+    }
+
+    .spec h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .spec .lead {
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--muted-foreground);
+      line-height: 1.65;
+      max-width: 52rem;
+    }
+
+    .spec-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .spec-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: var(--background);
+    }
+
+    .spec-card h3 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 6px;
+    }
+
+    .spec-card li {
+      font-size: 12.5px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      padding-left: 12px;
+      position: relative;
+      margin-top: 4px;
+      list-style: none;
+    }
+
+    .spec-card ul { padding-left: 0; }
+    .spec-card li::before {
+      content: "·";
+      position: absolute;
+      left: 0;
+      color: var(--faint);
+      font-weight: 700;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      align-items: center;
+    }
+
+    .controls label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--faint);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-right: 4px;
+    }
+
+    .controls button {
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--ink-2);
+      cursor: pointer;
+      transition: background 0.15s var(--ease);
+    }
+
+    .controls button:hover { background: var(--selected); }
+    .controls button.is-active {
+      background: var(--foreground);
+      color: #fefdfa;
+      border-color: var(--foreground);
+    }
+
+    .rec-badge {
+      display: inline-block;
+      margin-left: 6px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--coral);
+      border: 1px solid var(--coral-soft);
+      background: var(--coral-soft);
+      padding: 1px 5px;
+      border-radius: 4px;
+      vertical-align: middle;
+    }
+
+    .compare-note {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--muted-foreground);
+      line-height: 1.6;
+      max-width: 52rem;
+    }
+
+    /* ── App shell ── */
+    .stage {
+      padding: 28px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .app-shell {
+      width: min(100%, 920px);
+      height: 560px;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 24px 64px -24px rgba(20, 20, 15, 0.28);
+      display: flex;
+      flex-direction: column;
+      background: var(--background);
+      border: 1px solid var(--border);
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .chat-header h2 { font-size: 15px; font-weight: 700; }
+    .chat-header .meta { font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+
+    .chat-header-actions { display: flex; gap: 6px; }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      color: var(--muted-foreground);
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+    }
+
+    .chat-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+
+    .empty-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 26px;
+    }
+
+    /* ── Shared tokens ── */
+    .ai-pill {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--coral);
+      color: var(--coral);
+    }
+
+    .agent-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      box-shadow: 0 0 0 1.5px var(--coral);
+      position: relative;
+      background: rgba(232, 90, 74, 0.14);
+      color: var(--coral);
+    }
+
+    .agent-avatar.lg { width: 52px; height: 52px; border-radius: 12px; }
+    .agent-avatar.lg svg { width: 24px; height: 24px; }
+
+    .agent-avatar .mini-dot {
+      position: absolute;
+      bottom: -2px;
+      right: -2px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      border: 2px solid var(--background);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.08); opacity: 0.85; }
+    }
+
+    .chip {
+      font-size: 12px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      color: var(--ink-2);
+      cursor: pointer;
+      transition: background 0.15s;
+      font-family: inherit;
+    }
+
+    .chip:hover { background: var(--selected); }
+
+    .cta-primary {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: none;
+      background: var(--coral);
+      color: white;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: opacity 0.15s;
+    }
+
+    .cta-primary:hover { opacity: 0.92; }
+    .cta-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .cta-primary kbd {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(0,0,0,0.15);
+      font-weight: 500;
+    }
+
+    .continue-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--ink-2);
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px dashed var(--border);
+      background: var(--paper);
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s;
+    }
+
+    .continue-link:hover { background: var(--selected); }
+    .continue-link .mono {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--faint);
+    }
+
+    .offline-banner {
+      margin-top: 16px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--panel);
+      border: 1px solid var(--border-soft);
+      font-size: 12px;
+      color: var(--muted-foreground);
+      line-height: 1.55;
+    }
+
+    .offline-banner .title {
+      font-weight: 600;
+      color: var(--foreground);
+      margin-bottom: 2px;
+    }
+
+    .offline-banner a {
+      color: var(--ink-2);
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+    }
+
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    /* Variant A */
+    .presence-card {
+      width: min(100%, 22rem);
+      text-align: center;
+      padding: 32px 28px 28px;
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px -16px rgba(20, 20, 15, 0.12);
+    }
+
+    .presence-card .agent-avatar { margin: 0 auto 16px; }
+    .presence-name { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+
+    .presence-meta {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .status-line {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    .status-line .online { color: var(--success); }
+
+    .presence-hint {
+      margin-top: 14px;
+      font-size: 13px;
+      color: var(--muted-foreground);
+      line-height: 1.6;
+    }
+
+    .presence-card .cta-primary { margin-top: 20px; }
+    .presence-card .suggestions { justify-content: center; }
+
+    /* Variant B (recommended) */
+    .waiting-note { width: min(100%, 28rem); }
+
+    .note-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .note-meta-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .note-name { font-size: 13px; font-weight: 600; }
+
+    .note-sub {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--faint);
+      margin-top: 2px;
+    }
+
+    .note-body {
+      padding-left: 38px;
+      font-size: 13.5px;
+      line-height: 1.7;
+      color: var(--muted-foreground);
+    }
+
+    .actions-row {
+      padding-left: 38px;
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .waiting-note .suggestions { padding-left: 38px; }
+    .waiting-note .continue-banner { padding-left: 38px; margin-top: 14px; }
+    .waiting-note .offline-banner { margin-left: 38px; }
+
+    /* Variant C */
+    .minimal-center {
+      text-align: center;
+      max-width: 20rem;
+    }
+
+    .minimal-center h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .minimal-center p { font-size: 13px; color: var(--muted-foreground); line-height: 1.6; }
+    .minimal-center .cta-primary { margin-top: 18px; }
+    .minimal-center .continue-banner { margin-top: 14px; }
+
+    /* Toast */
+    .toast {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-8px);
+      opacity: 0;
+      pointer-events: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: var(--foreground);
+      color: #fefdfa;
+      font-size: 12px;
+      font-weight: 500;
+      box-shadow: 0 8px 24px -8px rgba(0,0,0,0.3);
+      transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+      z-index: 10;
+      white-space: nowrap;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Flow */
+    .flow {
+      padding: 16px 18px;
+      background: var(--paper);
+      border-top: 1px solid var(--border);
+    }
+
+    .flow h3 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 10px;
+    }
+
+    .flow-steps {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--ink-2);
+    }
+
+    .flow-step {
+      padding: 5px 10px;
+      border-radius: 7px;
+      background: var(--panel);
+      border: 1px solid var(--border-soft);
+    }
+
+    .flow-arrow {
+      color: var(--faint);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="spec">
+    <h1>本地 Agent 待命页 — Empty State 设计（v2 · 无输入框）</h1>
+    <p class="lead">
+      无选中会话时，中间区域<strong>不显示 Composer 输入框</strong>，只展示本机 agent 待命态。
+      用户通过<strong>「开始对话」按钮</strong>、<strong>快捷 chip</strong>或<strong>续聊链接</strong>进入会话——行为与左上角 New Chat（<code>createQuickDaemonSession</code>）一致。
+      进入会话后才出现底部输入框。
+    </p>
+
+    <div class="spec-grid">
+      <div class="spec-card">
+        <h3>触发方式</h3>
+        <ul>
+          <li><strong>开始对话</strong> → 创建空会话 + focus composer</li>
+          <li><strong>快捷 chip</strong> → 创建会话 + 发送首条消息</li>
+          <li><strong>继续上次</strong> → switchToSession</li>
+          <li><strong>⌘N</strong> → 同「开始对话」（sidebar 已有）</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h3>与 v1 差异</h3>
+        <ul>
+          <li>移除底部 Composer（无 session 时不渲染）</li>
+          <li>去掉「输入任意内容即可开始」类文案</li>
+          <li>主 CTA 替代输入框成为入口</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h3>边界状态</h3>
+        <ul>
+          <li><strong>在线</strong>：CTA + chip 可点</li>
+          <li><strong>离线</strong>：CTA 禁用 + 跳转设置</li>
+          <li>群聊仍走 New Chat ▾ → 多人会话</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label>方案</label>
+      <button type="button" data-variant="a">A · 待命卡片</button>
+      <button type="button" data-variant="b" class="is-active">B · Agent 便签<span class="rec-badge">推荐</span></button>
+      <button type="button" data-variant="c">C · 极简标题</button>
+      <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+      <label>状态</label>
+      <button type="button" data-state="ready" class="is-active">Agent 在线</button>
+      <button type="button" data-state="offline">Agent 离线</button>
+    </div>
+
+    <p class="compare-note">
+      推荐方案 B：Agent 便签头 + 一句待命说明 + 「开始对话」主按钮 + 可选 chip。
+      页面底部<strong>刻意留白</strong>——没有输入框，避免「还没创建会话就能打字」的误导。
+    </p>
+  </header>
+
+  <div class="stage">
+    <div class="app-shell">
+      <div class="chat-header">
+        <div>
+          <h2>MACMINI</h2>
+          <div class="meta" id="header-meta">本机 Agent · 等待开始</div>
+        </div>
+        <div class="chat-header-actions">
+          <div class="icon-btn">⊞</div>
+          <div class="icon-btn">📄</div>
+        </div>
+      </div>
+
+      <div class="chat-body">
+        <div class="toast" id="toast"></div>
+
+        <!-- A: 待命卡片 -->
+        <div class="empty-wrap" id="variant-a">
+          <div class="presence-card">
+            <div class="agent-avatar lg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+              <span class="mini-dot" id="a-dot"></span>
+            </div>
+            <div class="presence-name">MACMINI</div>
+            <div class="presence-meta">
+              <span class="ai-pill">AI</span>
+              <span class="status-line"><span class="online" id="a-status">● 在线</span> · 本机</span>
+            </div>
+            <p class="presence-hint">本机 Agent 已就绪，随时可以开始对话。</p>
+            <button type="button" class="cta-primary action-start" id="a-start">
+              开始对话 <kbd>⌘N</kbd>
+            </button>
+            <div class="suggestions" id="a-chips">
+              <button type="button" class="chip action-chip" data-msg="帮我看看当前 workspace 有什么改动">查看 workspace 改动</button>
+              <button type="button" class="chip action-chip" data-msg="总结一下这个项目的技术栈">总结项目结构</button>
+            </div>
+            <div class="offline-banner hidden" id="a-offline">
+              <div class="title">本机 amuxd agent 未就绪</div>
+              完成 agent 配置或启动 daemon 后再试。<br>
+              <a>打开 Agent 设置</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- B: Agent 便签（推荐） -->
+        <div class="empty-wrap hidden" id="variant-b">
+          <div class="waiting-note">
+            <div class="note-header">
+              <div class="agent-avatar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                <span class="mini-dot" id="b-dot"></span>
+              </div>
+              <div>
+                <div class="note-meta-row">
+                  <span class="note-name">MACMINI</span>
+                  <span class="ai-pill">AI</span>
+                </div>
+                <div class="note-sub" id="b-sub">本机 · 在线 · 等待开始</div>
+              </div>
+            </div>
+            <div class="note-body">
+              你的本机 Agent 已连接。点击下方开始新对话，或选择一条快捷指令。
+            </div>
+            <div class="actions-row">
+              <button type="button" class="cta-primary action-start" id="b-start">
+                开始对话 <kbd>⌘N</kbd>
+              </button>
+            </div>
+            <div class="suggestions" id="b-chips">
+              <button type="button" class="chip action-chip" data-msg="帮我看看当前 workspace 有什么改动">查看 workspace 改动</button>
+              <button type="button" class="chip action-chip" data-msg="总结一下这个项目的技术栈">总结项目结构</button>
+              <button type="button" class="chip action-chip" data-msg="/{写报告} ">写一份报告</button>
+            </div>
+            <div class="continue-banner" id="b-continue">
+              <button type="button" class="continue-link action-continue">
+                继续上次对话
+                <span class="mono">MACMINI (14:55) · 2 分钟前</span>
+              </button>
+            </div>
+            <div class="offline-banner hidden" id="b-offline">
+              <div class="title">本机 amuxd agent 未就绪</div>
+              完成 agent 配置或启动 daemon 后再试。<br>
+              <a>打开 Agent 设置</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- C: 极简 -->
+        <div class="empty-wrap hidden" id="variant-c">
+          <div class="minimal-center">
+            <h2>MACMINI</h2>
+            <p>本机 Agent · 在线</p>
+            <button type="button" class="cta-primary action-start" id="c-start">开始对话</button>
+            <div class="continue-banner">
+              <button type="button" class="continue-link action-continue">
+                继续 MACMINI (14:55)
+                <span class="mono">2 分钟前</span>
+              </button>
+            </div>
+            <div class="offline-banner hidden" id="c-offline" style="margin-top:14px;text-align:left">
+              <div class="title">本机 amuxd agent 未就绪</div>
+              <a>打开 Agent 设置</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <h3>交互流程</h3>
+        <div class="flow-steps">
+          <span class="flow-step">启动 / 无 session</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-step">待命页（无 Composer）</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-step">点「开始对话」/ chip</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-step">createQuickDaemonSession</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-step">进入会话 + 显示 Composer</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let variant = 'b';
+    let state = 'ready';
+
+    const toast = document.getElementById('toast');
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    function syncUI() {
+      ['a', 'b', 'c'].forEach(v => {
+        document.getElementById('variant-' + v).classList.toggle('hidden', v !== variant);
+      });
+      document.querySelectorAll('[data-variant]').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.variant === variant);
+      });
+      document.querySelectorAll('[data-state]').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.state === state);
+      });
+
+      const ready = state === 'ready';
+      ['a-dot', 'b-dot'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = ready ? '' : 'none';
+      });
+
+      const aStatus = document.getElementById('a-status');
+      if (aStatus) aStatus.textContent = ready ? '● 在线' : '○ 离线';
+
+      const bSub = document.getElementById('b-sub');
+      if (bSub) bSub.textContent = ready ? '本机 · 在线 · 等待开始' : '本机 · 离线 · 暂不可对话';
+
+      ['a', 'b', 'c'].forEach(p => {
+        const offline = document.getElementById(p + '-offline');
+        if (offline) offline.classList.toggle('hidden', ready);
+        const chips = document.getElementById(p + '-chips');
+        if (chips) chips.style.display = ready ? '' : 'none';
+        const start = document.getElementById(p + '-start');
+        if (start) start.disabled = !ready;
+      });
+
+      document.getElementById('header-meta').textContent =
+        ready ? '本机 Agent · 等待开始' : '本机 Agent · 未就绪';
+
+      document.querySelectorAll('.action-start').forEach(btn => {
+        btn.disabled = !ready;
+      });
+    }
+
+    document.querySelectorAll('[data-variant]').forEach(btn => {
+      btn.addEventListener('click', () => { variant = btn.dataset.variant; syncUI(); });
+    });
+    document.querySelectorAll('[data-state]').forEach(btn => {
+      btn.addEventListener('click', () => { state = btn.dataset.state; syncUI(); });
+    });
+
+    document.querySelectorAll('.action-start').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (state !== 'ready') return;
+        showToast('createQuickDaemonSession() → 进入会话，显示 Composer');
+      });
+    });
+
+    document.querySelectorAll('.action-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        if (state !== 'ready') return;
+        const msg = chip.dataset.msg || chip.textContent;
+        showToast(`创建会话并发送：「${msg.slice(0, 20)}…」`);
+      });
+    });
+
+    document.querySelectorAll('.action-continue').forEach(btn => {
+      btn.addEventListener('click', () => {
+        showToast('switchToSession(MACMINI 14:55)');
+      });
+    });
+
+    syncUI();
+  </script>
+</body>
+</html>

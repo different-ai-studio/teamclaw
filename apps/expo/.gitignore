@@ -1,0 +1,6 @@
+.expo/
+/android
+dist/
+/ios
+node_modules/
+.dev-session.json

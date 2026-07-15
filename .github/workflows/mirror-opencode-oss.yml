@@ -1,0 +1,99 @@
+name: Mirror opencode fork to OSS
+
+on:
+  # Keep the OSS mirror in lock-step with the version amuxd requires. Any change
+  # to the embedded lock file re-mirrors so beta/prod never fall back to GitHub.
+  push:
+    branches: [main]
+    paths:
+      - "apps/daemon/opencode.lock.json"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "fork release tag to mirror (blank = read from apps/daemon/opencode.lock.json)"
+        required: false
+        default: ""
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      FORK_REPO: different-ai-studio/opencode
+      OSS_PREFIX: opencode/stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-}"
+          if [ -z "$TAG" ]; then
+            TAG=$(python3 -c "import json;print(json.load(open('apps/daemon/opencode.lock.json'))['version'])")
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Mirroring fork release: $TAG"
+      # Assumes different-ai-studio/opencode releases are PUBLIC: the default
+      # GITHUB_TOKEN is scoped to this repo. If the fork becomes private, replace
+      # GH_TOKEN with a PAT secret that has read access to it.
+      - name: Download fork release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          for a in \
+            opencode-darwin-arm64.zip \
+            opencode-darwin-x64.zip \
+            opencode-windows-x64.zip \
+            opencode-linux-x64.tar.gz \
+            opencode-linux-arm64.tar.gz \
+            opencode-windows-arm64.zip; do
+            if gh release download "$TAG" --repo "$FORK_REPO" --pattern "$a" --dir assets --clobber; then
+              echo "✓ got $a"
+            else
+              echo "::warning::asset $a not found in $FORK_REPO@$TAG — skipping"
+            fi
+          done
+          echo "--- downloaded ---"
+          ls -la assets || true
+          if [ -z "$(ls -A assets 2>/dev/null)" ]; then
+            echo "::error::no assets downloaded — aborting"
+            exit 1
+          fi
+
+      - name: Upload assets to OSS (opencode/stable, overwrite)
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OSS_ACCESS_KEY_ID:-}" ]; then
+            echo "::error::OSS secrets not configured"
+            exit 1
+          fi
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          python3 - <<'EOF'
+          import oss2, os, glob
+          auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
+          endpoint = os.environ['OSS_ENDPOINT']
+          if not endpoint.startswith('http'):
+              endpoint = 'https://' + endpoint
+          bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
+          prefix = os.environ['OSS_PREFIX']
+          files = sorted(glob.glob('assets/*'))
+          if not files:
+              raise SystemExit('no assets to upload')
+          for local in files:
+              name = os.path.basename(local)
+              key = f'{prefix}/{name}'
+              print(f'Uploading {name} -> oss://{os.environ["OSS_BUCKET"]}/{key}')
+              bucket.put_object_from_file(key, local)
+              print(f'✅ {key}')
+          EOF

@@ -1,0 +1,448 @@
+syntax = "proto3";
+package teamclaw;
+
+import "amux.proto";
+
+// --- Enums ---
+
+enum SessionType {
+  SESSION_TYPE_UNKNOWN = 0;
+  CONTROL = 1;
+  COLLAB = 2;
+}
+
+enum ActorType {
+  ACTOR_TYPE_UNKNOWN = 0;
+  HUMAN = 1;
+  PERSONAL_AGENT = 2;
+  ROLE_AGENT = 3;
+}
+
+enum MessageKind {
+  MESSAGE_KIND_UNKNOWN = 0;
+  TEXT = 1;
+  SYSTEM = 2;
+  WORK_EVENT = 3;
+  AGENT_THINKING = 4;
+  AGENT_TOOL_CALL = 5;
+  AGENT_TOOL_RESULT = 6;
+  AGENT_REPLY = 7;
+}
+
+enum IdeaStatus {
+  IDEA_STATUS_UNKNOWN = 0;
+  OPEN = 1;
+  IN_PROGRESS = 2;
+  DONE = 3;
+}
+
+// --- Core Types ---
+
+message Actor {
+  string actor_id = 1;
+  ActorType actor_type = 2;
+  string display_name = 3;
+  string owner_member_id = 4;
+}
+
+message SessionInfo {
+  string session_id = 1;
+  SessionType session_type = 2;
+  string team_id = 3;
+  string title = 4;
+  string created_by = 5;
+  int64 created_at = 6;
+  repeated Participant participants = 7;
+  string summary = 8;
+  string primary_agent_id = 9;
+  string idea_id = 10;
+  string last_message_preview = 11;
+  int64 last_message_at = 12;
+}
+
+message Participant {
+  string actor_id = 1;
+  ActorType actor_type = 2;
+  string display_name = 3;
+  int64 joined_at = 4;
+}
+
+message Message {
+  string message_id = 1;
+  string session_id = 2;
+  string sender_actor_id = 3;
+  MessageKind kind = 4;
+  string content = 5;
+  int64 created_at = 6;
+  string reply_to_message_id = 7;
+  repeated string mentions = 8;
+  string model = 9;
+  // Free-form JSON for kind-specific structured data (tool args, tool result
+  // payload, etc.). Empty for plain text/agent reply messages. Renderers
+  // should be defensive — schema may evolve.
+  string metadata_json = 10;
+  // Daemon-assigned correlation id stamped on every emit within one ACP
+  // turn (Idle→Active→…→Idle). Clients group consecutive same-turn_id
+  // AgentReply messages into one bubble. Empty for legacy/historical
+  // messages and for non-agent kinds — renderers fall back to message_id.
+  string turn_id = 11;
+  // Supabase Storage URLs for file/image attachments. Sent separately from
+  // content so the daemon can build ACP ContentBlock::Image / ResourceLink
+  // instead of embedding raw URLs in the text body.
+  repeated string attachment_urls = 12;
+}
+
+message Idea {
+  string idea_id = 1;
+  string session_id = 2;
+  string title = 3;
+  string description = 4;
+  IdeaStatus status = 5;
+  string parent_id = 6;
+  string created_by = 7;
+  int64 created_at = 8;
+  repeated Claim claims = 9;
+  repeated Submission submissions = 10;
+  bool archived = 11;
+  string workspace_id = 12;
+}
+
+message Claim {
+  string claim_id = 1;
+  string idea_id = 2;
+  string actor_id = 3;
+  int64 claimed_at = 4;
+}
+
+message Submission {
+  string submission_id = 1;
+  string idea_id = 2;
+  string actor_id = 3;
+  string content = 4;
+  int64 submitted_at = 5;
+}
+
+// --- MQTT Messages ---
+
+message SessionMessageEnvelope {
+  Message message = 1;
+  // Per-message mention set. Daemons match each entry against the
+  // agent_id of every runtime they own; matched runtime → ACP send_prompt;
+  // unmatched runtime → silent queue (history-only). Empty / missing on
+  // older clients = silent broadcast (no agent replies).
+  repeated string mention_actor_ids = 2;
+}
+
+message IdeaEvent {
+  oneof event {
+    Idea created = 1;
+    Idea updated = 2;
+    Claim claimed = 3;
+    Submission submitted = 4;
+  }
+}
+
+message LiveEventEnvelope {
+  string event_id = 1;
+  string event_type = 2;
+  string session_id = 3;
+  string actor_id = 4;
+  int64 sent_at = 5;
+  bytes body = 6;
+}
+
+// --- RPC ---
+
+message RpcRequest {
+  reserved 2, 5;
+  string request_id = 1;
+  // Identity fields — spec "Addressing and Identity". Receivers on the shared
+  // rpc/res topic filter by whichever one is populated. Empty = not applicable.
+  string requester_client_id = 3;      // iOS/mac install UUID
+  string requester_actor_id = 4;       // Supabase actor id of signed-in user
+  oneof method {
+    CreateSessionRequest create_session = 10;
+    JoinSessionRequest join_session = 11;
+    FetchSessionRequest fetch_session = 12;
+    AddParticipantRequest add_participant = 13;
+    RemoveParticipantRequest remove_participant = 14;
+    CreateIdeaRequest create_idea = 15;
+    ClaimIdeaRequest claim_idea = 16;
+    SubmitIdeaRequest submit_idea = 17;
+    UpdateIdeaRequest update_idea = 18;
+    FetchSessionMessagesRequest fetch_session_messages = 20;
+    RuntimeStartRequest runtime_start = 30;
+    RuntimeStopRequest runtime_stop = 31;
+    SetModelRequest set_model = 32;
+    AnnouncePeerRequest announce_peer = 40;
+    DisconnectPeerRequest disconnect_peer = 41;
+    RemoveMemberRequest remove_member = 42;
+    // deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
+    AddWorkspaceRequest add_workspace = 43;
+    RemoveWorkspaceRequest remove_workspace = 44;
+    FetchPeersRequest fetch_peers = 45;
+    FetchWorkspacesRequest fetch_workspaces = 46;
+    RemoteToolInvokeRequest remote_tool_invoke = 47;
+  }
+}
+
+message RemoteToolInvokeRequest {
+  string session_id = 1;
+  string tool_name = 2;
+  string arguments_json = 3;  // JSON object string
+  reserved 4;
+  reserved "timeout_ms";
+}
+
+message RpcResponse {
+  reserved 6;
+  string request_id = 1;
+  bool success = 2;
+  string error = 3;
+  // Copy-through identity fields from RpcRequest, so any subscriber on the
+  // shared rpc/res topic can filter cheaply by whichever id they authored with.
+  string requester_client_id = 4;
+  string requester_actor_id = 5;
+  oneof result {
+    SessionInfo session_info = 10;
+    Idea idea = 11;
+    Claim claim = 12;
+    Submission submission = 13;
+    SessionMessagePage session_message_page = 14;
+    RuntimeStartResult runtime_start_result = 20;
+    RuntimeStopResult runtime_stop_result = 21;
+    SetModelResult set_model_result = 22;
+    AnnouncePeerResult announce_peer_result = 30;
+    DisconnectPeerResult disconnect_peer_result = 31;
+    RemoveMemberResult remove_member_result = 32;
+    // deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
+    AddWorkspaceResult add_workspace_result = 33;
+    RemoveWorkspaceResult remove_workspace_result = 34;
+    FetchPeersResult fetch_peers_result = 35;
+    FetchWorkspacesResult fetch_workspaces_result = 36;
+    RemoteToolInvokeResult remote_tool_invoke_result = 37;
+  }
+}
+
+message RemoteToolInvokeResult {
+  bool success = 1;
+  string result_json = 2;
+  string error_code = 3;
+  string error_message = 4;
+}
+
+message CreateSessionRequest {
+  SessionType session_type = 1;
+  string team_id = 2;
+  string title = 3;
+  string summary = 4;
+  repeated string invite_actor_ids = 5;
+  string idea_id = 6;
+  // Canonical actor id of the creator. Prefer member_id for humans.
+  // Required: the daemon has no device-id fallback.
+  string sender_actor_id = 7;
+}
+
+message JoinSessionRequest {
+  string session_id = 1;
+  Participant participant = 2;
+}
+
+message FetchSessionRequest {
+  string session_id = 1;
+}
+
+message FetchSessionMessagesRequest {
+  string session_id = 1;
+  int64 before_created_at = 2;
+  uint32 page_size = 3;
+}
+
+message SessionMessagePage {
+  string session_id = 1;
+  repeated Message messages = 2;
+  bool has_more = 3;
+  int64 next_before_created_at = 4;
+}
+
+message AddParticipantRequest {
+  string session_id = 1;
+  Participant participant = 2;
+}
+
+message RemoveParticipantRequest {
+  string session_id = 1;
+  string actor_id = 2;
+}
+
+message CreateIdeaRequest {
+  string session_id = 1;
+  string title = 2;
+  string description = 3;
+  string parent_id = 4;
+  // Member id of the actor creating this idea. Used by the daemon as
+  // `created_by`; required, no device-id fallback.
+  string sender_actor_id = 5;
+  string workspace_id = 6;
+}
+
+message ClaimIdeaRequest {
+  string session_id = 1;
+  string idea_id = 2;
+  // Canonical actor id of the claimant. Prefer member_id for humans.
+  // Required: the daemon has no device-id fallback.
+  string sender_actor_id = 3;
+}
+
+message SubmitIdeaRequest {
+  string session_id = 1;
+  string idea_id = 2;
+  string content = 3;
+  // Canonical actor id of the submitter. Prefer member_id for humans.
+  // Required: the daemon has no device-id fallback.
+  string sender_actor_id = 4;
+}
+
+message UpdateIdeaRequest {
+  string session_id = 1;
+  string idea_id = 2;
+  IdeaStatus status = 3;
+  string title = 4;
+  string description = 5;
+  optional bool archived = 6;
+}
+
+// ═══════════════════════════════════════════
+//  Runtime lifecycle RPCs
+// ═══════════════════════════════════════════
+
+// Request the daemon spawn a new Claude Code subprocess.
+// Accepted-only reply — actual lifecycle flows on {team}/{actor}/runtime/{rid}/state.
+// See spec "Runtime lifecycle" section for the state machine.
+message RuntimeStartRequest {
+  amux.AgentType agent_type = 1;        // required
+  string initial_prompt = 2;            // optional — first user message at spawn
+  string model_id = 3;                  // optional — empty = daemon default
+
+  // All three below are OPTIONAL; empty = bare-agent spawn.
+  string workspace_id = 4;              // empty = no workspace binding
+  string worktree = 5;                  // empty = daemon picks default working directory
+  string session_id = 6;                // empty = no Supabase sessions.id linkage
+  // Deprecated: ignored by daemon. Remote MCP is always mounted for session-bound runtimes.
+  repeated string remote_tool_capabilities = 7;
+}
+
+// Accepted-only reply to RuntimeStartRequest.
+// DOES NOT include RuntimeInfo. Readiness flows on the retained state topic.
+message RuntimeStartResult {
+  bool accepted = 1;
+  string runtime_id = 2;                // allocated by daemon; present iff accepted
+  string session_id = 3;                // echoed or newly-created; empty for bare-agent spawn
+  string rejected_reason = 4;           // set iff !accepted (validation / auth / resource error)
+}
+
+// Request a runtime terminate. Accepted-only reply.
+// Actual termination observable as state: STOPPED on runtime/{id}/state.
+message RuntimeStopRequest {
+  string runtime_id = 1;
+}
+
+message RuntimeStopResult {
+  bool accepted = 1;
+  string rejected_reason = 2;           // set iff !accepted
+}
+
+// Set the model for an existing runtime's ACP session. Maps onto
+// `AcpCommand::SetModel` → `session/set_model`. Synchronous accept gate;
+// model changes are observable via the runtime's retained state topic
+// (`current_model` field on RuntimeInfo).
+message SetModelRequest {
+  string runtime_id = 1;
+  string model_id   = 2;
+}
+
+message SetModelResult {
+  bool   success = 1;
+  string error   = 2;
+}
+
+// ═══════════════════════════════════════════
+//  Absorbed collab operations
+//  (parallel to amux.DeviceCollabCommand variants; the legacy path is
+//   retired in Phase 5)
+// ═══════════════════════════════════════════
+
+message AnnouncePeerRequest {
+  amux.PeerInfo peer = 1;
+  string auth_token = 2;
+}
+
+message AnnouncePeerResult {
+  bool accepted = 1;
+  string error = 2;
+  amux.MemberRole assigned_role = 3;
+}
+
+message DisconnectPeerRequest {
+  string peer_id = 1;
+}
+
+message DisconnectPeerResult {
+  bool accepted = 1;
+  string error = 2;
+}
+
+message RemoveMemberRequest {
+  string member_id = 1;
+}
+
+message RemoveMemberResult {
+  bool accepted = 1;
+  string error = 2;
+}
+
+// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
+message AddWorkspaceRequest {
+  string path = 1;
+}
+
+// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
+message AddWorkspaceResult {
+  bool accepted = 1;
+  string error = 2;
+  amux.WorkspaceInfo workspace = 3;
+}
+
+message RemoveWorkspaceRequest {
+  string workspace_id = 1;
+}
+
+message RemoveWorkspaceResult {
+  bool accepted = 1;
+  string error = 2;
+}
+
+message FetchPeersRequest {}
+
+message FetchPeersResult {
+  repeated amux.PeerInfo peers = 1;
+}
+
+message FetchWorkspacesRequest {}
+
+message FetchWorkspacesResult {
+  repeated amux.WorkspaceInfo workspaces = 1;
+}
+
+// ═══════════════════════════════════════════
+//  Notify — shared payload for actor notify and user/notify
+// ═══════════════════════════════════════════
+
+// Hint-only invalidation payload. See spec "New envelope" + "actor notify vs
+// user/notify scoping". Receivers route by event_type, not by message type.
+// Authoritative data lives in Supabase (or daemon RPC for peers).
+message Notify {
+  string event_type = 1;                // e.g. "peers.changed", "invite.received"
+  string refresh_hint = 2;              // optional resource id ("session/abc")
+  int64 sent_at = 3;
+}
