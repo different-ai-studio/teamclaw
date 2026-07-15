@@ -11,6 +11,10 @@ import { generateDisplayName } from "../display-name.js";
 
 const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
 
+/** Lowercased + trimmed, or null. Both sides of a contact match normalize this way. */
+export const normalizeInviteEmail = (e: string | null | undefined) =>
+  (e ?? "").trim().toLowerCase() || null;
+
 function mapTeam(r: any) {
   return {
     id: r.id, name: r.name, slug: r.slug, createdAt: iso(r.createdAt),
@@ -571,7 +575,7 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
      */
     async createTeamInvite(
       teamId: string,
-      input: { kind?: string; actorType?: string; displayName: string; teamRole?: string | null; role?: string; agentKind?: string | null; expiresAt?: string | null; ttlSeconds?: number | null; targetActorId?: string | null },
+      input: { kind?: string; actorType?: string; displayName: string; teamRole?: string | null; role?: string; agentKind?: string | null; expiresAt?: string | null; ttlSeconds?: number | null; targetActorId?: string | null; inviteEmail?: string | null; invitePhone?: string | null },
       ctx?: { userId?: string },
     ) {
       const userId = ctx?.userId;
@@ -606,11 +610,38 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
         if (!owns) throw new ApiError(403, "forbidden", "only the agent owner can re-invite this agent");
       }
 
+      // Optional invitee contact. Member-only: agent invites are claimed by a
+      // daemon that provisions its own identity, so there is nobody to match.
+      const inviteEmail = normalizeInviteEmail(input.inviteEmail);
+      const invitePhone = (input.invitePhone ?? "").trim() || null;
+      if (kind !== "member" && (inviteEmail || invitePhone)) {
+        throw new ApiError(400, "validation_failed", "agent invites cannot carry invite_email/invite_phone");
+      }
+      if (inviteEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(inviteEmail)) {
+        throw new ApiError(400, "validation_failed", "invite_email is not a valid email address");
+      }
+
       const token = randomBytes(24).toString("base64url");
       const ttlSeconds = input.ttlSeconds ?? 7 * 24 * 60 * 60; // 7 days default
       const expiresAt = input.expiresAt
         ? new Date(input.expiresAt)
         : new Date(Date.now() + ttlSeconds * 1000);
+
+      // Supersede any live invite to the same email rather than letting the
+      // partial unique index reject the call: re-sending an invite means "this
+      // one is now current", and the old token stops working.
+      if (inviteEmail) {
+        await (db as any)
+          .update(teamInvites)
+          .set({ status: "expired", updatedAt: new Date() })
+          .where(
+            and(
+              eq(teamInvites.teamId, teamId),
+              eq(teamInvites.status, "pending"),
+              sql`lower(btrim(${teamInvites.inviteEmail})) = ${inviteEmail}`,
+            ),
+          );
+      }
 
       const [invite] = await (db as any)
         .insert(teamInvites)
@@ -624,6 +655,9 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
           invitedByActorId: invitedByActorId ?? "00000000-0000-0000-0000-000000000000",
           expiresAt,
           targetActorId: input.targetActorId ?? null,
+          inviteEmail,
+          invitePhone,
+          status: "pending",
         })
         .returning();
 

@@ -401,8 +401,18 @@ export function createSupabaseBusinessRepository(options) {
       if (input.agentKind != null) args.p_agent_kind = input.agentKind;
       if (input.ttlSeconds != null) args.p_ttl_seconds = input.ttlSeconds;
       if (input.targetActorId != null) args.p_target_actor_id = input.targetActorId;
+      if (input.inviteEmail != null) args.p_invite_email = input.inviteEmail;
+      if (input.invitePhone != null) args.p_invite_phone = input.invitePhone;
       const { data, error } = await supabase.rpc("create_team_invite", args);
-      if (error) throw error;
+      if (error) {
+        // 22023 covers the RPC's own argument validation (bad email shape, a
+        // digitless phone, contact on an agent invite) — a client mistake, not
+        // a server fault, so surface it as 400 rather than a raw 500.
+        if (error.code === "22023") {
+          throw new ApiError(400, "validation_failed", error.message ?? "invalid invite");
+        }
+        throw error;
+      }
       const row = requiredRow(data, "teams.createTeamInvite");
       return {
         token: requiredString(row.token, "teams.createTeamInvite", "token"),

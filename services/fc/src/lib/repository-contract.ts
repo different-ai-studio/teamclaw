@@ -426,6 +426,21 @@ test("repository contract: getTeamDirectory returns actors and members", async (
     assert.equal(result.expiresAt, null);
   });
 
+  test("repository contract: createTeamInvite accepts optional invitee contact", async () => {
+    const repo = createRepository();
+    // Contact is optional and member-only: supplying it lets the invitee find
+    // the invite at login, but must not change the token/deeplink result shape.
+    const result = await repo.createTeamInvite("team-1", {
+      kind: "member",
+      displayName: "New User",
+      teamRole: "member",
+      expiresAt: null,
+      inviteEmail: "new@example.com",
+      invitePhone: "13800138000",
+    });
+    assert.ok(result.token, "token must be present even when contact is supplied");
+  });
+
   test("repository contract: removeTeamActor succeeds", async () => {
     const repo = createRepository();
     await repo.removeTeamActor("team-1", "actor-to-remove");

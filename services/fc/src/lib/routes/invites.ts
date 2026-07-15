@@ -1,5 +1,5 @@
 import { requireString } from "../routing-utils.js";
-import { optionalBearerToken } from "../http-utils.js";
+import { optionalBearerToken, extractBearerToken } from "../http-utils.js";
 
 export function registerInvites(router) {
   // The bearer is OPTIONAL on this route, and which path it serves depends on
@@ -18,5 +18,30 @@ export function registerInvites(router) {
     const accessToken = optionalBearerToken(ctx.headers) ?? undefined;
     const result = await ctx.repository.claimInvite(body.token, { accessToken });
     return { body: result };
+  });
+
+  // Invites waiting for the caller's verified email/phone — the contact path,
+  // for invitees who never received a token out-of-band. `auth: "none"` routes
+  // to the auth repository (which owns the per-bearer client the underlying
+  // `auth.uid()`-keyed RPCs need); the bearer is REQUIRED here, unlike on the
+  // claim route above, since there is no anonymous variant of "my invites".
+  router.get("/v1/invites/pending", { auth: "none" }, async (ctx) => {
+    const accessToken = extractBearerToken(ctx.headers);
+    const result = await ctx.repository.listPendingInvites({ accessToken });
+    return { body: result };
+  });
+
+  router.post("/v1/invites/:inviteId/accept", { auth: "none" }, async (ctx) => {
+    const accessToken = extractBearerToken(ctx.headers);
+    const inviteId = decodeURIComponent(ctx.params.inviteId);
+    const result = await ctx.repository.acceptPendingInvite(inviteId, { accessToken });
+    return { body: result };
+  });
+
+  router.post("/v1/invites/:inviteId/decline", { auth: "none" }, async (ctx) => {
+    const accessToken = extractBearerToken(ctx.headers);
+    const inviteId = decodeURIComponent(ctx.params.inviteId);
+    await ctx.repository.declinePendingInvite(inviteId, { accessToken });
+    return { statusCode: 204 };
   });
 }
