@@ -320,27 +320,63 @@ bound chat, so a simple `send(message=\"…\")` or `send(file_path=\"/tmp/report
     )
 }
 
-#[async_trait]
-impl AcpHandle for AmuxdAcpHandle {
-    async fn create_session(
-        &self,
-        _team_id: &str,
-        binding: &str,
-        _title: &str,
-    ) -> Result<AmuxSessionId, AcpError> {
-        // Channels never call this in the gateway-port architecture — the
-        // SQL store mints the logical acp_session_id via
-        // `ensure_gateway_session`. We keep a consistent implementation in
-        // case future callers use it: hand back the binding as the logical
-        // id; `send_prompt` will lazy-spawn on first use.
-        Ok(binding.to_string())
-    }
+/// How often a streamed turn may push a cumulative-text update to the
+/// caller. The agent emits output far faster than any chat UI wants to
+/// redraw, and each update costs a WebSocket round-trip on the channel
+/// side, so updates are coalesced into at most one per interval.
+const STREAM_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(700);
 
-    async fn send_prompt(
+/// Join the reply segments a turn has produced so far into the text a
+/// channel should display. `live` is the not-yet-flushed tail (output that
+/// has arrived but hasn't hit a tool-call or turn-end boundary).
+///
+/// Segments are the runs of prose between tool calls, so blank-line joining
+/// matches how Tauri renders them as separate messages.
+fn compose_reply(segments: &[String], live: &str) -> String {
+    let mut parts: Vec<&str> = segments.iter().map(String::as_str).collect();
+    if !live.trim().is_empty() {
+        parts.push(live);
+    }
+    parts.join("\n\n")
+}
+
+/// Fold one event's aggregator output into the reply being accumulated.
+/// Returns true if a segment was flushed (i.e. the visible text jumped),
+/// which the streaming path uses to push an update immediately rather than
+/// waiting out the throttle interval.
+fn absorb_emitted(
+    emitted: Vec<crate::runtime::turn_aggregator::EmittedMessage>,
+    segments: &mut Vec<String>,
+    live: &mut String,
+) -> bool {
+    let mut flushed = false;
+    for m in emitted {
+        if matches!(m.kind, crate::proto::teamclaw::MessageKind::AgentReply) {
+            // Tool-only turns emit an empty AgentReply at turn end purely to
+            // anchor the turn for clients; it carries no text and must not
+            // add a blank segment.
+            if !m.content.is_empty() {
+                segments.push(m.content);
+            }
+            live.clear();
+            flushed = true;
+        }
+    }
+    flushed
+}
+
+impl AmuxdAcpHandle {
+    /// Drive one ACP turn to completion and return the agent's full reply.
+    ///
+    /// Shared by `send_prompt` and `send_prompt_streamed`; `on_update` is
+    /// `None` for the former. See `send_prompt_streamed` on the trait for the
+    /// cumulative-text/best-effort contract.
+    async fn run_turn(
         &self,
         session: &AmuxSessionId,
         sender_display: &str,
         text: &str,
+        on_update: Option<tokio::sync::mpsc::Sender<String>>,
     ) -> Result<AcpTurnOutcome, AcpError> {
         let outcome = self.resolve_or_spawn(session).await?;
 
@@ -411,6 +447,17 @@ impl AcpHandle for AmuxdAcpHandle {
             (turn.agent_id, turn.event_rx)
         };
 
+        // A turn is only over on Active -> Idle. The aggregator also emits an
+        // `AgentReply` *mid-turn*, every time a tool call interrupts buffered
+        // output (`turn_aggregator.rs` `flush_reply_into`), so returning on
+        // the first one truncates every tool-using turn to whatever preamble
+        // the agent wrote before reaching for its first tool. Accumulate the
+        // segments instead and only return once the runtime goes idle.
+        let mut segments: Vec<String> = Vec::new();
+        let mut live = String::new();
+        let mut last_update = std::time::Instant::now();
+        let mut sent_update = String::new();
+
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5 * 60);
         let result: Result<String, AcpError> = loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -435,21 +482,46 @@ impl AcpHandle for AmuxdAcpHandle {
                 };
                 break Err(AcpError::Send(format!("ACP turn failed: {details}")));
             }
+
+            // Mirror the aggregator's unflushed reply buffer so streamed
+            // updates can show prose as it arrives rather than only at tool
+            // boundaries. Cleared below whenever the aggregator flushes.
+            if let Some(crate::proto::amux::acp_event::Event::Output(o)) = &event.event.event {
+                live.push_str(&o.text);
+            }
+
+            let turn_ended = matches!(
+                &event.event.event,
+                Some(crate::proto::amux::acp_event::Event::StatusChange(sc))
+                    if sc.old_status == crate::proto::amux::AgentStatus::Active as i32
+                        && sc.new_status == crate::proto::amux::AgentStatus::Idle as i32
+            );
+
             let emitted = {
                 let mut mgr = self.manager.lock().await;
                 mgr.aggregator_mut(&agent_id)
                     .map(|agg| agg.ingest(&event.event))
                     .unwrap_or_default()
             };
-            let mut reply: Option<String> = None;
-            for m in emitted {
-                if matches!(m.kind, crate::proto::teamclaw::MessageKind::AgentReply) {
-                    reply = Some(m.content);
-                    break;
-                }
+            let flushed = absorb_emitted(emitted, &mut segments, &mut live);
+
+            if turn_ended {
+                break Ok(compose_reply(&segments, &live));
             }
-            if let Some(text) = reply {
-                break Ok(text);
+
+            // Best-effort progress updates: coalesced by interval, skipped
+            // when nothing changed, and never allowed to fail the turn.
+            if let Some(tx) = &on_update {
+                let due = flushed || last_update.elapsed() >= STREAM_UPDATE_INTERVAL;
+                if due {
+                    let text = compose_reply(&segments, &live);
+                    if !text.trim().is_empty() && text != sent_update {
+                        if tx.try_send(text.clone()).is_ok() {
+                            sent_update = text;
+                        }
+                        last_update = std::time::Instant::now();
+                    }
+                }
             }
         };
 
@@ -463,6 +535,43 @@ impl AcpHandle for AmuxdAcpHandle {
             reply_text,
             completed: true,
         })
+    }
+}
+
+#[async_trait]
+impl AcpHandle for AmuxdAcpHandle {
+    async fn create_session(
+        &self,
+        _team_id: &str,
+        binding: &str,
+        _title: &str,
+    ) -> Result<AmuxSessionId, AcpError> {
+        // Channels never call this in the gateway-port architecture — the
+        // SQL store mints the logical acp_session_id via
+        // `ensure_gateway_session`. We keep a consistent implementation in
+        // case future callers use it: hand back the binding as the logical
+        // id; `send_prompt` will lazy-spawn on first use.
+        Ok(binding.to_string())
+    }
+
+    async fn send_prompt(
+        &self,
+        session: &AmuxSessionId,
+        sender_display: &str,
+        text: &str,
+    ) -> Result<AcpTurnOutcome, AcpError> {
+        self.run_turn(session, sender_display, text, None).await
+    }
+
+    async fn send_prompt_streamed(
+        &self,
+        session: &AmuxSessionId,
+        sender_display: &str,
+        text: &str,
+        on_update: tokio::sync::mpsc::Sender<String>,
+    ) -> Result<AcpTurnOutcome, AcpError> {
+        self.run_turn(session, sender_display, text, Some(on_update))
+            .await
     }
 
     async fn inject_context(
@@ -832,6 +941,113 @@ mod tests {
             workspace_override: Arc::new(Mutex::new(HashMap::new())),
             bot_configs: Arc::new(HashMap::new()),
         }
+    }
+
+    /// Drive a `TurnAggregator` and `absorb_emitted` — the same pair
+    /// `run_turn` uses — over a scripted event stream.
+    fn segments_from(events: &[amux::AcpEvent]) -> Vec<String> {
+        use crate::runtime::turn_aggregator::TurnAggregator;
+        let mut agg = TurnAggregator::new();
+        let mut segments = Vec::new();
+        let mut live = String::new();
+        for ev in events {
+            absorb_emitted(agg.ingest(ev), &mut segments, &mut live);
+        }
+        segments
+    }
+
+    fn output(text: &str) -> amux::AcpEvent {
+        amux::AcpEvent {
+            event: Some(amux::acp_event::Event::Output(amux::AcpOutput {
+                text: text.into(),
+                is_complete: false,
+            })),
+            model: String::new(),
+        }
+    }
+
+    fn tool_use(name: &str) -> amux::AcpEvent {
+        amux::AcpEvent {
+            event: Some(amux::acp_event::Event::ToolUse(amux::AcpToolUse {
+                tool_id: "t1".into(),
+                tool_name: name.into(),
+                description: String::new(),
+                params: Default::default(),
+                tool_kind: String::new(),
+                raw_input_json: String::new(),
+                raw_output_json: String::new(),
+                content: vec![],
+                locations: vec![],
+                status: String::new(),
+            })),
+            model: String::new(),
+        }
+    }
+
+    fn turn_end() -> amux::AcpEvent {
+        amux::AcpEvent {
+            event: Some(amux::acp_event::Event::StatusChange(amux::AcpStatusChange {
+                old_status: amux::AgentStatus::Active as i32,
+                new_status: amux::AgentStatus::Idle as i32,
+            })),
+            model: String::new(),
+        }
+    }
+
+    /// Regression: a tool call mid-turn makes the aggregator flush an
+    /// `AgentReply` carrying only the prose written *before* the tool. Any
+    /// consumer that stops at the first one ships the agent's "let me go look
+    /// that up:" preamble as the whole answer and drops the real reply — which
+    /// is what WeCom users saw.
+    #[test]
+    fn reply_keeps_every_segment_across_a_tool_call() {
+        let segments = segments_from(&[
+            output("让我再找一下 token 的来源："),
+            tool_use("Read"),
+            output("Token 还没过期！"),
+            turn_end(),
+        ]);
+
+        assert_eq!(
+            segments,
+            vec!["让我再找一下 token 的来源：", "Token 还没过期！"],
+            "the aggregator must surface the pre-tool preamble and the post-tool answer separately"
+        );
+        assert_eq!(
+            compose_reply(&segments, ""),
+            "让我再找一下 token 的来源：\n\nToken 还没过期！"
+        );
+    }
+
+    #[test]
+    fn reply_survives_several_tool_calls() {
+        let segments = segments_from(&[
+            output("first"),
+            tool_use("Read"),
+            tool_use("Grep"),
+            output("second"),
+            tool_use("Bash"),
+            output("third"),
+            turn_end(),
+        ]);
+        assert_eq!(compose_reply(&segments, ""), "first\n\nsecond\n\nthird");
+    }
+
+    /// Tool-only turns emit an empty `AgentReply` at turn end to anchor the
+    /// turn for clients; it must not become a blank segment.
+    #[test]
+    fn tool_only_turn_yields_empty_reply() {
+        let segments = segments_from(&[tool_use("Bash"), turn_end()]);
+        assert!(segments.is_empty());
+        assert_eq!(compose_reply(&segments, ""), "");
+    }
+
+    #[test]
+    fn compose_reply_appends_unflushed_tail() {
+        let segments = vec!["done".to_string()];
+        assert_eq!(compose_reply(&segments, "typing"), "done\n\ntyping");
+        assert_eq!(compose_reply(&segments, "   "), "done");
+        assert_eq!(compose_reply(&[], "typing"), "typing");
     }
 
     #[test]

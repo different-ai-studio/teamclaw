@@ -1511,13 +1511,47 @@ impl WeComGateway {
             .send_stream_chunk(&req_id, &stream_id, "💭 正在思考…", false, &ws_sink)
             .await;
 
+        // Progressive rendering: `send_prompt_streamed` pushes the cumulative
+        // reply text as the agent produces it, and each update overwrites the
+        // same bubble. Runs on its own task so the turn is never blocked by a
+        // slow WebSocket write; dropping `update_tx` (when the turn returns)
+        // closes the channel and ends the task.
+        let (update_tx, mut update_rx) = mpsc::channel::<String>(32);
+        let stream_task = {
+            let req_id = req_id.clone();
+            let stream_id = stream_id.clone();
+            let ws_sink = ws_sink.clone();
+            tokio::spawn(async move {
+                while let Some(text) = update_rx.recv().await {
+                    if let Err(e) =
+                        Self::send_stream_chunk_static(&req_id, &stream_id, &text, false, &ws_sink)
+                            .await
+                    {
+                        eprintln!("[WeCom] Stream update failed: {}", e);
+                        break;
+                    }
+                }
+            })
+        };
+
         // Drive a single ACP turn through amuxd — runs in parallel with the
         // attachment uploads spawned above.
-        let reply = match self
+        let reply_result = self
             .acp
-            .send_prompt(&outcome.acp_session_id, &sender_display_name, &prompt_text)
-            .await
-        {
+            .send_prompt_streamed(
+                &outcome.acp_session_id,
+                &sender_display_name,
+                &prompt_text,
+                update_tx,
+            )
+            .await;
+
+        // Drain pending updates before the final frame: a `finish=false`
+        // chunk landing after `finish=true` would re-open the bubble and
+        // leave stale text in it.
+        let _ = stream_task.await;
+
+        let reply = match reply_result {
             Ok(r) => r,
             Err(e) => {
                 let _ = self
@@ -1878,7 +1912,6 @@ impl WeComGateway {
     }
 
     /// Static version of send_stream_chunk for use in spawned tasks (no &self needed)
-    #[allow(dead_code)]
     async fn send_stream_chunk_static(
         req_id: &str,
         stream_id: &str,
