@@ -1,5 +1,12 @@
 # teamclaw × saas-mono 登录与租户整合 —— 统一 Spec & 执行计划
 
+> **状态（2026-07-15）：已过时，保留为历史记录。** 本文的落地目标环境
+> （belayo RDS `supabase_db`、`https://supa.mx5.cn`、`services/supabase/s4/` 下的
+> BELAYO-LIVE runbook）已整体下线，S4「切流」一节不再可执行，所引脚本亦已删除。
+> 登录/租户模型本身仍在 FC 代码中沿用（见 `services/fc/src/lib/supabase-repo/`），
+> 但当前唯一环境是 self-host 单机栈，部署现状见
+> [`docs/deployment/full-backend-stack.md`](../deployment/full-backend-stack.md)。
+
 **单一事实来源**。状态：实施中。最后更新 2026-06-08。
 **分支**：`agent/saasmono-integration`（worktree `.worktrees/saasmono-integration`）。
 **提交**：`934613fa`(S1) · `647597d1`(S2) · `349375ff`(S3)。

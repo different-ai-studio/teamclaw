@@ -1,5 +1,5 @@
 {
-  "cloudApiUrl": "https://cloud.ucar.cc",
+  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
   "team": {
     "lockLlmConfig": false
   },

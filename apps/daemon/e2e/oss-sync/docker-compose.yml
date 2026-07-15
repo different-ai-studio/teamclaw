@@ -8,7 +8,7 @@ services:
       dockerfile: apps/daemon/e2e/oss-sync/Dockerfile.amuxd
     image: amuxd-oss-e2e:latest
     environment:
-      TEAMCLAW_CLOUD_API_URL: ${CLOUD_API_URL:-https://cloud.ucar.cc}
+      TEAMCLAW_CLOUD_API_URL: ${CLOUD_API_URL:-https://api.teamclaw-dev.ucar.cc}
     # Ephemeral loopback host port (container 8787). The harness discovers the
     # actual port via `docker compose port`, so concurrent scenarios never
     # collide on a fixed host port.
@@ -18,7 +18,7 @@ services:
   node-b:
     image: amuxd-oss-e2e:latest      # 复用 node-a 构建的镜像
     environment:
-      TEAMCLAW_CLOUD_API_URL: ${CLOUD_API_URL:-https://cloud.ucar.cc}
+      TEAMCLAW_CLOUD_API_URL: ${CLOUD_API_URL:-https://api.teamclaw-dev.ucar.cc}
     ports:
       - "127.0.0.1::8787"
     command: ["sleep", "infinity"]
@@ -26,7 +26,7 @@ services:
   node-c:
     image: amuxd-oss-e2e:latest
     environment:
-      TEAMCLAW_CLOUD_API_URL: ${CLOUD_API_URL:-https://cloud.ucar.cc}
+      TEAMCLAW_CLOUD_API_URL: ${CLOUD_API_URL:-https://api.teamclaw-dev.ucar.cc}
     ports:
       - "127.0.0.1::8787"
     command: ["sleep", "infinity"]

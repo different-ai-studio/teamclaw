@@ -187,11 +187,15 @@ services:
       BUCKET: "${BUCKET:-teamclaw-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
-      # Must be non-empty: services/fc/src/lib/litellm.ts falls back to the
-      # hosted gateway (https://ai.ucar.cc) when LITELLM_URL is blank, which
-      # would silently send a self-host deployment to a third-party endpoint.
+      # Points FC at the bundled gateway. FC now fails closed on a blank value
+      # rather than falling back to a hosted endpoint, so this default is a
+      # convenience, not a safety net.
       LITELLM_URL: "${LITELLM_URL:-http://litellm:4000}"
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:-}"
+      # Must be set: litellm-init creates the database as `_litellm`, but
+      # resolveLiteLlmConnString() defaults to `litellm` (no underscore), so
+      # without this the usage queries connect to a database that never exists.
+      LITELLM_DB_NAME: "${LITELLM_DB_NAME:-_litellm}"
 
   caddy:
     image: caddy:2

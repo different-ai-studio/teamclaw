@@ -5,10 +5,12 @@
 // not configured (local dev, tests), provisioning is skipped and the team is
 // created without AI credentials.
 
-import { keyInfo, litellmFetch as sharedLitellmFetch } from './litellm.js';
+// LITELLM_URL is imported rather than redeclared: it used to be duplicated here
+// with its own hosted fallback, so the two copies could disagree about where
+// traffic goes. One definition, one behaviour (fail closed — see litellm.ts).
+import { keyInfo, litellmFetch as sharedLitellmFetch, LITELLM_URL } from './litellm.js';
 import { ApiError } from './http-utils.js';
 
-const LITELLM_URL = () => process.env.LITELLM_URL || 'https://ai.ucar.cc';
 const LITELLM_MASTER_KEY = () => process.env.LITELLM_MASTER_KEY || '';
 const AI_GATEWAY_ENDPOINT = () => process.env.AI_GATEWAY_ENDPOINT || (LITELLM_URL() + '/v1');
 

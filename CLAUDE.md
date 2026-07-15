@@ -69,7 +69,8 @@ pnpm daemon:test            # Daemon tests
 pnpm ios:test:core          # AMUXCore SwiftPM tests
 pnpm ios:test               # iOS UI tests
 
-# FC deploy — no GitHub Actions deployment is configured.
+# Deploy — automatic: push to main touching deploy/self-host/**, services/fc/**,
+# or services/supabase/migrations/** triggers self-host-deploy.yml.
 ```
 
 ## Architecture
@@ -170,18 +171,45 @@ Shared: `skills/`, `.mcp/`, `knowledge/`
 
 **Tag format must be `ios-v*`** — other formats (e.g. `ios-1.1.5-4`) do not trigger the workflow.
 
-## FC (Function Compute) Deployment
+## Deployment — one environment
 
-FC function `teamclaw-sync` is deployed to Alibaba Cloud cn-shenzhen region.
+There is exactly **one** environment: a single self-hosted ECS box. The Alibaba
+Cloud Function Compute deployment (`teamclaw-sync` / `cloud.ucar.cc`) and the
+belayo RDS instances are gone; do not reintroduce references to them.
 
-Deploy: no GitHub Actions deployment is configured for FC. Do not assume that
-merging `services/fc/**` changes to `main` updates Alibaba Cloud automatically.
-Coordinate the current production deployment path before changing FC runtime
-configuration.
+`services/fc/` is **not** Alibaba FC anymore — despite the name it is the Cloud
+API service, built as a container by `deploy/self-host/docker-compose.yml`
+(`build: context: ../../services/fc`).
 
-Production endpoint: `https://cloud.ucar.cc`
+**Host:** `47.112.210.217` (ECS `i-wz90nb0me448q3k22fxt`). Every subdomain below
+resolves to it:
 
-FC endpoints: `/register`, `/token`, `/reset-secret`, `/apply`, `/ai/setup-team`, `/ai/add-member`, `/ai/remove-member`, `/ai/keys`, `/ai/usage`, `/ai/budget`, `/managed-git/create-repo`
+| URL | What |
+|---|---|
+| `https://api.teamclaw-dev.ucar.cc` | Cloud API (`/v1`) — what clients call |
+| `https://supabase.teamclaw-dev.ucar.cc` | Supabase gateway (PostgREST / GoTrue / Storage) |
+| `https://studio.teamclaw-dev.ucar.cc` | Supabase Studio |
+| `https://emqx.teamclaw-dev.ucar.cc` | EMQX dashboard |
+| `wss://mqtt.teamclaw-dev.ucar.cc/mqtt` | MQTT over WSS (JWT access_token as password) |
+
+The `-dev` in the hostnames is historical: **this is the only environment**, not
+a dev tier alongside a production one. `build.config.production.json` and
+`build.config.dev.json` both point here, which is correct.
+
+**Deploy is automatic.** Pushing to `main` with changes under
+`deploy/self-host/**`, `services/fc/**`, or `services/supabase/migrations/**`
+triggers `.github/workflows/self-host-deploy.yml`, which SSHes to the box,
+`git pull`s, `docker compose build fc`, `docker compose up -d`, waits for FC
+health, then runs `run-e2e.sh`. Database migrations are applied by the `migrate`
+compose service (`deploy/self-host/init/apply-migrations.sh`, tracked in
+`_selfhost.schema_migrations`, idempotent, lexical order).
+
+Credentials (SSH, Postgres, service-role key, dashboard logins) live in the
+box's `.env` and GitHub Actions secrets — never in this repo.
+
+Cloud API endpoints: see `docs/openapi/teamclaw-api.v1.yaml` (the contract) —
+`/v1/teams`, `/v1/sessions`, `/v1/messages`, `/v1/invites`, plus
+`/ai/*` and `/managed-git/create-repo`.
 
 Team share onboarding endpoints (see `docs/openapi/teamclaw-api.v1.yaml`):
 
