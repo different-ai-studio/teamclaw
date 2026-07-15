@@ -196,15 +196,11 @@ pub struct DaemonServer {
     refresh_coordinator: Option<Arc<crate::runtime::refresh::RuntimeRefreshCoordinator>>,
     /// Shared flag written by the MQTT event loop and read by `/v1/info`.
     mqtt_connected_flag: Option<Arc<std::sync::atomic::AtomicBool>>,
-    /// Cache of the team's cloud-sourced managed (shared) LLM, keyed by team_id.
-    /// Refreshed on a short TTL; a transient fetch failure falls back to the
-    /// last-known value so a working `provider.team` isn't wiped mid-session.
-    /// Replaces the old disk-mirrored `_meta/provider.json`.
-    managed_llm_cache:
-        Arc<AsyncMutex<std::collections::HashMap<String, runtime_env::CachedManagedLlm>>>,
-    /// Teams whose LiteLLM member-key self-heal POST has already been kicked this
-    /// process, so it fires at most once per team.
-    managed_llm_member_key_kicked: Arc<AsyncMutex<std::collections::HashSet<String>>>,
+    /// Resolves the team's cloud-sourced managed (shared) LLM on a short TTL.
+    /// Shared with the HTTP layer (`GET /v1/workspaces/:id/providers`) so a
+    /// provider read can re-materialize `provider.team` off the same throttled
+    /// fetch. Replaces the old disk-mirrored `_meta/provider.json`.
+    managed_llm: Arc<crate::runtime::managed_llm::ManagedLlmResolver>,
     /// Local fast-path tee: every session/live publish (same bytes as MQTT,
     /// same event_id) is mirrored here for `GET /v1/live/events` SSE
     /// subscribers, so a same-machine UI is not gated on broker RTT. Held on
@@ -550,16 +546,15 @@ impl DaemonServer {
             sessions_path,
             history,
             teamclaw,
-            backend,
+            backend: backend.clone(),
             actor_id,
             channel_mgr: None,
             cron_sessions: cron::CronSessionCache::new(),
             refresh_watch_registry: None,
             refresh_coordinator: None,
             mqtt_connected_flag: None,
-            managed_llm_cache: Arc::new(AsyncMutex::new(std::collections::HashMap::new())),
-            managed_llm_member_key_kicked: Arc::new(AsyncMutex::new(
-                std::collections::HashSet::new(),
+            managed_llm: Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(
+                backend,
             )),
             live_tee,
             session_remote_targets: Arc::new(AsyncMutex::new(
@@ -2687,16 +2682,15 @@ pub(crate) mod tests {
                 sessions_path: tmp.path().join("sessions.toml"),
                 history: EventHistory::new(&tmp.path().join("history")),
                 teamclaw: Some(teamclaw),
-                backend,
+                backend: backend.clone(),
                 actor_id: "agent-actor".to_string(),
                 channel_mgr: None,
                 cron_sessions: cron::CronSessionCache::new(),
                 refresh_watch_registry: None,
                 refresh_coordinator: None,
                 mqtt_connected_flag: None,
-                managed_llm_cache: Arc::new(AsyncMutex::new(std::collections::HashMap::new())),
-                managed_llm_member_key_kicked: Arc::new(AsyncMutex::new(
-                    std::collections::HashSet::new(),
+                managed_llm: Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(
+                    backend,
                 )),
                 live_tee: tokio::sync::broadcast::channel(64).0,
                 session_remote_targets: Arc::new(AsyncMutex::new(

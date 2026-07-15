@@ -1,23 +1,10 @@
 use std::path::Path;
-use std::time::{Duration, Instant};
 
-use teamclaw_runtime_env::{ManagedLlmModel, ManagedLlmProvider, ManagedLlmState};
+use teamclaw_runtime_env::ManagedLlmState;
 
 use crate::runtime::SpawnRuntimeEnv;
 
 use super::DaemonServer;
-
-/// How long a cloud managed-LLM fetch is trusted before a refresh is attempted.
-const MANAGED_LLM_TTL: Duration = Duration::from_secs(60);
-
-/// A cached managed-LLM resolution plus when it was fetched. Stored per team_id
-/// so a transient cloud failure can fall back to the last-known-good value
-/// instead of wiping a working `provider.team`.
-#[derive(Clone)]
-pub(crate) struct CachedManagedLlm {
-    fetched_at: Instant,
-    state: ManagedLlmState,
-}
 
 impl DaemonServer {
     /// Team ID is resolved from the cloud workspace row by UUID; on a cold resolver cache (e.g. right after daemon restart) a bare-agent spawn with an empty workspace_id yields None team_id until the cache warms — intentional under the cloud-source-of-truth / no-local-store design.
@@ -136,87 +123,10 @@ impl DaemonServer {
         .map_err(|e| e.to_string())
     }
 
-    /// Resolve the team's managed (shared) LLM directly from the cloud API, with
-    /// a short-TTL in-memory cache. Replaces the old disk-mirrored
-    /// `_meta/provider.json` read, which raced the first-install git clone and
-    /// only converged after a daemon restart.
-    ///
-    /// On a transient fetch failure, falls back to the last-known cached value
-    /// (or `Unknown` if none) so a working `provider.team` is never wiped by a
-    /// blip. The first resolution per team also kicks a fire-and-forget
-    /// member-key provisioning POST so LiteLLM actually mints the locally-derived
-    /// `sk-tc-{actor}` key.
+    /// Resolve the team's managed (shared) LLM via the shared TTL-cached
+    /// resolver, which the HTTP provider snapshot uses too — so a provider read
+    /// and a spawn share one throttled cloud fetch.
     async fn resolve_managed_llm(&self, team_id: &str) -> ManagedLlmState {
-        if let Some(cached) = self.managed_llm_cache.lock().await.get(team_id) {
-            if cached.fetched_at.elapsed() < MANAGED_LLM_TTL {
-                return cached.state.clone();
-            }
-        }
-
-        self.maybe_kick_member_key(team_id).await;
-
-        match self.backend.managed_llm_config(team_id).await {
-            Ok(cfg) => {
-                let state = match (cfg.enabled, cfg.base_url) {
-                    (true, Some(base_url)) => ManagedLlmState::Enabled(ManagedLlmProvider {
-                        name: cfg.name.unwrap_or_default(),
-                        base_url,
-                        models: cfg
-                            .models
-                            .into_iter()
-                            .map(|m| ManagedLlmModel {
-                                id: m.id,
-                                name: m.name,
-                            })
-                            .collect(),
-                    }),
-                    // Enabled but no base URL is unusable — treat as disabled.
-                    _ => ManagedLlmState::Disabled,
-                };
-                self.managed_llm_cache.lock().await.insert(
-                    team_id.to_string(),
-                    CachedManagedLlm {
-                        fetched_at: Instant::now(),
-                        state: state.clone(),
-                    },
-                );
-                state
-            }
-            Err(e) => {
-                // Preserve last-known-good rather than wiping a working provider.
-                let fallback = self
-                    .managed_llm_cache
-                    .lock()
-                    .await
-                    .get(team_id)
-                    .map(|c| c.state.clone())
-                    .unwrap_or(ManagedLlmState::Unknown);
-                tracing::warn!(
-                    team_id,
-                    error = %e,
-                    "managed LLM cloud fetch failed; using last-known managed LLM state"
-                );
-                fallback
-            }
-        }
-    }
-
-    /// Kick a one-time, fire-and-forget LiteLLM member-key provisioning POST for
-    /// this team. Guarded so it runs at most once per team per process; failures
-    /// are logged and ignored (the key value is derived locally regardless).
-    async fn maybe_kick_member_key(&self, team_id: &str) {
-        {
-            let mut kicked = self.managed_llm_member_key_kicked.lock().await;
-            if !kicked.insert(team_id.to_string()) {
-                return;
-            }
-        }
-        let backend = self.backend.clone();
-        let tid = team_id.to_string();
-        tokio::spawn(async move {
-            if let Err(e) = backend.ensure_llm_member_key(&tid).await {
-                tracing::warn!(team_id = %tid, error = %e, "LiteLLM member-key self-heal failed");
-            }
-        });
+        self.managed_llm.resolve(team_id).await
     }
 }

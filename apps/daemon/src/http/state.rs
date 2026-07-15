@@ -107,6 +107,12 @@ pub struct HttpState {
     /// session/live MQTT publish (identical bytes incl. event_id). `None` in
     /// focused tests — the route then returns 503.
     pub live_tee: Option<tokio::sync::broadcast::Sender<super::live_events::LiveTeeEvent>>,
+    /// Shared, TTL-cached resolver for the team's cloud managed LLM. Lets
+    /// `GET /v1/workspaces/:id/providers` re-materialize `provider.team` before
+    /// reading it back off disk, so an admin's model-list change reaches a
+    /// member on a plain refresh rather than only at the next runtime spawn.
+    /// `None` in focused tests — the reconcile is then skipped.
+    pub managed_llm: Option<Arc<crate::runtime::managed_llm::ManagedLlmResolver>>,
 }
 
 impl HttpState {
@@ -143,6 +149,7 @@ impl HttpState {
             register_workspace_tx,
             backend: None,
             live_tee: None,
+            managed_llm: None,
         }
     }
 
@@ -150,6 +157,16 @@ impl HttpState {
     /// Chained after `new()` to keep the (already wide) constructor stable.
     pub fn with_backend(mut self, backend: Option<Arc<dyn Backend>>) -> Self {
         self.backend = backend;
+        self
+    }
+
+    /// Attach the shared managed-LLM resolver so provider reads reconcile
+    /// `provider.team` against the team's current cloud config.
+    pub fn with_managed_llm(
+        mut self,
+        managed_llm: Option<Arc<crate::runtime::managed_llm::ManagedLlmResolver>>,
+    ) -> Self {
+        self.managed_llm = managed_llm;
         self
     }
 

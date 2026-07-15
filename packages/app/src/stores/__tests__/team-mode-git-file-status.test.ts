@@ -5,6 +5,10 @@ const cloud = vi.hoisted(() => ({
   loadLlmConfig: vi.fn(),
   currentTeamId: null as string | null,
 }))
+const providerStore = vi.hoisted(() => ({
+  selectModel: vi.fn().mockResolvedValue(undefined),
+  refreshConfiguredProviders: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
@@ -27,8 +31,8 @@ vi.mock('@/stores/provider', () => ({
   useProviderStore: {
     getState: () => ({
       currentModelKey: null,
-      selectModel: vi.fn().mockResolvedValue(undefined),
-      refreshConfiguredProviders: vi.fn().mockResolvedValue(undefined),
+      selectModel: providerStore.selectModel,
+      refreshConfiguredProviders: providerStore.refreshConfiguredProviders,
     }),
   },
 }))
@@ -66,6 +70,8 @@ beforeEach(() => {
   cloud.loadLlmConfig.mockReset()
   cloud.loadLlmConfig.mockResolvedValue(null)
   cloud.currentTeamId = null
+  providerStore.selectModel.mockClear()
+  providerStore.refreshConfiguredProviders.mockClear()
 })
 
 describe('loadTeamGitFileSyncStatus', () => {
@@ -155,5 +161,64 @@ describe('loadTeamGitFileSyncStatus', () => {
       { id: 'default', name: 'Default' },
       { id: 'pro', name: 'Pro' },
     ])
+  })
+
+  // Regression: the applied-config fingerprint used to be `baseUrl|model`, so an
+  // admin *adding* a model left the selection untouched and the change was
+  // dropped by the early-return — the new model never reached the provider store.
+  it('applyTeamModel propagates a team model-list change that leaves the selection unchanged', async () => {
+    cloud.currentTeamId = 'team-1'
+    const llmConfig = (models: Array<{ id: string; name: string }>) => ({
+      enabled: true,
+      baseUrl: 'https://ai.ucar.cc',
+      models,
+      availableModels: [],
+      aiGatewayEndpoint: null,
+    })
+
+    const { useTeamModeStore } = await import('@/stores/team-mode')
+    // The store is a module singleton; clear the fingerprint so the first apply
+    // below isn't swallowed by a key left over from another test.
+    useTeamModeStore.setState({ _appliedConfigKey: null })
+
+    cloud.loadLlmConfig.mockResolvedValueOnce(llmConfig([{ id: 'default', name: 'Default' }]))
+    await useTeamModeStore.getState().applyTeamModel('/ws')
+    expect(providerStore.selectModel).toHaveBeenCalledTimes(1)
+
+    // Same baseUrl, same selected model — only the list grew.
+    cloud.loadLlmConfig.mockResolvedValueOnce(
+      llmConfig([
+        { id: 'default', name: 'Default' },
+        { id: 'pro', name: 'Pro' },
+      ]),
+    )
+    await useTeamModeStore.getState().applyTeamModel('/ws')
+
+    expect(useTeamModeStore.getState().teamModelOptions).toEqual([
+      { id: 'default', name: 'Default' },
+      { id: 'pro', name: 'Pro' },
+    ])
+    expect(providerStore.refreshConfiguredProviders).toHaveBeenCalledTimes(2)
+  })
+
+  it('applyTeamModel stays a no-op when nothing about the team LLM changed', async () => {
+    cloud.currentTeamId = 'team-1'
+    const llmConfig = {
+      enabled: true,
+      baseUrl: 'https://ai.ucar.cc',
+      models: [{ id: 'default', name: 'Default' }],
+      availableModels: [],
+      aiGatewayEndpoint: null,
+    }
+
+    const { useTeamModeStore } = await import('@/stores/team-mode')
+    useTeamModeStore.setState({ _appliedConfigKey: null })
+
+    cloud.loadLlmConfig.mockResolvedValueOnce(llmConfig)
+    await useTeamModeStore.getState().applyTeamModel('/ws')
+    cloud.loadLlmConfig.mockResolvedValueOnce(llmConfig)
+    await useTeamModeStore.getState().applyTeamModel('/ws')
+
+    expect(providerStore.refreshConfiguredProviders).toHaveBeenCalledTimes(1)
   })
 })

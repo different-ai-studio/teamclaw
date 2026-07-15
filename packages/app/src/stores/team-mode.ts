@@ -198,7 +198,14 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     const { teamModelConfig, _appliedConfigKey } = get()
     if (!teamModelConfig) return
 
-    const configKey = `${teamModelConfig.baseUrl}|${teamModelConfig.model}`
+    // The fingerprint must cover the whole option list, not just the selection:
+    // an admin adding or renaming a model the member has not selected leaves
+    // `baseUrl|model` identical, and without the list in the key that change
+    // would be dropped here and never reach the provider store.
+    const optionsKey = get()
+      .teamModelOptions.map((option) => `${option.id}:${option.name}`)
+      .join(',')
+    const configKey = `${teamModelConfig.baseUrl}|${teamModelConfig.model}|${optionsKey}`
     if (!force && configKey === _appliedConfigKey) return
     set({ _appliedConfigKey: configKey })
 
