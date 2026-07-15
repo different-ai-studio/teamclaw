@@ -30,7 +30,19 @@ jobs:
             cd /opt/teamclaw
 
             echo "=== git pull ==="
-            git fetch origin main
+            # This ECS box reaches github.com over https unreliably: a bare fetch
+            # fails roughly 2 times in 5 with "GnuTLS recv error (-110)", and it
+            # burns ~90s stalling first. lowSpeed* aborts a stalled transfer after
+            # 20s so a retry can actually happen inside the job's timeout.
+            git config http.lowSpeedLimit 1000
+            git config http.lowSpeedTime 20
+            fetched=""
+            for i in 1 2 3 4 5 6 7 8; do
+              if git fetch origin main; then fetched=yes; echo "  fetch ok (attempt $i)"; break; fi
+              echo "  fetch attempt $i failed; retrying in 10s"
+              sleep 10
+            done
+            [ -n "$fetched" ] || { echo "git fetch failed after 8 attempts"; exit 1; }
             git reset --hard origin/main
 
             cd deploy/self-host
@@ -68,7 +80,20 @@ jobs:
             docker compose build fc
 
             echo "=== pull litellm (up --pull never will not fetch it) ==="
-            docker compose pull litellm
+            # Same flaky path to ghcr.io as the git fetch above; the image is
+            # ~500MB so a cold pull is slow and worth retrying rather than
+            # failing the whole deploy. Skipped once the image is present.
+            if docker image inspect ghcr.io/berriai/litellm-database:v1.83.3-stable >/dev/null 2>&1; then
+              echo "  litellm image already present"
+            else
+              pulled=""
+              for i in 1 2 3 4 5; do
+                if docker compose pull litellm; then pulled=yes; echo "  pull ok (attempt $i)"; break; fi
+                echo "  pull attempt $i failed; retrying in 15s"
+                sleep 15
+              done
+              [ -n "$pulled" ] || { echo "litellm image pull failed after 5 attempts"; exit 1; }
+            fi
 
             echo "=== up ==="
             docker compose up -d --pull never --remove-orphans
