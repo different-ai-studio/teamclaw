@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Match scripts/run-daemon.js (pnpm daemon:run) — never use stale target/debug/amuxd.
+CARGO_TARGET_DIR="${ROOT_DIR}/.cargo-target"
+export CARGO_TARGET_DIR
 CONFIG_DIR="${HOME}/Library/Application Support/amux"
 LOG_DIR="${CONFIG_DIR}/logs"
 LOG_FILE="${LOG_DIR}/amuxd.log"
@@ -20,14 +23,19 @@ Commands:
   logs        Tail the daemon log file
 
 Options:
-  --release   Use target/release/amuxd (build if needed)
+  --release   Use .cargo-target/release/amuxd (build if needed)
   --config P  Pass --config <path> to amuxd start
 
 Examples:
   scripts/amuxdctl.sh start
   scripts/amuxdctl.sh restart
+  RUST_LOG=amuxd=debug,agent_trace=info scripts/amuxdctl.sh restart
+  scripts/amuxdctl.sh logs
   scripts/amuxdctl.sh start --foreground
   scripts/amuxdctl.sh start --release --config "$HOME/Library/Application Support/amux/daemon.toml"
+
+Binary: .cargo-target/{debug,release}/amuxd (same as pnpm daemon:run; rebuilt on start/restart).
+Logs:   ~/Library/Application Support/amux/logs/amuxd.log
 EOF
 }
 
@@ -74,27 +82,31 @@ done
 
 cd "${ROOT_DIR}"
 
-ensure_binary() {
+amuxd_bin() {
+  printf '%s/%s/amuxd\n' "${CARGO_TARGET_DIR}" "$1"
+}
+
+cargo_build_amuxd() {
   local profile="$1"
-  local bin_path="${ROOT_DIR}/target/${profile}/amuxd"
-  if [[ ! -x "${bin_path}" ]]; then
-    echo "==> building amuxd (${profile})"
-    cargo build -p amuxd $( [[ "${profile}" == "release" ]] && printf '%s' --release )
-  fi
-  printf '%s\n' "${bin_path}"
+  echo "==> building amuxd (${profile}) → $(amuxd_bin "${profile}")"
+  cargo build -p amuxd $( [[ "${profile}" == "release" ]] && printf '%s' --release )
 }
 
 run_amuxd() {
   local profile="$1"
   shift
   local bin
-  bin="$(ensure_binary "${profile}")"
+  bin="$(amuxd_bin "${profile}")"
+  if [[ ! -x "${bin}" ]]; then
+    cargo_build_amuxd "${profile}"
+  fi
   "${bin}" "$@"
 }
 
 start_daemon() {
   mkdir -p "${LOG_DIR}"
   local profile="$1"
+  cargo_build_amuxd "${profile}"
   local start_args=(start)
   if [[ -n "${CONFIG_PATH}" ]]; then
     start_args+=(--config "${CONFIG_PATH}")

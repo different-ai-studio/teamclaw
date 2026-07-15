@@ -69,9 +69,10 @@ impl DaemonServer {
             Some(Method::RuntimeStop(s)) => self.handle_stop_runtime(&request, s).await,
             Some(Method::RuntimeStart(s)) => self.handle_start_runtime(&request, s).await,
             Some(Method::SetModel(s)) => self.handle_set_model(&request, s).await,
-            Some(Method::RemoteToolInvoke(_)) => {
-                not_yet_implemented(&request, "RemoteToolInvoke is handled by clients, not daemon")
-            }
+            Some(Method::RemoteToolInvoke(_)) => not_yet_implemented(
+                &request,
+                "RemoteToolInvoke is handled by clients, not daemon",
+            ),
             None => RpcResponse {
                 request_id: request.request_id.clone(),
                 success: false,
@@ -447,6 +448,10 @@ impl DaemonServer {
                     .await
                     .is_some();
                 if stopped {
+                    self.remote_tool_turn_contexts
+                        .lock()
+                        .await
+                        .clear_runtime(agent_id);
                     if let Some(session) = self.sessions.find_by_id_mut(agent_id) {
                         session.status = amux::AgentStatus::Stopped as i32;
                         let _ = self.sessions.save(&self.sessions_path);
@@ -486,16 +491,6 @@ impl DaemonServer {
                                 crate::runtime::SpawnRuntimeEnv::default()
                             }
                         };
-                        let mcp_config_path = if session_id.is_empty() {
-                            None
-                        } else {
-                            let team_id = self.config.team_id.clone().unwrap_or_default();
-                            crate::remote_tools::resolve_remote_tools_mcp_config_for_resume(
-                                &session_id,
-                                &team_id,
-                                (!sender_actor_id.is_empty()).then_some(sender_actor_id.as_str()),
-                            )
-                        };
                         let resume_res = self
                             .agents
                             .lock()
@@ -508,8 +503,8 @@ impl DaemonServer {
                                 &ws_id,
                                 remote_workspace_id.as_deref(),
                                 (!session_id.is_empty()).then_some(session_id.as_str()),
-                                &prompt.text,
-                                mcp_config_path,
+                                "",
+                                None,
                                 runtime_env,
                             )
                             .await;
@@ -537,6 +532,43 @@ impl DaemonServer {
                                             warn!(agent_id, model_id = %desired_model, "set_model after resume failed: {}", e);
                                         }
                                     }
+                                }
+                                self.prepare_remote_tool_context_for_turn(
+                                    agent_id,
+                                    &session_id,
+                                    &sender_actor_id,
+                                )
+                                .await;
+                                let send_res = self
+                                    .agents
+                                    .lock()
+                                    .await
+                                    .send_prompt(
+                                        agent_id,
+                                        &prompt.text,
+                                        prompt.attachment_urls.clone(),
+                                    )
+                                    .await;
+                                if let Err(e) = send_res {
+                                    warn!(agent_id, "lazy resume prompt send failed: {}", e);
+                                    self.publish_session_event(
+                                        agent_id,
+                                        amux::SessionEvent {
+                                            event: Some(
+                                                amux::session_event::Event::PromptRejected(
+                                                    amux::PromptRejected {
+                                                        command_id,
+                                                        reason: format!(
+                                                        "failed to send prompt after resume: {}",
+                                                        e
+                                                    ),
+                                                    },
+                                                ),
+                                            ),
+                                        },
+                                    )
+                                    .await;
+                                    return;
                                 }
                                 // Update stored session with potentially new acp_session_id
                                 if let Some(s) = self.sessions.find_by_id_mut(agent_id) {
@@ -631,6 +663,15 @@ impl DaemonServer {
                 }
 
                 // Send prompt to agent (respawns if process exited)
+                let session_id = self
+                    .agents
+                    .lock()
+                    .await
+                    .get_handle(agent_id)
+                    .map(|h| h.session_id.clone())
+                    .unwrap_or_default();
+                self.prepare_remote_tool_context_for_turn(agent_id, &session_id, &sender_actor_id)
+                    .await;
                 let send_res = self
                     .agents
                     .lock()

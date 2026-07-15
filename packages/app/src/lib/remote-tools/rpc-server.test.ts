@@ -1,15 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockSubscribe, mockPublish, mockListen } = vi.hoisted(() => ({
+const { mockSubscribe, mockPublish, mockListen, mockEnsureParticipants, mockListParticipants } = vi.hoisted(() => ({
   mockSubscribe: vi.fn(async () => undefined),
   mockPublish: vi.fn(async () => undefined),
   mockListen: vi.fn(async () => () => undefined),
+  mockEnsureParticipants: vi.fn(async () => undefined),
+  mockListParticipants: vi.fn(async () => []),
 }))
 
 vi.mock('@/lib/mqtt-bridge', () => ({
   mqttSubscribe: mockSubscribe,
   mqttPublish: mockPublish,
   listenForEnvelopes: mockListen,
+}))
+
+vi.mock('@/lib/backend', () => ({
+  getBackend: () => ({
+    actors: {
+      getActorDirectoryEntry: vi.fn(async () => null),
+    },
+    sessionMembers: {
+      listParticipants: mockListParticipants,
+    },
+  }),
 }))
 
 vi.mock('@/stores/actor-directory-store', () => ({
@@ -32,8 +45,6 @@ vi.mock('@/stores/actor-directory-store', () => ({
     }),
   },
 }))
-
-const mockEnsureParticipants = vi.hoisted(() => vi.fn(async () => undefined))
 
 vi.mock('@/stores/session-participant-store', () => ({
   useSessionParticipantStore: {
@@ -75,7 +86,7 @@ describe('remote-tools rpc-server', () => {
     expect(mockSubscribe).toHaveBeenCalledWith('amux/team-1/actor-1/rpc/req')
   })
 
-  it('stays silent when executor missing', async () => {
+  it('replies unsupported_platform when executor missing', async () => {
     let handler: ((env: { topic: string; bytes: ArrayBuffer }) => void) | undefined
     mockListen.mockImplementation(async (fn) => {
       handler = fn
@@ -102,8 +113,79 @@ describe('remote-tools rpc-server', () => {
       bytes: toBinary(RpcRequestSchema, request).buffer,
     })
 
-    await new Promise((r) => setTimeout(r, 20))
-    expect(mockPublish).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(mockPublish).toHaveBeenCalled())
+    expect(mockEnsureParticipants).not.toHaveBeenCalled()
+    const text = new TextDecoder().decode(mockPublish.mock.calls[0][1] as Uint8Array)
+    expect(text).toContain('unsupported_platform')
+  })
+
+  it('replies forbidden when executor exists but request is not allowed', async () => {
+    registerExecutor(TOOL_GET_PAGE_DOM, async () => ({ ok: true }))
+    let handler: ((env: { topic: string; bytes: ArrayBuffer }) => void) | undefined
+    mockListen.mockImplementation(async (fn) => {
+      handler = fn
+      return () => undefined
+    })
+
+    await initRemoteToolsRpcServer({ teamId: 'team-1', actorId: 'actor-1' })
+
+    const request = create(RpcRequestSchema, {
+      requestId: 'req-forbidden',
+      requesterActorId: 'daemon-1',
+      method: {
+        case: 'remoteToolInvoke',
+        value: create(RemoteToolInvokeRequestSchema, {
+          sessionId: 'sess-unknown',
+          toolName: TOOL_GET_PAGE_DOM,
+          argumentsJson: '{}',
+        }),
+      },
+    })
+
+    handler?.({
+      topic: 'amux/team-1/actor-1/rpc/req',
+      bytes: toBinary(RpcRequestSchema, request).buffer,
+    })
+
+    await vi.waitFor(() => expect(mockPublish).toHaveBeenCalled())
+    expect(mockEnsureParticipants).toHaveBeenCalledWith(['sess-unknown'])
+    const text = new TextDecoder().decode(mockPublish.mock.calls[0][1] as Uint8Array)
+    expect(text).toContain('forbidden')
+  })
+
+  it('replies forbidden when authorization throws', async () => {
+    registerExecutor(TOOL_GET_PAGE_DOM, async () => ({ ok: true }))
+    mockEnsureParticipants.mockRejectedValueOnce(new Error('participants unavailable'))
+    let handler: ((env: { topic: string; bytes: ArrayBuffer }) => void) | undefined
+    mockListen.mockImplementation(async (fn) => {
+      handler = fn
+      return () => undefined
+    })
+
+    await initRemoteToolsRpcServer({ teamId: 'team-1', actorId: 'actor-1' })
+
+    const request = create(RpcRequestSchema, {
+      requestId: 'req-auth-error',
+      requesterActorId: 'daemon-1',
+      method: {
+        case: 'remoteToolInvoke',
+        value: create(RemoteToolInvokeRequestSchema, {
+          sessionId: 'sess-1',
+          toolName: TOOL_GET_PAGE_DOM,
+          argumentsJson: '{}',
+        }),
+      },
+    })
+
+    handler?.({
+      topic: 'amux/team-1/actor-1/rpc/req',
+      bytes: toBinary(RpcRequestSchema, request).buffer,
+    })
+
+    await vi.waitFor(() => expect(mockPublish).toHaveBeenCalled())
+    const text = new TextDecoder().decode(mockPublish.mock.calls[0][1] as Uint8Array)
+    expect(text).toContain('forbidden')
+    expect(text).toContain('remote tool request authorization failed')
   })
 
   it('dispatches to registered executor', async () => {
@@ -140,7 +222,8 @@ describe('remote-tools rpc-server', () => {
     expect(text).toContain('"ok":true')
   })
 
-  it('drops non-agent requester before loading participants', async () => {
+  it('rejects non-agent requester before loading participants', async () => {
+    registerExecutor(TOOL_GET_PAGE_DOM, async () => ({ ok: true }))
     let handler: ((env: { topic: string; bytes: ArrayBuffer }) => void) | undefined
     mockListen.mockImplementation(async (fn) => {
       handler = fn
@@ -169,6 +252,8 @@ describe('remote-tools rpc-server', () => {
 
     await new Promise((r) => setTimeout(r, 20))
     expect(mockEnsureParticipants).not.toHaveBeenCalled()
-    expect(mockPublish).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(mockPublish).toHaveBeenCalled())
+    const text = new TextDecoder().decode(mockPublish.mock.calls[0][1] as Uint8Array)
+    expect(text).toContain('forbidden')
   })
 })

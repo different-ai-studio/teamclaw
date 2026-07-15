@@ -4,8 +4,8 @@ pub mod config_cmd;
 pub mod doctor;
 pub mod install_opencode;
 pub mod mcp_server;
-pub mod remote_tools_mcp;
 pub mod process;
+pub mod remote_tools_mcp;
 pub mod service;
 pub mod test_client;
 
@@ -133,12 +133,12 @@ pub struct McpServerArgs {
 
 #[derive(Args, Debug)]
 pub struct RemoteToolsMcpArgs {
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub session_id: String,
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub team_id: String,
     /// Member actor that owns the RPC topic (`amux/{team}/{id}/rpc/req`).
-    #[arg(long, alias = "client-actor-id")]
+    #[arg(long, alias = "client-actor-id", default_value = "")]
     pub member_actor_id: String,
     #[arg(long)]
     pub sock: Option<std::path::PathBuf>,

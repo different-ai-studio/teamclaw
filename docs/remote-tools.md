@@ -5,22 +5,22 @@ Agent-side tools that execute on the TeamClaw **client** (Chrome extension, futu
 ## Architecture
 
 ```
-Agent → amuxd remote-tools-mcp (stdio) → daemon.sock → MQTT amux/{team}/{memberActor}/rpc/req
+Agent → amuxd remote-tools-mcp (stdio) → daemon.sock → remote_context_id lookup
+  → MQTT amux/{team}/{memberActor}/rpc/req
   → all online clients for that member actor → capable client replies, others stay silent
 ```
 
-- **Daemon** mounts remote MCP on session-bound `runtimeStart` when spawning a new agent process.
-- **Agent** learns which tools fit the current environment from tool descriptions (and future spawn env vars).
+- **Daemon** installs `amuxd-remote-tools` as a host-level MCP baseline before OpenCode/Codex hosts start.
+- **Agent** receives a per-turn `remote_context_id` instruction and must include it in remote-tool calls.
 - **packages/app** listens on `amux/{team}/{myActorId}/rpc/req`; clients without an executor **do not reply**.
 - **Extension** registers `get_page_dom` executor locally.
 
 ## Routing
 
-1. Each live runtime stores `remote_tool_member_id` — the human member whose browser/client should execute tools.
-2. **New spawn**: bind to `runtimeStart` requester.
-3. **Dedup / resume reuse**: rebind **only when `initial_prompt` is non-empty** (@mention engage). Passive `runtimeStart` (picker refresh, focus) does **not** steal routing.
-4. Tool invoke resolves: live runtime `remote_tool_member_id` → fallback `SessionRemoteTargetStore` (30min TTL).
-5. Daemon publishes one RPC to `amux/{team}/{memberActor}/rpc/req`.
+1. Prompt start creates a short-lived `remote_context_id` for `(runtime, ACP session, team, member actor)`.
+2. The next prompt injects instructions telling the model to pass that exact `remote_context_id`.
+3. MCP invoke resolves `remote_context_id` to the current member actor.
+4. Daemon publishes one RPC to `amux/{team}/{memberActor}/rpc/req`.
 
 ### Security
 
@@ -29,11 +29,11 @@ Agent → amuxd remote-tools-mcp (stdio) → daemon.sock → MQTT amux/{team}/{m
 
 ### Multi-member sessions
 
-When Bob @mentions the agent, routing binds to Bob. When Alice later @mentions, routing rebinds to Alice. A passive `runtimeStart` from the model picker without a user message does not change the bound member.
+When Bob sends a turn, that turn's `remote_context_id` routes to Bob. When Alice later sends a turn in the same agent session, her turn gets a different `remote_context_id` and routes to Alice. The MCP server stays shared at host level; only the tool-call argument selects the target client.
 
-### ACP session resume
+### ACP host reuse
 
-ACP resume is never disabled for remote tools. When a per-session MCP config file exists, `session/resume` receives the same `mcp_servers` as `session/new`, so daemon restarts can restore `get_page_dom` without forcing a new agent process.
+OpenCode/Codex keep a process-level MCP registry, so remote-tools MCP must not be refreshed by per-session ACP resume. The daemon ensures the host starts in the workspace with the inherent MCP config present; `session/resume` does not reattach remote-tools MCP. Host reuse for OpenCode/Codex is keyed by workspace path to avoid cross-workspace registry pollution.
 
 ## Adding a tool
 

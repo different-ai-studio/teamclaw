@@ -14,6 +14,35 @@ export type QuickChatState =
   | { kind: 'no_agent' }
   | { kind: 'ready'; target: QuickChatTarget }
 
+export type QuickChatWelcomeAgent = {
+  id: string
+  displayName: string
+}
+
+/** Map quick-chat readiness to welcome-page agent + loading (NavRail uses the same source). */
+export function quickChatWelcomeAgent(state: QuickChatState): {
+  agent: QuickChatWelcomeAgent | null
+  loading: boolean
+} {
+  if (state.kind === 'loading') return { agent: null, loading: true }
+  if (state.kind === 'ready') {
+    return {
+      agent: {
+        id: state.target.agentId,
+        displayName: state.target.displayName,
+      },
+      loading: false,
+    }
+  }
+  return { agent: null, loading: false }
+}
+
+/** Strict local daemon only — for "switch to local agent" in session banners. */
+export function quickChatLocalDaemonAgent(state: QuickChatState): QuickChatWelcomeAgent | null {
+  if (state.kind !== 'ready' || state.target.source !== 'local') return null
+  return { id: state.target.agentId, displayName: state.target.displayName }
+}
+
 export function useQuickChatReadiness(): QuickChatState {
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)

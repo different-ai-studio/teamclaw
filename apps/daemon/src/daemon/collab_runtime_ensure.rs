@@ -163,7 +163,7 @@ impl DaemonServer {
             .await;
             if let Some(member) = bind_member_actor_id.filter(|s| !s.is_empty()) {
                 let team_id = self.config.team_id.clone().unwrap_or_default();
-                self.bind_remote_tool_member(
+                self.ensure_live_runtime_remote_tools(
                     &stored.runtime_id,
                     cloud_session_id,
                     member,
@@ -177,8 +177,13 @@ impl DaemonServer {
         if let Some(member) = bind_member_actor_id.filter(|s| !s.is_empty()) {
             if let Some(runtime_id) = &out.already_live_first {
                 let team_id = self.config.team_id.clone().unwrap_or_default();
-                self.bind_remote_tool_member(runtime_id, cloud_session_id, member, &team_id)
-                    .await;
+                self.ensure_live_runtime_remote_tools(
+                    runtime_id,
+                    cloud_session_id,
+                    member,
+                    &team_id,
+                )
+                .await;
             }
         }
 
@@ -200,14 +205,7 @@ impl DaemonServer {
         }
 
         let team_id = self.config.team_id.clone().unwrap_or_default();
-        let mcp_config_path = crate::remote_tools::resolve_remote_tools_mcp_config_for_resume(
-            cloud_session_id,
-            &team_id,
-            (!requester_actor_id.is_empty()).then_some(requester_actor_id),
-        );
-
-        let bind_member = (!requester_actor_id.is_empty() && !initial_prompt.trim().is_empty())
-            .then_some(requester_actor_id);
+        let bind_member = (!requester_actor_id.is_empty()).then_some(requester_actor_id);
 
         let result = self
             .resume_stored_collab_runtimes(
@@ -219,7 +217,7 @@ impl DaemonServer {
                 initial_prompt,
                 initial_model_override,
                 "runtime_start",
-                mcp_config_path,
+                None,
                 bind_member,
             )
             .await;
@@ -227,6 +225,16 @@ impl DaemonServer {
         let runtime_id = result
             .already_live_first
             .or_else(|| result.resumed_runtime_ids.into_iter().next())?;
+
+        if !requester_actor_id.is_empty() {
+            self.ensure_live_runtime_remote_tools(
+                &runtime_id,
+                cloud_session_id,
+                requester_actor_id,
+                &team_id,
+            )
+            .await;
+        }
 
         Some(StartRuntimeOutcome {
             runtime_id,
@@ -240,12 +248,6 @@ impl DaemonServer {
         session_id: &str,
         requester_actor_id: Option<&str>,
     ) -> bool {
-        let team_id = self.config.team_id.clone().unwrap_or_default();
-        let mcp_config_path = crate::remote_tools::resolve_remote_tools_mcp_config_for_resume(
-            session_id,
-            &team_id,
-            requester_actor_id,
-        );
         let result = self
             .resume_stored_collab_runtimes(
                 session_id,
@@ -253,7 +255,7 @@ impl DaemonServer {
                 "",
                 None,
                 "session_live",
-                mcp_config_path,
+                None,
                 requester_actor_id,
             )
             .await;

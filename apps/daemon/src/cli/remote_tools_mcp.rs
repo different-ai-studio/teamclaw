@@ -1,27 +1,26 @@
 //! `amuxd remote-tools-mcp` — stdio MCP bridge for client-side remote tools.
 //!
-//! Spawned by ACP agents via per-session `--mcp-config`. Forwards tool calls to
-//! amuxd over `amuxd.sock` (`cmd: "remote-tool-call"`), which publishes an RPC to
-//! the member actor topic; capable online clients reply, others stay silent.
+//! Spawned by ACP agents via host-level MCP config. Forwards tool calls to
+//! amuxd over `amuxd.sock` (`cmd: "remote-tool-call"`). The daemon resolves
+//! the message-level remote_context_id to the member actor topic; capable
+//! online clients reply, others stay silent.
 
 use std::path::Path;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::remote_tools::registry::{all_tool_names, tool_description, tool_input_schema, DEFAULT_TIMEOUT_MS};
+use crate::remote_tools::registry::{
+    all_tool_names, tool_description, tool_input_schema, DEFAULT_TIMEOUT_MS,
+};
 
-pub fn run(session_id: &str, team_id: &str, member_actor_id: &str, sock_path: &Path) -> anyhow::Result<()> {
+pub fn run(sock_path: &Path) -> anyhow::Result<()> {
     use std::io::{BufRead, BufReader, BufWriter, Write};
 
     eprintln!(
-        "[amuxd remote-tools-mcp] starting (session_id={}, team_id={}, member_actor_id={}, sock={})",
-        session_id,
-        team_id,
-        member_actor_id,
+        "[amuxd remote-tools-mcp] starting (host-level, sock={})",
         sock_path.display()
     );
-    let _ = team_id;
 
     let stdin = std::io::stdin();
     let reader = BufReader::new(stdin.lock());
@@ -72,7 +71,7 @@ pub fn run(session_id: &str, team_id: &str, member_actor_id: &str, sock_path: &P
                 "serverInfo": { "name": "amuxd-remote-tools", "version": "0.1.0" }
             })),
             "tools/list" => Ok(json!({ "tools": list_tools() })),
-            "tools/call" => match handle_tool_call(session_id, member_actor_id, sock_path, req.get("params")) {
+            "tools/call" => match handle_tool_call(sock_path, req.get("params")) {
                 Ok(v) => Ok(v),
                 Err(e) => Ok(tool_err(&e)),
             },
@@ -119,12 +118,7 @@ fn tool_err(text: &str) -> Value {
     })
 }
 
-fn handle_tool_call(
-    session_id: &str,
-    member_actor_id: &str,
-    sock_path: &Path,
-    params: Option<&Value>,
-) -> Result<Value, String> {
+fn handle_tool_call(sock_path: &Path, params: Option<&Value>) -> Result<Value, String> {
     let params = params.ok_or_else(|| "missing params".to_string())?;
     let name = params
         .get("name")
@@ -133,14 +127,27 @@ fn handle_tool_call(
     if !crate::remote_tools::registry::is_known_tool(name) {
         return Err(format!("unknown tool: {name}"));
     }
-    let args = params
+    if crate::remote_tools::registry::is_daemon_local_tool(name) {
+        return Ok(tool_ok("null"));
+    }
+    let mut args = params
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let args_obj = args
+        .as_object_mut()
+        .ok_or_else(|| "arguments must be a JSON object".to_string())?;
+    let remote_context_id = args_obj
+        .remove("remote_context_id")
+        .and_then(|v| v.as_str().map(str::to_string))
+        .ok_or_else(|| "missing remote_context_id".to_string())?;
+    if remote_context_id.trim().is_empty() {
+        return Err("missing remote_context_id".to_string());
+    }
 
     let payload = json!({
         "cmd": "remote-tool-call",
-        "session_id": session_id,
+        "remote_context_id": remote_context_id,
         "tool_name": name,
         "arguments": args,
     });
@@ -181,4 +188,31 @@ fn sock_roundtrip_error(err: std::io::Error) -> String {
         return "daemon response timeout: no capable client replied (is the TeamClaw browser extension side panel open and connected?)".to_string();
     }
     format!("amuxd.sock roundtrip failed: {err}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_tool_call_does_not_require_remote_context_id() {
+        let result = handle_tool_call(
+            Path::new("/tmp/nonexistent.sock"),
+            Some(&json!({
+                "name": "show_page_nav_links",
+                "arguments": { "links": ["https://example.com"] }
+            })),
+        )
+        .expect("local tool should return without socket roundtrip");
+
+        assert_eq!(
+            result
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("text"))
+                .and_then(|v| v.as_str()),
+            Some("null")
+        );
+    }
 }
