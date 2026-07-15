@@ -198,12 +198,12 @@ Access token hook 实际写入的是 **`app_metadata.memberships[]`** 数组。
 ```bash
 # 1) daemon refresh
 REFRESH=$(grep refresh_token ~/.amuxd/backend.toml | cut -d'"' -f2)
-TOKEN=$(curl -s -X POST https://cloud.ucar.cc/v1/auth/refresh \
+TOKEN=$(curl -s -X POST https://api.teamclaw-dev.ucar.cc/v1/auth/refresh \
   -H 'Content-Type: application/json' \
   -d "{\"refreshToken\":\"$REFRESH\"}" | jq -r .accessToken)
 
 # 2) 看 actor 上的 agentTypes（UI 同源）
-curl -s "https://cloud.ucar.cc/v1/actors/<actor_id>" \
+curl -s "https://api.teamclaw-dev.ucar.cc/v1/actors/<actor_id>" \
   -H "Authorization: Bearer $TOKEN" | jq '.agentTypes, .defaultAgentType'
 ```
 
@@ -321,7 +321,7 @@ Settings 显示 Backend types 为空
 - **FC / Auth**：统一 JWT `app_metadata` 形状（flat vs `memberships[]`），或让 `app.current_jwt_actor_id()` 兼容 memberships。
 - **UI（可选）**：Backend types 空时在 General 页展示 `/v1/info` 的 `configuredAgentTypes` 作为 hint。
 
-**生效条件：** FC / migration 变更需部署到 `cloud.ucar.cc`；amuxd 变更需 rebuild 并重启 daemon。RLS 修复前已 onboard 且 `agent_types = []` 的 personal agent，需各设备 **重启 amuxd** 触发重新上报。
+**生效条件：** FC / migration 变更合入 `main` 后由 `self-host-deploy.yml` 自动部署到 self-host ECS；amuxd 变更需 rebuild 并重启 daemon。RLS 修复前已 onboard 且 `agent_types = []` 的 personal agent，需各设备 **重启 amuxd** 触发重新上报。
 
 ---
 

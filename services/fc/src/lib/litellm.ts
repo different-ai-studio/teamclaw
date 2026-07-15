@@ -6,7 +6,21 @@
 // default per-team budget used when provisioning teams.
 // ---------------------------------------------------------------------------
 
-export const LITELLM_URL = () => process.env.LITELLM_URL || "https://ai.ucar.cc";
+// Fail closed. This used to fall back to a hosted gateway, which meant a blank
+// LITELLM_URL silently routed a deployment's AI traffic to a third-party host
+// it never opted into. There is no default worth guessing here: self-host
+// supplies http://litellm:4000 via docker-compose, and anything else is an
+// explicit operator choice. Only reached once LITELLM_MASTER_KEY is set, so
+// throwing cannot break deployments that run without LiteLLM at all.
+export const LITELLM_URL = () => {
+  const url = process.env.LITELLM_URL?.trim();
+  if (!url) {
+    throw new Error(
+      "LITELLM_URL is not set. Refusing to guess an AI gateway endpoint — set it explicitly (self-host: http://litellm:4000).",
+    );
+  }
+  return url;
+};
 export const LITELLM_MASTER_KEY = () => process.env.LITELLM_MASTER_KEY || "";
 
 /** Default team max spend (USD) applied on /team/new during provisioning. */

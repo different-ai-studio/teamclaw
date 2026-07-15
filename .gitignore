@@ -139,12 +139,6 @@ build.config.json
 .opencode/
 opencode.json
 
-# Local-only manual belayo deploy workflow (not committed; deploy via deploy-local.sh)
-.github/workflows/belayo-deploy.yml
-
-# S4 local pg_dump artifacts (never commit)
-services/supabase/s4/_dump/
-
 # White-label icon generation: `tauri icon` emits extra outputs that are NOT in
 # tauri.conf.json's bundle.icon list. Branded builds regenerate them; keep them
 # out of git so a branded build's working tree stays clean.
