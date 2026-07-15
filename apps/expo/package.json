@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.0.10",
-    "babel-preset-expo": "~13.0.0",
+    "babel-preset-expo": "~57.0.2",
     "typescript": "~6.0.3",
     "vitest": "^4.1.9"
   }
