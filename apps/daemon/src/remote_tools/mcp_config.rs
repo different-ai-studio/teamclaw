@@ -1,32 +1,25 @@
 use std::path::PathBuf;
 
 use crate::config::DaemonConfig;
+use tracing::info;
 
-fn sanitize_for_filename(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect()
-}
+pub const REMOTE_TOOLS_MCP_SERVER_NAME: &str = "amuxd-remote-tools";
 
 pub fn remote_tools_mcp_config_path(session_id: &str) -> PathBuf {
+    let _ = session_id;
     DaemonConfig::config_dir()
         .join("mcp-configs")
-        .join(format!("remote-{}.json", sanitize_for_filename(session_id)))
+        .join("remote-tools-host.json")
 }
 
-/// Write per-session MCP config for `amuxd remote-tools-mcp`.
-/// `member_actor_id` is the human member actor — RPC is published to
-/// `amux/{team}/{member_actor_id}/rpc/req` so all of that member's online clients receive it.
+/// Write host-level MCP config for `amuxd remote-tools-mcp`.
+/// Message-level routing is resolved by daemon using `remote_context_id`.
 pub fn write_remote_tools_mcp_config(
     session_id: &str,
     team_id: &str,
     member_actor_id: &str,
 ) -> crate::error::Result<PathBuf> {
-    if session_id.is_empty() || member_actor_id.is_empty() {
-        return Err(crate::error::AmuxError::Agent(
-            "write_remote_tools_mcp_config: session_id and member_actor_id required".into(),
-        ));
-    }
+    let _ = (session_id, team_id, member_actor_id);
 
     let path = remote_tools_mcp_config_path(session_id);
     if let Some(parent) = path.parent() {
@@ -41,15 +34,18 @@ pub fn write_remote_tools_mcp_config(
     let amuxd_bin = std::env::current_exe()
         .map_err(|e| crate::error::AmuxError::Agent(format!("current_exe(): {e}")))?;
     let sock = DaemonConfig::sock_path();
+    info!(
+        path = %path.display(),
+        amuxd_bin = %amuxd_bin.display(),
+        sock = %sock.display(),
+        "write_remote_tools_mcp_config: writing host-level MCP config"
+    );
     let cfg = serde_json::json!({
         "mcpServers": {
-            "amuxd-remote-tools": {
+            REMOTE_TOOLS_MCP_SERVER_NAME: {
                 "command": amuxd_bin.to_string_lossy(),
                 "args": [
                     "remote-tools-mcp",
-                    format!("--session-id={}", session_id),
-                    format!("--team-id={}", team_id),
-                    format!("--member-actor-id={}", member_actor_id),
                     format!("--sock={}", sock.to_string_lossy()),
                 ],
             }
@@ -67,27 +63,16 @@ pub fn write_remote_tools_mcp_config(
     Ok(path)
 }
 
-/// MCP config for `session/resume`: write when requester is known, else reuse on-disk file.
-pub fn resolve_remote_tools_mcp_config_for_resume(
-    session_id: &str,
-    team_id: &str,
-    requester_actor_id: Option<&str>,
-) -> Option<PathBuf> {
-    if session_id.is_empty() {
-        return None;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_tools_config_path_is_host_level() {
+        assert_eq!(
+            remote_tools_mcp_config_path("session-a"),
+            remote_tools_mcp_config_path("session-b")
+        );
+        assert!(remote_tools_mcp_config_path("session-a").ends_with("remote-tools-host.json"));
     }
-    if let Some(member) = requester_actor_id.filter(|s| !s.is_empty()) {
-        match write_remote_tools_mcp_config(session_id, team_id, member) {
-            Ok(path) => return Some(path),
-            Err(e) => {
-                tracing::warn!(
-                    session_id,
-                    err = %e,
-                    "resolve_remote_tools_mcp_config_for_resume: write failed, trying existing file"
-                );
-            }
-        }
-    }
-    let path = remote_tools_mcp_config_path(session_id);
-    path.is_file().then_some(path)
 }

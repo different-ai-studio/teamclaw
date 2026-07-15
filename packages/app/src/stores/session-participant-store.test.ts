@@ -1,16 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessionParticipantStore } from "./session-participant-store";
 
-const listParticipants = vi.hoisted(() => vi.fn());
+const { mockListParticipants, mockIsTauri } = vi.hoisted(() => ({
+  mockListParticipants: vi.fn(async () => [] as Array<{
+    id: string;
+    actor_type: string | null;
+    display_name: string | null;
+    avatar_url: string | null;
+  }>),
+  mockIsTauri: vi.fn(() => true),
+}));
 
 vi.mock("@/lib/utils", () => ({
-  isTauri: vi.fn(() => true),
+  isTauri: mockIsTauri,
 }));
 
 vi.mock("@/lib/backend", () => ({
   getBackend: () => ({
     sessionMembers: {
-      listParticipants,
+      listParticipants: mockListParticipants,
     },
   }),
 }));
@@ -34,20 +42,20 @@ vi.mock("@/lib/sync/session-participant-sync", () => ({
   syncParticipantsForSession: vi.fn(async () => 1),
 }));
 
-beforeEach(async () => {
-  const { isTauri } = await import("@/lib/utils");
-  vi.mocked(isTauri).mockReturnValue(true);
-  listParticipants.mockReset();
+beforeEach(() => {
+  mockIsTauri.mockReturnValue(true);
+  mockListParticipants.mockResolvedValue([]);
   useSessionParticipantStore.setState({
     participantsBySession: {},
     loadingBySession: {},
     errorBySession: {},
   });
   vi.clearAllMocks();
+  mockIsTauri.mockReturnValue(true);
 });
 
 describe("session-participant-store", () => {
-  it("loads participants from the local cache", async () => {
+  it("loads participants from the local cache on desktop", async () => {
     await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
 
     expect(useSessionParticipantStore.getState().participantsBySession.s1).toEqual([
@@ -60,6 +68,71 @@ describe("session-participant-store", () => {
       {
         actorId: "agent-1",
         displayName: "Agent One",
+        avatarUrl: null,
+        isAgent: true,
+      },
+    ]);
+  });
+
+  it("loads participants from Cloud API on extension/web", async () => {
+    mockIsTauri.mockReturnValue(false);
+    mockListParticipants.mockResolvedValue([
+      {
+        id: "member-1",
+        actor_type: "member",
+        display_name: "Alice",
+        avatar_url: null,
+      },
+      {
+        id: "daemon-1",
+        actor_type: "agent",
+        display_name: "MACPRO",
+        avatar_url: null,
+      },
+    ]);
+
+    await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
+
+    expect(mockListParticipants).toHaveBeenCalledWith("s1");
+    expect(useSessionParticipantStore.getState().participantsBySession.s1).toEqual([
+      {
+        actorId: "member-1",
+        displayName: "Alice",
+        avatarUrl: null,
+        isAgent: false,
+      },
+      {
+        actorId: "daemon-1",
+        displayName: "MACPRO",
+        avatarUrl: null,
+        isAgent: true,
+      },
+    ]);
+  });
+
+  it("retries empty cache on extension/web", async () => {
+    mockIsTauri.mockReturnValue(false);
+    useSessionParticipantStore.setState({
+      participantsBySession: { s1: [] },
+      loadingBySession: {},
+      errorBySession: {},
+    });
+    mockListParticipants.mockResolvedValue([
+      {
+        id: "daemon-1",
+        actor_type: "agent",
+        display_name: "MACPRO",
+        avatar_url: null,
+      },
+    ]);
+
+    await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
+
+    expect(mockListParticipants).toHaveBeenCalledWith("s1");
+    expect(useSessionParticipantStore.getState().participantsBySession.s1).toEqual([
+      {
+        actorId: "daemon-1",
+        displayName: "MACPRO",
         avatarUrl: null,
         isAgent: true,
       },
@@ -86,9 +159,8 @@ describe("session-participant-store", () => {
   });
 
   it("loads participants from Cloud API in extension/web mode", async () => {
-    const { isTauri } = await import("@/lib/utils");
-    vi.mocked(isTauri).mockReturnValue(false);
-    listParticipants.mockResolvedValue([
+    mockIsTauri.mockReturnValue(false);
+    mockListParticipants.mockResolvedValue([
       {
         id: "member-1",
         team_id: "team-1",
@@ -105,7 +177,7 @@ describe("session-participant-store", () => {
 
     await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
 
-    expect(listParticipants).toHaveBeenCalledWith("s1");
+    expect(mockListParticipants).toHaveBeenCalledWith("s1");
     expect(useSessionParticipantStore.getState().participantsBySession.s1).toEqual([
       {
         actorId: "member-1",

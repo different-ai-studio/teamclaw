@@ -8,13 +8,46 @@ use tokio::sync::oneshot;
 use super::DaemonServer;
 
 impl DaemonServer {
+    pub(crate) async fn prepare_remote_tool_context_for_turn(
+        &self,
+        runtime_id: &str,
+        teamclaw_session_id: &str,
+        requester_actor_id: &str,
+    ) {
+        let acp_session_id = {
+            let agents = self.agents.lock().await;
+            agents
+                .get_handle(runtime_id)
+                .map(|h| h.acp_session_id.clone())
+                .unwrap_or_default()
+        };
+        let remote_context_id = self.remote_tool_turn_contexts.lock().await.create(
+            runtime_id,
+            &acp_session_id,
+            teamclaw_session_id,
+            requester_actor_id,
+        );
+        match remote_context_id {
+            Some(id) => {
+                let instructions = crate::remote_tools::remote_context_instructions(&id);
+                if !instructions.is_empty() {
+                    let mut agents = self.agents.lock().await;
+                    if let Some(handle) = agents.get_handle_mut(runtime_id) {
+                        handle.next_prompt_context = instructions;
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+
     pub(crate) async fn spawn_remote_tool_sock_handler(
         &self,
         payload: Value,
         reply_tx: oneshot::Sender<String>,
     ) {
-        let session_id = payload
-            .get("session_id")
+        let remote_context_id = payload
+            .get("remote_context_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -27,29 +60,30 @@ impl DaemonServer {
             .get("arguments")
             .cloned()
             .unwrap_or_else(|| Value::Object(Default::default()));
-        let member_actor_id = {
-            let agents = self.agents.lock().await;
-            let targets = self.session_remote_targets.lock().await;
-            crate::remote_tools::resolve_member_for_session(&agents, &targets, &session_id)
+        let context = {
+            self.remote_tool_turn_contexts
+                .lock()
+                .await
+                .resolve(&remote_context_id)
         };
         let rpc_client = Arc::clone(&self.rpc_client);
         let actor_id = self.actor_id.clone();
         tokio::spawn(async move {
-            let resp = match member_actor_id {
-                Some(target) => {
+            let resp = match context {
+                Some(context) => {
                     crate::remote_tools::proxy::handle_sock_invoke_for_target(
                         &rpc_client,
                         &actor_id,
-                        &target,
-                        &session_id,
+                        &context.requester_actor_id,
+                        &context.teamclaw_session_id,
                         &tool_name,
                         &arguments,
                     )
                     .await
                 }
                 None => crate::remote_tools::proxy::sock_err(
-                    "no_remote_client",
-                    "no member actor registered for session (runtimeStart not seen recently)",
+                    "invalid_remote_context",
+                    "missing or expired remote_context_id for remote tool call",
                 ),
             };
             let _ = reply_tx.send(resp.to_string());

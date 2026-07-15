@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::adapter::{self, AcpCommand, AcpStartupMetadata};
 use super::manager::AgentLaunchConfig;
@@ -23,6 +23,7 @@ const ATTACH_TIMEOUT: Duration = Duration::from_secs(120);
 struct HostKey {
     agent_type: amux::AgentType,
     env_fingerprint: u64,
+    worktree_fingerprint: u64,
 }
 
 fn env_fingerprint(extra_env: &HashMap<String, String>) -> u64 {
@@ -33,6 +34,25 @@ fn env_fingerprint(extra_env: &HashMap<String, String>) -> u64 {
         k.hash(&mut hasher);
         v.hash(&mut hasher);
     }
+    hasher.finish()
+}
+
+fn worktree_fingerprint(agent_type: amux::AgentType, worktree: Option<&str>) -> u64 {
+    if !matches!(
+        agent_type,
+        amux::AgentType::Opencode | amux::AgentType::Codex
+    ) {
+        return 0;
+    }
+    let Some(worktree) = worktree.filter(|s| !s.is_empty()) else {
+        return 0;
+    };
+    let worktree = std::fs::canonicalize(worktree)
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| worktree.to_string());
+    let mut hasher = DefaultHasher::new();
+    worktree.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -78,7 +98,7 @@ impl AcpHostPool {
     pub async fn prewarm(&mut self, launch_configs: &HashMap<amux::AgentType, AgentLaunchConfig>) {
         for (&agent_type, launch) in launch_configs {
             if let Err(e) = self
-                .ensure_host(agent_type, launch, HashMap::new(), false)
+                .ensure_host(agent_type, launch, HashMap::new(), false, None)
                 .await
             {
                 warn!(?agent_type, error = %e, "ACP host prewarm failed");
@@ -99,10 +119,17 @@ impl AcpHostPool {
         launch_configs: &HashMap<amux::AgentType, AgentLaunchConfig>,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
+        worktree: Option<&str>,
     ) {
         for (&agent_type, launch) in launch_configs {
             if let Err(e) = self
-                .ensure_host(agent_type, launch, extra_env.clone(), force_env_override)
+                .ensure_host(
+                    agent_type,
+                    launch,
+                    extra_env.clone(),
+                    force_env_override,
+                    worktree,
+                )
                 .await
             {
                 warn!(?agent_type, error = %e, "ACP host prewarm (session env) failed");
@@ -118,14 +145,31 @@ impl AcpHostPool {
         launch: &AgentLaunchConfig,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
+        worktree: Option<&str>,
     ) -> crate::error::Result<mpsc::Sender<AcpCommand>> {
         let key = HostKey {
             agent_type,
             env_fingerprint: env_fingerprint(&extra_env),
+            worktree_fingerprint: worktree_fingerprint(agent_type, worktree),
         };
         if let Some(entry) = self.hosts.get(&key) {
+            debug!(
+                ?agent_type,
+                worktree = worktree.unwrap_or(""),
+                env_fingerprint = key.env_fingerprint,
+                worktree_fingerprint = key.worktree_fingerprint,
+                "ACP host pool hit; reusing initialized host"
+            );
             return Ok(entry.cmd_tx.clone());
         }
+
+        info!(
+            ?agent_type,
+            worktree = worktree.unwrap_or(""),
+            env_fingerprint = key.env_fingerprint,
+            worktree_fingerprint = key.worktree_fingerprint,
+            "ACP host pool miss; spawning initialized host"
+        );
 
         let (host_ready_tx, host_ready_rx) = oneshot::channel();
         let cmd_tx = adapter::spawn_acp_host(
@@ -134,6 +178,7 @@ impl AcpHostPool {
             agent_type,
             extra_env,
             force_env_override,
+            worktree.map(str::to_string),
             host_ready_tx,
         )?;
 
@@ -156,9 +201,19 @@ impl AcpHostPool {
             }
         }
 
-        self.hosts.insert(key, HostEntry {
-            cmd_tx: cmd_tx.clone(),
-        });
+        self.hosts.insert(
+            key,
+            HostEntry {
+                cmd_tx: cmd_tx.clone(),
+            },
+        );
+        info!(
+            ?agent_type,
+            worktree = worktree.unwrap_or(""),
+            env_fingerprint = key.env_fingerprint,
+            worktree_fingerprint = key.worktree_fingerprint,
+            "ACP host cached"
+        );
         Ok(cmd_tx)
     }
 
@@ -177,12 +232,18 @@ impl AcpHostPool {
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
         is_gateway: bool,
+        forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)> {
         let host_cmd = self
-            .ensure_host(agent_type, launch, extra_env, force_env_override)
+            .ensure_host(
+                agent_type,
+                launch,
+                extra_env,
+                force_env_override,
+                Some(&worktree),
+            )
             .await?;
-        let (startup_tx, startup_rx) =
-            oneshot::channel::<Result<AcpStartupMetadata, String>>();
+        let (startup_tx, startup_rx) = oneshot::channel::<Result<AcpStartupMetadata, String>>();
 
         host_cmd
             .send(AcpCommand::AttachSession {
@@ -194,9 +255,12 @@ impl AcpHostPool {
                 event_tx,
                 startup_tx,
                 is_gateway,
+                forbid_new_session_fallback,
             })
             .await
-            .map_err(|_| crate::error::AmuxError::Agent("ACP host command channel closed".into()))?;
+            .map_err(|_| {
+                crate::error::AmuxError::Agent("ACP host command channel closed".into())
+            })?;
 
         let startup = match timeout(ATTACH_TIMEOUT, startup_rx).await {
             Ok(Ok(Ok(meta))) => meta,
@@ -238,6 +302,7 @@ mod tests {
             HostKey {
                 agent_type: amux::AgentType::Opencode,
                 env_fingerprint: 1,
+                worktree_fingerprint: 11,
             },
             HostEntry {
                 cmd_tx: mpsc::channel(1).0,
@@ -247,6 +312,7 @@ mod tests {
             HostKey {
                 agent_type: amux::AgentType::ClaudeCode,
                 env_fingerprint: 2,
+                worktree_fingerprint: 0,
             },
             HostEntry {
                 cmd_tx: mpsc::channel(1).0,
@@ -258,6 +324,18 @@ mod tests {
         assert_eq!(
             pool.hosts.keys().next().unwrap().agent_type,
             amux::AgentType::ClaudeCode
+        );
+    }
+
+    #[test]
+    fn worktree_fingerprint_is_only_used_for_shared_registry_hosts() {
+        assert_ne!(
+            worktree_fingerprint(amux::AgentType::Opencode, Some("/tmp/a")),
+            worktree_fingerprint(amux::AgentType::Opencode, Some("/tmp/b"))
+        );
+        assert_eq!(
+            worktree_fingerprint(amux::AgentType::ClaudeCode, Some("/tmp/a")),
+            worktree_fingerprint(amux::AgentType::ClaudeCode, Some("/tmp/b"))
         );
     }
 }

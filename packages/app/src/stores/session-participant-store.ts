@@ -72,11 +72,14 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
   errorBySession: {},
   ensureParticipants: async (sessionIds) => {
     const unique = Array.from(new Set(sessionIds)).filter(Boolean);
-    const missing = unique.filter(
-      (sessionId) =>
-        get().participantsBySession[sessionId] === undefined &&
-        !get().loadingBySession[sessionId],
-    );
+    const missing = unique.filter((sessionId) => {
+      if (get().loadingBySession[sessionId]) return false
+      const cached = get().participantsBySession[sessionId]
+      if (cached === undefined) return true
+      // Extension/web: retry empty cache (legacy loadSessionParticipants stub).
+      if (!isTauri() && cached.length === 0) return true
+      return false
+    });
     if (missing.length === 0) return;
 
     set((state) => ({

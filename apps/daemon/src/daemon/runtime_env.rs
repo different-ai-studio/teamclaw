@@ -8,10 +8,7 @@ use super::DaemonServer;
 
 impl DaemonServer {
     /// Team ID is resolved from the cloud workspace row by UUID; on a cold resolver cache (e.g. right after daemon restart) a bare-agent spawn with an empty workspace_id yields None team_id until the cache warms — intentional under the cloud-source-of-truth / no-local-store design.
-    pub(super) async fn resolve_workspace_team_id(
-        &self,
-        workspace_id: &str,
-    ) -> Option<String> {
+    pub(super) async fn resolve_workspace_team_id(&self, workspace_id: &str) -> Option<String> {
         let fallback = || {
             self.config
                 .team_id
@@ -51,13 +48,13 @@ impl DaemonServer {
     /// empty-env prewarm.
     pub(super) async fn resolve_primary_prewarm_env(
         &self,
-    ) -> Option<(std::collections::HashMap<String, String>, bool)> {
+    ) -> Option<(String, std::collections::HashMap<String, String>, bool)> {
         let ws = self.cloud_workspace_list().await.into_iter().next()?;
         match self
             .assemble_spawn_runtime_env_for_worktree(&ws.path, &ws.workspace_id)
             .await
         {
-            Ok(env) => Some((env.extra_env, env.force_env_override)),
+            Ok(env) => Some((ws.path, env.extra_env, env.force_env_override)),
             Err(e) => {
                 tracing::warn!(
                     workspace = %ws.path,
@@ -86,10 +83,15 @@ impl DaemonServer {
             }
         };
         let agents = self.agents.clone();
+        let worktree_for_prewarm = worktree.to_string();
         tokio::spawn(async move {
             let mut mgr = agents.lock().await;
-            mgr.prewarm_acp_hosts_with_env(env.extra_env, env.force_env_override)
-                .await;
+            mgr.prewarm_acp_hosts_with_env(
+                env.extra_env,
+                env.force_env_override,
+                Some(worktree_for_prewarm.as_str()),
+            )
+            .await;
         });
     }
 
@@ -98,6 +100,8 @@ impl DaemonServer {
         worktree: &str,
         workspace_id: &str,
     ) -> Result<SpawnRuntimeEnv, String> {
+        crate::runtime::supervisor::ensure_inherent_mcp(Path::new(worktree))
+            .map_err(|e| format!("ensure_inherent_mcp failed: {e}"))?;
         let team_id = self.resolve_workspace_team_id(workspace_id).await;
         let managed_llm = match team_id.as_deref() {
             Some(tid) => self.resolve_managed_llm(tid).await,
