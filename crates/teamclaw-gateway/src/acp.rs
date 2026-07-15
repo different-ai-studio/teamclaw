@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use tokio::sync::mpsc;
 
 /// Identifier of an amuxd session that a gateway channel is conversing with.
 /// Opaque to the gateway; resolved against amuxd's runtime manager.
@@ -65,6 +66,30 @@ pub trait AcpHandle: Send + Sync + 'static {
         sender_display: &str,
         text: &str,
     ) -> Result<AcpTurnOutcome, AcpError>;
+
+    /// Same as `send_prompt`, but reports the reply as it grows so channels
+    /// with editable message bubbles can show progress mid-turn.
+    ///
+    /// `on_update` receives the **cumulative** reply text, not deltas — the
+    /// WeCom stream msgtype replaces a bubble's content by re-sending the
+    /// same id, so callers want the whole text every time. Updates are
+    /// best-effort and throttled: a slow or dropped receiver never fails the
+    /// turn, and intermediate updates may be skipped. The returned
+    /// `AcpTurnOutcome` is always authoritative — send it as the final,
+    /// finished bubble regardless of what arrived on the channel.
+    ///
+    /// The default impl ignores `on_update` and delegates to `send_prompt`,
+    /// so channels without progressive rendering need no changes.
+    async fn send_prompt_streamed(
+        &self,
+        session: &AmuxSessionId,
+        sender_display: &str,
+        text: &str,
+        on_update: mpsc::Sender<String>,
+    ) -> Result<AcpTurnOutcome, AcpError> {
+        let _ = on_update;
+        self.send_prompt(session, sender_display, text).await
+    }
 
     /// Inject context without triggering a reply (v1 `noReply: true`).
     /// Kept on the trait for future use; not called by v1-of-port channels.
