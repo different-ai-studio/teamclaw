@@ -15,8 +15,10 @@ async function call(method, url, { body, bearer, query, retries = 5 } = {}) {
   const headers = {};
   if (body !== undefined) headers["content-type"] = "application/json";
   if (bearer) headers.authorization = `Bearer ${bearer}`;
-  // Retry on FC rate-limiting (429) / transient unavailability (503) with
-  // exponential backoff. cloud.ucar.cc rate-limits bursty callers.
+  // Retry on rate-limiting (429) / transient unavailability (503) with
+  // exponential backoff. Kept generic: the backoff was added for a shared
+  // backend that throttled bursty callers, and is harmless against one that
+  // does not.
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(u, {
       method,

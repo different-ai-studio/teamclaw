@@ -6,8 +6,9 @@ import {
   type JWTVerifyGetKey,
 } from "jose";
 import { resolveBackendKind } from "../lib/backend-kind.js";
+import { authBaseURL } from "./base-url.js";
 
-const defaultBaseURL = () => process.env.AUTH_BASE_URL ?? "https://cloud.ucar.cc";
+const defaultBaseURL = () => authBaseURL();
 let _remote: ReturnType<typeof createRemoteJWKSet> | null = null;
 function remoteJwks(baseURL: string) {
   if (!_remote) _remote = createRemoteJWKSet(new URL(`${baseURL}/api/auth/jwks`));

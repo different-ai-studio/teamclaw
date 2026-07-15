@@ -442,7 +442,7 @@ verify correctly against the EMQX authenticator without any re-signing.
 
 Migrations are applied automatically on every `docker compose up -d` by the
 `migrate` service. They are **idempotent**: each file is tracked in
-`public.schema_migrations`; on re-run the log shows:
+`_selfhost.schema_migrations`; on re-run the log shows:
 
 ```
 skip (already applied): 20240101000000_init.sql
@@ -451,6 +451,11 @@ apply-migrations: done
 ```
 
 No migration is applied twice. Re-running `up` is safe.
+
+The marker table deliberately lives in its own `_selfhost` schema rather than
+`public`: app migrations (e.g. `move_teamclaw_to_amux`) relocate every `public`
+base table into `amux`, which would sweep the marker along and break tracking
+mid-sequence. See `init/apply-migrations.sh`.
 
 To check migration status:
 
@@ -651,9 +656,14 @@ curl -s http://127.0.0.1:4000/model/new \
   -d '{"model_name":"gpt-4o","litellm_params":{"model":"openai/gpt-4o","api_key":"sk-..."}}'
 ```
 
-> **不要把 `LITELLM_URL` 留空传给 FC。** `services/fc/src/lib/litellm.ts` 在该值为空时
-> 会回落到托管网关 `https://ai.ucar.cc`,等于把自建部署的流量发去第三方。compose
-> 已默认填成 `http://litellm:4000`。
+> **`.env` 里的 `LITELLM_URL` 留空是正常的 —— compose 会替换成内置网关。**
+> `docker-compose.yml` 用 `${LITELLM_URL:-http://litellm:4000}` 兜底,所以留空即指向
+> 栈内 LiteLLM。只有改用**外部**网关时才需要显式填。
+>
+> 若绕过 compose 直接把空的 `LITELLM_URL` 传给 FC,`services/fc/src/lib/litellm.ts`
+> 现在会**直接抛错**(拒绝猜测 AI 网关地址),而不是静默回落到某个第三方托管网关 ——
+> 早期版本的这个回落行为已移除。该检查只在 `LITELLM_MASTER_KEY` 已配置时才会触达,
+> 因此完全不跑 LiteLLM 的部署不受影响。
 >
 > **Rust 版（`litellm-rust`）暂不可用**：仍是 early beta,只有 amd64、无 arm64,且
 > `v1.89.3` 实测所有路由（含 `/team/new`、`/v1/chat/completions`）均返回 404。等它补齐

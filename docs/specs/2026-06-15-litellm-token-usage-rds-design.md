@@ -1,5 +1,13 @@
 # Token 用量重构：LiteLLM → RDS 直连 → 团队真实用量
 
+> **状态（2026-07-15）：已过时。** 本文以 belayo RDS + 托管 LiteLLM 网关
+> (`https://ai.ucar.cc`) 为前提设计，这两者所在的环境均已下线。当前唯一环境是
+> self-host 单机栈（LiteLLM 由 `deploy/self-host/docker-compose.yml` 内置，
+> FC 经 `http://litellm:4000` 访问；LiteLLM 自己的库建在同一个 Postgres 上）。
+> 本文**保留为历史记录**，下文的主机名、库名与部署细节不再适用；现状见
+> [`deploy/self-host/README.md`](../../deploy/self-host/README.md) 与
+> [`docs/deployment/full-backend-stack.md`](../deployment/full-backend-stack.md)。
+
 > 状态：**研究方案 (RESEARCH / DESIGN)**，待评审后分期实现
 > 日期：2026-06-15
 > 关联：[[project_litellm_dokploy_deploy]]、[[project_belayo_fc_deploy]]

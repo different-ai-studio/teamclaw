@@ -150,7 +150,7 @@ The key setting is `cloudApiUrl`, which points the app at a TeamClaw Cloud API d
 
 ```json
 {
-  "cloudApiUrl": "https://cloud.ucar.cc",
+  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
   "features": {
     "channels": { "discord": true, "feishu": true, "email": true }
   }

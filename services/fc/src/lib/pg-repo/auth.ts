@@ -5,6 +5,7 @@ import { getAuth, type Auth } from "../../auth/better-auth.js";
 import { mintSession } from "../../auth/mint-session.js";
 import { toGoTrueSession, toRefreshShape, toEpochSeconds, type ReshapeUser } from "../../auth/reshape.js";
 import { verifyAccessToken } from "../../auth/verify.js";
+import { authBaseURL } from "../../auth/base-url.js";
 import { teamInvites, actors, members, teamMembers, agents, agentMemberAccess, teamWorkspaceConfig } from "../../db/schema/index.js";
 import { ApiError } from "../http-utils.js";
 import { randomUUID } from "node:crypto";
@@ -219,7 +220,7 @@ export function createPgAuthRepository(
     }): string {
       const auth = resolveAuth();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const baseURL = ((auth as any).options?.baseURL ?? process.env.AUTH_BASE_URL ?? "https://cloud.ucar.cc") as string;
+      const baseURL = authBaseURL((auth as any).options?.baseURL);
       const u = new URL(`${baseURL}/api/auth/sign-in/social`);
       u.searchParams.set("provider", provider);
       u.searchParams.set("callbackURL", redirect);
