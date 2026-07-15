@@ -13,6 +13,10 @@ const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
     hydrate: vi.fn(),
     pendingInviteToken: null as string | null,
     claimPendingInvite: vi.fn(),
+    // Contact-matched invites (PendingInvitesDialog). Empty by default so the
+    // dialog stays closed and these tests only exercise the gate itself.
+    pendingInvites: [] as unknown[],
+    refreshPendingInvites: vi.fn(),
   },
   currentTeamMock: {
     reloadAndSwitchTo: vi.fn(),

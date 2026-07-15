@@ -216,21 +216,63 @@ paths:
           application/json:
             schema:
               type: object
-              required: [actorType, displayName]
+              required: [kind, displayName]
               properties:
+                kind:
+                  type: string
+                  enum: [member, agent]
+                  description: >-
+                    `actorType` is accepted as a legacy alias.
                 actorType:
                   type: string
-                  enum: [agent, user, external]
+                  enum: [member, agent]
+                  deprecated: true
+                  description: Legacy alias for `kind`.
                 displayName:
                   type: string
                   minLength: 1
+                teamRole:
+                  type: string
+                  enum: [owner, admin, member]
+                  description: >-
+                    Required when `kind=member`. `role` is accepted as a legacy alias.
                 role:
                   type: string
-                expiresAt:
+                  deprecated: true
+                  description: Legacy alias for `teamRole`.
+                agentKind:
                   type:
                     - string
                     - "null"
-                  format: date-time
+                  description: Required when `kind=agent`.
+                ttlSeconds:
+                  type:
+                    - integer
+                    - "null"
+                  description: Invite lifetime. Defaults to 604800 (7 days); floored at 60.
+                targetActorId:
+                  type:
+                    - string
+                    - "null"
+                  format: uuid
+                  description: Re-invite an existing actor instead of creating a new one.
+                inviteEmail:
+                  type:
+                    - string
+                    - "null"
+                  format: email
+                  description: >-
+                    Optional invitee email, member invites only. When set, the invitee
+                    sees this invite via `listPendingInvites` after signing in with a
+                    matching verified email — no token needs to reach them. Re-inviting
+                    the same contact supersedes the previous pending invite.
+                invitePhone:
+                  type:
+                    - string
+                    - "null"
+                  description: >-
+                    Optional invitee phone, member invites only. Compared
+                    digit-normalized against the signed-in user's verified phone.
       responses:
         "201":
           description: Created invite.
@@ -241,21 +283,27 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [token, inviteId, expiresAt]
+                required: [token, expiresAt, deeplink]
                 properties:
                   token:
                     type: string
-                  inviteId:
-                    type: string
-                    format: uuid
                   expiresAt:
                     type:
                       - string
                       - "null"
                     format: date-time
+                  deeplink:
+                    type:
+                      - string
+                      - "null"
+                    description: "`amux://invite?token=…` — shareable out-of-band."
         "400":
           $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        # `upgrade_required`: the team is still in the shared default org, which is
+        # solo-only. Member invites need the account upgraded into its own org.
+        "403":
           $ref: "#/components/responses/Error"
   /v1/teams/{teamId}/members/{actorId}:
     delete:
@@ -880,6 +928,81 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+  /v1/invites/pending:
+    get:
+      operationId: listPendingInvites
+      summary: List invites addressed to the caller's verified email/phone
+      description: >-
+        The contact path: invites created with `inviteEmail`/`invitePhone` matching
+        the caller's own verified contact, still pending, unexpired, and for a team
+        the caller has not already joined. Takes no contact parameter by design —
+        it reads the authenticated user's own identity, so it cannot be used to
+        probe which addresses have invites waiting. Anonymous sessions always get
+        an empty list, having no verified contact to match.
+      tags: [Invites]
+      responses:
+        "200":
+          description: Pending invites.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PendingInvite"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/invites/{inviteId}/accept:
+    post:
+      operationId: acceptPendingInvite
+      summary: Accept an invite addressed to the caller
+      description: >-
+        Joins the team, equivalent to claiming the invite's token. Only invites
+        visible via `listPendingInvites` can be accepted; anything else is a 404,
+        so "not yours" is indistinguishable from "not there".
+      tags: [Invites]
+      parameters:
+        - $ref: "#/components/parameters/InviteId"
+      responses:
+        "200":
+          description: Joined team.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimInviteResult"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        # Already a member, or the invite was declined/superseded/consumed.
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/invites/{inviteId}/decline:
+    post:
+      operationId: declinePendingInvite
+      summary: Decline an invite addressed to the caller
+      description: >-
+        Marks the invite declined. The row is retained so the inviter can see the
+        outcome; the token stops working.
+      tags: [Invites]
+      parameters:
+        - $ref: "#/components/parameters/InviteId"
+      responses:
+        "204":
+          description: Declined.
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
   /v1/heartbeat:
     post:
@@ -3492,6 +3615,13 @@ components:
       required: true
       schema:
         type: string
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     SessionId:
       name: sessionId
       in: path
@@ -3710,6 +3840,52 @@ components:
           type:
             - string
             - "null"
+    PendingInvite:
+      type: object
+      required: [inviteId, teamId]
+      properties:
+        inviteId:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        teamName:
+          type:
+            - string
+            - "null"
+        teamRole:
+          type:
+            - string
+            - "null"
+        displayName:
+          type:
+            - string
+            - "null"
+          description: The name the inviter typed for this person.
+        invitedByDisplayName:
+          type:
+            - string
+            - "null"
+        inviteEmail:
+          type:
+            - string
+            - "null"
+        invitePhone:
+          type:
+            - string
+            - "null"
+        expiresAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        matchedVia:
+          type:
+            - string
+            - "null"
+          enum: [email, phone, null]
+          description: Which of the caller's verified contacts this invite matched on.
     TeamWorkspaceConfig:
       type: object
       required: [teamId, defaultWorkspaceId]
