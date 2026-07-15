@@ -27,6 +27,7 @@ import {
   customProviderIdFromName,
   providerApiKeyName,
 } from '@/lib/opencode/config'
+import { TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 
 const SELECTED_MODEL_BASE = `${appShortName}-selected-model`
 const DEFAULT_CONNECTABLE_PROVIDERS: ProviderEntry[] = [
@@ -177,13 +178,45 @@ function runtimeModelsToConfigured(disconnectedIds: Set<string>): ConfiguredProv
   return Array.from(byProvider.values())
 }
 
+/**
+ * Union the daemon snapshot with models observed on live runtimes.
+ *
+ * The team provider is the exception: its model list is owned by the cloud and
+ * materialized into `opencode.json` by the daemon, so the daemon snapshot is the
+ * only authority on *membership*. Runtime state arrives over a retained MQTT
+ * topic, which replays the model list a runtime was spawned with — unioning that
+ * in would resurrect models the team has since dropped, and no refresh could
+ * ever clear them. So runtime state may only refine team model display names,
+ * never add or keep members.
+ *
+ * `teamListAuthoritative` is false when the daemon did not answer: with no
+ * snapshot to trust we fall back to the union rather than blanking the picker.
+ */
 function mergeConfiguredProviders(
   configuredProviders: ConfiguredProvider[],
   runtimeProviders: ConfiguredProvider[],
+  options: { teamListAuthoritative: boolean } = { teamListAuthoritative: false },
 ): ConfiguredProvider[] {
   const merged = new Map<string, ConfiguredProvider>()
+  const ownsTeamList =
+    options.teamListAuthoritative &&
+    configuredProviders.some((provider) => provider.id === TEAM_SHARED_PROVIDER_ID)
 
-  for (const provider of [...configuredProviders, ...runtimeProviders]) {
+  for (const [index, provider] of [...configuredProviders, ...runtimeProviders].entries()) {
+    const fromRuntime = index >= configuredProviders.length
+    const isTeam = provider.id === TEAM_SHARED_PROVIDER_ID
+
+    if (fromRuntime && isTeam && ownsTeamList) {
+      const existing = merged.get(provider.id)!
+      for (const model of provider.models) {
+        const target = existing.models.find((existingModel) => existingModel.id === model.id)
+        // The daemon reports team models as bare ids (name === id); the runtime
+        // is the only source of a human-readable name.
+        if (target && target.name === target.id && model.name) target.name = model.name
+      }
+      continue
+    }
+
     const existing = merged.get(provider.id)
     if (!existing) {
       merged.set(provider.id, {
@@ -259,6 +292,7 @@ async function loadDaemonProviderSnapshot(
   const configuredProviders = mergeConfiguredProviders(
     snapshot.configuredProviders,
     runtimeModelsToConfigured(disconnectedIds),
+    { teamListAuthoritative: daemonProviders !== null },
   )
   return {
     configuredProviders,
@@ -726,6 +760,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
         const configuredProviders = mergeConfiguredProviders(
           baseSnapshot.configuredProviders,
           runtimeModelsToConfigured(get()._disconnectedIds),
+          { teamListAuthoritative: daemonProviders !== null },
         )
         set({
           providers: mergeProviderEntries(baseSnapshot.providers, configuredProviders),

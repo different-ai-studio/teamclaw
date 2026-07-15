@@ -24,8 +24,8 @@ use async_trait::async_trait;
 
 use crate::backend::{
     AgentDefaults, AgentRuntimeRow, AgentRuntimeUpsert, Backend, BackendError, BackendResult,
-    BackendSessionAndParticipants, ClaimResult, ManagedGitCredential, ShareModeConfig,
-    StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    BackendSessionAndParticipants, ClaimResult, ManagedGitCredential, ManagedLlmConfig,
+    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 
 /// Owned snapshot of an `AgentRuntimeUpsert` so tests can assert without
@@ -167,6 +167,9 @@ pub struct MockState {
     /// Per-agent `get_agent_defaults` overrides. Missing entries fall back to
     /// `AgentDefaults::default()` (all `None`).
     pub agent_defaults: HashMap<String, AgentDefaults>,
+    /// Per-team `managed_llm_config` overrides. Missing entries fall back to
+    /// `ManagedLlmConfig::default()` (i.e. managed LLM disabled).
+    pub managed_llm_configs: HashMap<String, ManagedLlmConfig>,
 }
 
 #[derive(Clone, Debug)]
@@ -224,6 +227,19 @@ impl Backend for MockBackend {
             .lock()
             .unwrap()
             .team_share_configs
+            .get(team_id)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn managed_llm_config(&self, team_id: &str) -> BackendResult<ManagedLlmConfig> {
+        // Managed LLM disabled by default; tests that need a populated config
+        // can seed `state().managed_llm_configs`.
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .managed_llm_configs
             .get(team_id)
             .cloned()
             .unwrap_or_default())

@@ -112,6 +112,13 @@ pub async fn spawn(
     let cors_layer = cors::build(&http.allowed_origins)
         .map_err(|e| anyhow::anyhow!("cors build: {}", e.detail))?;
 
+    // Built from the same backend the routes already hold, so `get_providers`
+    // can reconcile `provider.team` against the team's current cloud LLM config
+    // before reading it back off disk.
+    let managed_llm = backend
+        .clone()
+        .map(|b| Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(b)));
+
     let state = HttpState::new(
         http,
         tokens.clone(),
@@ -124,7 +131,8 @@ pub async fn spawn(
         register_workspace_tx,
     )
     .with_backend(backend)
-    .with_live_tee(live_tee);
+    .with_live_tee(live_tee)
+    .with_managed_llm(managed_llm);
 
     spawn_reapers(state.clone());
     let mut app: Router = routes::build(state);

@@ -212,6 +212,12 @@ pub async fn get_providers(
 ) -> Result<Json<Vec<ProviderInfo>>, HttpError> {
     require_scope(&principal, "workspace:read")?;
     let store = resolve_store(&state)?;
+    // `provider.team` is materialized from the team's cloud LLM config, and the
+    // read below comes straight off disk. Without reconciling first, an admin's
+    // model-list change would only reach this member at their next runtime spawn
+    // — app restarts included, since the daemon outlives them. The cloud fetch is
+    // TTL-throttled and the write is skipped when nothing differs.
+    reconcile_team_provider(&state, &workspace_id).await;
     let mut providers = store
         .get_providers(&workspace_id)
         .map_err(map_control_err)?;
@@ -229,6 +235,32 @@ pub async fn get_providers(
         }
     }
     Ok(Json(providers))
+}
+
+/// Re-materialize `provider.team` in this workspace's `opencode.json` from the
+/// team's current cloud LLM config, best-effort.
+///
+/// Silently no-ops when the daemon has no managed-LLM resolver (focused tests),
+/// no cloud backend, no team, or an unresolvable workspace path — in each case
+/// there is nothing authoritative to reconcile against, and the caller should
+/// still serve whatever is on disk rather than fail the read.
+async fn reconcile_team_provider(state: &HttpState, workspace_id: &str) {
+    let Some(managed_llm) = state.managed_llm.as_ref() else {
+        return;
+    };
+    let Some(backend) = state.backend.as_ref() else {
+        return;
+    };
+    let team_id = backend.team_id().to_string();
+    if team_id.trim().is_empty() {
+        return;
+    }
+    let Ok(wpath) = workspace_path_or_404(workspace_id).await else {
+        return;
+    };
+    managed_llm
+        .reconcile_workspace(&wpath, team_id.trim())
+        .await;
 }
 
 fn merge_live_provider_catalog(providers: &mut Vec<ProviderInfo>, catalog: &LiveProviderCatalog) {
