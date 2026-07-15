@@ -1,214 +1,192 @@
 # TeamClaw
 
-로컬 AI 에이전트, 당신의 AI 파트너
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
+
+로컬 AI 에이전트 — 모든 직무를 위한 당신의 AI 파트너
 
 > **당신의 파트너, 함께.**
 
-- **👥 팀을 위한 설계** — Skills, 지식 베이스, 단축 항목을 Git 또는 S3/OSS 를 통해 팀 전체에서 공유하면서도 구성원별 개인 컨텍스트는 유지
-- **🎭 Skills × 역할** — 조합 가능한 역할 라이브러리로 동일한 에이전트를 영업·지원·운영·엔지니어링 등 각 직무에 특화
-- **🔋 기본 탑재** — RAG 지식 베이스, Auto UI 시각 인식, 브라우저 제어, 6 개 채널 게이트웨이(WeCom / Feishu / Discord / Kook / WeChat / Email) 내장. 글루 코드 불필요
-- **🧑‍💻 개인부터 중소기업까지** — 로컬 우선, 기본 비공개, 무운영; 1 인 사용자부터 소규모 기업까지 확장 가능
+- **👥 팀을 위한 설계** — Skills, 지식 베이스, MCP 설정을 Git 또는 S3/OSS 동기화를 통해 팀 전체에서 공유하면서도, 구성원별 개인 컨텍스트는 그대로 유지
+- **🎭 Skills × 역할** — 조합 가능한 역할 라이브러리로 동일한 에이전트를 영업·지원·운영·엔지니어링 등 팀에 필요한 어떤 직무에도 특화
+- **🔋 기본 탑재** — RAG 지식 베이스, Auto UI 이해, 음성 인식(STT), 6 개 채널 게이트웨이(WeCom, Feishu, Discord, Kook, WeChat, Email) 내장. 글루 코드 불필요
+- **🧑‍💻 개인 개발자부터 중소기업까지** — 로컬 우선, 기본 비공개; 1 인 사용자부터 소규모 기업까지 확장 가능
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | 한국어
 
+## 스크린샷
+
+| 홈 | 채널 |
+|---|---|
+| ![TeamClaw Home](images/home.png) | ![TeamClaw Channels](images/channel.png) |
+
 ## 주요 기능
 
-- **3단 레이아웃** — 사이드바, 채팅 영역, 상세 패널
-- **로컬 Agent 런타임** — 완전한 Agent 기능 지원
-- **MCP 지원** — Model Context Protocol, 엔터프라이즈 시스템 연동
-- **Skills / 플러그인 확장** — 확장 가능한 스킬 시스템
-- **로컬 파일 작업** — 권한 관리가 있는 파일 읽기/쓰기
+- **3단 워크스페이스** — 사이드바, 채팅, 상세 패널
+- **로컬 에이전트 런타임** — 에이전트가 사용자 머신에서 실행되며, `amuxd` 데몬이 ACP 프로토콜로 호스팅
+- **채널 게이트웨이** — Discord, Feishu, Email, Kook, WeCom, WeChat 에서 에이전트에 접근
+- **자동화** — cron 을 통한 예약 작업
+- **팀 협업** — OSS 또는 Git 으로 워크스페이스 공유. [팀 협업](#팀-협업) 참조
+- **MCP 지원** — Model Context Protocol 을 통해 에이전트를 엔터프라이즈 시스템에 연결
+- **Skills / 플러그인** — 워크스페이스 수준 및 전역 스킬 소스로 에이전트 확장
+- **지식 베이스** — 전문 검색 및 임베딩 기반 인덱싱과 검색
+- **내장 에디터** — Markdown 및 HTML(Tiptap), 코드(CodeMirror 6), 에이전트 우선 diff 리뷰어
+- **로컬 파일 작업** — 작업 단위 권한 관리 지원
 
-## UI 스크린샷
+## 동작 방식
 
-### 홈
+TeamClaw 는 클라이언트 계층, 에이전트 호스트, 클라우드 백엔드로 나뉩니다:
 
-![TeamClaw 홈](images/home.png)
+```
+  Desktop (Tauri)     iOS      Mobile (Expo)     Chrome extension
+        │              │            │                  │
+        └──────────────┴─────┬──────┴──────────────────┘
+                             │
+              ┌──────────────┴───────────────┐
+              │      TeamClaw Cloud API      │   identity, teams,
+              │            (/v1)             │   sessions, messages
+              └──────────────┬───────────────┘
+                             │
+                    ┌────────┴────────┐
+                    │   amux daemon   │  agent host + channel gateways
+                    │    (amuxd)      │  + team sync (git / OSS)
+                    └────┬───────┬────┘
+                         │ ACP   │ ACP
+                    ┌────┴──┐ ┌──┴────┐
+                    │opencode│ │ codex │  …
+                    └────────┘ └───────┘
+```
 
-### 채널
+- **클라이언트**는 UI 와 로컬 파일을 담당합니다. TeamClaw Desktop 을 설치하면 `amuxd` 데몬도 함께 설치되므로, 사용자의 머신이 곧바로 에이전트 호스트가 됩니다.
+- **amuxd**는 ACP 를 통해 에이전트 프로세스를 호스팅하고, 채널 게이트웨이를 실행하며, 팀 동기화를 담당합니다. GUI 없이 서버에 단독으로 설치할 수도 있습니다.
+- **Cloud API**(`/v1`)는 클라이언트가 통신하는 유일한 백엔드입니다. 계약은 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml), 전체 아키텍처는 [`docs/architecture/v2.md`](docs/architecture/v2.md) 를 참조하세요.
 
-![TeamClaw 채널](images/channel.png)
+## 클라이언트
 
-### 팀
-
-![TeamClaw 팀](images/team.png)
-
-## 기술 스택
-
-- **데스크톱**: Tauri 2.0 (Rust)
-- **프론트엔드**: React 19 + TypeScript
-- **스타일링**: Tailwind CSS 4
-- **상태 관리**: Zustand
-- **에디터**: Tiptap (Markdown/HTML), CodeMirror 6 (코드)
-- **Diff**: 커스텀 Diff 렌더러, Shiki 구문 강조
+| 클라이언트 | 경로 | 상태 |
+|---|---|---|
+| **Desktop** (macOS / Windows / Linux) | `apps/desktop/` + `packages/app/` | 주력 클라이언트 |
+| **iOS** | `apps/ios/` | 네이티브 SwiftUI, TestFlight로 배포 |
+| **Mobile** (iOS / Android) | `apps/expo/` | Expo; 온보딩 및 세션 |
+| **Chrome 확장 프로그램** | `apps/extension/` | MV3 |
 
 ## 설치
 
-[GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases)에서 플랫폼별 설치 패키지를 다운로드하세요 (macOS는 `.dmg`).
+[GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases)에서 플랫폼별 설치 프로그램을 다운로드하세요 — macOS 는 `.dmg`, Windows 는 `.exe`.
 
-### macOS에서 "손상됨" 메시지가 표시될 때
+### macOS "손상됨" 경고
 
-네트워크에서 다운로드하여 설치한 후 앱을 열 때 **"손상됨"** 또는 **"개발자를 확인할 수 없어 열 수 없습니다"** 메시지가 표시되면, macOS 보안 정책(Gatekeeper) 때문입니다. 터미널에서 다음 명령을 실행하여 제한을 해제하면 정상적으로 열 수 있습니다:
+macOS 가 앱이 **"손상됨"** 또는 **"개발자를 확인할 수 없어 열 수 없습니다"** 라고 표시한다면, 이는 서명되지 않은 다운로드에 대해 Gatekeeper 가 반응하는 것입니다. 격리 속성을 해제하세요:
 
 ```bash
 xattr -cr /Applications/TeamClaw.app
 ```
 
-그 후 TeamClaw를 정상적으로 열 수 있습니다. 리포지토리에 Apple 개발자 서명과 공증이 구성되어 있으면 이 단계가 필요하지 않습니다.
+Apple 개발자 인증서로 서명 및 공증된 빌드에서는 이 단계가 필요하지 않습니다.
 
-## 개발
+## 빠른 시작 (개발)
 
-### 필수 요구 사항
-
-- Node.js >= 20
-- pnpm >= 10
-- Rust >= 1.70
-
-### 빠른 시작
+**필수 요구 사항:** Node.js >= 20, pnpm >= 10, Rust >= 1.70
 
 ```bash
-# 1. 의존성 설치
 pnpm install
-
-# 2. Tauri 개발 모드 시작
-pnpm tauri dev
-```
-
-시작 후 TeamClaw 인터페이스에서 Workspace 디렉토리를 선택하세요.
-
-## 팀 협업
-
-TeamClaw는 Git 리포지토리를 통한 팀 협업을 지원하며, 팀원들은 Skills, MCP 설정, 지식 베이스를 공유할 수 있습니다.
-
-### 팀 공유 리포지토리 설정
-
-1. **Settings** > **Team** 열기
-2. 팀 Git 리포지토리 URL 입력 (HTTPS 또는 SSH 지원)
-3. "연결" 버튼 클릭
-4. TeamClaw가 자동으로:
-   - 로컬 Git 리포지토리 초기화
-   - 원격 리포지토리 내용 가져오기
-   - 화이트리스트 `.gitignore` 생성 (공유 레이어 디렉토리만 동기화)
-
-### 공유 내용
-
-팀 리포지토리는 다음 내용을 자동 동기화합니다:
-
-- **Skills**: `.agent/skills/` — 공유 Agent 스킬
-- **MCP 설정**: `.mcp/` — MCP 서버 설정
-- **지식 베이스**: `knowledge/` — 팀 지식 베이스 문서
-
-개인 파일과 작업공간 설정은 동기화되지 않아 개인정보가 보호됩니다.
-
-### 자동 동기화
-
-- 앱 시작 시 최신 내용 자동 동기화
-- Settings > Team에서 수동 트리거 가능
-- 마지막 동기화 시간 확인 가능
-
-### 참고 사항
-
-- 작업공간에 이미 `.git` 디렉토리가 있으면 사용할 수 없습니다 (충돌 방지)
-- Git 인증(SSH 키 또는 HTTPS 토큰) 설정 필요
-- 공유 레이어 파일은 원격 리포지토리를 우선하며, 로컬 수정사항은 덮어쓰여집니다
-
-### 개발 명령어
-
-```bash
-# 프론트엔드만 시작 (Tauri 없음)
-pnpm dev
-
-# 전체 Tauri 앱 시작
-pnpm tauri dev
-
-# 또는 별칭 사용
 pnpm tauri:dev
 ```
 
-### 빌드
+시작한 후 TeamClaw UI 에서 워크스페이스 디렉토리를 선택하세요.
+
+개발 중 최초 실행 마법사를 건너뛰려면:
 
 ```bash
-pnpm tauri:build
+pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 ```
 
-### 테스트
+프론트엔드만 실행하려면(Rust 빌드 없음) `pnpm dev` 를 사용하세요. 빌드 명령어, 공유 Rust 빌드 캐시, 테스트 스위트, 리포지토리 구조는 [기여 가이드](CONTRIBUTING.md)에서 다룹니다.
 
-#### 단위 테스트
+## 팀 협업
+
+팀은 세 가지 **공유 모드** 중 하나를 통해 워크스페이스를 공유합니다. 모드는 팀 온보딩 시 한 번 선택되며 이후 서버 측에서 잠깁니다:
+
+| 모드 | 동작 |
+|---|---|
+| `oss` | S3 호환 오브젝트 스토리지(Alibaba OSS / WebDAV)를 통해 동기화 |
+| `managed_git` | 자동으로 프로비저닝된 Git 리포지토리를 통해 동기화 |
+| `custom_git` | 직접 호스팅하는 Git 리포지토리를 통해 동기화 |
+
+동기화는 Git 및 OSS 엔진을 실행하는 `amuxd` 데몬이 담당합니다.
+
+### 공유 대상
+
+공유 레이어만 동기화되며, 화이트리스트 `.gitignore` 가 그 외의 모든 것을 로컬에 유지합니다:
+
+- `skills/` — 공유 에이전트 스킬
+- `.mcp/` — MCP 서버 설정
+- `knowledge/` — 팀 지식 베이스 문서
+
+개인 파일과 워크스페이스 설정은 절대 동기화되지 않습니다.
+
+### 참고 사항
+
+- Git 모드에는 동작하는 Git 인증(SSH 키 또는 HTTPS 토큰)이 필요합니다.
+- 공유 파일은 원격을 따르며, 이에 대한 로컬 수정사항은 동기화 시 덮어쓰여집니다.
+- 동기화는 앱 시작 시 실행되며, **Settings → Team** 에서 수동으로 트리거할 수 있습니다.
+
+## 설정
+
+빌드 타임 설정은 리포지토리 루트의 `build.config.*.json` 에 있으며, 다음 순서로 병합됩니다:
+
+```
+build.config.json → build.config.${BUILD_ENV}.json → build.config.local.json
+```
+
+예제 파일을 복사해 시작하세요:
 
 ```bash
-# 모든 단위 테스트 실행
-pnpm test:unit
-
-# 감시 모드로 테스트 실행
-pnpm --filter @teamclaw/app test:unit --watch
+cp build.config.example.json build.config.local.json
 ```
 
-#### E2E 테스트 (Tauri-mcp)
+핵심 설정은 `cloudApiUrl` 로, 앱이 바라볼 TeamClaw Cloud API 배포를 지정합니다:
 
-E2E 테스트는 `tauri-mcp`를 사용하여 실행 중인 Tauri 앱과 상호작용하며, 네이티브 UI 자동화를 제공합니다.
-
-**필수 조건:**
-
-- `tauri-mcp` 설치: `cargo install tauri-mcp`
-- Tauri 앱 빌드: `pnpm tauri:build`
-
-**E2E 테스트 실행 (저장소 루트에서; Tauri 빌드 및 tauri-mcp 필요):**
-
-```bash
-# 전체 E2E 실행
-pnpm test:e2e
-
-# 카테고리별
-pnpm test:e2e:regression
-pnpm test:e2e:performance
-pnpm test:e2e:e2e
-pnpm test:e2e:functional
-
-# Smoke만
-pnpm test:smoke
+```json
+{
+  "cloudApiUrl": "https://cloud.ucar.cc",
+  "features": {
+    "channels": { "discord": true, "feishu": true, "email": true }
+  }
+}
 ```
 
-자세한 내용은 `[packages/app/e2e/README.md](./packages/app/e2e/README.md)` 및 `tests/` 참조.
+`build.config.local.json` 은 git 에서 무시됩니다. 로컬 개발에서는 `packages/app/.env.local` 의 `VITE_CLOUD_API_URL` 로 엔드포인트를 재정의할 수도 있습니다. 변경 사항을 적용하려면 다시 빌드하세요.
 
-## 프로젝트 구조
+Cloud API 구현은 `services/fc/` (Node.js 20)에 있으며, Supabase 를 백엔드로 사용하고 선택적으로 공유 AI 예산 관리를 위한 LiteLLM 프록시를 사용합니다.
 
-```
-teamclaw/
-├── packages/
-│   └── app/                 # React 프론트엔드
-│       └── src/
-│           ├── components/
-│           │   ├── editors/      # 파일 에디터
-│           │   ├── diff/         # Diff 렌더러
-│           │   └── ...           # 기타 UI 컴포넌트
-│           ├── hooks/
-│           ├── lib/
-│           ├── stores/
-│           └── styles/
-├── apps/desktop/              # Tauri 백엔드
-│   └── src/
-│       └── commands/       # Rust 명령
-├── doc/                    # 문서
-└── package.json
-```
+## 문서
 
-## 에디터 아키텍처
+- [아키텍처](docs/architecture/v2.md) — 구성 요소, 토폴로지, 데이터 모델
+- [API 계약](docs/openapi/teamclaw-api.v1.yaml) — TeamClaw Cloud API `/v1`
+- [컨텍스트 맵](CONTEXT-MAP.md) — 리포지토리가 바운디드 컨텍스트로 나뉘는 방식
+- [기여 가이드](CONTRIBUTING.md) — 개발 환경 설정, 테스트, 리포지토리 구조
+- [보안 정책](SECURITY.md)
 
-파일 에디터는 파일 타입에 따라 전문 에디터로 라우팅됩니다:
+## 기여
 
-- **Markdown 파일** (`.md`, `.mdx`): Tiptap WYSIWYG 에디터, Markdown 확장, 미리보기 전환, 클립보드 이미지 붙여넣기/업로드 지원
-- **HTML 파일** (`.html`, `.htm`): Tiptap HTML 에디터, 샌드박스 iframe 미리보기
-- **코드 파일** (기타): CodeMirror 6, 구문 강조, 줄 번호, 코드 접기, Git gutter 장식
+기여를 환영합니다! 자세한 내용은 [기여 가이드](CONTRIBUTING.md)를 참조하세요.
 
-### Diff 렌더러
+- 📝 [문서 및 번역](CONTRIBUTING.md#-documentation--translation-easiest) — 개발 환경 불필요
+- 🐛 [버그 리포트](CONTRIBUTING.md#-bug-reports)
+- ✨ [기능 제안](CONTRIBUTING.md#-feature-suggestions)
+- 🔧 [프론트엔드 개발](CONTRIBUTING.md#-frontend-development)
+- ⚙️ [Rust 개발](CONTRIBUTING.md#-rust-development)
 
-커스텀 Diff 렌더러는 Agent 우선 코드 리뷰 경험을 제공합니다:
+## 기술 스택
 
-- unified diff를 구조화된 AST(파일 > hunk > 줄)로 파싱
-- 줄 수준, hunk 수준, 파일 수준 선택 지원
-- Agent 채팅과 통합, "Agent에게 보내기"로 Review, Explain, Refactor, Generate Patch 지원
-- 대용량 diff 가상 스크롤 (IntersectionObserver 기반 지연 렌더링)
-- Shiki를 통한 구문 강조, 온디맨드 언어 로드
+- **데스크톱**: Tauri 2.0 (Rust)
+- **데몬**: Rust (`amuxd`), Zed agent protocol 기반 ACP
+- **프론트엔드**: React 19 + TypeScript, Tailwind CSS 4, Zustand
+- **iOS**: SwiftUI + SwiftPM (`AMUXCore`)
+- **에디터**: Tiptap (Markdown / HTML), CodeMirror 6 (코드), Shiki (구문 강조)
+- **검색**: Tantivy 전문 검색 + 임베딩
 
 ## License
 

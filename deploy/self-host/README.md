@@ -367,6 +367,8 @@ docker volume rm teamclaw-self-host_caddy_config   # 保留 caddy_data 可留证
 | `vector` | `timberio/vector` | Log collector; reads from Docker socket |
 | `emqx` | `emqx/emqx:5.10.3` | MQTT broker with JWT authenticator |
 | `migrate` | `postgres:15-alpine` | One-shot migration runner; exits 0 when done |
+| `litellm-init` | `postgres:15-alpine` | One-shot; creates the `_litellm` database inside `db`; exits 0 when done |
+| `litellm` | `ghcr.io/berriai/litellm-database` | AI 网关；FC 在此开团队预算与虚拟 key |
 | `fc` | built from `services/fc` | TeamClaw Cloud API (Node.js); the only app-level backend |
 | `caddy` | `caddy:2` | Reverse proxy + automatic TLS; **only service with host ports** |
 | `cron` _(opt-in)_ | `curlimages/curl` | Polls FC cron endpoints every 15 min |
@@ -616,7 +618,46 @@ docker compose exec -T emqx /opt/emqx/bin/emqx ctl status
 # Supabase Kong（容器内）
 docker compose exec -T fc node -e \
   "fetch('http://kong:8000/health').then(r=>r.text()).then(console.log)"
+
+# LiteLLM 网关（宿主机 loopback）
+curl -s http://127.0.0.1:4000/health/liveliness
 ```
+
+## LiteLLM AI 网关
+
+随 `docker compose up` 默认启动。FC 通过 `LITELLM_MASTER_KEY` 调用其管理 API
+（`/team/new`、`/key/generate`、`/key/info`）为每个团队开预算和虚拟 key,支撑
+`POST /v1/teams/:id/litellm/setup`。
+
+**数据库**：不单独起 postgres。`litellm-init` 在 Supabase 的 `db` 容器里建一个
+独立的 `_litellm` 数据库（LiteLLM 的 prisma schema 有约 20 张表,放进 `postgres`
+会和应用表冲突）——与 Supabase 自己的 `_supabase`/`_analytics` 是同一套做法。
+建库用一次性 service 而不是 `volumes/db/*.sql`,因为 init 脚本只在**集群首次
+初始化**时执行,已经部署过的栈永远不会跑到。
+
+**网络**：不经 Caddy,没有公网域名。FC 走 `http://litellm:4000`;管理操作走宿主机
+`127.0.0.1:4000`（要用 UI 就本地 SSH 隧道）。master key 是完整管理凭证,除非有
+防火墙,否则不要把它发布到 `0.0.0.0`。
+
+**配置模型**：开箱没有任何模型。`store_model_in_db: true` 已打开,可在管理 UI 里
+加模型并持久化到 `_litellm`;也可以改用 `litellm/config.yaml` 里注释掉的静态
+`model_list`,并把对应 key 写进 `.env`。
+
+```bash
+# 加一个模型（示例）
+curl -s http://127.0.0.1:4000/model/new \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model_name":"gpt-4o","litellm_params":{"model":"openai/gpt-4o","api_key":"sk-..."}}'
+```
+
+> **不要把 `LITELLM_URL` 留空传给 FC。** `services/fc/src/lib/litellm.ts` 在该值为空时
+> 会回落到托管网关 `https://ai.ucar.cc`,等于把自建部署的流量发去第三方。compose
+> 已默认填成 `http://litellm:4000`。
+>
+> **Rust 版（`litellm-rust`）暂不可用**：仍是 early beta,只有 amd64、无 arm64,且
+> `v1.89.3` 实测所有路由（含 `/team/new`、`/v1/chat/completions`）均返回 404。等它补齐
+> 管理 API 后,换掉 image 一行即可,`config.yaml` 官方承诺不变。
 
 ### Storage smoke (image upload)
 
@@ -701,8 +742,13 @@ All variables live in `.env` (copied from `.env.example`).
 | `BUCKET` | no | OSS bucket name (default: `teamclaw-team`) |
 | `REGION` | no | OSS region (default: `cn-shenzhen`) |
 | `ENDPOINT` | no | OSS endpoint URL |
-| `LITELLM_URL` | no | LiteLLM proxy URL |
-| `LITELLM_MASTER_KEY` | no | LiteLLM master key |
+| `LITELLM_URL` | no | 留空即用内置网关（compose 默认 `http://litellm:4000`）。仅在改用**外部**网关时才设置 |
+| `LITELLM_MASTER_KEY` | auto | `gen-secrets.sh` 生成（`sk-` 前缀）；LiteLLM 管理凭证,同时交给 FC |
+| `LITELLM_UI_USERNAME` | no | 管理 UI 用户名（默认 `admin`） |
+| `LITELLM_UI_PASSWORD` | auto | `gen-secrets.sh` 生成 |
+| `LITELLM_PORT` | no | 网关在宿主机 loopback 的端口（默认 `4000`） |
+| `OPENAI_API_KEY` | no | 上游 provider key；供 `litellm/config.yaml` 里的 `os.environ/` 引用 |
+| `ANTHROPIC_API_KEY` | no | 同上 |
 
 ## Single-image platform mode
 
