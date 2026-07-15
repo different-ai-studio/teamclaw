@@ -71,7 +71,7 @@ jobs:
           rm -f /tmp/test_sign_file /tmp/test_sign_file.sig
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
 
@@ -416,7 +416,7 @@ jobs:
           rm -f "$RUNNER_TEMP/test_sign_file" "$RUNNER_TEMP/test_sign_file.sig"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
 
