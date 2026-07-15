@@ -77,6 +77,15 @@ export const teamInvites = pgTable("team_invites", {
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
   consumedByActorId: uuid("consumed_by_actor_id"),
   targetActorId: uuid("target_actor_id"),
+  // Optional invitee contact, member invites only. When set, the invitee finds
+  // the invite after signing in (listPendingInvites) instead of needing the
+  // token out-of-band.
+  inviteEmail: text("invite_email"),
+  invitePhone: text("invite_phone"),
+  // pending | accepted | declined | expired. Soft lifecycle: rows are retained
+  // after acceptance/decline so the inviter can see the outcome.
+  status: text("status").notNull().default("pending"),
+  declinedAt: timestamp("declined_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

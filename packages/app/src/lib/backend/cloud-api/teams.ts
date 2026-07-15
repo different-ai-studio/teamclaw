@@ -78,6 +78,10 @@ export function createTeamsModule(client: CloudApiClient): TeamsBackend {
         agentKind: kind === "agent" ? input.agentKind : null,
         ttlSeconds: input.ttlSeconds ?? null,
         targetActorId: input.targetActorId ?? null,
+        // `in` rather than a plain read: the agent arms of TeamInviteInput have
+        // no contact fields, so the union needs narrowing before access.
+        inviteEmail: "inviteEmail" in input ? (input.inviteEmail ?? null) : null,
+        invitePhone: "invitePhone" in input ? (input.invitePhone ?? null) : null,
       };
       return mapInvite(await client.post<CloudInvite>(`/v1/teams/${encodeURIComponent(input.teamId)}/invites`, body));
     },

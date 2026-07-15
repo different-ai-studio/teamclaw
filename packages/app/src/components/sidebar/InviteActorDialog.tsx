@@ -39,6 +39,11 @@ export function InviteActorDialog({ open, onOpenChange, teamId }: InviteActorDia
   const [kind, setKind] = React.useState<InviteKind>('member')
   const [name, setName] = React.useState('')
   const [teamRole, setTeamRole] = React.useState<TeamRole>('member')
+  // Optional. When either is filled the invitee sees this invite waiting for
+  // them after signing in, so the link below becomes a convenience rather than
+  // the only way in.
+  const [email, setEmail] = React.useState('')
+  const [phone, setPhone] = React.useState('')
   const [agentKind] = React.useState<string>('daemon')
   const [submitting, setSubmitting] = React.useState(false)
   const [invite, setInvite] = React.useState<InviteCreated | null>(null)
@@ -51,6 +56,8 @@ export function InviteActorDialog({ open, onOpenChange, teamId }: InviteActorDia
     setKind('member')
     setName('')
     setTeamRole('member')
+    setEmail('')
+    setPhone('')
     setSubmitting(false)
     setInvite(null)
     setNeedsUpgrade(false)
@@ -77,6 +84,8 @@ export function InviteActorDialog({ open, onOpenChange, teamId }: InviteActorDia
             teamRole,
             ttlSeconds: null,
             targetActorId: null,
+            inviteEmail: email.trim() || null,
+            invitePhone: phone.trim() || null,
           })
         : await getBackend().teams.createTeamInvite({
             teamId: effectiveTeamId,
@@ -198,6 +207,40 @@ export function InviteActorDialog({ open, onOpenChange, teamId }: InviteActorDia
                       {r === 'member' ? t('invite.roleMember', 'Member') : t('invite.roleAdmin', 'Admin')}
                     </button>
                   ))}
+                </div>
+              </div>
+            )}
+            {kind === 'member' && (
+              <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+                <p className="text-[11px] text-muted-foreground">
+                  {t(
+                    'invite.contactHint',
+                    '填写邮箱或手机号后，对方登录时会直接看到这个邀请，不用你再发链接。',
+                  )}
+                </p>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    {t('invite.emailLabel', 'Email (optional)')}
+                  </label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={t('invite.emailPlaceholder', 'name@example.com')}
+                    disabled={submitting}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    {t('invite.phoneLabel', 'Phone (optional)')}
+                  </label>
+                  <Input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder={t('invite.phonePlaceholder', '13800138000')}
+                    disabled={submitting}
+                  />
                 </div>
               </div>
             )}

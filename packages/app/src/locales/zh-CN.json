@@ -2962,7 +2962,25 @@
     "copyFailed": "复制失败",
     "failed": "创建邀请失败：{{msg}}",
     "upgradeRequired": "当前团队还在公共组织下，只能自己使用。升级账号、创建你自己的团队后即可邀请成员。",
-    "upgradeButton": "升级账号"
+    "upgradeButton": "升级账号",
+    "contactHint": "填写邮箱或手机号后，对方登录时会直接看到这个邀请，不用你再发链接。",
+    "emailLabel": "邮箱（选填）",
+    "emailPlaceholder": "name@example.com",
+    "phoneLabel": "手机号（选填）",
+    "phonePlaceholder": "13800138000"
+  },
+  "pendingInvite": {
+    "title": "你有团队邀请",
+    "description": "以下团队邀请你加入。你可以选择接受或拒绝。",
+    "unnamedTeam": "未命名团队",
+    "invitedBy": "{{name}} 邀请你以 {{role}} 身份加入",
+    "invitedAs": "邀请你以 {{role}} 身份加入",
+    "expiresAt": "{{date}} 过期",
+    "accept": "接受邀请",
+    "decline": "拒绝",
+    "accepted": "已加入团队",
+    "acceptFailed": "加入团队失败：{{msg}}",
+    "declineFailed": "拒绝失败：{{msg}}"
   },
   "terminal": {
     "label": "终端",

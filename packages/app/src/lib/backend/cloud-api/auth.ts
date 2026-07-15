@@ -1,4 +1,4 @@
-import type { AuthBackend, AuthClaimResult, AuthSession, Unsubscribe } from "../types";
+import type { AuthBackend, AuthClaimResult, AuthSession, PendingInvite, Unsubscribe } from "../types";
 import { BackendError } from "../errors";
 import type { CloudApiClient } from "./http";
 import {
@@ -110,6 +110,27 @@ export function createAuthModule(
       // and surfaced via the team-share store; we no longer persist a local
       // `team_mode` into teamclaw.json after a join.
       return claim;
+    },
+    async listPendingInvites(): Promise<PendingInvite[]> {
+      const page = await client.get<{ items: PendingInvite[] }>("/v1/invites/pending");
+      return page?.items ?? [];
+    },
+    async acceptPendingInvite(inviteId: string): Promise<AuthClaimResult> {
+      const claim = await client.post<AuthClaimResult>(
+        `/v1/invites/${encodeURIComponent(inviteId)}/accept`,
+        {},
+      );
+      if (!claim) {
+        throw new BackendError({
+          category: "Unknown",
+          operation: "auth.acceptPendingInvite",
+          message: "Invite accept returned no team.",
+        });
+      }
+      return claim;
+    },
+    async declinePendingInvite(inviteId: string): Promise<void> {
+      await client.post<void>(`/v1/invites/${encodeURIComponent(inviteId)}/decline`, {});
     },
   };
 }
