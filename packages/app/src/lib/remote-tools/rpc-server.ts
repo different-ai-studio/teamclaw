@@ -88,7 +88,11 @@ function handleEnvelope(env: IncomingEnvelope): void {
       return
     }
 
-    let authorized = false
+    // Not initialised to `false`: the catch below returns, so the only path that
+    // reaches the read has already assigned from the await. An initialiser here
+    // is dead (eslint no-useless-assignment) and would hide a future path that
+    // forgot to assign.
+    let authorized: boolean
     try {
       authorized = await authorizeRemoteToolRequest(teamId, request, invoke)
     } catch {
