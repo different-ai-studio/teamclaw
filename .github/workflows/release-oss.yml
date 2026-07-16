@@ -35,8 +35,16 @@ on:
         required: true
         type: string
 
+# Keyed on brand alone, deliberately: every release of a brand overwrites that
+# brand's single latest.json, so two releases of the SAME brand are never safe to
+# run concurrently regardless of tag. Including the tag here left them in
+# separate groups, so on 2026-07-16 a betly v0.2.24-beta.5 run started 3 minutes
+# earlier but finished 2 minutes later than a v0.2.25-beta.1 run and clobbered
+# the manifest back to the older version — last writer wins, and build duration,
+# not version order, decides the winner. Different brands publish to different
+# prefixes and still run in parallel.
 concurrency:
-  group: release-oss-${{ inputs.brand }}-${{ inputs.tag }}
+  group: release-oss-${{ inputs.brand }}
   cancel-in-progress: true
 
 # Per-brand values (bucket, endpoint, prefix, CDN base, app name) are exported
