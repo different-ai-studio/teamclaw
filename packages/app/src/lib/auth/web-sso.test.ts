@@ -20,7 +20,7 @@ vi.mock("@/lib/bootstrap", () => ({ fetchPublicConfig: (...a: unknown[]) => fetc
 import { ssoConfig, runWebSso, cancelWebSso } from "@/lib/auth/web-sso";
 
 const TEST_CFG = {
-  webSsoLoginUrl: "https://testadmin.ucar.cc/sign-in",
+  webSsoLoginUrl: "https://admin.example.test/sign-in",
   webSsoStorageKey: "sb-test-supa-auth-token",
 };
 
@@ -30,8 +30,8 @@ describe("ssoConfig", () => {
   it("returns the FC-delivered login URL + storage key, with host derived from the URL", () => {
     serverCfgMock.mockReturnValue(TEST_CFG);
     expect(ssoConfig()).toEqual({
-      loginUrl: "https://testadmin.ucar.cc/sign-in",
-      host: "testadmin.ucar.cc",
+      loginUrl: "https://admin.example.test/sign-in",
+      host: "admin.example.test",
       storageKey: "sb-test-supa-auth-token",
     });
   });
@@ -42,7 +42,7 @@ describe("ssoConfig", () => {
   });
 
   it("returns null when the storage key is missing", () => {
-    serverCfgMock.mockReturnValue({ webSsoLoginUrl: "https://testadmin.ucar.cc/sign-in" });
+    serverCfgMock.mockReturnValue({ webSsoLoginUrl: "https://admin.example.test/sign-in" });
     expect(ssoConfig()).toBeNull();
   });
 });
@@ -67,13 +67,13 @@ describe("runWebSso", () => {
     expect(rt).toBe("RT");
     expect(invokeMock).toHaveBeenCalledWith("webview_create", expect.objectContaining({
       label: "websso-login",
-      url: "https://testadmin.ucar.cc/sign-in",
+      url: "https://admin.example.test/sign-in",
       clearStorageKey: "sb-test-supa-auth-token",
     }));
     expect(invokeMock).toHaveBeenCalledWith("webview_read_local_storage", expect.objectContaining({
       label: "websso-login",
       key: "sb-test-supa-auth-token",
-      expectedHost: "testadmin.ucar.cc",
+      expectedHost: "admin.example.test",
     }));
     expect(invokeMock).toHaveBeenCalledWith("webview_close", { label: "websso-login" });
   });

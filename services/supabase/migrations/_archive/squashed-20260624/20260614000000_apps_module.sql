@@ -8,9 +8,9 @@
 -- (amux.actors / amux.members / amux.agents / amux.sessions / amux.teams /
 -- amux.workspaces). So this migration creates amux.apps / amux.app_member_access
 -- and references amux.teams / amux.actors / amux.members / amux.workspaces /
--- amux.sessions. RLS helpers live in `amux` on belayo RDS (no `app` schema):
+-- amux.sessions. RLS helpers live in `amux` on the partner RDS (no `app` schema):
 -- `amux.is_team_member`, `amux.current_actor_id_for_team`, `amux.current_member_id`.
--- See `services/supabase/s4/BELAYO-LIVE.md`.
+-- See `services/supabase/s4/LIVE-CLONE.md`.
 -- RLS is the row-access mechanism, but because amux.apps / amux.app_member_access
 -- are created directly in amux (rather than moved from public), they inherit no
 -- table-level privileges — so per-table GRANTs to the API roles + a PostgREST

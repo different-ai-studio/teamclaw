@@ -43,10 +43,10 @@ pub(crate) fn get_fc_endpoint(_workspace_path: &str) -> String {
     //
     // That override was the same anti-pattern as the now-removed
     // `build.config.local.json`: a stale local pin (e.g. a long-dead
-    // `belayo-test-api.ucar.cc` left over from earlier testing) silently won
+    // `legacy-test-api.example.test` left over from earlier testing) silently won
     // over the build's backend, so the frontend talked to the build-config
     // backend while the Rust team-share / OSS commands hit the dead host —
-    // surfacing as `FunctionNotFound: function 'belayo-test-api' does not exist`
+    // surfacing as `FunctionNotFound: function 'legacy-test-api' does not exist`
     // when enabling Team Shared. Routing solely from the build config keeps the
     // two in lockstep and cannot drift. `_workspace_path` is retained for call-
     // site compatibility.
@@ -62,7 +62,7 @@ pub(crate) fn get_fc_endpoint(_workspace_path: &str) -> String {
 /// the frontend resolves from (`getEffectiveServerConfigSync().cloudApiUrl`), so
 /// the Rust team-share / OSS commands route to the SAME backend the frontend
 /// talks to. Previously this was hardcoded to `https://cloud.ucar.cc`, which
-/// sent a non-production build's (e.g. belayo-test) freshly-issued JWT to the
+/// sent a non-production build's (e.g. a legacy test build) freshly-issued JWT to the
 /// production Cloud API — whose JWT secret differs — yielding a PostgREST
 /// `JWSError JWSInvalidSignature` (PGRST301). The hardcoded production URL
 /// remains only as a last-resort fallback if the build did not bake one.
@@ -100,11 +100,11 @@ mod fc_endpoint_tests {
     fn workspace_fc_endpoint_override_is_ignored() {
         // A stale per-workspace pin must NOT override the build-config URL —
         // this is the regression that produced
-        // `FunctionNotFound: function 'belayo-test-api' does not exist`.
+        // `FunctionNotFound: function 'legacy-test-api' does not exist`.
         let dir = temp_dir();
         write_workspace_config(
             &dir,
-            r#"{"fc_endpoint":"https://belayo-test-api.ucar.cc/"}"#,
+            r#"{"fc_endpoint":"https://legacy-test-api.example.test/"}"#,
         );
         assert_eq!(
             get_fc_endpoint(dir.to_str().unwrap()),

@@ -97,6 +97,7 @@ function repoWith(db: any, authStore: any, extra: any = {}) {
     publishableKey: "anon",
     serviceRoleKey: "service",
     defaultOrgId: "org-default",
+    phoneEmailDomain: "phone.example.test",
     encryptionKey: "k",
     sendSms: async () => {},
     createClient: () => client,
@@ -143,7 +144,7 @@ test("sendCode 429 when a code was sent within 60s", async () => {
 });
 
 test("login reuses an existing public.users row (no new user)", async () => {
-  const authStore = { users: [{ id: "auth-existing", email: "13700000000@phone.betly.app" }] };
+  const authStore = { users: [{ id: "auth-existing", email: "13700000000@phone.example.test" }] };
   const db = {
     auth_verify_code: [
       { id: "c1", phone: "13700000000", code: "123456", used: false, expires_at: new Date(2_000_000_000_000).toISOString(), created_at: "x" },

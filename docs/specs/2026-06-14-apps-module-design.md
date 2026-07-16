@@ -106,7 +106,7 @@ Compute）作为部署目标，可团队可见或个人私有。
 
 - 建 `amux.apps` / `amux.app_member_access`，给 `sessions` 加 `app_id`。
 - **给 amux 三角色 GRANT** + **通知 PostgREST reload schema cache**（参照
-  belayo 库三缺口教训：amux 表无 grant 会 PostgREST 不可见；RPC schema 缓存需
+  该 RDS 库三缺口教训：amux 表无 grant 会 PostgREST 不可见；RPC schema 缓存需
   reload）。
 - 不改动任何 public 表。
 

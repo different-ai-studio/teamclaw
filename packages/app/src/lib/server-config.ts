@@ -12,7 +12,7 @@ export interface ServerConfig {
   mqttUsername?: string;
   mqttPassword?: string;
   // Web SSO 快捷登录 target, delivered by /v1/config/bootstrap (like MQTT) so
-  // the Betly admin sign-in URL + supabase-js storage key are not hardcoded.
+  // the admin console sign-in URL + supabase-js storage key are not hardcoded.
   webSsoLoginUrl?: string;
   webSsoStorageKey?: string;
 }

@@ -9,7 +9,7 @@
 --                                            / current_actor_id_for_team
 --   - 20260614000000 (app_member_access policy): amux.current_member_id
 --   - 20260617000000 / 20260618000000 (ACL view): amux.amux_acl_rules_for
--- On the live belayo-test/dev databases these functions were created out of band,
+-- On the live test/dev databases these functions were created out of band,
 -- so the sequence applied there; on a clean sequential apply (a fresh self-host
 -- or a fresh production deploy) those migrations fail with
 -- "function amux.<name>(...) does not exist". This migration closes that gap.

@@ -81,7 +81,8 @@ pnpm ios:test               # iOS UI tests
 - `apps/daemon/` — amuxd daemon (ACP runtime, MQTT/Supabase bridge)
 - `apps/ios/` — iOS app, Xcode project, and Swift packages
 - `services/supabase/` — Supabase migrations, seed, and database tests
-- `services/fc/` — Alibaba Cloud Function Compute (Node.js 20, serverless team API)
+- `services/fc/` — Cloud API service (Node.js 20). Deploys two ways: as the
+  self-host container (what runs today) or to Alibaba Function Compute (`s.yaml`)
 - `crates/` — shared Rust crates (`teamclaw-proto`, `teamclaw-types`, `teamclaw-transport`)
 - `tests/` — E2E tests (tauri-mcp): smoke, regression, performance, functional
 
@@ -171,15 +172,26 @@ Shared: `skills/`, `.mcp/`, `knowledge/`
 
 **Tag format must be `ios-v*`** — other formats (e.g. `ios-1.1.5-4`) do not trigger the workflow.
 
-## Deployment — one environment
+## Deployment — one environment, two deploy targets
 
-There is exactly **one** environment: a single self-hosted ECS box. The Alibaba
-Cloud Function Compute deployment (`teamclaw-sync` / `cloud.ucar.cc`) and the
-belayo RDS instances are gone; do not reintroduce references to them.
+There is exactly **one** running environment: a single self-hosted ECS box. The
+old hosted endpoints (`teamclaw-sync` / `cloud.ucar.cc`) and the standalone RDS
+instances are gone; do not reintroduce references to those hosts.
 
-`services/fc/` is **not** Alibaba FC anymore — despite the name it is the Cloud
-API service, built as a container by `deploy/self-host/docker-compose.yml`
-(`build: context: ../../services/fc`).
+`services/fc/` is the Cloud API service, and it supports **two deploy targets**
+from the same source:
+
+- **self-host (what runs today)** — built as a container by
+  `deploy/self-host/docker-compose.yml` (`build: context: ../../services/fc`).
+  Env comes from the `fc:` service's `environment:` map, which is an explicit
+  allowlist: a var absent from it never reaches the container.
+- **Alibaba Function Compute** — `services/fc/s.yaml` (Serverless Devs) +
+  `services/fc/deploy-aliyun-fc.sh`. Kept deliberately; the directory name is
+  not vestigial. Deploying this way is manual, not wired to CI.
+
+Both targets must keep working. When adding an FC env var, declare it in **both**
+`s.yaml` and the compose `environment:` map, or it silently goes missing on one
+of them.
 
 **Host:** `47.112.210.217` (ECS `i-wz90nb0me448q3k22fxt`). Every subdomain below
 resolves to it:

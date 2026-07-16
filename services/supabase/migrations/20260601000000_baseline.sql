@@ -1,7 +1,7 @@
 -- TeamClaw consolidated baseline (squashed from migrations, generated 2026-06-24).
 -- FRESH DATABASES ONLY. This baseline replaces the pre-2026-06-24 migration chain
 -- (archived under _archive/squashed-20260624/). Do NOT apply it to an already-deployed
--- database (e.g. belayo / dev) that ran the old migrations — those carry their own
+-- database (e.g. the partner RDS / dev) that ran the old migrations — those carry their own
 -- applied history; this file is the starting point for brand-new deployments.
 -- All teamclaw tables + functions live in amux; public holds only orgs/plans/users.
 -- Generated via: pg_dump --schema=amux --schema=public  +  appended storage policies.
@@ -568,8 +568,8 @@ begin
     raise exception 'phone already in use by another account' using errcode = '23505';
   end if;
 
-  -- Upsert the current account's public.users row (mirror betly's shape).
-  v_nick := 'betly_' || substr(md5(v_user_id::text || p_phone), 1, 4) || '_' || right(p_phone, 4);
+  -- Upsert the current account's public.users row (mirror the partner's shape).
+  v_nick := 'user_' || substr(md5(v_user_id::text || p_phone), 1, 4) || '_' || right(p_phone, 4);
   insert into public.users (id, org_id, auth_user_id, mobile, nickname)
   values (v_user_id, p_default_org_id, v_user_id, p_phone, v_nick)
   on conflict (id) do update

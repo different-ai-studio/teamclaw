@@ -1,8 +1,8 @@
 # teamclaw × saas-mono 登录与租户整合 —— 统一 Spec & 执行计划
 
 > **状态（2026-07-15）：已过时，保留为历史记录。** 本文的落地目标环境
-> （belayo RDS `supabase_db`、`https://supa.mx5.cn`、`services/supabase/s4/` 下的
-> BELAYO-LIVE runbook）已整体下线，S4「切流」一节不再可执行，所引脚本亦已删除。
+> （独立 RDS `supabase_db`、其 Supabase 网关、`services/supabase/s4/` 下的
+> live 克隆 runbook）已整体下线，S4「切流」一节不再可执行，所引脚本亦已删除。
 > 登录/租户模型本身仍在 FC 代码中沿用（见 `services/fc/src/lib/supabase-repo/`），
 > 但当前唯一环境是 self-host 单机栈，部署现状见
 > [`docs/deployment/full-backend-stack.md`](../deployment/full-backend-stack.md)。
@@ -62,7 +62,7 @@ saas-mono 自建 Supabase（唯一实例 / 唯一 GoTrue / 唯一 auth.users）
 | **S3-FC.1** | create_team 加 p_oid + FC createTeam 传 token org_id | ✅ DB 已应用 47.x；FC 代码改好 ⬜ **待部署** | 迁移 `20260608040000` + supabase-repo.ts |
 | **S3-FC.2** | 匿名 lazy-provision 个人 org（createTeam 路径，无 org 时 ensure_personal_org） | ✅ **已上 prod**（public-only）+ 干跑功能验证 + FC typecheck 干净 | 迁移 `20260608050000` + supabase-repo.ts |
 | **S3-FC.3** | claim_team_invite 换 org（严格单 org，best-effort GC 个人 org） | ✅ **已应用 47.x** + 场景干跑验证（C 换 org+个人 org/team GC+入新 team） | 迁移 `20260608060000` |
-| **S4** | 在 saas-mono 实例落地 + 切流 | ✅ **belayo_live 已完成**（2026-06）；⬜ FC 切 live 待做 | 见 `services/supabase/s4/BELAYO-LIVE.md` |
+| **S4** | 在 saas-mono 实例落地 + 切流 | ✅ **live RDS 已完成**（2026-06）；⬜ FC 切 live 待做 | 见 `services/supabase/s4/LIVE-CLONE.md` |
 
 **47.x 此刻实况**（无活跃流量，已直接切 DB 侧）：35 张业务表已在 `amux`，`teams.oid`、`teams_org_guard`、org_id 注入的 `amux_access_token_hook`、`create_team(p_oid)`、`ensure_personal_org`/`ensure_org_default_team` 全部就位；`public` 留 orgs/plans/users 镜像 + 5 张 Better-Auth。
 运维收尾：
@@ -82,7 +82,7 @@ saas-mono 自建 Supabase（唯一实例 / 唯一 GoTrue / 唯一 auth.users）
 3. 闸门：typecheck + FC 测试全绿。
 4. 回滚：纯代码，分支可弃。
 
-### ⬜ Step B — 在 47.115.253.201（我们自己的服务器，MCP 连接的这台）应用 S2+S3B（协同切窗口，⚠️ 不可灰度）
+### ⬜ Step B — 在自有服务器（MCP 连接的那台）应用 S2+S3B（协同切窗口，⚠️ 不可灰度）
 没有单独的 testsupa；47.x 就是我们的环境。**三件事同一窗口一起做**（否则 FC 旧 `.from()` 默认 public 即刻全断）：
 1. 我经 MCP 跑迁移 `20260608010000`(S2) + `20260608030000`(S3B) + `20260608040000`(create_team p_oid)。
 2. 你改 47.x PostgREST 容器 `PGRST_DB_SCHEMAS` 加 `amux`（保留 public）+ 重启。
@@ -91,15 +91,15 @@ saas-mono 自建 Supabase（唯一实例 / 唯一 GoTrue / 唯一 auth.users）
 5. 回滚：SET SCHEMA 反向 + drop teams.oid/守卫 + FC 默认 schema 改回 + PGRST 还原 + hook 还原。
 > 我能做：MCP 跑迁移。我不能做：改 PostgREST 容器 env、部署 FC（需你操作）。所以这步卡在你这两个运维动作上，不在 testsupa。
 
-### ✅ Step D — belayo_live（S4 生产，2026-06 已完成）
+### ✅ Step D — live RDS（S4 生产，2026-06 已完成）
 
-**路径**：`belayo_test` → `belayo_live`（均为 RDS `supabase_db`，不是空库 `postgres`）。
+**路径**：`test RDS` → `live RDS`（均为 RDS `supabase_db`，不是空库 `postgres`）。
 
-**Runbook**：`services/supabase/s4/BELAYO-LIVE.md` + `./belayo-live.sh`。
+**Runbook**：`services/supabase/s4/LIVE-CLONE.md` + `./live-clone.sh`。
 
 与 47.x 旧 layout **不同**（勿用 `transplant-amux.sh` / repo bootstrap）：
 
-| 对象 | belayo 实况 |
+| 对象 | 实况 |
 |---|---|
 | 业务表 | **37** 张，全在 **`amux`** |
 | RLS helper + RPC | **`amux.*`**（无 `app` schema） |
@@ -109,7 +109,7 @@ saas-mono 自建 Supabase（唯一实例 / 唯一 GoTrue / 唯一 auth.users）
 
 PostgREST：`PGRST_DB_SCHEMAS` 含 `amux`（RDS + rest 容器）+ GRANT + smoke `Accept-Profile: amux`。
 
-**待办**：FC `SUPABASE_URL` 指向 live（`https://supa.mx5.cn`）。
+**待办**：FC `SUPABASE_URL` 指向 live（`https://<partner-supabase-host>`）。
 
 ### Legacy Step D — 47.x → 其他 saas-mono 实例
 

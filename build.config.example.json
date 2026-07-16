@@ -27,7 +27,7 @@
       "wecom": true,
       "wechat": true
     },
-    "auth": { "google": false, "wechat": false, "phone": false, "webSSO": false },
+    "auth": { "google": false, "wechat": false, "phone": false, "webSSO": false, "webSSOHosts": [] },
     "teamShareBrowser": false
   },
   "opencode": {
