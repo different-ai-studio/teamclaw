@@ -144,12 +144,68 @@ WIN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.4
 LINUX_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c-2 0-3.2 1.7-3.2 4 0 1.4.3 2.2.3 3.2 0 1-.9 1.8-1.7 3.2-.8 1.4-1.7 2.9-1.7 4.6 0 .9.3 1.5.8 1.9-.1.5 0 1 .3 1.4.5.6 1.4.7 2.3.7.8 0 1.5-.3 2-.3.5 0 1.2.3 2 .3.9 0 1.8-.1 2.3-.7.3-.4.4-.9.3-1.4.5-.4.8-1 .8-1.9 0-1.7-.9-3.2-1.7-4.6-.8-1.4-1.7-2.2-1.7-3.2 0-1 .3-1.8.3-3.2C15.2 3.7 14 2 12 2zm-1.2 4.1c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zm2.4 0c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9z"/></svg>'
 
 
+# One template serves every brand, so the page copy has to follow the brand's
+# page.lang instead of being hardcoded. Keyed by language family: a brand's tag
+# ("zh-CN", "en-US") selects by prefix via strings(). Anything unrecognised —
+# including a brand that omits page.lang — falls back to Chinese, which is what
+# this page rendered before it was translatable, so existing brands are
+# unaffected.
+STRINGS = {
+    "zh": {
+        "released_on": "发布于 {date}",
+        "tab_desktop": "{app} 桌面",
+        "tab_amuxd": "amuxd 守护进程",
+        "install_terminal": "一键安装（终端）",
+        "install_ps": "一键安装（PowerShell）",
+        "copy": "复制",
+        "copied": "已复制",
+        "or_manual": "或手动下载",
+        "or_manual_bin": "或手动下载二进制",
+        "amuxd_intro": (
+            "amuxd 是无界面的团队守护进程：把服务器/常开机器接入团队，"
+            "托管本地 AI Agent 与团队同步。安装脚本会下载二进制、引导你粘贴 "
+            "<code>{scheme}://invite</code> 邀请深链完成接入，并注册为开机自启的后台服务。"
+        ),
+        "amuxd_footer": (
+            "手动安装：放到 <code>~/.amuxd/bin/amuxd</code> 后依次执行 "
+            "<code>amuxd init</code> 与 <code>amuxd install-service</code>。"
+        ),
+    },
+    "en": {
+        "released_on": "Released {date}",
+        "tab_desktop": "{app} Desktop",
+        "tab_amuxd": "amuxd daemon",
+        "install_terminal": "one-line install (Terminal)",
+        "install_ps": "one-line install (PowerShell)",
+        "copy": "Copy",
+        "copied": "Copied",
+        "or_manual": "Or download manually",
+        "or_manual_bin": "Or download the binary manually",
+        "amuxd_intro": (
+            "amuxd is the headless team daemon: it connects a server or always-on "
+            "machine to your team, hosting local AI agents and team sync. The "
+            "install script downloads the binary, walks you through pasting a "
+            "<code>{scheme}://invite</code> deep link to join, and registers it as "
+            "a background service that starts on boot."
+        ),
+        "amuxd_footer": (
+            "Manual install: place it at <code>~/.amuxd/bin/amuxd</code>, then run "
+            "<code>amuxd init</code> followed by <code>amuxd install-service</code>."
+        ),
+    },
+}
+
+
+def strings(lang):
+    return STRINGS.get((lang or "").split("-")[0].lower(), STRINGS["zh"])
+
+
 def _ico(d):
     o = d.get("os")
     return LINUX_SVG if o == "linux" else (WIN_SVG if o == "windows" else APPLE_SVG)
 
 
-def _card(d):
+def _card(d, s):
     return (
         '        <div class="dl">'
         f'<a class="dl-main" href="{html.escape(d["url"])}">'
@@ -160,8 +216,8 @@ def _card(d):
         '<div class="sha-row"><span class="sha-k">SHA256</span>'
         f'<code class="sha">{short_sha(d["sha256"])}</code>'
         f'<button class="sha-copy" data-sha="{d["sha256"]}" '
-        "onclick=\"navigator.clipboard.writeText(this.dataset.sha);this.textContent=&#39;已复制&#39;;"
-        'setTimeout(()=>this.textContent=&#39;复制&#39;,1200)">复制</button></div></div>'
+        f"onclick=\"navigator.clipboard.writeText(this.dataset.sha);this.textContent=&#39;{s['copied']}&#39;;"
+        f'setTimeout(()=>this.textContent=&#39;{s["copy"]}&#39;,1200)">{s["copy"]}</button></div></div>'
     )
 
 
@@ -357,10 +413,12 @@ Write-Host 'Done. amuxd is running as a background service. Check: amuxd status'
     am_mac_cmd = f"bash <(curl -fsSL {cdn}/{prefix}/install-amuxd.sh)"
     am_win_cmd = f"irm {cdn}/{prefix}/install-amuxd.ps1 | iex"
 
-    cards = "\n".join(_card(d) for d in downloads)
-    amuxd_cards = "\n".join(_card(d) for d in amuxd_downloads)
-
     lang = page_cfg.get("lang") or "zh-CN"
+    s = strings(lang)
+
+    cards = "\n".join(_card(d, s) for d in downloads)
+    amuxd_cards = "\n".join(_card(d, s) for d in amuxd_downloads)
+
     badge = page_cfg.get("badge") or ""
     # Private OEM distribution: keep these pages out of search results unless a
     # brand explicitly opts in.
@@ -391,37 +449,36 @@ Write-Host 'Done. amuxd is running as a background service. Check: amuxd status'
         f'<img class="logo" src="{logo_url}" alt="{html.escape(app_name)}">'
         f"{badge_html}"
         f"<h1>{html.escape(app_name)} {html.escape(version)}</h1>"
-        f'<div class="meta"><b>{html.escape(version)}</b> · 发布于 {pub_date[:10]}</div>'
+        f'<div class="meta"><b>{html.escape(version)}</b> · '
+        f'{s["released_on"].format(date=pub_date[:10])}</div>'
         # --- desktop / amuxd toggle ---
         '<div class="seg" role="tablist">'
-        f'<button class="on" data-p="desktop" onclick="pick(this)">{html.escape(app_name)} 桌面</button>'
-        '<button data-p="amuxd" onclick="pick(this)">amuxd 守护进程</button></div>'
+        f'<button class="on" data-p="desktop" onclick="pick(this)">'
+        f'{s["tab_desktop"].format(app=html.escape(app_name))}</button>'
+        f'<button data-p="amuxd" onclick="pick(this)">{s["tab_amuxd"]}</button></div>'
         # --- panel: desktop app ---
         '<div class="panel on" data-panel="desktop">'
-        f'<div class="lbl"><span class="os-ico">{APPLE_SVG}</span><span class="os">macOS</span> 一键安装（终端）</div>'
+        f'<div class="lbl"><span class="os-ico">{APPLE_SVG}</span><span class="os">macOS</span> {s["install_terminal"]}</div>'
         f'<div class="cmd"><code id="m">{html.escape(mac_cmd)}</code>'
-        '<button class="copy" onclick="navigator.clipboard.writeText(m.textContent);this.textContent=&#39;已复制&#39;">复制</button></div>'
-        f'<div class="lbl"><span class="os-ico">{WIN_SVG}</span><span class="os">Windows</span> 一键安装（PowerShell）</div>'
+        f'<button class="copy" onclick="navigator.clipboard.writeText(m.textContent);this.textContent=&#39;{s["copied"]}&#39;">{s["copy"]}</button></div>'
+        f'<div class="lbl"><span class="os-ico">{WIN_SVG}</span><span class="os">Windows</span> {s["install_ps"]}</div>'
         f'<div class="cmd"><code id="w">{html.escape(win_cmd)}</code>'
-        '<button class="copy" onclick="navigator.clipboard.writeText(w.textContent);this.textContent=&#39;已复制&#39;">复制</button></div>'
-        '<div class="sep">或手动下载</div>'
+        f'<button class="copy" onclick="navigator.clipboard.writeText(w.textContent);this.textContent=&#39;{s["copied"]}&#39;">{s["copy"]}</button></div>'
+        f'<div class="sep">{s["or_manual"]}</div>'
         f"{cards}"
         "</div>"
         # --- panel: standalone amuxd ---
         '<div class="panel" data-panel="amuxd">'
-        '<p class="intro">amuxd 是无界面的团队守护进程：把服务器/常开机器接入团队，'
-        "托管本地 AI Agent 与团队同步。安装脚本会下载二进制、引导你粘贴 "
-        f"<code>{html.escape(scheme)}://invite</code> 邀请深链完成接入，并注册为开机自启的后台服务。</p>"
-        f'<div class="lbl"><span class="os-ico">{APPLE_SVG}</span><span class="os">macOS / Linux</span> 一键安装（终端）</div>'
+        f'<p class="intro">{s["amuxd_intro"].format(scheme=html.escape(scheme))}</p>'
+        f'<div class="lbl"><span class="os-ico">{APPLE_SVG}</span><span class="os">macOS / Linux</span> {s["install_terminal"]}</div>'
         f'<div class="cmd"><code id="am">{html.escape(am_mac_cmd)}</code>'
-        '<button class="copy" onclick="navigator.clipboard.writeText(am.textContent);this.textContent=&#39;已复制&#39;">复制</button></div>'
-        f'<div class="lbl"><span class="os-ico">{WIN_SVG}</span><span class="os">Windows</span> 一键安装（PowerShell）</div>'
+        f'<button class="copy" onclick="navigator.clipboard.writeText(am.textContent);this.textContent=&#39;{s["copied"]}&#39;">{s["copy"]}</button></div>'
+        f'<div class="lbl"><span class="os-ico">{WIN_SVG}</span><span class="os">Windows</span> {s["install_ps"]}</div>'
         f'<div class="cmd"><code id="aw">{html.escape(am_win_cmd)}</code>'
-        '<button class="copy" onclick="navigator.clipboard.writeText(aw.textContent);this.textContent=&#39;已复制&#39;">复制</button></div>'
-        '<div class="sep">或手动下载二进制</div>'
+        f'<button class="copy" onclick="navigator.clipboard.writeText(aw.textContent);this.textContent=&#39;{s["copied"]}&#39;">{s["copy"]}</button></div>'
+        f'<div class="sep">{s["or_manual_bin"]}</div>'
         f"{amuxd_cards}"
-        "<footer>手动安装：放到 <code>~/.amuxd/bin/amuxd</code> 后依次执行 "
-        "<code>amuxd init</code> 与 <code>amuxd install-service</code>。</footer>"
+        f'<footer>{s["amuxd_footer"]}</footer>'
         "</div>"
         f"{footer_html}"
         "</div>"
