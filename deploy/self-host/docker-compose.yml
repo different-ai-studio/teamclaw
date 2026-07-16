@@ -187,6 +187,10 @@ services:
       BUCKET: "${BUCKET:-teamclaw-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
+      # Shared secret for POST /push/dispatch (the Supabase message-insert
+      # webhook). Unset = every request to that route is rejected, which is why
+      # it is safe to ship blank; set it here and in the webhook to enable push.
+      PUSH_WEBHOOK_SECRET: "${PUSH_WEBHOOK_SECRET:-}"
       # Optional partner-integration features, all off unless set here. This
       # `environment:` map is an explicit allowlist — a var absent from it never
       # reaches the container, no matter what the box's .env says.
