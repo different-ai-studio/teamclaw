@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OSS_BASE="https://teamclaw.ucar.cc"
-REPO="different-ai-studio/teamclaw-next"
+REPO="different-ai-studio/teamclaw"
 TEAMCLAW_SCRIPTS_RAW="${TEAMCLAW_SCRIPTS_RAW:-https://raw.githubusercontent.com/${REPO}/main/scripts}"
 
 source_install_mac_common() {

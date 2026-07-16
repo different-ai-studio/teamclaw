@@ -1,0 +1,772 @@
+name: Release (OSS, multi-brand)
+
+# Multi-brand OSS release channel. Replaces the old release-beta.yml, which was
+# hardwired to a single unbranded TeamClaw build published under `beta/`.
+#
+# Every brand — including `betly`, the live-beta channel that used to BE this
+# workflow's only mode — is defined by a directory in the private
+# enterprise-branding repo (see vars.BRANDING_REPO):
+#
+#   brands/<brand>/build.config.json  complete build config (backend + identity)
+#   brands/<brand>/brand.json         distribution knobs (OSS bucket/prefix/CDN,
+#                                     build flavor, release-page copy)
+#   branding/<palette>/{logo.png,theme.json}   assets, keyed by app.palette
+#
+# Unlike release.yml this workflow never creates a GitHub Release; installers and
+# the auto-update manifest go only to Alibaba Cloud OSS, plus a rendered release
+# page at `<prefix>/index.html`.
+#
+# Adding a brand = adding a directory in the branding repo + one `options:` entry
+# below. No other change to this file.
+
+on:
+  workflow_dispatch:
+    inputs:
+      brand:
+        description: "Brand to publish"
+        required: true
+        type: choice
+        options:
+          - betly
+          - copilot361
+        default: betly
+      tag:
+        description: "Version tag to publish (e.g. v0.2.8-beta.1)"
+        required: true
+        type: string
+
+concurrency:
+  group: release-oss-${{ inputs.brand }}-${{ inputs.tag }}
+  cancel-in-progress: true
+
+# Per-brand values (bucket, endpoint, prefix, CDN base, app name) are exported
+# into $GITHUB_ENV by the brand-setup action. Only the credentials — which are
+# genuinely secret and shared across buckets — come from repo secrets. The three
+# *_DEFAULT values below are the fallbacks a brand inherits when its brand.json
+# omits that OSS field; betly relies on them to keep publishing exactly where the
+# old release-beta.yml did.
+env:
+  BRANDING_REPO: ${{ vars.BRANDING_REPO }}
+  OSS_BUCKET_DEFAULT: ${{ secrets.OSS_BUCKET }}
+  OSS_ENDPOINT_DEFAULT: ${{ secrets.OSS_ENDPOINT }}
+  CDN_BASE_DEFAULT: ${{ vars.OSS_CDN_BASE || 'https://teamclaw.ucar.cc' }}
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve brand
+        uses: ./.github/actions/brand-setup
+        with:
+          brand: ${{ inputs.brand }}
+          branding-repo: ${{ env.BRANDING_REPO }}
+          branding-repo-pat: ${{ secrets.ENTERPRISE_BRANDING_REPO_PAT }}
+          oss-bucket-default: ${{ env.OSS_BUCKET_DEFAULT }}
+          oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
+          cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
+
+      - name: Verify Tauri signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npm install --no-save @tauri-apps/cli
+          echo "test" > /tmp/test_sign_file
+          npx @tauri-apps/cli signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" /tmp/test_sign_file
+          echo "✅ Signing key verified successfully"
+          rm -f /tmp/test_sign_file /tmp/test_sign_file.sig
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/pnpm/store/v3
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./apps/desktop -> target
+          key: ${{ matrix.target }}
+
+      - name: Install protoc (for prost_build)
+        run: brew install protobuf
+
+      # Sync all four version sources (incl. apps/daemon/Cargo.toml, the bundled
+      # amuxd) + Cargo.lock to the tag version, then enforce the bump. Builds
+      # label the OSS release with the tag input but otherwise build from source-
+      # file versions, so without this the bundled amuxd version never changes and
+      # clients never force-upgrade the daemon. Runs after Rust + protoc are
+      # available because the Cargo.lock sync compiles teamclaw-introspect/amuxd.
+      - name: Sync + verify version bump (bundled amuxd)
+        shell: bash
+        run: |
+          VERSION="${{ inputs.tag }}"
+          VERSION="${VERSION#v}"
+          node scripts/bump-desktop-version.mjs "$VERSION" --allow-noop
+          ./scripts/sync-cargo-lock-version.sh
+          ./scripts/verify-release-version-bump.sh "$VERSION"
+
+      # Apply OS-level white-label branding BEFORE the frontend build.
+      # tauri-action runs `tauri build` directly and never invokes the
+      # `pnpm tauri:build` npm script, so scripts/update-tauri-config.js (which
+      # writes productName/window title, bundle identifier, deep-link scheme,
+      # regenerates the icon set, and copies the in-app logo PNG into
+      # packages/app/public/) would otherwise never run — leaving the OS app name
+      # and icons stuck on the default TeamClaw. The in-app logo PNGs must land
+      # before Vite bundles them, which is why this is its own step ahead of the
+      # parallel block rather than part of it.
+      #
+      # A brand with no app.logo (betly) simply keeps the stock icons.
+      - name: Install deps + apply brand to tauri.conf + icons
+        shell: bash
+        run: |
+          pnpm install
+          host=$(printf '%s' "$OSS_ENDPOINT" | sed -e 's#^https\?://##' -e 's#/*$##')
+          export OSS_BASE_URL="https://${OSS_BUCKET}.${host}"
+          node scripts/update-tauri-config.js
+
+      - name: Build all (parallel)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          mkdir -p apps/desktop/binaries
+
+          (
+            set -e
+            # Do NOT set BUILD_ENV: it selects build.config.<env>.json and
+            # BUILD_ENV=production deep-merges build.config.production.json OVER
+            # the brand's build.config.json, silently baking the wrong backend
+            # AND clobbering app.name back to "TeamClaw". The brand's
+            # build.config.json is the sole source; `vite build` already runs in
+            # production mode regardless.
+            pnpm --filter @teamclaw/app build
+            echo "frontend build done"
+          ) > /tmp/frontend.log 2>&1 &
+          PID_FRONTEND=$!
+
+          (
+            set -e
+            echo "Building teamclaw-introspect for ${{ matrix.target }}..."
+            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target ${{ matrix.target }} --target-dir apps/desktop/target
+            cp apps/desktop/target/${{ matrix.target }}/release/teamclaw-introspect apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
+            chmod +x apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
+            echo "teamclaw-introspect ready"
+          ) > /tmp/introspect.log 2>&1 &
+          PID_INTROSPECT=$!
+
+          (
+            set -e
+            echo "Building amuxd for ${{ matrix.target }}..."
+            cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }} --target-dir apps/desktop/target
+            cp apps/desktop/target/${{ matrix.target }}/release/amuxd apps/desktop/binaries/amuxd-${{ matrix.target }}
+            chmod +x apps/desktop/binaries/amuxd-${{ matrix.target }}
+            echo "amuxd ready"
+          ) > /tmp/amuxd.log 2>&1 &
+          PID_AMUXD=$!
+
+          (
+            if [ -z "$APPLE_CERTIFICATE" ]; then
+              echo "No certificate, using ad-hoc signing."
+              exit 0
+            fi
+            set -e
+            echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+            security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security set-keychain-settings -t 3600 -u build.keychain
+            security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+            CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1)
+            CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+            echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
+            echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+            echo "Certificate imported: $CERT_ID"
+          ) > /tmp/cert.log 2>&1 &
+          PID_CERT=$!
+
+          FAILED=0
+          wait $PID_FRONTEND   || { echo "::error::Frontend build failed:"; cat /tmp/frontend.log; FAILED=1; }
+          wait $PID_INTROSPECT || { echo "::error::introspect build failed:"; cat /tmp/introspect.log; FAILED=1; }
+          wait $PID_AMUXD      || { echo "::error::amuxd build failed:"; cat /tmp/amuxd.log; FAILED=1; }
+          wait $PID_CERT       || { echo "::error::Certificate import failed:"; cat /tmp/cert.log; FAILED=1; }
+          if [ "$FAILED" -ne 0 ]; then exit 1; fi
+          echo "All parallel tasks completed"
+          ls -lh apps/desktop/binaries/
+
+      - name: Finalize tauri.conf.json (version from tag + frontend prebuilt + OSS updater endpoint)
+        env:
+          TAG: ${{ inputs.tag }}
+        run: python3 scripts/finalize-oss-release-conf.py
+
+      # Build only — no tagName, so tauri-action does NOT create a GitHub Release.
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
+          CARGO_INCREMENTAL: "0"
+        with:
+          # BRAND_MAC_EXTRA_ARGS comes from brand.json build.macExtraArgs — betly
+          # passes --features beta-devtools to enable the WebKit inspector in the
+          # release build; shipping brands leave it empty.
+          args: "--target ${{ matrix.target }} ${{ env.BRAND_MAC_EXTRA_ARGS }}"
+
+      - name: Upload installers to OSS + emit updater fragment
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          MATRIX_TARGET: ${{ matrix.target }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "::error::OSS secrets not configured — cannot publish"
+            exit 1
+          fi
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          python3 - <<'EOF'
+          import oss2, os, glob, json, sys, hashlib
+
+          def filemeta(p):
+              h = hashlib.sha256()
+              with open(p, 'rb') as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b''):
+                      h.update(chunk)
+              return os.path.getsize(p), h.hexdigest()
+
+          def safe(name):
+              # productName carries into the bundle filename, and a branded one can
+              # contain spaces ("Copilot 361_0.2.20_aarch64.dmg"). A space would
+              # need percent-encoding in latest.json's URL and would break the
+              # install one-liners; normalise it out at upload time instead.
+              return name.replace(' ', '_')
+
+          target = os.environ['MATRIX_TARGET']
+          tag = os.environ['TAG']
+          prefix = os.environ['OSS_PREFIX']
+          cdn = os.environ['CDN_BASE'].rstrip('/')
+          app_slug = os.environ['APP_SLUG']
+          arch = 'aarch64' if target.startswith('aarch64') else 'x86_64'
+          plat_key = f'darwin-{arch}'
+
+          auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
+          endpoint = os.environ['OSS_ENDPOINT']
+          if not endpoint.startswith('http'):
+              endpoint = 'https://' + endpoint
+          bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
+
+          # tauri-action bundles into the cargo workspace target dir (repo-root
+          # target/), not apps/desktop/target/. Accept either to be safe.
+          _cands = [f'target/{target}/release/bundle', f'apps/desktop/target/{target}/release/bundle']
+          base = next((b for b in _cands if os.path.isdir(b)), _cands[0])
+          print('bundle base:', base)
+          arch_label = 'Apple Silicon' if arch == 'aarch64' else 'Intel'
+
+          def upload(local, name):
+              key = f'{prefix}/{tag}/{name}'
+              print(f'Uploading {name} -> oss://{os.environ["OSS_BUCKET"]}/{key}')
+              bucket.put_object_from_file(key, local)
+              url = f'{cdn}/{key}'
+              print(f'✅ {url}')
+              return url
+
+          downloads = []
+          # dmg (user-facing installer); name already carries version+arch
+          for dmg in glob.glob(f'{base}/dmg/*.dmg'):
+              name = safe(os.path.basename(dmg))
+              dmg_url = upload(dmg, name)
+              size, sha = filemeta(dmg)
+              downloads.append({
+                  'os': 'macos', 'arch': arch,
+                  'label': arch_label, 'sub': f"macOS · {'arm64' if arch == 'aarch64' else 'x64'}",
+                  'filename': name, 'url': dmg_url,
+                  'size': size, 'sha256': sha,
+              })
+
+          # updater artifact: the file that has a sibling .sig
+          sigs = glob.glob(f'{base}/macos/*.sig')
+          if not sigs:
+              print('::error::No macOS updater .sig found — is createUpdaterArtifacts enabled?')
+              sys.exit(1)
+          sig_path = sigs[0]
+          artifact_path = sig_path[:-4]  # strip .sig
+          # Rename per-arch to avoid an aarch64/x86_64 collision in OSS. Split on
+          # '.app' rather than the product name: the bundle is named after
+          # productName, which is per-brand ("Copilot 361.app.tar.gz").
+          bundle_name = os.path.basename(artifact_path)
+          i = bundle_name.find('.app')
+          ext = bundle_name[i:] if i != -1 else '.tar.gz'
+          updater_name = f'{app_slug}_{tag}_{arch}{ext}'
+          url = upload(artifact_path, updater_name)
+          with open(sig_path) as f:
+              signature = f.read().strip()
+
+          frag = {
+              'platform': plat_key,
+              'updater': {'signature': signature, 'url': url},
+              'downloads': downloads,
+          }
+          os.makedirs('frag', exist_ok=True)
+          with open(f'frag/{plat_key}.json', 'w') as f:
+              json.dump(frag, f)
+          print('Fragment:', json.dumps(frag)[:300])
+          EOF
+
+      - name: Upload standalone amuxd to OSS + emit amuxd fragment
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          MATRIX_TARGET: ${{ matrix.target }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "::error::OSS secrets not configured — cannot publish amuxd"
+            exit 1
+          fi
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          BIN="apps/desktop/binaries/amuxd-${MATRIX_TARGET}" \
+          AMUXD_OS=macos \
+          python3 scripts/publish-amuxd-fragment.py
+
+      - name: Upload updater fragment artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: frag-${{ matrix.target }}
+          path: frag/*.json
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve brand
+        uses: ./.github/actions/brand-setup
+        with:
+          brand: ${{ inputs.brand }}
+          branding-repo: ${{ env.BRANDING_REPO }}
+          branding-repo-pat: ${{ secrets.ENTERPRISE_BRANDING_REPO_PAT }}
+          oss-bucket-default: ${{ env.OSS_BUCKET_DEFAULT }}
+          oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
+          cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
+
+      - name: Verify Tauri signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          npm install --no-save @tauri-apps/cli
+          echo "test" > "$RUNNER_TEMP/test_sign_file"
+          npx @tauri-apps/cli signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$RUNNER_TEMP/test_sign_file"
+          echo "✅ Signing key verified successfully"
+          rm -f "$RUNNER_TEMP/test_sign_file" "$RUNNER_TEMP/test_sign_file.sig"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ~/AppData/Local/pnpm/store/v3
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./apps/desktop -> target
+
+      - name: Install protoc (for prost_build)
+        shell: bash
+        run: choco install protoc -y
+
+      # See build-macos: sync all four version sources + Cargo.lock to the tag and
+      # enforce the bundled amuxd bump. Runs after Rust + protoc are available
+      # because the Cargo.lock sync compiles teamclaw-introspect/amuxd.
+      - name: Sync + verify version bump (bundled amuxd)
+        shell: bash
+        run: |
+          VERSION="${{ inputs.tag }}"
+          VERSION="${VERSION#v}"
+          node scripts/bump-desktop-version.mjs "$VERSION" --allow-noop
+          ./scripts/sync-cargo-lock-version.sh
+          ./scripts/verify-release-version-bump.sh "$VERSION"
+
+      # See build-macos: brands the OS-level app name/identifier/icons before Vite
+      # bundles the in-app logo. No BUILD_ENV — the brand config is authoritative.
+      - name: Install deps + apply brand to tauri.conf + icons
+        shell: bash
+        run: |
+          pnpm install
+          host=$(printf '%s' "$OSS_ENDPOINT" | sed -e 's#^https\?://##' -e 's#/*$##')
+          export OSS_BASE_URL="https://${OSS_BUCKET}.${host}"
+          node scripts/update-tauri-config.js
+
+      - name: Build frontend
+        shell: bash
+        run: pnpm --filter @teamclaw/app build
+
+      - name: Prepare binaries directory
+        shell: bash
+        run: mkdir -p apps/desktop/binaries
+
+      - name: Build teamclaw-introspect sidecar
+        shell: bash
+        run: |
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target-dir apps/desktop/target
+          cp apps/desktop/target/release/teamclaw-introspect.exe apps/desktop/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
+          echo "teamclaw-introspect ready"
+
+      - name: Build amuxd sidecar
+        shell: bash
+        run: |
+          cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd --target-dir apps/desktop/target
+          cp apps/desktop/target/release/amuxd.exe apps/desktop/binaries/amuxd-x86_64-pc-windows-msvc.exe
+          echo "amuxd sidecar ready"
+
+      - name: Finalize tauri.conf.json (version from tag + frontend prebuilt + OSS updater endpoint)
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: python3 scripts/finalize-oss-release-conf.py
+
+      # Build only — no tagName, so tauri-action does NOT create a GitHub Release.
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
+          CARGO_INCREMENTAL: "0"
+        with:
+          args: "--bundles nsis -- --no-default-features"
+
+      - name: Upload installer to OSS + emit updater fragment
+        shell: bash
+        env:
+          # Windows runner Python defaults to cp1252 stdout; force UTF-8 so the
+          # ✅ prints don't crash with UnicodeEncodeError.
+          PYTHONUTF8: "1"
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "::error::OSS secrets not configured — cannot publish"
+            exit 1
+          fi
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          python3 - <<'EOF'
+          import oss2, os, glob, json, sys, hashlib
+
+          def filemeta(p):
+              h = hashlib.sha256()
+              with open(p, 'rb') as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b''):
+                      h.update(chunk)
+              return os.path.getsize(p), h.hexdigest()
+
+          def safe(name):
+              # See the macOS job: a branded productName can contain spaces.
+              return name.replace(' ', '_')
+
+          tag = os.environ['TAG']
+          prefix = os.environ['OSS_PREFIX']
+          cdn = os.environ['CDN_BASE'].rstrip('/')
+          plat_key = 'windows-x86_64'
+
+          auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
+          endpoint = os.environ['OSS_ENDPOINT']
+          if not endpoint.startswith('http'):
+              endpoint = 'https://' + endpoint
+          bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
+
+          # tauri-action bundles into the cargo workspace target dir (repo-root
+          # target/), not apps/desktop/target/. Accept either to be safe.
+          _cands = ['target/release/bundle', 'apps/desktop/target/release/bundle']
+          base = next((b for b in _cands if os.path.isdir(b)), _cands[0])
+          print('bundle base:', base)
+
+          def upload(local, name):
+              key = f'{prefix}/{tag}/{name}'
+              print(f'Uploading {name} -> oss://{os.environ["OSS_BUCKET"]}/{key}')
+              bucket.put_object_from_file(key, local)
+              url = f'{cdn}/{key}'
+              print(f'✅ {url}')
+              return url
+
+          downloads = []
+          # user-facing installer (.exe)
+          for exe in glob.glob(f'{base}/nsis/*-setup.exe'):
+              name = safe(os.path.basename(exe))
+              exe_url = upload(exe, name)
+              size, sha = filemeta(exe)
+              downloads.append({
+                  'os': 'windows', 'arch': 'x86_64',
+                  'label': 'Windows', 'sub': 'x64 · .exe',
+                  'filename': name, 'url': exe_url,
+                  'size': size, 'sha256': sha,
+              })
+
+          # updater artifact: file with a sibling .sig (nsis dir)
+          sigs = glob.glob(f'{base}/nsis/*.sig')
+          if not sigs:
+              print('::error::No Windows updater .sig found — is createUpdaterArtifacts enabled?')
+              sys.exit(1)
+          sig_path = sigs[0]
+          artifact_path = sig_path[:-4]
+          # the windows updater artifact IS the -setup.exe; reuse its url if already uploaded
+          if os.path.basename(artifact_path).endswith('-setup.exe') and downloads:
+              url = downloads[0]['url']
+          else:
+              url = upload(artifact_path, safe(os.path.basename(artifact_path)))
+          with open(sig_path) as f:
+              signature = f.read().strip()
+
+          frag = {
+              'platform': plat_key,
+              'updater': {'signature': signature, 'url': url},
+              'downloads': downloads,
+          }
+          os.makedirs('frag', exist_ok=True)
+          with open(f'frag/{plat_key}.json', 'w') as f:
+              json.dump(frag, f)
+          print('Fragment:', json.dumps(frag)[:300])
+          EOF
+
+      - name: Upload standalone amuxd to OSS + emit amuxd fragment
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "::error::OSS secrets not configured — cannot publish amuxd"
+            exit 1
+          fi
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          BIN="apps/desktop/binaries/amuxd-x86_64-pc-windows-msvc.exe" \
+          AMUXD_OS=windows \
+          MATRIX_TARGET=x86_64-pc-windows-msvc \
+          python3 scripts/publish-amuxd-fragment.py
+
+      - name: Upload updater fragment artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: frag-windows
+          path: frag/*.json
+          if-no-files-found: error
+
+  build-amuxd-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+    steps:
+      - uses: actions/checkout@v7
+
+      # amuxd carries no visual branding, but it still needs the brand's OSS
+      # destination (bucket/prefix/CDN) to publish into the right channel.
+      - name: Resolve brand
+        uses: ./.github/actions/brand-setup
+        with:
+          brand: ${{ inputs.brand }}
+          branding-repo: ${{ env.BRANDING_REPO }}
+          branding-repo-pat: ${{ secrets.ENTERPRISE_BRANDING_REPO_PAT }}
+          oss-bucket-default: ${{ env.OSS_BUCKET_DEFAULT }}
+          oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
+          cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
+
+      - name: Install Rust target + protoc
+        run: |
+          rustup target add ${{ matrix.target }}
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./apps/daemon -> target
+          key: amuxd-${{ matrix.target }}
+
+      - name: Build amuxd
+        run: |
+          mkdir -p apps/desktop/binaries
+          # NB: no --locked — the repo's Cargo.lock drifts slightly from
+          # Cargo.toml and the desktop build (tauri-action) tolerates it by
+          # updating the lock; match that here rather than hard-failing.
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            # Cross-compiling amuxd for arm64 drags in openssl-sys (+ other C
+            # deps) which needs an arm64 sysroot the host runner doesn't have.
+            # `cross` runs the build in a Debian container with working multiarch;
+            # Cross.toml's pre-build installs libssl-dev:arm64 + protoc there and
+            # points openssl-sys at the arm64 multiarch lib/include dirs.
+            cargo install cross --locked --version 0.2.5
+            cross build --release --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }} --target-dir apps/desktop/target
+          else
+            cargo build --release --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }} --target-dir apps/desktop/target
+          fi
+          cp apps/desktop/target/${{ matrix.target }}/release/amuxd apps/desktop/binaries/amuxd-${{ matrix.target }}
+          chmod +x apps/desktop/binaries/amuxd-${{ matrix.target }}
+
+      - name: Upload standalone amuxd to OSS + emit amuxd fragment
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          MATRIX_TARGET: ${{ matrix.target }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "::error::OSS secrets not configured — cannot publish amuxd"
+            exit 1
+          fi
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          BIN="apps/desktop/binaries/amuxd-${{ matrix.target }}" \
+          AMUXD_OS=linux \
+          python3 scripts/publish-amuxd-fragment.py
+
+      - name: Upload updater fragment artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: frag-amuxd-linux-${{ matrix.target }}
+          path: frag/*.json
+          if-no-files-found: error
+
+  publish-manifest:
+    needs: [build-macos, build-windows, build-amuxd-linux]
+    # Publish as long as the desktop installers built. The standalone amuxd
+    # binaries are a supplementary add-on — a flaky arm64 cross-compile must
+    # not block the core desktop release. Whatever amuxd fragments made it into
+    # artifacts get rendered; any missing platform is simply omitted.
+    if: always() && needs.build-macos.result == 'success' && needs.build-windows.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The release page needs the brand's name, logo and accent colour, so this
+      # job resolves the brand too — a plain checkout would render a TeamClaw
+      # page and publish the TeamClaw logo into the brand's bucket.
+      - name: Resolve brand
+        uses: ./.github/actions/brand-setup
+        with:
+          brand: ${{ inputs.brand }}
+          branding-repo: ${{ env.BRANDING_REPO }}
+          branding-repo-pat: ${{ secrets.ENTERPRISE_BRANDING_REPO_PAT }}
+          oss-bucket-default: ${{ env.OSS_BUCKET_DEFAULT }}
+          oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
+          cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
+
+      - name: Download all updater fragments
+        uses: actions/download-artifact@v8
+        with:
+          pattern: frag-*
+          path: frags
+          merge-multiple: true
+
+      - name: Assemble latest.json + release page and publish to OSS
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "::error::OSS secrets not configured — cannot publish manifest"
+            exit 1
+          fi
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          python3 scripts/publish-oss-release.py
+
+      - name: Refresh CDN cache for mutable manifest files
+        # Empty when the bucket is served straight from its OSS endpoint (no CDN
+        # in front) — there is no edge cache to purge, and the region would be
+        # wrong anyway.
+        if: env.CDN_REFRESH_REGION != ''
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          # The mutable root files (latest.json / latest.txt / index.html /
+          # install.*) are written with max-age=60, but the OSS CDN edge caches
+          # them ~30 days regardless — so a fresh release is invisible to the
+          # updater until the edge copy is purged. Invalidate them explicitly.
+          # Version-pinned installers are immutable and never need refreshing.
+          if [ -z "$OSS_ACCESS_KEY_ID" ]; then
+            echo "::warning::OSS/CDN creds not configured — skipping CDN refresh"
+            exit 0
+          fi
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun.tgz
+          tar xzf /tmp/aliyun.tgz -C /tmp
+          sudo mv /tmp/aliyun /usr/local/bin/aliyun
+          aliyun configure set --profile cdn --mode AK \
+            --access-key-id "$OSS_ACCESS_KEY_ID" \
+            --access-key-secret "$OSS_ACCESS_KEY_SECRET" \
+            --region "$CDN_REFRESH_REGION"
+          BASE="${CDN_BASE%/}/${OSS_PREFIX}"
+          PATHS="$BASE/latest.json
+          $BASE/latest.txt
+          $BASE/index.html
+          $BASE/install.sh
+          $BASE/install.ps1
+          $BASE/install-amuxd.sh
+          $BASE/install-amuxd.ps1"
+          echo "Refreshing CDN paths:"; echo "$PATHS"
+          aliyun cdn RefreshObjectCaches --profile cdn --ObjectType File --ObjectPath "$PATHS"
+          echo "✅ CDN refresh submitted for mutable manifest files"

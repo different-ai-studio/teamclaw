@@ -36,7 +36,7 @@ describe('Auto Update - Configuration', () => {
         expect.stringMatching(/^(?:__OSS_BASE_URL__|https:\/\/teamclaw\.ucar\.cc)\/releases\/latest\.json$/),
       ]),
     );
-    expect(config.plugins.updater.endpoints).toContain('https://github.com/different-ai-studio/teamclaw-next/releases/latest/download/latest.json');
+    expect(config.plugins.updater.endpoints).toContain('https://github.com/different-ai-studio/teamclaw/releases/latest/download/latest.json');
     expect(config.bundle.createUpdaterArtifacts).toBe(true);
   });
 

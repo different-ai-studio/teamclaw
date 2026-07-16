@@ -60,9 +60,9 @@ test("install_mac_github_latest_tag resolves tag from releases/latest redirect",
         source "${commonSh}"
         gh() { return 1; }
         curl() {
-          printf '%s' "https://github.com/different-ai-studio/teamclaw-next/releases/tag/v1.2.3"
+          printf '%s' "https://github.com/different-ai-studio/teamclaw/releases/tag/v1.2.3"
         }
-        install_mac_github_latest_tag "different-ai-studio/teamclaw-next"
+        install_mac_github_latest_tag "different-ai-studio/teamclaw"
       `,
     ],
     { encoding: "utf8" },
@@ -82,18 +82,18 @@ test("install_mac_resolve_github_dmg_url finds branded aarch64 DMG without GitHu
         gh() { return 1; }
         curl() {
           local url="\${*: -1}"
-          if [[ "\$url" == "https://github.com/different-ai-studio/teamclaw-next/releases/latest" ]]; then
-            printf '%s' "https://github.com/different-ai-studio/teamclaw-next/releases/tag/v1.2.3"
+          if [[ "\$url" == "https://github.com/different-ai-studio/teamclaw/releases/latest" ]]; then
+            printf '%s' "https://github.com/different-ai-studio/teamclaw/releases/tag/v1.2.3"
             return 0
           fi
-          if [[ "\$url" == "https://github.com/different-ai-studio/teamclaw-next/releases/download/v1.2.3/Copilot.361_1.2.3_aarch64.dmg" ]]; then
+          if [[ "\$url" == "https://github.com/different-ai-studio/teamclaw/releases/download/v1.2.3/Copilot.361_1.2.3_aarch64.dmg" ]]; then
             printf '200'
             return 0
           fi
           printf '404'
           return 0
         }
-        install_mac_resolve_github_dmg_url "different-ai-studio/teamclaw-next" "aarch64.dmg" ""
+        install_mac_resolve_github_dmg_url "different-ai-studio/teamclaw" "aarch64.dmg" ""
       `,
     ],
     { encoding: "utf8" },

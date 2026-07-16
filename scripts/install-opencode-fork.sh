@@ -5,7 +5,7 @@
 # Default source: different-ai-studio/opencode fork releases.
 # Publish a GitHub Release on the fork with the standard asset names first, then run:
 #
-#   curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw-next/main/scripts/install-opencode-fork.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw/main/scripts/install-opencode-fork.sh | bash
 #
 # Or from a checkout:
 #   scripts/install-opencode-fork.sh

@@ -34,7 +34,7 @@ describe('Install Script', () => {
 
   it('script references correct GitHub repo', () => {
     const content = fs.readFileSync(INSTALL_SCRIPT, 'utf-8')
-    expect(content).toContain('different-ai-studio/teamclaw-next')
+    expect(content).toContain('different-ai-studio/teamclaw')
     expect(content).toContain('TeamClaw')
   })
 
