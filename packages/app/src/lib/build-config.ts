@@ -59,8 +59,15 @@ export interface BuildConfig {
       google?: boolean
       wechat?: boolean
       phone?: boolean
-      /** "快捷登录" — harvest a shared session from the Betly admin webview. Off by default. */
+      /** "快捷登录" — harvest a shared session from the partner admin console
+       *  webview. Off by default. The sign-in URL + storage key are delivered
+       *  at runtime by the Cloud API (`WEBSSO_LOGIN_URL` / `WEBSSO_STORAGE_KEY`),
+       *  never hardcoded here. */
       webSSO?: boolean
+      /** Admin console hosts allowed to receive an injected TeamClaw session.
+       *  Consumed by build.rs (baked into WEBSSO_ADMIN_HOSTS) as the native-side
+       *  re-check; deployment-specific hosts belong in a brand build config. */
+      webSSOHosts?: string[]
     }
     /** Browsable team-share sidebar (Skills / MCP / Env / Knowledge). Off by default. */
     teamShareBrowser?: boolean

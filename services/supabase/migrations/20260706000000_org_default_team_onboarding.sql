@@ -3,7 +3,7 @@
 -- Tenancy behavior change for first-team onboarding (the AuthGate bootstrap
 -- path that runs when a user logs in without an invite):
 --
---   * DEFAULT_ORG (betly's shared consumer tenant, DEFAULT_ORG_ID): each user
+--   * DEFAULT_ORG (the partner's shared consumer tenant, DEFAULT_ORG_ID): each user
 --     still gets their OWN independent solo team. Random individuals sharing
 --     the default org must stay isolated — the previous behavior, preserved.
 --

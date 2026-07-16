@@ -20,11 +20,13 @@ export function createSupabaseAuthRepository(options) {
     publishableKey,
     fetchImpl = globalThis.fetch,
     createClient = defaultCreateClient,
-    // Phone-auth (betly-aligned) config. Optional: phone login is only enabled
-    // when serviceRoleKey + defaultOrgId + encryptionKey are present. The repo
-    // is built lazily so environments/tests lacking these still construct fine.
+    // Phone-auth (partner-aligned) config. Optional: phone login is only enabled
+    // when serviceRoleKey + defaultOrgId + phoneEmailDomain + encryptionKey are
+    // present. The repo is built lazily so environments/tests lacking these
+    // still construct fine.
     serviceRoleKey = undefined,
     defaultOrgId = undefined,
+    phoneEmailDomain = undefined,
     phoneAuthEncryptionKey = undefined,
     smsDebugMode = false,
     sendSms = undefined,
@@ -37,11 +39,11 @@ export function createSupabaseAuthRepository(options) {
   let _phoneRepo: ReturnType<typeof createPhoneAuthRepository> | null = null;
   function phoneRepo() {
     if (_phoneRepo) return _phoneRepo;
-    if (!serviceRoleKey || !defaultOrgId || !phoneAuthEncryptionKey) {
+    if (!serviceRoleKey || !defaultOrgId || !phoneEmailDomain || !phoneAuthEncryptionKey) {
       throw new ApiError(
         501,
         "not_implemented",
-        "phone login is not configured (needs SUPABASE_SERVICE_ROLE_KEY, DEFAULT_ORG_ID, PHONE_AUTH_ENCRYPTION_KEY)",
+        "phone login is not configured (needs SUPABASE_SERVICE_ROLE_KEY, DEFAULT_ORG_ID, PHONE_EMAIL_DOMAIN, PHONE_AUTH_ENCRYPTION_KEY)",
       );
     }
     _phoneRepo = createPhoneAuthRepository({
@@ -49,6 +51,7 @@ export function createSupabaseAuthRepository(options) {
       publishableKey,
       serviceRoleKey,
       defaultOrgId,
+      phoneEmailDomain,
       encryptionKey: phoneAuthEncryptionKey,
       smsDebugMode,
       sendSms: sendSms ?? makeDysmsSender({ createClient, supabaseUrl, serviceRoleKey }),
@@ -167,7 +170,7 @@ export function createSupabaseAuthRepository(options) {
       });
     },
 
-    // ── Phone login (betly-aligned, see phone-auth.ts) ──────────────────────
+    // ── Phone login (partner-aligned, see phone-auth.ts) ──────────────────────
     async phoneSendCode({ phone, captchaVerify }) {
       return phoneRepo().sendCode({ phone, captchaVerify });
     },

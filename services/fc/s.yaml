@@ -67,11 +67,16 @@ resources:
         CORS_HANDLED_BY_PROXY: ${env('CORS_HANDLED_BY_PROXY', '')}
         DATABASE_URL: ${env('DATABASE_URL', '')}
         BACKEND_KIND: ${env('BACKEND_KIND', 'supabase')}
-        # Phone login (betly-aligned). DEFAULT_ORG_ID = the default tenant new
-        # users join; PHONE_AUTH_ENCRYPTION_KEY salts the placeholder password
-        # for newly-created phone users (never re-verified); SMS_DEBUG_MODE
-        # returns the code in the response instead of sending SMS (dev only).
+        # Phone login (partner-aligned). DEFAULT_ORG_ID = the default tenant new
+        # users join; PHONE_EMAIL_DOMAIN = domain of the synthetic auth email
+        # (`<phone>@<domain>`) and therefore half the account identity — it must
+        # match the partner SaaS sharing this GoTrue, or phone users get a
+        # parallel set of accounts; PHONE_AUTH_ENCRYPTION_KEY salts the
+        # placeholder password for newly-created phone users (never
+        # re-verified); SMS_DEBUG_MODE returns the code in the response instead
+        # of sending SMS (dev only).
         DEFAULT_ORG_ID: ${env('DEFAULT_ORG_ID', '')}
+        PHONE_EMAIL_DOMAIN: ${env('PHONE_EMAIL_DOMAIN', '')}
         PHONE_AUTH_ENCRYPTION_KEY: ${env('PHONE_AUTH_ENCRYPTION_KEY', '')}
         SMS_DEBUG_MODE: ${env('SMS_DEBUG_MODE', '')}
         AUTH_SECRET: ${env('AUTH_SECRET', '')}

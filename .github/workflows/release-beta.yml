@@ -980,7 +980,7 @@ jobs:
           cards = '\n'.join(_card(d) for d in downloads)
           amuxd_cards = '\n'.join(_card(d) for d in amuxd_downloads)
 
-          # Betly / www.mx5.cn visual language: dark theme + coral accent gradient.
+          # Brand visual language: dark theme + coral accent gradient.
           CSS = (
             ":root{--bg:#000;--bg-tertiary:#111;--bg-card:#141414;--bg-card-hover:#1a1a1a;"
             "--tx:#fff;--tx2:rgba(255,255,255,.7);--tx3:rgba(255,255,255,.5);--tx4:rgba(255,255,255,.35);"

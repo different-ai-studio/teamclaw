@@ -35,7 +35,7 @@ export function UpgradeAccountDialog({ open, onOpenChange }: Props) {
     errorMessage,
   } = useAuthStore();
   // Phone upgrade is only offered when the build enables phone auth (same flag
-  // that gates phone login). It uses our betly-aligned send-code + bind-phone.
+  // that gates phone login). It uses our partner-aligned send-code + bind-phone.
   const phoneEnabled = isTauri() && Boolean(buildConfig.features?.auth?.phone);
   const [method, setMethod] = useState<Method>("email");
   const [email, setEmail] = useState("");

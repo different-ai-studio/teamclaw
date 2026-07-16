@@ -89,7 +89,7 @@ export function createPgAuthRepository(
   }
 
   return {
-    // --- Phone login (betly-aligned, supabase backend only) ---
+    // --- Phone login (partner-aligned, supabase backend only) ---
     async phoneSendCode() {
       throw new ApiError(501, "phone_login_unsupported", "phone login is only available under BACKEND_KIND=supabase");
     },

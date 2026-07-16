@@ -133,6 +133,29 @@ fn main() {
         println!("cargo:warning=Using UPDATER_PUBKEY={}", pubkey);
     }
 
+    // Bake the partner admin console host allowlist (features.auth.webSSOHosts)
+    // into the binary. This is the native-side re-check that gates injecting the
+    // TeamClaw bearer token into a webview, so it must come from the build config
+    // rather than the renderer. Deployment-specific hostnames belong in the
+    // brand's gitignored build.config.<brand>.json; absent means injection is off.
+    let websso_hosts: Vec<String> = config["features"]["auth"]["webSSOHosts"]
+        .as_array()
+        .map(|hosts| {
+            hosts
+                .iter()
+                .filter_map(|h| h.as_str())
+                .map(str::trim)
+                .filter(|h| !h.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !websso_hosts.is_empty() {
+        let joined = websso_hosts.join(",");
+        println!("cargo:rustc-env=WEBSSO_ADMIN_HOSTS={}", joined);
+        println!("cargo:warning=Using WEBSSO_ADMIN_HOSTS={}", joined);
+    }
+
     // Bake the Cloud API URL into the binary so the Rust team-share / OSS
     // commands default to the SAME backend the frontend resolves from
     // (`getEffectiveServerConfigSync().cloudApiUrl`). Precedence mirrors the
