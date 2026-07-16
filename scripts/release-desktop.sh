@@ -16,7 +16,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-GITHUB_REPO="${GITHUB_REPO:-different-ai-studio/teamclaw-next}"
+GITHUB_REPO="${GITHUB_REPO:-different-ai-studio/teamclaw}"
 
 MODE="release" # release | tag-only
 NEXT_VERSION=""

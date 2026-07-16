@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO="different-ai-studio/teamclaw-next"
+REPO="different-ai-studio/teamclaw"
 TEAMCLAW_SCRIPTS_RAW="${TEAMCLAW_SCRIPTS_RAW:-https://raw.githubusercontent.com/${REPO}/main/scripts}"
 
 # curl | bash has no on-disk script path — fetch shared helpers from GitHub when needed.

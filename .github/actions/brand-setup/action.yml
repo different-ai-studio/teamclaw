@@ -1,0 +1,149 @@
+name: Brand setup
+description: >
+  Materialise a brand from the private enterprise-branding repo: place
+  build.config.json + branding/ assets on disk and export the brand's
+  distribution knobs (OSS bucket/prefix/CDN, app name) into $GITHUB_ENV.
+
+inputs:
+  brand:
+    description: "Brand id — a directory under brands/ in the branding repo (e.g. betly, copilot361)"
+    required: true
+  branding-repo:
+    description: "owner/repo of the private enterprise-branding repo"
+    required: true
+  branding-repo-pat:
+    description: "PAT with read access to the branding repo"
+    required: true
+  oss-bucket-default:
+    description: "Fallback OSS bucket when the brand does not declare one"
+    required: false
+    default: ""
+  oss-endpoint-default:
+    description: "Fallback OSS endpoint when the brand does not declare one"
+    required: false
+    default: ""
+  cdn-base-default:
+    description: "Fallback public CDN base when the brand does not declare one"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch brand from the enterprise-branding repo
+      shell: bash
+      env:
+        BRAND: ${{ inputs.brand }}
+        BRANDING_REPO: ${{ inputs.branding-repo }}
+        BRANDING_REPO_PAT: ${{ inputs.branding-repo-pat }}
+        OSS_BUCKET_DEFAULT: ${{ inputs.oss-bucket-default }}
+        OSS_ENDPOINT_DEFAULT: ${{ inputs.oss-endpoint-default }}
+        CDN_BASE_DEFAULT: ${{ inputs.cdn-base-default }}
+      run: |
+        set -euo pipefail
+
+        # Unlike release.yml — which treats a missing branding repo as "build the
+        # default TeamClaw" — every brand this pipeline publishes is defined in
+        # the branding repo. Silently degrading would push unbranded binaries into
+        # a brand's bucket, so a missing PAT is a hard error.
+        if [ -z "$BRANDING_REPO" ] || [ -z "$BRANDING_REPO_PAT" ]; then
+          echo "::error::BRANDING_REPO / ENTERPRISE_BRANDING_REPO_PAT not configured — cannot resolve brand '$BRAND'"
+          exit 1
+        fi
+
+        rm -rf .branding-src
+        git clone --depth 1 "https://x-access-token:${BRANDING_REPO_PAT}@github.com/${BRANDING_REPO}.git" .branding-src 2>&1 \
+          | sed -e "s/${BRANDING_REPO_PAT}/***/g"
+
+        src=".branding-src/brands/${BRAND}"
+        if [ ! -d "$src" ]; then
+          echo "::error::Brand '${BRAND}' not found in ${BRANDING_REPO} (expected ${src}/). Available:"
+          ls .branding-src/brands 2>/dev/null || echo "  (no brands/ directory)"
+          exit 1
+        fi
+        if [ ! -f "$src/build.config.json" ]; then
+          echo "::error::${src}/build.config.json is missing — a brand must carry its complete build config"
+          exit 1
+        fi
+
+        cp "$src/build.config.json" build.config.json
+
+        # Assets live at branding/<palette>/ because that is the path baked into
+        # app.logo and the path scripts/lib/brand-theme.js reads theme.json from.
+        if [ -d .branding-src/branding ]; then
+          mkdir -p ./branding
+          cp -R .branding-src/branding/. ./branding/
+        fi
+
+        BRAND="$BRAND" python3 - <<'PY'
+        import json, os
+
+        brand = os.environ['BRAND']
+        cfg = json.load(open('build.config.json'))
+        app = cfg.get('app', {})
+
+        meta_path = f'.branding-src/brands/{brand}/brand.json'
+        meta = json.load(open(meta_path)) if os.path.isfile(meta_path) else {}
+        oss = meta.get('oss') or {}
+
+        def pick(value, fallback_env):
+            # A brand that omits an OSS field inherits the repo-level default, so
+            # betly keeps publishing exactly where it does today without
+            # restating the shared TeamClaw bucket.
+            return value or os.environ.get(fallback_env, '')
+
+        bucket = pick(oss.get('bucket'), 'OSS_BUCKET_DEFAULT')
+        endpoint = pick(oss.get('endpoint'), 'OSS_ENDPOINT_DEFAULT')
+        cdn_base = pick(oss.get('cdnBase'), 'CDN_BASE_DEFAULT')
+        prefix = oss.get('prefix')
+
+        missing = [n for n, v in
+                   (('oss.bucket', bucket), ('oss.endpoint', endpoint),
+                    ('oss.cdnBase', cdn_base), ('oss.prefix', prefix)) if not v]
+        if missing:
+            print(f'::error::Brand {brand!r} resolves no value for: {", ".join(missing)}')
+            raise SystemExit(1)
+
+        # Two different names, per scripts/lib/branding.js: app.name is the
+        # productName that bundles/filenames and /Applications/<x>.app are built
+        # from, while app.displayName is the human-facing label (window title).
+        # Conflating them would put "Betly TeamClaw.app" in betly's quarantine
+        # hint for a bundle actually named TeamClaw.app.
+        product_name = app.get('name') or 'TeamClaw'
+        app_name = app.get('displayName') or product_name
+        # shortName doubles as the slug for OSS object names, so it must survive a
+        # URL untouched. vite.config.ts enforces the same [a-z0-9]{1,20} rule.
+        app_slug = app.get('shortName') or ''
+        if not app_slug.isalnum() or not app_slug.islower() or len(app_slug) > 20:
+            print(f'::error::app.shortName must be 1-20 chars of [a-z0-9]; got {app_slug!r}')
+            raise SystemExit(1)
+
+        out = {
+            'BRAND': brand,
+            'APP_NAME': app_name,
+            'APP_PRODUCT_NAME': product_name,
+            'APP_SLUG': app_slug,
+            'OSS_BUCKET': bucket,
+            'OSS_ENDPOINT': endpoint,
+            'OSS_PREFIX': prefix,
+            'CDN_BASE': cdn_base.rstrip('/'),
+            # Empty => bucket is served straight from the OSS endpoint with no CDN
+            # in front, so there is no edge cache to purge.
+            'CDN_REFRESH_REGION': oss.get('cdnRefreshRegion') or '',
+            'BRAND_MAC_EXTRA_ARGS': (meta.get('build') or {}).get('macExtraArgs') or '',
+        }
+        with open(os.environ['GITHUB_ENV'], 'a') as f:
+            for k, v in out.items():
+                f.write(f'{k}={v}\n')
+
+        # brand.json's page block is consumed by the publish job; pass it as a file
+        # rather than env vars so free-text copy can contain anything.
+        json.dump(meta.get('page') or {}, open('brand-page.json', 'w'))
+
+        print(f'Brand         : {brand} ({app_name} / {product_name}.app)')
+        print(f'Backend       : {cfg.get("cloudApiUrl")}')
+        print(f'Palette       : {app.get("palette")}')
+        print(f'Publishing to : oss://{bucket}/{prefix}/  via {cdn_base}')
+        PY
+
+        rm -rf .branding-src

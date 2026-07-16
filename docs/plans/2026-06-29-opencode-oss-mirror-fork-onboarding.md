@@ -14,7 +14,7 @@
 - marker 字符串：`teamclaw`，以 semver pre-release 后缀形式出现：`<ver>-teamclaw`。
 - 平台资产名（5 个，固定）：`opencode-darwin-arm64.zip`、`opencode-darwin-x64.zip`、`opencode-windows-x64.zip`、`opencode-linux-x64.tar.gz`、`opencode-linux-arm64.tar.gz`。
 - OSS 稳定基址：`https://teamclaw.ucar.cc/opencode/stable`（覆盖式，不随版本改）。
-- OSS 上传复用现有 secrets：`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_ENDPOINT`、`OSS_BUCKET`（见 `.github/workflows/release-beta.yml`）。
+- OSS 上传复用现有 secrets：`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_ENDPOINT`、`OSS_BUCKET`（见 `.github/workflows/release-oss.yml`）。
 - fork 默认 GitHub 源：`https://github.com/different-ai-studio/opencode/releases/latest/download`。
 - Rust 检查命令：`pnpm rust:check`（或 `cargo test -p amuxd opencode_install`）。
 - 绝不回落到公版 `sst/opencode`。
