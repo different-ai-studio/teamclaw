@@ -415,27 +415,31 @@ pub async fn team_share_enable_custom_git(
 
 // ─── set_team_secret ────────────────────────────────────────────────────
 
+/// Save the team secret and hand it to the daemon.
+///
+/// Returns `Some(warning)` when the local save succeeded but the daemon did
+/// not take delivery. That stays non-fatal — the local copy is the
+/// contractually-required outcome and the daemon's sweep catches up once
+/// reachable — but it is returned rather than logged: the daemon's own copy is
+/// the system of record for decrypting `_secrets/`, so until delivery lands
+/// the team's shared env vars are dead and only the user can retry.
 pub async fn set_team_secret_impl(
     team_id: String,
     secret_hex: String,
     workspace_path: String,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let normalized = secret_hex.trim().to_ascii_lowercase();
     if normalized.len() != 64 || !normalized.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("team secret must be exactly 64 hex characters".to_string());
     }
     team_secret_store::save_team_secret(&workspace_path, &team_id, &normalized)?;
 
-    // A joiner sets the team secret here; deliver it to the daemon and link
-    // this workspace so the daemon can sync. Non-fatal: saving the local copy
-    // (above) is the contractually-required outcome, and the daemon's sweep
-    // will catch up once reachable.
-    if let Some(warning) =
-        deliver_secrets_and_link(&team_id, &workspace_path, Some(&normalized), None, None).await
-    {
-        eprintln!("team_share_set_team_secret: {warning}");
+    let warning =
+        deliver_secrets_and_link(&team_id, &workspace_path, Some(&normalized), None, None).await;
+    if let Some(w) = &warning {
+        info!("team_share_set_team_secret: {w}");
     }
-    Ok(())
+    Ok(warning)
 }
 
 #[tauri::command]
@@ -443,7 +447,7 @@ pub async fn team_share_set_team_secret(
     team_id: String,
     secret_hex: String,
     workspace_path: String,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     set_team_secret_impl(team_id, secret_hex, workspace_path).await
 }
 

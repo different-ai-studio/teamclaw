@@ -97,11 +97,17 @@ export interface TeamShareState {
     input: CustomGitInput,
     teamSecretHex?: string,
   ): Promise<EnableShareResult>
+  /**
+   * Save the team secret and deliver it to the daemon. Resolves to a warning
+   * string when the save succeeded but the daemon did not take delivery — the
+   * daemon's copy is what decrypts shared env vars, so until it lands they
+   * stay dead. `null` on full success.
+   */
   setSecret(
     teamId: string,
     secretHex: string,
     workspacePath: string,
-  ): Promise<void>
+  ): Promise<string | null>
   /** Read back the locally-stored team secret; `null` when none is saved. */
   getSecret(teamId: string, workspacePath: string): Promise<string | null>
   /** Local teardown + cloud share-mode reset → wizard can run again. */
@@ -216,11 +222,12 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
   },
 
   async setSecret(teamId, secretHex, workspacePath) {
-    await invoke<void>('team_share_set_team_secret', {
+    const warning = await invoke<string | null>('team_share_set_team_secret', {
       teamId,
       secretHex,
       workspacePath,
     })
+    return warning ?? null
   },
 
   async getSecret(teamId, workspacePath) {

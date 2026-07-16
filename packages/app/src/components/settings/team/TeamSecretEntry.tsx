@@ -56,6 +56,9 @@ export function TeamSecretEntry({ teamId, workspacePath, onSaved, allowGenerate 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedOk, setSavedOk] = useState(false)
+  // Saved locally, but the daemon never took delivery — shared env vars stay
+  // dead until this is retried, so it must not read as a plain success.
+  const [warning, setWarning] = useState<string | null>(null)
 
   // Seed the field with the currently-saved secret so re-entering the panel
   // shows the configured value instead of a blank box. Only prefill while the
@@ -84,10 +87,12 @@ export function TeamSecretEntry({ teamId, workspacePath, onSaved, allowGenerate 
     setSaving(true)
     setError(null)
     setSavedOk(false)
+    setWarning(null)
     try {
       const secretHex = await resolveSecretHex(trimmed)
-      await setSecret(teamId, secretHex, workspacePath)
-      setSavedOk(true)
+      const deliveryWarning = await setSecret(teamId, secretHex, workspacePath)
+      if (deliveryWarning) setWarning(deliveryWarning)
+      else setSavedOk(true)
       onSaved?.()
     } catch (e) {
       setError(String(e))
@@ -110,6 +115,7 @@ export function TeamSecretEntry({ teamId, workspacePath, onSaved, allowGenerate 
           setValue(e.target.value)
           setError(null)
           setSavedOk(false)
+          setWarning(null)
         }}
       />
       <div className="flex items-center gap-3">
@@ -125,6 +131,7 @@ export function TeamSecretEntry({ teamId, workspacePath, onSaved, allowGenerate 
               setValue(randomSecretHex())
               setError(null)
               setSavedOk(false)
+              setWarning(null)
             }}
             disabled={saving}
           >
@@ -138,6 +145,12 @@ export function TeamSecretEntry({ teamId, workspacePath, onSaved, allowGenerate 
       </div>
       <p className="text-[11.5px] text-muted-foreground">{t('settings.teamSecret.hint')}</p>
       {error && <p className="text-[12px] text-red-500">{error}</p>}
+      {warning && (
+        <p className="text-[12px] text-amber-600">
+          {t('settings.teamSecret.daemonDeliveryFailed')}
+          <span className="ml-1 text-muted-foreground">{warning}</span>
+        </p>
+      )}
     </div>
   )
 }

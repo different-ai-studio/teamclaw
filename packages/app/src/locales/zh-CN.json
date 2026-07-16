@@ -2525,6 +2525,7 @@
     },
     "teamShare": {
       "enableTitle": "开通团队共享",
+      "daemonDeliveryFailed": "团队共享已开启，但 daemon 未接收密钥",
       "enableDescription": "选择团队共享模式。开通后不可切换，请谨慎选择。",
       "shareModeLegend": "共享模式",
       "modeOssDesc": "使用阿里云 OSS 作为共享后端（默认）",
@@ -2582,6 +2583,7 @@
       "hint": "可使用与成员共享的任意口令，或点击「生成」得到随机密钥。",
       "generate": "生成",
       "savedOk": "已保存。",
+      "daemonDeliveryFailed": "已保存到本地，但 daemon 未接收 —— 在重试成功前，共享环境变量不可用。",
       "updateSectionTitle": "更新团队密钥",
       "updateSectionDesc": "成员需使用相同密钥才能解密共享环境变量。"
     }
