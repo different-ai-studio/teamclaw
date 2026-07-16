@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Shield } from 'lucide-react'
 import { useTelemetryStore } from '@/stores/telemetry'
 import { cn } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { appDisplayName } from '@/lib/build-config'
 import { ToggleSwitch } from './shared'
 
 export function PrivacySection() {
@@ -29,7 +29,7 @@ export function PrivacySection() {
             {t('settings.privacy.title', 'Privacy & Telemetry')}
           </h3>
           <p className="mt-1 text-[12.5px] text-muted-foreground">
-            {t('settings.privacy.description', { defaultValue: 'Control anonymous usage data collection to help improve {{appName}}.', appName: buildConfig.app.name })}
+            {t('settings.privacy.description', { defaultValue: 'Control anonymous usage data collection to help improve {{appName}}.', appName: appDisplayName })}
           </p>
         </div>
       </div>

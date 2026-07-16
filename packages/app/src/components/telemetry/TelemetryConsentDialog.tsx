@@ -12,7 +12,7 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog'
 import { useTelemetryStore } from '@/stores/telemetry'
-import { buildConfig } from '@/lib/build-config'
+import { appDisplayName } from '@/lib/build-config'
 
 interface TelemetryConsentDialogProps {
   open: boolean
@@ -44,10 +44,10 @@ export function TelemetryConsentDialog({
             <BarChart3 className="h-6 w-6 text-primary" />
           </div>
           <AlertDialogTitle className="text-center">
-            {t('telemetry.consent.title', { appName: buildConfig.app.name })}
+            {t('telemetry.consent.title', { appName: appDisplayName })}
           </AlertDialogTitle>
           <AlertDialogDescription className="text-center">
-            {t('telemetry.consent.description', { appName: buildConfig.app.name })}
+            {t('telemetry.consent.description', { appName: appDisplayName })}
           </AlertDialogDescription>
         </AlertDialogHeader>
 

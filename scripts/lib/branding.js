@@ -3,19 +3,23 @@ const path = require("path");
 
 /**
  * Apply the configured app name to a parsed tauri.conf.json object (mutates it).
- * Sets `productName` and the first window's `title`. Returns true if anything changed.
+ * `app.name` is the bundle identity → `productName` (the .app / installer
+ * filename). `app.displayName` is the human-facing label → the first window's
+ * `title`; it falls back to `app.name` when unset. Setting only `displayName`
+ * renames the window without touching the bundle. Returns true if anything changed.
  */
 function applyNameToTauriConf(tauriConf, buildConfig) {
-  const name = buildConfig && buildConfig.app && buildConfig.app.name;
-  if (!name) return false;
+  const app = (buildConfig && buildConfig.app) || {};
+  const name = app.name;
+  const displayName = app.displayName || name;
   let changed = false;
-  if (tauriConf.productName !== name) {
+  if (name && tauriConf.productName !== name) {
     tauriConf.productName = name;
     changed = true;
   }
   const win = tauriConf.app && Array.isArray(tauriConf.app.windows) && tauriConf.app.windows[0];
-  if (win && win.title !== name) {
-    win.title = name;
+  if (displayName && win && win.title !== displayName) {
+    win.title = displayName;
     changed = true;
   }
   return changed;
@@ -87,10 +91,12 @@ function applyIdentityToTauriConf(tauriConf, buildConfig) {
 
 /**
  * Apply the configured app name/short name to a parsed extension manifest.json
- * object (mutates it). Returns true if anything changed.
+ * object (mutates it). Both fields are browser-facing labels, so they follow
+ * `app.displayName` and fall back to `app.name`. Returns true if anything changed.
  */
 function applyNameToExtensionManifest(manifest, buildConfig) {
-  const name = buildConfig && buildConfig.app && buildConfig.app.name;
+  const app = (buildConfig && buildConfig.app) || {};
+  const name = app.displayName || app.name;
   if (!name) return false;
   let changed = false;
   if (manifest.name !== name) {

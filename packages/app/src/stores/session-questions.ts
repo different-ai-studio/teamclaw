@@ -11,7 +11,7 @@ const getAgentClient: () => any = () =>
     },
   });
 import { notificationService } from "@/lib/notification-service";
-import { buildConfig } from "@/lib/build-config";
+import { appDisplayName } from "@/lib/build-config";
 import type {
   QuestionAskedEvent,
 } from "./session-types";
@@ -244,7 +244,7 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
 
         notificationService.send(
           "action_required",
-          `${buildConfig.app.name} - \u9700\u8981\u56de\u7b54`,
+          `${appDisplayName} - \u9700\u8981\u56de\u7b54`,
           `${sessionTitle} \u2014 AI \u6709\u95ee\u9898\u9700\u8981\u4f60\u56de\u7b54`,
           event.sessionId,
           async () => {
