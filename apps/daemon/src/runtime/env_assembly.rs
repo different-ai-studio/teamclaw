@@ -36,5 +36,6 @@ pub fn assemble_spawn_runtime_env(
         extra_env: bundle.extra_env,
         force_env_override: true,
         opencode_json_original: bundle.opencode_json_original,
+        is_gateway: false,
     })
 }

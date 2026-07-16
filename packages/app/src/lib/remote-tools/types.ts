@@ -28,4 +28,5 @@ export const REMOTE_TOOL_ERROR = {
   unsupportedPlatform: 'unsupported_platform',
   unknownTool: 'unknown_tool',
   executorError: 'executor_error',
+  forbidden: 'forbidden',
 } as const

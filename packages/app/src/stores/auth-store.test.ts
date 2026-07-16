@@ -18,6 +18,9 @@ const authMock = {
   signOut: vi.fn(),
   signInAnonymously: vi.fn(),
   claimInvite: vi.fn(),
+  listPendingInvites: vi.fn(),
+  acceptPendingInvite: vi.fn(),
+  declinePendingInvite: vi.fn(),
   sendUpgradeEmailOtp: vi.fn(),
   verifyUpgradeEmailOtp: vi.fn(),
   adoptSession: vi.fn(),
@@ -284,6 +287,97 @@ describe("auth-store", () => {
     expect(useAuthStore.getState().pendingInviteToken).toBeNull();
     expect(useAuthStore.getState().loading).toBe(false);
     expect(useAuthStore.getState().authFlow).toBe("idle");
+  });
+
+  const pendingInvite = {
+    inviteId: "invite-1",
+    teamId: "team-7",
+    teamName: "Team Seven",
+    teamRole: "member",
+    displayName: "Erin",
+    invitedByDisplayName: "Dana",
+    inviteEmail: "erin@example.com",
+    invitePhone: null,
+    expiresAt: "2026-08-01T00:00:00Z",
+    matchedVia: "email" as const,
+  };
+
+  it("refreshPendingInvites skips the round-trip for an anonymous session", async () => {
+    // An anonymous user has no verified email/phone, so there is nothing the
+    // server could match — the request would always come back empty.
+    useAuthStore.setState({ session: anonSessionLike("anon-7"), pendingInvites: [pendingInvite] });
+
+    await useAuthStore.getState().refreshPendingInvites();
+
+    expect(authMock.listPendingInvites).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().pendingInvites).toEqual([]);
+  });
+
+  it("refreshPendingInvites stores matched invites for a real session", async () => {
+    authMock.listPendingInvites.mockResolvedValueOnce([pendingInvite]);
+    useAuthStore.setState({ session: storeSessionLike("real-7"), pendingInvites: [] });
+
+    await useAuthStore.getState().refreshPendingInvites();
+
+    expect(useAuthStore.getState().pendingInvites).toEqual([pendingInvite]);
+    expect(useAuthStore.getState().pendingInvitesLoading).toBe(false);
+  });
+
+  it("refreshPendingInvites swallows a lookup failure (must not break a good sign-in)", async () => {
+    authMock.listPendingInvites.mockRejectedValueOnce(new Error("network down"));
+    useAuthStore.setState({ session: storeSessionLike("real-8"), pendingInvites: [], errorMessage: null });
+
+    await useAuthStore.getState().refreshPendingInvites();
+
+    // Deliberately silent: the user can still join via a link, and surfacing
+    // this would put an error banner on an otherwise successful login.
+    expect(useAuthStore.getState().errorMessage).toBeNull();
+    expect(useAuthStore.getState().pendingInvitesLoading).toBe(false);
+  });
+
+  it("acceptPendingInvite enters the team and drops the invite from the list", async () => {
+    authMock.acceptPendingInvite.mockResolvedValueOnce({
+      actorId: "actor-7",
+      teamId: "team-7",
+      actorType: "member",
+      displayName: "Erin",
+      refreshToken: null,
+    });
+    useAuthStore.setState({ session: storeSessionLike("real-9"), pendingInvites: [pendingInvite] });
+
+    const result = await useAuthStore.getState().acceptPendingInvite("invite-1");
+
+    expect(authMock.acceptPendingInvite).toHaveBeenCalledWith("invite-1");
+    expect(currentTeamMock.reloadAndSwitchTo).toHaveBeenCalledWith("team-7");
+    expect(result?.teamId).toBe("team-7");
+    expect(useAuthStore.getState().pendingInvites).toEqual([]);
+    expect(useAuthStore.getState().loading).toBe(false);
+    expect(useAuthStore.getState().authFlow).toBe("idle");
+  });
+
+  it("acceptPendingInvite keeps the invite listed when the accept fails", async () => {
+    authMock.acceptPendingInvite.mockRejectedValueOnce(new Error("invite expired"));
+    useAuthStore.setState({ session: storeSessionLike("real-10"), pendingInvites: [pendingInvite] });
+
+    const result = await useAuthStore.getState().acceptPendingInvite("invite-1");
+
+    expect(result).toBeNull();
+    expect(currentTeamMock.reloadAndSwitchTo).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().pendingInvites).toEqual([pendingInvite]);
+    expect(useAuthStore.getState().errorMessage).toBe("invite expired");
+    expect(useAuthStore.getState().loading).toBe(false);
+  });
+
+  it("declinePendingInvite drops the invite without entering any team", async () => {
+    authMock.declinePendingInvite.mockResolvedValueOnce(undefined);
+    useAuthStore.setState({ session: storeSessionLike("real-11"), pendingInvites: [pendingInvite] });
+
+    const ok = await useAuthStore.getState().declinePendingInvite("invite-1");
+
+    expect(ok).toBe(true);
+    expect(authMock.declinePendingInvite).toHaveBeenCalledWith("invite-1");
+    expect(currentTeamMock.reloadAndSwitchTo).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().pendingInvites).toEqual([]);
   });
 
   it("sendUpgradeEmailOtp does not flip the global loading flag (AuthGate would tear down the app)", async () => {

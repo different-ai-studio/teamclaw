@@ -24,7 +24,12 @@ pub fn tool_input_schema(tool_name: &str) -> Option<Value> {
     match tool_name {
         TOOL_GET_PAGE_DOM => Some(json!({
             "type": "object",
+            "required": ["remote_context_id"],
             "properties": {
+                "remote_context_id": {
+                    "type": "string",
+                    "description": "Opaque TeamClaw remote tool context id for this reply."
+                },
                 "mode": {
                     "type": "string",
                     "enum": ["outline", "text"],
@@ -84,5 +89,19 @@ mod tests {
         assert!(is_known_tool(TOOL_GET_PAGE_DOM));
         assert!(is_known_tool(TOOL_SHOW_PAGE_NAV_LINKS));
         assert!(!is_known_tool("other"));
+    }
+
+    #[test]
+    fn get_page_dom_requires_remote_context_id() {
+        let schema = tool_input_schema(TOOL_GET_PAGE_DOM).expect("schema");
+        let required = schema
+            .get("required")
+            .and_then(|v| v.as_array())
+            .expect("required array");
+        assert!(required.iter().any(|v| v == "remote_context_id"));
+        assert!(schema
+            .pointer("/properties/remote_context_id")
+            .and_then(|v| v.get("type"))
+            .is_some_and(|v| v == "string"));
     }
 }

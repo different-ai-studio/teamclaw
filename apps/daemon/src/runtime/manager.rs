@@ -1,12 +1,10 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokio::sync::mpsc;
-use tokio::time::{timeout, Duration};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::acp_host::AcpHostPool;
-use super::adapter;
 use super::agent_runtime_state::PerAgentRuntimeState;
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
@@ -45,6 +43,10 @@ pub struct SpawnRuntimeEnv {
     /// Original `opencode.json` before MCP placeholder resolve; restored when the
     /// last runtime on this worktree stops.
     pub opencode_json_original: Option<String>,
+    /// Gateway sessions auto-allow tool permissions and use gateway MCP wiring.
+    /// Remote-tools collab runtimes may also carry an MCP config but must stay
+    /// `is_gateway = false` so permission + MCP repair paths behave correctly.
+    pub is_gateway: bool,
 }
 
 /// Per-agent runtime state checked out of `RuntimeManager` for the duration
@@ -296,9 +298,15 @@ impl RuntimeManager {
         &mut self,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
+        worktree: Option<&str>,
     ) {
         self.acp_host_pool
-            .prewarm_with_env(&self.launch_configs, extra_env, force_env_override)
+            .prewarm_with_env(
+                &self.launch_configs,
+                extra_env,
+                force_env_override,
+                worktree,
+            )
             .await;
     }
 
@@ -393,6 +401,7 @@ impl RuntimeManager {
             extra_env,
             force_env_override,
             opencode_json_original,
+            is_gateway,
         } = runtime_env;
         self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
         let mut handle = RuntimeHandle::new(
@@ -404,9 +413,9 @@ impl RuntimeManager {
         handle.current_prompt = prompt.into();
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
         handle.available_models = crate::runtime::models::available_models_for(agent_type);
+        handle.is_gateway = is_gateway;
 
         let launch = self.launch_config_for(agent_type);
-        let is_gateway = mcp_config_path.is_some();
         let resume_requested = resume_acp_session_id.is_some();
         let (cmd_tx, startup) = self
             .acp_host_pool
@@ -422,6 +431,7 @@ impl RuntimeManager {
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 is_gateway,
+                false,
             )
             .await?;
 
@@ -563,6 +573,7 @@ impl RuntimeManager {
             extra_env,
             force_env_override,
             opencode_json_original,
+            is_gateway,
         } = runtime_env;
         self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
 
@@ -573,9 +584,9 @@ impl RuntimeManager {
             workspace_id.into(),
         );
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
+        handle.is_gateway = is_gateway;
 
         let launch = self.launch_config_for(agent_type);
-        let is_gateway = mcp_config_path.is_some();
         let (cmd_tx, startup) = self
             .acp_host_pool
             .attach_session(
@@ -590,6 +601,7 @@ impl RuntimeManager {
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 is_gateway,
+                false,
             )
             .await?;
 
@@ -686,10 +698,11 @@ impl RuntimeManager {
         text: &str,
         attachment_urls: Vec<String>,
     ) -> crate::error::Result<Vec<String>> {
-        let (final_text, drained_ids, drained_messages, drained_injected) =
+        let (final_text, drained_ids, drained_messages, drained_injected, drained_next_context) =
             if let Some(handle) = self.agents.get_mut(agent_id) {
                 let drained_messages = handle.pending_silent.clone();
                 let drained_injected = handle.injected_context.clone();
+                let drained_next_context = std::mem::take(&mut handle.next_prompt_context);
                 let (injected_prefix, _) = if super::instruction_delivery::skips_buffered_inject(
                     handle.instruction_delivery,
                 ) {
@@ -698,13 +711,24 @@ impl RuntimeManager {
                     handle.flush_injected_context()
                 };
                 let (silent_prefix, drained) = handle.flush_pending_silent();
-                let prefix = format!("{injected_prefix}{silent_prefix}");
+                let next_context_prefix = if drained_next_context.is_empty() {
+                    String::new()
+                } else {
+                    format!("{drained_next_context}\n\n")
+                };
+                let prefix = format!("{injected_prefix}{next_context_prefix}{silent_prefix}");
                 let final_text = if prefix.is_empty() {
                     text.to_string()
                 } else {
                     format!("{prefix}{text}")
                 };
-                (final_text, drained, drained_messages, drained_injected)
+                (
+                    final_text,
+                    drained,
+                    drained_messages,
+                    drained_injected,
+                    drained_next_context,
+                )
             } else {
                 return Err(crate::error::AmuxError::Agent(format!(
                     "agent {} not found",
@@ -719,6 +743,9 @@ impl RuntimeManager {
             if let Some(handle) = self.agents.get_mut(agent_id) {
                 if !drained_injected.is_empty() {
                     handle.injected_context = drained_injected;
+                }
+                if !drained_next_context.is_empty() {
+                    handle.next_prompt_context = drained_next_context;
                 }
                 if !drained_messages.is_empty() {
                     let mut restored = drained_messages;
@@ -1108,7 +1135,10 @@ impl RuntimeManager {
                 initial_model,
                 mcp_cfg_path,
                 None,
-                SpawnRuntimeEnv::default(),
+                SpawnRuntimeEnv {
+                    is_gateway: true,
+                    ..SpawnRuntimeEnv::default()
+                },
             )
             .await?;
 
@@ -1150,11 +1180,13 @@ impl RuntimeManager {
         sender_display: &str,
         text: &str,
     ) -> crate::error::Result<()> {
-        let agent_id = self.agent_id_by_acp_session(acp_session_id).ok_or_else(|| {
-            crate::error::AmuxError::Agent(format!(
-                "no runtime for acp_session_id {acp_session_id}"
-            ))
-        })?;
+        let agent_id = self
+            .agent_id_by_acp_session(acp_session_id)
+            .ok_or_else(|| {
+                crate::error::AmuxError::Agent(format!(
+                    "no runtime for acp_session_id {acp_session_id}"
+                ))
+            })?;
         self.inject_context_for_runtime(&agent_id, sender_display, text)
     }
 
@@ -1164,9 +1196,10 @@ impl RuntimeManager {
         sender_display: &str,
         text: &str,
     ) -> crate::error::Result<()> {
-        let handle = self.agents.get_mut(agent_id).ok_or_else(|| {
-            crate::error::AmuxError::Agent(format!("agent {agent_id} not found"))
-        })?;
+        let handle = self
+            .agents
+            .get_mut(agent_id)
+            .ok_or_else(|| crate::error::AmuxError::Agent(format!("agent {agent_id} not found")))?;
         handle.push_injected_context(sender_display, text);
         Ok(())
     }
@@ -1647,6 +1680,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn send_prompt_includes_next_prompt_context_when_native_delivery() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt1");
+        let handle = mgr.get_handle_mut("rt1").unwrap();
+        handle.instruction_delivery = crate::runtime::InstructionDelivery::NativeOpenCodePlugin;
+        handle.next_prompt_context =
+            "When calling get_page_dom, include remote_context_id exactly as: rtctx_1".into();
+
+        mgr.send_prompt("rt1", "hello", vec![]).await.unwrap();
+
+        let sent = mgr.last_sent_to("rt1").expect("sent prompt");
+        assert!(sent.contains("remote_context_id exactly as: rtctx_1"));
+        assert!(sent.ends_with("hello"));
+        assert!(mgr
+            .get_handle("rt1")
+            .unwrap()
+            .next_prompt_context
+            .is_empty());
+    }
+
+    #[tokio::test]
     async fn send_prompt_drains_injected_before_pending_silent() {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt1");
         mgr.inject_context_for_runtime("rt1", "system", "请使用中文回答")
@@ -1713,6 +1766,7 @@ mod tests {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt1");
         mgr.inject_context_for_runtime("rt1", "system", "请使用中文回答")
             .unwrap();
+        mgr.get_handle_mut("rt1").unwrap().next_prompt_context = "remote ctx".into();
         mgr.fail_next_send_for("rt1", "boom");
 
         let result = mgr.send_prompt("rt1", "real question", vec![]).await;
@@ -1721,6 +1775,10 @@ mod tests {
         let injected = &mgr.get_handle("rt1").unwrap().injected_context;
         assert_eq!(injected.len(), 1);
         assert_eq!(injected[0].content, "请使用中文回答");
+        assert_eq!(
+            mgr.get_handle("rt1").unwrap().next_prompt_context,
+            "remote ctx"
+        );
         assert!(mgr.last_sent_to("rt1").is_none());
     }
 

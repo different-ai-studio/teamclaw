@@ -7,7 +7,7 @@ import {
   getBackend,
   hasBackendConfig,
 } from "@/lib/backend";
-import type { AuthClaimResult, AuthSession } from "@/lib/backend";
+import type { AuthClaimResult, AuthSession, PendingInvite } from "@/lib/backend";
 import { accessTokenMatchesBackend } from "@/lib/auth/auth-client";
 import { clearBootstrapAppliedFields, fetchAndApplyBootstrap } from "@/lib/bootstrap";
 import { getEffectiveServerConfig } from "@/lib/server-config";
@@ -70,6 +70,17 @@ interface AuthState {
    * member invites require a non-anonymous account (enforced in claim_team_invite).
    */
   claimPendingInvite: () => Promise<AuthClaimResult | null>;
+  /**
+   * Invites the server matched to this user's verified email/phone. Unlike
+   * `pendingInviteToken` (a link the user opened), these are discovered
+   * server-side at login — the user never saw a token.
+   */
+  pendingInvites: PendingInvite[];
+  pendingInvitesLoading: boolean;
+  /** No-op unless the session is real: matching keys off a verified identity. */
+  refreshPendingInvites: () => Promise<void>;
+  acceptPendingInvite: (inviteId: string) => Promise<AuthClaimResult | null>;
+  declinePendingInvite: (inviteId: string) => Promise<boolean>;
   sendUpgradeEmailOtp: (email: string) => Promise<boolean>;
   verifyUpgradeEmailOtp: (code: string) => Promise<boolean>;
   sendUpgradePhoneOtp: (phone: string) => Promise<boolean>;
@@ -376,6 +387,60 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ loading: false, authFlow: "idle" });
     return result;
   },
+  pendingInvites: [],
+  pendingInvitesLoading: false,
+  refreshPendingInvites: async () => {
+    const session = get().session;
+    // An anonymous session has no verified email/phone, so there is nothing the
+    // server could match against — skip the round-trip entirely.
+    if (!session || session.user?.is_anonymous) {
+      set({ pendingInvites: [] });
+      return;
+    }
+    if (!hasBackendConfig()) return;
+    set({ pendingInvitesLoading: true });
+    try {
+      const items = await getBackend().auth.listPendingInvites();
+      set({ pendingInvites: items, pendingInvitesLoading: false });
+    } catch (error) {
+      // Non-fatal and deliberately silent: a failed lookup must not block a
+      // sign-in that otherwise succeeded. The user can still join via a link.
+      console.warn("[invite] pending invite lookup failed", error);
+      set({ pendingInvitesLoading: false });
+    }
+  },
+  acceptPendingInvite: async (inviteId) => {
+    if (!hasBackendConfig()) {
+      set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
+      return null;
+    }
+    set({ loading: true, authFlow: "invite", errorMessage: null });
+    let result: AuthClaimResult;
+    try {
+      result = await getBackend().auth.acceptPendingInvite(inviteId);
+    } catch (error) {
+      set({ loading: false, authFlow: "idle", errorMessage: errorMessageFor(error) });
+      return null;
+    }
+    set({ pendingInvites: get().pendingInvites.filter((i) => i.inviteId !== inviteId) });
+    await enterClaimedTeam(result.teamId);
+    set({ loading: false, authFlow: "idle" });
+    return result;
+  },
+  declinePendingInvite: async (inviteId) => {
+    if (!hasBackendConfig()) {
+      set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
+      return false;
+    }
+    try {
+      await getBackend().auth.declinePendingInvite(inviteId);
+    } catch (error) {
+      set({ errorMessage: errorMessageFor(error) });
+      return false;
+    }
+    set({ pendingInvites: get().pendingInvites.filter((i) => i.inviteId !== inviteId) });
+    return true;
+  },
   sendUpgradeEmailOtp: async (email) => {
     if (!hasBackendConfig()) {
       set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
@@ -451,7 +516,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   resetUpgradeOtp: () => set({ upgradeEmail: null, upgradePhone: null, upgradeLoading: false, errorMessage: null }),
   signOut: async () => {
     await getBackend().auth.signOut();
-    set({ session: null, authFlow: "idle", otpEmail: null, otpPhone: null, phoneMultiUsers: [], pendingPhoneOTPToken: "", upgradeEmail: null });
+    set({ session: null, authFlow: "idle", otpEmail: null, otpPhone: null, phoneMultiUsers: [], pendingPhoneOTPToken: "", upgradeEmail: null, pendingInvites: [] });
     // Reset the current team so the NEXT (e.g. anonymous) login doesn't inherit
     // the previous user's team. Without this the current-team store kept the old
     // team (its RLS-lag guard preserves it while the new user's team list is
