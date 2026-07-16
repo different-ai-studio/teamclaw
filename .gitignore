@@ -139,8 +139,9 @@ build.config.json
 .opencode/
 opencode.json
 
-# Local-only manual belayo deploy workflow (not committed; deploy via deploy-local.sh)
-.github/workflows/belayo-deploy.yml
+# Local-only manual deploy workflows (not committed; deploy via deploy-local.sh).
+# Name yours `<something>.local.yml` to keep it out of git.
+.github/workflows/*.local.yml
 
 # S4 local pg_dump artifacts (never commit)
 services/supabase/s4/_dump/

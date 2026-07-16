@@ -1,9 +1,9 @@
 # S4 — Transplant teamclaw into saas-mono
 
-## belayo (test → live) — use this for production
+## RDS clone (test → live) — use this for production
 
-See **`BELAYO-LIVE.md`**. Clone `amux` (+ `public.claim_team_invite`) from
-**belayo_test** to **belayo_live** via `./belayo-live.sh`. No `app` schema on belayo.
+See **`LIVE-CLONE.md`**. Clone `amux` (+ `public.claim_team_invite`) from
+**the test RDS** to **the live RDS** via `./live-clone.sh`. No `app` schema on either RDS.
 
 ---
 
@@ -14,7 +14,7 @@ still has separate `app` + `amux` + `public` RPC layout. Schema-only (no data).
 
 See: `docs/specs/2026-06-08-teamclaw-saas-mono-integration.md` (Step D).
 
-**Not used for belayo RDS** — belayo_test already consolidated helpers into `amux`.
+**Not used for the RDS clone** — the test RDS already consolidated helpers into `amux`.
 
 ### What gets transplanted (47.x layout)
 
@@ -34,7 +34,7 @@ On DST these must already exist (saas-mono's real DDL).
 - `pg_dump` + `psql` (PostgreSQL 18 client) on the machine running the script.
 - Network access to both DBs. Connection URLs via env:
   ```sh
-  export SRC_DB_URL='postgres://USER:PW@47.115.253.201:5432/postgres'
+  export SRC_DB_URL='postgres://USER:PW@<src-db-host>:5432/postgres'
   export DST_DB_URL='postgres://USER:PW@<saas-mono-host>:5432/postgres'
   ```
 - Confirmed: saas-mono is identical to 47.x (PG 18.3, age 1.6.0 / pgvector 0.8.1.2 /

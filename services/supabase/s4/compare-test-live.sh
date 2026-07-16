@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Compare TeamClaw inventory: belayo_test vs belayo_live (supabase_db).
+# Compare TeamClaw inventory: test RDS vs live RDS (supabase_db).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-INV="$ROOT/belayo-inventory.sql"
+INV="$ROOT/inventory.sql"
 
 if ! command -v psql >/dev/null 2>&1; then
   export PATH="/opt/homebrew/opt/libpq/bin:${PATH}"
 fi
 
-TEST_URL="${BELAYO_TEST_DB_URL:-postgresql://${BELAYO_TEST_RDS_USER:-supabase_admin}:${BELAYO_TEST_RDS_PASSWORD:?set BELAYO_TEST_RDS_PASSWORD}@${BELAYO_TEST_RDS_HOST:-pgm-wz9e7zgczy2wdp7qgo.pg.rds.aliyuncs.com}:${BELAYO_TEST_RDS_PORT:-5432}/supabase_db?sslmode=disable}"
+TEST_URL="${TEST_DB_URL:-postgresql://${TEST_RDS_USER:-supabase_admin}:${TEST_RDS_PASSWORD:?set TEST_RDS_PASSWORD}@${TEST_RDS_HOST:?set TEST_RDS_HOST}:${TEST_RDS_PORT:-5432}/supabase_db?sslmode=disable}"
 
-LIVE_URL="${BELAYO_LIVE_DB_URL:-postgresql://${BELAYO_LIVE_RDS_USER:-supabase_admin}:${BELAYO_LIVE_RDS_PASSWORD:?set BELAYO_LIVE_RDS_PASSWORD}@${BELAYO_LIVE_RDS_HOST:-pgm-wz9269brt4zi9k91bo.pg.rds.aliyuncs.com}:${BELAYO_LIVE_RDS_PORT:-5432}/supabase_db?sslmode=disable}"
+LIVE_URL="${LIVE_DB_URL:-postgresql://${LIVE_RDS_USER:-supabase_admin}:${LIVE_RDS_PASSWORD:?set LIVE_RDS_PASSWORD}@${LIVE_RDS_HOST:?set LIVE_RDS_HOST}:${LIVE_RDS_PORT:-5432}/supabase_db?sslmode=disable}"
 
 run_inv() {
   local label="$1" url="$2"
@@ -20,8 +20,8 @@ run_inv() {
   echo
 }
 
-run_inv "BELAYO_TEST" "$TEST_URL"
-run_inv "BELAYO_LIVE" "$LIVE_URL"
+run_inv "TEST" "$TEST_URL"
+run_inv "LIVE" "$LIVE_URL"
 
 TMP="$(mktemp -d)"
 psql "$TEST_URL" -At -c "select table_name from information_schema.tables where table_schema='amux' and table_type='BASE TABLE' order by 1" >"$TMP/test.txt"

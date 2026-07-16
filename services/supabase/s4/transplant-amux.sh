@@ -16,7 +16,7 @@
 # Both instances are confirmed identical (PG 18.3, same extensions).
 #
 # Usage:
-#   export SRC_DB_URL='postgres://USER:PW@47.115.253.201:5432/postgres'
+#   export SRC_DB_URL='postgres://USER:PW@<src-db-host>:5432/postgres'
 #   export DST_DB_URL='postgres://USER:PW@<saas-mono-host>:5432/postgres'
 #   ./transplant-amux.sh            # full run (preflight -> dump -> load)
 #   ./transplant-amux.sh dump-only  # just produce the .sql artifacts

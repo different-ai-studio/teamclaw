@@ -12,13 +12,13 @@
 #   ./deploy-aliyun-fc.sh <function-name> [env-file]
 #
 # Examples:
-#   ./deploy-aliyun-fc.sh belayo-api-test                 # uses .env.test.local
-#   ./deploy-aliyun-fc.sh belayo-api-test .env.staging.local
+#   ./deploy-aliyun-fc.sh teamclaw-api-test                 # uses .env.test.local
+#   ./deploy-aliyun-fc.sh teamclaw-api-test .env.staging.local
 #
 # The env file must define (at minimum):
 #   ACCESS_KEY_ID, ACCESS_KEY_SECRET   (Aliyun credentials)
 #   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
-#   PUSH_WEBHOOK_SECRET, APNS_*, MQTT_*   (see .env.belayo-test.example)
+#   PUSH_WEBHOOK_SECRET, APNS_*, MQTT_*   (see .env.test.example)
 #
 set -euo pipefail
 
@@ -41,7 +41,7 @@ fi
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: env file '$ENV_FILE' not found." >&2
-  echo "       Copy .env.belayo-test.example to '$ENV_FILE' and fill in test values." >&2
+  echo "       Copy .env.test.example to '$ENV_FILE' and fill in test values." >&2
   exit 1
 fi
 

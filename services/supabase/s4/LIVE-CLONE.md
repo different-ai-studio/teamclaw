@@ -1,9 +1,9 @@
-# belayo_live — clone TeamClaw from belayo_test
+# Live RDS clone — copy TeamClaw from the test RDS to the live RDS
 
 Production and test are separate Alibaba RDS instances. Both use database
 **`supabase_db`** (the empty `postgres` database is not Supabase).
 
-## Verified schema layout (belayo_test, 2026-06)
+## Verified schema layout (test RDS, 2026-06)
 
 | Object | Location |
 |---|---|
@@ -13,32 +13,38 @@ Production and test are separate Alibaba RDS instances. Both use database
 | saas-mono tables (`orgs`, `users`, …) | **`public`** — unchanged |
 | `storage.*`, `auth.*` | unchanged |
 
-There is **no `app` schema** on belayo.
+There is **no `app` schema** on either RDS.
 
 ## RDS hosts (connectivity)
 
-| Env | Host | Notes |
+Hosts are not checked in — set them per run:
+
+| Env | Variable | Notes |
 |---|---|---|
-| **test** | `pgm-wz9e7zgczy2wdp7qgo.pg.rds.aliyuncs.com` | Public IP `47.113.29.0` — use this |
-| test (broken from laptop) | `pgm-wz9e7zgczy2wdp7q.pg.rds.aliyuncs.com` | Resolves to VPC private IP — do not use off-VPC |
-| **live** | `pgm-wz9269brt4zi9k91bo.pg.rds.aliyuncs.com` | Public IP `47.112.66.50` |
+| **test** | `TEST_RDS_HOST` | Use the instance's **public** endpoint when running off-VPC |
+| **live** | `LIVE_RDS_HOST` | Same: public endpoint off-VPC |
+
+Each RDS instance publishes two endpoints, and they differ by only a short
+suffix. The one WITHOUT the trailing `o`-style suffix resolves to the VPC
+private IP: it works from inside the VPC and silently fails to connect from a
+laptop. If `psql` hangs, you almost certainly picked the private endpoint.
 
 Use `sslmode=disable` for both.
 
 ## Migrate test → live
 
 ```sh
-export BELAYO_TEST_RDS_PASSWORD='...'
-export BELAYO_LIVE_RDS_PASSWORD='...'
+export TEST_RDS_PASSWORD='...'
+export LIVE_RDS_PASSWORD='...'
 
 cd services/supabase/s4
-chmod +x belayo-live.sh belayo-compare.sh
-./belayo-live.sh preflight
-./belayo-live.sh dump-only    # review ./_dump/
-./belayo-live.sh apply        # schema-only (no amux row data)
+chmod +x live-clone.sh compare-test-live.sh
+./live-clone.sh preflight
+./live-clone.sh dump-only    # review ./_dump/
+./live-clone.sh apply        # schema-only (no amux row data)
 
 # optional: copy test row data into live amux
-# WITH_DATA=1 ./belayo-live.sh apply
+# WITH_DATA=1 ./live-clone.sh apply
 ```
 
 The script:
@@ -52,22 +58,22 @@ The script:
 Re-run grants + `NOTIFY` on an already-migrated live DB:
 
 ```sh
-./belayo-live.sh postgrest-reload
+./live-clone.sh postgrest-reload
 ```
 
 ## Compare test vs live
 
 ```sh
-export BELAYO_TEST_RDS_PASSWORD='...'
-export BELAYO_LIVE_RDS_PASSWORD='...'
-./belayo-compare.sh
+export TEST_RDS_PASSWORD='...'
+export LIVE_RDS_PASSWORD='...'
+./compare-test-live.sh
 ```
 
 ## After apply (ops)
 
 PostgREST needs **both** RDS and the live Supabase **rest container**:
 
-1. **RDS** (`supabase_db`) — done by `./belayo-live.sh apply` or `postgrest-reload`:
+1. **RDS** (`supabase_db`) — done by `./live-clone.sh apply` or `postgrest-reload`:
    - `GRANT` on `amux` tables/routines/sequences to `anon`, `authenticated`, `service_role`
    - `ALTER ROLE authenticator SET pgrst.db_schemas TO 'public, amux, storage, graphql_public'`
    - `NOTIFY pgrst, 'reload schema'`
@@ -106,5 +112,5 @@ select count(*) from pg_policies
 ## Rollback
 
 ```sh
-./belayo-live.sh rollback   # drops amux + public.claim_team_invite only
+./live-clone.sh rollback   # drops amux + public.claim_team_invite only
 ```

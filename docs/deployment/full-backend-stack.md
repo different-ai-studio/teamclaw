@@ -76,7 +76,7 @@ cp .env.example .env
 
 ### 路径 B：阿里云生产（拆分托管）
 
-**适用：** 当前 ucar / belayo 生产形态 — 各组件独立运维。
+**适用：** 当前生产形态 — 各组件独立运维。
 
 | 层 | 典型形态 |
 |----|----------|
@@ -89,7 +89,7 @@ cp .env.example .env
 
 **FC 手动部署脚本：** `services/fc/deploy-aliyun-fc.sh`（默认拒绝部署到 `teamclaw-sync`，需 `FORCE=1`）。
 
-**Schema 迁移（test → live）：** `services/supabase/s4/BELAYO-LIVE.md`
+**Schema 迁移（test → live）：** `services/supabase/s4/LIVE-CLONE.md`
 
 > **注意：** `services/fc/**` 合入 `main` **不会**自动更新 FC 生产函数。部署 FC 需走当前团队约定的发布流程（Serverless Devs / 手动脚本 / 自托管 compose rebuild）。
 
@@ -140,7 +140,7 @@ psql "$DATABASE_URL" -f services/supabase/migrations/20260601000000_baseline.sql
 PGRST_DB_SCHEMAS=public,storage,graphql_public,amux
 ```
 
-belayo live 迁移后还需在 RDS 执行 grant + `NOTIFY pgrst, 'reload schema'`（见 `BELAYO-LIVE.md`）。
+live 迁移后还需在 RDS 执行 grant + `NOTIFY pgrst, 'reload schema'`（见 `LIVE-CLONE.md`）。
 
 ---
 
@@ -361,7 +361,7 @@ cd services/supabase && npm test   # pgTAP（若已配置）
 **回滚：**
 
 - Self-host：`docker compose down`（加 `-v` 清数据）
-- Schema：`services/supabase/s4/belayo-live.sh rollback`（仅 amux + claim RPC）
+- Schema：`services/supabase/s4/live-clone.sh rollback`（仅 amux + claim RPC）
 
 ---
 
@@ -373,7 +373,7 @@ cd services/supabase && npm test   # pgTAP（若已配置）
 | [`services/fc/s.yaml`](../../services/fc/s.yaml) | FC 环境变量权威列表 |
 | [`services/fc/deploy-aliyun-fc.sh`](../../services/fc/deploy-aliyun-fc.sh) | 阿里云 FC 手动部署 |
 | [`services/supabase/migrations/README.md`](../../services/supabase/migrations/README.md) | Migration 策略 |
-| [`services/supabase/s4/BELAYO-LIVE.md`](../../services/supabase/s4/BELAYO-LIVE.md) | test → live schema 克隆 |
+| [`services/supabase/s4/LIVE-CLONE.md`](../../services/supabase/s4/LIVE-CLONE.md) | test → live schema 克隆 |
 | [`docs/architecture/v2.md`](../architecture/v2.md) | 架构总览 |
 | [`docs/openapi/teamclaw-api.v1.yaml`](../openapi/teamclaw-api.v1.yaml) | API 契约 |
 | [`CLAUDE.md`](../../CLAUDE.md) | FC 端点与版本发布约定 |
