@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import {
   Dialog,
@@ -20,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useTeamShareStore } from '@/stores/team-share'
+import { useTeamShareStore, type EnableShareResult } from '@/stores/team-share'
 import { humanizeFcError } from '@/lib/fc-error'
 import { resolveSecretHex } from './TeamSecretEntry'
 
@@ -88,12 +89,13 @@ export function EnableShareWizard({
     setError(null)
     try {
       const secret = await optionalTeamSecret()
+      let res: EnableShareResult
       if (mode === 'oss') {
-        await enableOss(teamId, workspacePath, secret)
+        res = await enableOss(teamId, workspacePath, secret)
       } else if (mode === 'managed_git') {
-        await enableManagedGit(teamId, workspacePath, secret)
+        res = await enableManagedGit(teamId, workspacePath, secret)
       } else {
-        await enableCustomGit(
+        res = await enableCustomGit(
           teamId,
           workspacePath,
           {
@@ -104,6 +106,16 @@ export function EnableShareWizard({
           },
           secret,
         )
+      }
+      // Share is on server-side, so the wizard is done and closes — but the
+      // daemon may not have taken the secret, which leaves shared env vars
+      // dead. Hold the toast open: this needs a retry, not a glance.
+      if (res.cloneWarning) {
+        toast.warning(t('settings.teamShare.daemonDeliveryFailed'), {
+          description: res.cloneWarning,
+          duration: Infinity,
+          closeButton: true,
+        })
       }
       onSuccess?.()
       reset()

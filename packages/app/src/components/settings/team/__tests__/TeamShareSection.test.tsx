@@ -291,4 +291,44 @@ describe('TeamSecretEntry', () => {
       expect(screen.getByText(/已保存/)).toBeTruthy()
     })
   })
+
+  it('surfaces a daemon delivery warning instead of reporting success', async () => {
+    // The command resolves (the local save worked) but hands back a warning:
+    // the daemon never took the secret, so shared env vars stay dead.
+    mockInvoke.mockImplementation(async (cmd: string) =>
+      cmd === 'team_share_set_team_secret' ? 'daemon secret delivery deferred: connection refused' : null,
+    )
+
+    render(<TeamSecretEntry teamId="team-1" workspacePath="/workspace" />)
+
+    const input = screen.getByLabelText(/团队密钥/)
+    fireEvent.change(input, { target: { value: 'ab'.repeat(32) } })
+    const saveBtn = screen.getByRole('button', { name: /保存/ }) as HTMLButtonElement
+    await waitFor(() => expect(saveBtn.disabled).toBe(false))
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText(/daemon 未接收/)).toBeTruthy()
+    })
+    // The whole point: this must not read as a clean save. Match the success
+    // string exactly — the warning copy itself opens with "已保存到本地".
+    expect(screen.queryByText('已保存。')).toBeNull()
+    expect(screen.getByText(/connection refused/)).toBeTruthy()
+  })
+
+  it('reports a clean save when the daemon takes delivery', async () => {
+    // `null` warning = delivered. Guards against the warning branch latching on.
+    mockInvoke.mockResolvedValue(null)
+
+    render(<TeamSecretEntry teamId="team-1" workspacePath="/workspace" />)
+
+    const input = screen.getByLabelText(/团队密钥/)
+    fireEvent.change(input, { target: { value: 'cd'.repeat(32) } })
+    const saveBtn = screen.getByRole('button', { name: /保存/ }) as HTMLButtonElement
+    await waitFor(() => expect(saveBtn.disabled).toBe(false))
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => expect(screen.getByText(/已保存/)).toBeTruthy())
+    expect(screen.queryByText(/daemon 未接收/)).toBeNull()
+  })
 })
