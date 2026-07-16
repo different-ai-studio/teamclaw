@@ -1,5 +1,5 @@
 // Channel type definitions and default configs — extracted from channels.ts
-import { buildConfig } from '@/lib/build-config'
+import { appDisplayName } from '@/lib/build-config'
 
 // Gateway status types
 export type GatewayStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
@@ -294,7 +294,7 @@ export const defaultEmailConfig: EmailConfig = {
   allowedSenders: [],
   labels: [],
   replyAllNew: false,
-  displayName: `${buildConfig.app.name} Agent`,
+  displayName: `${appDisplayName} Agent`,
 }
 
 // Channels store state interface

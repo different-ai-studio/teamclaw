@@ -91,10 +91,10 @@ fn main() {
     // NOTE: build.config.local.json is intentionally NOT merged here. The vite
     // frontend dropped it from its merge chain (commit f56d0ea9) so BUILD_ENV is
     // the single authoritative way to switch environments. build.rs must mirror
-    // that, otherwise a stale local override (e.g. a dead belayo-test-api pin)
+    // that, otherwise a stale local override (e.g. a dead legacy test-api pin)
     // gets baked into CLOUD_API_URL for the Rust team-share / OSS commands while
     // the frontend points at the BUILD_ENV backend — the two desync and enabling
-    // Team Shared fails with "function 'belayo-test-api' does not exist".
+    // Team Shared fails with "function 'legacy-test-api' does not exist".
 
     let short_name = config["app"]["shortName"]
         .as_str()
@@ -133,12 +133,35 @@ fn main() {
         println!("cargo:warning=Using UPDATER_PUBKEY={}", pubkey);
     }
 
+    // Bake the partner admin console host allowlist (features.auth.webSSOHosts)
+    // into the binary. This is the native-side re-check that gates injecting the
+    // TeamClaw bearer token into a webview, so it must come from the build config
+    // rather than the renderer. Deployment-specific hostnames belong in the
+    // brand's gitignored build.config.<brand>.json; absent means injection is off.
+    let websso_hosts: Vec<String> = config["features"]["auth"]["webSSOHosts"]
+        .as_array()
+        .map(|hosts| {
+            hosts
+                .iter()
+                .filter_map(|h| h.as_str())
+                .map(str::trim)
+                .filter(|h| !h.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !websso_hosts.is_empty() {
+        let joined = websso_hosts.join(",");
+        println!("cargo:rustc-env=WEBSSO_ADMIN_HOSTS={}", joined);
+        println!("cargo:warning=Using WEBSSO_ADMIN_HOSTS={}", joined);
+    }
+
     // Bake the Cloud API URL into the binary so the Rust team-share / OSS
     // commands default to the SAME backend the frontend resolves from
     // (`getEffectiveServerConfigSync().cloudApiUrl`). Precedence mirrors the
     // frontend: `VITE_CLOUD_API_URL` env override wins, else `cloudApiUrl` from
     // the merged build config. Without this the Rust fallback was hardcoded to
-    // the production URL, so a non-production build (e.g. belayo-test) sent its
+    // the production URL, so a non-production build (e.g. a legacy test build) sent its
     // freshly-issued JWT to production FC and PostgREST rejected the signature.
     println!("cargo:rerun-if-env-changed=VITE_CLOUD_API_URL");
     let cloud_api_url = std::env::var("VITE_CLOUD_API_URL")

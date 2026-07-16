@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { UNSUPPORTED_BINARY_EXTENSIONS } from "@/components/viewers/UnsupportedFileViewer";
 import { isTauri } from '@/lib/utils'
 import { ensureGitignoreEntries } from '@/lib/gitignore-manager'
-import { appShortName, buildConfig, TEAM_REPO_DIR } from '@/lib/build-config'
+import { appDisplayName, appShortName, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from './team-mode'
 
 // Start watching a directory for file changes
@@ -355,7 +355,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       import('@tauri-apps/api/core')
         .then(async (m) => {
           await Promise.all([
-            m.invoke('set_window_title', { title: `${buildConfig.app.name} — ${wsName}` }),
+            m.invoke('set_window_title', { title: `${appDisplayName} — ${wsName}` }),
             m.invoke('register_window_workspace', { workspacePath: expandedPath }),
           ]);
           const { default: i18n } = await import('@/lib/i18n');

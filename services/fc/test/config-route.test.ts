@@ -123,13 +123,13 @@ test("buildBootstrapConfig returns webSso block when env is set", () => {
   withEnv(
     {
       MQTT_BROKER_URL: undefined,
-      WEBSSO_LOGIN_URL: "https://testadmin.ucar.cc/sign-in",
+      WEBSSO_LOGIN_URL: "https://admin.example.test/sign-in",
       WEBSSO_STORAGE_KEY: "sb-test-supa-auth-token",
     },
     () => {
       assert.deepEqual(buildBootstrapConfig(), {
         webSso: {
-          loginUrl: "https://testadmin.ucar.cc/sign-in",
+          loginUrl: "https://admin.example.test/sign-in",
           storageKey: "sb-test-supa-auth-token",
         },
       });
@@ -154,7 +154,7 @@ test("GET /v1/config/public returns webSso WITHOUT auth (login-time config)", as
   await withEnv(
     {
       MQTT_BROKER_URL: "mqtts://secret.example.com:8883",
-      WEBSSO_LOGIN_URL: "https://testadmin.ucar.cc/sign-in",
+      WEBSSO_LOGIN_URL: "https://admin.example.test/sign-in",
       WEBSSO_STORAGE_KEY: "sb-test-supa-auth-token",
     },
     async () => {
@@ -167,7 +167,7 @@ test("GET /v1/config/public returns webSso WITHOUT auth (login-time config)", as
       // webSso is present; the sensitive mqtt block is NEVER in the public config.
       assert.deepEqual(body, {
         webSso: {
-          loginUrl: "https://testadmin.ucar.cc/sign-in",
+          loginUrl: "https://admin.example.test/sign-in",
           storageKey: "sb-test-supa-auth-token",
         },
       });

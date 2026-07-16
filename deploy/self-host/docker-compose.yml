@@ -187,6 +187,25 @@ services:
       BUCKET: "${BUCKET:-teamclaw-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
+      # Optional partner-integration features, all off unless set here. This
+      # `environment:` map is an explicit allowlist — a var absent from it never
+      # reaches the container, no matter what the box's .env says.
+      #
+      # Phone login needs DEFAULT_ORG_ID + PHONE_EMAIL_DOMAIN +
+      # PHONE_AUTH_ENCRYPTION_KEY together (SERVICE_ROLE_KEY is already above);
+      # any one missing makes /v1/auth/phone/* return 501.
+      # PHONE_EMAIL_DOMAIN is the domain of the synthetic auth email
+      # (`<phone>@<domain>`) and therefore half the account identity: it must
+      # match whatever partner SaaS shares this GoTrue, or phone users get a
+      # parallel set of accounts. There is deliberately no default.
+      DEFAULT_ORG_ID: "${DEFAULT_ORG_ID:-}"
+      PHONE_EMAIL_DOMAIN: "${PHONE_EMAIL_DOMAIN:-}"
+      PHONE_AUTH_ENCRYPTION_KEY: "${PHONE_AUTH_ENCRYPTION_KEY:-}"
+      # Web SSO 快捷登录 target, delivered to clients via /v1/config/{public,
+      # bootstrap}. The host here must match features.auth.webSSOHosts in the
+      # desktop build config, or session injection silently does nothing.
+      WEBSSO_LOGIN_URL: "${WEBSSO_LOGIN_URL:-}"
+      WEBSSO_STORAGE_KEY: "${WEBSSO_STORAGE_KEY:-}"
       # Points FC at the bundled gateway. FC now fails closed on a blank value
       # rather than falling back to a hosted endpoint, so this default is a
       # convenience, not a safety net.

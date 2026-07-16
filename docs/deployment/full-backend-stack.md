@@ -20,7 +20,7 @@
 >
 > **命名提示：** `services/fc/` 目录名同样是历史遗留 —— 它**不是**阿里云函数计算，而是
 > Cloud API 服务，由 compose 构建成容器运行。早先的阿里云 FC 部署（`teamclaw-sync`）、
-> belayo RDS、`cloud.ucar.cc`、`ai.ucar.cc` 均**已下线**。
+> 独立 RDS 实例、`cloud.ucar.cc`、`ai.ucar.cc` 均**已下线**。
 
 ---
 

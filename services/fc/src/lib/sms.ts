@@ -1,10 +1,10 @@
-// Aliyun SMS sender for phone-auth verification codes, ported from
-// saas-mono/betly (`apps/api/src/lib/dysms.ts` + `services/metadata.ts`).
+// Aliyun SMS sender for phone-auth verification codes, ported from the partner
+// SaaS (`apps/api/src/lib/dysms.ts` + `services/metadata.ts` there).
 //
 // Config is NOT env-based: it lives in the shared `public.metadata` table,
-// org-scoped (`name='ALIYUN_SMS_CONFIG'`). Since teamclaw's DEFAULT_ORG_ID is a
-// betly org (e.g. 761b34b5「Betly 倍拓」), reading that org's metadata reuses
-// betly's existing SMS account/template — no new credentials needed.
+// org-scoped (`name='ALIYUN_SMS_CONFIG'`). When teamclaw's DEFAULT_ORG_ID is an
+// org owned by the partner SaaS, reading that org's metadata reuses the
+// partner's existing SMS account/template — no new credentials needed.
 import * as $OpenApi from "@alicloud/openapi-client";
 import Dysmsapi, { SendSmsRequest } from "@alicloud/dysmsapi20170525";
 import { REALTIME_TRANSPORT_OPTS } from "./supabase-repo/shared.js";
@@ -21,7 +21,7 @@ interface DysmsConfig {
 function createDysmsClient(accessKeyId: string, accessKeySecret: string) {
   const config = new $OpenApi.Config({ accessKeyId, accessKeySecret });
   config.endpoint = "dysmsapi.aliyuncs.com";
-  // The SDK ships a CJS default-export quirk; mirror betly's interop cast.
+  // The SDK ships a CJS default-export quirk; mirror the partner's interop cast.
   const Ctor = (Dysmsapi as any).default ?? Dysmsapi;
   return new Ctor(config) as {
     sendSmsWithOptions: (

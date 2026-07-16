@@ -99,7 +99,7 @@ test("POST /v1/auth/signin-otp rejects missing email and phone", async () => {
 
 test("POST /v1/auth/signin-otp rejects phone-only (moved to /v1/auth/phone/*)", async () => {
   // Phone OTP no longer goes through GoTrue native /otp (it created phone-native
-  // users divergent from betly). Phone callers must use /v1/auth/phone/send-code
+  // users divergent from the partner SaaS). Phone callers must use /v1/auth/phone/send-code
   // + /v1/auth/phone/login. The route 400s without ever calling GoTrue.
   const stub = stubGoTrue({
     "POST /auth/v1/otp": () => new Response(JSON.stringify({}), { status: 200 }),

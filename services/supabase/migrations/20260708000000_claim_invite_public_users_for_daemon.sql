@@ -4,7 +4,7 @@
 -- Bug: the agent/daemon branch of amux.claim_team_invite (daemon.*@amuxd.run
 -- accounts) stamped the team's org into auth.users.raw_app_meta_data.org_id but
 -- never inserted a public.users row. Any org resolver that queries
--- `public.users` by id with `.single()` (e.g. the api.mx5.cn / stores app's
+-- `public.users` by id with `.single()` (e.g. the partner API / stores app's
 -- getCurrentOrgId, which — unlike amux.current_org_id() — does NOT read the JWT
 -- app_metadata.org_id claim first) then gets 0 rows and 500s:
 --   "Failed to get user org_id: JSON object requested, multiple (or no) rows returned"

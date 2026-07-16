@@ -17,7 +17,7 @@ export const teams = pgTable("teams", {
   // Team-wide default agent preference. FK to agents(id) with ON DELETE SET NULL
   // is declared in the migration SQL only (avoids a teams<->agents Drizzle import cycle).
   defaultAgentId: uuid("default_agent_id"),
-  // Owning org id (betly/DEFAULT_ORG tenancy alignment). Nullable: the Postgres
+  // Owning org id (partner/DEFAULT_ORG tenancy alignment). Nullable: the Postgres
   // backend has no org model yet, so first-team creation leaves this null.
   // When set to DEFAULT_ORG_ID, the team is a shared-tenant "personal" team and
   // cannot pull in members until the caller upgrades their account — mirrors the

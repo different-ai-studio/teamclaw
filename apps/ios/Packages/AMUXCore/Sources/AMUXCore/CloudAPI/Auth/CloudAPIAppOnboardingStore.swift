@@ -16,7 +16,7 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
     private let pkce: PKCEStore
 
     // Captcha token sent with phone send-code. The server's captcha verification
-    // is currently a pass-through stub (mirrors betly); it only requires a
+    // is currently a pass-through stub (mirrors the partner SaaS); it only requires a
     // non-empty value. TODO: integrate the Aliyun captcha SDK and pass a real
     // verify token here.
     private static let captchaPlaceholder = "ios-captcha-pending"
@@ -146,9 +146,9 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         }
     }
 
-    /// betly-aligned: phone login no longer uses GoTrue native OTP (which created
-    /// phone-native users divergent from betly). We send our own SMS code via
-    /// `/v1/auth/phone/send-code` and resolve/create the betly user via
+    /// partner-aligned: phone login no longer uses GoTrue native OTP (which created
+    /// phone-native users divergent from the partner SaaS). We send our own SMS code via
+    /// `/v1/auth/phone/send-code` and resolve/create the partner user via
     /// `/v1/auth/phone/login`. See
     /// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
     public func sendPhoneOTP(phone: String) async throws {
@@ -309,7 +309,7 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
 
     public func sendUpgradePhoneOTP(phone: String) async throws {
         await ensureStarted()
-        // betly-aligned: send OUR OWN SMS code (not GoTrue phone_change), the same
+        // partner-aligned: send OUR OWN SMS code (not GoTrue phone_change), the same
         // channel phone login uses. Binding happens in verifyUpgradePhoneOTP via
         // /v1/account/bind-phone. See
         // docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
@@ -574,7 +574,7 @@ private struct VerifyPhoneOTPRequest: Encodable, Sendable {
     let type: String
 }
 
-// ── betly-aligned phone login (send-code / login) ────────────────────────────
+// ── partner-aligned phone login (send-code / login) ────────────────────────────
 
 private struct PhoneSendCodeRequest: Encodable, Sendable {
     let phone: String
@@ -626,7 +626,7 @@ public enum PhoneLoginResult: Sendable {
     case multiUser([PhoneUser])
 }
 
-/// Errors surfaced by the betly-aligned phone login.
+/// Errors surfaced by the partner-aligned phone login.
 public enum PhoneLoginError: LocalizedError, Sendable {
     case multipleAccounts
     public var errorDescription: String? {
@@ -653,7 +653,7 @@ private struct RefreshResult: Decodable, Sendable {
     let expiresAt: Int
 }
 
-// betly-aligned phone identity upgrade (bind to current account, NOT phone_change).
+// partner-aligned phone identity upgrade (bind to current account, NOT phone_change).
 private struct BindPhoneRequest: Encodable, Sendable {
     let phone: String
     let code: String

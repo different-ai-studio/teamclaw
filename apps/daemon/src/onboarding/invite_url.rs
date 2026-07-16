@@ -109,13 +109,13 @@ mod tests {
     fn parses_invite_with_cloud_api_url() {
         // The desktop URL-encodes its effective endpoint into `?cloud_api_url=`.
         let p = parse(
-            "teamclaw://invite?token=tok-123&cloud_api_url=https%3A%2F%2Fbelayo-test-api.ucar.cc",
+            "teamclaw://invite?token=tok-123&cloud_api_url=https%3A%2F%2Flegacy-test-api.example.test",
         )
         .unwrap();
         assert_eq!(p.token, "tok-123");
         assert_eq!(
             p.cloud_api_url.as_deref(),
-            Some("https://belayo-test-api.ucar.cc")
+            Some("https://legacy-test-api.example.test")
         );
     }
 

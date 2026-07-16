@@ -1,17 +1,23 @@
-// Phone-number sign-in / sign-up, aligned with saas-mono / betly's model
-// (`saas-mono/apps/api/src/routes/app/auth/phone.ts`) and re-implemented here
+// Phone-number sign-in / sign-up, aligned with the partner SaaS's model
+// (`apps/api/src/routes/app/auth/phone.ts` there) and re-implemented here
 // against the SHARED `supabase_db` so a teamclaw phone login lands on the SAME
-// user betly would resolve (no duplicate accounts).
+// user the partner would resolve (no duplicate accounts).
 //
-// Identity model (mirrors betly, NOT GoTrue native phone OTP):
-//   - the auth user is an EMAIL user with synthetic email `<phone>@phone.betly.app`;
-//     `auth.users.phone` stays empty.
+// Identity model (mirrors the partner SaaS, NOT GoTrue native phone OTP):
+//   - the auth user is an EMAIL user with synthetic email
+//     `<phone>@<phoneEmailDomain>`; `auth.users.phone` stays empty.
 //   - the phone↔user mapping lives in `public.users.mobile`, scoped by `org_id`.
-//   - new users join the DEFAULT_ORG (`defaultOrgId`, = betly's default tenant).
+//   - new users join the DEFAULT_ORG (`defaultOrgId`, = the partner's default tenant).
 //   - verification codes live in the shared `public.auth_verify_code` table.
 //   - sessions are minted via admin magiclink (`generateSessionByEmail`).
 //
-// Differences from betly that are intentional (see
+// `phoneEmailDomain` is deployment config, not a constant: it is half of the
+// account identity, so a deployment sharing users with the partner SaaS MUST
+// set it to the same domain the partner uses. It is required rather than
+// defaulted — a wrong default would silently mint a parallel set of accounts
+// for every phone number instead of failing loudly.
+//
+// Differences from the partner SaaS that are intentional (see
 // docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md):
 //   - NO `processAfterUserCreated` side-effects (no self-participant / tags);
 //     teamclaw only writes the `public.users` row.
@@ -26,9 +32,9 @@ import { REALTIME_TRANSPORT_OPTS } from "./shared.js";
 const PHONE_RE = /^1[3-9]\d{9}$/;
 
 /**
- * Normalize a phone number to betly's canonical bare 11-digit Chinese mobile.
- * Clients (desktop, iOS) send E.164 like `+8613723441441`; betly stores and
- * resolves users by the bare `13723441441`, so we strip a leading `+86` / `86`
+ * Normalize a phone number to the partner's canonical bare 11-digit Chinese
+ * mobile. Clients (desktop, iOS) send E.164 like `+8613700000000`; the partner
+ * stores and resolves users by the bare `13700000000`, so we strip a leading `+86` / `86`
  * / `0086` country code (and any spaces/dashes) before validating or matching.
  * Returns the cleaned string unchanged when it doesn't look like a CN number, so
  * PHONE_RE still rejects genuinely invalid input.
@@ -40,19 +46,24 @@ export function normalizePhone(raw: string): string {
 }
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const RESEND_WINDOW_MS = 60 * 1000; // 60 seconds
-const SYNTHETIC_EMAIL_DOMAIN = "phone.betly.app";
 
 export interface PhoneAuthOptions {
   supabaseUrl: string;
   publishableKey: string;
   serviceRoleKey: string;
-  /** betly default tenant org; new phone users join this org. */
+  /** Default tenant org; new phone users join this org. */
   defaultOrgId: string;
-  /** Salt for the deterministic per-phone password (never re-verified; betly uses generateSessionByEmail). */
+  /**
+   * Domain of the synthetic auth email (`<phone>@<domain>`). Deployment config:
+   * it is half the account identity, so it must match the partner SaaS sharing
+   * this GoTrue. No default — see the identity-model note at the top.
+   */
+  phoneEmailDomain: string;
+  /** Salt for the deterministic per-phone password (never re-verified; the partner uses generateSessionByEmail). */
   encryptionKey: string;
   /** Send an SMS verification code. Throwing aborts send-code (the code row is rolled back). */
   sendSms: (args: { phone: string; code: string; orgId: string }) => Promise<void>;
-  /** Verify the client captcha token. Mirrors betly: currently a pass-through stub. */
+  /** Verify the client captcha token. Mirrors the partner: currently a pass-through stub. */
   verifyCaptcha?: (token: string) => Promise<{ verifyResult: boolean; message?: string }>;
   /** When true, skip real SMS and return the code in the response (dev only). */
   smsDebugMode?: boolean;
@@ -81,6 +92,7 @@ export function createPhoneAuthRepository(options: PhoneAuthOptions) {
     publishableKey,
     serviceRoleKey,
     defaultOrgId,
+    phoneEmailDomain,
     encryptionKey,
     sendSms,
     verifyCaptcha,
@@ -94,6 +106,7 @@ export function createPhoneAuthRepository(options: PhoneAuthOptions) {
   if (!publishableKey) throw new Error("SUPABASE_PUBLISHABLE_KEY is required");
   if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for phone auth");
   if (!defaultOrgId) throw new Error("DEFAULT_ORG_ID is required for phone auth");
+  if (!phoneEmailDomain) throw new Error("PHONE_EMAIL_DOMAIN is required for phone auth");
   if (!encryptionKey) throw new Error("PHONE_AUTH_ENCRYPTION_KEY is required for phone auth");
 
   // Service-role admin client. `public` schema (users / auth_verify_code / orgs).
@@ -108,10 +121,10 @@ export function createPhoneAuthRepository(options: PhoneAuthOptions) {
   });
 
   function syntheticEmail(phone: string): string {
-    return `${phone}@${SYNTHETIC_EMAIL_DOMAIN}`;
+    return `${phone}@${phoneEmailDomain}`;
   }
 
-  // admin magiclink → anon verifyOtp(token_hash) → session (betly's
+  // admin magiclink → anon verifyOtp(token_hash) → session (the partner's
   // generateSessionByEmail, ported).
   async function generateSessionByEmail(email: string) {
     const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
@@ -153,7 +166,7 @@ export function createPhoneAuthRepository(options: PhoneAuthOptions) {
       if (!PHONE_RE.test(phone)) {
         throw new ApiError(400, "validation_failed", "请输入有效的手机号码");
       }
-      // Captcha: betly requires a non-empty token, then verifies (currently a
+      // Captcha: the partner requires a non-empty token, then verifies (currently a
       // pass-through stub). Honour the same contract; skip in debug mode.
       if (!smsDebugMode) {
         if (!captchaVerify || captchaVerify.trim() === "") {
@@ -167,7 +180,7 @@ export function createPhoneAuthRepository(options: PhoneAuthOptions) {
             }
           } catch (e) {
             if (e instanceof ApiError) throw e;
-            // betly policy: on captcha service exception, allow through.
+            // partner policy: on captcha service exception, allow through.
             console.error("captcha verify exception (allowing through):", e);
           }
         }
@@ -244,7 +257,7 @@ export function createPhoneAuthRepository(options: PhoneAuthOptions) {
         throw new ApiError(400, "validation_failed", "验证码错误或已过期");
       }
 
-      // Resolve betly user(s) for (defaultOrg, mobile). Include org name for picker UI.
+      // Resolve partner user(s) for (defaultOrg, mobile). Include org name for picker UI.
       let q = admin
         .from("users")
         .select("*, orgs(id, name, logo)")
@@ -303,7 +316,7 @@ export function createPhoneAuthRepository(options: PhoneAuthOptions) {
         throw new ApiError(500, "internal", `createUser failed: ${createErr?.message ?? "no user"}`);
       }
       const authId = created.user.id;
-      const nickname = `betly_${Math.random().toString(36).slice(2, 6)}_${phone.slice(-4)}`;
+      const nickname = `user_${Math.random().toString(36).slice(2, 6)}_${phone.slice(-4)}`;
       const { data: userRow, error: insUserErr } = await admin
         .from("users")
         .insert({

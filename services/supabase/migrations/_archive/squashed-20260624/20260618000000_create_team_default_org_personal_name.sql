@@ -1,11 +1,11 @@
 -- ============================================================================
--- Tenancy alignment with betly: the first team is always stamped with the
+-- Tenancy alignment with the partner SaaS: the first team is always stamped with the
 -- shared DEFAULT_ORG (FC passes p_oid = DEFAULT_ORG_ID); a per-user org is no
 -- longer minted on signup (that now happens only at account upgrade).
 --
 -- Because every new user's personal team lives in the SAME default org, the
 -- team name must NOT fall back to the org name (that would name everyone's
--- team after the default tenant, e.g. "Betly 倍拓"). Team-name precedence is now:
+-- team after the default tenant). Team-name precedence is now:
 --   explicit p_name -> deterministic "Adjective Animal".
 -- Owner display name is unchanged: nickname -> client best-effort -> Adjective Animal.
 --

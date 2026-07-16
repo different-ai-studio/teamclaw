@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { cn } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { appDisplayName } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -52,7 +52,7 @@ const WECOM_WIZARD_STEPS = [
     titleKey: 'settings.channels.wecom.wizardIntroTitle',
     title: 'Welcome to WeCom Setup',
     descKey: 'settings.channels.wecom.wizardIntroDesc',
-    description: `Let's connect your WeCom AI bot to ${buildConfig.app.name} in a few simple steps.`,
+    description: `Let's connect your WeCom AI bot to ${appDisplayName} in a few simple steps.`,
   },
   {
     id: 'choose-method',
@@ -244,9 +244,9 @@ function WeComSetupWizard({
             </div>
 
             <div className="text-center space-y-2">
-              <h3 className="text-lg font-semibold">{t('settings.channels.wecom.connectTitle', { defaultValue: 'Connect WeCom to {{appName}}', appName: buildConfig.app.name })}</h3>
+              <h3 className="text-lg font-semibold">{t('settings.channels.wecom.connectTitle', { defaultValue: 'Connect WeCom to {{appName}}', appName: appDisplayName })}</h3>
               <p className="text-[13px] text-muted-foreground">
-                {t('settings.channels.wecom.connectDesc', { defaultValue: "This wizard will guide you through creating a WeCom AI bot and connecting it to {{appName}}. You'll be able to interact with AI directly from WeCom chats.", appName: buildConfig.app.name })}
+                {t('settings.channels.wecom.connectDesc', { defaultValue: "This wizard will guide you through creating a WeCom AI bot and connecting it to {{appName}}. You'll be able to interact with AI directly from WeCom chats.", appName: appDisplayName })}
               </p>
             </div>
 
@@ -488,7 +488,7 @@ function WeComSetupWizard({
             {t(currentStep.titleKey, currentStep.title)}
           </DialogTitle>
           <DialogDescription>
-            {t(currentStep.descKey, { defaultValue: currentStep.description, appName: buildConfig.app.name })}
+            {t(currentStep.descKey, { defaultValue: currentStep.description, appName: appDisplayName })}
           </DialogDescription>
         </DialogHeader>
 
