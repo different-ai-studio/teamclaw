@@ -46,6 +46,26 @@ resources:
         # only by apps provisioning (CREATE SCHEMA / CREATE ROLE). Never sent
         # to clients.
         APPS_DB_ADMIN_URL: ${env('APPS_DB_ADMIN_URL', '')}
+        PG_CONNECT_TIMEOUT: ${env('PG_CONNECT_TIMEOUT', '')}
+        PG_IDLE_TIMEOUT: ${env('PG_IDLE_TIMEOUT', '')}
+        # Per-app Alibaba FC provisioning (apps module).
+        ALIYUN_ACCOUNT_ID: ${env('ALIYUN_ACCOUNT_ID', '')}
+        FC_ENDPOINT: ${env('FC_ENDPOINT', '')}
+        # Path-style S3 addressing; blank for Alibaba OSS.
+        S3_FORCE_PATH_STYLE: ${env('S3_FORCE_PATH_STYLE', '')}
+        # Extra browser origins for FC's CORS middleware, comma-separated.
+        CORS_ORIGINS: ${env('CORS_ORIGINS', '')}
+        # CDN-fronted blob GETs; needs DOMAIN + AUTH_KEY together.
+        CDN_DOMAIN: ${env('CDN_DOMAIN', '')}
+        CDN_AUTH_KEY: ${env('CDN_AUTH_KEY', '')}
+        CDN_SCHEME: ${env('CDN_SCHEME', '')}
+        # Overrides the AI gateway endpoint advertised to clients; blank derives
+        # it from LITELLM_URL.
+        AI_GATEWAY_ENDPOINT: ${env('AI_GATEWAY_ENDPOINT', '')}
+        # Raw-TCP broker for clients without WebSocket (daemon, iOS).
+        MQTT_PUBLIC_TCP_BROKER_URL: ${env('MQTT_PUBLIC_TCP_BROKER_URL', '')}
+        # HTTP-triggered cron guard (/internal/cron). Blank = route rejects all.
+        CRON_TRIGGER_SECRET: ${env('CRON_TRIGGER_SECRET', '')}
         PUSH_WEBHOOK_SECRET: ${env('PUSH_WEBHOOK_SECRET')}
         SUPABASE_URL: ${env('SUPABASE_URL')}
         SUPABASE_PUBLIC_URL: ${env('SUPABASE_PUBLIC_URL', '')}
@@ -57,6 +77,9 @@ resources:
         APNS_TOPIC: ${env('APNS_TOPIC')}
         APNS_ENV: ${env('APNS_ENV')}
         MQTT_BROKER_URL: ${env('MQTT_BROKER_URL')}
+        # Public-facing broker address handed to clients. Falls back to
+        # MQTT_BROKER_URL, which is wrong whenever that is an internal address.
+        MQTT_PUBLIC_BROKER_URL: ${env('MQTT_PUBLIC_BROKER_URL', '')}
         MQTT_USERNAME: ${env('MQTT_USERNAME')}
         MQTT_PASSWORD: ${env('MQTT_PASSWORD')}
         MQTT_USE_TLS: ${env('MQTT_USE_TLS', '')}
@@ -86,7 +109,8 @@ resources:
         OTP_EMAIL_SMTP_PORT: ${env('OTP_EMAIL_SMTP_PORT', '')}
         OTP_EMAIL_SMTP_USER: ${env('OTP_EMAIL_SMTP_USER', '')}
         OTP_EMAIL_SMTP_PASS: ${env('OTP_EMAIL_SMTP_PASS', '')}
-        OTP_EMAIL_SMTP_FROM: ${env('OTP_EMAIL_SMTP_FROM', '')}
+        OTP_EMAIL_FROM: ${env('OTP_EMAIL_FROM', '')}
+        OTP_EMAIL_SMTP_SECURE: ${env('OTP_EMAIL_SMTP_SECURE', '')}
         APPLE_CLIENT_ID: ${env('APPLE_CLIENT_ID', '')}
         APPLE_CLIENT_SECRET: ${env('APPLE_CLIENT_SECRET', '')}
         GOOGLE_CLIENT_ID: ${env('GOOGLE_CLIENT_ID', '')}

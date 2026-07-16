@@ -176,6 +176,13 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: "${SERVICE_ROLE_KEY}"
       MQTT_BROKER_URL: "mqtt://emqx:1883"
       MQTT_PUBLIC_BROKER_URL: "${MQTT_PUBLIC_BROKER_URL:-}"
+      # Raw-TCP broker address handed to clients whose MQTT stack can't do
+      # WebSocket (rumqttc on desktop/daemon, CocoaMQTT on iOS). EMQX publishes
+      # 1883 to the host above, so this is typically mqtt://<MQTT_DOMAIN>:1883.
+      # Blank = /v1/config/bootstrap omits `mqtt.tcpUrl` and those clients have
+      # only the WS URL. (The all-in-one image sets this from render-config.sh;
+      # it writes FC's env directly, so it was never affected by this map.)
+      MQTT_PUBLIC_TCP_BROKER_URL: "${MQTT_PUBLIC_TCP_BROKER_URL:-}"
       MQTT_USERNAME: "fc-service"
       MQTT_PASSWORD: "${MQTT_SERVICE_TOKEN}"
       MQTT_USE_TLS: "false"
@@ -187,6 +194,27 @@ services:
       BUCKET: "${BUCKET:-teamclaw-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
+      # Path-style addressing (bucket in the path, not the hostname). Required by
+      # MinIO and most non-Alibaba S3-compatible stores; leave blank for OSS.
+      S3_FORCE_PATH_STYLE: "${S3_FORCE_PATH_STYLE:-}"
+      # Extra browser origins allowed by FC's CORS middleware, comma-separated.
+      # tauri:// and localhost are always allowed, so this is only needed for a
+      # web client on some other origin.
+      CORS_ORIGINS: "${CORS_ORIGINS:-}"
+      # CDN-fronted blob GETs (OSS egress reduction). Both DOMAIN and AUTH_KEY
+      # must be set to enable; otherwise callers fall back to OSS presigned GET.
+      CDN_DOMAIN: "${CDN_DOMAIN:-}"
+      CDN_AUTH_KEY: "${CDN_AUTH_KEY:-}"
+      CDN_SCHEME: "${CDN_SCHEME:-}"
+      # Apps module — provisions per-app Alibaba FC functions. Only meaningful
+      # if that module is enabled and targeting Alibaba FC.
+      ALIYUN_ACCOUNT_ID: "${ALIYUN_ACCOUNT_ID:-}"
+      FC_ENDPOINT: "${FC_ENDPOINT:-}"
+      PG_CONNECT_TIMEOUT: "${PG_CONNECT_TIMEOUT:-}"
+      PG_IDLE_TIMEOUT: "${PG_IDLE_TIMEOUT:-}"
+      # Overrides the endpoint advertised to clients as the AI gateway. Blank
+      # derives it from LITELLM_URL below, which is correct for this stack.
+      AI_GATEWAY_ENDPOINT: "${AI_GATEWAY_ENDPOINT:-}"
       # Shared secret for POST /push/dispatch (the Supabase message-insert
       # webhook). Unset = every request to that route is rejected, which is why
       # it is safe to ship blank; set it here and in the webhook to enable push.
@@ -241,7 +269,10 @@ services:
       OTP_EMAIL_SMTP_PORT: "${OTP_EMAIL_SMTP_PORT:-}"
       OTP_EMAIL_SMTP_USER: "${OTP_EMAIL_SMTP_USER:-}"
       OTP_EMAIL_SMTP_PASS: "${OTP_EMAIL_SMTP_PASS:-}"
-      OTP_EMAIL_SMTP_FROM: "${OTP_EMAIL_SMTP_FROM:-}"
+      # Defaults to the SMTP username when blank.
+      OTP_EMAIL_FROM: "${OTP_EMAIL_FROM:-}"
+      # Defaults to "true" (implicit TLS on 465). Set "false" for STARTTLS/587.
+      OTP_EMAIL_SMTP_SECURE: "${OTP_EMAIL_SMTP_SECURE:-}"
       # CORS_HANDLED_BY_PROXY is deliberately NOT passed through: this stack's
       # Caddy is a transparent proxy that adds no CORS headers (see
       # caddy/Caddyfile), so FC's Hono middleware must keep owning CORS. Setting
