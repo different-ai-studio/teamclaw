@@ -7,6 +7,7 @@ pub mod mcp_server;
 pub mod process;
 pub mod remote_tools_mcp;
 pub mod service;
+pub mod team_secrets;
 pub mod test_client;
 
 use clap::{Args, Parser, Subcommand};
@@ -67,6 +68,8 @@ pub enum Commands {
     Channel(ChannelArgs),
     /// Read and edit daemon.toml values by dotted key.
     Config(ConfigArgs),
+    /// Manage team-share state for this daemon.
+    Team(TeamArgs),
     /// Report install status of opencode / git / amuxd as JSON.
     Doctor,
     /// Download and install the opencode binary into ~/.amuxd/bin/opencode.
@@ -112,6 +115,67 @@ pub enum ConfigAction {
     Set { key: String, value: String },
     /// Remove one config value by dotted key.
     Unset { key: String },
+}
+
+#[derive(Args, Debug)]
+pub struct TeamArgs {
+    #[command(subcommand)]
+    pub action: TeamAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TeamAction {
+    /// Provision the sync credentials a headless daemon cannot obtain on its
+    /// own. `managed_git` needs nothing here — the daemon fetches that
+    /// credential from the cloud. `oss` and `custom_git` secrets are user-held
+    /// and have no server-side copy, so they must be supplied here.
+    Secrets(TeamSecretsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TeamSecretsArgs {
+    #[command(subcommand)]
+    pub action: TeamSecretsAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TeamSecretsAction {
+    /// Set one or more secrets. Omitted fields keep their stored value.
+    /// Restart the daemon afterwards: the sync timer snapshots its workspace
+    /// list at startup.
+    Set {
+        /// Team to write. Defaults to `team_id` from daemon.toml.
+        #[arg(long)]
+        team_id: Option<String>,
+        /// OSS team secret, 64 hex chars (`oss` share mode).
+        #[arg(long)]
+        oss_secret: Option<String>,
+        /// Git credential (`custom_git`): `user:token` when the team's auth
+        /// kind is https_token, or an SSH private key when it is ssh_key.
+        #[arg(long)]
+        git_credential: Option<String>,
+        /// Read the git credential from a file, e.g. an SSH private key.
+        /// Avoids putting it in shell history.
+        #[arg(long, conflicts_with = "git_credential")]
+        git_credential_file: Option<PathBuf>,
+        /// Branch for git-backed sync. The cloud API does not carry this, so
+        /// without it git falls back to the remote's default branch.
+        #[arg(long)]
+        git_branch: Option<String>,
+    },
+    /// Show which secrets are set. Values are masked.
+    Show {
+        #[arg(long)]
+        team_id: Option<String>,
+    },
+    /// Remove all stored secrets for a team.
+    Clear {
+        #[arg(long)]
+        team_id: Option<String>,
+        /// Skip the interactive confirmation prompt.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Args, Debug)]
