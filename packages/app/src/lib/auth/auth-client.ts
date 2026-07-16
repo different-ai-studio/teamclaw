@@ -36,7 +36,7 @@ export type AuthClient = {
   verifyPhoneOtpResult(phone: string, token: string): Promise<PhoneLoginResult>;
   /** Log in as a specific user when the phone is linked to multiple accounts. */
   loginWithPhoneUser(phone: string, token: string, userId: string): Promise<Session>;
-  /** Bind a phone to the CURRENT account (betly-aligned identity upgrade). */
+  /** Bind a phone to the CURRENT account (partner-aligned identity upgrade). */
   bindPhone(phone: string, code: string): Promise<Session>;
   signOut(): Promise<void>;
   updateUser(attrs: Record<string, unknown>): Promise<{ user?: unknown } | null>;
@@ -209,12 +209,12 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
       setSession(data, "SIGNED_IN");
       return data;
     },
-    // betly-aligned phone login: our own SMS code + a combined login endpoint
+    // Partner-aligned phone login: our own SMS code + a combined login endpoint
     // (no GoTrue native OTP). See
     // docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
     async sendPhoneOtp(phone) {
       // Captcha verification is a server-side pass-through stub today (mirrors
-      // betly); it only needs a non-empty token. TODO: real Aliyun captcha.
+      // the partner SaaS); it only needs a non-empty token. TODO: real Aliyun captcha.
       await post("/v1/auth/phone/send-code", { phone, captchaVerify: "desktop-captcha-pending" });
     },
     async verifyPhoneOtpResult(phone, token): Promise<PhoneLoginResult> {

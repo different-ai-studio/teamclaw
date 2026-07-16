@@ -25,6 +25,22 @@ test("applyNameToTauriConf tolerates missing windows array", () => {
   assert.strictEqual(conf.productName, "Acme");
 });
 
+test("applyNameToTauriConf titles the window with displayName, keeping productName on app.name", () => {
+  const conf = { productName: "OldName", app: { windows: [{ title: "OldName" }] } };
+  const changed = applyNameToTauriConf(conf, { app: { name: "TeamClaw", displayName: "TeamClaw 龙虾团" } });
+  assert.strictEqual(changed, true);
+  assert.strictEqual(conf.productName, "TeamClaw");
+  assert.strictEqual(conf.app.windows[0].title, "TeamClaw 龙虾团");
+});
+
+test("applyNameToTauriConf renames only the window when app.name is absent", () => {
+  const conf = { productName: "TeamClaw", app: { windows: [{ title: "TeamClaw" }] } };
+  const changed = applyNameToTauriConf(conf, { app: { displayName: "TeamClaw 龙虾团" } });
+  assert.strictEqual(changed, true);
+  assert.strictEqual(conf.productName, "TeamClaw");
+  assert.strictEqual(conf.app.windows[0].title, "TeamClaw 龙虾团");
+});
+
 const path = require("node:path");
 const { resolveLogoPlan } = require("./branding");
 
@@ -110,4 +126,21 @@ test("applyIdentityToTauriConf creates the deep-link path when missing", () => {
   const changed = applyIdentityToTauriConf(conf, { app: { scheme: "acme" } });
   assert.strictEqual(changed, true);
   assert.deepStrictEqual(conf.plugins["deep-link"].desktop.schemes, ["acme"]);
+});
+
+const { applyNameToExtensionManifest } = require("./branding");
+
+test("applyNameToExtensionManifest prefers displayName over app.name", () => {
+  const manifest = { name: "OldName", action: { default_title: "OldName" } };
+  const changed = applyNameToExtensionManifest(manifest, { app: { name: "TeamClaw", displayName: "TeamClaw 龙虾团" } });
+  assert.strictEqual(changed, true);
+  assert.strictEqual(manifest.name, "TeamClaw 龙虾团");
+  assert.strictEqual(manifest.action.default_title, "TeamClaw 龙虾团");
+});
+
+test("applyNameToExtensionManifest falls back to app.name when displayName is unset", () => {
+  const manifest = { name: "OldName", action: { default_title: "OldName" } };
+  const changed = applyNameToExtensionManifest(manifest, { app: { name: "TeamClaw" } });
+  assert.strictEqual(changed, true);
+  assert.strictEqual(manifest.name, "TeamClaw");
 });

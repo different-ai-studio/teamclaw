@@ -24,7 +24,15 @@ export interface BuildConfig {
     lockLlmConfig: boolean
   }
   app: {
+    /** Bundle identity: drives `productName`, the .app / installer filename, and
+     *  the derived `shortName`. Keep it filename-clean (ASCII, no spaces is
+     *  safest) — for the human-facing label use `displayName` instead. */
     name: string
+    /** Human-facing label: the window title and every in-app mention of the
+     *  product. Omitted → falls back to `app.name`. Set this when the UI name
+     *  should differ from the bundle name (e.g. name "TeamClaw" keeps the .app
+     *  and download URL clean while displayName "TeamClaw 龙虾团" shows in the UI). */
+    displayName?: string
     shortName?: string
     /** Visual palette flavor. Omitted / "default" → Editorial Calm.
      *  "teal" → anodized-teal build flavor (see styles/globals.css). Applied
@@ -51,8 +59,15 @@ export interface BuildConfig {
       google?: boolean
       wechat?: boolean
       phone?: boolean
-      /** "快捷登录" — harvest a shared session from the Betly admin webview. Off by default. */
+      /** "快捷登录" — harvest a shared session from the partner admin console
+       *  webview. Off by default. The sign-in URL + storage key are delivered
+       *  at runtime by the Cloud API (`WEBSSO_LOGIN_URL` / `WEBSSO_STORAGE_KEY`),
+       *  never hardcoded here. */
       webSSO?: boolean
+      /** Admin console hosts allowed to receive an injected TeamClaw session.
+       *  Consumed by build.rs (baked into WEBSSO_ADMIN_HOSTS) as the native-side
+       *  re-check; deployment-specific hosts belong in a brand build config. */
+      webSSOHosts?: string[]
     }
     /** Browsable team-share sidebar (Skills / MCP / Env / Knowledge). Off by default. */
     teamShareBrowser?: boolean
@@ -136,6 +151,9 @@ function deriveShortName(name: string): string {
 }
 
 export const appShortName: string = buildConfig.app.shortName ?? deriveShortName(buildConfig.app.name)
+/** The product name to show users. Prefer this over `buildConfig.app.name` in
+ *  any UI string — `app.name` is the bundle identity and may differ. */
+export const appDisplayName: string = buildConfig.app.displayName ?? buildConfig.app.name
 export const appScheme: string = buildConfig.app.scheme ?? 'teamclaw'
 export const DEFAULT_WORKSPACE_PATH = `~/${buildConfig.app.name}`
 export const TEAMCLAW_DIR = `.${appShortName}`
