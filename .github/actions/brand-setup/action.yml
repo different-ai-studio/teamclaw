@@ -79,11 +79,17 @@ runs:
         import json, os
 
         brand = os.environ['BRAND']
-        cfg = json.load(open('build.config.json'))
+        # encoding= is not optional: a brand's page copy is free text and is
+        # routinely Chinese, while Python on the Windows runner defaults open()
+        # to the cp1252 locale codec. Reading UTF-8 through cp1252 either raises
+        # (betly's "尝鲜版" carries 0x9d, which cp1252 leaves undefined) or, worse,
+        # silently mojibakes any brand whose bytes happen to dodge the five
+        # undefined ones. Pin UTF-8 on every handle so the platform can't decide.
+        cfg = json.load(open('build.config.json', encoding='utf-8'))
         app = cfg.get('app', {})
 
         meta_path = f'.branding-src/brands/{brand}/brand.json'
-        meta = json.load(open(meta_path)) if os.path.isfile(meta_path) else {}
+        meta = json.load(open(meta_path, encoding='utf-8')) if os.path.isfile(meta_path) else {}
         oss = meta.get('oss') or {}
 
         def pick(value, fallback_env):
@@ -132,13 +138,13 @@ runs:
             'CDN_REFRESH_REGION': oss.get('cdnRefreshRegion') or '',
             'BRAND_MAC_EXTRA_ARGS': (meta.get('build') or {}).get('macExtraArgs') or '',
         }
-        with open(os.environ['GITHUB_ENV'], 'a') as f:
+        with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
             for k, v in out.items():
                 f.write(f'{k}={v}\n')
 
         # brand.json's page block is consumed by the publish job; pass it as a file
         # rather than env vars so free-text copy can contain anything.
-        json.dump(meta.get('page') or {}, open('brand-page.json', 'w'))
+        json.dump(meta.get('page') or {}, open('brand-page.json', 'w', encoding='utf-8'))
 
         print(f'Brand         : {brand} ({app_name} / {product_name}.app)')
         print(f'Backend       : {cfg.get("cloudApiUrl")}')
