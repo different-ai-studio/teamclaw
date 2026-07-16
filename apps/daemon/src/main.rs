@@ -51,6 +51,9 @@ fn main() -> anyhow::Result<()> {
         Commands::Clear { force } => {
             cli::clear::run(force)?;
         }
+        Commands::Team(args) => {
+            cli::team_secrets::run(args)?;
+        }
         Commands::Start {
             daemonize: _,
             config,

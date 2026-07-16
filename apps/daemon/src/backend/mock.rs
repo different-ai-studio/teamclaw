@@ -170,6 +170,9 @@ pub struct MockState {
     /// Per-team `managed_llm_config` overrides. Missing entries fall back to
     /// `ManagedLlmConfig::default()` (i.e. managed LLM disabled).
     pub managed_llm_configs: HashMap<String, ManagedLlmConfig>,
+    /// Per-team `managed_git_credential` overrides. A missing entry errors,
+    /// mirroring a cloud API that has no credential to hand out.
+    pub managed_git_credentials: HashMap<String, ManagedGitCredential>,
 }
 
 #[derive(Clone, Debug)]
@@ -245,19 +248,21 @@ impl Backend for MockBackend {
             .unwrap_or_default())
     }
 
-    async fn managed_git_credential(
-        &self,
-        _team_id: &str,
-    ) -> BackendResult<ManagedGitCredential> {
-        // B1 stub: no managed-git credential is wired into the mock yet. B2
-        // adds a real mock; tests that don't exercise the seed path never hit
-        // this, and returning an error (not `unimplemented!()`) keeps any
-        // accidental caller from panicking the test process.
-        Err(BackendError::Provider {
-            provider: "mock",
-            code: None,
-            message: "managed_git_credential not supported by MockBackend".into(),
-        })
+    async fn managed_git_credential(&self, team_id: &str) -> BackendResult<ManagedGitCredential> {
+        // Tests that need a credential seed `state().managed_git_credentials`.
+        // An unseeded team errors rather than panicking, so an accidental
+        // caller fails its own assertion instead of the test process.
+        self.state
+            .lock()
+            .unwrap()
+            .managed_git_credentials
+            .get(team_id)
+            .cloned()
+            .ok_or_else(|| BackendError::Provider {
+                provider: "mock",
+                code: None,
+                message: format!("no managed-git credential seeded for {team_id}"),
+            })
     }
 
     async fn get_effective_default_agent(&self, _team_id: &str) -> BackendResult<Option<String>> {
