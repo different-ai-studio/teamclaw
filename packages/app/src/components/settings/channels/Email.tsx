@@ -19,7 +19,7 @@ import {
   Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { appDisplayName } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -483,14 +483,14 @@ export function EmailChannel() {
                 {t('settings.channels.email.displayName', 'Bot Display Name')}
               </label>
               <Input
-                placeholder={t('settings.channels.email.displayNamePlaceholder', { defaultValue: '{{appName}} Agent', appName: buildConfig.app.name })}
+                placeholder={t('settings.channels.email.displayNamePlaceholder', { defaultValue: '{{appName}} Agent', appName: appDisplayName })}
                 value={emailLocalConfig.displayName}
                 onChange={(e) => updateEmailLocalConfig({ displayName: e.target.value })}
               />
               <p className="text-xs text-muted-foreground">
                 {t('settings.channels.email.displayNameHint', 'Name shown in the From header of reply emails, e.g.')}{' '}
                 <span className="font-mono">
-                  {emailLocalConfig.displayName.trim() || `${buildConfig.app.name} Agent`}
+                  {emailLocalConfig.displayName.trim() || `${appDisplayName} Agent`}
                   {' <'}
                   {(() => {
                     const baseEmail = emailLocalConfig.provider === 'gmail'

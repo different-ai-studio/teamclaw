@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
-import { buildConfig } from "@/lib/build-config";
+import { appDisplayName, buildConfig } from "@/lib/build-config";
 import { hasBackendConfig } from "@/lib/backend";
 import { getEffectiveServerConfigSync } from "@/lib/server-config";
 import { useAppVersion } from "@/lib/version";
@@ -182,14 +182,14 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
         <div className="mb-8 flex flex-col items-center gap-3">
           <img
             src="/logo.png"
-            alt={`${buildConfig.app.name} logo`}
+            alt={`${appDisplayName} logo`}
             width={128}
             height={128}
             className="h-20 w-20 object-contain"
           />
           <div className="text-center">
             <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
-              {buildConfig.app.name}
+              {appDisplayName}
             </h1>
             <p className="mt-1 text-[13px] text-muted-foreground">
               {t("auth.tagline", "AI Ally · AI Teammate")}
