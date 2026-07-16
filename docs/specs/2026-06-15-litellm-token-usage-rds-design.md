@@ -2,7 +2,7 @@
 
 > 状态：**研究方案 (RESEARCH / DESIGN)**，待评审后分期实现
 > 日期：2026-06-15
-> 关联：[[project_litellm_dokploy_deploy]]、[[project_belayo_fc_deploy]]
+> 关联：[[project_litellm_dokploy_deploy]]、[[project_partner_fc_deploy]]
 
 ## 1. 背景与问题
 
@@ -50,16 +50,16 @@ LiteLLM 是开源的，所有原始数据都写在它的 Postgres 表 `LiteLLM_S
 当前连不到它。
 
 **实测连通性（从 `120.76.243.206` 的 litellm_db 容器）**：
-- → belayo RDS **公网** `pgm-wz9e7zgczy2wdp7q.pg.rds.aliyuncs.com`：通，PostgreSQL **18.3**
-- → belayo RDS **私网** `pgm-wz9e7zgczy2wdp7qgo.pg.rds.aliyuncs.com`：**也通**
-  → **正式 litellm host 与 belayo RDS 同 VPC**，迁移与运行期可全程走内网，
+- → the partner RDS **公网** `<partner-rds-public-host>`：通，PostgreSQL **18.3**
+- → the partner RDS **私网** `<partner-rds-private-host>`：**也通**
+  → **正式 litellm host 与 the partner RDS 同 VPC**，迁移与运行期可全程走内网，
   不必公网暴露。
 
-### 选定方案：把正式版 LiteLLM 的库迁到 belayo RDS，FC 直连
+### 选定方案：把正式版 LiteLLM 的库迁到 the partner RDS，FC 直连
 
 理由：
 - FC 已能直连阿里云 RDS（saas-mono `supabase_db` 就在 RDS 上，见
-  [[project_belayo_fc_deploy]]）。
+  [[project_partner_fc_deploy]]）。
 - 避免在 Dokploy host 上对公网暴露裸 Postgres 端口（安全更好）。
 - 数据集中到 RDS 后，FC 直连查询 = 最简代码、最低延迟、可做任意聚合。
 - RDS 有备份/监控/高可用，比 Dokploy 单容器 + 卷更可靠。
@@ -161,11 +161,11 @@ SELECT max_budget, spend FROM "LiteLLM_TeamTable" WHERE team_id = $1;
    ON "LiteLLM_SpendLogs" (team_id, "startTime");`
 （LiteLLM 自带索引不含此组合，迁移到 RDS 后补建。）
 
-## 6. RDS 迁移 Runbook（belayo RDS，已据实测细化）
+## 6. RDS 迁移 Runbook（the partner RDS，已据实测细化）
 
-目标：belayo RDS（cn-shenzhen，PostgreSQL 18.3，与正式 litellm host 同 VPC）。
-- 私网 host：`pgm-wz9e7zgczy2wdp7qgo.pg.rds.aliyuncs.com:5432`（运行期用这个）
-- 公网 host：`pgm-wz9e7zgczy2wdp7q.pg.rds.aliyuncs.com:5432`（FC 若不在 VPC 用这个）
+目标：the partner RDS（cn-shenzhen，PostgreSQL 18.3，与正式 litellm host 同 VPC）。
+- 私网 host：`<partner-rds-private-host>:5432`（运行期用这个）
+- 公网 host：`<partner-rds-public-host>:5432`（FC 若不在 VPC 用这个）
 - 管理账号：`supabase_admin`（实测 `rolcreatedb=t`，可建库）
 - 现有库：`rdsadmin / _supabase / supabase_db / postgres`，**无 `litellm`**，干净新建。
 > 凭证存运维 vault / `.env.local`，本文档不落明文密码。
@@ -192,12 +192,12 @@ SELECT max_budget, spend FROM "LiteLLM_TeamTable" WHERE team_id = $1;
    docker exec litellm_db pg_dump -U llmproxy -Fc litellm > /tmp/litellm.dump
    docker exec -i litellm_db sh -c \
      'PGPASSWORD=*** pg_restore --no-owner --role=litellm_app -d \
-      "postgresql://litellm_app:***@pgm-wz9e7zgczy2wdp7qgo.pg.rds.aliyuncs.com:5432/litellm"' \
+      "postgresql://litellm_app:***@<partner-rds-private-host>:5432/litellm"' \
      < /tmp/litellm.dump
    ```
    （或容器内一步 `pg_dump | pg_restore`。Prisma 表名含大小写，用 -Fc 自定义格式最稳。）
 5. **切连**：改 `/home/admin/docker-compose-litellm.yml` 的
-   `DATABASE_URL=postgresql://litellm_app:***@pgm-wz9e7zgczy2wdp7qgo.pg.rds.aliyuncs.com:5432/litellm`，
+   `DATABASE_URL=postgresql://litellm_app:***@<partner-rds-private-host>:5432/litellm`，
    `docker compose -f docker-compose-litellm.yml up -d litellm`（移除 `litellm_db` 依赖）。
    LiteLLM 启动自动跑 Prisma migrate deploy，校验 schema 一致。
 6. **只读权限 + 索引**（连 `litellm` 库执行）：
@@ -292,7 +292,7 @@ GET /v1/teams/:teamId/litellm/usage?range=today|week|month|year
    团队聚合天然不计入，符合预期；如需归属可按 `api_key` 反查
    `LiteLLM_VerificationToken.team_id`。
 3. ✅ **网络**：正式 litellm host(`120.76.243.206`, 私网 `172.17.42.178`)
-   与 belayo RDS **同 VPC**，私网+公网均通；FC 已能连该 RDS（belayo 部署在用）。
+   与 the partner RDS **同 VPC**，私网+公网均通；FC 已能连该 RDS（该部署在用）。
    `supabase_admin` 有建库权限。
 4. ⚠️ **时区**：SpendLogs `startTime` 存 UTC，时间范围按 `Asia/Shanghai`
    计算 `[start,end)` 后转 UTC 再过滤（FC 侧处理）。
@@ -308,7 +308,7 @@ GET /v1/teams/:teamId/litellm/usage?range=today|week|month|year
   `litellm-usage.ts` + supabase/pg 两 repo + route + 测试）。bearer + 成员校验，
   服务端复用 FC 既有 RDS 连接（同实例、库名换 `litellm`），未配置时 503。
   - **无需新增 FC 配置**：自动从现有 `DATABASE_URL`/`POSTGRES_*` 派生
-    （库名 `litellm`，可选 `LITELLM_DB_NAME` 覆盖）。belayo-test 的 FC 本就连
+    （库名 `litellm`，可选 `LITELLM_DB_NAME` 覆盖）。test 的 FC 本就连
     该 RDS（`DATABASE_URL` 指向 `pgm-wz9e7zgczy2wdp7q...`）。
 - ✅ **客户端**：`TokenUsageSection.tsx` 重构——团队真实数据、日/周/月/年切换 +
   时间点前后导航、总费用/总 token/请求数卡片、预算占比条、成员排行榜、按模型明细；

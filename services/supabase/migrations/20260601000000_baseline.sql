@@ -1,7 +1,7 @@
 -- TeamClaw consolidated baseline (squashed from migrations, generated 2026-06-24).
 -- FRESH DATABASES ONLY. This baseline replaces the pre-2026-06-24 migration chain
 -- (archived under _archive/squashed-20260624/). Do NOT apply it to an already-deployed
--- database (e.g. belayo / dev) that ran the old migrations — those carry their own
+-- database (e.g. the partner RDS / dev) that ran the old migrations — those carry their own
 -- applied history; this file is the starting point for brand-new deployments.
 -- All teamclaw tables + functions live in amux; public holds only orgs/plans/users.
 -- Generated via: pg_dump --schema=amux --schema=public  +  appended storage policies.

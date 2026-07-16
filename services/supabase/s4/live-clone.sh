@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================================
-# belayo_live: clone TeamClaw from belayo_test → belayo_live (supabase_db).
+# Live RDS clone: copy TeamClaw from the test RDS to the live RDS (supabase_db).
 #
-# Verified layout on belayo_test (2026-06):
+# Verified layout on the test RDS (2026-06):
 #   - amux schema only (37 tables, views, ~89 functions incl. is_team_member, create_team, …)
 #   - NO app schema
 #   - public.claim_team_invite only (FC auth path; also exists in amux)
@@ -10,14 +10,14 @@
 # Does NOT touch: public tables, storage.*, auth.*, or any other public functions.
 #
 # Usage:
-#   export BELAYO_TEST_RDS_PASSWORD='...'
-#   export BELAYO_LIVE_RDS_PASSWORD='...'
-#   ./belayo-live.sh preflight
-#   ./belayo-live.sh dump-only
-#   ./belayo-live.sh apply              # schema-only (default)
-#   WITH_DATA=1 ./belayo-live.sh apply  # include row data from test amux
-#   ./belayo-live.sh rollback
-#   ./belayo-live.sh postgrest-reload   # idempotent grants + NOTIFY (already-migrated live)
+#   export TEST_RDS_PASSWORD='...'
+#   export LIVE_RDS_PASSWORD='...'
+#   ./live-clone.sh preflight
+#   ./live-clone.sh dump-only
+#   ./live-clone.sh apply              # schema-only (default)
+#   WITH_DATA=1 ./live-clone.sh apply  # include row data from test amux
+#   ./live-clone.sh rollback
+#   ./live-clone.sh postgrest-reload   # idempotent grants + NOTIFY (already-migrated live)
 # ============================================================================
 set -euo pipefail
 
@@ -25,17 +25,17 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT="$ROOT/_dump"
 MODE="${1:-apply}"
 
-TEST_HOST="${BELAYO_TEST_RDS_HOST:-pgm-wz9e7zgczy2wdp7qgo.pg.rds.aliyuncs.com}"
-TEST_PORT="${BELAYO_TEST_RDS_PORT:-5432}"
-TEST_USER="${BELAYO_TEST_RDS_USER:-supabase_admin}"
-TEST_PASS="${BELAYO_TEST_RDS_PASSWORD:?set BELAYO_TEST_RDS_PASSWORD}"
-TEST_DB="${BELAYO_TEST_RDS_DATABASE:-supabase_db}"
+TEST_HOST="${TEST_RDS_HOST:?set TEST_RDS_HOST}"
+TEST_PORT="${TEST_RDS_PORT:-5432}"
+TEST_USER="${TEST_RDS_USER:-supabase_admin}"
+TEST_PASS="${TEST_RDS_PASSWORD:?set TEST_RDS_PASSWORD}"
+TEST_DB="${TEST_RDS_DATABASE:-supabase_db}"
 
-LIVE_HOST="${BELAYO_LIVE_RDS_HOST:-pgm-wz9269brt4zi9k91bo.pg.rds.aliyuncs.com}"
-LIVE_PORT="${BELAYO_LIVE_RDS_PORT:-5432}"
-LIVE_USER="${BELAYO_LIVE_RDS_USER:-supabase_admin}"
-LIVE_PASS="${BELAYO_LIVE_RDS_PASSWORD:?set BELAYO_LIVE_RDS_PASSWORD}"
-LIVE_DB="${BELAYO_LIVE_RDS_DATABASE:-supabase_db}"
+LIVE_HOST="${LIVE_RDS_HOST:?set LIVE_RDS_HOST}"
+LIVE_PORT="${LIVE_RDS_PORT:-5432}"
+LIVE_USER="${LIVE_RDS_USER:-supabase_admin}"
+LIVE_PASS="${LIVE_RDS_PASSWORD:?set LIVE_RDS_PASSWORD}"
+LIVE_DB="${LIVE_RDS_DATABASE:-supabase_db}"
 
 TEST_URL="postgresql://${TEST_USER}@${TEST_HOST}:${TEST_PORT}/${TEST_DB}?sslmode=disable"
 LIVE_URL="postgresql://${LIVE_USER}@${LIVE_HOST}:${LIVE_PORT}/${LIVE_DB}?sslmode=disable"
@@ -55,13 +55,13 @@ psql_live() {
 }
 
 preflight() {
-  echo "==> belayo_test  $TEST_HOST / $TEST_DB"
+  echo "==> test RDS  $TEST_HOST / $TEST_DB"
   psql_test -At -c "select count(*) from information_schema.tables where table_schema='amux' and table_type='BASE TABLE';" \
     | xargs -I{} echo "    amux tables: {}"
   psql_test -At -c "select exists(select 1 from information_schema.schemata where schema_name='app');" \
     | xargs -I{} echo "    has app schema (expect f): {}"
 
-  echo "==> belayo_live $LIVE_HOST / $LIVE_DB"
+  echo "==> live RDS $LIVE_HOST / $LIVE_DB"
   psql_live <<'SQL'
 do $$ begin
   if exists (select 1 from information_schema.schemata where schema_name = 'amux') then
@@ -78,7 +78,7 @@ SQL
 }
 
 dump_from_test() {
-  echo "==> pg_dump amux from belayo_test (schema-only)"
+  echo "==> pg_dump amux from test RDS (schema-only)"
   PGPASSWORD="$TEST_PASS" pg_dump "$TEST_URL" \
     --schema=amux --schema-only --no-owner --no-privileges \
     -f "$OUT/01_amux_schema.sql"
@@ -96,7 +96,7 @@ SQL
   fi
 
   if [ "${WITH_DATA:-0}" = "1" ]; then
-    echo "==> pg_dump amux data from belayo_test"
+    echo "==> pg_dump amux data from test RDS"
     PGPASSWORD="$TEST_PASS" pg_dump "$TEST_URL" \
       --schema=amux --data-only --no-owner --no-privileges \
       -f "$OUT/03_amux_data.sql"
@@ -134,7 +134,7 @@ load_into_live() {
   fi
 
   echo "==> acceptance"
-  psql_live -f "$ROOT/belayo-inventory.sql"
+  psql_live -f "$ROOT/inventory.sql"
 }
 
 grant_amux_postgrest() {
@@ -155,7 +155,7 @@ notify pgrst, 'reload schema';
 SQL
   echo "    DB side done. Also ensure live Supabase rest container has:"
   echo "      PGRST_DB_SCHEMAS=public, amux, storage, graphql_public"
-  echo "    (container env overrides role default until recreated — see BELAYO-LIVE.md)"
+  echo "    (container env overrides role default until recreated — see LIVE-CLONE.md)"
 }
 
 rollback() {
