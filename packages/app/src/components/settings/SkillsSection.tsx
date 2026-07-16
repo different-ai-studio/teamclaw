@@ -39,7 +39,7 @@ import {
   deleteDaemonSkill,
 } from '@/lib/daemon-local-client'
 import { cn } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { appDisplayName } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -1259,7 +1259,7 @@ ${skillContent.trim()}`
                         {t('settings.skills.inherentSkills', 'Inherent Skills')}
                       </span>
                       <div className="flex-1 h-px bg-blue-200/60 dark:bg-blue-800/40" />
-                      <span className="text-[11px] text-muted-foreground">{t('settings.skills.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
+                      <span className="text-[11px] text-muted-foreground">{t('settings.skills.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: appDisplayName })}</span>
                     </div>
                     {renderSkillGrid(builtinSkills)}
                   </div>

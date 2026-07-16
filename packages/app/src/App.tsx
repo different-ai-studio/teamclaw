@@ -12,7 +12,7 @@ import { Toaster, toast } from "sonner";
 import { cn, isTauri, removeStartupSkeleton } from "@/lib/utils";
 import { capabilities } from "@/lib/platform";
 import { scheduleReleaseStuckModalLayers } from "@/lib/modal-layer-cleanup";
-import { buildConfig } from "@/lib/build-config";
+import { appDisplayName, buildConfig } from "@/lib/build-config";
 import { buildSessionDeeplink } from "@/lib/session-deeplink";
 import { markStartup } from "@/lib/startup-perf";
 import {
@@ -2171,7 +2171,7 @@ function AppContent() {
             data-tauri-drag-region
           >
             {collapsedInsetLeading}
-            <span className="font-medium">{buildConfig.app.name}</span>
+            <span className="font-medium">{appDisplayName}</span>
           </header>
           <div className="flex flex-1 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { buildConfig } from "@/lib/build-config";
+import { appDisplayName } from "@/lib/build-config";
 import { useAppVersion } from "@/lib/version";
 
 /**
@@ -20,10 +20,10 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <img
             src="/logo.png"
-            alt={`${buildConfig.app.name} logo`}
+            alt={`${appDisplayName} logo`}
             className="mb-5 h-20 w-20 object-contain"
           />
-          <h1 className="text-[30px] font-semibold text-foreground">{buildConfig.app.name}</h1>
+          <h1 className="text-[30px] font-semibold text-foreground">{appDisplayName}</h1>
           <p className="mt-3 max-w-sm text-[14px] leading-6 text-ink-2">
             {t("auth.onboarding.tagline", "Choose how to enter TeamClaw.")}
           </p>

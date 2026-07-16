@@ -5,6 +5,7 @@
   },
   "app": {
     "name": "TeamClaw",
+    "displayName": "TeamClaw",
     "shortName": "teamclaw",
     "palette": "default",
     "logo": "branding/acme/logo.png",

@@ -9,7 +9,7 @@ import {
 } from "@/lib/daemon-local-client";
 import { replyPermissionById } from "@/lib/teamclaw/reply-acp-permission";
 import { isTauri } from "@/lib/utils";
-import { buildConfig } from "@/lib/build-config";
+import { appDisplayName } from "@/lib/build-config";
 import { notificationService } from "@/lib/notification-service";
 import { shouldAutoAuthorize } from "@/lib/permission-policy";
 import type { PermissionAskedEvent } from "./session-types";
@@ -240,7 +240,7 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
 
     notificationService.send(
       "action_required",
-      `${buildConfig.app.name} - Authorization required`,
+      `${appDisplayName} - Authorization required`,
       `${sessionTitle} \u2014 requesting ${permissionType} permission`,
       event.sessionID,
       async () => {

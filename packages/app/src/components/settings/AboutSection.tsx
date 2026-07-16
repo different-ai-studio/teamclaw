@@ -13,7 +13,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
-import { buildConfig } from "@/lib/build-config";
+import { appDisplayName, buildConfig } from "@/lib/build-config";
 import { useUpdaterStore } from "@/stores/updater";
 import { useAppVersion } from "@/lib/version";
 import { Button } from "@/components/ui/button";
@@ -53,11 +53,11 @@ export const AboutSection = React.memo(function AboutSection() {
           <div className="flex items-center gap-4">
             <img
               src="/logo-64.png"
-              alt={`${buildConfig.app.name} Logo`}
+              alt={`${appDisplayName} Logo`}
               className="h-14 w-14 object-contain"
             />
             <div>
-              <h4 className="font-semibold text-base">{buildConfig.app.name}</h4>
+              <h4 className="font-semibold text-base">{appDisplayName}</h4>
               <p className="text-[13px] text-muted-foreground">
                 Version {appVersion}
               </p>
@@ -221,10 +221,10 @@ export const AboutSection = React.memo(function AboutSection() {
         <p className="text-[13px] text-muted-foreground flex items-center justify-center gap-1">
           {t("settings.about.madeWith", "Made with")}{" "}
           <Heart className="h-4 w-4 text-red-500 fill-red-500" />{" "}
-          {t("settings.about.byTeam", { defaultValue: "by {{appName}} Team", appName: buildConfig.app.name })}
+          {t("settings.about.byTeam", { defaultValue: "by {{appName}} Team", appName: appDisplayName })}
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          &copy; 2024 {buildConfig.app.name}. All rights reserved.
+          &copy; 2024 {appDisplayName}. All rights reserved.
         </p>
       </div>
     </div>
