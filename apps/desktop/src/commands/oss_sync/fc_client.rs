@@ -61,10 +61,15 @@ pub struct FcClient {
 
 impl FcClient {
     pub fn new(base_url: String, jwt: String) -> Self {
-        // A stalled Cloud API host must surface as an error, never an infinite
-        // hang — see FC_REQUEST_TIMEOUT. `build()` only fails on a fatal TLS/
-        // runtime misconfig; fall back to the un-timed default rather than panic.
+        // Force HTTP/1.1 and rustls — mirrors the daemon Cloud API client.
+        // reqwest 0.12+ is required: 0.11 fails TLS to some SGW-fronted hosts
+        // with "error trying to connect: bad protocol version". HTTP/1.1 also
+        // avoids FC idle HTTP/2 stream reuse bugs after ~60 s. `build()` only
+        // fails on a fatal TLS/runtime misconfig; fall back to the un-timed
+        // default rather than panic.
         let client = Client::builder()
+            .http1_only()
+            .use_rustls_tls()
             .timeout(FC_REQUEST_TIMEOUT)
             .connect_timeout(FC_CONNECT_TIMEOUT)
             .build()
