@@ -170,7 +170,11 @@ def main() -> int:
     version = tag[1:] if tag.startswith("v") else tag
     prefix = os.environ["OSS_PREFIX"]
     cdn = os.environ["CDN_BASE"].rstrip("/")
+    # APP_NAME is the human-facing label (app.displayName, e.g. "Betly TeamClaw");
+    # APP_PRODUCT_NAME is what the .app bundle is actually called (app.name).
+    # Anything naming a path on disk must use the latter.
     app_name = os.environ["APP_NAME"]
+    product_name = os.environ.get("APP_PRODUCT_NAME") or app_name
     app_slug = os.environ["APP_SLUG"]
 
     with open("build.config.json") as f:
@@ -368,8 +372,9 @@ Write-Host 'Done. amuxd is running as a background service. Check: amuxd status'
         f'<div><span class="badge"><span class="dot"></span> {html.escape(badge)}</span></div>'
         if badge else ""
     )
-    # Quoted because a branded app name can contain spaces ("Copilot 361.app").
-    quarantine_cmd = f'sudo xattr -dr com.apple.quarantine "/Applications/{app_name}.app"'
+    # productName, not displayName: this names a real path on disk. Quoted
+    # because a branded productName can contain spaces ("Copilot 361.app").
+    quarantine_cmd = f'sudo xattr -dr com.apple.quarantine "/Applications/{product_name}.app"'
     footer_html = (
         f"<footer>{html.escape(footer_note)}<br>" if footer_note else "<footer>"
     ) + f"<code>{html.escape(quarantine_cmd)}</code></footer>"

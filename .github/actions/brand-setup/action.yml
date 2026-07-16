@@ -104,7 +104,13 @@ runs:
             print(f'::error::Brand {brand!r} resolves no value for: {", ".join(missing)}')
             raise SystemExit(1)
 
-        app_name = app.get('name') or 'TeamClaw'
+        # Two different names, per scripts/lib/branding.js: app.name is the
+        # productName that bundles/filenames and /Applications/<x>.app are built
+        # from, while app.displayName is the human-facing label (window title).
+        # Conflating them would put "Betly TeamClaw.app" in betly's quarantine
+        # hint for a bundle actually named TeamClaw.app.
+        product_name = app.get('name') or 'TeamClaw'
+        app_name = app.get('displayName') or product_name
         # shortName doubles as the slug for OSS object names, so it must survive a
         # URL untouched. vite.config.ts enforces the same [a-z0-9]{1,20} rule.
         app_slug = app.get('shortName') or ''
@@ -115,6 +121,7 @@ runs:
         out = {
             'BRAND': brand,
             'APP_NAME': app_name,
+            'APP_PRODUCT_NAME': product_name,
             'APP_SLUG': app_slug,
             'OSS_BUCKET': bucket,
             'OSS_ENDPOINT': endpoint,
@@ -133,7 +140,7 @@ runs:
         # rather than env vars so free-text copy can contain anything.
         json.dump(meta.get('page') or {}, open('brand-page.json', 'w'))
 
-        print(f'Brand         : {brand} ({app_name})')
+        print(f'Brand         : {brand} ({app_name} / {product_name}.app)')
         print(f'Backend       : {cfg.get("cloudApiUrl")}')
         print(f'Palette       : {app.get("palette")}')
         print(f'Publishing to : oss://{bucket}/{prefix}/  via {cdn_base}')
