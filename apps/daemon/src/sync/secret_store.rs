@@ -16,6 +16,13 @@ use crate::sync::oss::crypto::{decrypt_blob, encrypt_blob};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSecrets {
+    /// The team secret, despite the OSS-flavoured name. It is not OSS-specific:
+    /// OSS sync uses it to encrypt blobs, and *every* share mode uses it to
+    /// derive the key for `_secrets/` team-env decryption (see
+    /// `team_shared_env::derive_key`). Read it via
+    /// [`SecretStore::team_secret`]. The name is load-bearing on the wire —
+    /// it matches the desktop's `ossTeamSecret` field in
+    /// `POST /v1/team/secrets` — so it stays put.
     #[serde(default)]
     pub oss_team_secret: Option<String>,
     #[serde(default)]
@@ -167,6 +174,18 @@ impl SecretStore {
     /// The stored git branch, if any.
     pub fn git_branch(&self, team_id: &str) -> Option<String> {
         self.load(team_id).ok().and_then(|s| s.git_branch)
+    }
+
+    /// The stored team secret, or `None` when unset/blank.
+    ///
+    /// This daemon's copy is the system of record: it is the only source a
+    /// standalone install can be handed one, whether by `amuxd team secrets set`
+    /// or by the desktop's `POST /v1/team/secrets`.
+    pub fn team_secret(&self, team_id: &str) -> Option<String> {
+        self.load(team_id)
+            .ok()
+            .and_then(|s| s.oss_team_secret)
+            .filter(|s| !s.trim().is_empty())
     }
 
     /// Resolve just the OSS team secret: store > config env_secret.

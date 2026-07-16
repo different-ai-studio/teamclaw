@@ -125,10 +125,14 @@ pub struct TeamArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum TeamAction {
-    /// Provision the sync credentials a headless daemon cannot obtain on its
-    /// own. `managed_git` needs nothing here — the daemon fetches that
-    /// credential from the cloud. `oss` and `custom_git` secrets are user-held
-    /// and have no server-side copy, so they must be supplied here.
+    /// Provision the secrets a headless daemon cannot obtain on its own.
+    ///
+    /// Two unrelated things live here. `--team-secret` decrypts the team's
+    /// shared env vars (`_secrets/`) and is needed under EVERY share mode; it
+    /// is user-held and has no server-side copy. `--git-credential` logs in to
+    /// a `custom_git` remote; `managed_git` needs no credential here because
+    /// the daemon fetches that one from the cloud — but it still needs
+    /// `--team-secret`.
     Secrets(TeamSecretsArgs),
 }
 
@@ -147,11 +151,13 @@ pub enum TeamSecretsAction {
         /// Team to write. Defaults to `team_id` from daemon.toml.
         #[arg(long)]
         team_id: Option<String>,
-        /// OSS team secret, 64 hex chars (`oss` share mode).
-        #[arg(long)]
-        oss_secret: Option<String>,
-        /// Git credential (`custom_git`): `user:token` when the team's auth
-        /// kind is https_token, or an SSH private key when it is ssh_key.
+        /// Team secret, 64 hex chars. Decrypts the team's shared env vars
+        /// under every share mode, and encrypts blobs under `oss`.
+        #[arg(long, alias = "oss-secret")]
+        team_secret: Option<String>,
+        /// Git credential for a `custom_git` remote: `user:token` when the
+        /// team's auth kind is https_token, or an SSH private key when it is
+        /// ssh_key. Not needed for `managed_git`.
         #[arg(long)]
         git_credential: Option<String>,
         /// Read the git credential from a file, e.g. an SSH private key.
