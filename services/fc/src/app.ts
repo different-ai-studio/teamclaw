@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { sharedSecretMatches } from "./lib/shared-secret.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { getAuth } from "./auth/better-auth.js";
@@ -72,12 +72,7 @@ export function createApp(deps: AppDeps): Hono {
   // HTTP-triggered cron (replaces FC timer for the Docker/self-host path).
   // Guarded by a shared secret; an external scheduler POSTs { task }.
   app.post("/internal/cron", async (c) => {
-    const secret = process.env.CRON_TRIGGER_SECRET;
-    const provided = c.req.header("x-cron-secret") ?? "";
-    const ok = !!secret &&
-      provided.length === secret.length &&
-      timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
-    if (!ok) {
+    if (!sharedSecretMatches(c.req.header("x-cron-secret"), process.env.CRON_TRIGGER_SECRET)) {
       return c.json({ error: "unauthorized" }, 401);
     }
     if (!deps.runCron) {
