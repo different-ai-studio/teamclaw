@@ -211,6 +211,13 @@ services:
       # convenience, not a safety net.
       LITELLM_URL: "${LITELLM_URL:-http://litellm:4000}"
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:-}"
+      # Per-team spend cap written at /team/new. Blank = no cap. This was absent
+      # from the allowlist, so FC always saw undefined and fell back to its old
+      # default of 1 — every self-host team hard-stopped after a dollar, and it
+      # surfaced from LiteLLM as budget-exceeded rather than as a config problem.
+      # Note it applies at provisioning time only: changing it never moves a team
+      # that already exists.
+      LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD: "${LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD:-}"
       # Must be set: litellm-init creates the database as `_litellm`, but
       # resolveLiteLlmConnString() defaults to `litellm` (no underscore), so
       # without this the usage queries connect to a database that never exists.
