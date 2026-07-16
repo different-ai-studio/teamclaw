@@ -105,10 +105,6 @@ const INTENTIONAL_FC_ONLY = {
  * environment map and deleting the entry here.
  */
 const KNOWN_GAPS = {
-  // Absence leaves the default of 1 USD, so every self-host team hard-stops
-  // after a dollar of spend, surfacing from LiteLLM as budget-exceeded rather
-  // than as a config problem.
-  LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD: "self-host teams silently capped at $1 of LiteLLM spend",
   // Default is 1, a serverless tuning. Inert while self-host runs
   // BACKEND_KIND=supabase (getDb() is postgres-only), but serializes every DB
   // request through one connection the moment that flips.

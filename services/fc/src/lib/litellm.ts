@@ -23,12 +23,28 @@ export const LITELLM_URL = () => {
 };
 export const LITELLM_MASTER_KEY = () => process.env.LITELLM_MASTER_KEY || "";
 
-/** Default team max spend (USD) applied on /team/new during provisioning. */
-export const LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD = () => {
-  const raw = process.env.LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD;
-  if (raw === undefined || raw === "") return 1;
+/**
+ * Default team max spend (USD) applied on /team/new during provisioning.
+ * `null` means no cap — LiteLLM treats a null max_budget as unlimited.
+ *
+ * Unset means unlimited, deliberately. This used to default to 1, which capped
+ * every team at a dollar of spend; self-host could not even override it, since
+ * the compose fc environment map never passed the var through. Spend control
+ * belongs at the upstream provider key, not in a default nobody chose.
+ */
+export const LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD = (): number | null => {
+  const raw = process.env.LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD?.trim();
+  if (!raw) return null;
   const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 1;
+  if (!Number.isFinite(n) || n < 0) {
+    // Don't silently apply a cap the operator did not write. Warn and treat it
+    // as unset, matching what an absent var does.
+    console.warn(
+      `[litellm] LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD=${JSON.stringify(raw)} is not a non-negative number; provisioning teams with no budget cap.`,
+    );
+    return null;
+  }
+  return n;
 };
 
 export async function litellmFetch(path: string, method: string, body?: unknown) {
