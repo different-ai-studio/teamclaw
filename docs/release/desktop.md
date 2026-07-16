@@ -106,7 +106,7 @@ Sidecar 随 Desktop 一起编译打包：`teamclaw-introspect`、`amuxd`。
 
 ```bash
 # 海外（GitHub latest release）
-curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw-next/main/scripts/install-mac.sh | bash
+curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw/main/scripts/install-mac.sh | bash
 
 # 国内（OSS 镜像，需 OSS secrets 已配置）
 curl -fsSL https://teamclaw.ucar.cc/install-mac-cn.sh | bash
@@ -115,7 +115,7 @@ curl -fsSL https://teamclaw.ucar.cc/install-mac-cn.sh | bash
 **自动更新端点（`tauri.conf.json`）：**
 
 - `https://teamclaw.ucar.cc/releases/latest.json`
-- `https://github.com/different-ai-studio/teamclaw-next/releases/latest/download/latest.json`
+- `https://github.com/different-ai-studio/teamclaw/releases/latest/download/latest.json`
 
 **通知：** Release published 后 `wecom-notify.yml` 会推送企业微信（需 `WECOM_WEBHOOK_KEY`）。
 
@@ -131,7 +131,7 @@ curl -fsSL https://teamclaw.ucar.cc/install-mac-cn.sh | bash
 | `BUILD_CONFIG_PRODUCTION` | 生产 `build.config.json` |
 | `DEVICE_JWT_SECRET` | 设备 JWT |
 | `APPLE_CERTIFICATE` + 相关 | macOS 代码签名（缺失则 ad-hoc，用户需 `xattr`） |
-| `OSS_*` | 国内 CDN 镜像（**teamclaw-next 仓库必须配置**，否则 OSS 端点不会更新） |
+| `OSS_*` | 国内 CDN 镜像（**teamclaw 仓库必须配置**，否则 OSS 端点不会更新） |
 | `UPDATER_GITHUB_TOKEN` | macOS job 写 GitHub Release |
 
 生产配置结构参考 `build.config.example.json`。
