@@ -173,10 +173,42 @@ fn main() {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
         });
-    if let Some(url) = cloud_api_url {
-        let url = url.trim_end_matches('/');
-        println!("cargo:rustc-env=CLOUD_API_URL={}", url);
-        println!("cargo:warning=Using CLOUD_API_URL={}", url);
+    match cloud_api_url {
+        Some(url) => {
+            let url = url.trim_end_matches('/');
+            println!("cargo:rustc-env=CLOUD_API_URL={}", url);
+            println!("cargo:warning=Using CLOUD_API_URL={}", url);
+        }
+        // A release-profile build with no Cloud API URL produces a binary that
+        // compiles, publishes, and only dies when a user clicks "开通团队共享" —
+        // `default_fc_endpoint` (commands/oss_sync/mod.rs) panics at RUNTIME on
+        // the missing `option_env!("CLOUD_API_URL")`. That shipped once: betly
+        // builds from the old release-beta.yml baked nothing, fell back to the
+        // then-hardcoded `https://cloud.ucar.cc`, and every Team Shared attempt
+        // got `FunctionNotFound: function 'teamclaw-sync' does not exist`.
+        // Fail the build instead, so it cannot leave CI.
+        //
+        // Gated on PROFILE, not CI: `cargo fmt/clippy/check` (ci.yml) and
+        // `tauri dev` run the debug profile with no build.config.json on disk
+        // (it is gitignored) and must keep working. Every pipeline that ships a
+        // binary supplies one — release-oss.yml via brand-setup, release.yml via
+        // BUILD_ENV=production merging build.config.production.json.
+        None if std::env::var("PROFILE").as_deref() == Ok("release") => {
+            panic!(
+                "cloudApiUrl is not set — refusing to bake a release binary with no Cloud API \
+                 endpoint.\nSet it one of these ways:\n  \
+                 • put `cloudApiUrl` in build.config.json (copy build.config.example.json)\n  \
+                 • build with BUILD_ENV=production (merges build.config.production.json)\n  \
+                 • export VITE_CLOUD_API_URL=<url>\nSee apps/desktop/src/commands/oss_sync/mod.rs \
+                 (default_fc_endpoint) for why a binary without this is broken."
+            );
+        }
+        None => {
+            println!(
+                "cargo:warning=No cloudApiUrl in build config — CLOUD_API_URL unset. Fine for \
+                 check/clippy; a release build with this unset is a hard error."
+            );
+        }
     }
 
     let target_triple = std::env::var("TARGET").unwrap_or_default();
