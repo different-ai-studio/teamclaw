@@ -88,7 +88,7 @@ function handleEnvelope(env: IncomingEnvelope): void {
       return
     }
 
-    let authorized = false
+    let authorized: boolean
     try {
       authorized = await authorizeRemoteToolRequest(teamId, request, invoke)
     } catch {
