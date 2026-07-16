@@ -115,8 +115,10 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
+          # apps/desktop and apps/daemon are members of the root workspace, so
+          # cargo puts every member's output under the root target/.
           workspaces: |
-            ./apps/desktop -> target
+            . -> target
           key: ${{ matrix.target }}
 
       - name: Install protoc (for prost_build)
@@ -181,8 +183,9 @@ jobs:
           (
             set -e
             echo "Building teamclaw-introspect for ${{ matrix.target }}..."
-            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target ${{ matrix.target }} --target-dir apps/desktop/target
-            cp apps/desktop/target/${{ matrix.target }}/release/teamclaw-introspect apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
+            TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/desktop/Cargo.toml | jq -r .target_directory)"
+            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target ${{ matrix.target }}
+            cp "$TARGET_DIR/${{ matrix.target }}/release/teamclaw-introspect" apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
             chmod +x apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
             echo "teamclaw-introspect ready"
           ) > /tmp/introspect.log 2>&1 &
@@ -191,8 +194,9 @@ jobs:
           (
             set -e
             echo "Building amuxd for ${{ matrix.target }}..."
-            cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }} --target-dir apps/desktop/target
-            cp apps/desktop/target/${{ matrix.target }}/release/amuxd apps/desktop/binaries/amuxd-${{ matrix.target }}
+            TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/daemon/Cargo.toml | jq -r .target_directory)"
+            cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }}
+            cp "$TARGET_DIR/${{ matrix.target }}/release/amuxd" apps/desktop/binaries/amuxd-${{ matrix.target }}
             chmod +x apps/desktop/binaries/amuxd-${{ matrix.target }}
             echo "amuxd ready"
           ) > /tmp/amuxd.log 2>&1 &
@@ -427,8 +431,10 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
+          # apps/desktop and apps/daemon are members of the root workspace, so
+          # cargo puts every member's output under the root target/.
           workspaces: |
-            ./apps/desktop -> target
+            . -> target
 
       - name: Install protoc (for prost_build)
         shell: bash
@@ -467,15 +473,17 @@ jobs:
       - name: Build teamclaw-introspect sidecar
         shell: bash
         run: |
-          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target-dir apps/desktop/target
-          cp apps/desktop/target/release/teamclaw-introspect.exe apps/desktop/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
+          TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/desktop/Cargo.toml | jq -r .target_directory)"
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect
+          cp "$TARGET_DIR/release/teamclaw-introspect.exe" apps/desktop/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
           echo "teamclaw-introspect ready"
 
       - name: Build amuxd sidecar
         shell: bash
         run: |
-          cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd --target-dir apps/desktop/target
-          cp apps/desktop/target/release/amuxd.exe apps/desktop/binaries/amuxd-x86_64-pc-windows-msvc.exe
+          TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/daemon/Cargo.toml | jq -r .target_directory)"
+          cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd
+          cp "$TARGET_DIR/release/amuxd.exe" apps/desktop/binaries/amuxd-x86_64-pc-windows-msvc.exe
           echo "amuxd sidecar ready"
 
       - name: Finalize tauri.conf.json (version from tag + frontend prebuilt + OSS updater endpoint)
@@ -644,12 +652,15 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./apps/daemon -> target
+          # apps/daemon is a member of the root workspace, so its output lands
+          # under the root target/, not apps/daemon/target/.
+          workspaces: . -> target
           key: amuxd-${{ matrix.target }}
 
       - name: Build amuxd
         run: |
           mkdir -p apps/desktop/binaries
+          TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/daemon/Cargo.toml | jq -r .target_directory)"
           # NB: no --locked — the repo's Cargo.lock drifts slightly from
           # Cargo.toml and the desktop build (tauri-action) tolerates it by
           # updating the lock; match that here rather than hard-failing.
@@ -660,11 +671,11 @@ jobs:
             # Cross.toml's pre-build installs libssl-dev:arm64 + protoc there and
             # points openssl-sys at the arm64 multiarch lib/include dirs.
             cargo install cross --locked --version 0.2.5
-            cross build --release --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }} --target-dir apps/desktop/target
+            cross build --release --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }}
           else
-            cargo build --release --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }} --target-dir apps/desktop/target
+            cargo build --release --manifest-path apps/daemon/Cargo.toml -p amuxd --target ${{ matrix.target }}
           fi
-          cp apps/desktop/target/${{ matrix.target }}/release/amuxd apps/desktop/binaries/amuxd-${{ matrix.target }}
+          cp "$TARGET_DIR/${{ matrix.target }}/release/amuxd" apps/desktop/binaries/amuxd-${{ matrix.target }}
           chmod +x apps/desktop/binaries/amuxd-${{ matrix.target }}
 
       - name: Upload standalone amuxd to OSS + emit amuxd fragment
