@@ -1393,6 +1393,7 @@
       "mismatchTitle": "本机 Agent 属于其他团队",
       "mismatchSubtitle": "当前登录团队与本机 daemon 绑定的团队不一致，需要重置后重新初始化。",
       "resetting": "重置中…",
+      "resetIncomplete": "重置未生效：本机仍绑定在团队 {{teamId}} 上。请查看 ~/.amuxd/amuxd.err.log。",
       "resetReinit": "重置并重新初始化",
       "initTitle": "初始化本机 Agent",
       "initSubtitle": "新建一个 agent，或把本机绑定到你已有的 agent。",
