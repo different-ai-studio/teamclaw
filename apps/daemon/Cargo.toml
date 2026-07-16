@@ -1,6 +1,6 @@
 [package]
 name = "amuxd"
-version = "0.2.24"
+version = "0.2.25"
 edition = "2021"
 
 [dependencies]
