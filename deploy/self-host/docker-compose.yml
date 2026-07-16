@@ -210,6 +210,43 @@ services:
       # desktop build config, or session injection silently does nothing.
       WEBSSO_LOGIN_URL: "${WEBSSO_LOGIN_URL:-}"
       WEBSSO_STORAGE_KEY: "${WEBSSO_STORAGE_KEY:-}"
+      SMS_DEBUG_MODE: "${SMS_DEBUG_MODE:-}"
+      # APNS — iOS push. POST /push/dispatch mounts unconditionally, so without
+      # these the route authenticates (see PUSH_WEBHOOK_SECRET) and then has
+      # nothing to send with.
+      APNS_ENV: "${APNS_ENV:-}"
+      APNS_KEY_ID: "${APNS_KEY_ID:-}"
+      APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
+      APNS_TOPIC: "${APNS_TOPIC:-}"
+      APNS_PRIVATE_KEY_P8: "${APNS_PRIVATE_KEY_P8:-}"
+      # CodeUp — backs POST /managed-git/create-repo (share mode `managed_git`).
+      CODEUP_ORG_ID: "${CODEUP_ORG_ID:-}"
+      CODEUP_PAT: "${CODEUP_PAT:-}"
+      CODEUP_BOT_USERNAME: "${CODEUP_BOT_USERNAME:-}"
+      # Apps module — per-app Postgres provisioning.
+      APPS_DB_ADMIN_URL: "${APPS_DB_ADMIN_URL:-}"
+      PG_POOL_MAX: "${PG_POOL_MAX:-}"
+      LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD: "${LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD:-}"
+      # Better-Auth. Only reachable with BACKEND_KIND=postgres — on the default
+      # supabase backend `/api/auth/*` is not mounted (app.ts) and GoTrue owns
+      # sign-in, so leave these blank. AUTH_SECRET and AUTH_BASE_URL both throw
+      # on a blank value rather than guessing, so a postgres switch fails loudly.
+      AUTH_SECRET: "${AUTH_SECRET:-}"
+      AUTH_BASE_URL: "${AUTH_BASE_URL:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-}"
+      APPLE_CLIENT_SECRET: "${APPLE_CLIENT_SECRET:-}"
+      OTP_EMAIL_SMTP_HOST: "${OTP_EMAIL_SMTP_HOST:-}"
+      OTP_EMAIL_SMTP_PORT: "${OTP_EMAIL_SMTP_PORT:-}"
+      OTP_EMAIL_SMTP_USER: "${OTP_EMAIL_SMTP_USER:-}"
+      OTP_EMAIL_SMTP_PASS: "${OTP_EMAIL_SMTP_PASS:-}"
+      OTP_EMAIL_SMTP_FROM: "${OTP_EMAIL_SMTP_FROM:-}"
+      # CORS_HANDLED_BY_PROXY is deliberately NOT passed through: this stack's
+      # Caddy is a transparent proxy that adds no CORS headers (see
+      # caddy/Caddyfile), so FC's Hono middleware must keep owning CORS. Setting
+      # it here would make FC answer OPTIONS with a bare 204 and emit no
+      # Access-Control-* headers at all, breaking every browser client.
       # Points FC at the bundled gateway. FC now fails closed on a blank value
       # rather than falling back to a hosted endpoint, so this default is a
       # convenience, not a safety net.
