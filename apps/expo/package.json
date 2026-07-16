@@ -23,7 +23,7 @@
     "expo-file-system": "~56.0.7",
     "expo-haptics": "^57.0.0",
     "expo-image-picker": "^56.0.18",
-    "expo-linking": "~56.0.14",
+    "expo-linking": "~57.0.2",
     "expo-notifications": "~0.31.5",
     "expo-router": "~56.2.11",
     "expo-sqlite": "~57.0.0",
