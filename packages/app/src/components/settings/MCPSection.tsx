@@ -18,7 +18,7 @@ import {
 import { useMCPStore, type MCPServerConfig } from '@/stores/mcp'
 import { useDepsStore } from '@/stores/deps'
 import { cn } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { appDisplayName } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -429,7 +429,7 @@ export const MCPSection = React.memo(function MCPSection() {
           <h4 className="font-medium mb-4 flex items-center gap-2">
             <Shield className="h-4 w-4 text-blue-500" />
             {t('settings.mcp.inherentMCP')}
-            <span className="text-xs font-normal text-muted-foreground ml-auto">{t('settings.mcp.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: buildConfig.app.name })}</span>
+            <span className="text-xs font-normal text-muted-foreground ml-auto">{t('settings.mcp.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: appDisplayName })}</span>
           </h4>
           <div className="space-y-3">
             {inherentEntries.map(([name, config]) => {

@@ -4,7 +4,7 @@ import { homeDir } from '@tauri-apps/api/path'
 import type { SkillWithSource, SkillSource } from './types'
 import { INHERENT_SKILL_NAMES, shouldIncludeDesktopControlSkill } from './types'
 import type { ClawHubLockfile } from '@/lib/clawhub/types'
-import { buildConfig, TEAM_REPO_DIR } from '@/lib/build-config'
+import { appDisplayName, TEAM_REPO_DIR } from '@/lib/build-config'
 import i18n from '@/lib/i18n'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -371,7 +371,7 @@ export function getSourceDirHint(source: SkillSource): string {
     case 'team':
       return `${TEAM_REPO_DIR}/skills/ (team share)`
     case 'builtin':
-      return i18n.t('skills.builtinPath', { app: buildConfig.app.name })
+      return i18n.t('skills.builtinPath', { app: appDisplayName })
     case 'plugin':
       return 'teamclaw.json → plugin'
     case 'personal':

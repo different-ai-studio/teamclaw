@@ -26,7 +26,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useTeamShareStore, isShareModeLocked } from '@/stores/team-share'
 import { linkDaemonTeamWorkspace } from '@/lib/daemon-local-client'
-import { buildConfig, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
+import { appDisplayName, TEAM_SYNCED_EVENT, TEAM_REPO_DIR } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -62,7 +62,7 @@ interface DaemonSyncStatus {
 
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
-    throw new Error(`Team feature requires ${buildConfig.app.name} desktop app (Tauri not available)`)
+    throw new Error(`Team feature requires ${appDisplayName} desktop app (Tauri not available)`)
   }
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<T>(cmd, args)
@@ -619,7 +619,7 @@ function TeamGitConfigConnected({
           <CollapsibleContent>
             <div className="mt-4 pt-4 border-t space-y-4 text-[13px] text-muted-foreground">
               <p>
-                {t('settings.team.repoGuide.intro', { defaultValue: 'A shared repository for your team to centrally manage Agent Skills, MCP configurations, and knowledge documents. Use the structure below so {{appName}} can sync correctly.', appName: buildConfig.app.name })}
+                {t('settings.team.repoGuide.intro', { defaultValue: 'A shared repository for your team to centrally manage Agent Skills, MCP configurations, and knowledge documents. Use the structure below so {{appName}} can sync correctly.', appName: appDisplayName })}
               </p>
               <div>
                 <h5 className="font-medium text-foreground mb-1.5">
@@ -653,7 +653,7 @@ function TeamGitConfigConnected({
                   {t('settings.team.repoGuide.usageTitle', 'Usage')}
                 </h5>
                 <ol className="list-decimal list-inside space-y-1">
-                  <li>{t('settings.team.repoGuide.usage1', { defaultValue: 'Clone the repo; {{appName}} will create a {{teamRepoDir}} folder in your workspace.', appName: buildConfig.app.name, teamRepoDir: sharedDirName })}</li>
+                  <li>{t('settings.team.repoGuide.usage1', { defaultValue: 'Clone the repo; {{appName}} will create a {{teamRepoDir}} folder in your workspace.', appName: appDisplayName, teamRepoDir: sharedDirName })}</li>
                   <li>{t('settings.team.repoGuide.usage2', 'Whitelist .gitignore: only the three directories are tracked.')}</li>
                   <li>{t('settings.team.repoGuide.usage3', 'In Cursor, use @ to reference Skills and Knowledge.')}</li>
                 </ol>

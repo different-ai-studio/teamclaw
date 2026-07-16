@@ -55,7 +55,7 @@ const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf8'));
 let updated = false;
 
 if (applyNameToTauriConf(tauriConf, buildConfig)) {
-  console.log(`✓ Updated productName/window title: ${buildConfig.app.name}`);
+  console.log(`✓ Updated productName: ${tauriConf.productName} / window title: ${tauriConf.app?.windows?.[0]?.title}`);
   updated = true;
 }
 

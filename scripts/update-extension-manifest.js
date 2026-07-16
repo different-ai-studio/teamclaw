@@ -50,7 +50,7 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 let updated = false;
 
 if (applyNameToExtensionManifest(manifest, buildConfig)) {
-  console.log(`✓ Updated extension name: ${buildConfig.app.name}`);
+  console.log(`✓ Updated extension name: ${manifest.name}`);
   updated = true;
 }
 

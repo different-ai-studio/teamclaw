@@ -13,7 +13,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { cn, openExternalUrl } from '@/lib/utils'
-import { buildConfig } from '@/lib/build-config'
+import { appDisplayName } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -36,7 +36,7 @@ const EMAIL_WIZARD_STEPS = [
     titleKey: 'settings.channels.email.wizardIntroTitle',
     title: 'Welcome to Email Setup',
     descKey: 'settings.channels.email.wizardIntroDesc',
-    description: `Let's connect your email to ${buildConfig.app.name} as a communication channel.`,
+    description: `Let's connect your email to ${appDisplayName} as a communication channel.`,
   },
   {
     id: 'provider',
@@ -161,7 +161,7 @@ export function EmailSetupWizard({
             </div>
 
             <div className="text-center space-y-2">
-              <h3 className="text-lg font-semibold">{t('settings.channels.email.connectTitle', { defaultValue: 'Connect Email to {{appName}}', appName: buildConfig.app.name })}</h3>
+              <h3 className="text-lg font-semibold">{t('settings.channels.email.connectTitle', { defaultValue: 'Connect Email to {{appName}}', appName: appDisplayName })}</h3>
               <p className="text-[13px] text-muted-foreground">
                 {t('settings.channels.email.connectDesc', 'This wizard will guide you through setting up email as a communication channel. The bot will monitor your inbox, process incoming emails through AI, and send threaded replies.')}
               </p>
