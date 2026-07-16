@@ -99,8 +99,9 @@ function createRustBuildEnv(baseEnv = process.env, scriptDir = __dirname) {
     }
   }
 
-  // Only override CARGO_TARGET_DIR locally; in CI, tauri-action expects
-  // the default apps/desktop/target/ path for artifact discovery.
+  // Only override CARGO_TARGET_DIR locally. In CI, leave cargo's own default in
+  // place — apps/desktop is a root workspace member, so that default is the
+  // workspace root target/, which is where tauri-action discovers the bundle.
   if (!env.CARGO_TARGET_DIR && !baseEnv.GITHUB_ACTIONS) {
     env.CARGO_TARGET_DIR = path.join(repoRoot, ".cargo-target");
   }

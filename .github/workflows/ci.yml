@@ -67,8 +67,10 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
+          # apps/desktop is a member of the root workspace, so cargo puts its
+          # output under the root target/, not apps/desktop/target/.
           workspaces: |
-            ./apps/desktop -> target
+            . -> target
 
       - name: Create stub sidecar binaries (tauri-build requires them to exist)
         run: |
