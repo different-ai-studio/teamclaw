@@ -120,6 +120,15 @@ impl SecretStore {
         std::fs::write(&path, blob).map_err(|e| format!("write secrets: {e}"))
     }
 
+    /// Remove a team's stored secrets. Absent secrets are not an error.
+    pub fn clear(&self, team_id: &str) -> Result<(), String> {
+        match std::fs::remove_file(self.secrets_path(team_id)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("remove secrets: {e}")),
+        }
+    }
+
     /// Merge non-None fields from `incoming` into the stored secrets.
     pub fn merge(&self, team_id: &str, incoming: &TeamSecrets) -> Result<(), String> {
         let mut current = self.load(team_id)?;
