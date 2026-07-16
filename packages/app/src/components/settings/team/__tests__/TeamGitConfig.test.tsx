@@ -54,6 +54,7 @@ vi.mock('@/lib/build-config', () => ({
     },
   },
   appShortName: 'teamclaw',
+  appDisplayName: 'TeamClaw',
   TEAM_SYNCED_EVENT: 'team-synced',
   TEAM_REPO_DIR: 'teamclaw-team',
   TEAMCLAW_DIR: '.teamclaw',
