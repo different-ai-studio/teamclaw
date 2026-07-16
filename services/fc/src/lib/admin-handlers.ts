@@ -21,12 +21,13 @@ import {
 export { managedGitCredential } from "./codeup.js";
 import { dispatchPush } from "./push-dispatch.js";
 import { pushDeps } from "./push-deps.js";
+import { sharedSecretMatches } from "./shared-secret.js";
 
 // Re-exported for index.ts (push webhook wiring) and any legacy importers.
 export { json } from "./responses.js";
 export { pushDeps, pgPushDeps } from "./push-deps.js";
 
-const PUSH_WEBHOOK_SECRET = () => process.env.PUSH_WEBHOOK_SECRET || '';
+const PUSH_WEBHOOK_SECRET = () => process.env.PUSH_WEBHOOK_SECRET;
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -315,7 +316,7 @@ export async function handleManagedGitCreateRepo(body: any) {
 }
 
 export async function handlePushDispatch(headers: Record<string, string> | undefined, body: any) {
-  if (headers?.['x-webhook-secret'] !== PUSH_WEBHOOK_SECRET()) {
+  if (!sharedSecretMatches(headers?.['x-webhook-secret'], PUSH_WEBHOOK_SECRET())) {
     return json(401, { error: 'Unauthorized' });
   }
   if (body.type !== 'INSERT' || body.table !== 'messages') {
