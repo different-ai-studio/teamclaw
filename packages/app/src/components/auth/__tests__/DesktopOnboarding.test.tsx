@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-const { authState, hasConfig, saveServerConfig, reload } = vi.hoisted(() => ({
+const { authState, hasConfig, saveServerConfig, reload, cloudApiUrlOverride, setCloudApiUrlOverrideMock } = vi.hoisted(() => ({
   authState: {
     loading: false,
     errorMessage: null as string | null,
@@ -15,6 +15,8 @@ const { authState, hasConfig, saveServerConfig, reload } = vi.hoisted(() => ({
   hasConfig: { value: true },
   saveServerConfig: vi.fn(),
   reload: vi.fn(),
+  cloudApiUrlOverride: { value: null as string | null },
+  setCloudApiUrlOverrideMock: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -31,6 +33,9 @@ vi.mock("@/stores/auth-store", () => ({
 vi.mock("@/lib/server-config", () => ({
   saveServerConfig,
   getEffectiveServerConfigSync: () => ({ cloudApiUrl: "https://teamclaw-api.ucar.cc" }),
+  getCloudApiUrlOverride: () => cloudApiUrlOverride.value,
+  getDefaultCloudApiUrl: () => "https://teamclaw-api.ucar.cc",
+  setCloudApiUrlOverride: setCloudApiUrlOverrideMock,
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -60,6 +65,8 @@ beforeEach(() => {
   authState.resetOtp.mockReset();
   hasConfig.value = true;
   saveServerConfig.mockReset();
+  cloudApiUrlOverride.value = null;
+  setCloudApiUrlOverrideMock.mockReset();
   Object.defineProperty(window, "location", {
     value: { reload },
     writable: true,
@@ -76,9 +83,9 @@ describe("DesktopOnboarding", () => {
     expect(screen.getByRole("button", { name: /quick trial/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign in or register/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /join the team/i })).toBeInTheDocument();
-    // The self-hosted server step was removed: the Cloud API URL is owned by the
-    // build config, with no runtime override.
-    expect(screen.queryByRole("button", { name: /self-hosted server/i })).not.toBeInTheDocument();
+    // The Cloud API URL defaults to the build config, but an explicit override is
+    // reachable from here.
+    expect(screen.getByRole("button", { name: /custom server/i })).toBeInTheDocument();
   });
 
   it("quick trial signs in anonymously", async () => {
@@ -130,5 +137,52 @@ describe("DesktopOnboarding", () => {
 
     expect(screen.getByText(/supabase is not configured/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send code/i })).toBeDisabled();
+  });
+
+  it("custom server saves an explicit cloudApiUrl override and reloads", () => {
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /custom server/i }));
+    fireEvent.change(screen.getByLabelText(/cloud api url/i), {
+      target: { value: "https://self-hosted.example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save and reload/i }));
+
+    expect(setCloudApiUrlOverrideMock).toHaveBeenCalledWith("https://self-hosted.example.com");
+    // A token from the previous backend is not valid against the new one.
+    expect(reload).toHaveBeenCalled();
+  });
+
+  it("custom server surfaces an invalid URL instead of reloading", () => {
+    setCloudApiUrlOverrideMock.mockImplementationOnce(() => {
+      throw new Error("Not a valid http(s) URL: nope");
+    });
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /custom server/i }));
+    fireEvent.change(screen.getByLabelText(/cloud api url/i), { target: { value: "nope" } });
+    fireEvent.click(screen.getByRole("button", { name: /save and reload/i }));
+
+    expect(screen.getByText(/enter a valid http\(s\) url/i)).toBeInTheDocument();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("custom server offers a reset only when an override is active", () => {
+    cloudApiUrlOverride.value = "https://self-hosted.example.com";
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /custom server/i }));
+    fireEvent.click(screen.getByRole("button", { name: /reset to the built-in default/i }));
+
+    expect(setCloudApiUrlOverrideMock).toHaveBeenCalledWith(null);
+    expect(reload).toHaveBeenCalled();
+  });
+
+  it("marks the footer URL as custom when an override is active", () => {
+    cloudApiUrlOverride.value = "https://self-hosted.example.com";
+    render(<DesktopOnboarding />);
+
+    // An override must never pass as the baked build config.
+    expect(screen.getByText(/custom$/)).toBeInTheDocument();
   });
 });

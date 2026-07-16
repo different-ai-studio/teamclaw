@@ -17,8 +17,9 @@ export interface TeamModelOption {
 
 export interface BuildConfig {
   /** Cloud API base URL (e.g. https://cloud.ucar.cc) baked into the build as the
-   *  default backend endpoint. Overridable at runtime via server settings or the
-   *  VITE_CLOUD_API_URL env var (which takes precedence). */
+   *  default backend endpoint. The VITE_CLOUD_API_URL env var overrides it at
+   *  build/dev time; at runtime an explicit user override (the "Custom server"
+   *  entry in onboarding) wins over both — see lib/server-config.ts. */
   cloudApiUrl?: string
   team: {
     lockLlmConfig: boolean

@@ -10,7 +10,7 @@ describe("server config", () => {
     vi.unstubAllEnvs();
   });
 
-  it("resolves cloudApiUrl from the build config / env, never from a saved override", async () => {
+  it("resolves cloudApiUrl from the build config / env, never from the bootstrap cache", async () => {
     vi.stubEnv("VITE_CLOUD_API_URL", "https://build.example.com");
 
     const { getEffectiveServerConfig, getEffectiveServerConfigSync, saveServerConfig } = await import(
@@ -23,6 +23,52 @@ describe("server config", () => {
 
     expect(getEffectiveServerConfigSync().cloudApiUrl).toBe("https://build.example.com");
     expect((await getEffectiveServerConfig()).cloudApiUrl).toBe("https://build.example.com");
+  });
+
+  it("an explicit cloudApiUrl override wins over the build config / env", async () => {
+    vi.stubEnv("VITE_CLOUD_API_URL", "https://build.example.com");
+
+    const { getEffectiveServerConfigSync, setCloudApiUrlOverride, getCloudApiUrlOverride } =
+      await import("../server-config");
+
+    setCloudApiUrlOverride("https://self-hosted.example.com/");
+
+    // Trailing slash is normalized away so the value matches what callers build
+    // base URLs from.
+    expect(getCloudApiUrlOverride()).toBe("https://self-hosted.example.com");
+    expect(getEffectiveServerConfigSync().cloudApiUrl).toBe("https://self-hosted.example.com");
+  });
+
+  it("clearing the override falls back to the build config", async () => {
+    vi.stubEnv("VITE_CLOUD_API_URL", "https://build.example.com");
+
+    const { getEffectiveServerConfigSync, setCloudApiUrlOverride } = await import("../server-config");
+
+    setCloudApiUrlOverride("https://self-hosted.example.com");
+    setCloudApiUrlOverride(null);
+
+    expect(getEffectiveServerConfigSync().cloudApiUrl).toBe("https://build.example.com");
+  });
+
+  it("rejects a cloudApiUrl override that is not an http(s) URL", async () => {
+    const { setCloudApiUrlOverride, getCloudApiUrlOverride } = await import("../server-config");
+
+    expect(() => setCloudApiUrlOverride("not a url")).toThrow();
+    expect(() => setCloudApiUrlOverride("ftp://example.com")).toThrow();
+    // A rejected value must not be persisted.
+    expect(getCloudApiUrlOverride()).toBeNull();
+  });
+
+  it("the bootstrap cache cannot write a cloudApiUrl override", async () => {
+    vi.stubEnv("VITE_CLOUD_API_URL", "https://build.example.com");
+
+    const { getEffectiveServerConfigSync, saveServerConfig } = await import("../server-config");
+
+    // saveServerConfig is the bootstrap path; only setCloudApiUrlOverride may
+    // touch the backend URL, so this must not shadow the build config.
+    await saveServerConfig({ cloudApiUrl: "https://sneaky.example.com" });
+
+    expect(getEffectiveServerConfigSync().cloudApiUrl).toBe("https://build.example.com");
   });
 
   it("persists MQTT broker config delivered by bootstrap", async () => {

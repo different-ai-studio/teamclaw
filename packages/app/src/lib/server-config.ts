@@ -17,18 +17,25 @@ export interface ServerConfig {
   webSsoStorageKey?: string;
 }
 
-// The Cloud API URL is owned entirely by the frontend build config
-// (`build.config*.json` → `buildConfig.cloudApiUrl`), overridable only at
-// build/dev time via the `VITE_CLOUD_API_URL` env var. There is no runtime
-// override and no on-disk persistence: the legacy `~/.teamclaw/config.json`
-// override (and the `window.__TEAMCLAW_SERVER_CONFIG__` injection that carried
-// it) have been removed, because a stale persisted value could silently shadow
-// the baked build config.
+// The Cloud API URL normally comes from the frontend build config
+// (`build.config*.json` → `buildConfig.cloudApiUrl`) or the `VITE_CLOUD_API_URL`
+// env var at build/dev time.
 //
 // This localStorage entry is a session cache for the MQTT broker config that the
 // Cloud API delivers via `/v1/config/bootstrap` after sign-in — nothing else. It
-// lets the MQTT client read a broker synchronously before bootstrap re-runs.
+// lets the MQTT client read a broker synchronously before bootstrap re-runs. It
+// never carries a cloudApiUrl: the legacy `~/.teamclaw/config.json` override
+// (and the `window.__TEAMCLAW_SERVER_CONFIG__` injection that carried it) were
+// removed because a value riding along in this cache could silently shadow the
+// baked build config.
 const STORAGE_KEY = "teamclaw.serverConfig";
+
+// A user-chosen Cloud API URL lives under its own key, separate from the cache
+// above, and wins over both the env var and the build config. It is written only
+// by an explicit user action (the "Custom server" entry in onboarding), and every
+// surface that shows the effective URL also offers a reset — so an override is
+// always visible as an override rather than shadowing the build config silently.
+const CLOUD_API_OVERRIDE_KEY = "teamclaw.cloudApiUrl.override";
 
 function readLocalConfig(): ServerConfig {
   if (typeof window === "undefined") return {};
@@ -44,6 +51,56 @@ function readLocalConfig(): ServerConfig {
 function writeLocalConfig(config: ServerConfig) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+}
+
+/** Trims trailing slashes and rejects anything that isn't an http(s) URL. */
+export function normalizeCloudApiUrl(raw: string): string | null {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  return trimmed;
+}
+
+/** The user-chosen Cloud API URL, or null when none is set. */
+export function getCloudApiUrlOverride(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CLOUD_API_OVERRIDE_KEY);
+    return raw ? normalizeCloudApiUrl(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The build-config/env URL, ignoring any override — what a reset returns to. */
+export function getDefaultCloudApiUrl(): string | undefined {
+  return import.meta.env.VITE_CLOUD_API_URL || buildConfig.cloudApiUrl;
+}
+
+/**
+ * Persists a user-chosen Cloud API URL, or clears it when passed null.
+ * Returns the normalized value that was stored. Throws on an unparseable URL so
+ * callers surface the error rather than silently keeping the old backend.
+ *
+ * The caller is responsible for signing out and reloading: an access token from
+ * the previous backend is not valid against the new one.
+ */
+export function setCloudApiUrlOverride(raw: string | null): string | null {
+  if (typeof window === "undefined") return null;
+  if (raw === null) {
+    window.localStorage.removeItem(CLOUD_API_OVERRIDE_KEY);
+    return null;
+  }
+  const normalized = normalizeCloudApiUrl(raw);
+  if (!normalized) throw new Error(`Not a valid http(s) URL: ${raw}`);
+  window.localStorage.setItem(CLOUD_API_OVERRIDE_KEY, normalized);
+  return normalized;
 }
 
 /**
@@ -85,7 +142,7 @@ function envConfig(): ServerConfig {
   return {
     backendKind: "cloud_api",
     // Env var wins; otherwise fall back to the value baked into build.config.*.
-    cloudApiUrl: import.meta.env.VITE_CLOUD_API_URL || buildConfig.cloudApiUrl,
+    cloudApiUrl: getDefaultCloudApiUrl(),
     mqttUrl: import.meta.env.VITE_MQTT_URL,
     mqttHost: import.meta.env.VITE_MQTT_HOST,
     mqttPort: Number.isFinite(mqttPort) ? mqttPort : undefined,
@@ -125,9 +182,10 @@ function resolve(rawSaved: ServerConfig): ServerConfig {
   const wsOverride = parseMqttWsUrlOverride();
   return {
     backendKind: "cloud_api",
-    // Single source of truth: build config (env var override only). The saved
-    // localStorage cache never contributes a cloudApiUrl.
-    cloudApiUrl: env.cloudApiUrl,
+    // An explicit user override wins over the build config; otherwise the build
+    // config (or its env var) is the source of truth. The `saved` bootstrap
+    // cache never contributes a cloudApiUrl — only CLOUD_API_OVERRIDE_KEY does.
+    cloudApiUrl: getCloudApiUrlOverride() ?? env.cloudApiUrl,
     mqttUrl: wsOverride?.mqttUrl ?? saved.mqttUrl ?? env.mqttUrl,
     mqttHost: wsOverride ? wsOverride.mqttHost : (saved.mqttHost ?? env.mqttHost),
     mqttPort: wsOverride ? wsOverride.mqttPort : (saved.mqttPort ?? env.mqttPort),
