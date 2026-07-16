@@ -84,7 +84,7 @@ export function createAuthModule(
       const next = await authClient.verifyOtp(email, code, "email_change");
       return mapSession(next);
     },
-    // Phone identity upgrade (betly-aligned): reuse phone send-code, then bind
+    // Phone identity upgrade (partner-aligned): reuse phone send-code, then bind
     // the phone to the current account (writes public.users in the default org).
     async sendUpgradePhoneOtp(phone: string): Promise<void> {
       await authClient.sendPhoneOtp(phone, { shouldCreateUser: false });

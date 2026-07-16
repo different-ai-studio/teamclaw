@@ -242,7 +242,7 @@ git add services/supabase/migrations/20260614000000_apps_module.sql
 git commit -m "feat(apps): migration for apps + app_member_access + sessions.app_id + RLS"
 ```
 
-> **Ops note (not in this migration):** production deploy must ensure `amux` is in `PGRST_DB_SCHEMAS` (already true) and reload PostgREST after apply. Capture this in the PR description per the belayo schema-cache lesson; do not encode it as migration SQL.
+> **Ops note (not in this migration):** production deploy must ensure `amux` is in `PGRST_DB_SCHEMAS` (already true) and reload PostgREST after apply. Capture this in the PR description per the partner RDS schema-cache lesson; do not encode it as migration SQL.
 
 ---
 

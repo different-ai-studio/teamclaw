@@ -15,7 +15,7 @@ export function registerAuth(router) {
     return { body: out };
   });
 
-  // Phone verification-code login, aligned with betly (synthetic email +
+  // Phone verification-code login, aligned with the partner SaaS (synthetic email +
   // default org, see lib/supabase-repo/phone-auth.ts). Replaces the GoTrue
   // native phone-OTP path below.
   router.post("/v1/auth/phone/send-code", { auth: "none" }, async (ctx) => {
@@ -63,7 +63,7 @@ export function registerAuth(router) {
       throw new ApiError(400, "validation_failed", "email or phone is required");
     }
     // Phone OTP is no longer served by GoTrue native /otp — it diverged from
-    // betly's user model (phone-native user, no public.users) and created
+    // the partner's user model (phone-native user, no public.users) and created
     // duplicate accounts. Phone callers must use /v1/auth/phone/{send-code,login}.
     if (hasPhone && !hasEmail) {
       throw new ApiError(

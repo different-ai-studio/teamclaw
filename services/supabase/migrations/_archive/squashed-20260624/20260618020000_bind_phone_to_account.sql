@@ -1,12 +1,12 @@
 -- ============================================================================
--- Phone identity upgrade, betly-aligned (NOT GoTrue phone_change).
+-- Phone identity upgrade, partner-aligned (NOT GoTrue phone_change).
 --
 -- Binds a phone to the CURRENT account using our own verification code
 -- (public.auth_verify_code, sent via /v1/auth/phone/send-code) and writes a
 -- public.users row in the DEFAULT_ORG, so the phone↔user mapping matches what
 -- /v1/auth/phone/login looks up. phone_change would only set auth.users.phone
 -- without a public.users row, so a later phone login would miss it and create a
--- DUPLICATE betly user — this avoids that.
+-- DUPLICATE partner user — this avoids that.
 --
 -- Also flips the auth user to non-anonymous (the actual "upgrade"). The caller's
 -- JWT still reads is_anonymous=true until the session is refreshed.
@@ -57,8 +57,8 @@ begin
     raise exception 'phone already in use by another account' using errcode = '23505';
   end if;
 
-  -- Upsert the current account's public.users row (mirror betly's shape).
-  v_nick := 'betly_' || substr(md5(v_user_id::text || p_phone), 1, 4) || '_' || right(p_phone, 4);
+  -- Upsert the current account's public.users row (mirror the partner's shape).
+  v_nick := 'user_' || substr(md5(v_user_id::text || p_phone), 1, 4) || '_' || right(p_phone, 4);
   insert into public.users (id, org_id, auth_user_id, mobile, nickname)
   values (v_user_id, p_default_org_id, v_user_id, p_phone, v_nick)
   on conflict (id) do update
