@@ -17,7 +17,7 @@ export function registerAccount(router) {
     return { body: result };
   });
 
-  // Phone identity upgrade (betly-aligned): bind a phone to the caller's account
+  // Phone identity upgrade (partner-aligned): bind a phone to the caller's account
   // using a code from /v1/auth/phone/send-code, writing a public.users row in
   // the default org. Authenticated (caller bearer forwarded to the RPC).
   router.post("/v1/account/bind-phone", async (ctx) => {

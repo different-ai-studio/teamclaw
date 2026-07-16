@@ -102,7 +102,7 @@ saas-mono 自建 Supabase（唯一实例 / 唯一 GoTrue / 唯一 auth.users）
 
 PostgREST：`PGRST_DB_SCHEMAS` 含 `amux`（RDS + rest 容器）+ GRANT + smoke `Accept-Profile: amux`。
 
-**待办**：FC `SUPABASE_URL` 指向 live（`https://supa.mx5.cn`）。
+**待办**：FC `SUPABASE_URL` 指向 live（`https://<partner-supabase-host>`）。
 
 ### Legacy Step D — 47.x → 其他 saas-mono 实例
 

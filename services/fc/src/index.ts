@@ -97,9 +97,12 @@ export function makeAuthRepoFactory(kind: "supabase" | "postgres") {
       supabaseUrl: SUPABASE_URL_FN(),
       supabasePublicUrl: SUPABASE_PUBLIC_URL_FN(),
       publishableKey: SUPABASE_PUBLISHABLE_KEY(),
-      // Phone login (betly-aligned). Enabled only when all three are set.
+      // Phone login (partner-aligned). Enabled only when all four are set.
+      // PHONE_EMAIL_DOMAIN is part of the account identity — it must match the
+      // partner SaaS sharing this GoTrue (see supabase-repo/phone-auth.ts).
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || undefined,
       defaultOrgId: process.env.DEFAULT_ORG_ID || undefined,
+      phoneEmailDomain: process.env.PHONE_EMAIL_DOMAIN || undefined,
       phoneAuthEncryptionKey: process.env.PHONE_AUTH_ENCRYPTION_KEY || undefined,
       smsDebugMode: process.env.SMS_DEBUG_MODE === "1" || process.env.SMS_DEBUG_MODE === "true",
     });

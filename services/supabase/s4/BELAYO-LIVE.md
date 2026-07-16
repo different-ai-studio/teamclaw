@@ -75,11 +75,11 @@ PostgREST needs **both** RDS and the live Supabase **rest container**:
    - `PGRST_DB_SCHEMAS=public, amux, storage, graphql_public`
    - `PGRST_DB_URI` must point at **`supabase_db`** (not empty `postgres`)
    - Use the live RDS `authenticator` password from the Supabase stack env (auth/meta containers — not a stale typo in `/opt/supabase/.env`)
-3. **FC**: `SUPABASE_URL` → live Supabase API (`https://supa.mx5.cn` public / Kong internal)
+3. **FC**: `SUPABASE_URL` → live Supabase API (`https://<partner-supabase-host>` public / Kong internal)
 4. **Smoke** (REST):
 
 ```sh
-curl -sS "https://supa.mx5.cn/rest/v1/teams?select=id&limit=1" \
+curl -sS "https://<partner-supabase-host>/rest/v1/teams?select=id&limit=1" \
   -H "apikey: $SUPABASE_LIVE_ANON_KEY" \
   -H "Authorization: Bearer $SUPABASE_LIVE_ANON_KEY" \
   -H "Accept-Profile: amux"

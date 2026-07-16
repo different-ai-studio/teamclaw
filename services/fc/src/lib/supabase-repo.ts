@@ -245,7 +245,7 @@ export function createSupabaseBusinessRepository(options) {
 
     async createTeam(input) {
       // Bootstrap (no-invite) onboarding. Behavior depends on the caller's org:
-      //   * DEFAULT_ORG (betly's shared consumer tenant): each user gets their
+      //   * DEFAULT_ORG (the partner's shared consumer tenant): each user gets their
       //     OWN independent solo team — random individuals stay isolated.
       //   * a REAL customer org (e.g. a climbing gym): everyone bootstrapping
       //     into that org joins ONE shared team (the org's oldest team). The
@@ -348,7 +348,7 @@ export function createSupabaseBusinessRepository(options) {
       };
     },
 
-    // Phone identity upgrade (betly-aligned): bind a phone to the caller's
+    // Phone identity upgrade (partner-aligned): bind a phone to the caller's
     // account via our own verification code + a public.users row in the default
     // org (NOT GoTrue phone_change). See bind_phone_to_account RPC.
     async bindPhone({ phone, code }) {

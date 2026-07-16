@@ -1,8 +1,9 @@
-// Web SSO 快捷登录 — open the Betly admin sign-in page in a native webview, let
-// the user sign in there, then harvest the supabase-js session out of that
-// page's localStorage and adopt it as the TeamClaw session. The Betly admin
-// shares TeamClaw's GoTrue per environment, so its refresh_token is valid
-// against TeamClaw's Cloud API. This is the reverse of betly-auth-inject.ts.
+// Web SSO 快捷登录 — open the partner admin console's sign-in page in a native
+// webview, let the user sign in there, then harvest the supabase-js session out
+// of that page's localStorage and adopt it as the TeamClaw session. The admin
+// console shares TeamClaw's GoTrue per environment, so its refresh_token is
+// valid against TeamClaw's Cloud API. This is the reverse of
+// admin-sso-inject.ts.
 
 import { buildConfig } from "@/lib/build-config";
 import { fetchPublicConfig } from "@/lib/bootstrap";
@@ -20,15 +21,17 @@ export interface SsoConfig {
 }
 
 /**
- * Resolve the SSO target, or null when the feature is off or not configured.
- * The login URL + storage key are NOT hardcoded: they are delivered by the
- * Cloud API via `/v1/config/bootstrap` (cached in server-config, like the MQTT
- * broker). The build flag `features.auth.webSSO` is the per-build kill switch;
- * the host is derived from the login URL and is the only host the native
- * read/clear commands are allowed to touch.
+ * Resolve the partner admin console target from the Cloud-API-delivered config,
+ * or null when it is not configured. The login URL + storage key are NOT
+ * hardcoded: they are delivered via `/v1/config/{public,bootstrap}` (cached in
+ * server-config, like the MQTT broker). The host is derived from the login URL
+ * and is the only host the native read/clear/inject paths may touch.
+ *
+ * Shared by both directions of the admin-console session bridge: Web SSO
+ * (harvest, below) and admin-sso-inject.ts (inject). Not gated on the build
+ * flag — that kill switch applies to the login method, not to the target.
  */
-export function ssoConfig(): SsoConfig | null {
-  if (!buildConfig.features.auth?.webSSO) return null;
+export function adminConsoleTarget(): SsoConfig | null {
   const cfg = getEffectiveServerConfigSync();
   const loginUrl = cfg.webSsoLoginUrl;
   const storageKey = cfg.webSsoStorageKey;
@@ -41,6 +44,15 @@ export function ssoConfig(): SsoConfig | null {
   }
   if (!host) return null;
   return { loginUrl, host, storageKey };
+}
+
+/**
+ * Resolve the SSO target, or null when the feature is off or not configured.
+ * The build flag `features.auth.webSSO` is the per-build kill switch.
+ */
+export function ssoConfig(): SsoConfig | null {
+  if (!buildConfig.features.auth?.webSSO) return null;
+  return adminConsoleTarget();
 }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +137,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Open the Betly admin sign-in page in a centered modal webview, harvest the
+ * Open the admin console sign-in page in a centered modal webview, harvest the
  * supabase session from its localStorage once the user signs in, and return the
  * harvested refresh_token. Closes the webview on every exit path. Throws
  * AuthError with code websso_cancelled | websso_timeout | websso_failed.
@@ -157,8 +169,8 @@ export async function runWebSso(opts: RunWebSsoOptions = {}): Promise<string> {
       y: layout.webviewY,
       width: layout.webviewW,
       height: layout.webviewH,
-      // Force a fresh login: clear any stale Betly session lingering in the
-      // shared webview store, whose refresh token may already be consumed.
+      // Force a fresh login: clear any stale admin-console session lingering in
+      // the shared webview store, whose refresh token may already be consumed.
       clearStorageKey: cfg.storageKey,
     });
 

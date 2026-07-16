@@ -219,14 +219,28 @@ fn build_teamclaw_identity_script(device_no: &str, device_name: &str) -> String 
     )
 }
 
-/// Hosts of the Betly admin SPA that share TeamClaw's GoTrue. Only these hosts
-/// receive an injected TeamClaw session — never inject tokens into arbitrary
-/// third-party webviews, that would leak the bearer token to any site.
-const BETLY_ADMIN_HOSTS: &[&str] = &["testadmin.ucar.cc", "admin.mx5.cn"];
+/// Hosts of the partner admin SPA that share TeamClaw's GoTrue. Only these
+/// hosts receive an injected TeamClaw session — never inject tokens into
+/// arbitrary third-party webviews, that would leak the bearer token to any
+/// site.
+///
+/// Baked in at compile time from `app.features.auth.webSSOHosts` in the build
+/// config (see build.rs), so deployment-specific hostnames live in the brand's
+/// `build.config.<brand>.json` rather than in source. Absent/empty means no
+/// host is allowed and session injection is off — this is the native-side
+/// re-check that backs the frontend allowlist in admin-sso-inject.ts, so it
+/// must not be sourced from the renderer.
+fn admin_sso_hosts() -> impl Iterator<Item = &'static str> {
+    option_env!("WEBSSO_ADMIN_HOSTS")
+        .into_iter()
+        .flat_map(|raw| raw.split(','))
+        .map(str::trim)
+        .filter(|host| !host.is_empty())
+}
 
 fn host_allows_session_injection(url: &tauri::Url) -> bool {
     url.host_str()
-        .map(|h| BETLY_ADMIN_HOSTS.contains(&h))
+        .map(|h| admin_sso_hosts().any(|allowed| allowed == h))
         .unwrap_or(false)
 }
 
@@ -255,8 +269,8 @@ fn build_supabase_session_script(storage_key: &str, session_json: &str) -> Strin
 /// Build a documentStart script that clears a stale supabase-js session from
 /// the page's localStorage exactly once per webview session, forcing a fresh
 /// authenticated login. Used by Web SSO: the webview shares a persistent data
-/// store, so a previous Betly session lingers in localStorage — and its refresh
-/// token was already rotated/consumed when TeamClaw adopted it, so reusing it
+/// store, so a previous admin-console session lingers in localStorage — and its
+/// refresh token was already rotated/consumed when TeamClaw adopted it, so reusing it
 /// fails with "refresh token not found". The sessionStorage flag ensures we only
 /// clear on the initial load, never wiping the session the user just signed into
 /// after a post-login redirect.
@@ -522,9 +536,10 @@ pub async fn webview_create(
         height
     );
 
-    // Betly admin auto-login: seed the current TeamClaw session into the page's
-    // supabase-js localStorage key, but ONLY for allowlisted hosts that share
-    // TeamClaw's GoTrue. Computed before parsed_url is moved into the builder.
+    // Partner admin console auto-login: seed the current TeamClaw session into
+    // the page's supabase-js localStorage key, but ONLY for allowlisted hosts
+    // that share TeamClaw's GoTrue. Computed before parsed_url is moved into
+    // the builder.
     let auth_inject_script = match (auth_storage_key.as_deref(), auth_session_json.as_deref()) {
         (Some(key), Some(session))
             if !key.is_empty()
