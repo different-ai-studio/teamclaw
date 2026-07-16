@@ -9,6 +9,19 @@ import { makeDysmsSender } from "../sms.js";
 
 import { REALTIME_TRANSPORT_OPTS, requiredRow, requiredString, requiredInteger } from "./shared.js";
 
+// Both pending-invite RPCs guard by visibility: an invite not addressed to the
+// caller's verified contact raises 23503 exactly like a nonexistent id, so a
+// caller cannot distinguish "not yours" from "not there" — 404 for both.
+function mapPendingInviteError(error, fallback: string) {
+  const code = error?.code || "";
+  const msg = error?.message ?? fallback;
+  if (code === "23503") return new ApiError(404, "not_found", msg);
+  if (code === "23505") return new ApiError(409, "conflict", msg);
+  if (code === "23514") return new ApiError(409, "conflict", msg);
+  if (code === "42501") return new ApiError(401, "unauthorized", msg);
+  return new ApiError(400, "validation_failed", msg);
+}
+
 export function createSupabaseAuthRepository(options) {
   const {
     supabaseUrl,
@@ -108,6 +121,49 @@ export function createSupabaseAuthRepository(options) {
         displayName: requiredString(row.display_name, "auth.claimInvite", "display_name"),
         refreshToken: row.refresh_token ?? null,
       };
+    },
+
+    // Invites addressed to the caller's verified email/phone. Lives here rather
+    // than in the business repository because the RPC keys off `auth.uid()`, so
+    // it needs the caller's bearer — the business client is service-role.
+    async listPendingInvites(ctx: { accessToken?: string } = {}) {
+      const client = clientForToken(ctx.accessToken);
+      const { data, error } = await client.rpc("list_pending_invites_for_me");
+      if (error) throw new ApiError(400, "validation_failed", error.message ?? "list_pending_invites_for_me failed");
+      return {
+        items: (data ?? []).map((row) => ({
+          inviteId: requiredString(row.invite_id, "auth.listPendingInvites", "invite_id"),
+          teamId: requiredString(row.team_id, "auth.listPendingInvites", "team_id"),
+          teamName: row.team_name ?? null,
+          teamRole: row.team_role ?? null,
+          displayName: row.display_name ?? null,
+          invitedByDisplayName: row.invited_by_display_name ?? null,
+          inviteEmail: row.invite_email ?? null,
+          invitePhone: row.invite_phone ?? null,
+          expiresAt: row.expires_at ?? null,
+          matchedVia: row.matched_via ?? null,
+        })),
+      };
+    },
+
+    async acceptPendingInvite(inviteId, ctx: { accessToken?: string } = {}) {
+      const client = clientForToken(ctx.accessToken);
+      const { data, error } = await client.rpc("accept_pending_invite", { p_invite_id: inviteId });
+      if (error) throw mapPendingInviteError(error, "accept_pending_invite failed");
+      const row = requiredRow(data, "auth.acceptPendingInvite");
+      return {
+        actorId: requiredString(row.actor_id, "auth.acceptPendingInvite", "actor_id"),
+        teamId: requiredString(row.team_id, "auth.acceptPendingInvite", "team_id"),
+        actorType: requiredString(row.actor_type, "auth.acceptPendingInvite", "actor_type"),
+        displayName: requiredString(row.display_name, "auth.acceptPendingInvite", "display_name"),
+        refreshToken: row.refresh_token ?? null,
+      };
+    },
+
+    async declinePendingInvite(inviteId, ctx: { accessToken?: string } = {}) {
+      const client = clientForToken(ctx.accessToken);
+      const { error } = await client.rpc("decline_pending_invite", { p_invite_id: inviteId });
+      if (error) throw mapPendingInviteError(error, "decline_pending_invite failed");
     },
 
     // Switch the caller's active team (and org), minting a fresh server session.

@@ -14,7 +14,7 @@ function env(name, fallback) {
 }
 
 export async function provisionTwoNodeTeam({ threeNode = false } = {}) {
-  const base = env("CLOUD_API_URL", "https://cloud.ucar.cc");
+  const base = env("CLOUD_API_URL", "https://api.teamclaw-dev.ucar.cc");
   // cloud FC enforces "first-team onboarding only" (one team per account), so each
   // provision signs up a FRESH throwaway owner account — its first team is allowed.
   // This also means the harness self-provisions: no TEST_EMAIL/TEST_PASSWORD needed.

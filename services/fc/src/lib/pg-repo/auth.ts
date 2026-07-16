@@ -1,11 +1,14 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { JWTVerifyGetKey } from "jose";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { getAuth, type Auth } from "../../auth/better-auth.js";
 import { mintSession } from "../../auth/mint-session.js";
 import { toGoTrueSession, toRefreshShape, toEpochSeconds, type ReshapeUser } from "../../auth/reshape.js";
 import { verifyAccessToken } from "../../auth/verify.js";
-import { teamInvites, actors, members, teamMembers, agents, agentMemberAccess, teamWorkspaceConfig } from "../../db/schema/index.js";
+import { authBaseURL } from "../../auth/base-url.js";
+import { teamInvites, actors, members, teamMembers, agents, agentMemberAccess, teamWorkspaceConfig, teams } from "../../db/schema/index.js";
+import { user } from "../../db/schema/auth.js";
 import { ApiError } from "../http-utils.js";
 import { randomUUID } from "node:crypto";
 
@@ -57,6 +60,15 @@ export function createPgAuthRepository(
   const resolveAuth = () => opts.auth ?? getAuth();
   const verifyJwt = (token: string) => verifyAccessToken(token, opts.verifyOpts ?? {});
 
+  // Routes forward the caller's bearer; an explicit ctx.userId still wins
+  // (tests / internal callers). Returns null when neither is present.
+  const resolveUserId = async (ctx: { userId?: string; accessToken?: string }) => {
+    if (ctx.userId) return ctx.userId;
+    if (!ctx.accessToken) return null;
+    const claims = await verifyJwt(ctx.accessToken);
+    return claims.sub ?? null;
+  };
+
   function bearer(sessionToken: string): Headers {
     const h = new Headers();
     h.set("authorization", `Bearer ${sessionToken}`);
@@ -88,7 +100,9 @@ export function createPgAuthRepository(
     return toGoTrueSession({ accessToken, refreshToken: sessionToken, expiresAt, user });
   }
 
-  return {
+  // Named so the pending-invite methods can delegate to sibling methods without
+  // relying on `this` surviving however the repository gets composed.
+  const repo = {
     // --- Phone login (partner-aligned, supabase backend only) ---
     async phoneSendCode() {
       throw new ApiError(501, "phone_login_unsupported", "phone login is only available under BACKEND_KIND=supabase");
@@ -219,7 +233,7 @@ export function createPgAuthRepository(
     }): string {
       const auth = resolveAuth();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const baseURL = ((auth as any).options?.baseURL ?? process.env.AUTH_BASE_URL ?? "https://cloud.ucar.cc") as string;
+      const baseURL = authBaseURL((auth as any).options?.baseURL);
       const u = new URL(`${baseURL}/api/auth/sign-in/social`);
       u.searchParams.set("provider", provider);
       u.searchParams.set("callbackURL", redirect);
@@ -290,6 +304,114 @@ export function createPgAuthRepository(
       throw new ApiError(501, "not_implemented", "switch active team requires the supabase backend");
     },
 
+    // Invites addressed to the caller's own verified email. Never takes a
+    // contact argument — it reads the authenticated user's identity — so it
+    // cannot be used to probe which addresses have invites waiting.
+    //
+    // Email only: Better-Auth's `user` table on this backend has no phone
+    // column, so an invite_phone can never match here (it does on supabase).
+    // Anonymous users have no verified contact and always get an empty list.
+    async listPendingInvites(ctx: { userId?: string; accessToken?: string } = {}) {
+      const db = opts.db;
+      if (!db) throw new Error("listPendingInvites requires db to be passed in opts");
+
+      const userId = await resolveUserId(ctx);
+      if (!userId) return { items: [] };
+
+      const [u] = await db
+        .select({ email: user.email, emailVerified: user.emailVerified, isAnonymous: user.isAnonymous })
+        .from(user)
+        .where(eq(user.id, userId))
+        .limit(1);
+      if (!u || u.isAnonymous || !u.emailVerified) return { items: [] };
+      const email = (u.email ?? "").trim().toLowerCase();
+      if (!email) return { items: [] };
+
+      const inviter = alias(actors, "inviter");
+      const rows = await (db as any)
+        .select({
+          inviteId: teamInvites.id,
+          teamId: teamInvites.teamId,
+          teamName: teams.name,
+          teamRole: teamInvites.teamRole,
+          displayName: teamInvites.displayName,
+          invitedByDisplayName: inviter.displayName,
+          inviteEmail: teamInvites.inviteEmail,
+          invitePhone: teamInvites.invitePhone,
+          expiresAt: teamInvites.expiresAt,
+        })
+        .from(teamInvites)
+        .innerJoin(teams, eq(teams.id, teamInvites.teamId))
+        .leftJoin(inviter, eq(inviter.id, teamInvites.invitedByActorId))
+        .where(
+          and(
+            eq(teamInvites.kind, "member"),
+            eq(teamInvites.status, "pending"),
+            isNull(teamInvites.consumedAt),
+            gt(teamInvites.expiresAt, new Date()),
+            sql`lower(btrim(${teamInvites.inviteEmail})) = ${email}`,
+            // Already in the team (joined via token, or invited twice) —
+            // nothing left to accept.
+            sql`not exists (select 1 from ${actors} a where a.team_id = ${teamInvites.teamId} and a.user_id = ${userId})`,
+          ),
+        )
+        .orderBy(desc(teamInvites.createdAt));
+
+      return {
+        items: rows.map((r: any) => ({
+          inviteId: r.inviteId,
+          teamId: r.teamId,
+          teamName: r.teamName ?? null,
+          teamRole: r.teamRole ?? null,
+          displayName: r.displayName ?? null,
+          invitedByDisplayName: r.invitedByDisplayName ?? null,
+          inviteEmail: r.inviteEmail ?? null,
+          invitePhone: r.invitePhone ?? null,
+          expiresAt: r.expiresAt ? new Date(r.expiresAt).toISOString() : null,
+          matchedVia: "email" as const,
+        })),
+      };
+    },
+
+    // Visibility via listPendingInvites IS the authorization check: an invite
+    // the caller cannot see is one they cannot accept, so "not yours" and "not
+    // there" are indistinguishable (both 404).
+    async acceptPendingInvite(inviteId: string, ctx: { userId?: string; accessToken?: string } = {}) {
+      const userId = await resolveUserId(ctx);
+      if (!userId) throw new ApiError(401, "missing_identity", "accepting an invite requires authentication");
+
+      const { items } = await repo.listPendingInvites(ctx);
+      const match = items.find((i: any) => i.inviteId === inviteId);
+      if (!match) throw new ApiError(404, "not_found", `no pending invite ${inviteId} for this account`);
+
+      const db = opts.db;
+      const [invite] = await db!
+        .select({ token: teamInvites.token })
+        .from(teamInvites)
+        .where(eq(teamInvites.id, inviteId))
+        .limit(1);
+      if (!invite) throw new ApiError(404, "not_found", `no pending invite ${inviteId} for this account`);
+
+      // Delegate so the contact path and the token path share one implementation.
+      return repo.claimInvite(invite.token, { userId });
+    },
+
+    async declinePendingInvite(inviteId: string, ctx: { userId?: string; accessToken?: string } = {}) {
+      const db = opts.db;
+      if (!db) throw new Error("declinePendingInvite requires db to be passed in opts");
+
+      const { items } = await repo.listPendingInvites(ctx);
+      if (!items.some((i: any) => i.inviteId === inviteId)) {
+        throw new ApiError(404, "not_found", `no pending invite ${inviteId} for this account`);
+      }
+
+      // The row is kept (not deleted) so the inviter can see the outcome.
+      await (db as any)
+        .update(teamInvites)
+        .set({ status: "declined", declinedAt: new Date(), updatedAt: new Date() })
+        .where(eq(teamInvites.id, inviteId));
+    },
+
     // claimInvite(token, { userId? }):
     //   member branch: requires a userId (existing Better-Auth user); inserts
     //     actor(member) + member(active) + team_member; refreshToken = null.
@@ -320,6 +442,10 @@ export function createPgAuthRepository(
         .limit(1);
       if (!invite) throw new ApiError(404, "not_found", "invite not found");
       if (invite.consumedAt) throw new ApiError(409, "conflict", "invite_already_claimed");
+      // A declined invite's token must stay dead, and a superseded one (the
+      // inviter re-sent to the same contact) must not resurrect the old link.
+      if (invite.status === "declined") throw new ApiError(409, "conflict", "invite_declined");
+      if (invite.status === "expired") throw new ApiError(409, "conflict", "invite_superseded");
       if (new Date(invite.expiresAt) < new Date()) throw new ApiError(404, "not_found", "invite_expired");
 
       const kind = invite.kind; // "member" | "agent"
@@ -350,7 +476,7 @@ export function createPgAuthRepository(
 
           // Mark invite consumed
           await (tx.update(teamInvites) as any)
-            .set({ consumedAt: new Date(), consumedByActorId: actor.id })
+            .set({ consumedAt: new Date(), consumedByActorId: actor.id, status: "accepted" })
             .where(eq(teamInvites.token, token));
 
           return {
@@ -449,7 +575,7 @@ export function createPgAuthRepository(
 
           // Mark invite consumed
           await (tx.update(teamInvites) as any)
-            .set({ consumedAt: new Date(), consumedByActorId: actorId })
+            .set({ consumedAt: new Date(), consumedByActorId: actorId, status: "accepted" })
             .where(eq(teamInvites.token, token));
 
           return {
@@ -491,4 +617,6 @@ export function createPgAuthRepository(
     // Re-exported primitive for Plan 5 wiring.
     mintSession: (userId: string) => mintSession(userId, resolveAuth()),
   };
+
+  return repo;
 }

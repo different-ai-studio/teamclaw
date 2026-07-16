@@ -150,7 +150,7 @@ cp build.config.example.json build.config.local.json
 
 ```json
 {
-  "cloudApiUrl": "https://cloud.ucar.cc",
+  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
   "features": {
     "channels": { "discord": true, "feishu": true, "email": true }
   }

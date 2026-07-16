@@ -1,11 +1,12 @@
-name: Prod Canary
+name: Self-Host Canary
 
-# Periodically probes the production Cloud API (https://api.teamclaw-dev.ucar.cc) to catch
-# the failure mode we keep hitting: a deploy reports success but the service is
-# down, frozen on an old contract, or missing critical runtime config (e.g. the
-# FC mem/cpu incident in #362). Push-triggered CI cannot see this — only a live
-# probe can. Stays SILENT on success to avoid alert fatigue; only pings WeCom
-# when something is actually wrong.
+# Periodically probes the Cloud API on the self-host box
+# (https://api.teamclaw-dev.ucar.cc — the "-dev" is historical naming; it is the
+# ONLY environment) to catch the failure mode we keep hitting: a deploy reports
+# success but the service is down, frozen on an old contract, or missing
+# critical runtime config (e.g. the mem/cpu incident in #362). Push-triggered CI
+# cannot see this — only a live probe can. Stays SILENT on success to avoid
+# alert fatigue; only pings WeCom when something is actually wrong.
 
 on:
   schedule:

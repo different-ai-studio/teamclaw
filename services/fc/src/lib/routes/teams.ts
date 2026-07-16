@@ -81,6 +81,10 @@ export function registerTeams(router) {
       agentKind: body.agentKind ?? null,
       ttlSeconds: body.ttlSeconds ?? null,
       targetActorId: body.targetActorId ?? null,
+      // Optional, member-only. When present the invitee can find and accept the
+      // invite at login (GET /v1/invites/pending) without the token.
+      inviteEmail: body.inviteEmail ?? null,
+      invitePhone: body.invitePhone ?? null,
     });
     return { statusCode: 201, body: result };
   });

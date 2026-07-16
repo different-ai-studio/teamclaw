@@ -2,10 +2,10 @@ mod agent_discover;
 mod backend;
 mod channels;
 mod cli;
-mod device_id;
 mod collab;
 mod config;
 mod daemon;
+mod device_id;
 mod error;
 mod history;
 mod http;
@@ -17,8 +17,8 @@ mod opencode_install;
 mod opencode_settings;
 mod proto;
 mod provider_config;
-mod runtime;
 mod remote_tools;
+mod runtime;
 mod service;
 mod sync;
 mod team_link;
@@ -202,12 +202,8 @@ fn main() -> anyhow::Result<()> {
                 .sock
                 .clone()
                 .unwrap_or_else(config::DaemonConfig::sock_path);
-            cli::remote_tools_mcp::run(
-                &args.session_id,
-                &args.team_id,
-                &args.member_actor_id,
-                &sock,
-            )?;
+            let _ = (&args.session_id, &args.team_id, &args.member_actor_id);
+            cli::remote_tools_mcp::run(&sock)?;
         }
         Commands::TestClient { config, action } => {
             tracing_subscriber::fmt()

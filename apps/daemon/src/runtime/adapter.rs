@@ -15,6 +15,8 @@ use tracing::{debug, error, info, warn};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 
+const REMOTE_TOOLS_MCP_SERVER_NAME: &str = "amuxd-remote-tools";
+
 mod translate;
 use translate::*;
 
@@ -42,6 +44,8 @@ pub enum AcpCommand {
         /// Gateway sessions auto-allow tool permissions; native runtimes wait
         /// for MQTT approval.
         is_gateway: bool,
+        /// When resuming, fail instead of falling back to `session/new`.
+        forbid_new_session_fallback: bool,
     },
     /// Drop routing state for a session; the host process keeps running.
     DetachSession { acp_session_id: String },
@@ -134,13 +138,11 @@ impl SessionRegistry {
     }
 
     fn resolve_event_route(&self, session_id: &str) -> Option<&SessionRoute> {
-        self.sessions
-            .get(session_id)
-            .or_else(|| {
-                self.child_to_root
-                    .get(session_id)
-                    .and_then(|root| self.sessions.get(root))
-            })
+        self.sessions.get(session_id).or_else(|| {
+            self.child_to_root
+                .get(session_id)
+                .and_then(|root| self.sessions.get(root))
+        })
     }
 
     fn resolve_event_route_mut(&mut self, session_id: &str) -> Option<&mut SessionRoute> {
@@ -278,7 +280,10 @@ impl Drop for NotifInflightGuard {
 /// distinguishes "a handler just completed" from "nothing started yet", so a
 /// turn that is still flushing keeps extending the window while a genuinely
 /// empty turn falls through after one quiet window.
-async fn await_notifications_drained(registry: &Rc<RefCell<SessionRegistry>>, acp_session_id: &str) {
+async fn await_notifications_drained(
+    registry: &Rc<RefCell<SessionRegistry>>,
+    acp_session_id: &str,
+) {
     // Minimum span of no-completions + zero-inflight we require before
     // declaring the pipeline drained. Comfortably longer than the few
     // scheduler ticks it takes the executor to drain `incoming_rx` and run
@@ -394,14 +399,14 @@ impl acp::Client for AmuxClient {
                 let Some(route) = guard.resolve_event_route_mut(&session_id) else {
                     warn!(session_id, "permission request for unknown session");
                     return Ok(acp::RequestPermissionResponse::new(
-                        acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
-                            acp::PermissionOptionId::new("deny"),
-                        )),
+                        acp::RequestPermissionOutcome::Selected(
+                            acp::SelectedPermissionOutcome::new(acp::PermissionOptionId::new(
+                                "deny",
+                            )),
+                        ),
                     ));
                 };
-                route
-                    .pending_permissions
-                    .insert(request_id.clone(), tx);
+                route.pending_permissions.insert(request_id.clone(), tx);
                 route.event_tx.clone()
             };
 
@@ -425,15 +430,11 @@ impl acp::Client for AmuxClient {
                 .await;
         }
 
-        let resolution = rx
-            .await
-            .unwrap_or(PermissionResolution::Denied);
+        let resolution = rx.await.unwrap_or(PermissionResolution::Denied);
         let option_id = acp_option_for_resolution(&args.options, &resolution);
 
         Ok(acp::RequestPermissionResponse::new(
-            acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
-                option_id,
-            )),
+            acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(option_id)),
         ))
     }
 
@@ -537,7 +538,11 @@ impl acp::Client for AmuxClient {
                     .await;
             }
         } else {
-            debug!(session_id, event_count = events.len(), "dropped ACP events for detached session");
+            debug!(
+                session_id,
+                event_count = events.len(),
+                "dropped ACP events for detached session"
+            );
         }
         Ok(())
     }
@@ -595,6 +600,135 @@ fn parse_mcp_config_to_acp(path: &std::path::Path) -> anyhow::Result<Option<Vec<
     }
 }
 
+fn mcp_server_name(server: &acp::McpServer) -> &str {
+    match server {
+        acp::McpServer::Http(s) => &s.name,
+        acp::McpServer::Sse(s) => &s.name,
+        acp::McpServer::Stdio(s) => &s.name,
+        _ => "",
+    }
+}
+
+fn mcp_server_names(servers: &[acp::McpServer]) -> Vec<String> {
+    servers
+        .iter()
+        .map(|server| mcp_server_name(server).to_string())
+        .collect()
+}
+
+fn should_attach_remote_tools_baseline(agent_type: amux::AgentType) -> bool {
+    matches!(agent_type, amux::AgentType::Codex)
+}
+
+fn strip_remote_tools_mcp_for_opencode(
+    agent_type: amux::AgentType,
+    servers: &mut Vec<acp::McpServer>,
+) {
+    if agent_type != amux::AgentType::Opencode {
+        return;
+    }
+    let before = servers.len();
+    servers.retain(|server| mcp_server_name(server) != REMOTE_TOOLS_MCP_SERVER_NAME);
+    if servers.len() != before {
+        info!(
+            ?agent_type,
+            server_names = ?mcp_server_names(servers),
+            "remote-tools MCP stripped from ACP attach; OpenCode uses workspace config"
+        );
+    }
+}
+
+fn remote_tools_baseline_mcp_server() -> Option<acp::McpServer> {
+    let amuxd_bin = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(e) => {
+            warn!(error = %e, "remote-tools MCP baseline skipped: current_exe failed");
+            return None;
+        }
+    };
+    let sock = crate::config::DaemonConfig::sock_path();
+    debug!(
+        amuxd_bin = %amuxd_bin.display(),
+        sock = %sock.display(),
+        "remote-tools MCP baseline server built"
+    );
+    Some(acp::McpServer::Stdio(
+        acp::McpServerStdio::new(REMOTE_TOOLS_MCP_SERVER_NAME, amuxd_bin).args(vec![
+            "remote-tools-mcp".to_string(),
+            format!("--sock={}", sock.to_string_lossy()),
+        ]),
+    ))
+}
+
+fn ensure_remote_tools_baseline_mcp(
+    agent_type: amux::AgentType,
+    servers: &mut Vec<acp::McpServer>,
+) {
+    if !should_attach_remote_tools_baseline(agent_type) {
+        return;
+    }
+    if servers
+        .iter()
+        .any(|server| mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME)
+    {
+        debug!(
+            ?agent_type,
+            server_names = ?mcp_server_names(servers),
+            "remote-tools MCP baseline already present"
+        );
+        return;
+    }
+    if let Some(server) = remote_tools_baseline_mcp_server() {
+        servers.push(server);
+        info!(
+            ?agent_type,
+            server_names = ?mcp_server_names(servers),
+            "remote-tools MCP baseline inserted"
+        );
+    }
+}
+
+fn opencode_remote_tools_config_summary(worktree: &str) -> String {
+    let path = Path::new(worktree).join("opencode.json");
+    if !path.exists() {
+        return format!("{} missing", path.display());
+    }
+    let body = match std::fs::read_to_string(&path) {
+        Ok(body) => body,
+        Err(e) => return format!("{} read_error={e}", path.display()),
+    };
+    let root: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(root) => root,
+        Err(e) => return format!("{} parse_error={e}", path.display()),
+    };
+    let Some(remote_tools) = root
+        .get("mcp")
+        .and_then(|mcp| mcp.get(REMOTE_TOOLS_MCP_SERVER_NAME))
+    else {
+        return format!(
+            "{} mcp.{} missing",
+            path.display(),
+            REMOTE_TOOLS_MCP_SERVER_NAME
+        );
+    };
+    let enabled = remote_tools
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "unset".to_string());
+    let command = remote_tools
+        .get("command")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "missing".to_string());
+    format!(
+        "{} mcp.{} present enabled={} command={}",
+        path.display(),
+        REMOTE_TOOLS_MCP_SERVER_NAME,
+        enabled,
+        command
+    )
+}
+
 fn should_use_claude_agent_acp_wrapper(binary: &str) -> bool {
     let binary_name = Path::new(binary)
         .file_name()
@@ -607,11 +741,7 @@ fn should_use_claude_agent_acp_wrapper(binary: &str) -> bool {
 /// `npx` is `npx.cmd` on Windows; CreateProcess does not apply PATHEXT to a
 /// bare name the way a shell would, so the spawn must name the .cmd file.
 pub(crate) fn npx_program() -> &'static str {
-    if cfg!(windows) {
-        "npx.cmd"
-    } else {
-        "npx"
-    }
+    if cfg!(windows) { "npx.cmd" } else { "npx" }
 }
 
 #[cfg(windows)]
@@ -729,7 +859,7 @@ mod command_selection_tests {
 
 #[cfg(test)]
 mod spawn_path_tests {
-    use super::{enriched_spawn_path, PATH_SEP};
+    use super::{PATH_SEP, enriched_spawn_path};
     use std::path::Path;
 
     // Unix-specific: asserts the homebrew / ~/.local candidate dirs and the
@@ -851,6 +981,7 @@ pub fn spawn_acp_host(
     agent_type: amux::AgentType,
     extra_env: HashMap<String, String>,
     force_env_override: bool,
+    host_worktree: Option<String>,
     host_ready_tx: oneshot::Sender<Result<(), String>>,
 ) -> crate::error::Result<mpsc::Sender<AcpCommand>> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<AcpCommand>(64);
@@ -871,6 +1002,7 @@ pub fn spawn_acp_host(
                     agent_type,
                     extra_env,
                     force_env_override,
+                    host_worktree,
                     cmd_rx,
                     host_ready_tx,
                 )
@@ -899,19 +1031,56 @@ async fn attach_acp_session_on_conn(
     initial_model_override: Option<String>,
     event_tx: mpsc::Sender<AcpEventFrame>,
     is_gateway: bool,
+    forbid_new_session_fallback: bool,
 ) -> anyhow::Result<AcpStartupMetadata> {
     let worktree_path = std::path::PathBuf::from(worktree);
-    let acp_mcp_servers: Vec<acp::McpServer> = match mcp_config_path.as_ref() {
+    let mut acp_mcp_servers: Vec<acp::McpServer> = match mcp_config_path.as_ref() {
         Some(p) => match parse_mcp_config_to_acp(p) {
-            Ok(Some(v)) => v,
-            Ok(None) => Vec::new(),
+            Ok(Some(v)) => {
+                info!(
+                    ?agent_type,
+                    worktree,
+                    mcp_config_path = %p.display(),
+                    server_names = ?mcp_server_names(&v),
+                    "ACP attach parsed MCP config"
+                );
+                v
+            }
+            Ok(None) => {
+                warn!(
+                    ?agent_type,
+                    worktree,
+                    mcp_config_path = %p.display(),
+                    "ACP attach MCP config had no mcpServers entries"
+                );
+                Vec::new()
+            }
             Err(e) => {
-                warn!(error = %e, "MCP config parse failed; agent will spawn without send tool");
+                warn!(
+                    ?agent_type,
+                    worktree,
+                    mcp_config_path = %p.display(),
+                    error = %e,
+                    "MCP config parse failed; continuing with baseline-only MCP if applicable"
+                );
                 Vec::new()
             }
         },
         None => Vec::new(),
     };
+    strip_remote_tools_mcp_for_opencode(agent_type, &mut acp_mcp_servers);
+    ensure_remote_tools_baseline_mcp(agent_type, &mut acp_mcp_servers);
+    info!(
+        ?agent_type,
+        worktree,
+        resume_acp_session_id = resume_acp_session_id.as_deref().unwrap_or(""),
+        has_remote_tools = acp_mcp_servers
+            .iter()
+            .any(|server| mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME),
+        server_names = ?mcp_server_names(&acp_mcp_servers),
+        opencode_config = %opencode_remote_tools_config_summary(worktree),
+        "ACP attach final MCP server set"
+    );
 
     let build_new_req = |cwd: std::path::PathBuf| -> acp::NewSessionRequest {
         let mut req = acp::NewSessionRequest::new(cwd);
@@ -921,16 +1090,15 @@ async fn attach_acp_session_on_conn(
         req
     };
 
-    let build_resume_req = |resume_id: &str, cwd: std::path::PathBuf| -> acp::ResumeSessionRequest {
-        let mut req = acp::ResumeSessionRequest::new(
-            acp::SessionId::new(resume_id.to_string()),
-            cwd,
-        );
-        if !acp_mcp_servers.is_empty() {
-            req = req.mcp_servers(acp_mcp_servers.clone());
-        }
-        req
-    };
+    let build_resume_req =
+        |resume_id: &str, cwd: std::path::PathBuf| -> acp::ResumeSessionRequest {
+            let mut req =
+                acp::ResumeSessionRequest::new(acp::SessionId::new(resume_id.to_string()), cwd);
+            if !acp_mcp_servers.is_empty() {
+                req = req.mcp_servers(acp_mcp_servers.clone());
+            }
+            req
+        };
 
     let t_session = Instant::now();
     let (session_id, acp_lists) = if let Some(ref resume_id) = resume_acp_session_id {
@@ -941,14 +1109,20 @@ async fn attach_acp_session_on_conn(
                 info!(
                     session_id = %sid,
                     resume_ms = t_session.elapsed().as_millis() as u64,
+                    has_remote_tools = acp_mcp_servers
+                        .iter()
+                        .any(|server| mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME),
+                    sent_mcp_servers = !acp_mcp_servers.is_empty(),
                     "ACP session resumed on host"
                 );
-                (
-                    sid,
-                    (resp.models, resp.config_options),
-                )
+                (sid, (resp.models, resp.config_options))
             }
             Err(e) => {
+                if forbid_new_session_fallback {
+                    return Err(anyhow::anyhow!(
+                        "ACP resume_session failed (new_session fallback forbidden): {e}"
+                    ));
+                }
                 warn!(
                     resume_id,
                     "ACP resume_session failed ({}), falling back to new_session", e
@@ -961,6 +1135,10 @@ async fn attach_acp_session_on_conn(
                 info!(
                     session_id = %sid,
                     new_session_ms = t_session.elapsed().as_millis() as u64,
+                    has_remote_tools = acp_mcp_servers
+                        .iter()
+                        .any(|server| mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME),
+                    sent_mcp_servers = !acp_mcp_servers.is_empty(),
                     "ACP session created on host (fallback)"
                 );
                 (sid, (resp.models, resp.config_options))
@@ -975,6 +1153,10 @@ async fn attach_acp_session_on_conn(
         info!(
             session_id = %sid,
             new_session_ms = t_session.elapsed().as_millis() as u64,
+            has_remote_tools = acp_mcp_servers
+                .iter()
+                .any(|server| mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME),
+            sent_mcp_servers = !acp_mcp_servers.is_empty(),
             "ACP session created on host"
         );
         (sid, (resp.models, resp.config_options))
@@ -1085,10 +1267,7 @@ fn spawn_prompt_worker(
             };
             super::agent_trace::log_acp_event(&acp_session_key, &status_active);
             let _ = event_tx
-                .send(AcpEventFrame::new(
-                    acp_session_key.clone(),
-                    status_active,
-                ))
+                .send(AcpEventFrame::new(acp_session_key.clone(), status_active))
                 .await;
 
             let mut blocks: Vec<acp::ContentBlock> = vec![text.into()];
@@ -1099,8 +1278,7 @@ fn spawn_prompt_worker(
                 }
             }
 
-            let prompt_fut =
-                conn.prompt(acp::PromptRequest::new(session_id.clone(), blocks));
+            let prompt_fut = conn.prompt(acp::PromptRequest::new(session_id.clone(), blocks));
             tokio::pin!(prompt_fut);
 
             // `true` once the watchdog gives up on a wedged prompt; suppresses
@@ -1164,10 +1342,7 @@ fn spawn_prompt_worker(
             };
             super::agent_trace::log_acp_event(&acp_session_key, &status_idle);
             let _ = event_tx
-                .send(AcpEventFrame::new(
-                    acp_session_key.clone(),
-                    status_idle,
-                ))
+                .send(AcpEventFrame::new(acp_session_key.clone(), status_idle))
                 .await;
 
             let elapsed_ms = turn_started.elapsed().as_millis() as u64;
@@ -1177,12 +1352,7 @@ fn spawn_prompt_worker(
                      It may be unavailable or rate-limited — retry or switch models.",
                     stall_timeout.as_secs()
                 );
-                super::agent_trace::log_prompt_end(
-                    &acp_session_key,
-                    false,
-                    &details,
-                    elapsed_ms,
-                );
+                super::agent_trace::log_prompt_end(&acp_session_key, false, &details, elapsed_ms);
                 emit_acp_error(
                     &event_tx,
                     &acp_session_key,
@@ -1206,14 +1376,14 @@ fn spawn_prompt_worker(
                     }
                     Err(e) => {
                         let details = format!("ACP prompt failed: {e}");
-                        super::agent_trace::log_prompt_end(&acp_session_key, false, &details, elapsed_ms);
-                        emit_acp_error(
-                            &event_tx,
+                        super::agent_trace::log_prompt_end(
                             &acp_session_key,
-                            "ACP prompt failed",
-                            details,
-                        )
-                        .await;
+                            false,
+                            &details,
+                            elapsed_ms,
+                        );
+                        emit_acp_error(&event_tx, &acp_session_key, "ACP prompt failed", details)
+                            .await;
                     }
                 }
             }
@@ -1228,6 +1398,7 @@ async fn run_acp_host(
     agent_type: amux::AgentType,
     extra_env: HashMap<String, String>,
     force_env_override: bool,
+    host_worktree: Option<String>,
     mut cmd_rx: mpsc::Receiver<AcpCommand>,
     host_ready_tx: oneshot::Sender<Result<(), String>>,
 ) -> anyhow::Result<()> {
@@ -1236,15 +1407,28 @@ async fn run_acp_host(
     } else {
         std::collections::HashSet::new()
     };
-    let mut cmd = build_acp_process_command(
-        &binary,
-        &args,
-        agent_type,
-        &extra_env,
-        &force_env_keys,
+    let mut cmd =
+        build_acp_process_command(&binary, &args, agent_type, &extra_env, &force_env_keys);
+    let host_cwd = host_worktree
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(".");
+    let sock_path = crate::config::DaemonConfig::sock_path();
+    let current_exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|e| format!("current_exe_error={e}"));
+    info!(
+        ?agent_type,
+        binary = %binary,
+        args = ?args,
+        host_cwd,
+        current_exe = %current_exe,
+        sock = %sock_path.display(),
+        opencode_config = %opencode_remote_tools_config_summary(host_cwd),
+        "ACP host spawning process"
     );
     let mut child = cmd
-        .current_dir(".")
+        .current_dir(host_cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1270,7 +1454,12 @@ async fn run_acp_host(
         });
     }
 
-    info!(binary = %binary, agent_type = ?agent_type, "ACP host process spawned");
+    info!(
+        binary = %binary,
+        agent_type = ?agent_type,
+        host_cwd,
+        "ACP host process spawned"
+    );
 
     let registry = Rc::new(RefCell::new(SessionRegistry::default()));
     let client = AmuxClient {
@@ -1329,6 +1518,7 @@ async fn run_acp_host(
                         event_tx,
                         startup_tx,
                         is_gateway,
+                        forbid_new_session_fallback,
                     } => {
                         let startup_reporter: StartupReporter =
                             Arc::new(Mutex::new(Some(startup_tx)));
@@ -1336,6 +1526,29 @@ async fn run_acp_host(
                             .as_deref()
                             .unwrap_or("new-session")
                             .to_string();
+                        if let Some(resume_id) = resume_acp_session_id.as_deref() {
+                            if let Some(active) = active_sessions.get(resume_id) {
+                                info!(
+                                    session_id = %resume_id,
+                                    "ACP attach skipped: session already active on host"
+                                );
+                                report_startup(
+                                    &startup_reporter,
+                                    Ok(AcpStartupMetadata {
+                                        available_models: crate::runtime::models::available_models_for(agent_type),
+                                        initial_model: None,
+                                        acp_session_id: resume_id.to_string(),
+                                    }),
+                                );
+                                if !initial_prompt.is_empty() {
+                                    let _ = active
+                                        .prompt_tx
+                                        .send((initial_prompt, Vec::new()))
+                                        .await;
+                                }
+                                continue;
+                            }
+                        }
                         let attach_result = attach_acp_session_on_conn(
                             &conn,
                             &registry,
@@ -1346,6 +1559,7 @@ async fn run_acp_host(
                             initial_model_override,
                             event_tx.clone(),
                             is_gateway,
+                            forbid_new_session_fallback,
                         )
                         .await;
 
@@ -1485,7 +1699,15 @@ pub fn spawn_acp_agent(
     extra_env: HashMap<String, String>,
 ) -> crate::error::Result<mpsc::Sender<AcpCommand>> {
     let (host_ready_tx, host_ready_rx) = oneshot::channel();
-    let cmd_tx = spawn_acp_host(binary, args, agent_type, extra_env, false, host_ready_tx)?;
+    let cmd_tx = spawn_acp_host(
+        binary,
+        args,
+        agent_type,
+        extra_env,
+        false,
+        Some(worktree.clone()),
+        host_ready_tx,
+    )?;
     let host_cmd = cmd_tx.clone();
     std::thread::Builder::new()
         .name("acp-cli-attach".into())
@@ -1506,6 +1728,7 @@ pub fn spawn_acp_agent(
                             event_tx,
                             startup_tx,
                             is_gateway: false,
+                            forbid_new_session_fallback: false,
                         })
                         .await;
                 }
@@ -1621,6 +1844,105 @@ mod tests {
     }
 
     #[test]
+    fn codex_attach_gets_remote_tools_baseline_mcp() {
+        let mut servers = Vec::new();
+
+        ensure_remote_tools_baseline_mcp(amux::AgentType::Codex, &mut servers);
+
+        assert!(
+            servers
+                .iter()
+                .any(|server| { mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME })
+        );
+    }
+
+    #[test]
+    fn opencode_attach_strips_remote_tools_mcp() {
+        let mut servers = vec![acp::McpServer::Stdio(acp::McpServerStdio::new(
+            REMOTE_TOOLS_MCP_SERVER_NAME,
+            "/bin/echo",
+        ))];
+
+        strip_remote_tools_mcp_for_opencode(amux::AgentType::Opencode, &mut servers);
+
+        assert!(
+            servers
+                .iter()
+                .all(|server| { mcp_server_name(server) != REMOTE_TOOLS_MCP_SERVER_NAME })
+        );
+    }
+
+    #[test]
+    fn opencode_desktop_attach_does_not_drop_plugin_remote_tools() {
+        #[derive(Default)]
+        struct FakeOpenCodeHost {
+            global_tools: Vec<String>,
+            next_remote_tools_registration_succeeds: bool,
+        }
+
+        impl FakeOpenCodeHost {
+            fn seed_workspace_remote_tools(&mut self) {
+                self.global_tools = vec![format!(
+                    "{}_{}",
+                    REMOTE_TOOLS_MCP_SERVER_NAME, "get_page_dom"
+                )];
+            }
+
+            fn tools_list(&self) -> &[String] {
+                &self.global_tools
+            }
+
+            fn attach(&mut self, agent_type: amux::AgentType, servers: &mut Vec<acp::McpServer>) {
+                strip_remote_tools_mcp_for_opencode(agent_type, servers);
+                ensure_remote_tools_baseline_mcp(agent_type, servers);
+
+                if servers
+                    .iter()
+                    .any(|server| mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME)
+                {
+                    if self.next_remote_tools_registration_succeeds {
+                        self.seed_workspace_remote_tools();
+                    } else {
+                        self.global_tools.clear();
+                    }
+                }
+            }
+        }
+
+        let mut host = FakeOpenCodeHost {
+            global_tools: Vec::new(),
+            next_remote_tools_registration_succeeds: false,
+        };
+        host.seed_workspace_remote_tools();
+
+        let mut plugin_attach_servers = Vec::new();
+        host.attach(amux::AgentType::Opencode, &mut plugin_attach_servers);
+        assert!(
+            host.tools_list()
+                .contains(&"amuxd-remote-tools_get_page_dom".to_string()),
+            "plugin session tools/list starts with remote-tools from workspace opencode.json"
+        );
+
+        let mut desktop_attach_servers = vec![acp::McpServer::Stdio(acp::McpServerStdio::new(
+            REMOTE_TOOLS_MCP_SERVER_NAME,
+            "/bin/false",
+        ))];
+        host.attach(amux::AgentType::Opencode, &mut desktop_attach_servers);
+
+        assert!(
+            host.tools_list()
+                .contains(&"amuxd-remote-tools_get_page_dom".to_string()),
+            "desktop session attach must not re-register amuxd-remote-tools and clear plugin tools/list"
+        );
+        assert!(
+            desktop_attach_servers
+                .iter()
+                .all(|server| mcp_server_name(server) != REMOTE_TOOLS_MCP_SERVER_NAME),
+            "OpenCode receives no per-session amuxd-remote-tools MCP"
+        );
+    }
+
+    #[test]
     fn translates_tool_call_update_raw_input_to_tool_use_update() {
         let update = acp::ToolCallUpdate::new(
             "tool-1",
@@ -1658,7 +1980,9 @@ mod tests {
             acp::ToolCallUpdateFields::new()
                 .kind(acp::ToolKind::Edit)
                 .status(acp::ToolCallStatus::InProgress)
-                .content(vec![acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into()]),
+                .content(vec![
+                    acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into(),
+                ]),
         );
         let events = translate_session_update(acp::SessionUpdate::ToolCallUpdate(update));
 
@@ -1687,7 +2011,9 @@ mod tests {
             acp::ToolCallUpdateFields::new()
                 .status(acp::ToolCallStatus::Completed)
                 .title("Edit src/a.ts")
-                .content(vec![acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into()]),
+                .content(vec![
+                    acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into(),
+                ]),
         );
         let events = translate_session_update(acp::SessionUpdate::ToolCallUpdate(update));
 
@@ -1709,7 +2035,9 @@ mod tests {
             acp::ToolCallUpdateFields::new()
                 .kind(acp::ToolKind::Edit)
                 .status(acp::ToolCallStatus::InProgress)
-                .content(vec![acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into()]),
+                .content(vec![
+                    acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into(),
+                ]),
         );
         let events = translate_session_update(acp::SessionUpdate::ToolCallUpdate(update));
 

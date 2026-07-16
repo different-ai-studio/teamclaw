@@ -23,6 +23,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { bumpSessionListLastMessage } from "@/lib/session-list-preview";
 import { useSessionListStore } from "@/stores/session-list-store";
 import { useEngagedAgentStore } from "@/stores/engaged-agent-store";
+import { useSessionParticipantStore } from "@/stores/session-participant-store";
 import { useUIStore } from "@/stores/ui";
 import { getBackend } from "@/lib/backend";
 import { expandPageLinkTokensInText } from "@/lib/expand-page-link-tokens";
@@ -51,7 +52,11 @@ import { useEngagedAgentRuntimeMap } from "@/hooks/use-engaged-agent-runtime-map
 import { useEngagedAgentUiStates } from "@/hooks/use-engaged-agent-ui-states";
 import { useEnsureEngagedRuntimesOnSessionFocus } from "@/hooks/use-ensure-engaged-runtimes-on-session-focus";
 import { useReensureRuntimesOnMqttReconnect } from "@/hooks/use-reensure-runtimes-on-mqtt-reconnect";
-import { getCurrentDaemonAgent } from "@/lib/daemon-agent-admin";
+import {
+  quickChatLocalDaemonAgent,
+  quickChatWelcomeAgent,
+  useQuickChatReadiness,
+} from "@/hooks/use-quick-chat-readiness";
 import { buildPostSendSessionNotice } from "@/lib/session-agent-notice-text";
 import { useSessionNoticeStore } from "@/stores/session-notice-store";
 import { toMentionDeliverySnapshot } from "@/lib/session-agent-ui-state";
@@ -194,7 +199,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── Session store selectors (reactive state only) ────────────────────
   const activeSessionId = useSessionSelectionStore(s => s.activeSessionId);
+  const ensureParticipants = useSessionParticipantStore(s => s.ensureParticipants);
   const sessionPermissionMode = useSessionPermissionMode(activeSessionId);
+
+  React.useEffect(() => {
+    if (!activeSessionId) return;
+    void ensureParticipants([activeSessionId]);
+  }, [activeSessionId, ensureParticipants]);
   const error = useSessionStore(s => s.error);
   const errorSessionId = useSessionStore(s => s.errorSessionId);
   const isConnected = useSessionStore(s => s.isConnected);
@@ -652,32 +663,16 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     [t],
   );
 
-  const [localDaemonAgent, setLocalDaemonAgent] = React.useState<AttachedAgent | null>(null);
-  const [localDaemonAgentLoading, setLocalDaemonAgentLoading] = React.useState(false);
+  const quickChatState = useQuickChatReadiness();
+  const { agent: welcomeQuickChatAgent, loading: welcomeQuickChatLoading } = React.useMemo(
+    () => quickChatWelcomeAgent(quickChatState),
+    [quickChatState],
+  );
+  const localDaemonAgent = React.useMemo(
+    () => quickChatLocalDaemonAgent(quickChatState),
+    [quickChatState],
+  );
   const [welcomeSessionStarting, setWelcomeSessionStarting] = React.useState(false);
-  React.useEffect(() => {
-    if (!sheetTeamId) {
-      setLocalDaemonAgent(null);
-      setLocalDaemonAgentLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLocalDaemonAgentLoading(true);
-    void getCurrentDaemonAgent(sheetTeamId).then((row) => {
-      if (cancelled) return;
-      setLocalDaemonAgent(
-        row ? { id: row.id, displayName: row.displayName } : null,
-      );
-      setLocalDaemonAgentLoading(false);
-    }).catch(() => {
-      if (cancelled) return;
-      setLocalDaemonAgent(null);
-      setLocalDaemonAgentLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [sheetTeamId]);
 
   const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [isRestoringArchived, setIsRestoringArchived] = React.useState(false);
@@ -1596,9 +1591,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         await createSessionAndSendFirst(message, picks);
         return;
       }
-      if (localDaemonAgent) {
+      if (welcomeQuickChatAgent) {
         await createSessionAndSendFirst(message, {
-          agents: [{ id: localDaemonAgent.id, displayName: localDaemonAgent.displayName }],
+          agents: [{ id: welcomeQuickChatAgent.id, displayName: welcomeQuickChatAgent.displayName }],
           members: [],
         });
         return;
@@ -1783,10 +1778,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   };
 
   const handleStartLocalAgentSession = React.useCallback(async () => {
-    if (welcomeSessionStarting || !localDaemonAgent) return;
+    if (welcomeSessionStarting || quickChatState.kind !== 'ready') return;
     setWelcomeSessionStarting(true);
     try {
-      const result = await createQuickSession();
+      const result = await createQuickSession(quickChatState.target);
       if (!result.ok) {
         showQuickSessionFailure(result.reason);
       }
@@ -1796,7 +1791,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     } finally {
       setWelcomeSessionStarting(false);
     }
-  }, [localDaemonAgent, showQuickSessionFailure, welcomeSessionStarting]);
+  }, [quickChatState, showQuickSessionFailure, welcomeSessionStarting]);
 
   // `createSessionAndSendFirst` is re-created every render and closes over
   // volatile values (sheetTeamId, selectedModelKey, resolved actor). The
@@ -1806,20 +1801,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   createSessionAndSendFirstRef.current = createSessionAndSendFirst;
 
   const handleLocalAgentQuickAction = React.useCallback(async (messageText: string) => {
-    if (welcomeSessionStarting || !localDaemonAgent) return;
+    if (welcomeSessionStarting || !welcomeQuickChatAgent) return;
     setWelcomeSessionStarting(true);
     try {
       await createSessionAndSendFirstRef.current(
         { text: messageText, mentions: [] },
         {
-          agents: [{ id: localDaemonAgent.id, displayName: localDaemonAgent.displayName }],
+          agents: [{ id: welcomeQuickChatAgent.id, displayName: welcomeQuickChatAgent.displayName }],
           members: [],
         },
       );
     } finally {
       setWelcomeSessionStarting(false);
     }
-  }, [localDaemonAgent, welcomeSessionStarting]);
+  }, [welcomeQuickChatAgent, welcomeSessionStarting]);
 
   const handleStartDraftSession = React.useCallback(async () => {
     if (welcomeSessionStarting || !draftPreselectedActor) return;
@@ -1940,8 +1935,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (!compact) {
       return (
         <LocalAgentWelcomeEmptyState
-          agent={localDaemonAgent}
-          agentLoading={localDaemonAgentLoading}
+          agent={welcomeQuickChatAgent}
+          agentLoading={welcomeQuickChatLoading}
           starting={welcomeSessionStarting}
           onStartConversation={() => void handleStartLocalAgentSession()}
           onQuickAction={(message) => void handleLocalAgentQuickAction(message)}
@@ -1957,7 +1952,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         )}
       >
         <h2 className="mb-1 text-sm font-semibold">
-          {localDaemonAgent?.displayName ?? t("chat.agent", "Agent")}
+          {welcomeQuickChatAgent?.displayName ?? t("chat.agent", "Agent")}
         </h2>
         <p className="text-xs text-muted-foreground">
           {t("chat.askAboutFile", "Ask questions about the file")}
@@ -1968,8 +1963,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     compact,
     t,
     draftPreselectedActor,
-    localDaemonAgent,
-    localDaemonAgentLoading,
+    welcomeQuickChatAgent,
+    welcomeQuickChatLoading,
     welcomeSessionStarting,
     handleStartDraftSession,
     handleStartLocalAgentSession,

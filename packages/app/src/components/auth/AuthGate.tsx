@@ -17,6 +17,7 @@ import { CloudApiError } from "@/lib/backend/cloud-api/http";
 import { humanizeFcError } from "@/lib/fc-error";
 import { markStartup } from "@/lib/startup-perf";
 import { TeamPicker } from "./TeamPicker";
+import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
 import type { MembershipTeam } from "@/lib/backend";
 
 interface AuthGateProps {
@@ -126,6 +127,16 @@ export function AuthGate({ children }: AuthGateProps) {
     if (!session || session.user?.is_anonymous) return;
     if (!pendingInviteToken) return;
     void useAuthStore.getState().claimPendingInvite();
+  }, [session, pendingInviteToken]);
+
+  // Separate from the token replay above: these invites were addressed to the
+  // user's verified email/phone and matched server-side, so the user never had
+  // a link. Skipped while a token claim is queued — that invite is the one the
+  // user actually acted on, and joining it may satisfy the pending list anyway.
+  useEffect(() => {
+    if (!session || session.user?.is_anonymous) return;
+    if (pendingInviteToken) return;
+    void useAuthStore.getState().refreshPendingInvites();
   }, [session, pendingInviteToken]);
 
   // After auth: ensure the user belongs to at least one team. If not (fresh
@@ -368,5 +379,12 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   markStartup("authgate:children");
-  return <>{children}</>;
+  // Rendered alongside the app rather than as a gate: an unaccepted invite is
+  // not a reason to withhold the workspace the user already has.
+  return (
+    <>
+      {children}
+      <PendingInvitesDialog />
+    </>
+  );
 }
