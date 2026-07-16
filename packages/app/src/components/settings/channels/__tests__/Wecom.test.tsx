@@ -82,7 +82,10 @@ vi.mock('@/hooks/useChannelConfig', () => ({
 }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@/lib/utils', () => ({ cn: (...args: string[]) => args.join(' '), openExternalUrl: vi.fn() }))
-vi.mock('@/lib/build-config', () => ({ buildConfig: { app: { name: 'TeamClaw' } } }))
+vi.mock('@/lib/build-config', () => ({
+  buildConfig: { app: { name: 'TeamClaw' } },
+  appDisplayName: 'TeamClaw',
+}))
 
 import { WeComChannel } from '../Wecom'
 
