@@ -1,3 +1,4 @@
+import { getFreshAccessToken, refreshSession } from "@/lib/auth/session-store";
 import type { AuthBackend } from "../types";
 
 export class CloudApiError extends Error {
@@ -32,17 +33,22 @@ export function createCloudApiClient(args: {
   const baseUrl = args.baseUrl.replace(/\/+$/, "");
   const fetchImpl = args.fetchImpl ?? fetch;
 
+  async function resolveAccessToken(): Promise<string> {
+    try {
+      return await getFreshAccessToken();
+    } catch {
+      throw new CloudApiError(401, "missing_auth", "Missing auth session access token.", null);
+    }
+  }
+
   async function request<T>(
     method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
     options: { idempotencyKey?: string } = {},
+    retried = false,
   ): Promise<T> {
-    const session = await args.auth.getSession();
-    const accessToken = session?.accessToken;
-    if (!accessToken) {
-      throw new CloudApiError(401, "missing_auth", "Missing auth session access token.", null);
-    }
+    const accessToken = await resolveAccessToken();
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
@@ -60,6 +66,14 @@ export function createCloudApiClient(args: {
     const data = text ? JSON.parse(text) : null;
 
     if (!response.ok) {
+      if (response.status === 401 && !retried) {
+        try {
+          await refreshSession();
+          return request(method, path, body, options, true);
+        } catch {
+          // Fall through — surface the original 401 below.
+        }
+      }
       const error = data?.error;
       throw new CloudApiError(
         response.status,
@@ -77,18 +91,24 @@ export function createCloudApiClient(args: {
     path: string,
     body?: BodyInit,
     options: { contentType?: string } = {},
+    retried = false,
   ): Promise<Response> {
-    const session = await args.auth.getSession();
-    const accessToken = session?.accessToken;
-    if (!accessToken) {
-      throw new CloudApiError(401, "missing_auth", "Missing auth session access token.", null);
-    }
+    const accessToken = await resolveAccessToken();
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       "X-Request-Id": createRequestId(),
     };
     if (options.contentType) headers["Content-Type"] = options.contentType;
-    return fetchImpl(`${baseUrl}${path}`, { method, headers, body });
+    const response = await fetchImpl(`${baseUrl}${path}`, { method, headers, body });
+    if (response.status === 401 && !retried) {
+      try {
+        await refreshSession();
+        return requestRaw(method, path, body, options, true);
+      } catch {
+        // Return the original 401 response.
+      }
+    }
+    return response;
   }
 
   return {

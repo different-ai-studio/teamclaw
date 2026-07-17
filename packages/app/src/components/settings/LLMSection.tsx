@@ -194,6 +194,7 @@ export const LLMSection = React.memo(function LLMSection() {
   const [teamSharedModel, setTeamSharedModel] = React.useState<{
     baseUrl: string
     models: LlmModelEntry[]
+    availableModels: LlmModelEntry[]
   } | null>(null)
 
   const loadTeamSharedModel = React.useCallback(async () => {
@@ -206,8 +207,12 @@ export const LLMSection = React.memo(function LLMSection() {
       // Cloud is the source of truth (`GET /v1/teams/:id/workspace-config` → `llm`).
       const llm = await getBackend().teamWorkspaceConfig.loadLlmConfig(teamId)
       setTeamSharedModel(
-        llm && llm.enabled && llm.baseUrl && llm.models.length > 0
-          ? { baseUrl: llm.baseUrl, models: llm.models }
+        llm && llm.enabled && llm.baseUrl
+          ? {
+              baseUrl: llm.baseUrl,
+              models: llm.models,
+              availableModels: llm.availableModels,
+            }
           : null,
       )
     } catch {
@@ -794,34 +799,63 @@ export const LLMSection = React.memo(function LLMSection() {
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {teamSharedModel.models.length > 1
-                        ? t('settings.llm.teamSharedModelsCount', {
-                            count: teamSharedModel.models.length,
-                            defaultValue: `${teamSharedModel.models.length} shared models`,
+                      {teamSharedModel.availableModels.length > 0
+                        ? t('settings.llm.modelsAvailable', {
+                            count: teamSharedModel.availableModels.length,
+                            defaultValue: `${teamSharedModel.availableModels.length} models available`,
                           })
-                        : teamSharedModel.baseUrl}
+                        : t('settings.llm.teamSharedNoModelsDetected', 'No models detected')}
+                    </p>
+                    <p className="mt-0.5 max-w-[34rem] truncate font-mono text-[10.5px] text-faint" title={teamSharedModel.baseUrl}>
+                      {teamSharedModel.baseUrl}
                     </p>
                   </div>
                 </div>
-                {isTeamOwner ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                    title={t('settings.llm.teamSharedModelTooltip', 'Configure the team-shared AI model proxy and model list')}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setTeamSharedLlmOpen(true)
-                    }}
-                  >
-                    <Settings className="h-3.5 w-3.5" />
-                  </Button>
-                ) : (
-                  <span className="text-[11px] text-muted-foreground">
-                    {t('settings.llm.teamSharedReadOnly', '仅团队 owner 可编辑')}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {teamSharedModel.availableModels.length > 0 ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                      <CircleDot className="h-3 w-3" />
+                      {t('settings.llm.connected', 'Connected')}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">
+                      {t('settings.llm.teamSharedNoModelsDetected', 'No models detected')}
+                    </span>
+                  )}
+                  {isTeamOwner ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                      title={t('settings.llm.teamSharedModelTooltip', 'Configure the team-shared AI model proxy and model list')}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setTeamSharedLlmOpen(true)
+                      }}
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">
+                      {t('settings.llm.teamSharedReadOnly', '仅团队 owner 可编辑')}
+                    </span>
+                  )}
+                </div>
               </div>
+              {teamSharedModel.availableModels.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5 border-t border-border-soft pt-2">
+                  {teamSharedModel.availableModels.slice(0, 8).map((model) => (
+                    <span key={model.id} className="rounded-md border border-border bg-paper px-1.5 py-0.5 font-mono text-[10.5px] text-ink-2">
+                      {model.name || model.id}
+                    </span>
+                  ))}
+                  {teamSharedModel.availableModels.length > 8 && (
+                    <span className="px-1.5 py-0.5 text-[10.5px] text-muted-foreground">
+                      +{teamSharedModel.availableModels.length - 8}
+                    </span>
+                  )}
+                </div>
+              )}
             </SettingCard>
           )}
 

@@ -131,14 +131,26 @@ describe('daemon-onboarding refresh() orchestration', () => {
   })
 
   it('ready registers the active workspace when it is a real project dir', async () => {
+    const { fetchDaemonCloudAuthStatus } = await import('@/lib/daemon-local-client')
+    vi.mocked(fetchDaemonCloudAuthStatus).mockResolvedValue('ok')
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't1'
     h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
     await useDaemonOnboardingStore.getState().refresh()
     expect(useDaemonOnboardingStore.getState().status).toBe('ready')
-    // Registration is fire-and-forget — wait for the background promise.
-    await vi.waitFor(() => expect(h.invokeCalls).toContain('register_daemon_workspace'))
+    expect(h.invokeCalls).toContain('register_daemon_workspace')
     expect(h.registerArgs?.workspacePath).toBe('/home/u/projects/app')
+  })
+
+  it('skips workspace registration while daemon cloud auth is expired', async () => {
+    const { fetchDaemonCloudAuthStatus } = await import('@/lib/daemon-local-client')
+    vi.mocked(fetchDaemonCloudAuthStatus).mockResolvedValue('expired')
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't1'
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+    await useDaemonOnboardingStore.getState().refresh()
+    expect(useDaemonOnboardingStore.getState().status).toBe('ready')
+    expect(h.invokeCalls).not.toContain('register_daemon_workspace')
   })
 
   it('does not register a workspace on a team mismatch', async () => {
