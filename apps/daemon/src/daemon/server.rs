@@ -180,6 +180,10 @@ pub struct DaemonServer {
     history: EventHistory,
     teamclaw: Option<crate::teamclaw::SessionManager>,
     backend: Arc<dyn Backend>,
+    /// The same object as `backend`, typed concretely so the setup endpoint can
+    /// install real credentials into an unclaimed daemon at runtime. Every other
+    /// caller holds it as `Arc<dyn Backend>` and is unaware of the wrapper.
+    deferred_backend: Arc<crate::backend::deferred::DeferredBackend>,
     actor_id: String,
     /// Channel manager (Discord/WeCom/Feishu/Kook/WeChat/Email gateways).
     /// `None` until `start_channels()` runs; held as `Option` so `shutdown(self)`
@@ -302,11 +306,21 @@ pub(crate) enum SockCommand {
     Unknown(String),
 }
 
-fn load_provider_config_from_default_paths() -> crate::error::Result<ProviderConfig> {
+/// Load onboarding config, or `None` when this daemon has never been onboarded.
+///
+/// `None` is a first-run state, not a failure: the daemon starts unclaimed so
+/// its HTTP control plane can serve the setup UI that performs the onboarding.
+/// A *corrupt* config still errors — see [`ProviderConfig::exists_at`].
+fn load_provider_config_from_default_paths() -> crate::error::Result<Option<ProviderConfig>> {
     let backend_path = ProviderConfig::default_path()
         .map_err(|e| crate::error::AmuxError::Config(format!("backend config path failed: {e}")))?;
 
+    if !ProviderConfig::exists_at(&backend_path) {
+        return Ok(None);
+    }
+
     ProviderConfig::load_from_path(&backend_path)
+        .map(Some)
         .map_err(|e| crate::error::AmuxError::Config(format!("backend config init failed: {e}")))
 }
 
@@ -328,8 +342,12 @@ fn backend_from_provider_config(config: ProviderConfig) -> crate::error::Result<
 /// Resolve the MQTT broker from `/v1/config/bootstrap`. The Cloud API is the
 /// authoritative source: a fetched value wins (so operators can rotate the
 /// broker without redeploying daemons), and falls back only to an explicit
-/// invite `?broker=` override already present in `config`. If neither yields a
-/// broker URL, startup fails — there is no hardcoded default.
+/// invite `?broker=` override already present in `config`.
+///
+/// Never fails: if neither yields a broker URL the daemon warns and continues
+/// with an empty `broker_url`, which puts MQTT on a placeholder client while
+/// the HTTP/local control plane stays up. That degraded mode is what lets an
+/// un-onboarded daemon serve its own setup UI.
 async fn apply_bootstrap_overrides(
     backend: &Arc<dyn Backend>,
     config: &mut DaemonConfig,
@@ -412,20 +430,42 @@ impl DaemonServer {
         mut config: DaemonConfig,
         config_path: &std::path::Path,
     ) -> crate::error::Result<Self> {
-        let provider_config = load_provider_config_from_default_paths()?;
-        let provider_kind = provider_config.kind();
-        let backend = backend_from_provider_config(provider_config)?;
+        // Always wrap in a DeferredBackend so the daemon has one backend type
+        // regardless of onboarding state, and so the setup endpoint can install
+        // real credentials into a running daemon without a restart.
+        let deferred_backend = Arc::new(match load_provider_config_from_default_paths()? {
+            Some(provider_config) => {
+                let provider_kind = provider_config.kind();
+                let inner = backend_from_provider_config(provider_config)?;
 
-        info!(
-            backend_kind = ?provider_kind,
-            actor_id = %backend.actor_id(),
-            team_id  = %backend.team_id(),
-            "backend client initialised"
-        );
+                info!(
+                    backend_kind = ?provider_kind,
+                    actor_id = %inner.actor_id(),
+                    team_id  = %inner.team_id(),
+                    "backend client initialised"
+                );
+
+                crate::backend::deferred::DeferredBackend::claimed(inner)
+            }
+            None => {
+                warn!(
+                    "no backend.toml — starting unclaimed; the HTTP control plane will serve \
+                     setup at /v1/setup (run `amuxd setup` for the URL), or run \
+                     `amuxd init <invite-url>`"
+                );
+                crate::backend::deferred::DeferredBackend::unclaimed()
+            }
+        });
+        let backend: Arc<dyn Backend> = deferred_backend.clone();
 
         let actor_id = backend.actor_id().to_string();
 
-        warn_config_identity_mismatch(&config, &backend);
+        // Identity can't disagree before onboarding writes it — an unclaimed
+        // daemon reports an empty actor_id, which is not a mismatch worth
+        // warning about.
+        if deferred_backend.is_claimed() {
+            warn_config_identity_mismatch(&config, &backend);
+        }
 
         // Best-effort token — `run()`'s outer loop retries before MQTT connect.
         let token = initial_access_token(&backend).await;
@@ -548,6 +588,7 @@ impl DaemonServer {
             history,
             teamclaw,
             backend: backend.clone(),
+            deferred_backend,
             actor_id,
             channel_mgr: None,
             cron_sessions: cron::CronSessionCache::new(),
@@ -2669,6 +2710,9 @@ pub(crate) mod tests {
         let publisher_handle: Arc<dyn MessagePublisher> = Arc::new(mqtt.client.clone());
         let topics = mqtt.topics.clone();
         let workspace_resolver = Arc::new(crate::config::WorkspaceResolver::new(backend.clone()));
+        let deferred_backend = Arc::new(
+            crate::backend::deferred::DeferredBackend::claimed(backend.clone()),
+        );
         TestServer {
             server: DaemonServer {
                 config,
@@ -2691,6 +2735,7 @@ pub(crate) mod tests {
                 history: EventHistory::new(&tmp.path().join("history")),
                 teamclaw: Some(teamclaw),
                 backend: backend.clone(),
+                deferred_backend,
                 actor_id: "agent-actor".to_string(),
                 channel_mgr: None,
                 cron_sessions: cron::CronSessionCache::new(),

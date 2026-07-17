@@ -66,7 +66,9 @@ fn main() -> anyhow::Result<()> {
                 .init();
 
             let config_path = config.unwrap_or_else(config::DaemonConfig::default_path);
-            let mut daemon_config = config::DaemonConfig::load(&config_path)?;
+            // Absent config bootstraps rather than failing: a fresh install must
+            // be able to start and serve the setup UI that configures it.
+            let mut daemon_config = config::DaemonConfig::load_or_bootstrap(&config_path)?;
             if let Err(e) = agent_discover::discover_and_persist(&mut daemon_config, &config_path) {
                 tracing::warn!("agent auto-discovery failed: {e}");
             }
