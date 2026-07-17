@@ -14,7 +14,7 @@ use tauri::{State, WebviewWindow};
 use tracing::info;
 
 use crate::commands::oss_sync::fc_client::FcClient;
-use crate::commands::oss_sync::get_fc_endpoint;
+use crate::commands::oss_sync::resolve_runtime_fc_endpoint;
 use crate::commands::team::resolve_workspace_path;
 use crate::commands::team_share::custom_git;
 use crate::commands::team_share::enable::load_team_workspaces;
@@ -132,7 +132,12 @@ fn clear_workspace_team_local_config(workspace_path: &str, team_id: &str) -> Res
     Ok(())
 }
 
-async fn collect_workspace_paths(team_id: &str, primary: &str, access_token: &str) -> Vec<String> {
+async fn collect_workspace_paths(
+    team_id: &str,
+    primary: &str,
+    access_token: &str,
+    cloud_api_url: &str,
+) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     fn push(p: &str, seen: &mut HashSet<String>, out: &mut Vec<String>) {
@@ -143,18 +148,22 @@ async fn collect_workspace_paths(team_id: &str, primary: &str, access_token: &st
         out.push(t.to_string());
     }
     push(primary, &mut seen, &mut out);
-    for w in load_team_workspaces(team_id, primary, access_token).await {
+    for w in load_team_workspaces(team_id, primary, access_token, cloud_api_url).await {
         push(&w.path, &mut seen, &mut out);
     }
     out
 }
 
 async fn disable_cloud_share_mode(
-    workspace_path: &str,
+    _workspace_path: &str,
     team_id: &str,
     access_token: &str,
+    cloud_api_url: &str,
 ) -> Result<(), String> {
-    let fc = FcClient::new(get_fc_endpoint(workspace_path), access_token.to_string());
+    let fc = FcClient::new(
+        resolve_runtime_fc_endpoint(cloud_api_url)?,
+        access_token.to_string(),
+    );
     let path = format!("/v1/teams/{team_id}/share-mode");
     fc.delete_json(&path).await.map_err(|e| e.to_string())?;
     Ok(())
@@ -166,6 +175,7 @@ pub async fn team_disconnect_repo(
     team_id: Option<String>,
     workspace_path: Option<String>,
     access_token: Option<String>,
+    cloud_api_url: String,
     window: WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<serde_json::Value, String> {
@@ -184,9 +194,9 @@ pub async fn team_disconnect_repo(
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "accessToken is required to clear cloud team-share binding".to_string())?;
 
-    disable_cloud_share_mode(&workspace_path, &team_id, &token).await?;
+    disable_cloud_share_mode(&workspace_path, &team_id, &token, &cloud_api_url).await?;
 
-    let paths = collect_workspace_paths(&team_id, &workspace_path, &token).await;
+    let paths = collect_workspace_paths(&team_id, &workspace_path, &token, &cloud_api_url).await;
     for path in &paths {
         remove_workspace_team_repo_entry(path)?;
         remove_legacy_workspace_team_repo(path)?;
