@@ -17,6 +17,10 @@ vi.mock('@/lib/auth/session-store', () => ({
 
 import { CreateTeamDialog } from '../CreateTeamDialog'
 
+vi.mock('@/lib/server-config', () => ({
+  getEffectiveServerConfigSync: () => ({ cloudApiUrl: 'https://runtime.example.test' }),
+}))
+
 function Harness({
   onCreated,
 }: {
@@ -66,6 +70,7 @@ describe('CreateTeamDialog', () => {
         name: 'alpha',
         workspacePath: '/ws',
         accessToken: 'test-token',
+        cloudApiUrl: 'https://runtime.example.test',
       })
     })
     await waitFor(() => {

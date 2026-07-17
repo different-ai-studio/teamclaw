@@ -4,6 +4,7 @@ import { Copy, Check, FolderGit2, Link2 } from 'lucide-react'
 
 import { cn, isTauri, copyToClipboard } from '@/lib/utils'
 import { getFreshAccessToken } from '@/lib/auth/session-store'
+import { getEffectiveServerConfigSync } from '@/lib/server-config'
 
 /**
  * TeamSyncPaths — shows *where team content physically lives* and *every
@@ -107,10 +108,12 @@ export function TeamSyncPaths({
         // this needs an access token. If the token fetch fails we still show
         // the current workspace (the command tolerates a missing token).
         const accessToken = await getFreshAccessToken().catch(() => null)
+        const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl ?? null
         const res = await invoke<TeamSyncPathsData>('team_sync_paths', {
           teamId: pathTeamId,
           workspacePath,
           accessToken,
+          cloudApiUrl,
         })
         if (!cancelled) setData(res)
       } catch {

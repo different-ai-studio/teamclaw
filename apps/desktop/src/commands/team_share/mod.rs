@@ -34,7 +34,7 @@ pub use join::{team_share_join_existing, team_share_join_existing_impl, JoinExis
 use serde::{Deserialize, Serialize};
 
 use crate::commands::oss_sync::fc_client::FcClient;
-use crate::commands::oss_sync::get_fc_endpoint;
+use crate::commands::oss_sync::resolve_runtime_fc_endpoint;
 
 /// Result of the slim `team_share::create_team` Tauri command.
 ///
@@ -59,8 +59,9 @@ pub async fn team_share_create(
     name: String,
     workspace_path: String,
     access_token: String,
+    cloud_api_url: String,
 ) -> Result<CreateTeamResult, String> {
-    create_team(name, workspace_path, access_token).await
+    create_team(name, workspace_path, access_token, cloud_api_url).await
 }
 
 /// Library entry point (also called from integration tests).
@@ -69,10 +70,11 @@ pub async fn team_share_create(
 /// passed straight to `FcClient` instead of reading a stale cached token.
 pub async fn create_team(
     name: String,
-    workspace_path: String,
+    _workspace_path: String,
     access_token: String,
+    cloud_api_url: String,
 ) -> Result<CreateTeamResult, String> {
-    let fc = FcClient::new(get_fc_endpoint(&workspace_path), access_token);
+    let fc = FcClient::new(resolve_runtime_fc_endpoint(&cloud_api_url)?, access_token);
     let row = fc
         .create_team(&name, None)
         .await

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { getFreshAccessToken } from '@/lib/auth/session-store'
+import { getEffectiveServerConfigSync } from '@/lib/server-config'
 import { Label } from '@/components/ui/label'
 
 export interface CreateTeamDialogResult {
@@ -56,10 +57,13 @@ export function CreateTeamDialog({
     setError(null)
     try {
       const accessToken = await getFreshAccessToken()
+      const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl
+      if (!cloudApiUrl) throw new Error('Cloud API URL is not configured')
       const r = await invoke<CreateTeamDialogResult>('team_share_create', {
         name: trimmed,
         workspacePath,
         accessToken,
+        cloudApiUrl,
       })
       onCreated?.(r)
       setName('')

@@ -96,6 +96,7 @@ async fn create_team_slim_only_calls_v1_teams_and_returns_id_slug() {
         "alpha".to_string(),
         workspace.clone(),
         "test-jwt".to_string(),
+        server.uri(),
     )
     .await
     .expect("create_team should succeed");
@@ -157,6 +158,7 @@ async fn enable_oss_provisions_secret_and_local_dir() {
         workspace.clone(),
         "test-jwt".to_string(),
         None,
+        server.uri(),
     )
     .await
     .expect("enable_oss should succeed");
@@ -215,6 +217,7 @@ async fn enable_oss_uses_provided_team_secret() {
         workspace.clone(),
         "test-jwt".to_string(),
         Some(provided.to_uppercase()),
+        server.uri(),
     )
     .await
     .expect("enable_oss with provided secret should succeed");
@@ -294,6 +297,7 @@ async fn enable_custom_git_writes_git_config() {
         input,
         "test-jwt".to_string(),
         None,
+        server.uri(),
     )
     .await
     .expect("enable_custom_git should succeed");
@@ -332,6 +336,7 @@ async fn join_existing_writes_config_when_share_enabled() {
         "t1".to_string(),
         workspace.clone(),
         "test-jwt".to_string(),
+        server.uri(),
     )
     .await
     .expect("join should succeed");
@@ -380,6 +385,7 @@ async fn join_existing_noop_when_share_not_opened() {
         "t2".to_string(),
         workspace.clone(),
         "test-jwt".to_string(),
+        server.uri(),
     )
     .await
     .expect("join should succeed");
