@@ -31,6 +31,10 @@ vi.mock('@/lib/auth/session-store', () => ({
   getFreshAccessToken: vi.fn(async () => 'test-token'),
 }))
 
+vi.mock('@/lib/server-config', () => ({
+  getEffectiveServerConfigSync: () => ({ cloudApiUrl: 'https://runtime.example.test' }),
+}))
+
 // ---------------------------------------------------------------------------
 // SUT — imported after mocks
 // ---------------------------------------------------------------------------
@@ -95,6 +99,7 @@ describe('TeamShareSection', () => {
       teamId: 'team-1',
       workspacePath: '/workspace',
       accessToken: 'test-token',
+      cloudApiUrl: 'https://runtime.example.test',
     })
   })
 
@@ -201,6 +206,7 @@ describe('TeamShareSection', () => {
         teamId: 'team-1',
         workspacePath: '/workspace',
         accessToken: 'test-token',
+        cloudApiUrl: 'https://runtime.example.test',
         teamSecretHex: null,
       })
     })

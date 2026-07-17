@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { isTauri } from '@/lib/utils'
 import { getFreshAccessToken } from '@/lib/auth/session-store'
 import { linkDaemonTeamWorkspace } from '@/lib/daemon-local-client'
+import { getEffectiveServerConfigSync } from '@/lib/server-config'
 
 // ---------------------------------------------------------------------------
 // Types — mirror FC GET /v1/teams/:id/share-mode response (camelCase JSON)
@@ -121,6 +122,12 @@ const EMPTY_STATUS: ShareStatus = {
   enabledAt: null,
 }
 
+function getCloudApiUrlForNativeCommand(): string {
+  const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl
+  if (!cloudApiUrl) throw new Error('Cloud API URL is not configured')
+  return cloudApiUrl
+}
+
 /** Coalesce concurrent refresh calls for the same team + workspace. */
 let shareRefreshInflight: Promise<ShareStatus> | null = null
 let shareRefreshInflightKey: string | null = null
@@ -145,10 +152,12 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
       set({ loading: true, lastError: null })
       try {
         const accessToken = await getFreshAccessToken()
+        const cloudApiUrl = getCloudApiUrlForNativeCommand()
         const raw = await invoke<ShareStatus>('team_share_get_status', {
           teamId,
           workspacePath,
           accessToken,
+          cloudApiUrl,
         })
         const next = normalizeShareStatus({
           mode: (raw?.mode ?? null) as ShareMode,
@@ -175,10 +184,12 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
 
   async enableOss(teamId, workspacePath, teamSecretHex) {
     const accessToken = await getFreshAccessToken()
+    const cloudApiUrl = getCloudApiUrlForNativeCommand()
     const res = await invoke<EnableShareResult>('team_share_enable_oss', {
       teamId,
       workspacePath,
       accessToken,
+      cloudApiUrl,
       teamSecretHex: teamSecretHex?.trim() || null,
     })
     // Materialize the daemon's global dir + workspace symlink now (best-effort)
@@ -190,12 +201,14 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
 
   async enableManagedGit(teamId, workspacePath, teamSecretHex) {
     const accessToken = await getFreshAccessToken()
+    const cloudApiUrl = getCloudApiUrlForNativeCommand()
     const res = await invoke<EnableShareResult>(
       'team_share_enable_managed_git',
       {
         teamId,
         workspacePath,
         accessToken,
+        cloudApiUrl,
         teamSecretHex: teamSecretHex?.trim() || null,
       },
     )
@@ -206,6 +219,7 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
 
   async enableCustomGit(teamId, workspacePath, input, teamSecretHex) {
     const accessToken = await getFreshAccessToken()
+    const cloudApiUrl = getCloudApiUrlForNativeCommand()
     const res = await invoke<EnableShareResult>(
       'team_share_enable_custom_git',
       {
@@ -213,6 +227,7 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
         workspacePath,
         input,
         accessToken,
+        cloudApiUrl,
         teamSecretHex: teamSecretHex?.trim() || null,
       },
     )
@@ -248,10 +263,12 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
       throw new Error('Team share disconnect requires the desktop app')
     }
     const accessToken = await getFreshAccessToken()
+    const cloudApiUrl = getCloudApiUrlForNativeCommand()
     await invoke<{ success: boolean; message: string }>('team_disconnect_repo', {
       teamId,
       workspacePath,
       accessToken,
+      cloudApiUrl,
     })
     set({ status: { ...EMPTY_STATUS }, lastError: null })
     try {

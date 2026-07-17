@@ -20,7 +20,7 @@ use serde_json::json;
 
 use crate::commands::oss_sync::error::SyncError;
 use crate::commands::oss_sync::fc_client::FcClient;
-use crate::commands::oss_sync::get_fc_endpoint;
+use crate::commands::oss_sync::resolve_runtime_fc_endpoint;
 use crate::commands::team_share::custom_git;
 use crate::commands::team_sync_proxy;
 use crate::commands::{team_secret_store, TEAM_REPO_DIR};
@@ -135,12 +135,15 @@ fn ensure_team_repo_dir(_workspace_path: &str) -> Result<(), String> {
 }
 
 async fn post_share_mode(
-    workspace_path: &str,
+    cloud_api_url: &str,
     team_id: &str,
     body: &serde_json::Value,
     access_token: &str,
 ) -> Result<(), String> {
-    let fc = FcClient::new(get_fc_endpoint(workspace_path), access_token.to_string());
+    let fc = FcClient::new(
+        resolve_runtime_fc_endpoint(cloud_api_url)?,
+        access_token.to_string(),
+    );
     let path = format!("/v1/teams/{}/share-mode", team_id);
     // The /v1 share-mode endpoint returns 409 once a team's mode is locked.
     // FcClient::map_fc_response maps any 409 to SyncError::Conflict (its CAS
@@ -163,6 +166,7 @@ pub async fn enable_oss_impl(
     workspace_path: String,
     access_token: String,
     team_secret_hex: Option<String>,
+    cloud_api_url: String,
 ) -> Result<EnableShareResult, String> {
     // Lock the share mode on the server FIRST. If it is already locked (409),
     // post_share_mode returns a clear error and we bail out BEFORE mutating any
@@ -170,7 +174,7 @@ pub async fn enable_oss_impl(
     // break decryption of data already synced under the original secret.
     info!(team_id = %team_id, share_mode = "oss", "team_share_enable_oss: locking share-mode on FC");
     post_share_mode(
-        &workspace_path,
+        &cloud_api_url,
         &team_id,
         &json!({ "mode": "oss" }),
         &access_token,
@@ -202,8 +206,16 @@ pub async fn team_share_enable_oss(
     workspace_path: String,
     access_token: String,
     team_secret_hex: Option<String>,
+    cloud_api_url: String,
 ) -> Result<EnableShareResult, String> {
-    enable_oss_impl(team_id, workspace_path, access_token, team_secret_hex).await
+    enable_oss_impl(
+        team_id,
+        workspace_path,
+        access_token,
+        team_secret_hex,
+        cloud_api_url,
+    )
+    .await
 }
 
 // ─── enable_managed_git ──────────────────────────────────────────────────
@@ -213,11 +225,15 @@ pub async fn enable_managed_git_impl(
     workspace_path: String,
     access_token: String,
     team_secret_hex: Option<String>,
+    cloud_api_url: String,
 ) -> Result<EnableShareResult, String> {
     let secret = resolve_team_secret_hex(team_secret_hex)?;
     team_secret_store::save_team_secret(&workspace_path, &team_id, &secret)?;
 
-    let fc = FcClient::new(get_fc_endpoint(&workspace_path), access_token.clone());
+    let fc = FcClient::new(
+        resolve_runtime_fc_endpoint(&cloud_api_url)?,
+        access_token.clone(),
+    );
 
     // Provision the managed git repo via FC.
     let create_resp = fc
@@ -265,7 +281,7 @@ pub async fn enable_managed_git_impl(
         }
     });
     info!(team_id = %team_id, share_mode = "managed_git", remote_url = %repo_url, "team_share_enable_managed_git: locking share-mode on FC");
-    post_share_mode(&workspace_path, &team_id, &body, &access_token).await?;
+    post_share_mode(&cloud_api_url, &team_id, &body, &access_token).await?;
     info!(team_id = %team_id, share_mode = "managed_git", "team_share_enable_managed_git: share-mode locked");
 
     ensure_team_repo_dir(&workspace_path)?;
@@ -293,8 +309,16 @@ pub async fn team_share_enable_managed_git(
     workspace_path: String,
     access_token: String,
     team_secret_hex: Option<String>,
+    cloud_api_url: String,
 ) -> Result<EnableShareResult, String> {
-    enable_managed_git_impl(team_id, workspace_path, access_token, team_secret_hex).await
+    enable_managed_git_impl(
+        team_id,
+        workspace_path,
+        access_token,
+        team_secret_hex,
+        cloud_api_url,
+    )
+    .await
 }
 
 // ─── enable_custom_git ──────────────────────────────────────────────────
@@ -305,6 +329,7 @@ pub async fn enable_custom_git_impl(
     input: GitEnableInput,
     access_token: String,
     team_secret_hex: Option<String>,
+    cloud_api_url: String,
 ) -> Result<EnableShareResult, String> {
     if input.auth_kind != "ssh_key" && input.auth_kind != "https_token" {
         return Err(format!(
@@ -361,7 +386,7 @@ pub async fn enable_custom_git_impl(
         local_ssh = local_ssh,
         "team_share_enable_custom_git: locking share-mode on FC"
     );
-    post_share_mode(&workspace_path, &team_id, &body, &access_token).await?;
+    post_share_mode(&cloud_api_url, &team_id, &body, &access_token).await?;
     info!(team_id = %team_id, share_mode = "custom_git", "team_share_enable_custom_git: share-mode locked");
 
     ensure_team_repo_dir(&workspace_path)?;
@@ -402,6 +427,7 @@ pub async fn team_share_enable_custom_git(
     input: GitEnableInput,
     access_token: String,
     team_secret_hex: Option<String>,
+    cloud_api_url: String,
 ) -> Result<EnableShareResult, String> {
     enable_custom_git_impl(
         team_id,
@@ -409,6 +435,7 @@ pub async fn team_share_enable_custom_git(
         input,
         access_token,
         team_secret_hex,
+        cloud_api_url,
     )
     .await
 }
@@ -503,8 +530,9 @@ pub async fn get_share_status_impl(
     team_id: String,
     workspace_path: String,
     access_token: String,
+    cloud_api_url: String,
 ) -> Result<serde_json::Value, String> {
-    let fc = FcClient::new(get_fc_endpoint(&workspace_path), access_token);
+    let fc = FcClient::new(resolve_runtime_fc_endpoint(&cloud_api_url)?, access_token);
     let path = format!("/v1/teams/{}/share-mode", team_id);
     let mut value = fc.get_json(&path).await.map_err(|e| e.to_string())?;
     // Augment the server share-mode payload with local link + global-path info
@@ -527,8 +555,9 @@ pub async fn team_share_get_status(
     team_id: String,
     workspace_path: String,
     access_token: String,
+    cloud_api_url: String,
 ) -> Result<serde_json::Value, String> {
-    get_share_status_impl(team_id, workspace_path, access_token).await
+    get_share_status_impl(team_id, workspace_path, access_token, cloud_api_url).await
 }
 
 // ─── team_sync_paths ───────────────────────────────────────────────────────
@@ -619,13 +648,21 @@ fn filter_workspaces_present_on_disk(items: Vec<RegistryWorkspace>) -> Vec<Regis
 /// behavior's fail-open semantics for this settings-UI-only surface.
 pub(crate) async fn load_team_workspaces(
     team_id: &str,
-    workspace_path: &str,
+    _workspace_path: &str,
     access_token: &str,
+    cloud_api_url: &str,
 ) -> Vec<RegistryWorkspace> {
-    if team_id.trim().is_empty() || access_token.trim().is_empty() {
+    if team_id.trim().is_empty()
+        || access_token.trim().is_empty()
+        || cloud_api_url.trim().is_empty()
+    {
         return vec![];
     }
-    let fc = FcClient::new(get_fc_endpoint(workspace_path), access_token.to_string());
+    let endpoint = match resolve_runtime_fc_endpoint(cloud_api_url) {
+        Ok(endpoint) => endpoint,
+        Err(_) => return vec![],
+    };
+    let fc = FcClient::new(endpoint, access_token.to_string());
     let path = format!(
         "/v1/workspaces?teamId={}&limit=200",
         urlencoding::encode(team_id)
@@ -695,6 +732,7 @@ pub async fn team_sync_paths_impl(
     team_id: String,
     workspace_path: String,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> TeamSyncPaths {
     let real_dir = global_team_dir_display(&team_id);
     let real_dir_exists = real_dir
@@ -718,15 +756,16 @@ pub async fn team_sync_paths_impl(
     // token; when the caller doesn't have one handy (best-effort settings-UI
     // surface), we still show the current workspace above and simply skip
     // the rest rather than failing the whole command.
-    let token = access_token.unwrap_or_default();
-    for w in load_team_workspaces(&team_id, &workspace_path, &token).await {
-        let is_current = canon_path(&w.path) == current_canon;
-        let name = if w.display_name.is_empty() {
-            basename_or(&w.path)
-        } else {
-            w.display_name.clone()
-        };
-        push_workspace_link(&mut links, &mut seen, &w.path, name, is_current);
+    if let (Some(token), Some(cloud_api_url)) = (access_token, cloud_api_url) {
+        for w in load_team_workspaces(&team_id, &workspace_path, &token, &cloud_api_url).await {
+            let is_current = canon_path(&w.path) == current_canon;
+            let name = if w.display_name.is_empty() {
+                basename_or(&w.path)
+            } else {
+                w.display_name.clone()
+            };
+            push_workspace_link(&mut links, &mut seen, &w.path, name, is_current);
+        }
     }
 
     TeamSyncPaths {
@@ -741,8 +780,9 @@ pub async fn team_sync_paths(
     team_id: String,
     workspace_path: String,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<TeamSyncPaths, String> {
-    Ok(team_sync_paths_impl(team_id, workspace_path, access_token).await)
+    Ok(team_sync_paths_impl(team_id, workspace_path, access_token, cloud_api_url).await)
 }
 
 #[cfg(test)]
@@ -817,8 +857,16 @@ mod link_status_tests {
     async fn load_team_workspaces_short_circuits_without_team_or_token() {
         // No network involved: empty team_id / access_token both bail before
         // any HTTP call is attempted, so this is safe to run in CI.
-        assert!(load_team_workspaces("", "/tmp", "token").await.is_empty());
-        assert!(load_team_workspaces("team-1", "/tmp", "").await.is_empty());
+        assert!(
+            load_team_workspaces("", "/tmp", "token", "https://example.test")
+                .await
+                .is_empty()
+        );
+        assert!(
+            load_team_workspaces("team-1", "/tmp", "", "https://example.test")
+                .await
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -827,7 +875,7 @@ mod link_status_tests {
         let ws_path = ws.path().to_str().unwrap().to_string();
         // No access token → the cloud fetch is skipped entirely (best-effort),
         // so this stays a pure local-disk test like the pre-refactor version.
-        let out = team_sync_paths_impl("team-xyz".into(), ws_path.clone(), None).await;
+        let out = team_sync_paths_impl("team-xyz".into(), ws_path.clone(), None, None).await;
 
         // Current workspace is always present and flagged, even when it isn't
         // team-bound in the cloud list yet. With no teamclaw-team entry on
