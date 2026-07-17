@@ -23,12 +23,46 @@ use crate::commands::{team_secret_store, TEAM_REPO_DIR};
 
 const LEGACY_TEAM_REPO: &str = "teamclaw";
 
-/// `~/.amuxd/teams/<team_id>/` — daemon home for this team (global copy + secrets).
+/// `~/.amuxd/teams/<team_id>/` — daemon home for this team (global checkout +
+/// default workspace).
 pub fn global_team_home_dir(team_id: &str) -> Option<PathBuf> {
     if team_id.trim().is_empty() {
         return None;
     }
     dirs::home_dir().map(|h| h.join(".amuxd").join("teams").join(team_id))
+}
+
+/// `~/.amuxd/team-secrets/<team_id>.enc` — the daemon's encrypted team secrets.
+///
+/// Mirrors `SecretStore::secrets_path` in the daemon. These used to sit inside
+/// `global_team_home_dir`, so removing that directory erased them as a side
+/// effect; now that they live outside it, disconnect has to remove them
+/// explicitly or a disconnected team leaves its credentials on disk.
+pub fn global_team_secrets_path(team_id: &str) -> Option<PathBuf> {
+    if team_id.trim().is_empty() {
+        return None;
+    }
+    dirs::home_dir().map(|h| {
+        h.join(".amuxd")
+            .join("team-secrets")
+            .join(format!("{team_id}.enc"))
+    })
+}
+
+/// Remove the daemon's stored secrets for a team. Absent secrets are not an error.
+pub fn remove_global_team_secrets(team_id: &str) -> Result<(), String> {
+    let Some(path) = global_team_secrets_path(team_id) else {
+        return Ok(());
+    };
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!(
+            "Failed to remove team secrets {}: {}",
+            path.display(),
+            e
+        )),
+    }
 }
 
 /// Remove `<workspace>/teamclaw-team` whether it is a symlink, junction, or real dir.
@@ -167,6 +201,7 @@ pub async fn team_disconnect_repo(
     }
 
     remove_global_team_home(&team_id)?;
+    remove_global_team_secrets(&team_id)?;
 
     info!(
         team_id = %team_id,
@@ -212,5 +247,28 @@ mod tests {
 
         remove_global_team_home(team_id).unwrap();
         assert!(!dir.exists());
+    }
+
+    /// The daemon's secrets moved out of `teams/<id>/`, so `remove_global_team_home`
+    /// no longer erases them as a side effect. Disconnect must take them itself.
+    #[test]
+    fn removes_daemon_team_secrets() {
+        let team_id = "team-disconnect-secrets-test";
+        let Some(path) = global_team_secrets_path(team_id) else {
+            return;
+        };
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"encrypted-blob").unwrap();
+
+        remove_global_team_secrets(team_id).unwrap();
+        assert!(
+            !path.exists(),
+            "disconnect must not leave team secrets behind"
+        );
+    }
+
+    #[test]
+    fn removing_absent_team_secrets_is_not_an_error() {
+        remove_global_team_secrets("team-that-never-existed-xyz").unwrap();
     }
 }

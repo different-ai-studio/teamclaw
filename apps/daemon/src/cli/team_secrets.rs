@@ -1,7 +1,7 @@
 //! `amuxd team secrets` — provision team-share credentials on a daemon that has
 //! no desktop app to push them over `POST /v1/team/secrets`.
 //!
-//! Writes the same store the HTTP path does (`~/.amuxd/teams/<id>/secrets.enc`),
+//! Writes the same store the HTTP path does (`~/.amuxd/team-secrets/<id>.enc`),
 //! offline: the daemon need not be running, and a running daemon picks the
 //! secrets up on its next sync tick without a reload signal.
 
@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::config::DaemonConfig;
-use crate::sync::secret_store::{SecretStore, TeamSecrets};
+use crate::sync::secret_store::{validate_team_secret, SecretStore, TeamSecrets};
 
 use super::{TeamAction, TeamArgs, TeamSecretsAction};
 
@@ -62,20 +62,6 @@ fn resolve_team_id(explicit: Option<String>) -> anyhow::Result<String> {
         })
 }
 
-/// The team secret is HKDF input keying material, not an opaque token: it must
-/// decode to exactly 32 bytes or every blob and env var fails to decrypt.
-/// Reject it here rather than at the next sync tick or agent spawn.
-fn validate_team_secret(secret: &str) -> anyhow::Result<()> {
-    let ok = secret.len() == 64 && secret.chars().all(|c| c.is_ascii_hexdigit());
-    if !ok {
-        anyhow::bail!(
-            "--team-secret must be 64 hex chars (32 bytes), got {} char(s)",
-            secret.len()
-        );
-    }
-    Ok(())
-}
-
 fn set(
     team_id: Option<String>,
     team_secret: Option<String>,
@@ -100,7 +86,7 @@ fn set(
 
     let team_secret = team_secret.map(|s| s.trim().to_string());
     if let Some(s) = &team_secret {
-        validate_team_secret(s)?;
+        validate_team_secret(s).map_err(|e| anyhow::anyhow!("--team-secret: {e}"))?;
     }
 
     if team_secret.is_none() && git_credential.is_none() && git_branch.is_none() {
@@ -147,14 +133,7 @@ fn print_state(store: &SecretStore, team_id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Show enough to tell two secrets apart, never enough to use one.
-fn mask(value: Option<&str>) -> String {
-    match value {
-        None => "(unset)".to_string(),
-        Some(v) if v.len() <= 8 => "(set)".to_string(),
-        Some(v) => format!("(set, {}…{})", &v[..4], &v[v.len() - 4..]),
-    }
-}
+use crate::sync::secret_store::mask_secret as mask;
 
 fn clear(team_id: Option<String>, force: bool) -> anyhow::Result<()> {
     let team_id = resolve_team_id(team_id)?;

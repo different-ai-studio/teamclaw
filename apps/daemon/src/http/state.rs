@@ -113,6 +113,17 @@ pub struct HttpState {
     /// member on a plain refresh rather than only at the next runtime spawn.
     /// `None` in focused tests — the reconcile is then skipped.
     pub managed_llm: Option<Arc<crate::runtime::managed_llm::ManagedLlmResolver>>,
+    /// `daemon.toml` path backing `/v1/config/*`. `None` in focused tests —
+    /// those routes then return 503.
+    pub config_path: Option<std::path::PathBuf>,
+    /// Bridge to the daemon actor loop for `POST /v1/config/reload`, which
+    /// restarts the channel manager. Mirrors `register_workspace_tx`: the HTTP
+    /// task cannot touch the channel manager, since the actor loop owns it.
+    pub channel_reload_tx: Option<mpsc::Sender<()>>,
+    /// Onboarding backing `/v1/setup/*`. A trait, not the DeferredBackend
+    /// itself, so this module stays usable from the `#[path]`-included test
+    /// crates that have no daemon module tree.
+    pub onboarding: Option<Arc<dyn super::setup::OnboardingService>>,
 }
 
 impl HttpState {
@@ -150,7 +161,24 @@ impl HttpState {
             backend: None,
             live_tee: None,
             managed_llm: None,
+            config_path: None,
+            channel_reload_tx: None,
+            onboarding: None,
         }
+    }
+
+    /// Attach the daemon-level config surface (`/v1/config/*`, `/v1/setup/*`).
+    /// Chained after `new()` to keep the (already wide) constructor stable.
+    pub fn with_config_admin(
+        mut self,
+        config_path: Option<std::path::PathBuf>,
+        channel_reload_tx: Option<mpsc::Sender<()>>,
+        onboarding: Option<Arc<dyn super::setup::OnboardingService>>,
+    ) -> Self {
+        self.config_path = config_path;
+        self.channel_reload_tx = channel_reload_tx;
+        self.onboarding = onboarding;
+        self
     }
 
     /// Attach the cloud backend so `/v1/info` can report cloud-auth health.

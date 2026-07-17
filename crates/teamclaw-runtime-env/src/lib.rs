@@ -3,6 +3,7 @@ pub mod mcp_resolve;
 pub mod merge;
 pub mod opencode_db;
 pub mod personal_secrets;
+pub mod team_crypto;
 pub mod team_provider;
 
 #[cfg(test)]

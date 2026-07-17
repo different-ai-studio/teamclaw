@@ -34,6 +34,21 @@ impl ProviderConfig {
         Ok(dir.join("backend.toml"))
     }
 
+    /// Whether *any* onboarding config exists at `backend_path` — either the
+    /// real `backend.toml` or a legacy `supabase.toml` awaiting migration.
+    ///
+    /// Callers use this to tell "this daemon has never been onboarded" apart
+    /// from "onboarding config exists but is corrupt". The former is a normal
+    /// first-run state that starts unclaimed; the latter must stay a hard
+    /// error rather than silently discarding a broken config and re-onboarding.
+    pub fn exists_at(backend_path: &Path) -> bool {
+        backend_path.exists()
+            || backend_path
+                .parent()
+                .map(|dir| dir.join("supabase.toml").exists())
+                .unwrap_or(false)
+    }
+
     pub fn load_from_path(backend_path: &Path) -> Result<Self, ProviderConfigError> {
         if backend_path.exists() {
             return Self::load_backend_toml(backend_path);

@@ -28,18 +28,19 @@ pub struct DaemonConfig {
     /// kill mid-stream replies that exceed the threshold.
     #[serde(default)]
     pub idle_runtime_timeout_secs: Option<u64>,
-    /// Optional browser-facing HTTP/SSE API. When set, the daemon binds an
-    /// axum listener alongside the existing Unix control socket. When
-    /// omitted, no HTTP listener is started (the historical default).
+    /// Browser-facing HTTP/SSE API, bound alongside the Unix control socket.
+    ///
+    /// Omitting the section does **not** disable the listener — the daemon
+    /// falls back to `HttpConfig::default()` (loopback, ephemeral port). The
+    /// section only exists to override those defaults. The listener is how the
+    /// setup UI is served, so an unconfigured daemon needs it most.
     #[serde(default)]
     pub http: Option<HttpConfig>,
 }
 
-/// Configuration for the browser-facing HTTP+SSE listener. The listener is
-/// strictly opt-in — the daemon never binds a TCP port unless this section
-/// is present in `daemon.toml`. Defaults are tuned for "localhost browser
-/// connecting to a single user's daemon"; cross-host deployments must set
-/// `bind` + a TLS terminator in front.
+/// Configuration for the browser-facing HTTP+SSE listener. Defaults are tuned
+/// for "localhost browser connecting to a single user's daemon"; cross-host
+/// deployments must set `bind` + a TLS terminator in front.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpConfig {
     /// Socket address to bind. Use `127.0.0.1:0` (default) to pick an
@@ -167,6 +168,13 @@ fn default_scopes() -> Vec<String> {
         "workspace:read".into(),
     ]
 }
+
+/// Placeholder `actor.name` written by [`DaemonConfig::bootstrap`].
+///
+/// Onboarding replaces it with the cloud display name (see
+/// `daemon_config_for_invite`). A name that is *not* this sentinel was chosen
+/// by the operator and is preserved across re-onboarding.
+pub const BOOTSTRAP_ACTOR_NAME: &str = "amuxd (unclaimed)";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActorConfig {
@@ -402,6 +410,58 @@ impl DaemonConfig {
         })
     }
 
+    /// A config for a daemon that has not been onboarded yet.
+    ///
+    /// `broker_url` is deliberately empty: the daemon resolves the broker from
+    /// `/v1/config/bootstrap` once it has credentials, and runs MQTT on a
+    /// placeholder client until then. `actor.id` is a locally-minted
+    /// placeholder — onboarding overwrites it with the cloud's actor_id, which
+    /// MQTT topic ACLs are keyed on.
+    pub fn bootstrap() -> Self {
+        Self {
+            actor: ActorConfig {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: BOOTSTRAP_ACTOR_NAME.to_string(),
+            },
+            mqtt: MqttConfig {
+                broker_url: String::new(),
+                username: None,
+                password: None,
+            },
+            transport: None,
+            agents: AgentsConfig::default(),
+            team_id: None,
+            channels: Default::default(),
+            idle_runtime_timeout_secs: None,
+            // Present so the packaged desktop WebView's fetch() can reach the
+            // loopback control plane without a hand edit.
+            http: Some(HttpConfig::default()),
+        }
+    }
+
+    /// Load `path`, or synthesize and persist a [`bootstrap`](Self::bootstrap)
+    /// config when it does not exist.
+    ///
+    /// Persisting immediately is what makes the placeholder `actor.id` stable
+    /// across restarts. Deriving it via `#[serde(default)]` instead would mint
+    /// a fresh id on every boot and silently re-key MQTT topic ACLs.
+    ///
+    /// An existing-but-unparseable config still errors — only true absence
+    /// bootstraps.
+    pub fn load_or_bootstrap(path: &Path) -> crate::error::Result<Self> {
+        if path.exists() {
+            return Self::load(path);
+        }
+        let config = Self::bootstrap();
+        config.save(path)?;
+        tracing::info!(
+            path = %path.display(),
+            actor_id = %config.actor.id,
+            "no daemon.toml — wrote a fresh unconfigured one"
+        );
+        Ok(config)
+    }
+
     pub fn save(&self, path: &Path) -> crate::error::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -598,5 +658,45 @@ mod tests {
         // 2 CJK chars + 1 space -> 3 dashes.
         assert_eq!(DaemonConfig::control_pipe_suffix_from("\u{7b80}\u{4f53} user"), "---user");
         assert_eq!(DaemonConfig::control_pipe_suffix_from("Win_User-1"), "Win_User-1");
+    }
+
+    #[test]
+    fn bootstrap_is_unconfigured_but_serves_http() {
+        let cfg = DaemonConfig::bootstrap();
+        // Empty broker keeps MQTT on a placeholder client; the HTTP listener is
+        // what serves the setup UI, so it must be configured.
+        assert!(cfg.mqtt.broker_url.is_empty());
+        assert!(cfg.team_id.is_none());
+        assert!(cfg.http.is_some());
+        assert!(!cfg.actor.id.is_empty());
+    }
+
+    #[test]
+    fn load_or_bootstrap_persists_a_stable_actor_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.toml");
+
+        let first = DaemonConfig::load_or_bootstrap(&path).unwrap();
+        assert!(path.exists(), "bootstrap must persist, or the id would drift");
+
+        // The whole point of persisting: a second start reuses the same actor
+        // id rather than silently re-keying MQTT topic ACLs.
+        let second = DaemonConfig::load_or_bootstrap(&path).unwrap();
+        assert_eq!(first.actor.id, second.actor.id);
+    }
+
+    #[test]
+    fn load_or_bootstrap_does_not_clobber_a_corrupt_config() {
+        // Only true absence bootstraps. Overwriting a broken config would
+        // silently discard an operator's credentials/settings.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.toml");
+        std::fs::write(&path, "this is not = valid toml [[[").unwrap();
+
+        assert!(DaemonConfig::load_or_bootstrap(&path).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "this is not = valid toml [[["
+        );
     }
 }

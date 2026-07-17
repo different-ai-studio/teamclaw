@@ -75,6 +75,11 @@ pub async fn spawn(
     register_workspace_tx: Option<crate::http::state::RegisterWorkspaceTx>,
     backend: Option<Arc<dyn Backend>>,
     live_tee: Option<tokio::sync::broadcast::Sender<super::live_events::LiveTeeEvent>>,
+    // Daemon-level config surface (`/v1/config/*`, `/v1/setup/*`). All three are
+    // `None` in focused tests, which makes those routes 503 rather than panic.
+    config_path: Option<std::path::PathBuf>,
+    channel_reload_tx: Option<tokio::sync::mpsc::Sender<()>>,
+    onboarding: Option<Arc<dyn crate::http::setup::OnboardingService>>,
 ) -> anyhow::Result<HttpHandle> {
     // Resolve token + port files (defaults live in DaemonConfig::config_dir).
     let token_path = http
@@ -131,6 +136,7 @@ pub async fn spawn(
         register_workspace_tx,
     )
     .with_backend(backend)
+    .with_config_admin(config_path, channel_reload_tx, onboarding)
     .with_live_tee(live_tee)
     .with_managed_llm(managed_llm);
 
@@ -236,6 +242,9 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -265,6 +274,9 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -314,6 +326,9 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -505,6 +520,9 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -579,6 +597,9 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -661,6 +682,9 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -755,6 +779,9 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
+            None,
+            None,
             None,
             None,
             None,
