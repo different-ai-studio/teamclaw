@@ -112,6 +112,16 @@ export type TeamUsageSummary = {
 export type MemberUsage = {
   apiKey: string;
   alias: string;
+  /**
+   * Owning actor uuid, from the key's `user_id` (LiteLLM_VerificationToken).
+   * null for keys minted before attribution existed, or whose owner was wiped
+   * by an actor-id rebaseline — those aggregate into an "unattributed" bucket
+   * rather than being dropped, because the spend is real money either way.
+   *
+   * NOT parsed out of `alias`: that only carries an 8-char prefix, which is
+   * lossy and collision-prone across teams.
+   */
+  actorId: string | null;
   tokens: number;
   spend: number;
   requests: number;
@@ -220,10 +230,16 @@ export async function queryTeamUsage(
       WHERE team_id = ${litellmTeamId}
         AND "startTime" >= ${startUtc} AND "startTime" < ${endUtc}
     `,
+    // Attribution comes from v.user_id (the key's owning actor), NOT from
+    // s.user: the spend-log column is per-request and blank for everything
+    // logged before the key carried an owner, whereas joining the key's own
+    // user_id resolves at READ time — so backfilling a key's user_id also
+    // re-attributes its whole history.
     sql`
       SELECT
         s.api_key                                            AS api_key,
         COALESCE(v.key_alias, LEFT(s.api_key, 10) || '…')    AS alias,
+        NULLIF(v.user_id, '')                                AS actor_id,
         COALESCE(SUM(s.total_tokens), 0)                     AS tokens,
         COALESCE(SUM(s.spend), 0)                            AS spend,
         COUNT(*)                                             AS requests
@@ -231,7 +247,7 @@ export async function queryTeamUsage(
       LEFT JOIN "LiteLLM_VerificationToken" v ON v.token = s.api_key
       WHERE s.team_id = ${litellmTeamId}
         AND s."startTime" >= ${startUtc} AND s."startTime" < ${endUtc}
-      GROUP BY s.api_key, v.key_alias
+      GROUP BY s.api_key, v.key_alias, v.user_id
       ORDER BY spend DESC, tokens DESC
     `,
     sql`
@@ -268,6 +284,7 @@ export async function queryTeamUsage(
     members: memberRows.map((r: any) => ({
       apiKey: String(r.api_key ?? ""),
       alias: String(r.alias ?? ""),
+      actorId: r.actor_id != null ? String(r.actor_id) : null,
       tokens: n(r.tokens),
       spend: n(r.spend),
       requests: n(r.requests),

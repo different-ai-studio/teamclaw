@@ -411,3 +411,166 @@ test("pg-repo [litellm]: listActorDirectoryForSync returns empty for unknown tea
   assert.ok(Array.isArray(rows));
   assert.equal(rows.length, 0);
 });
+
+// ── getLiteLlmUsage attribution ───────────────────────────────────────────────
+//
+// Daemons burn the tokens, so usage grouped by spending key reads as a list of
+// machines. These exercise the real Drizzle join (actors → agents → owner) that
+// rolls that spend up to the accountable human.
+
+const HUMAN_ACTOR = "c0000000-0000-0000-0000-0000000000a1";
+const DAEMON_ACTOR = "c0000000-0000-0000-0000-0000000000a2";
+const OUTSIDER_ACTOR = "c0000000-0000-0000-0000-0000000000a3";
+
+async function seedDaemon(pg: any, id: string, teamId: string, ownerMemberId: string, name = "Mac-mini-3") {
+  await pg.exec(
+    `INSERT INTO actors (id, team_id, actor_type, display_name, created_at, updated_at)
+     VALUES ('${id}', '${teamId}', 'agent', '${name}', NOW(), NOW())
+     ON CONFLICT (id) DO NOTHING`,
+  );
+  await pg.exec(
+    `INSERT INTO agents (id, agent_kind, status, visibility, owner_member_id)
+     VALUES ('${id}', 'daemon', 'offline', 'personal', '${ownerMemberId}')
+     ON CONFLICT (id) DO NOTHING`,
+  );
+}
+
+/** Seed a team whose owner is a human with one daemon, and provision LiteLLM. */
+async function seedAttributionTeam(pg: any, db: any, teamId: string, userId: string) {
+  await seedTeam(pg, teamId, "Attribution Team", `attribution-${teamId.slice(-4)}`);
+  await pg.exec(
+    `INSERT INTO actors (id, team_id, user_id, actor_type, display_name, created_at, updated_at)
+     VALUES ('${HUMAN_ACTOR}', '${teamId}', '${userId}', 'member', '周金亮', NOW(), NOW())
+     ON CONFLICT (id) DO NOTHING`,
+  );
+  await pg.exec(`INSERT INTO members (id, status) VALUES ('${HUMAN_ACTOR}', 'active')`);
+  await pg.exec(
+    `INSERT INTO team_members (team_id, member_id, role) VALUES ('${teamId}', '${HUMAN_ACTOR}', 'owner')`,
+  );
+  await seedDaemon(pg, DAEMON_ACTOR, teamId, HUMAN_ACTOR);
+}
+
+test("pg-repo [litellm]: getLiteLlmUsage attributes daemon spend to the owning human", async () => {
+  const { db, pg } = await makeTestDb();
+  const userId = "d0000000-0000-0000-0000-0000000000a1";
+  await seedAttributionTeam(pg, db, TEAM_A, userId);
+
+  const repo = createPgBusinessRepository({
+    db,
+    userId,
+    provisionLiteLlm: makeStubProvisioner({ litellmTeamId: "lt-attrib" }),
+    // The daemon spends under its OWN agent-actor key — this is the real shape.
+    queryLiteLlmUsage: async () => ({
+      litellmTeamId: "lt-attrib",
+      range: "month",
+      startDate: "2026-07-01",
+      endDate: "2026-07-31",
+      startUtc: "2026-06-30T16:00:00.000Z",
+      endUtc: "2026-07-31T16:00:00.000Z",
+      summary: { totalTokens: 100, promptTokens: 60, completionTokens: 40, totalSpend: 3, requestCount: 5 },
+      maxBudget: 10,
+      members: [
+        { apiKey: "h1", alias: "member-c0000000", actorId: DAEMON_ACTOR, tokens: 90, spend: 2, requests: 4 },
+        { apiKey: "h2", alias: "member-c0000000", actorId: HUMAN_ACTOR, tokens: 10, spend: 1, requests: 1 },
+      ],
+      byModel: [],
+    }),
+  });
+  await repo.setupLiteLlm(TEAM_A);
+
+  const out = await repo.getLiteLlmUsage(TEAM_A, {}, { userId });
+
+  assert.equal(out.members.length, 1, "the daemon's spend merges into its owner's row");
+  assert.equal(out.members[0].actorId, HUMAN_ACTOR);
+  assert.equal(out.members[0].displayName, "周金亮", "a person's name, not member-<hex>");
+  assert.equal(out.members[0].spend, 3);
+  assert.equal(out.members[0].tokens, 100);
+  assert.equal(out.members[0].requests, 5);
+});
+
+test("pg-repo [litellm]: getLiteLlmUsage reports unresolvable keys as unattributed, preserving spend", async () => {
+  // Exactly the live failure: keys minted before an actor-id rebaseline point at
+  // actors that no longer exist. Their spend is real and must not vanish.
+  const { db, pg } = await makeTestDb();
+  const userId = "d0000000-0000-0000-0000-0000000000a2";
+  await seedAttributionTeam(pg, db, TEAM_B, userId);
+
+  const repo = createPgBusinessRepository({
+    db,
+    userId,
+    provisionLiteLlm: makeStubProvisioner({ litellmTeamId: "lt-orphan" }),
+    queryLiteLlmUsage: async () => ({
+      litellmTeamId: "lt-orphan",
+      range: "month",
+      startDate: "2026-07-01",
+      endDate: "2026-07-31",
+      startUtc: "2026-06-30T16:00:00.000Z",
+      endUtc: "2026-07-31T16:00:00.000Z",
+      summary: { totalTokens: 200, promptTokens: 100, completionTokens: 100, totalSpend: 9, requestCount: 6 },
+      maxBudget: 10,
+      members: [
+        // Orphaned actor id, a key with no user_id at all, and a non-uuid —
+        // the last one would make Postgres raise 22P02 if passed through.
+        { apiKey: "h1", alias: "member-78f9a657", actorId: "78f9a657-0000-4000-8000-000000000000", tokens: 100, spend: 5, requests: 3 },
+        { apiKey: "h2", alias: "sk-abcdefgh…", actorId: null, tokens: 50, spend: 3, requests: 2 },
+        { apiKey: "h3", alias: "legacy", actorId: "not-a-uuid", tokens: 10, spend: 0.5, requests: 0 },
+        { apiKey: "h4", alias: "member-c0000000", actorId: HUMAN_ACTOR, tokens: 40, spend: 0.5, requests: 1 },
+      ],
+      byModel: [],
+    }),
+  });
+  await repo.setupLiteLlm(TEAM_B);
+
+  const out = await repo.getLiteLlmUsage(TEAM_B, {}, { userId });
+
+  assert.equal(out.members.length, 2);
+  assert.equal(out.members[0].actorId, HUMAN_ACTOR, "resolved people rank first");
+  const un = out.members[1];
+  assert.equal(un.actorId, null);
+  assert.equal(un.displayName, null, "client renders the localized label");
+  assert.equal(un.spend, 8.5, "all three unresolvable keys pool together");
+  assert.equal(
+    out.members.reduce((s: number, m: any) => s + m.spend, 0),
+    9,
+    "rows still sum to the team total",
+  );
+});
+
+test("pg-repo [litellm]: getLiteLlmUsage never resolves an actor from another team", async () => {
+  // Actor ids arrive from LiteLLM, so an unscoped lookup would leak a stranger's
+  // display name into this team's leaderboard.
+  const { db, pg } = await makeTestDb();
+  const userId = "d0000000-0000-0000-0000-0000000000a3";
+  await seedAttributionTeam(pg, db, TEAM_A, userId);
+  await seedTeam(pg, TEAM_C, "Other Team", "other-team");
+  await pg.exec(
+    `INSERT INTO actors (id, team_id, actor_type, display_name, created_at, updated_at)
+     VALUES ('${OUTSIDER_ACTOR}', '${TEAM_C}', 'member', 'Someone Else', NOW(), NOW())`,
+  );
+  await pg.exec(`INSERT INTO members (id, status) VALUES ('${OUTSIDER_ACTOR}', 'active')`);
+
+  const repo = createPgBusinessRepository({
+    db,
+    userId,
+    provisionLiteLlm: makeStubProvisioner({ litellmTeamId: "lt-scope" }),
+    queryLiteLlmUsage: async () => ({
+      litellmTeamId: "lt-scope",
+      range: "month",
+      startDate: "2026-07-01",
+      endDate: "2026-07-31",
+      startUtc: "2026-06-30T16:00:00.000Z",
+      endUtc: "2026-07-31T16:00:00.000Z",
+      summary: { totalTokens: 10, promptTokens: 5, completionTokens: 5, totalSpend: 1, requestCount: 1 },
+      maxBudget: 10,
+      members: [{ apiKey: "h1", alias: "member-c0000000", actorId: OUTSIDER_ACTOR, tokens: 10, spend: 1, requests: 1 }],
+      byModel: [],
+    }),
+  });
+  await repo.setupLiteLlm(TEAM_A);
+
+  const out = await repo.getLiteLlmUsage(TEAM_A, {}, { userId });
+
+  assert.equal(out.members.length, 1);
+  assert.equal(out.members[0].actorId, null, "out-of-team actor must not resolve");
+  assert.equal(out.members[0].displayName, null, "must not leak 'Someone Else'");
+});

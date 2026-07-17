@@ -7,6 +7,7 @@ import { appOssObjectName } from "./provisioning/app-deploy.js";
 import { normalizeAgentTypes } from "./agent-types.js";
 import { managedGitCredential } from "./admin-handlers.js";
 import { computeRange, getLiteLlmSql, queryTeamUsage } from "./litellm-usage.js";
+import { rollUpUsageByOwner, type UsageOwner } from "./usage-attribution.js";
 import { litellmFetch as sharedLitellmFetch } from "./litellm.js";
 import {
   REALTIME_TRANSPORT_OPTS, requiredRow, requiredString, requiredInteger,
@@ -20,6 +21,75 @@ import {
 export { publishableKeyFromEnv } from "./supabase-repo/shared.js";
 export { createSupabaseAuthRepository } from "./supabase-repo/auth.js";
 import { normalizePhone } from "./supabase-repo/phone-auth.js";
+
+/**
+ * `actors.id` is a uuid column: a non-uuid in the `.in()` list makes PostgREST
+ * reject the whole request (22P02), which would take the usage screen down over
+ * one malformed LiteLLM user_id. Unmatched ids just report as "unattributed".
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Map spending actor ids → the accountable human (supabase/PostgREST twin of
+ * pg-repo's resolveOwnersForTeam; kept behaviourally identical).
+ *
+ * Three flat queries rather than one embedded select: PostgREST resource
+ * embedding would need the actors→agents FK relationship spelled by name, and
+ * a rename there fails at runtime, not build time.
+ *
+ * Team-scoped on purpose — ids come from LiteLLM, so an unscoped lookup would
+ * let any key surface an unrelated team's member name.
+ */
+async function resolveOwnersForTeam(supabase, teamId, actorIds): Promise<Map<string, UsageOwner>> {
+  const ids = actorIds.filter((id) => UUID_RE.test(id));
+  const out = new Map<string, UsageOwner>();
+  if (!ids.length) return out;
+
+  const { data: actorRows, error: actorErr } = await supabase
+    .from("actors")
+    .select("id, actor_type, display_name")
+    .eq("team_id", teamId)
+    .in("id", ids);
+  if (actorErr) throw actorErr;
+  if (!actorRows?.length) return out;
+
+  const agentIds = actorRows.filter((a) => a.actor_type === "agent").map((a) => a.id);
+  const ownerOf = new Map<string, string>();
+  if (agentIds.length) {
+    const { data: agentRows, error: agentErr } = await supabase
+      .from("agents")
+      .select("id, owner_member_id")
+      .in("id", agentIds);
+    if (agentErr) throw agentErr;
+    for (const r of agentRows ?? []) if (r.owner_member_id) ownerOf.set(r.id, r.owner_member_id);
+  }
+
+  // Owner display names: an agent's owner need not be among the spending actors
+  // (a human can own a daemon and never spend under their own key), so their
+  // actor row may not be in actorRows and has to be fetched separately.
+  const nameOf = new Map<string, string>(actorRows.map((a) => [a.id, a.display_name]));
+  const missing = [...new Set([...ownerOf.values()])].filter((id) => !nameOf.has(id));
+  if (missing.length) {
+    const { data: ownerRows, error: ownerErr } = await supabase
+      .from("actors")
+      .select("id, display_name")
+      .eq("team_id", teamId)
+      .in("id", missing);
+    if (ownerErr) throw ownerErr;
+    for (const r of ownerRows ?? []) nameOf.set(r.id, r.display_name);
+  }
+
+  for (const a of actorRows) {
+    if (a.actor_type === "agent") {
+      const ownerId = ownerOf.get(a.id);
+      const ownerName = ownerId ? nameOf.get(ownerId) : undefined;
+      if (ownerId && ownerName) out.set(a.id, { actorId: ownerId, displayName: ownerName });
+      continue;
+    }
+    out.set(a.id, { actorId: a.id, displayName: a.display_name });
+  }
+  return out;
+}
 
 /** Archive sessions bound to a workspace via agent_runtimes.workspace_id. */
 async function archiveSessionsForWorkspace(supabase, workspaceId) {
@@ -651,7 +721,11 @@ export function createSupabaseBusinessRepository(options) {
         };
       }
 
-      return queryLiteLlmUsage(litellmTeamId, range);
+      const usage = await queryLiteLlmUsage(litellmTeamId, range);
+      return {
+        ...usage,
+        members: await rollUpUsageByOwner(usage.members ?? [], (ids) => resolveOwnersForTeam(supabase, teamId, ids)),
+      };
     },
 
     // Lists the team's LiteLLM virtual keys (masked). Any team member may

@@ -2135,6 +2135,7 @@
       "budget": "Budget",
       "leaderboard": "Member Leaderboard",
       "noUsage": "No usage in this period.",
+      "unattributed": "Unattributed",
       "byModel": "By Model",
       "colName": "Name",
       "colTokens": "Tokens",
