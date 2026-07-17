@@ -36,6 +36,13 @@ fn restrict(_path: &Path, _mode: u32) {}
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSecrets {
+    /// The team secret, despite the OSS-flavoured name. It is not OSS-specific:
+    /// OSS sync uses it to encrypt blobs, and *every* share mode uses it to
+    /// derive the key for `_secrets/` team-env decryption (see
+    /// `team_shared_env::derive_key`). Read it via
+    /// [`SecretStore::team_secret`]. The name is load-bearing on the wire —
+    /// it matches the desktop's `ossTeamSecret` field in
+    /// `POST /v1/team/secrets` — so it stays put.
     #[serde(default)]
     pub oss_team_secret: Option<String>,
     #[serde(default)]
@@ -48,18 +55,18 @@ pub struct TeamSecrets {
     pub git_branch: Option<String>,
 }
 
-/// The OSS team secret is HKDF input keying material, not an opaque token: it
-/// must decode to exactly 32 bytes or every blob fails to decrypt.
+/// The team secret is HKDF input keying material, not an opaque token: it must
+/// decode to exactly 32 bytes or every blob and env var fails to decrypt.
 ///
-/// Shared by `amuxd team secrets set` and `POST /v1/team/secrets` so a secret
-/// is rejected at whichever door it arrives at, rather than being stored happily
-/// and only surfacing as a decrypt failure on the next sync tick.
-pub fn validate_oss_secret(secret: &str) -> Result<(), String> {
+/// Shared by `amuxd team secrets set` and `POST /v1/team/secrets` so a secret is
+/// rejected at whichever door it arrives at, rather than being stored happily
+/// and only surfacing as a decrypt failure on the next sync tick or agent spawn.
+pub fn validate_team_secret(secret: &str) -> Result<(), String> {
     if secret.len() == 64 && secret.chars().all(|c| c.is_ascii_hexdigit()) {
         return Ok(());
     }
     Err(format!(
-        "OSS team secret must be 64 hex chars (32 bytes), got {} char(s)",
+        "team secret must be 64 hex chars (32 bytes), got {} char(s)",
         secret.len()
     ))
 }
@@ -307,6 +314,18 @@ impl SecretStore {
     /// The stored git branch, if any.
     pub fn git_branch(&self, team_id: &str) -> Option<String> {
         self.load(team_id).ok().and_then(|s| s.git_branch)
+    }
+
+    /// The stored team secret, or `None` when unset/blank.
+    ///
+    /// This daemon's copy is the system of record: it is the only source a
+    /// standalone install can be handed one, whether by `amuxd team secrets set`
+    /// or by the desktop's `POST /v1/team/secrets`.
+    pub fn team_secret(&self, team_id: &str) -> Option<String> {
+        self.load(team_id)
+            .ok()
+            .and_then(|s| s.oss_team_secret)
+            .filter(|s| !s.trim().is_empty())
     }
 
     /// Resolve just the OSS team secret: store > config env_secret.
@@ -663,26 +682,26 @@ mod tests {
     }
 
     #[test]
-    fn validate_oss_secret_accepts_only_64_hex_chars() {
-        assert!(validate_oss_secret(&"ab".repeat(32)).is_ok());
+    fn validate_team_secret_accepts_only_64_hex_chars() {
+        assert!(validate_team_secret(&"ab".repeat(32)).is_ok());
         assert!(
-            validate_oss_secret(&"AB".repeat(32)).is_ok(),
+            validate_team_secret(&"AB".repeat(32)).is_ok(),
             "hex is case-insensitive"
         );
 
         // A passphrase is the realistic wrong input: the desktop derives a key
         // from one, so a user may reasonably try the same thing here.
-        let err = validate_oss_secret("our-team-passphrase").unwrap_err();
+        let err = validate_team_secret("our-team-passphrase").unwrap_err();
         assert!(
             err.contains("64 hex"),
             "error must say what is expected: {err}"
         );
 
-        assert!(validate_oss_secret("").is_err());
-        assert!(validate_oss_secret(&"ab".repeat(31)).is_err(), "too short");
-        assert!(validate_oss_secret(&"ab".repeat(33)).is_err(), "too long");
+        assert!(validate_team_secret("").is_err());
+        assert!(validate_team_secret(&"ab".repeat(31)).is_err(), "too short");
+        assert!(validate_team_secret(&"ab".repeat(33)).is_err(), "too long");
         assert!(
-            validate_oss_secret(&"zz".repeat(32)).is_err(),
+            validate_team_secret(&"zz".repeat(32)).is_err(),
             "right length, not hex"
         );
     }
@@ -690,8 +709,8 @@ mod tests {
     /// A rejected secret must never be echoed back — error strings reach logs
     /// and HTTP responses.
     #[test]
-    fn validate_oss_secret_error_does_not_echo_the_value() {
-        let err = validate_oss_secret("hunter2-hunter2").unwrap_err();
+    fn validate_team_secret_error_does_not_echo_the_value() {
+        let err = validate_team_secret("hunter2-hunter2").unwrap_err();
         assert!(!err.contains("hunter2"));
     }
 

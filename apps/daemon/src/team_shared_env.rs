@@ -148,6 +148,41 @@ pub fn load_team_env(
     load_team_env_from_secrets_dir(&secrets_dir, env_secret)
 }
 
+/// The team env decryption key: this daemon's own store first.
+///
+/// The secret is not tied to a share mode — `_secrets/` rides along in the
+/// shared dir under OSS *and* both git modes, so every mode needs it. It is
+/// also not the git credential: that one logs in to the remote, this one
+/// decrypts what the remote carries.
+///
+/// The daemon's store wins because it is the only source a standalone install
+/// can be handed one (`amuxd team secrets set`, or the desktop's
+/// `POST /v1/team/secrets`). The workspace `teamclaw.json` and the desktop's
+/// `_team_secret.{team_id}` blob remain as fallbacks so installs predating
+/// daemon-side custody keep decrypting untouched.
+fn resolve_env_secret(workspace_root: &Path, team_id: Option<&str>) -> Option<String> {
+    resolve_env_secret_with(
+        &crate::sync::secret_store::SecretStore::new(),
+        workspace_root,
+        team_id,
+    )
+}
+
+/// `resolve_env_secret` over an explicit store, so tests can exercise the
+/// precedence without reaching for the real `$HOME`.
+fn resolve_env_secret_with(
+    store: &crate::sync::secret_store::SecretStore,
+    workspace_root: &Path,
+    team_id: Option<&str>,
+) -> Option<String> {
+    if let Some(team_id) = team_id.filter(|id| !id.trim().is_empty()) {
+        if let Some(secret) = store.team_secret(team_id) {
+            return Some(secret);
+        }
+    }
+    teamclaw_runtime_env::env_catalog::resolve_team_env_secret(workspace_root, team_id)
+}
+
 /// Load decrypted team shared env for a workspace.
 ///
 /// Does not require `team.enabled` in `teamclaw.json`. Git-backed teams usually
@@ -158,13 +193,11 @@ pub fn load_team_env_for_workspace(
     team_id: Option<&str>,
 ) -> HashMap<String, String> {
     let shared_dir_name = read_team_json_shared_dir_name(workspace_root);
-    let Some(env_secret) =
-        teamclaw_runtime_env::env_catalog::resolve_team_env_secret(workspace_root, team_id)
-    else {
+    let Some(env_secret) = resolve_env_secret(workspace_root, team_id) else {
         if team_id.is_some() {
             warn!(
                 workspace = %workspace_root.display(),
-                "team env secret missing (team.envSecret or _team_secret blob)"
+                "team env secret missing; set it with `amuxd team secrets set --team-secret <64-hex>`"
             );
         }
         return HashMap::new();
@@ -202,7 +235,86 @@ pub fn load_team_env_for_workspace(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync::secret_store::{SecretStore, TeamSecrets};
     use teamclaw_runtime_env::team_crypto::SecretEntry;
+
+    fn store_with_secret(base: &Path, team_id: &str, secret: &str) -> SecretStore {
+        let store = SecretStore::with_base(base.to_path_buf());
+        store
+            .merge(
+                team_id,
+                &TeamSecrets {
+                    oss_team_secret: Some(secret.to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        store
+    }
+
+    /// The standalone-daemon case: nothing in the workspace, no desktop blob —
+    /// only what `amuxd team secrets set` (or the desktop's push) left behind.
+    #[test]
+    fn env_secret_resolves_from_daemon_store_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let secret = "5a".repeat(32);
+        let store = store_with_secret(home.path(), "t-1", &secret);
+
+        let got = resolve_env_secret_with(&store, tmp.path(), Some("t-1"));
+        assert_eq!(got.as_deref(), Some(secret.as_str()));
+    }
+
+    /// The daemon's own copy is the system of record, so it outranks a stale
+    /// `team.envSecret` left in a workspace's teamclaw.json.
+    #[test]
+    fn daemon_store_wins_over_workspace_teamclaw_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join(".teamclaw");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("teamclaw.json"),
+            serde_json::json!({ "team": { "envSecret": "11".repeat(32) } }).to_string(),
+        )
+        .unwrap();
+        let store = store_with_secret(home.path(), "t-1", &"22".repeat(32));
+
+        let got = resolve_env_secret_with(&store, tmp.path(), Some("t-1"));
+        assert_eq!(got.as_deref(), Some("22".repeat(32).as_str()));
+    }
+
+    /// Compat: an install that predates daemon-side custody has an empty store
+    /// and must keep decrypting from teamclaw.json.
+    #[test]
+    fn falls_back_to_teamclaw_json_when_store_is_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let secret = "33".repeat(32);
+        let config_dir = tmp.path().join(".teamclaw");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("teamclaw.json"),
+            serde_json::json!({ "team": { "envSecret": secret } }).to_string(),
+        )
+        .unwrap();
+        let store = SecretStore::with_base(home.path().to_path_buf());
+
+        let got = resolve_env_secret_with(&store, tmp.path(), Some("t-1"));
+        assert_eq!(got.as_deref(), Some(secret.as_str()));
+    }
+
+    /// A team_id is required to key into the store; without one the store is
+    /// skipped rather than consulted with a blank key.
+    #[test]
+    fn blank_team_id_skips_the_store() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let store = store_with_secret(home.path(), "   ", &"44".repeat(32));
+
+        assert!(resolve_env_secret_with(&store, tmp.path(), Some("   ")).is_none());
+        assert!(resolve_env_secret_with(&store, tmp.path(), None).is_none());
+    }
 
     fn encrypted_secret_file(env_secret: &str, key_id: &str, key_value: &str) -> String {
         let key = derive_key(env_secret).unwrap();

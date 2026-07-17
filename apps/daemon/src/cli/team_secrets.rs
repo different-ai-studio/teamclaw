@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::config::DaemonConfig;
-use crate::sync::secret_store::{validate_oss_secret, SecretStore, TeamSecrets};
+use crate::sync::secret_store::{validate_team_secret, SecretStore, TeamSecrets};
 
 use super::{TeamAction, TeamArgs, TeamSecretsAction};
 
@@ -18,13 +18,13 @@ pub fn run(args: TeamArgs) -> anyhow::Result<()> {
     match secrets.action {
         TeamSecretsAction::Set {
             team_id,
-            oss_secret,
+            team_secret,
             git_credential,
             git_credential_file,
             git_branch,
         } => set(
             team_id,
-            oss_secret,
+            team_secret,
             git_credential,
             git_credential_file,
             git_branch,
@@ -64,7 +64,7 @@ fn resolve_team_id(explicit: Option<String>) -> anyhow::Result<String> {
 
 fn set(
     team_id: Option<String>,
-    oss_secret: Option<String>,
+    team_secret: Option<String>,
     git_credential: Option<String>,
     git_credential_file: Option<PathBuf>,
     git_branch: Option<String>,
@@ -84,19 +84,19 @@ fn set(
         (None, None) => None,
     };
 
-    let oss_secret = oss_secret.map(|s| s.trim().to_string());
-    if let Some(s) = &oss_secret {
-        validate_oss_secret(s).map_err(|e| anyhow::anyhow!("--oss-secret: {e}"))?;
+    let team_secret = team_secret.map(|s| s.trim().to_string());
+    if let Some(s) = &team_secret {
+        validate_team_secret(s).map_err(|e| anyhow::anyhow!("--team-secret: {e}"))?;
     }
 
-    if oss_secret.is_none() && git_credential.is_none() && git_branch.is_none() {
+    if team_secret.is_none() && git_credential.is_none() && git_branch.is_none() {
         anyhow::bail!(
-            "nothing to set: pass --oss-secret, --git-credential/--git-credential-file, or --git-branch"
+            "nothing to set: pass --team-secret, --git-credential/--git-credential-file, or --git-branch"
         );
     }
 
     let incoming = TeamSecrets {
-        oss_team_secret: oss_secret,
+        oss_team_secret: team_secret,
         // The daemon self-supplies its own cloud bearer for OSS sync, so this
         // field is intentionally not settable here.
         user_jwt: None,
@@ -124,10 +124,10 @@ fn show(team_id: Option<String>) -> anyhow::Result<()> {
 
 fn print_state(store: &SecretStore, team_id: &str) -> anyhow::Result<()> {
     let s = store.load(team_id).map_err(|e| anyhow::anyhow!("{e}"))?;
-    println!("  oss_team_secret = {}", mask(s.oss_team_secret.as_deref()));
-    println!("  git_credential  = {}", mask(s.git_credential.as_deref()));
+    println!("  team_secret    = {}", mask(s.oss_team_secret.as_deref()));
+    println!("  git_credential = {}", mask(s.git_credential.as_deref()));
     println!(
-        "  git_branch      = {}",
+        "  git_branch     = {}",
         s.git_branch.as_deref().unwrap_or("(unset)")
     );
     Ok(())
@@ -161,13 +161,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn oss_secret_must_be_64_hex() {
-        assert!(validate_oss_secret(&"ab".repeat(32)).is_ok());
-        assert!(validate_oss_secret(&"AB".repeat(32)).is_ok());
+    fn team_secret_must_be_64_hex() {
+        assert!(validate_team_secret(&"ab".repeat(32)).is_ok());
+        assert!(validate_team_secret(&"AB".repeat(32)).is_ok());
         // Too short, and the length is what a user is most likely to get wrong.
-        assert!(validate_oss_secret("abcd").is_err());
+        assert!(validate_team_secret("abcd").is_err());
         // Right length, but 'z' is not hex — would fail at HKDF decode.
-        assert!(validate_oss_secret(&"z".repeat(64)).is_err());
+        assert!(validate_team_secret(&"z".repeat(64)).is_err());
     }
 
     #[test]

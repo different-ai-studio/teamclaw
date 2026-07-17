@@ -44,7 +44,7 @@ function makeRepo({ result, error, usage, usageError, memberKeyResult, memberKey
         endDate: "2026-06-30",
         summary: { totalTokens: 100, promptTokens: 60, completionTokens: 40, totalSpend: 1.5, requestCount: 3 },
         maxBudget: 10,
-        members: [{ apiKey: "k", alias: "member-1", tokens: 100, spend: 1.5, requests: 3 }],
+        members: [{ actorId: "11111111-1111-4111-8111-111111111111", displayName: "周金亮", tokens: 100, spend: 1.5, requests: 3 }],
         byModel: [{ model: "kimi-k2.6", tokens: 100, spend: 1.5, requests: 3 }],
       };
     },
@@ -129,7 +129,7 @@ test("GET /v1/teams/:id/litellm/usage → 200 returns team usage + passes range/
   assert.equal(res.statusCode, 200);
   const body = JSON.parse(res.body);
   assert.equal(body.summary.totalTokens, 100);
-  assert.equal(body.members[0].alias, "member-1");
+  assert.equal(body.members[0].displayName, "周金亮");
   assert.equal(body.byModel[0].model, "kimi-k2.6");
   assert.deepEqual(repo.calls[0], {
     method: "getLiteLlmUsage",

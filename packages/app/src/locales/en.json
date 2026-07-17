@@ -2135,6 +2135,7 @@
       "budget": "Budget",
       "leaderboard": "Member Leaderboard",
       "noUsage": "No usage in this period.",
+      "unattributed": "Unattributed",
       "byModel": "By Model",
       "colName": "Name",
       "colTokens": "Tokens",
@@ -2525,6 +2526,7 @@
     },
     "teamShare": {
       "enableTitle": "Enable team sharing",
+      "daemonDeliveryFailed": "Team share is on, but the daemon didn't accept the secret",
       "enableDescription": "Choose a team sharing mode. It cannot be changed once enabled, so choose carefully.",
       "shareModeLegend": "Sharing mode",
       "modeOssDesc": "Use Alibaba Cloud OSS as the sharing backend (default)",
@@ -2582,6 +2584,7 @@
       "hint": "Use any passphrase you share with members, or click Generate for a random key.",
       "generate": "Generate",
       "savedOk": "Saved.",
+      "daemonDeliveryFailed": "Saved locally, but the daemon didn't accept it — shared env vars stay unavailable until you retry.",
       "updateSectionTitle": "Update team secret",
       "updateSectionDesc": "Members must use the same secret to decrypt shared environment variables."
     }

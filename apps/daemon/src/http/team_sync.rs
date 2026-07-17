@@ -124,7 +124,7 @@ pub async fn set_secrets(
     // surface until it failed to decrypt on the next sync tick.
     let oss_team_secret = body.oss_team_secret.map(|s| s.trim().to_string());
     if let Some(secret) = oss_team_secret.as_deref() {
-        crate::sync::secret_store::validate_oss_secret(secret).map_err(HttpError::validation)?;
+        crate::sync::secret_store::validate_team_secret(secret).map_err(HttpError::validation)?;
     }
     let incoming = crate::sync::secret_store::TeamSecrets {
         oss_team_secret,
