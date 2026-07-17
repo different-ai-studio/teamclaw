@@ -13,10 +13,12 @@ use axum::{
 
 use super::apps;
 use super::auth;
+use super::config;
 use super::limit::{body_limit_layer, rate_limit_layer};
 use super::live_events;
 use super::observ::request_id_layer;
 use super::sessions;
+use super::setup;
 use super::state::HttpState;
 use super::team;
 use super::team_sync;
@@ -33,6 +35,22 @@ pub fn build(state: HttpState) -> Router {
         // the page via `?access_token=` (the desktop mints a scoped session
         // token and opens this URL) — the HTML itself holds no secret.
         .route("/v1/ui", get(ui_route))
+        // First-run onboarding. `status` is unauthenticated (it only reveals
+        // whether setup is needed); `claim` is root-token gated — see
+        // `http::setup` for why neither uses a scope.
+        .route("/v1/setup", get(setup_ui_route))
+        .route("/v1/setup/status", get(setup::setup_status))
+        .route("/v1/setup/claim", post(setup::setup_claim))
+        // Daemon-level config (`admin` scope). Per-workspace settings live
+        // under /v1/workspaces/*; these keys are daemon-wide.
+        .route("/v1/config", get(config::list_config))
+        .route("/v1/config/reload", post(config::reload_config))
+        .route(
+            "/v1/config/:key",
+            get(config::get_config)
+                .merge(put(config::set_config))
+                .merge(delete(config::unset_config)),
+        )
         .route("/v1/auth/exchange", post(auth::exchange_handler))
         .route("/v1/auth/revoke", post(auth::revoke_handler))
         .route("/v1/auth/tokens", get(auth::list_tokens_handler))
@@ -175,9 +193,17 @@ pub fn build(state: HttpState) -> Router {
 /// unauthenticated — it is static markup; every data call it makes carries
 /// the caller's session token.
 const CHAT_UI_HTML: &str = include_str!("ui/chat.html");
+static SETUP_UI_HTML: &str = include_str!("ui/setup.html");
 
 async fn ui_route() -> Html<&'static str> {
     Html(CHAT_UI_HTML)
+}
+
+/// Setup console. Like the chat console it is static, dependency-free HTML
+/// inlined into the binary — a fresh install has no asset server, and this
+/// page must render before the daemon is configured at all.
+async fn setup_ui_route() -> Html<&'static str> {
+    Html(SETUP_UI_HTML)
 }
 
 fn healthz_route() -> MethodRouter<HttpState> {

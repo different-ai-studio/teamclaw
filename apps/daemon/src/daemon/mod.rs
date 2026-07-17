@@ -6,4 +6,4 @@ pub(crate) mod server;
 mod session_events;
 mod session_resume;
 
-pub use server::DaemonServer;
+pub use server::{backend_from_provider_config, DaemonServer};

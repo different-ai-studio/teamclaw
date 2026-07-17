@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<!--
+  amuxd setup console.
+
+  Static, dependency-free, inlined into the binary: a fresh install has no
+  asset server and no network guarantee, and this page must render before the
+  daemon is configured at all.
+
+  Auth: the page is opened with `?access_token=<root token>` (see `amuxd
+  setup`, which reads ~/.amuxd/amuxd.http.token and prints the URL). The root
+  token claims the invite; it is then exchanged for an `admin`-scoped session
+  token, which is what the config calls use. The HTML itself holds no secret.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>amuxd setup</title>
+    <style>
+      :root {
+        --bg: #14110f;
+        --panel: #1c1917;
+        --line: #2e2926;
+        --ink: #e7e2dc;
+        --muted: #8f877e;
+        --accent: #d4633f;
+        --ok: #6f9e63;
+        --warn: #c9973f;
+        --err: #c25b4e;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.55 ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+        padding: 32px 20px 64px;
+      }
+      main { max-width: 720px; margin: 0 auto; }
+      h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+      .sub { color: var(--muted); margin: 0 0 28px; }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 18px 20px;
+        margin-bottom: 16px;
+      }
+      h2 { font-size: 13px; font-weight: 600; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+      label { display: block; margin: 12px 0 5px; font-size: 12px; color: var(--muted); }
+      input {
+        width: 100%;
+        background: #100e0d;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--ink);
+        padding: 8px 10px;
+        font: inherit;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+      input:focus { outline: none; border-color: var(--accent); }
+      button {
+        background: var(--accent);
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        margin-top: 14px;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+      .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+      .pill.ok { background: rgba(111,158,99,0.16); color: var(--ok); }
+      .pill.warn { background: rgba(201,151,63,0.16); color: var(--warn); }
+      .msg { margin-top: 12px; padding: 9px 11px; border-radius: 6px; font-size: 13px; display: none; }
+      .msg.err { display: block; background: rgba(194,91,78,0.14); color: var(--err); }
+      .msg.ok { display: block; background: rgba(111,158,99,0.14); color: var(--ok); }
+      .msg.warn { display: block; background: rgba(201,151,63,0.14); color: var(--warn); }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+      td.k { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); white-space: nowrap; width: 44%; }
+      td.v input { padding: 5px 8px; }
+      .secret { color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+      .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+      .row { display: flex; gap: 8px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>amuxd setup</h1>
+      <p class="sub">Configure this daemon from the browser. No CLI flags required.</p>
+
+      <section id="statusPanel">
+        <h2>Status</h2>
+        <div class="row">
+          <span id="statusPill" class="pill warn">checking…</span>
+          <span id="statusText" class="sub" style="margin:0"></span>
+        </div>
+      </section>
+
+      <section id="claimPanel">
+        <h2>Onboard</h2>
+        <p class="hint">
+          Paste an <strong>Agent</strong> invite from the app's Invite dialog. A
+          teammate/member invite will be rejected.
+        </p>
+        <label for="invite">Invite URL</label>
+        <input id="invite" placeholder="teamclaw://invite?token=…" spellcheck="false" />
+        <button id="claimBtn">Claim invite</button>
+        <div id="claimMsg" class="msg"></div>
+      </section>
+
+      <section id="configPanel">
+        <h2>Daemon config</h2>
+        <p class="hint">
+          Values are written to <code id="cfgPath">daemon.toml</code> and validated
+          before saving — an invalid edit is rejected and the file left untouched.
+          Credentials are never sent back to this page; leave a field blank to
+          keep the stored value.
+        </p>
+        <table id="cfgTable"></table>
+        <div class="row">
+          <button id="reloadBtn" class="ghost">Reload channels</button>
+        </div>
+        <div id="cfgMsg" class="msg"></div>
+      </section>
+    </main>
+
+    <script>
+      // The root token arrives in the query string; the config calls need an
+      // admin-scoped session token minted from it.
+      const ROOT_TOKEN = new URLSearchParams(location.search).get("access_token") || "";
+      let sessionToken = null;
+
+      const $ = (id) => document.getElementById(id);
+      const show = (el, cls, text) => { el.className = "msg " + cls; el.textContent = text; };
+      const clear = (el) => { el.className = "msg"; el.textContent = ""; };
+
+      async function api(path, opts = {}, token = sessionToken) {
+        const res = await fetch(path, {
+          ...opts,
+          headers: {
+            "content-type": "application/json",
+            ...(token ? { authorization: "Bearer " + token } : {}),
+            ...(opts.headers || {}),
+          },
+        });
+        const text = await res.text();
+        const body = text ? JSON.parse(text) : null;
+        if (!res.ok) throw new Error(body?.detail || body?.error || res.statusText);
+        return body;
+      }
+
+      async function ensureSessionToken() {
+        if (sessionToken) return sessionToken;
+        if (!ROOT_TOKEN) throw new Error("no access_token in URL — run `amuxd setup` to get the link");
+        const body = await api(
+          "/v1/auth/exchange",
+          { method: "POST", body: JSON.stringify({ scopes: ["admin"], label: "setup-ui" }) },
+          ROOT_TOKEN,
+        );
+        sessionToken = body.token;
+        return sessionToken;
+      }
+
+      async function refreshStatus() {
+        const s = await api("/v1/setup/status", {}, null);
+        const pill = $("statusPill");
+        if (s.claimed) {
+          pill.className = "pill ok";
+          pill.textContent = "onboarded";
+          $("statusText").textContent = `actor ${s.actorId} · team ${s.teamId}`;
+          $("claimPanel").style.display = "none";
+        } else {
+          pill.className = "pill warn";
+          pill.textContent = "not onboarded";
+          $("statusText").textContent = "claim an invite to connect this daemon";
+        }
+        return s;
+      }
+
+      $("claimBtn").onclick = async () => {
+        const btn = $("claimBtn");
+        const msg = $("claimMsg");
+        const inviteUrl = $("invite").value.trim();
+        if (!inviteUrl) return show(msg, "err", "paste an invite URL first");
+        btn.disabled = true;
+        clear(msg);
+        try {
+          const r = await api(
+            "/v1/setup/claim",
+            { method: "POST", body: JSON.stringify({ inviteUrl }) },
+            ROOT_TOKEN,
+          );
+          const tail = r.requiresRestart
+            ? " Restart the daemon to finish connecting — it booted before it had an identity."
+            : "";
+          show(msg, r.requiresRestart ? "warn" : "ok", `Claimed as ${r.displayName}.${tail}`);
+          await refreshStatus();
+        } catch (e) {
+          show(msg, "err", String(e.message || e));
+        } finally {
+          btn.disabled = false;
+        }
+      };
+
+      function renderConfig(body) {
+        $("cfgPath").textContent = body.path;
+        const table = $("cfgTable");
+        table.innerHTML = "";
+        for (const entry of body.entries) {
+          const tr = document.createElement("tr");
+          const k = document.createElement("td");
+          k.className = "k";
+          k.textContent = entry.key;
+
+          const v = document.createElement("td");
+          v.className = "v";
+          const input = document.createElement("input");
+          if (entry.secret) {
+            input.type = "password";
+            input.placeholder = entry.display; // a mask, never the value
+          } else {
+            input.value =
+              typeof entry.value === "string" ? entry.value : JSON.stringify(entry.value);
+          }
+          input.onchange = () => saveKey(entry, input);
+          v.appendChild(input);
+
+          tr.appendChild(k);
+          tr.appendChild(v);
+          table.appendChild(tr);
+        }
+      }
+
+      // Submit the typed value, falling back to a bare string. Mirrors the
+      // CLI's `config set`, which parses its argument as TOML and falls back
+      // to a string — so `8883` is an int and `hello` stays a string.
+      function parseValue(raw) {
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return raw;
+        }
+      }
+
+      async function saveKey(entry, input) {
+        const msg = $("cfgMsg");
+        clear(msg);
+        const raw = input.value;
+        if (entry.secret && raw === "") return; // blank means "keep stored value"
+        try {
+          const r = await api("/v1/config/" + encodeURIComponent(entry.key), {
+            method: "PUT",
+            body: JSON.stringify({ value: parseValue(raw) }),
+          });
+          let note = `Saved ${entry.key}.`;
+          if (r.requiresReload) note += " Click Reload channels to apply.";
+          if (r.requiresRestart) note += " Restart the daemon to apply.";
+          show(msg, r.requiresRestart || r.requiresReload ? "warn" : "ok", note);
+          if (entry.secret) input.value = "";
+        } catch (e) {
+          show(msg, "err", `${entry.key}: ${e.message || e}`);
+        }
+      }
+
+      $("reloadBtn").onclick = async () => {
+        const msg = $("cfgMsg");
+        clear(msg);
+        try {
+          await api("/v1/config/reload", { method: "POST" });
+          show(msg, "ok", "Channels reloaded.");
+        } catch (e) {
+          show(msg, "err", String(e.message || e));
+        }
+      };
+
+      (async () => {
+        try {
+          await refreshStatus();
+          await ensureSessionToken();
+          renderConfig(await api("/v1/config"));
+        } catch (e) {
+          show($("cfgMsg"), "err", String(e.message || e));
+        }
+      })();
+    </script>
+  </body>
+</html>

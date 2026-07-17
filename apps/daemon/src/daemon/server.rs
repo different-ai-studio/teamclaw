@@ -324,7 +324,7 @@ fn load_provider_config_from_default_paths() -> crate::error::Result<Option<Prov
         .map_err(|e| crate::error::AmuxError::Config(format!("backend config init failed: {e}")))
 }
 
-fn backend_from_provider_config(config: ProviderConfig) -> crate::error::Result<Arc<dyn Backend>> {
+pub fn backend_from_provider_config(config: ProviderConfig) -> crate::error::Result<Arc<dyn Backend>> {
     match config {
         ProviderConfig::CloudApi(config) => {
             // Rotated refresh tokens are written back to the same backend.toml
@@ -384,6 +384,59 @@ async fn apply_bootstrap_overrides(
         );
     }
     Ok(())
+}
+
+/// The daemon's real onboarding, exposed to `/v1/setup/*`.
+///
+/// Lives here rather than in `http::setup` because it reaches into
+/// `crate::onboarding` and `backend_from_provider_config`, which the
+/// `#[path]`-included HTTP test crates do not have.
+struct DaemonOnboarding {
+    deferred: Arc<crate::backend::deferred::DeferredBackend>,
+}
+
+#[async_trait::async_trait]
+impl crate::http::setup::OnboardingService for DaemonOnboarding {
+    fn is_claimed(&self) -> bool {
+        self.deferred.is_claimed()
+    }
+
+    fn identity(&self) -> Option<(String, String)> {
+        self.deferred.is_claimed().then(|| {
+            (
+                self.deferred.actor_id().to_string(),
+                self.deferred.team_id().to_string(),
+            )
+        })
+    }
+
+    async fn claim(
+        &self,
+        invite_url: &str,
+    ) -> Result<crate::http::setup::ClaimOutcome, String> {
+        // Same path `amuxd init` takes (writes backend.toml + daemon.toml), so
+        // the CLI and the setup UI cannot drift on what onboarding means.
+        let outcome = crate::onboarding::init::run(invite_url, None)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Build a real backend from the config just written and install it, so
+        // the running daemon has credentials immediately: the run loop's
+        // bootstrap re-fetch and token retry both go through this handle.
+        let path = ProviderConfig::default_path().map_err(|e| format!("backend path: {e}"))?;
+        let provider_config = ProviderConfig::load_from_path(&path)
+            .map_err(|e| format!("read new backend.toml: {e}"))?;
+        let backend =
+            backend_from_provider_config(provider_config).map_err(|e| format!("build backend: {e}"))?;
+
+        self.deferred.install(backend);
+
+        Ok(crate::http::setup::ClaimOutcome {
+            actor_id: outcome.actor_id,
+            team_id: outcome.team_id,
+            display_name: outcome.display_name,
+        })
+    }
 }
 
 /// Warn when `daemon.toml` and `backend.toml` disagree on routing identity.
@@ -696,6 +749,13 @@ impl DaemonServer {
         // `RegisterWorkspaceRequest`; the forwarder task below (spawned once the
         // sock command channel exists) re-publishes it as
         // `SockCommand::AddWorkspace` so the existing main-loop handler runs it.
+        // Bridge for `POST /v1/config/reload`. Created here (not at the sock
+        // channel below) because `http::spawn` runs first and needs the sender;
+        // the receiver is forwarded into the command loop alongside
+        // register-workspace. Same shape, same reason: the actor loop owns the
+        // channel manager, so the HTTP task cannot reload it directly.
+        let (config_reload_tx, mut config_reload_rx) = mpsc::channel::<()>(4);
+
         let (register_workspace_tx, mut register_workspace_rx) =
             mpsc::channel::<crate::http::state::RegisterWorkspaceRequest>(16);
         // Shared status for the background agent_types advertise (below). Held
@@ -767,6 +827,11 @@ impl DaemonServer {
                 Some(register_workspace_tx),
                 Some(self.backend.clone()),
                 Some(self.live_tee.clone()),
+                Some(self.config_path.clone()),
+                Some(config_reload_tx),
+                Some(Arc::new(DaemonOnboarding {
+                    deferred: self.deferred_backend.clone(),
+                })),
             )
             .await
             {
@@ -907,6 +972,19 @@ impl DaemonServer {
             });
         }
 
+        // Forward HTTP config-reload requests into the command loop, where they
+        // land on the same handler as `amuxd channel reload`.
+        {
+            let bridge_tx = sock_tx.clone();
+            tokio::spawn(async move {
+                while config_reload_rx.recv().await.is_some() {
+                    if bridge_tx.send(SockCommand::ChannelReload).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+
         // One-time setup before the reconnect loop.
         // Heartbeat runs independently of MQTT session.
         {
@@ -1039,6 +1117,27 @@ impl DaemonServer {
                     if let Some(team_id) = fresh.team_id {
                         info!(%team_id, "adopted team_id from daemon.toml (self-heal)");
                         self.config.team_id = Some(team_id);
+
+                        // Onboarding rewrites actor.id too. A daemon that
+                        // bootstrapped its own config booted with a locally
+                        // minted placeholder, and EMQX keys its topic ACLs on
+                        // the cloud actor_id — connecting under the placeholder
+                        // is denied. Adopt it in the same pass so the reconnect
+                        // below uses the identity the broker expects.
+                        //
+                        // Only the MQTT identity converges here: the topics and
+                        // client are rebuilt each cycle. Startup-captured consumers
+                        // (teamclaw::SessionManager) still hold the old id,
+                        // which is why POST /v1/setup/claim reports
+                        // requiresRestart for a daemon that booted unclaimed.
+                        if fresh.actor.id != self.config.actor.id {
+                            info!(
+                                previous_actor_id = %self.config.actor.id,
+                                actor_id = %fresh.actor.id,
+                                "adopted actor.id from daemon.toml (self-heal)"
+                            );
+                            self.config.actor.id = fresh.actor.id;
+                        }
                     }
                 }
                 // Still teamless: there is nothing team-scoped to do on MQTT

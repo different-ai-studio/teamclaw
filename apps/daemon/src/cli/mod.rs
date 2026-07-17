@@ -1,6 +1,7 @@
 pub mod channel;
 pub mod clear;
 pub mod config_cmd;
+pub mod setup;
 pub mod doctor;
 pub mod install_opencode;
 pub mod mcp_server;
@@ -39,6 +40,16 @@ pub enum Commands {
     Init {
         /// `teamclaw://invite?token=...` URL from the iOS Actors tab.
         join_url: Option<String>,
+    },
+    /// Print the setup URL for a running daemon, and open it by default.
+    ///
+    /// The browser UI covers onboarding and every daemon setting, so a fresh
+    /// install needs no `config`/`channel` flags. Requires `amuxd start` to be
+    /// running — the URL is its loopback listener.
+    Setup {
+        /// Print the URL instead of opening a browser (for headless hosts).
+        #[arg(long)]
+        print_only: bool,
     },
     /// Delete local daemon state (daemon.toml, members.toml, sessions.toml,
     /// backend.toml, workspaces.toml). Use before running `init` against a

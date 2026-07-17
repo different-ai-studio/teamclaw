@@ -1,4 +1,5 @@
 mod daemon_config;
+pub mod edit;
 mod member_store;
 mod roles_skills;
 mod workspace_instructions;

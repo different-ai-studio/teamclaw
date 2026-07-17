@@ -33,6 +33,9 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Setup { print_only } => {
+            cli::setup::run(print_only)?;
+        }
         Commands::Init { join_url } => {
             let url = match join_url {
                 Some(u) => u,
