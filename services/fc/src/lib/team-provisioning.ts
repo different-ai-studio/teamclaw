@@ -119,10 +119,47 @@ export async function fetchLiteLlmModels(aiGatewayEndpoint, key) {
 }
 
 /**
+ * Best-effort registration of the LiteLLM internal user that owns a member key.
+ *
+ * `/key/generate` accepts a `user_id`, but LiteLLM's docs show both "generate a
+ * key for an EXISTING user id" and an explicit `/user/new` → `/key/generate`
+ * sequence, and never state what happens for an unknown user_id. Rather than
+ * bet member-key provisioning on that ambiguity, we create the user first and
+ * ignore the outcome: already-exists is the expected steady state, and any
+ * other failure is handled by ensureMemberKeyFor's fallback.
+ *
+ * `auto_create_key: false` — the caller mints the deterministic `sk-tc-…` key
+ * itself; letting LiteLLM mint an extra one would leave an orphan key on the
+ * team that shows up in usage as a phantom row.
+ *
+ * @param {string} actorId
+ */
+async function ensureLiteLlmUser(actorId) {
+  try {
+    await sharedLitellmFetch('/user/new', 'POST', {
+      user_id: String(actorId),
+      auto_create_key: false,
+    });
+  } catch (e) {
+    console.warn('[ensureLiteLlmUser] /user/new skipped:', (e as any)?.message);
+  }
+}
+
+/**
  * Idempotently ensure a member's LiteLLM virtual key exists in the given
  * LiteLLM team. Key value is deterministic: `sk-tc-${actorId[..40]}`.
  * Returns the key + gateway endpoint. Throws ApiError(503) when master key
  * is not configured (caller decides to swallow or propagate).
+ *
+ * ATTRIBUTION: the key carries `user_id = actorId` — the FULL actor uuid. This
+ * is what usage reporting groups by (LiteLLM_VerificationToken.user_id, joined
+ * from LiteLLM_SpendLogs.api_key at read time). `key_alias` still embeds an
+ * 8-char actor prefix, but it is a DISPLAY string only: it is lossy, unindexed,
+ * and survives nothing — a prior actor-id rebaseline already orphaned every key
+ * minted before it, which is why usage showed unresolvable `member-…` rows.
+ *
+ * Because user_id lives on the key (not on each spend row), backfilling it via
+ * /key/update retroactively attributes that key's ENTIRE spend history.
  *
  * @param {string} litellmTeamId
  * @param {string} actorId
@@ -135,15 +172,42 @@ export async function ensureMemberKeyFor(litellmTeamId, actorId) {
   const keyValue = `sk-tc-${String(actorId).slice(0, 40)}`;
   const info = await keyInfo(keyValue);
   if (info.ok) {
+    // Key predates attribution (or was minted by the fallback below): attach the
+    // owner now. Best-effort — an un-backfilled key only costs an "unattributed"
+    // row in usage, which must never escalate into a failed key handout.
+    if (!(info.data as any)?.info?.user_id) {
+      await ensureLiteLlmUser(actorId);
+      try {
+        await sharedLitellmFetch('/key/update', 'POST', {
+          key: keyValue,
+          user_id: String(actorId),
+        });
+      } catch (e) {
+        console.warn('[ensureMemberKeyFor] user_id backfill skipped:', (e as any)?.message);
+      }
+    }
     return { key: keyValue, aiGatewayEndpoint: AI_GATEWAY_ENDPOINT() };
   }
-  const gen = await sharedLitellmFetch('/key/generate', 'POST', {
+
+  await ensureLiteLlmUser(actorId);
+  const body = {
     key: keyValue,
     team_id: litellmTeamId,
     key_alias: `member-${String(actorId).slice(0, 8)}`,
-  });
-  if (!gen.ok && gen.status !== 409) {
-    throw new ApiError(502, 'litellm_key_generate_failed', JSON.stringify(gen.data));
+  };
+  const gen = await sharedLitellmFetch('/key/generate', 'POST', { ...body, user_id: String(actorId) });
+  if (gen.ok || gen.status === 409) {
+    return { key: keyValue, aiGatewayEndpoint: AI_GATEWAY_ENDPOINT() };
+  }
+
+  // user_id is an attribution nicety; a working key is not. If the gateway
+  // rejects the owned form, hand out an unowned key rather than leave the
+  // member (or a daemon mid-session) with no LLM credential at all. The row
+  // reports as "unattributed" until the backfill path above catches it.
+  console.warn('[ensureMemberKeyFor] owned key rejected, retrying unowned:', JSON.stringify(gen.data));
+  const plain = await sharedLitellmFetch('/key/generate', 'POST', body);
+  if (!plain.ok && plain.status !== 409) {
+    throw new ApiError(502, 'litellm_key_generate_failed', JSON.stringify(plain.data));
   }
   return { key: keyValue, aiGatewayEndpoint: AI_GATEWAY_ENDPOINT() };
 }

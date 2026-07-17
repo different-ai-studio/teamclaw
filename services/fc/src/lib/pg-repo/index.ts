@@ -17,14 +17,18 @@ import { makeTelemetryRepo } from "./telemetry.js";
 import { makeAttachmentsRepo } from "./attachments.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createPgBusinessRepository({ db, accessToken, userId, callerActorId, provisionLiteLlm, fetchLiteLlmModels: fetchLiteLlmModelsOpt, provisionMemberKey, provisionAppRepo, startDeploy, finalizeDeploy, dispatchPush, publishReadEvent, deleteMemberKey }: { db: PgDatabase<any, any>; accessToken?: string; userId?: string; callerActorId?: string; provisionLiteLlm?: TeamsRepoDeps["provisionLiteLlm"]; fetchLiteLlmModels?: TeamsRepoDeps["fetchLiteLlmModels"]; provisionMemberKey?: TeamsRepoDeps["provisionMemberKey"]; deleteMemberKey?: TeamsRepoDeps["deleteMemberKey"]; provisionAppRepo?: AppsRepoDeps["provisionAppRepo"]; startDeploy?: AppsRepoDeps["startDeploy"]; finalizeDeploy?: AppsRepoDeps["finalizeDeploy"]; dispatchPush?: MessagesRepoDeps["dispatchPush"]; publishReadEvent?: SessionsRepoDeps["publishReadEvent"] }) {
+export function createPgBusinessRepository({ db, accessToken, userId, callerActorId, provisionLiteLlm, fetchLiteLlmModels: fetchLiteLlmModelsOpt, provisionMemberKey, queryLiteLlmUsage, provisionAppRepo, startDeploy, finalizeDeploy, dispatchPush, publishReadEvent, deleteMemberKey }: { db: PgDatabase<any, any>; accessToken?: string; userId?: string; callerActorId?: string; provisionLiteLlm?: TeamsRepoDeps["provisionLiteLlm"]; fetchLiteLlmModels?: TeamsRepoDeps["fetchLiteLlmModels"]; provisionMemberKey?: TeamsRepoDeps["provisionMemberKey"]; queryLiteLlmUsage?: TeamsRepoDeps["queryLiteLlmUsage"]; deleteMemberKey?: TeamsRepoDeps["deleteMemberKey"]; provisionAppRepo?: AppsRepoDeps["provisionAppRepo"]; startDeploy?: AppsRepoDeps["startDeploy"]; finalizeDeploy?: AppsRepoDeps["finalizeDeploy"]; dispatchPush?: MessagesRepoDeps["dispatchPush"]; publishReadEvent?: SessionsRepoDeps["publishReadEvent"] }) {
   // accessToken is verified upstream (makeBusinessRepoFactory) and its `sub`
   // claim is passed here as `userId`. It is kept in the signature only for the
   // few methods that need to forward the raw bearer (none currently); identity
   // for authz flows exclusively through ctx.userId.
   void accessToken;
   const ctx = { userId, callerActorId };
-  const teamsRepo = makeTeamsRepo(db, { provisionLiteLlm, fetchLiteLlmModels: fetchLiteLlmModelsOpt ?? fetchLiteLlmModels, provisionMemberKey, deleteMemberKey, litellmFetch });
+  // queryLiteLlmUsage was declared in TeamsRepoDeps but never forwarded here, so
+  // the seam existed in the types while every caller still hit the real LiteLLM
+  // Postgres. Wiring it through matches the supabase repo, which has always
+  // accepted the same injection.
+  const teamsRepo = makeTeamsRepo(db, { provisionLiteLlm, fetchLiteLlmModels: fetchLiteLlmModelsOpt ?? fetchLiteLlmModels, provisionMemberKey, queryLiteLlmUsage, deleteMemberKey, litellmFetch });
   const teamsCtx = { userId };
   const ideasRepo = makeIdeasRepo(db, ctx);
   const sessionsRepo = makeSessionsRepo(db, ctx, { publishReadEvent });

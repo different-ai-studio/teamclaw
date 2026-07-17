@@ -398,9 +398,16 @@ export interface LiteLlmUsageSummary {
   requestCount: number;
 }
 
+/**
+ * Usage rolled up to the human accountable for it, not to the key that spent it.
+ * Tokens are burned by daemons; the server resolves each agent actor through its
+ * owner, so one row can merge a person's own key with every daemon they own.
+ */
 export interface LiteLlmMemberUsage {
-  apiKey?: string;
-  alias: string;
+  /** Owning human actor id; null = the unattributed bucket. */
+  actorId: string | null;
+  /** null when unattributed — render a localized label, never a raw id. */
+  displayName: string | null;
   tokens: number;
   spend: number;
   requests: number;

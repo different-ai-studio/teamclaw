@@ -190,8 +190,12 @@ export function TokenUsageSection() {
             ) : (
               <BreakdownTable
                 rows={data.members.map((m, i) => ({
-                  rank: i + 1,
-                  label: m.alias,
+                  // Unattributed is a data-quality notice, not a competitor:
+                  // no rank, muted, and the server already sorts it last.
+                  rank: m.actorId ? i + 1 : undefined,
+                  label: m.displayName ?? t('settings.tokenUsage.unattributed', 'Unattributed'),
+                  muted: !m.actorId,
+                  key: m.actorId ?? '__unattributed__',
                   tokens: m.tokens,
                   spend: m.spend,
                   requests: m.requests,
@@ -233,7 +237,7 @@ function SummaryCard({ label, value, highlight }: { label: string; value: string
   )
 }
 
-type Row = { rank?: number; label: string; tokens: number; spend: number; requests: number }
+type Row = { rank?: number; label: string; tokens: number; spend: number; requests: number; muted?: boolean; key?: string }
 
 function BreakdownTable({ rows, t }: { rows: Row[]; t: TFunction }) {
   return (
@@ -245,7 +249,7 @@ function BreakdownTable({ rows, t }: { rows: Row[]; t: TFunction }) {
         <span className="text-right">{t('settings.tokenUsage.colCost', 'Cost')}</span>
       </div>
       {rows.map((r, i) => (
-        <div key={`${r.label}-${i}`} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-2 text-[12.5px]">
+        <div key={r.key ?? `${r.label}-${i}`} className={cn('grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-2 text-[12.5px]', r.muted && 'text-muted-foreground')}>
           <span className="flex items-center gap-2 truncate">
             {r.rank != null && (
               <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-panel text-[11px] font-medium tabular-nums text-muted-foreground">
