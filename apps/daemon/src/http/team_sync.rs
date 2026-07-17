@@ -118,8 +118,16 @@ pub async fn set_secrets(
     Json(body): Json<SecretsRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     require_scope(&principal, "workspace:write")?;
+    // Trim then validate, exactly as `amuxd team secrets set` does: a secret
+    // pasted into the setup UI arrives with stray whitespace far more often than
+    // one typed as a CLI flag, and a malformed secret stored here would not
+    // surface until it failed to decrypt on the next sync tick.
+    let oss_team_secret = body.oss_team_secret.map(|s| s.trim().to_string());
+    if let Some(secret) = oss_team_secret.as_deref() {
+        crate::sync::secret_store::validate_oss_secret(secret).map_err(HttpError::validation)?;
+    }
     let incoming = crate::sync::secret_store::TeamSecrets {
-        oss_team_secret: body.oss_team_secret,
+        oss_team_secret,
         user_jwt: body.user_jwt,
         git_credential: body.git_credential,
         git_branch: body.git_branch,
@@ -130,6 +138,61 @@ pub async fn set_secrets(
         .merge(&body.team_id, &incoming)
         .map_err(|e| HttpError::internal(format!("store secrets: {e}")))?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretStatus {
+    pub set: bool,
+    /// Masked fingerprint (`(set, ab12…ef90)`), never the value. See
+    /// [`crate::sync::secret_store::mask_secret`].
+    pub display: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretsStatusResponse {
+    pub team_id: String,
+    pub oss_team_secret: SecretStatus,
+    pub git_credential: SecretStatus,
+    pub user_jwt: SecretStatus,
+    /// Not a credential — the branch name is plain config, so it is returned
+    /// as-is. The UI needs it to prefill the field.
+    pub git_branch: Option<String>,
+}
+
+/// `GET /v1/team/secrets?teamId=...` — which sync credentials are stored.
+///
+/// The read counterpart of `POST /v1/team/secrets`, which had no way to answer
+/// "is this already configured?" over HTTP — only `amuxd team secrets show`
+/// could. Values are never returned, so this is `workspace:read` rather than
+/// `workspace:write`: it reveals set/unset plus a fingerprint, the same
+/// information the CLI prints.
+pub async fn get_secrets(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Query(q): Query<StatusQuery>,
+) -> Result<Json<SecretsStatusResponse>, HttpError> {
+    require_scope(&principal, "workspace:read")?;
+
+    let secrets = state
+        .sync_dispatcher
+        .secrets()
+        .load(&q.team_id)
+        .map_err(|e| HttpError::internal(format!("read secrets: {e}")))?;
+
+    let status = |v: Option<&str>| SecretStatus {
+        set: v.is_some(),
+        display: crate::sync::secret_store::mask_secret(v),
+    };
+
+    Ok(Json(SecretsStatusResponse {
+        team_id: q.team_id.clone(),
+        oss_team_secret: status(secrets.oss_team_secret.as_deref()),
+        git_credential: status(secrets.git_credential.as_deref()),
+        user_jwt: status(secrets.user_jwt.as_deref()),
+        git_branch: secrets.git_branch,
+    }))
 }
 
 // ---------------------------------------------------------------------------
