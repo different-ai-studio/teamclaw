@@ -28,6 +28,7 @@
 
 pub mod apps;
 pub mod auth;
+pub mod config;
 pub mod cors;
 pub mod errors;
 pub mod events;
@@ -36,6 +37,7 @@ pub mod live_events;
 pub mod observ;
 pub mod runtime_adapter;
 pub mod sessions;
+pub mod setup;
 pub mod state;
 pub mod team;
 pub mod team_sync;

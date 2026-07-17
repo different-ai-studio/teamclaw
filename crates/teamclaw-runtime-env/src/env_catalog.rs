@@ -6,16 +6,12 @@
 //! Desktop writes go through `env_catalog_set` / `env_catalog_delete`; daemon
 //! runtime injection decrypts the same team paths via `team_shared_env`.
 
-use aes_gcm::aead::Aead;
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
+use crate::team_crypto::{self, EncryptedEnvelope};
 use crate::team_provider;
 
 const TEAMCLAW_DIR: &str = ".teamclaw";
@@ -58,31 +54,6 @@ pub struct AgentEnvListing {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct EncryptedEnvelope {
-    v: u32,
-    nonce: String,
-    ciphertext: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SecretEntry {
-    key_id: String,
-    #[serde(default)]
-    key: String,
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    category: String,
-    #[serde(default)]
-    created_by: String,
-    #[serde(default)]
-    updated_by: String,
-    #[serde(default)]
-    updated_at: String,
 }
 
 fn teamclaw_config_path(workspace: &Path) -> PathBuf {
@@ -151,31 +122,7 @@ pub fn team_secrets_dir_candidates_workspace(
 }
 
 fn derive_key(env_secret: &str) -> anyhow::Result<[u8; 32]> {
-    let ikm = hex::decode(env_secret)?;
-    if ikm.len() != 32 {
-        anyhow::bail!("env_secret must be 32 bytes (64 hex chars)");
-    }
-    let hk = Hkdf::<Sha256>::new(Some(b"teamclaw-secrets-v1"), &ikm);
-    let mut okm = [0_u8; 32];
-    hk.expand(b"aes-256-gcm", &mut okm)
-        .map_err(|_| anyhow::anyhow!("HKDF expand failed"))?;
-    Ok(okm)
-}
-
-fn decrypt_secret(envelope: &EncryptedEnvelope, key: &[u8; 32]) -> anyhow::Result<SecretEntry> {
-    if envelope.v != 1 {
-        anyhow::bail!("unsupported envelope version {}", envelope.v);
-    }
-    let nonce_bytes = BASE64.decode(&envelope.nonce)?;
-    if nonce_bytes.len() != 12 {
-        anyhow::bail!("nonce must be 12 bytes");
-    }
-    let ciphertext = BASE64.decode(&envelope.ciphertext)?;
-    let cipher = Aes256Gcm::new_from_slice(key)?;
-    let plaintext = cipher
-        .decrypt(Nonce::from_slice(&nonce_bytes), ciphertext.as_ref())
-        .map_err(|_| anyhow::anyhow!("AES-GCM decrypt failed"))?;
-    Ok(serde_json::from_slice(&plaintext)?)
+    Ok(team_crypto::derive_key(env_secret)?)
 }
 
 fn load_team_env_metas_from_dir(
@@ -217,7 +164,7 @@ fn load_team_env_metas_from_dir(
                 continue;
             }
         };
-        let secret = match decrypt_secret(&envelope, &key) {
+        let secret = match team_crypto::decrypt_secret(&envelope, &key) {
             Ok(secret) => secret,
             Err(e) => {
                 warn!(path = %path.display(), "env_catalog: failed to decrypt team secret file: {e}");
@@ -387,13 +334,17 @@ pub fn load_agent_env_listings(workspace: &Path, team_id: Option<&str>) -> Vec<A
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aes_gcm::aead::Aead;
+    use crate::team_crypto::SecretEntry;
+
+    // The personal-secrets blob below is a different format (raw key, no HKDF,
+    // `nonce_b64` fields), so it still builds its ciphertext by hand.
+    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::{Aes256Gcm, Nonce};
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
     fn encrypted_secret_file(env_secret: &str, key_id: &str, key_value: &str) -> String {
         let key = derive_key(env_secret).unwrap();
-        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
-        let nonce = [9_u8; 12];
-        let secret = SecretEntry {
+        let entry = SecretEntry {
             key_id: key_id.to_string(),
             key: key_value.to_string(),
             description: "desc".to_string(),
@@ -402,16 +353,8 @@ mod tests {
             updated_by: "node-a".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
         };
-        let plaintext = serde_json::to_vec(&secret).unwrap();
-        let ciphertext = cipher
-            .encrypt(Nonce::from_slice(&nonce), plaintext.as_ref())
-            .unwrap();
-        serde_json::to_string(&EncryptedEnvelope {
-            v: 1,
-            nonce: BASE64.encode(nonce),
-            ciphertext: BASE64.encode(ciphertext),
-        })
-        .unwrap()
+        let envelope = team_crypto::encrypt_secret(&entry, &key).unwrap();
+        serde_json::to_string(&envelope).unwrap()
     }
 
     #[test]

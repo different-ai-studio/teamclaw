@@ -56,6 +56,9 @@ async fn test_app(backend: Arc<dyn Backend>, scopes: &[&str]) -> (TestApp, tempf
         None,
         Some(backend),
         None,
+        None,
+        None,
+        None,
     )
     .await
     .expect("spawn http server");

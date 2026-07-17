@@ -1,4 +1,5 @@
 mod daemon_config;
+pub mod edit;
 mod member_store;
 mod roles_skills;
 mod workspace_instructions;
@@ -14,6 +15,7 @@ pub mod workspace_control;
 pub use daemon_config::{
     AgentBackendConfig, AgentsConfig, ActorConfig, DaemonConfig, DiscordChannel, EmailChannel,
     FeishuChannel, HttpConfig, KookChannel, MqttConfig, TransportKind, WeChatChannel, WeComChannel,
+    BOOTSTRAP_ACTOR_NAME,
 };
 // Constructed only by the test suite (runtime_resolution / server tests).
 #[cfg(test)]

@@ -213,27 +213,10 @@ fn actionable_invite_claim_error(err: anyhow::Error) -> anyhow::Error {
 }
 
 fn default_daemon_config(display_name: &str, actor_id: &str) -> DaemonConfig {
-    DaemonConfig {
-        actor: ActorConfig {
-            id: actor_id.to_string(),
-            name: display_name.to_string(),
-        },
-        mqtt: MqttConfig {
-            // Empty by default: the daemon fills the broker from
-            // /v1/config/bootstrap at startup (apply_bootstrap_overrides).
-            broker_url: String::new(),
-            username: None,
-            password: None,
-        },
-        agents: AgentsConfig::default(),
-        transport: None,
-        team_id: None,
-        channels: Default::default(),
-        idle_runtime_timeout_secs: None,
-        // Persist desktop CORS origins so packaged WebView fetch() can reach the
-        // loopback control plane without a manual daemon.toml edit.
-        http: Some(HttpConfig::default()),
-    }
+    let mut config = DaemonConfig::bootstrap();
+    config.actor.id = actor_id.to_string();
+    config.actor.name = display_name.to_string();
+    config
 }
 
 fn daemon_config_for_invite(
@@ -248,6 +231,13 @@ fn daemon_config_for_invite(
     // rules under the `amux/{team}/{actor}/...` topic namespace, so any other
     // value makes EMQX reject the daemon's CONNECT (LWT topic denied).
     daemon_cfg.actor.id = actor_id.to_string();
+    // Replace the placeholder left by a daemon that booted unclaimed, so
+    // presence doesn't announce it. An operator-chosen name is preserved.
+    if daemon_cfg.actor.name.is_empty()
+        || daemon_cfg.actor.name == crate::config::BOOTSTRAP_ACTOR_NAME
+    {
+        daemon_cfg.actor.name = display_name.to_string();
+    }
     daemon_cfg.team_id = Some(team_id.to_string());
     // Honor an explicit `?broker=` invite override; otherwise leave empty so the
     // daemon resolves the broker from /v1/config/bootstrap at startup.
@@ -394,6 +384,26 @@ mod tests {
         assert_eq!(cfg.actor.name, "existing-host");
         assert_eq!(cfg.team_id.as_deref(), Some("team-2"));
         assert_eq!(cfg.mqtt.broker_url, "mqtts://broker.example.com:8883");
+    }
+
+    #[test]
+    fn claiming_a_bootstrapped_config_replaces_the_placeholder_name() {
+        // A daemon that booted with no daemon.toml carries a placeholder
+        // actor.name. Claiming must adopt the cloud display name, or presence
+        // would announce the placeholder once MQTT comes up.
+        let cfg = daemon_config_for_invite(
+            Some(DaemonConfig::bootstrap()),
+            "new-display-name",
+            "team-2",
+            "actor-2",
+            &ParsedInvite {
+                token: "tok".into(),
+                broker_url: None,
+                cloud_api_url: None,
+            },
+        );
+        assert_eq!(cfg.actor.name, "new-display-name");
+        assert_eq!(cfg.actor.id, "actor-2");
     }
 
     #[test]

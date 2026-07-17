@@ -50,6 +50,7 @@ pub mod error;
 pub use error::{BackendError, BackendResult};
 
 pub mod cloud_api;
+pub mod deferred;
 
 pub mod records;
 pub use records::{
