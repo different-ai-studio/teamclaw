@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, AlertCircle, Users, User, Lock, Copy, Check } from 'lucide-react'
+import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, AlertCircle, Users, User, Lock, Copy, Check, TriangleAlert } from 'lucide-react'
+import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -18,6 +19,7 @@ import { useTeamMembersStore } from '@/stores/team-members'
 import { useTeamPermissions } from '@/lib/team-permissions'
 import { encodeWorkspaceId, reloadDaemonRuntime } from '@/lib/daemon-local-client'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useCurrentTeamStore } from '@/stores/current-team'
 import { toast } from 'sonner'
 import { listen } from '@tauri-apps/api/event'
 
@@ -462,6 +464,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const { t } = useTranslation()
   const { envVars, teamSecrets, isLoading: envLoading, loadEnvCatalog, setCatalogEntry, deleteCatalogEntry } = useEnvVarsStore()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
   const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
   // currentNodeId is hydrated here (and via useAppInit) since the Team panel no longer owns it.
   const loadCurrentNodeId = useTeamMembersStore((s) => s.loadCurrentNodeId)
@@ -471,6 +474,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const [editingEntry, setEditingEntry] = React.useState<UnifiedEntry | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<UnifiedEntry | null>(null)
   const [dirtyKeys, setDirtyKeys] = React.useState<Set<string>>(new Set())
+  const [teamEnvAvailable, setTeamEnvAvailable] = React.useState<boolean | null>(null)
 
   const isLoading = envLoading
 
@@ -509,6 +513,28 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       unlistenSync?.()
     }
   }, [loadEnvCatalog, loadCurrentNodeId, workspacePath, t])
+
+  // Files under teamclaw-team/_secrets may exist while this daemon lacks the
+  // team key needed to decrypt them. Ask the daemon rather than inferring from
+  // the file list; the response deliberately contains no secret material.
+  React.useEffect(() => {
+    let cancelled = false
+    if (!teamId) {
+      setTeamEnvAvailable(null)
+      return
+    }
+    setTeamEnvAvailable(null)
+    void invoke<boolean>('team_env_runtime_status', { teamId })
+      .then((available) => {
+        if (!cancelled) setTeamEnvAvailable(available)
+      })
+      .catch(() => {
+        // A stopped daemon is indeterminate, not evidence that the team key is
+        // absent. Avoid a false red warning while the local service restarts.
+        if (!cancelled) setTeamEnvAvailable(null)
+      })
+    return () => { cancelled = true }
+  }, [teamId])
 
   // Build unified list: personal env vars + team secrets, with `system-shared`
   // system defs surfaced as either the matching team secret (uppercase key) or
@@ -643,6 +669,20 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
         description={t('settings.envVars.sectionDescription', 'Securely store API keys, passwords, and other secrets in your system keychain')}
         iconColor="text-emerald-500"
       />
+
+      {teamEnvAvailable === false && (
+        <div className="flex items-start gap-3 rounded-[14px] border border-amber-300/70 bg-amber-50 px-4 py-3 text-[13px] text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="font-semibold">
+              {t('settings.envVars.teamUnavailableTitle', 'Team variables are not available to this agent')}
+            </p>
+            <p className="mt-0.5 text-amber-800 dark:text-amber-200">
+              {t('settings.envVars.teamUnavailableBody', 'The local daemon does not have the team secret required to decrypt shared variables. Set the correct Team Secret in Team Shared settings, then start a new agent session.')}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Action bar */}
       <div className="flex items-center justify-between">

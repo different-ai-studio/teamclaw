@@ -405,6 +405,7 @@ export function LocalDaemonRow({
   const currentWorkspacePath = useWorkspaceStore((s) => s.workspacePath)
   const currentWorkspaceName = useWorkspaceStore((s) => s.workspaceName)
   const refreshDaemon = useDaemonOnboardingStore((s) => s.refresh)
+  const checkCloudSession = useDaemonOnboardingStore((s) => s.checkCloudSession)
   const daemonBusy = useDaemonOnboardingStore((s) => s.busy)
 
   const daemonOffline = runtimeStatus === 'offline'
@@ -491,7 +492,14 @@ export function LocalDaemonRow({
     if (retrying || daemonBusy) return
     setRetrying(true)
     try {
+      await checkCloudSession({ allowRetryAfterHealError: true })
       await refreshDaemon()
+      await recoverMqttConnection()
+      const { cloudAuthExpired, healError } = useDaemonOnboardingStore.getState()
+      if (cloudAuthExpired && healError) {
+        toast.error(healError)
+        return
+      }
     } catch (err) {
       console.error('[LocalDaemonRow] daemon refresh failed', err)
       toast.error(t('sidebar.localDaemonOfflineHint', 'Daemon offline — check Settings'))

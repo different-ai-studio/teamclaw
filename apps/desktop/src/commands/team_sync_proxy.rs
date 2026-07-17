@@ -210,6 +210,35 @@ pub async fn daemon_team_sync_status(team_id: &str) -> Result<serde_json::Value,
     .await
 }
 
+/// Non-sensitive status of the team secret held by the local daemon.
+///
+/// The daemon deliberately returns only whether the secret is present (and a
+/// masked fingerprint); this desktop surface further reduces that to a boolean
+/// for the Environment Variables settings panel.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DaemonTeamSecretStatus {
+    oss_team_secret: DaemonSecretSetStatus,
+}
+
+#[derive(Debug, Deserialize)]
+struct DaemonSecretSetStatus {
+    set: bool,
+}
+
+pub async fn daemon_team_env_available(team_id: &str) -> Result<bool, String> {
+    let query = format!("?teamId={}", urlencode(team_id));
+    let status: DaemonTeamSecretStatus = daemon_request::<(), _>(
+        reqwest::Method::GET,
+        "/v1/team/secrets",
+        &query,
+        &["workspace:read"],
+        None,
+    )
+    .await?;
+    Ok(status.oss_team_secret.set)
+}
+
 /// `POST /v1/team/secrets` — deliver team secret material to the daemon.
 ///
 /// `None` fields are omitted from the body. `authKind` is intentionally NOT
@@ -349,6 +378,16 @@ pub async fn daemon_team_restore_version(
 // actual sync/conflict/version engine; the desktop is a thin proxy.
 //
 // The daemon self-supplies the OSS JWT, so there is no `set-jwt` anymore.
+
+/// Whether this daemon can decrypt Team Shared environment variables for the
+/// supplied team. No secret material is returned to the renderer.
+#[tauri::command]
+pub async fn team_env_runtime_status(team_id: String) -> Result<bool, String> {
+    if team_id.trim().is_empty() {
+        return Ok(false);
+    }
+    daemon_team_env_available(&team_id).await
+}
 
 /// True when a daemon error / status `lastError` means the daemon has no OSS
 /// team secret stored (see `secret_store::resolve_team_secret`). The daemon can
