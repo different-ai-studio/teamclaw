@@ -53,6 +53,18 @@ pub(crate) fn get_fc_endpoint(_workspace_path: &str) -> String {
     default_fc_endpoint().trim_end_matches('/').to_string()
 }
 
+/// Normalize the Cloud API endpoint supplied by the renderer for a native
+/// command. Runtime server selection lives in the web renderer, so native
+/// commands must use this value instead of the URL baked into the binary.
+pub(crate) fn resolve_runtime_fc_endpoint(cloud_api_url: &str) -> Result<String, String> {
+    let parsed = url::Url::parse(cloud_api_url.trim())
+        .map_err(|_| "cloudApiUrl must be a valid http(s) URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err("cloudApiUrl must be a valid http(s) URL".to_string());
+    }
+    Ok(cloud_api_url.trim().trim_end_matches('/').to_string())
+}
+
 /// The default Cloud API endpoint used when a workspace's `teamclaw.json` does
 /// not pin an explicit `fc_endpoint`.
 ///
@@ -131,5 +143,19 @@ mod fc_endpoint_tests {
             d.starts_with("https://"),
             "default endpoint must be https: {d}"
         );
+    }
+
+    #[test]
+    fn runtime_endpoint_uses_the_renderer_url_and_normalizes_a_trailing_slash() {
+        assert_eq!(
+            resolve_runtime_fc_endpoint("https://copilot.accounting.i.test.shopee.io/").unwrap(),
+            "https://copilot.accounting.i.test.shopee.io"
+        );
+    }
+
+    #[test]
+    fn runtime_endpoint_rejects_non_http_urls() {
+        assert!(resolve_runtime_fc_endpoint("file:///tmp/teamclaw").is_err());
+        assert!(resolve_runtime_fc_endpoint("not a url").is_err());
     }
 }

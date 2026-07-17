@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react'
 import { TeamSecretEntry } from '@/components/settings/team/TeamSecretEntry'
 import { linkDaemonTeamWorkspace } from '@/lib/daemon-local-client'
 import { getFreshAccessToken } from '@/lib/auth/session-store'
+import { getEffectiveServerConfigSync } from '@/lib/server-config'
 
 type Phase = 'loading' | 'not_opened' | 'initializing' | 'secret_prompt' | 'error'
 
@@ -49,10 +50,13 @@ export function JoinTeamFlow({ teamId, workspacePath, onDone }: Props) {
     ;(async () => {
       try {
         const accessToken = await getFreshAccessToken()
+        const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl
+        if (!cloudApiUrl) throw new Error('Cloud API URL is not configured')
         const status = await invoke<StatusResponse>('team_share_get_status', {
           teamId,
           workspacePath,
           accessToken,
+          cloudApiUrl,
         })
         if (cancelled) return
         if (status?.mode == null) {
@@ -64,6 +68,7 @@ export function JoinTeamFlow({ teamId, workspacePath, onDone }: Props) {
           teamId,
           workspacePath,
           accessToken,
+          cloudApiUrl,
         })
         if (cancelled) return
         if (!res.initialized) {
