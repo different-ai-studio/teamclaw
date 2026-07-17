@@ -1,11 +1,13 @@
-import { and, asc, eq, exists, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNull, sql } from "drizzle-orm";
+import { aliasedTable } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { teams, teamWorkspaceConfig, actors, members, teamMembers, teamInvites } from "../../db/schema/index.js";
 import { workspaces } from "../../db/schema/workspaces.js";
 import { agentMemberAccess, agents } from "../../db/schema/agents.js";
 import { ApiError } from "../http-utils.js";
 import { requireActorForTeam, requireTeamOwner, checkAgentOwnership } from "./authz.js";
-import { computeRange, getLiteLlmSql, queryTeamUsage, type ComputedRange } from "../litellm-usage.js";
+import { computeRange, getLiteLlmSql, queryTeamUsage, type ComputedRange, type TeamUsage } from "../litellm-usage.js";
+import { rollUpUsageByOwner, type UsageOwner } from "../usage-attribution.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { generateDisplayName } from "../display-name.js";
 
@@ -14,6 +16,56 @@ const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOStrin
 /** Lowercased + trimmed, or null. Both sides of a contact match normalize this way. */
 export const normalizeInviteEmail = (e: string | null | undefined) =>
   (e ?? "").trim().toLowerCase() || null;
+
+/**
+ * LiteLLM `user_id`s are opaque strings from an external system. `actors.id` is
+ * a uuid column, so feeding it a non-uuid makes Postgres raise
+ * `invalid input syntax for type uuid` and takes the whole usage screen down.
+ * Filter to well-formed uuids first; anything else simply won't resolve, which
+ * the caller already renders as "unattributed".
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Map spending actor ids → the accountable human, team-scoped.
+ *
+ * `member` actors are their own owner. `agent` actors (daemons — the things
+ * that actually burn the tokens) resolve through agents.owner_member_id.
+ *
+ * The team_id predicate is load-bearing, not defensive tidiness: ids arrive
+ * from LiteLLM, so without it a key naming any actor uuid would surface that
+ * person's display name to an unrelated team.
+ */
+async function resolveOwnersForTeam(db: any, teamId: string, actorIds: string[]): Promise<Map<string, UsageOwner>> {
+  const ids = actorIds.filter((id) => UUID_RE.test(id));
+  const out = new Map<string, UsageOwner>();
+  if (!ids.length) return out;
+
+  const owner = aliasedTable(actors, "owner_actor");
+  const rows = await db
+    .select({
+      actorId: actors.id,
+      actorType: actors.actorType,
+      displayName: actors.displayName,
+      ownerId: agents.ownerMemberId,
+      ownerName: owner.displayName,
+    })
+    .from(actors)
+    .leftJoin(agents, eq(agents.id, actors.id))
+    .leftJoin(owner, eq(owner.id, agents.ownerMemberId))
+    .where(and(inArray(actors.id, ids), eq(actors.teamId, teamId)));
+
+  for (const r of rows) {
+    // An agent whose owner row is missing (owner_member_id is ON DELETE SET
+    // NULL) has no human to bill — leave it unresolved rather than invent one.
+    if (r.actorType === "agent") {
+      if (r.ownerId && r.ownerName) out.set(r.actorId, { actorId: r.ownerId, displayName: r.ownerName });
+      continue;
+    }
+    out.set(r.actorId, { actorId: r.actorId, displayName: r.displayName });
+  }
+  return out;
+}
 
 function mapTeam(r: any) {
   return {
@@ -55,7 +107,7 @@ export interface TeamsRepoDeps {
    * `queryLiteLlmUsage` option. Never invoked for teams that have not
    * provisioned LiteLLM (getLiteLlmUsage returns the empty shape first).
    */
-  queryLiteLlmUsage?: (litellmTeamId: string, range: ComputedRange) => Promise<unknown>;
+  queryLiteLlmUsage?: (litellmTeamId: string, range: ComputedRange) => Promise<TeamUsage>;
 }
 
 function actorMembershipFilter(db: PgDatabase<any, any>, userId: string) {
@@ -282,7 +334,11 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
       }
 
       const query = deps.queryLiteLlmUsage ?? ((id: string, r: ComputedRange) => queryTeamUsage(getLiteLlmSql(), id, r));
-      return query(litellmTeamId, range);
+      const usage = await query(litellmTeamId, range);
+      return {
+        ...usage,
+        members: await rollUpUsageByOwner(usage.members ?? [], (ids) => resolveOwnersForTeam(db, teamId, ids)),
+      };
     },
 
     /**
