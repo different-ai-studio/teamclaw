@@ -1,6 +1,6 @@
 {
   "name": "teamclaw",
-  "version": "0.2.25",
+  "version": "0.2.26",
   "private": true,
   "description": "TeamClaw - AI Agent Desktop Platform",
   "scripts": {
