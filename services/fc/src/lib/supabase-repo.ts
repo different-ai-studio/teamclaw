@@ -492,7 +492,11 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async removeTeamActor(_teamId, actorId) {
-      const { error } = await supabase.rpc("remove_team_actor", { p_actor_id: actorId });
+      // Explicit amux schema: client default is already amux, but keep this
+      // belt-and-suspenders so we never resolve a stale public.remove_team_actor.
+      const { error } = await supabase
+        .schema("amux")
+        .rpc("remove_team_actor", { p_actor_id: actorId });
       if (error) throw error;
 
       // Best-effort: delete the removed actor's LiteLLM key (replaces the

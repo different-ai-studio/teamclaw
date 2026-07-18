@@ -439,26 +439,25 @@ impl crate::http::setup::OnboardingService for DaemonOnboarding {
     }
 }
 
-/// Warn when `daemon.toml` and `backend.toml` disagree on routing identity.
+/// Reject `daemon.toml` and `backend.toml` when they disagree on routing identity.
 /// Auth always uses `backend.toml`; MQTT topics and session routing use
-/// `daemon.toml` `[actor].id` — a mismatch breaks collab even if tokens work.
-fn warn_config_identity_mismatch(config: &DaemonConfig, backend: &Arc<dyn Backend>) {
-    if let Some(team_id) = config.team_id.as_deref() {
-        if team_id != backend.team_id() {
-            warn!(
-                daemon_team_id = %team_id,
-                backend_team_id = %backend.team_id(),
-                "daemon.toml team_id does not match backend.toml; run `amuxd init` to re-onboard"
-            );
-        }
+/// `daemon.toml` `[actor].id` — continuing with a mismatch authenticates as one
+/// actor while publishing presence and commands under another actor's topics.
+fn validate_config_identity(
+    config: &DaemonConfig,
+    backend: &dyn Backend,
+) -> crate::error::Result<()> {
+    let daemon_team_id = config.team_id.as_deref().unwrap_or("<none>");
+    if daemon_team_id != backend.team_id() || config.actor.id != backend.actor_id() {
+        return Err(crate::error::AmuxError::Config(format!(
+            "daemon/backend identity mismatch: daemon.toml team_id={daemon_team_id}, actor_id={}; \
+             backend.toml team_id={}, actor_id={}. Stop amuxd and run `amuxd init` to re-onboard",
+            config.actor.id,
+            backend.team_id(),
+            backend.actor_id(),
+        )));
     }
-    if config.actor.id != backend.actor_id() {
-        warn!(
-            daemon_actor_id = %config.actor.id,
-            backend_actor_id = %backend.actor_id(),
-            "daemon.toml [actor].id does not match backend.toml actor_id; run `amuxd init` to re-onboard"
-        );
-    }
+    Ok(())
 }
 
 /// Best-effort first access token. Failure must not block startup — `run()`
@@ -517,7 +516,7 @@ impl DaemonServer {
         // daemon reports an empty actor_id, which is not a mismatch worth
         // warning about.
         if deferred_backend.is_claimed() {
-            warn_config_identity_mismatch(&config, &backend);
+            validate_config_identity(&config, backend.as_ref())?;
         }
 
         // Best-effort token — `run()`'s outer loop retries before MQTT connect.
@@ -2762,6 +2761,21 @@ pub(crate) mod tests {
 
         assert_eq!(backend.team_id(), "team-test");
         assert_eq!(backend.actor_id(), "agent-actor");
+    }
+
+    #[test]
+    fn config_identity_validation_rejects_split_team_and_actor() {
+        let mut config = test_config();
+        config.team_id = Some("team-config-test".to_string());
+        let backend = test_cloud_api();
+
+        let error = validate_config_identity(&config, backend.as_ref()).unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("daemon.toml team_id=team-config-test"), "{message}");
+        assert!(message.contains("backend.toml team_id=team-test"), "{message}");
+        assert!(message.contains("actor_id=actor-config-test"), "{message}");
+        assert!(message.contains("actor_id=agent-actor"), "{message}");
     }
 
     #[test]

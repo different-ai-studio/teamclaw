@@ -27,6 +27,8 @@
     "rust:build": "node scripts/rust-cli.js build --manifest-path apps/desktop/Cargo.toml",
     "daemon:run": "node scripts/run-daemon.js",
     "daemon:ctl": "scripts/amuxdctl.sh",
+    "dev:daemon": "scripts/dev-daemon.sh",
+    "dev:desktop": "scripts/dev-desktop.sh",
     "reset:local": "scripts/reset-local-state.sh",
     "daemon:build": "cargo build -p amuxd",
     "daemon:test": "cargo test -p amuxd",
