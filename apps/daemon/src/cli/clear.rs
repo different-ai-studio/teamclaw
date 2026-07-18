@@ -2,18 +2,31 @@ use crate::config::DaemonConfig;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Wipe every file the daemon writes to its config dir. Keeps the directory
 /// itself in place.
 pub fn run(force: bool) -> anyhow::Result<()> {
     let config_dir = DaemonConfig::config_dir();
-    let paths = candidate_paths();
+    run_at(force, &DaemonConfig::lock_path(), candidate_paths())
+        .map_err(|e| anyhow::anyhow!("cannot clear {}: {e}", config_dir.display()))
+}
+
+fn run_at(force: bool, lock_path: &std::path::Path, paths: Vec<PathBuf>) -> anyhow::Result<()> {
     let existing: Vec<_> = paths.into_iter().filter(|p| p.exists()).collect();
 
     if existing.is_empty() {
-        println!("Nothing to clear under {}.", config_dir.display());
+        println!("Nothing to clear.");
         return Ok(());
     }
+
+    // Deleting identity files while a daemon is alive is unsafe: that process
+    // still owns the old credentials in memory and can recreate backend.toml
+    // on its next refresh-token rotation. Only take the lock once there is
+    // something to remove — otherwise a no-op clear would fail with "already
+    // running" whenever amuxd is up.
+    let _daemon_lock =
+        crate::cli::process::acquire_daemon_lock_at(lock_path, Duration::ZERO)?;
 
     // Paths are printed in full: they can span the config dir AND the legacy dir.
     println!("Will remove {} file(s):", existing.len());
@@ -126,5 +139,44 @@ mod tests {
             paths.len(),
             "candidate_paths must not list a path twice"
         );
+    }
+
+    #[test]
+    fn clear_refuses_to_delete_config_while_daemon_lock_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("amuxd.lock");
+        let config_path = dir.path().join("backend.toml");
+        std::fs::write(&config_path, "new identity").unwrap();
+
+        let held_lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap();
+        held_lock.lock().unwrap();
+
+        let error = run_at(true, &lock_path, vec![config_path.clone()]).unwrap_err();
+
+        assert!(error.to_string().contains("already running"));
+        assert_eq!(std::fs::read_to_string(config_path).unwrap(), "new identity");
+    }
+
+    #[test]
+    fn clear_noop_succeeds_even_when_daemon_lock_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("amuxd.lock");
+
+        let held_lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap();
+        held_lock.lock().unwrap();
+
+        run_at(true, &lock_path, vec![dir.path().join("missing.toml")]).unwrap();
     }
 }

@@ -1,5 +1,6 @@
 -- services/supabase/tests/024_remove_team_actor_owned_agents.sql
 -- Admin removing a member who owns agent(s) should cascade-delete those agents.
+-- Post-S2: all business tables live in amux; remove_team_actor must too.
 begin;
 
 create or replace function pg_temp.as_member(p_user uuid)
@@ -29,38 +30,39 @@ begin
      '00000000-0000-0000-0000-000000000000', false)
   on conflict do nothing;
 
-  insert into public.members (id, user_id, status)
-  values
-    (v_owner_mem,  v_owner_uid,  'active'),
-    (v_member_mem, v_member_uid, 'active');
-
-  insert into public.teams (id, slug, name)
+  insert into amux.teams (id, slug, name)
   values (v_team, 'rm-own-' || left(v_team::text, 8), 'Remove Owned Agents');
 
-  insert into public.actors (id, team_id, actor_type, display_name, user_id)
+  -- actors first (members/agents.id FK → actors.id)
+  insert into amux.actors (id, team_id, actor_type, display_name, user_id)
   values
     (v_owner_mem,  v_team, 'member', 'Owner',  v_owner_uid),
     (v_member_mem, v_team, 'member', 'Member', v_member_uid);
 
-  insert into public.team_members (team_id, member_id, role)
+  insert into amux.members (id, status)
+  values
+    (v_owner_mem,  'active'),
+    (v_member_mem, 'active');
+
+  insert into amux.team_members (team_id, member_id, role)
   values
     (v_team, v_owner_mem,  'owner'),
     (v_team, v_member_mem, 'member');
 
-  insert into public.actors (id, team_id, actor_type, display_name)
+  insert into amux.actors (id, team_id, actor_type, display_name)
   values (v_agent_actor, v_team, 'agent', 'MemberAgent');
 
-  insert into public.agents (id, agent_kind, status, owner_member_id)
-  values (v_agent_actor, 'daemon', 'active', v_member_mem);
+  insert into amux.agents (id, status, owner_member_id)
+  values (v_agent_actor, 'active', v_member_mem);
 
   perform pg_temp.as_member(v_owner_uid);
-  perform public.remove_team_actor(v_member_mem);
+  perform amux.remove_team_actor(v_member_mem);
 
-  if exists (select 1 from public.actors where id = v_member_mem) then
+  if exists (select 1 from amux.actors where id = v_member_mem) then
     raise exception 'member actor should be deleted';
   end if;
 
-  if exists (select 1 from public.actors where id = v_agent_actor) then
+  if exists (select 1 from amux.actors where id = v_agent_actor) then
     raise exception 'owned agent actor should be deleted';
   end if;
 end;

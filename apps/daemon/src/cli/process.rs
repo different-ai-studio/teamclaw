@@ -66,7 +66,10 @@ pub fn acquire_daemon_lock() -> anyhow::Result<DaemonLockGuard> {
     acquire_daemon_lock_at(&DaemonConfig::lock_path(), LOCK_WAIT)
 }
 
-fn acquire_daemon_lock_at(path: &Path, wait: Duration) -> anyhow::Result<DaemonLockGuard> {
+pub(crate) fn acquire_daemon_lock_at(
+    path: &Path,
+    wait: Duration,
+) -> anyhow::Result<DaemonLockGuard> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
