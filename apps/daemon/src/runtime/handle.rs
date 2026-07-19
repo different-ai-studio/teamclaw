@@ -192,12 +192,14 @@ impl RuntimeHandle {
         &self,
         text: &str,
         attachment_urls: Vec<String>,
+        requester_actor_id: Option<String>,
     ) -> crate::error::Result<()> {
         if let Some(ref tx) = self.cmd_tx {
             tx.send(AcpCommand::Prompt {
                 acp_session_id: self.acp_session_id.clone(),
                 text: text.to_string(),
                 attachment_urls,
+                requester_actor_id,
             })
             .await
             .map_err(|_| crate::error::AmuxError::Agent("ACP command channel closed".into()))

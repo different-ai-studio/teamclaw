@@ -22,6 +22,16 @@ vi.mock("@/stores/v2-streaming-store", () => ({
   },
 }));
 
+vi.mock("@/stores/current-team", () => ({
+  useCurrentTeamStore: {
+    getState: () => ({ currentMember: { id: "member-me" } }),
+  },
+}));
+
+vi.mock("@/lib/teamclaw/handle-session-event-permission-resolved", () => ({
+  wasPermissionRecentlyResolved: () => false,
+}));
+
 import {
   handleAcpPermissionRequest,
   resetAcpPermissionInFlightForTests,

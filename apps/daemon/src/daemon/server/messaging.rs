@@ -690,14 +690,17 @@ impl DaemonServer {
                     &message.sender_actor_id,
                 )
                 .await;
+                let requester = (!message.sender_actor_id.is_empty())
+                    .then(|| message.sender_actor_id.clone());
                 let send_res = self
                     .agents
                     .lock()
                     .await
-                    .send_prompt(
+                    .send_prompt_with_requester(
                         &runtime_id,
                         message.content.as_str(),
                         attachment_urls.clone(),
+                        requester,
                     )
                     .await;
                 let _drained = match send_res {
