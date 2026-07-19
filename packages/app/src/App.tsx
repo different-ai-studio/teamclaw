@@ -109,6 +109,7 @@ import {
   streamActorIdFromLiveEvent,
 } from "@/lib/teamclaw-events";
 import { handleAcpPermissionRequest } from "@/lib/teamclaw/handle-acp-permission-request";
+import { handleSessionEventPermissionResolved } from "@/lib/teamclaw/handle-session-event-permission-resolved";
 import { tryBindChildFromPermission } from "@/lib/teamclaw/subagent-acp-binding";
 import { routeSubagentAcpEvent } from "@/lib/teamclaw/subagent-acp-route";
 import {
@@ -1523,6 +1524,22 @@ function AppContent() {
             return;
           }
 
+          // Case 2a: SessionEvent (e.g. PermissionResolved) arrives as
+          // LiveEventEnvelope event_type=acp.event with Amux payload.sessionEvent.
+          // Must run outside `if (decoded.acpEvent)` — that field is only set for
+          // payload.case === "acpEvent".
+          if (decoded.amuxEnvelope?.payload?.case === "sessionEvent") {
+            const se = decoded.amuxEnvelope.payload.value?.event;
+            if (se?.case === "permissionResolved") {
+              const requestId = (se.value as { requestId?: string })?.requestId ?? "";
+              handleSessionEventPermissionResolved({
+                requestId,
+                sessionIdHint: sid,
+              });
+            }
+            return;
+          }
+
           // Case 2: streaming acp.event
           if (decoded.acpEvent) {
             // Dev-only one-way latency probe (no-op unless the local daemon
@@ -1786,6 +1803,7 @@ function AppContent() {
                   toolName: pr.toolName ?? "",
                   description: pr.description ?? "",
                   params: pr.params ?? {},
+                  requesterActorId: pr.params?.requester_actor_id?.trim() || undefined,
                   options: (pr.options ?? []).map((o) => ({
                     optionId: o.optionId ?? "",
                     kind: o.kind ?? "",

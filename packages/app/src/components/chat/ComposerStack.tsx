@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Todo } from "@/stores/session-types";
 import type { QueuedMessage } from "@/stores/session";
 import { PermissionApprovalPanel } from "./PermissionApprovalPanel";
+import { PermissionWaitingBanner } from "./PermissionWaitingBanner";
 import { ComposerPlanSlot } from "./ComposerPlanSlot";
 import {
   composerGlassChildClass,
@@ -123,6 +124,7 @@ export function ComposerStack({
     sessionPermissionMode,
     currentEntry,
     queuedCount,
+    waitingRequesterActorId,
     onReplyStart,
     onReplyRollback,
   } = usePendingPermissionsQueue();
@@ -142,20 +144,27 @@ export function ComposerStack({
     agents.length === 0 &&
     sessionPermissionMode !== "fullAccess";
 
+  const showWaitingOnly =
+    currentEntry === null &&
+    waitingRequesterActorId !== null &&
+    agents.length === 0;
+
   const hasApproval = currentEntry !== null;
-  const showAgentSection = agents.length > 0 || showApprovalOnly;
+  const hasPermissionChrome =
+    hasApproval || waitingRequesterActorId !== null;
+  const showAgentSection = agents.length > 0 || showApprovalOnly || showWaitingOnly;
   const showPlan = todos.length > 0 || queue.length > 0;
   const showTopChrome = showAgentSection || showPlan;
   const planRoundsTop = showPlan && !showAgentSection;
 
   const approvalExpandClasses = cn(
     "grid transition-[grid-template-rows] duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-    hasApproval ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+    hasPermissionChrome ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
   );
 
   const approvalPanelMotionClasses = cn(
     "box-border w-full origin-bottom transition-[transform,opacity] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-    hasApproval
+    hasPermissionChrome
       ? "translate-y-0 opacity-100 delay-75"
       : "translate-y-3 opacity-0 motion-safe:delay-0",
   );
@@ -170,18 +179,18 @@ export function ComposerStack({
                 data-testid="streaming-agent-shell"
                 className={cn(
                   "box-border w-full overflow-hidden",
-                  hasApproval && "rounded-t-[14px]",
-                  hasApproval && composerGlassFillClass,
+                  hasPermissionChrome && "rounded-t-[14px]",
+                  hasPermissionChrome && composerGlassFillClass,
                 )}
               >
                 <div
                   data-testid="composer-approval-chrome"
-                  className={cn(hasApproval && "rounded-t-[14px]")}
+                  className={cn(hasPermissionChrome && "rounded-t-[14px]")}
                 >
                   <div
                     className={approvalExpandClasses}
                     data-testid="pending-permission-expand"
-                    data-open={hasApproval ? "true" : "false"}
+                    data-open={hasPermissionChrome ? "true" : "false"}
                   >
                     <div className="min-h-0 overflow-hidden">
                       {currentEntry ? (
@@ -197,12 +206,21 @@ export function ComposerStack({
                             composerStackRowDividerClass,
                           )}
                         />
+                      ) : waitingRequesterActorId ? (
+                        <PermissionWaitingBanner
+                          requesterActorId={waitingRequesterActorId}
+                          appearance="glass"
+                          className={cn(
+                            approvalPanelMotionClasses,
+                            composerStackRowDividerClass,
+                          )}
+                        />
                       ) : null}
                     </div>
                   </div>
                 </div>
 
-                {!showApprovalOnly
+                {!showApprovalOnly && !showWaitingOnly
                   ? agents.map((agent, index) => {
                       const isAnchor =
                         anchorActorId === agent.actorId && currentEntry !== null;
@@ -214,8 +232,8 @@ export function ComposerStack({
                           waitingForApproval={isAnchor}
                           showInterrupt={Boolean(onInterrupt) && !isAnchor}
                           onInterrupt={onInterrupt ?? (() => {})}
-                          roundsTop={!hasApproval && index === 0}
-                          embeddedInGlass={hasApproval}
+                          roundsTop={!hasPermissionChrome && index === 0}
+                          embeddedInGlass={hasPermissionChrome}
                         />
                       );
                     })

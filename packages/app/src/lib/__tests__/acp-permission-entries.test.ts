@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildPendingEntryFromAcpPermission,
+  collectAcpBystanderWaitingPermissions,
   collectAcpStreamingPermissions,
 } from "@/lib/teamclaw/acp-permission-entries";
+import { useCurrentTeamStore } from "@/stores/current-team";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 
 describe("acp permission entries", () => {
+  beforeEach(() => {
+    useCurrentTeamStore.setState({
+      currentMember: { id: "me-actor", display_name: "Me" } as never,
+    });
+  });
+
   it("maps bash tool permission for the approval card", () => {
     const entry = buildPendingEntryFromAcpPermission("sess-1", "agent-1", {
       requestId: "perm-1",
@@ -50,6 +58,71 @@ describe("acp permission entries", () => {
     expect(rows[0]?.permission.id).toBe("p1");
   });
 
+  it("hides interactive queue for bystander when requester is stamped", () => {
+    const byKey = {
+      "sess-a::agent-1": {
+        sessionId: "sess-a",
+        actorId: "agent-1",
+        pendingPermissionsByRequestId: {
+          p1: {
+            requestId: "p1",
+            toolName: "bash",
+            description: "ls",
+            params: { requester_actor_id: "other-actor" },
+            requesterActorId: "other-actor",
+          },
+        },
+      },
+    };
+    expect(collectAcpStreamingPermissions("sess-a", byKey)).toHaveLength(0);
+    const waiting = collectAcpBystanderWaitingPermissions("sess-a", byKey);
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]?.permission.metadata?.requester_actor_id).toBe("other-actor");
+  });
+
+  it("keeps interactive queue for requester and for legacy empty stamp", () => {
+    expect(
+      collectAcpStreamingPermissions("sess-a", {
+        "sess-a::agent-1": {
+          sessionId: "sess-a",
+          actorId: "agent-1",
+          pendingPermissionsByRequestId: {
+            mine: {
+              requestId: "mine",
+              toolName: "bash",
+              description: "ls",
+              params: { requester_actor_id: "me-actor" },
+              requesterActorId: "me-actor",
+            },
+            legacy: {
+              requestId: "legacy",
+              toolName: "bash",
+              description: "pwd",
+              params: {},
+            },
+          },
+        },
+      }),
+    ).toHaveLength(2);
+    expect(
+      collectAcpBystanderWaitingPermissions("sess-a", {
+        "sess-a::agent-1": {
+          sessionId: "sess-a",
+          actorId: "agent-1",
+          pendingPermissionsByRequestId: {
+            mine: {
+              requestId: "mine",
+              toolName: "bash",
+              description: "ls",
+              params: { requester_actor_id: "me-actor" },
+              requesterActorId: "me-actor",
+            },
+          },
+        },
+      }),
+    ).toHaveLength(0);
+  });
+
   it("collects multiple parallel subagent permissions for one actor", () => {
     const rows = collectAcpStreamingPermissions("sess-a", {
       "sess-a::agent-1": {
@@ -88,6 +161,9 @@ describe("acp permission entries", () => {
 
 describe("parallel permission queue in v2 store", () => {
   beforeEach(() => {
+    useCurrentTeamStore.setState({
+      currentMember: { id: "me-actor", display_name: "Me" } as never,
+    });
     useV2StreamingStore.setState({
       byKey: {},
       revisionBySession: {},

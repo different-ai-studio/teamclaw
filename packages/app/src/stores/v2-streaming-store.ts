@@ -34,6 +34,11 @@ export interface StreamingPermissionRequest {
   params: Record<string, string>;
   /** ACP PermissionOption list from the agent (OpenCode: once / always / reject). */
   options?: Array<{ optionId: string; kind: string; name: string }>;
+  /**
+   * Human actor that started this agent turn (from params.requester_actor_id).
+   * Empty/undefined = legacy daemon; interactive UI shown to everyone.
+   */
+  requesterActorId?: string;
 }
 
 export interface AgentStreamEntry {

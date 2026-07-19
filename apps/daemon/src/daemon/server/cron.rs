@@ -309,7 +309,7 @@ impl DaemonServer {
             let (turn, _again) = mgr
                 .checkout_turn_for_acp(acp_sid)
                 .map_err(|e| anyhow::anyhow!("checkout_turn_for_acp: {e}"))?;
-            mgr.send_prompt_raw(&turn.agent_id, prompt, vec![])
+            mgr.send_prompt_raw(&turn.agent_id, prompt, vec![], None)
                 .await
                 .map_err(|e| anyhow::anyhow!("send_prompt_raw: {e}"))?;
             (turn.agent_id, turn.event_rx)
