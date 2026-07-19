@@ -947,7 +947,8 @@ mod spawn_path_tests {
 // ---------------------------------------------------------------------------
 
 struct ActiveSession {
-    prompt_tx: mpsc::Sender<(String, Vec<String>)>,
+    /// text, attachment_urls, optional turn requester_actor_id
+    prompt_tx: mpsc::Sender<(String, Vec<String>, Option<String>)>,
 }
 
 fn build_acp_process_command(
@@ -1256,7 +1257,7 @@ fn spawn_prompt_worker(
     session_id: acp::SessionId,
     event_tx: mpsc::Sender<AcpEventFrame>,
     registry: Rc<RefCell<SessionRegistry>>,
-    mut prompt_rx: mpsc::Receiver<(String, Vec<String>)>,
+    mut prompt_rx: mpsc::Receiver<(String, Vec<String>, Option<String>)>,
 ) {
     let acp_session_key = session_id.to_string();
     tokio::task::spawn_local(async move {
@@ -1273,7 +1274,16 @@ fn spawn_prompt_worker(
             .and_then(|v| v.parse::<u64>().ok())
             .map(Duration::from_secs)
             .unwrap_or_else(|| Duration::from_secs(90));
-        while let Some((text, attachment_urls)) = prompt_rx.recv().await {
+        while let Some((text, attachment_urls, requester_actor_id)) = prompt_rx.recv().await {
+            // Bind collab requester to THIS worker iteration only — never at
+            // Prompt enqueue time, or a queued second prompt would overwrite
+            // the in-flight turn's stamp.
+            if let Some(route) = registry.borrow_mut().resolve_event_route_mut(&acp_session_key)
+            {
+                route.turn_requester_actor_id =
+                    requester_actor_id.filter(|id| !id.is_empty());
+            }
+
             let attachment_count = attachment_urls.len();
             super::agent_trace::log_prompt_begin(&acp_session_key, &text, attachment_count);
             let turn_started = Instant::now();
@@ -1570,7 +1580,7 @@ async fn run_acp_host(
                                 if !initial_prompt.is_empty() {
                                     let _ = active
                                         .prompt_tx
-                                        .send((initial_prompt, Vec::new()))
+                                        .send((initial_prompt, Vec::new(), None))
                                         .await;
                                 }
                                 continue;
@@ -1594,7 +1604,8 @@ async fn run_acp_host(
                             Ok(meta) => {
                                 let acp_sid = meta.acp_session_id.clone();
                                 let session_id = acp::SessionId::new(acp_sid.clone());
-                                let (prompt_tx, prompt_rx) = mpsc::channel::<(String, Vec<String>)>(64);
+                                let (prompt_tx, prompt_rx) =
+                                    mpsc::channel::<(String, Vec<String>, Option<String>)>(64);
                                 spawn_prompt_worker(
                                     conn.clone(),
                                     session_id,
@@ -1606,7 +1617,10 @@ async fn run_acp_host(
                                 report_startup(&startup_reporter, Ok(meta));
                                 if !initial_prompt.is_empty() {
                                     if let Some(active) = active_sessions.get(&acp_sid) {
-                                        let _ = active.prompt_tx.send((initial_prompt, Vec::new())).await;
+                                        let _ = active
+                                            .prompt_tx
+                                            .send((initial_prompt, Vec::new(), None))
+                                            .await;
                                     }
                                 }
                             }
@@ -1630,14 +1644,13 @@ async fn run_acp_host(
                         attachment_urls,
                         requester_actor_id,
                     } => {
-                        if let Some(route) =
-                            registry.borrow_mut().resolve_event_route_mut(&acp_session_id)
-                        {
-                            route.turn_requester_actor_id = requester_actor_id
-                                .filter(|id| !id.is_empty());
-                        }
                         if let Some(active) = active_sessions.get(&acp_session_id) {
-                            if active.prompt_tx.send((text, attachment_urls)).await.is_err() {
+                            if active
+                                .prompt_tx
+                                .send((text, attachment_urls, requester_actor_id))
+                                .await
+                                .is_err()
+                            {
                                 if let Some(route) = registry.borrow().sessions.get(&acp_session_id) {
                                     emit_acp_error(
                                         &route.event_tx,
