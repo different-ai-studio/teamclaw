@@ -5,8 +5,6 @@ const mocks = vi.hoisted(() => ({
   getCurrentDaemonWorkspaceAgent: vi.fn(),
   isDaemonHttpAvailable: vi.fn(),
   getDaemonModelCatalog: vi.fn(),
-  loadConfiguredProvidersForWorkspace: vi.fn(),
-  loadLlmConfig: vi.fn(),
   isTauri: vi.fn(),
 }))
 
@@ -24,23 +22,17 @@ vi.mock('@/lib/daemon-local-client', async (importOriginal) => {
   }
 })
 
-vi.mock('@/stores/provider', () => ({
-  loadConfiguredProvidersForWorkspace: mocks.loadConfiguredProvidersForWorkspace,
-}))
-
-vi.mock('@/lib/backend', () => ({
-  getBackend: () => ({
-    teamWorkspaceConfig: { loadLlmConfig: mocks.loadLlmConfig },
-  }),
-}))
-
 vi.mock('@/lib/utils', () => ({
   isTauri: mocks.isTauri,
 }))
 
+import { AgentType } from '@/lib/proto/amux_pb'
+import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import {
   resolveDaemonWorkspacePath,
   loadCronDialogModels,
+  modelsFromLiveRuntime,
+  findRuntimeForWorkspace,
 } from '@/lib/cron-workspace-models'
 
 describe('resolveDaemonWorkspacePath', () => {
@@ -71,16 +63,48 @@ describe('resolveDaemonWorkspacePath', () => {
   })
 })
 
+describe('modelsFromLiveRuntime', () => {
+  beforeEach(() => {
+    useRuntimeStateStore.setState({ byRuntimeId: {} })
+  })
+
+  it('returns ACP models for the newest runtime on the workspace', () => {
+    useRuntimeStateStore.getState().upsert('rt-old', 'agent-1', {
+      runtimeId: 'rt-old',
+      agentType: AgentType.OPENCODE,
+      worktree: '/Users/me/ws',
+      availableModels: [{ id: 'team/old', displayName: 'Old' }],
+      currentModel: 'team/old',
+    } as never)
+    useRuntimeStateStore.getState().upsert('rt-new', 'agent-1', {
+      runtimeId: 'rt-new',
+      agentType: AgentType.OPENCODE,
+      worktree: '/Users/me/ws',
+      availableModels: [
+        { id: 'team/default', displayName: 'Default' },
+        { id: 'team/pro', displayName: 'Pro' },
+      ],
+      currentModel: 'team/default',
+    } as never)
+
+    const groups = modelsFromLiveRuntime('/Users/me/ws')
+    expect(groups).toHaveLength(1)
+    expect(groups[0].backend).toBe('opencode')
+    expect(groups[0].models.map((m) => m.ref)).toEqual(['team/default', 'team/pro'])
+    expect(findRuntimeForWorkspace('/Users/me/ws')?.info.runtimeId).toBe('rt-new')
+  })
+})
+
 describe('loadCronDialogModels', () => {
   beforeEach(() => {
     mocks.getCurrentDaemonWorkspaceAgent.mockReset()
     mocks.listDaemonWorkspaces.mockReset()
+    mocks.listDaemonWorkspaces.mockResolvedValue([])
     mocks.isDaemonHttpAvailable.mockReset()
     mocks.getDaemonModelCatalog.mockReset()
-    mocks.loadLlmConfig.mockReset()
-    mocks.loadLlmConfig.mockResolvedValue(null)
     mocks.isTauri.mockReturnValue(true)
     mocks.isDaemonHttpAvailable.mockResolvedValue(true)
+    useRuntimeStateStore.setState({ byRuntimeId: {} })
   })
 
   const messages = {
@@ -92,6 +116,70 @@ describe('loadCronDialogModels', () => {
     noConfiguredModels: 'no models',
     loadFailed: 'load failed',
   }
+
+  it('prefers live runtime models over the daemon catalog', async () => {
+    useRuntimeStateStore.getState().upsert('rt-1', 'agent-1', {
+      runtimeId: 'rt-1',
+      agentType: AgentType.OPENCODE,
+      worktree: '/ws',
+      availableModels: [{ id: 'team/default', displayName: 'Default' }],
+      currentModel: 'team/default',
+    } as never)
+
+    const result = await loadCronDialogModels({
+      activeScope: 'workspace',
+      teamId: 'team-1',
+      selectedWorkspacePath: '/ws',
+      messages,
+    })
+
+    expect(result.hint).toBeNull()
+    expect(result.groups[0].models[0].ref).toBe('team/default')
+    expect(mocks.getDaemonModelCatalog).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the default backend catalog slice when no runtime is live', async () => {
+    mocks.getDaemonModelCatalog.mockResolvedValue({
+      automation_default_backend: 'opencode',
+      backends: [
+        {
+          backend: 'opencode',
+          label: 'OpenCode',
+          models: [
+            {
+              ref: 'team/default',
+              model_id: 'default',
+              display_name: 'Default',
+            },
+          ],
+        },
+        {
+          backend: 'claude',
+          label: 'Claude Code',
+          models: [
+            {
+              ref: 'claude-code/claude-sonnet-4-6',
+              model_id: 'claude-sonnet-4-6',
+              display_name: 'Claude Sonnet 4.6',
+            },
+          ],
+        },
+      ],
+    })
+
+    const result = await loadCronDialogModels({
+      activeScope: 'workspace',
+      teamId: 'team-1',
+      selectedWorkspacePath: '/ws',
+      messages,
+    })
+
+    expect(result.hint).toBeNull()
+    expect(result.automationDefaultBackend).toBe('opencode')
+    expect(result.groups).toHaveLength(1)
+    expect(result.groups[0].backend).toBe('opencode')
+    expect(result.groups[0].models.map((m) => m.ref)).toEqual(['team/default'])
+  })
 
   it('falls back to cloud daemon default when local registry has no default flag', async () => {
     mocks.getCurrentDaemonWorkspaceAgent.mockResolvedValue({
@@ -141,55 +229,8 @@ describe('loadCronDialogModels', () => {
 
     expect(result.hint).toBeNull()
     expect(result.automationDefaultBackend).toBe('opencode')
-    expect(result.groups[0].backend).toBe('opencode')
     expect(result.groups[0].models[0].ref).toBe('scnet/MiniMax-M2.5')
     expect(mocks.getDaemonModelCatalog).toHaveBeenCalled()
-  })
-
-  it('groups Claude and Codex backends and prepends team-shared models', async () => {
-    // teamId is set, so resolveDaemonWorkspacePath consults the daemon registry.
-    mocks.listDaemonWorkspaces.mockResolvedValue([])
-    mocks.loadLlmConfig.mockResolvedValue({
-      enabled: true,
-      baseUrl: 'https://llm.example',
-      models: [{ id: 'shared-1', name: 'Shared 1' }],
-      availableModels: [],
-      aiGatewayEndpoint: null,
-    })
-    mocks.getDaemonModelCatalog.mockResolvedValue({
-      automation_default_backend: 'claude',
-      backends: [
-        {
-          backend: 'claude',
-          label: 'Claude Code',
-          models: [
-            {
-              ref: 'claude-code/claude-sonnet-4-6',
-              model_id: 'claude-sonnet-4-6',
-              display_name: 'Claude Sonnet 4.6',
-            },
-          ],
-        },
-        // Empty backend groups are dropped so the picker stays tidy.
-        { backend: 'codex', label: 'Codex', models: [] },
-      ],
-    })
-
-    const result = await loadCronDialogModels({
-      activeScope: 'workspace',
-      teamId: 'team-1',
-      selectedWorkspacePath: '/ws',
-      messages,
-    })
-
-    expect(mocks.loadLlmConfig).toHaveBeenCalledWith('team-1')
-    expect(result.hint).toBeNull()
-    expect(result.automationDefaultBackend).toBe('claude')
-    // team-shared first, pinned to the opencode backend; codex dropped (empty).
-    expect(result.groups.map((g) => g.label)).toEqual(['Team Shared', 'Claude Code'])
-    expect(result.groups[0].backend).toBe('opencode')
-    expect(result.groups[0].models[0].ref).toBe('team/shared-1')
-    expect(result.groups[1].backend).toBe('claude')
   })
 
   it('reports daemon unavailable when HTTP probe never succeeds', async () => {

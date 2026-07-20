@@ -14,6 +14,42 @@ function cronInvokeArgs(scope: CronScope, selectedWorkspacePath: string | null) 
   }
 }
 
+const RUN_JOB_POLL_INTERVAL_MS = 2000
+const RUN_JOB_MAX_POLL_MS = 30 * 60 * 1000
+const RUN_JOB_IDLE_POLLS_BEFORE_DONE = 3
+
+async function waitForJobRunToFinish(
+  jobId: string,
+  scope: CronScope,
+  selectedWorkspacePath: string | null,
+): Promise<void> {
+  const startedAt = Date.now()
+  let sawRunning = false
+  let idlePolls = 0
+
+  while (Date.now() - startedAt < RUN_JOB_MAX_POLL_MS) {
+    await new Promise((resolve) => setTimeout(resolve, RUN_JOB_POLL_INTERVAL_MS))
+    try {
+      const runs = await invoke<CronRunRecord[]>('cron_get_runs', {
+        jobId,
+        limit: 5,
+        ...cronInvokeArgs(scope, selectedWorkspacePath),
+      })
+      const hasRunning = runs.some((run) => run.status === 'running')
+      if (hasRunning) {
+        sawRunning = true
+        idlePolls = 0
+        continue
+      }
+      if (sawRunning) return
+      idlePolls += 1
+      if (idlePolls >= RUN_JOB_IDLE_POLLS_BEFORE_DONE) return
+    } catch {
+      return
+    }
+  }
+}
+
 export interface CronSchedule {
   kind: ScheduleKind
   at?: string // ISO 8601 for one-time
@@ -116,6 +152,8 @@ interface CronState {
   selectedJobId: string | null
   runs: CronRunRecord[]
   runsLoading: boolean
+  /** Job IDs currently executing via manual "Run Now". */
+  runningJobIds: Set<string>
 
   // Actions
   init: () => Promise<void>
@@ -151,6 +189,7 @@ export const useCronStore = create<CronState>((set, get) => ({
   selectedJobId: null,
   runs: [],
   runsLoading: false,
+  runningJobIds: new Set<string>(),
 
   init: async () => {
     const alreadyInit = get().isInitialized
@@ -277,13 +316,32 @@ export const useCronStore = create<CronState>((set, get) => ({
   },
 
   runJob: async (jobId: string) => {
+    if (get().runningJobIds.has(jobId)) return
+
+    const markRunning = () =>
+      set((state) => ({
+        runningJobIds: new Set([...state.runningJobIds, jobId]),
+      }))
+    const markIdle = () =>
+      set((state) => {
+        const runningJobIds = new Set(state.runningJobIds)
+        runningJobIds.delete(jobId)
+        return { runningJobIds }
+      })
+
+    markRunning()
+    const { activeScope, selectedWorkspacePath } = get()
     try {
       await invoke('cron_run_job', {
         jobId,
-        ...cronInvokeArgs(get().activeScope, get().selectedWorkspacePath),
+        ...cronInvokeArgs(activeScope, selectedWorkspacePath),
       })
+      await waitForJobRunToFinish(jobId, activeScope, selectedWorkspacePath)
+      void get().loadJobs()
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) })
+    } finally {
+      markIdle()
     }
   },
 
