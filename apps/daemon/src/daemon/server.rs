@@ -107,6 +107,21 @@ fn mark_mqtt_connected(flag: &Option<Arc<std::sync::atomic::AtomicBool>>, connec
     }
 }
 
+/// After this long with `mqtt_connected == false`, tear down the rumqttc
+/// client and rebuild via the outer loop (fresh JWT + new TCP/WSS session).
+/// Backend/EMQX restarts can leave rumqttc auto-reconnect retrying with a
+/// stale password indefinitely; a full rebuild matches what process restart
+/// does. Three keepalive periods (30s each) gives the broker time to come
+/// back before we escalate.
+const MQTT_DISCONNECT_REBUILD: Duration = Duration::from_secs(90);
+
+fn mqtt_disconnect_rebuild_due(
+    disconnected_since: Option<std::time::Instant>,
+    threshold: Duration,
+) -> bool {
+    disconnected_since.is_some_and(|since| since.elapsed() >= threshold)
+}
+
 fn load_team_shared_config_for_workspace(workspace_root: &Path) -> Option<TeamSharedGitConfig> {
     crate::team_shared_git::read_git_team_config(workspace_root)
 }
@@ -710,6 +725,57 @@ impl DaemonServer {
         }
     }
 
+    /// Re-subscribe team topics and re-announce presence after MQTT CONNACK.
+    /// Returns `Err(())` when the caller should break to the outer reconnect
+    /// loop (same semantics as the first-connect path).
+    async fn mqtt_resubscribe_after_connack(&mut self, context: &str) -> Result<(), ()> {
+        mark_mqtt_connected(&self.mqtt_connected_flag, true);
+        if let Err(e) = self.mqtt.subscribe_all().await {
+            warn!(
+                context,
+                error = %e,
+                "subscribe_all failed after CONNACK, reconnecting"
+            );
+            mark_mqtt_connected(&self.mqtt_connected_flag, false);
+            return Err(());
+        }
+        if let Some(tc) = &mut self.teamclaw {
+            if let Err(e) = tc.subscribe_all().await {
+                warn!(
+                    context,
+                    error = %e,
+                    "teamclaw subscribe failed after CONNACK, reconnecting"
+                );
+                mark_mqtt_connected(&self.mqtt_connected_flag, false);
+                return Err(());
+            }
+        }
+        if self.config.team_id.is_some() {
+            let publisher =
+                Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
+            if let Err(e) = publisher
+                .publish_actor_presence(&crate::proto::amux::ActorPresence {
+                    online: true,
+                    display_name: self.config.actor.name.clone(),
+                    timestamp: chrono::Utc::now().timestamp(),
+                })
+                .await
+            {
+                warn!(
+                    context,
+                    error = %e,
+                    "publish_actor_presence failed after CONNACK, reconnecting"
+                );
+                mark_mqtt_connected(&self.mqtt_connected_flag, false);
+                return Err(());
+            }
+        } else {
+            warn!("no team_id yet; skipping presence announce until onboarding completes");
+        }
+        self.publish_all_agent_states().await;
+        Ok(())
+    }
+
     /// Run the daemon. When `shutdown` resolves, the inner loop exits
     /// gracefully — channels are shut down (consuming `shutdown(self)`) and
     /// `Ok(())` is returned. Without a shutdown signal the daemon runs
@@ -1303,39 +1369,9 @@ impl DaemonServer {
             }
 
             // ── 5. Subscribe and announce ──
-            if let Err(e) = self.mqtt.subscribe_all().await {
-                warn!("subscribe_all failed after CONNACK: {e}, reconnecting");
+            if self.mqtt_resubscribe_after_connack("initial").await.is_err() {
                 continue 'outer;
             }
-            if let Some(tc) = &mut self.teamclaw {
-                if let Err(e) = tc.subscribe_all().await {
-                    warn!("teamclaw subscribe failed: {e}, reconnecting");
-                    continue 'outer;
-                }
-            }
-            // Only announce presence when we belong to a team — otherwise
-            // `self.topics` still points at the `"teamclaw"` fallback that no
-            // subscriber watches, which manifests as a permanently-offline
-            // agent. The self-heal at the top of the loop adopts the team as
-            // soon as onboarding writes it, so this converges on a later cycle.
-            if self.config.team_id.is_some() {
-                let publisher =
-                    Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
-                if let Err(e) = publisher
-                    .publish_actor_presence(&crate::proto::amux::ActorPresence {
-                        online: true,
-                        display_name: self.config.actor.name.clone(),
-                        timestamp: chrono::Utc::now().timestamp(),
-                    })
-                    .await
-                {
-                    warn!("publish_actor_presence failed after CONNACK: {e}, reconnecting");
-                    continue 'outer;
-                }
-            } else {
-                warn!("no team_id yet; skipping presence announce until onboarding completes");
-            }
-            self.publish_all_agent_states().await;
             info!(actor_id = %self.config.actor.id, "MQTT connected, listening for commands");
 
             if first_connect {
@@ -1367,6 +1403,10 @@ impl DaemonServer {
             );
             let proactive_sleep = tokio::time::sleep(proactive_reconnect_in);
             tokio::pin!(proactive_sleep);
+
+            // Track how long we've been disconnected so rumqttc auto-reconnect
+            // cannot wedge the daemon after a backend/EMQX restart.
+            let mut disconnected_since: Option<std::time::Instant> = None;
 
             // ── 7. Event loop ──
             //
@@ -1478,24 +1518,15 @@ impl DaemonServer {
                             Ok(Event::Incoming(Packet::ConnAck(_))) => {
                                 // Network blip — rumqttc reconnected automatically.
                                 info!("MQTT reconnected (network blip), re-publishing state");
-                                mark_mqtt_connected(&self.mqtt_connected_flag, true);
-                                if let Err(e) = self.mqtt.subscribe_all().await {
-                                    warn!("subscribe_all failed after reconnect: {e}");
+                                disconnected_since = None;
+                                if self
+                                    .mqtt_resubscribe_after_connack("auto-reconnect")
+                                    .await
+                                    .is_err()
+                                {
+                                    self.backend.invalidate_cached_credential();
+                                    break;
                                 }
-                                if let Some(tc) = &mut self.teamclaw {
-                                    if let Err(e) = tc.subscribe_all().await {
-                                        warn!("teamclaw subscribe failed after reconnect: {e}");
-                                    }
-                                }
-                                let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
-                                if let Err(e) = publisher.publish_actor_presence(&crate::proto::amux::ActorPresence {
-                                    online: true,
-                                    display_name: self.config.actor.name.clone(),
-                                    timestamp: chrono::Utc::now().timestamp(),
-                                }).await {
-                                    warn!("publish_actor_presence failed after reconnect: {e}");
-                                }
-                                self.publish_all_agent_states().await;
                             }
                             Ok(Event::Incoming(Packet::Publish(publish))) => {
                                 if let Some(msg) = subscriber::parse_incoming(&publish) {
@@ -1557,6 +1588,23 @@ impl DaemonServer {
                             .as_ref()
                             .map(|f| f.load(std::sync::atomic::Ordering::Relaxed))
                             .unwrap_or(true);
+                        if !mqtt_up {
+                            if disconnected_since.is_none() {
+                                disconnected_since = Some(std::time::Instant::now());
+                            } else if mqtt_disconnect_rebuild_due(
+                                disconnected_since,
+                                MQTT_DISCONNECT_REBUILD,
+                            ) {
+                                warn!(
+                                    threshold_secs = MQTT_DISCONNECT_REBUILD.as_secs(),
+                                    "MQTT disconnected too long, forcing full reconnect with fresh credentials"
+                                );
+                                self.backend.invalidate_cached_credential();
+                                break;
+                            }
+                        } else {
+                            disconnected_since = None;
+                        }
                         if mqtt_up {
                             // Drain queued runtime events without preempting poll().
                             let (agent_events, evicted_runtime_ids): (Vec<_>, Vec<String>) = {
@@ -2773,6 +2821,22 @@ pub(crate) mod tests {
         assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
         mark_mqtt_connected(&Some(flag.clone()), true);
         assert!(flag.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[test]
+    fn mqtt_disconnect_rebuild_due_after_threshold() {
+        use std::time::{Duration, Instant};
+
+        let since = Instant::now() - Duration::from_secs(91);
+        assert!(super::mqtt_disconnect_rebuild_due(
+            Some(since),
+            Duration::from_secs(90)
+        ));
+        assert!(!super::mqtt_disconnect_rebuild_due(
+            Some(Instant::now()),
+            Duration::from_secs(90)
+        ));
+        assert!(!super::mqtt_disconnect_rebuild_due(None, Duration::from_secs(90)));
     }
 
     pub(crate) fn test_mqtt(actor_id: &str) -> MqttClient {
