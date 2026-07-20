@@ -280,16 +280,28 @@ describe('ChatMessage streaming typewriter', () => {
     });
 
     const { container } = render(<ChatMessage message={message} />);
-    const text = container.textContent ?? '';
+    let text = container.textContent ?? '';
     expect(text).not.toContain('Plan first.');
     expect(text).not.toContain('Plan second.');
     expect(text).not.toContain('Plan third.');
-    expect(text).toContain('Before tool.');
+    // Mid-turn narration lives inside collapsed「处理过程」.
+    expect(text).not.toContain('Before tool.');
     expect(text).toContain('After tool.');
 
-    const thinkingButtons = Array.from(container.querySelectorAll('button')).filter((button) =>
-      button.textContent?.includes('Thinking Process'),
+    const processTrigger = container.querySelector(
+      '[data-testid="agent-process-collapsible"] button',
     );
+    expect(processTrigger).toBeTruthy();
+    fireEvent.click(processTrigger!);
+
+    text = container.textContent ?? '';
+    expect(text).toContain('Before tool.');
+    expect(text).not.toContain('Plan first.');
+
+    const thinkingButtons = Array.from(container.querySelectorAll('button')).filter((button) => {
+      const label = button.textContent ?? '';
+      return label.includes('Thinking Process') || label.includes('思考过程');
+    });
     expect(thinkingButtons).toHaveLength(3);
 
     fireEvent.click(thinkingButtons[0]);
