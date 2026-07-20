@@ -1484,13 +1484,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
               useSessionMessageStore.getState().messages[sid]?.length ?? 0,
           });
 
-          if (agentRuntimeIdsForSend.length > 0) {
-            notePendingAgentReplyTo(sid, agentRuntimeIdsForSend, messageId);
-          }
-
           // 2. Enqueue to outbox — status dot beside the bubble tracks
           //    pending/inFlight/delivered. Network + runtime work continue
           //    asynchronously after the bubble is visible.
+          //    notePendingAgentReplyTo only after enqueue succeeds so a failed
+          //    send cannot leave stale FIFO ids for a later agent turn.
           let workspaceIdHint: string | null = null;
           if (agentRuntimeIdsForSend.length > 0 && teamIdForSend) {
             let localDaemonActorId: string | null = null;
@@ -1534,6 +1532,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             teamId: teamIdForSend,
             messageId,
           });
+          if (agentRuntimeIdsForSend.length > 0) {
+            notePendingAgentReplyTo(sid, agentRuntimeIdsForSend, messageId);
+          }
 
           bumpSessionListLastMessage(sid, outgoing, { at: new Date().toISOString() });
 

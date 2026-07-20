@@ -124,6 +124,7 @@ import {
 } from "@/lib/session-list-preview";
 import { executeAgentTurnFlush } from "@/lib/agent-turn-flush";
 import {
+  removePendingAgentReplyTo,
   resolvePendingAgentReplyTo,
 } from "@/lib/pending-agent-reply-to";
 import {
@@ -1437,6 +1438,13 @@ function AppContent() {
               // real reply doesn't duplicate it (survives reload otherwise).
               if (senderActorId && msg.kind === MessageKind.AGENT_REPLY) {
                 removeInterruptedStreamPlaceholderForRealReply(sid, senderActorId);
+                // Direct-append skips flushTurnAgentReply — still drop the
+                // stamped parent from the local FIFO so a later flush cannot
+                // reuse a stale user message id.
+                const stampedReplyTo = msg.replyToMessageId?.trim();
+                if (stampedReplyTo) {
+                  removePendingAgentReplyTo(sid, senderActorId, stampedReplyTo);
+                }
               }
               useSessionMessageStore.getState().appendMessage(sid, decoded.message);
             }
