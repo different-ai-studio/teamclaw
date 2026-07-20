@@ -494,6 +494,58 @@ mod tests {
     }
 
     #[test]
+    fn wrong_team_secret_never_injects_an_encrypted_value() {
+        let tmp = tempfile::tempdir().unwrap();
+        let secrets_dir = tmp.path().join("teamclaw").join("_secrets");
+        std::fs::create_dir_all(&secrets_dir).unwrap();
+        let writer_secret = "66".repeat(32);
+        std::fs::write(
+            secrets_dir.join("shared_token.enc.json"),
+            encrypted_secret_file(&writer_secret, "shared_token", "must-not-leak"),
+        )
+        .unwrap();
+
+        let env = load_team_env(tmp.path(), "teamclaw", &"77".repeat(32)).unwrap();
+
+        assert!(env.is_empty(), "a key mismatch must fail closed");
+    }
+
+    #[test]
+    fn daemon_secret_survives_restart_and_decrypts_team_env_file() {
+        let workspace = tempfile::tempdir().unwrap();
+        let daemon_state = tempfile::tempdir().unwrap();
+        let team_id = "restart-team";
+        let team_secret = "88".repeat(32);
+
+        // Persist as the desktop-to-daemon secret delivery endpoint does, then
+        // recreate the store to model an amuxd restart.
+        store_with_secret(daemon_state.path(), team_id, &team_secret);
+        let restarted_store = crate::sync::secret_store::SecretStore::with_base(
+            daemon_state.path().to_path_buf(),
+        );
+        let restored_secret = resolve_env_secret_with(
+            &restarted_store,
+            workspace.path(),
+            Some(team_id),
+        )
+        .expect("daemon secret must persist across restart");
+
+        let secrets_dir = workspace.path().join("teamclaw-team").join("_secrets");
+        std::fs::create_dir_all(&secrets_dir).unwrap();
+        std::fs::write(
+            secrets_dir.join("restart_token.enc.json"),
+            encrypted_secret_file(&team_secret, "restart_token", "available-after-restart"),
+        )
+        .unwrap();
+
+        let env = load_team_env_from_secrets_dir(&secrets_dir, &restored_secret).unwrap();
+        assert_eq!(
+            env.get("RESTART_TOKEN").map(String::as_str),
+            Some("available-after-restart")
+        );
+    }
+
+    #[test]
     fn load_team_env_for_workspace_merges_all_candidate_dirs() {
         let tmp = tempfile::tempdir().unwrap();
         let env_secret = "55".repeat(32);

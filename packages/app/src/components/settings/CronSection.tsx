@@ -47,6 +47,7 @@ function JobCard({
   onToggle,
   onRun,
   onViewHistory,
+  isRunning,
 }: {
   job: CronJob
   onEdit: () => void
@@ -54,6 +55,7 @@ function JobCard({
   onToggle: (enabled: boolean) => void
   onRun: () => void
   onViewHistory: () => void
+  isRunning: boolean
 }) {
   const { t } = useTranslation()
   const [confirmDelete, setConfirmDelete] = React.useState(false)
@@ -116,10 +118,14 @@ function JobCard({
           variant="ghost"
           size="sm"
           onClick={onRun}
-          disabled={!job.enabled}
+          disabled={!job.enabled || isRunning}
           className="h-7 text-xs text-muted-foreground hover:text-foreground"
         >
-          <Play className="h-3 w-3 mr-1" />
+          {isRunning ? (
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+          ) : (
+            <Play className="h-3 w-3 mr-1" />
+          )}
           {t('settings.cron.runNow', 'Run Now')}
         </Button>
         <Button
@@ -195,6 +201,7 @@ export function CronSection() {
     toggleEnabled,
     runJob,
     clearError,
+    runningJobIds,
   } = useCronStore()
 
   const [formOpen, setFormOpen] = React.useState(false)
@@ -391,8 +398,9 @@ export function CronSection() {
               onEdit={() => handleOpenEdit(job)}
               onDelete={() => removeJob(job.id)}
               onToggle={(enabled) => toggleEnabled(job.id, enabled)}
-              onRun={() => runJob(job.id)}
+              onRun={() => void runJob(job.id)}
               onViewHistory={() => handleViewHistory(job)}
+              isRunning={runningJobIds.has(job.id)}
             />
           ))}
         </div>

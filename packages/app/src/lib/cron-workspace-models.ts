@@ -8,17 +8,12 @@ import {
   getDaemonModelCatalog,
   encodeWorkspaceId,
 } from '@/lib/daemon-local-client'
-import { TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
-import { getBackend } from '@/lib/backend'
+import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
+import { AgentType } from '@/lib/proto/amux_pb'
+import { useRuntimeStateStore, type RuntimeStateEntry } from '@/stores/runtime-state-store'
 import { workspacePathsMatch } from '@/stores/session-utils'
-import type { ConfiguredProvider } from '@/stores/provider'
 import type { CronScope } from '@/stores/cron'
 import { isTauri } from '@/lib/utils'
-
-/** Backend a team-shared model runs on. Those are OpenCode-compatible provider
- *  models (sourced from the cloud team LLM config), so they execute on the
- *  OpenCode backend regardless of the daemon default. */
-const TEAM_SHARED_BACKEND = 'opencode'
 
 /** Map daemon HTTP workspace path to the canonical path registered on this daemon. */
 export async function resolveDaemonWorkspacePath(
@@ -72,27 +67,15 @@ async function waitForDaemonHttpReady(timeoutMs = 8000): Promise<boolean> {
   return false
 }
 
-async function loadTeamSharedProvider(teamId: string | null): Promise<ConfiguredProvider | null> {
-  if (!teamId) return null
-  // Cloud is the source of truth (`GET /v1/teams/:id/workspace-config` → `llm`).
-  const llm = await getBackend().teamWorkspaceConfig.loadLlmConfig(teamId).catch(() => null)
-  if (!llm?.enabled || !llm.baseUrl || llm.models.length === 0) return null
-  return {
-    id: TEAM_SHARED_PROVIDER_ID,
-    name: 'Team Shared',
-    models: llm.models.map((m) => ({ id: m.id, name: m.name })),
-  }
-}
-
 /** A single selectable model in the cron dialog, carrying its backend so the
  *  scheduler can pin the job to the right agent runtime. */
 export interface CronModelOption {
-  /** `"<providerSegment>/<modelId>"` — stored verbatim as `payload.model`. */
+  /** ACP model id (often `provider/model`) — stored verbatim as `payload.model`. */
   ref: string
   name: string
 }
 
-/** Models grouped by the agent backend that runs them. */
+/** Models for one agent backend. Cron UI renders a flat list like chat. */
 export interface CronModelGroup {
   /** "opencode" | "claude" | "codex" — stored as `payload.backend`. */
   backend: string
@@ -100,43 +83,97 @@ export interface CronModelGroup {
   models: CronModelOption[]
 }
 
-/** Map the cloud team-shared LLM provider to its cron model group, if any. */
-function teamSharedGroup(teamShared: ConfiguredProvider | null): CronModelGroup | null {
-  if (!teamShared || teamShared.models.length === 0) return null
-  return {
-    backend: TEAM_SHARED_BACKEND,
-    label: teamShared.name,
-    models: teamShared.models.map((m) => ({
-      ref: `${TEAM_SHARED_PROVIDER_ID}/${m.id}`,
-      name: m.name,
-    })),
+export function cronBackendFromAgentType(agentType: AgentType): string {
+  switch (agentType) {
+    case AgentType.CLAUDE_CODE:
+      return 'claude'
+    case AgentType.CODEX:
+      return 'codex'
+    case AgentType.OPENCODE:
+    default:
+      return 'opencode'
   }
 }
 
-/** Fetch the daemon model catalog for a resolved workspace path and fold in the
- *  optional team-shared group. OpenCode models come from the same ACP probe as
- *  runtime attach (`configOptions[id=model]`). Returns `null` when unreachable. */
-async function loadCatalogGroupsForPath(workspacePath: string, teamId: string | null): Promise<{
+function uniqueRuntimeEntries(): RuntimeStateEntry[] {
+  const seen = new Set<RuntimeStateEntry>()
+  for (const entry of Object.values(useRuntimeStateStore.getState().byRuntimeId)) {
+    seen.add(entry)
+  }
+  return [...seen]
+}
+
+/** Newest live runtime whose worktree matches the target workspace path. */
+export function findRuntimeForWorkspace(workspacePath: string): RuntimeStateEntry | undefined {
+  const byRuntimeId = useRuntimeStateStore.getState().byRuntimeId
+  let best: RuntimeStateEntry | undefined
+  for (const entry of uniqueRuntimeEntries()) {
+    const worktree = entry.info.worktree?.trim()
+    if (!worktree || !workspacePathsMatch(workspacePath, worktree)) continue
+
+    const agentKey = entry.daemonActorId.trim()
+    const canonical = agentKey ? byRuntimeId[agentKey] : undefined
+    if (canonical && canonical !== entry) continue
+
+    if (!best || entry.lastUpdated > best.lastUpdated) best = entry
+  }
+  return best
+}
+
+function groupFromAcpModels(
+  models: Array<{ id: string; displayName: string }>,
+  backend: string,
+): CronModelGroup[] {
+  if (models.length === 0) return []
+  return [
+    {
+      backend,
+      label: '',
+      models: models.map((m) => ({
+        ref: m.id,
+        name: m.displayName?.trim() || m.id,
+      })),
+    },
+  ]
+}
+
+/** Same source as chat AgentSelectorDock: live ACP `available_models`. */
+export function modelsFromLiveRuntime(workspacePath: string): CronModelGroup[] {
+  const runtime = findRuntimeForWorkspace(workspacePath)
+  if (!runtime) return []
+  const models = resolveAgentAvailableModels(runtime.info)
+  return groupFromAcpModels(models, cronBackendFromAgentType(runtime.info.agentType))
+}
+
+/** When no live runtime advertises models, fall back to the daemon catalog slice
+ *  for the default (or preferred) backend — same ACP probe path runtime attach uses. */
+export async function modelsFromCatalogFallback(
+  workspacePath: string,
+  preferBackend?: string | null,
+): Promise<{
   groups: CronModelGroup[]
   automationDefaultBackend: string | null
 } | null> {
   const catalog = await getDaemonModelCatalog(encodeWorkspaceId(workspacePath))
   if (catalog === null) return null
 
-  const teamShared = await loadTeamSharedProvider(teamId)
-  const sharedGroup = teamSharedGroup(teamShared)
+  const backendId = preferBackend ?? catalog.automation_default_backend ?? 'opencode'
+  const slice = catalog.backends.find((b) => b.backend === backendId)
+  if (!slice || slice.models.length === 0) {
+    return { groups: [], automationDefaultBackend: catalog.automation_default_backend }
+  }
 
-  const catalogGroups: CronModelGroup[] = catalog.backends
-    .map((b) => ({
-      backend: b.backend,
-      label: b.label,
-      models: b.models.map((m) => ({ ref: m.ref, name: m.display_name })),
-    }))
-    .filter((g) => g.models.length > 0)
-
-  const groups = sharedGroup ? [sharedGroup, ...catalogGroups] : catalogGroups
   return {
-    groups,
+    groups: [
+      {
+        backend: backendId,
+        label: '',
+        models: slice.models.map((m) => ({
+          ref: m.ref,
+          name: m.display_name,
+        })),
+      },
+    ],
     automationDefaultBackend: catalog.automation_default_backend,
   }
 }
@@ -149,7 +186,7 @@ export type CronDialogModelLoadResult = {
   hint: string | null
 }
 
-/** Resolve target workspace path for cron scope and load provider/model options. */
+/** Resolve target workspace path for cron scope and load model options. */
 export async function loadCronDialogModels(args: {
   activeScope: CronScope
   teamId: string | null
@@ -203,6 +240,15 @@ export async function loadCronDialogModels(args: {
     return { groups: [], automationDefaultBackend: null, hint: args.messages.loadFailed }
   }
 
+  const liveGroups = modelsFromLiveRuntime(resolvedPath)
+  if (liveGroups.length > 0) {
+    return {
+      groups: liveGroups,
+      automationDefaultBackend: liveGroups[0]?.backend ?? null,
+      hint: null,
+    }
+  }
+
   if (isTauri()) {
     const daemonReady = await waitForDaemonHttpReady()
     if (!daemonReady) {
@@ -211,7 +257,11 @@ export async function loadCronDialogModels(args: {
   }
 
   try {
-    const catalog = await loadCatalogGroupsForPath(resolvedPath, args.teamId)
+    const runtime = findRuntimeForWorkspace(resolvedPath)
+    const preferBackend = runtime
+      ? cronBackendFromAgentType(runtime.info.agentType)
+      : null
+    const catalog = await modelsFromCatalogFallback(resolvedPath, preferBackend)
     if (catalog === null) {
       return { groups: [], automationDefaultBackend: null, hint: args.messages.loadFailed }
     }

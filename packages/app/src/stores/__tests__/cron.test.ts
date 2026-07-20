@@ -49,6 +49,7 @@ describe('cron store', () => {
       selectedJobId: null,
       runs: [],
       runsLoading: false,
+      runningJobIds: new Set<string>(),
     })
   })
 
@@ -438,14 +439,46 @@ describe('cron store actions', () => {
     })
   })
 
-  it('runJob passes scope args', async () => {
-    mockInvoke.mockResolvedValueOnce(undefined)
-    await useCronStore.getState().runJob('job-1')
+  it('runJob passes scope args and clears running state when idle', async () => {
+    vi.useFakeTimers()
+    useCronStore.setState({ isInitialized: true })
+    mockInvoke.mockResolvedValueOnce(undefined) // cron_run_job
+    mockInvoke.mockResolvedValueOnce([]) // cron_get_runs poll 1
+    mockInvoke.mockResolvedValueOnce([]) // cron_get_runs poll 2
+    mockInvoke.mockResolvedValueOnce([]) // cron_get_runs poll 3
+    mockInvoke.mockResolvedValueOnce([]) // cron_list_jobs refresh
+
+    const promise = useCronStore.getState().runJob('job-1')
+    expect(useCronStore.getState().runningJobIds.has('job-1')).toBe(true)
+
+    await vi.runAllTimersAsync()
+    await promise
+
     expect(mockInvoke).toHaveBeenCalledWith('cron_run_job', {
       jobId: 'job-1',
       scope: 'global',
       workspacePath: null,
     })
+    expect(useCronStore.getState().runningJobIds.has('job-1')).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('runJob ignores duplicate triggers while already running', async () => {
+    vi.useFakeTimers()
+    useCronStore.setState({ isInitialized: true })
+    mockInvoke.mockResolvedValueOnce(undefined)
+    mockInvoke.mockResolvedValueOnce([{ runId: 'r1', jobId: 'job-1', startedAt: '2026-01-01', status: 'running' }])
+    mockInvoke.mockResolvedValueOnce([{ runId: 'r1', jobId: 'job-1', startedAt: '2026-01-01', status: 'success', finishedAt: '2026-01-01' }])
+    mockInvoke.mockResolvedValueOnce([])
+
+    const first = useCronStore.getState().runJob('job-1')
+    await useCronStore.getState().runJob('job-1')
+
+    await vi.runAllTimersAsync()
+    await first
+
+    expect(mockInvoke).toHaveBeenCalledTimes(4)
+    vi.useRealTimers()
   })
 
   it('loadCronSessionIds passes scope args', async () => {

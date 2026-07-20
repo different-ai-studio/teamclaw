@@ -51,6 +51,7 @@ import { useChannelsStore } from '@/stores/channels'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { loadCronDialogModels, type CronModelGroup } from '@/lib/cron-workspace-models'
+import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { ToggleSwitch } from '../shared'
 import {
   type JobFormState,
@@ -79,6 +80,17 @@ export function CronJobDialog({
   const channelsStore = useChannelsStore()
   const daemonHttpReady = useWorkspaceStore((s) => s.daemonHttpReady)
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
+  const runtimeModelSignature = useRuntimeStateStore((s) =>
+    Object.entries(s.byRuntimeId)
+      .map(([runtimeId, entry]) => {
+        const models = entry.info.availableModels
+          .map((model) => `${model.id}:${model.displayName}`)
+          .join('|')
+        return `${runtimeId}:${entry.info.worktree}:${models}`
+      })
+      .sort()
+      .join(';'),
+  )
 
   const [form, setForm] = React.useState<JobFormState>(defaultFormState)
   const [saving, setSaving] = React.useState(false)
@@ -96,6 +108,11 @@ export function CronJobDialog({
     }
     return map
   }, [modelGroups])
+
+  const modelOptions = React.useMemo(
+    () => modelGroups.flatMap((group) => group.models),
+    [modelGroups],
+  )
 
   React.useEffect(() => {
     if (!open) return
@@ -148,16 +165,16 @@ export function CronJobDialog({
     return () => {
       cancelled = true
     }
-  }, [open, activeScope, selectedWorkspacePath, teamId, daemonHttpReady, t])
+  }, [open, activeScope, selectedWorkspacePath, teamId, daemonHttpReady, runtimeModelSignature, t])
 
   // Drop a saved model that is no longer in this workspace's catalog, clearing
   // its pinned backend too so the job reverts to the "auto" default.
   React.useEffect(() => {
-    if (!open || !form.model || modelGroups.length === 0) return
+    if (!open || !form.model || modelOptions.length === 0) return
     if (!backendByRef.has(form.model)) {
       setForm((prev) => ({ ...prev, model: '', backend: '' }))
     }
-  }, [open, form.model, modelGroups, backendByRef])
+  }, [open, form.model, modelOptions.length, backendByRef])
 
   React.useEffect(() => {
     if (open) {
@@ -367,26 +384,15 @@ export function CronJobDialog({
                             {modelHint}
                           </div>
                         )}
-                        {!modelHint && modelGroups.length === 0 && (
+                        {!modelHint && modelOptions.length === 0 && (
                           <div className="px-2 py-6 text-center text-[13px] text-muted-foreground">
-                            {t('settings.cron.noModels', 'No models configured. Please configure providers in LLM Settings first.')}
+                            {t('settings.cron.noModels', 'No models advertised. Start an agent session in chat first, or configure providers in LLM settings.')}
                           </div>
                         )}
-                        {modelGroups.map((group) => (
-                          <React.Fragment key={group.backend + '|' + group.label}>
-                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground border-t first:border-t-0">
-                              {group.label}
-                            </div>
-                            {group.models.map((model) => (
-                              <SelectItem
-                                key={model.ref}
-                                value={model.ref}
-                                className="pl-6"
-                              >
-                                {model.name}
-                              </SelectItem>
-                            ))}
-                          </React.Fragment>
+                        {modelOptions.map((model) => (
+                          <SelectItem key={model.ref} value={model.ref}>
+                            {model.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
