@@ -17,6 +17,10 @@ vi.mock('@/lib/auth/session-store', () => ({
   getFreshAccessToken: vi.fn(async () => 'test-token'),
 }))
 
+vi.mock('@/lib/server-config', () => ({
+  getEffectiveServerConfigSync: () => ({ cloudApiUrl: 'https://runtime.example.test' }),
+}))
+
 import { JoinTeamFlow } from '../JoinTeamFlow'
 import { useTeamShareStore } from '@/stores/team-share'
 

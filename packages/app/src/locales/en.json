@@ -301,7 +301,6 @@
     "thinking": "Thinking...",
     "thinkingProcess": "Thinking Process",
     "process": "Process",
-    "replyTo": "Reply to {{name}}",
     "replyToPrefix": "Reply to",
     "you": "You",
     "someone": "Someone",
@@ -328,6 +327,7 @@
       "waitingExternalPathApproval": "Confirmation is required before accessing a path outside the workspace",
       "childSessionWaitingApproval": "A child session is waiting for your approval",
       "toolInvocationWaitingApproval": "A tool call is waiting for your approval",
+      "waitingForApproval": "Waiting for {{name}} to approve",
       "queuePosition": "{{current}} / {{total}}",
       "approvalSectionAria": "Permission approval",
       "approve": "Allow"
@@ -458,7 +458,6 @@
     "outgoing": {
       "humanMentionInstruction": "This message also mentions human {{name}}"
     },
-    "inputPlaceholderQueue": "Type to queue message...",
     "inputPlaceholderContinue": "Continue typing...",
     "newSession": "New Session",
     "refreshMessages": "Refresh messages",
