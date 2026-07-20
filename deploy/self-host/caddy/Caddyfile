@@ -20,6 +20,15 @@
 	# handle_path + handle are mutually exclusive, so /llm never falls through to FC.
 	# Note this also exposes LiteLLM's admin API (/llm/team/new, /llm/key/generate)
 	# publicly — they are master-key authenticated, same as the hosted gateway.
+	# LiteLLM admin UI static assets and login routes are emitted at the site root
+	# (/litellm-asset-prefix, /ui) — not under /llm. Proxy them to the gateway so
+	# the dashboard loads through Caddy on the FC domain.
+	handle_path /litellm-asset-prefix/* {
+		reverse_proxy litellm:4000
+	}
+	handle_path /ui/* {
+		reverse_proxy litellm:4000
+	}
 	handle_path /llm/* {
 		reverse_proxy litellm:4000
 	}
