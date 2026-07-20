@@ -9,8 +9,10 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
+const mockInvoke = vi.fn()
+
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
+  invoke: mockInvoke,
 }))
 
 vi.mock('@/components/ui/button', () => ({
@@ -64,6 +66,11 @@ vi.mock('@/stores/workspace', () => ({
     selector({ workspacePath: '/test' }),
 }))
 
+vi.mock('@/stores/current-team', () => ({
+  useCurrentTeamStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({ team: { id: 'team-1' } }),
+}))
+
 vi.mock('@/stores/team-members', () => ({
   useTeamMembersStore: (selector: (s: Record<string, unknown>) => unknown) =>
     selector({
@@ -94,6 +101,7 @@ vi.mock('lucide-react', async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockInvoke.mockResolvedValue(true)
 })
 
 describe('EnvVarsSection', () => {
@@ -114,5 +122,13 @@ describe('EnvVarsSection', () => {
     const { EnvVarsSection } = await import('@/components/settings/EnvVarsSection')
     render(React.createElement(EnvVarsSection))
     expect(mockLoadEnvCatalog).toHaveBeenCalled()
+  })
+
+  it('warns when the daemon cannot decrypt team environment variables', async () => {
+    mockInvoke.mockResolvedValue(false)
+    const { EnvVarsSection } = await import('@/components/settings/EnvVarsSection')
+    render(React.createElement(EnvVarsSection))
+
+    expect(await screen.findByText('Team variables are not available to this agent')).toBeDefined()
   })
 })

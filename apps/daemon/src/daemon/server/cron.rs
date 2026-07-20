@@ -158,6 +158,13 @@ impl DaemonServer {
                 (sb_sid, acp_sid)
             };
 
+        // Cron drives the ACP turn directly (bypassing session/live routing),
+        // so the job prompt never lands in Cloud the way a desktop-typed
+        // message would. Persist it before the turn so "view session" shows
+        // both sides of the exchange.
+        self.persist_cron_user_prompt(&team_id, &remote_session_id, parsed.message)
+            .await;
+
         // Drive the turn through the ACP runtime. Unlike the legacy
         // `send_prompt_and_await_reply` (which holds the global manager mutex
         // for the entire turn), `drive_cron_turn` uses the checkout pattern so
@@ -237,6 +244,84 @@ impl DaemonServer {
                 "agent_error": e.to_string(),
             })),
         }
+    }
+
+    /// Persist the cron job prompt as a `text` message on the cloud session.
+    ///
+    /// Skips session/live publish so the daemon does not re-route the prompt
+    /// back into the ACP runtime (cron already calls `send_prompt_raw`).
+    pub(crate) async fn persist_cron_user_prompt(
+        &self,
+        team_id: &str,
+        session_id: &str,
+        prompt: &str,
+    ) {
+        let Some(tc) = self.teamclaw.as_ref() else {
+            warn!(
+                session_id,
+                "cron: SessionManager unavailable; user prompt not persisted"
+            );
+            return;
+        };
+
+        let sender_actor_id = self
+            .backend
+            .list_agent_admin_member_actor_ids(&self.actor_id)
+            .await
+            .ok()
+            .and_then(|ids| ids.into_iter().next())
+            .unwrap_or_else(|| self.actor_id.clone());
+
+        let message_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now();
+        let proto_msg = crate::proto::teamclaw::Message {
+            message_id: message_id.clone(),
+            session_id: session_id.to_string(),
+            sender_actor_id: sender_actor_id.clone(),
+            kind: crate::proto::teamclaw::MessageKind::Text as i32,
+            content: prompt.to_string(),
+            created_at: now.timestamp(),
+            ..Default::default()
+        };
+
+        if let Err(e) = tc.persist_message(session_id, &proto_msg).await {
+            warn!(?e, session_id, "cron: persist user prompt to TOML failed");
+        }
+
+        info!(
+            session_id,
+            bytes = prompt.len(),
+            sender_actor_id = %sender_actor_id,
+            "cron: persisted user prompt to session TOML and cloud"
+        );
+
+        let backend = self.backend.clone();
+        let team_id = team_id.to_string();
+        let session = session_id.to_string();
+        let content = prompt.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = backend
+                .insert_message(
+                    &message_id,
+                    &team_id,
+                    &session,
+                    &sender_actor_id,
+                    "text",
+                    &content,
+                    "",
+                    "",
+                    "",
+                    0,
+                )
+                .await
+            {
+                warn!(
+                    ?e,
+                    session_id = %session,
+                    "cron: backend insert user prompt failed"
+                );
+            }
+        });
     }
 
     /// Resolve the working directory to use for a cron turn that didn't pin
@@ -487,5 +572,37 @@ mod tests {
             cache.get_pair("k"),
             Some(("new-cloud".to_string(), "new-acp".to_string()))
         );
+    }
+
+    #[tokio::test]
+    async fn persist_cron_user_prompt_inserts_text_for_admin_sender() {
+        use crate::backend::mock::MockBackend;
+        use crate::backend::Backend;
+        use std::sync::Arc;
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        {
+            let mut st = mock.state();
+            st.admin_member_actor_ids.insert(
+                "agent-actor".to_string(),
+                vec!["human-admin".to_string()],
+            );
+        }
+        let backend: Arc<dyn Backend> = Arc::new(mock.clone());
+        let test_server = test_server_with_cloud_api(backend);
+
+        test_server
+            .server
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals")
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let snap = mock.state();
+        assert_eq!(snap.messages_inserted.len(), 1);
+        assert_eq!(snap.messages_inserted[0].kind, "text");
+        assert_eq!(snap.messages_inserted[0].content, "check approvals");
+        assert_eq!(snap.messages_inserted[0].sender_actor_id, "human-admin");
+        assert_eq!(snap.messages_inserted[0].session_id, "session-1");
     }
 }

@@ -72,7 +72,7 @@ type DaemonOnboardingState = {
   bindExistingAgent: (agentId: string, displayName: string) => Promise<void>
   forceReset: () => Promise<void>
   /** Poll the daemon's cloud-auth health; auto-heal once when terminally expired. */
-  checkCloudSession: () => Promise<void>
+  checkCloudSession: (opts?: { allowRetryAfterHealError?: boolean }) => Promise<void>
   /** Re-onboard the local daemon in place (same actor) to restore credentials. */
   autoHealCloudSession: () => Promise<void>
 }
@@ -123,6 +123,18 @@ async function onboard(teamId: string, displayName: string, targetActorId: strin
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** After re-onboard, wait until `/v1/info` reports a healthy cloud session. */
+async function waitForDaemonCloudAuthOk(timeoutMs = 30_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const status = await fetchDaemonCloudAuthStatus()
+    if (status === 'ok') return true
+    if (status === 'expired') return false
+    await sleep(500)
+  }
+  return (await fetchDaemonCloudAuthStatus()) === 'ok'
+}
+
 /** The daemon is onboarded to the current team — ensure it's actually running with a
  * valid token. Auto-recover (start/restart) and poll until healthy. Returns true if ready. */
 async function ensureHealthy(): Promise<boolean> {
@@ -165,6 +177,15 @@ async function ensureDefaultWorkspaceRegistered(teamId: string | null): Promise<
   }
 }
 
+/** Cloud upsert via `POST /v1/workspaces` needs a live daemon cloud session. */
+async function maybeRegisterDefaultWorkspace(teamId: string | null): Promise<void> {
+  if (!isTauri() || !teamId) return
+  if (useDaemonOnboardingStore.getState().cloudAuthExpired) return
+  const auth = await fetchDaemonCloudAuthStatus()
+  if (auth !== 'ok') return
+  await ensureDefaultWorkspaceRegistered(teamId)
+}
+
 export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get) => ({
   status: 'unknown',
   loaded: false,
@@ -196,13 +217,10 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     markStartup('daemon-refresh:end')
     if (first.ok) {
       set({ status: 'ready', loaded: true })
-      // Daemon and actor share a team — ensure the default team workspace is
-      // registered locally + in the cloud (idempotent, best-effort).
-      void ensureDefaultWorkspaceRegistered(currentTeamId)
-      // The daemon process is up, but its *cloud* session may be dead (refresh
-      // token rejected) — detect and auto re-onboard so it can advertise its
-      // backends + sync again. Best-effort; never blocks `ready`.
-      void get().checkCloudSession()
+      // Heal the daemon's cloud session before workspace upsert — otherwise
+      // `POST /v1/workspaces` fails with 500 while the refresh token is dead.
+      await get().checkCloudSession()
+      await maybeRegisterDefaultWorkspace(currentTeamId)
       return
     }
     set({ status: 'starting', loaded: true, error: null })
@@ -218,7 +236,10 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
             'Failed to start the background service. Make sure it can run on this machine, then retry.',
           ),
     })
-    if (ok) void ensureDefaultWorkspaceRegistered(currentTeamId)
+    if (ok) {
+      await get().checkCloudSession()
+      await maybeRegisterDefaultWorkspace(currentTeamId)
+    }
   },
 
   loadOwnedAgents: async () => {
@@ -301,7 +322,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     }
   },
 
-  checkCloudSession: async () => {
+  checkCloudSession: async (opts?: { allowRetryAfterHealError?: boolean }) => {
     if (!isTauri()) return
     const status = await fetchDaemonCloudAuthStatus()
     if (status !== 'expired') {
@@ -310,10 +331,11 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
       return
     }
     set({ cloudAuthExpired: true })
+    if (opts?.allowRetryAfterHealError) set({ healError: null })
     // Auto-heal exactly once. A prior failure (`healError`) or an in-flight heal
     // suppresses further automatic attempts so a non-owner daemon never spins;
     // the banner's retry button drives subsequent attempts explicitly.
-    if (!get().healing && !get().healError) {
+    if (!get().healing && (!get().healError || opts?.allowRetryAfterHealError)) {
       await get().autoHealCloudSession()
     }
   },
@@ -344,7 +366,8 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
       // running daemon (`launchctl kickstart -k`) so it reloads backend.toml.
       await onboard(teamId, owned.displayName, actorId)
       invalidateDaemonConnection()
-      set({ cloudAuthExpired: false })
+      const authOk = await waitForDaemonCloudAuthOk()
+      set({ cloudAuthExpired: !authOk })
       await get().refresh()
     } catch (e) {
       set({ healError: String(e) })
