@@ -394,8 +394,8 @@ importers:
         specifier: ^4.3.0
         version: 4.3.0
       '@tailwindcss/oxide-darwin-x64':
-        specifier: ^4.3.0
-        version: 4.3.0
+        specifier: ^4.3.3
+        version: 4.3.3
       '@tailwindcss/oxide-linux-arm64-gnu':
         specifier: ^4.3.2
         version: 4.3.2
@@ -3611,8 +3611,8 @@ packages:
     cpu: [x64]
     os: [darwin]
 
-  '@tailwindcss/oxide-darwin-x64@4.3.0':
-    resolution: {integrity: sha512-N6CUmu4a6bKVADfw77p+iw6Yd9Q3OBhe0veaDX+QazfuVYlQsHfDgxBrsjQ/IW+zywL8mTrNd0SdJT/zgtvMdA==}
+  '@tailwindcss/oxide-darwin-x64@4.3.3':
+    resolution: {integrity: sha512-fAeUqfV5ndhxRwai8cXGzdLvul9utWOmeTkv69unv4ZXixjn61Z+p9lCWdwOwA3TYboG3BwdVuN/RDjhBRl0mw==}
     engines: {node: '>= 20'}
     cpu: [x64]
     os: [darwin]
@@ -12346,7 +12346,7 @@ snapshots:
   '@tailwindcss/oxide-darwin-x64@4.2.2':
     optional: true
 
-  '@tailwindcss/oxide-darwin-x64@4.3.0': {}
+  '@tailwindcss/oxide-darwin-x64@4.3.3': {}
 
   '@tailwindcss/oxide-freebsd-x64@4.2.2':
     optional: true
