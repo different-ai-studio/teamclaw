@@ -70,6 +70,16 @@ jobs:
           - target: x86_64-apple-darwin
             runner: macos-latest
     runs-on: ${{ matrix.runner }}
+    # Job-level, not step-level: these used to sit only on the tauri-action step,
+    # so the amuxd and teamclaw-introspect sidecar builds (and the Cargo.lock
+    # sync) compiled with no sccache at all — despite sharing most of their
+    # dependency graph with the tauri build that follows. Every cargo invocation
+    # in this job now shares one sccache. The `Setup sccache` step still has to
+    # run before the first cargo call for this to work; it does.
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -255,9 +265,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
-          CARGO_INCREMENTAL: "0"
         with:
           # BRAND_MAC_EXTRA_ARGS comes from brand.json build.macExtraArgs — betly
           # passes --features beta-devtools to enable the WebKit inspector in the
@@ -389,6 +396,12 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    # See build-macos: hoisted off the tauri-action step so the amuxd (~495s) and
+    # introspect (~87s) sidecar builds get sccache too.
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -510,9 +523,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
-          CARGO_INCREMENTAL: "0"
         with:
           args: "--bundles nsis -- --no-default-features"
 
