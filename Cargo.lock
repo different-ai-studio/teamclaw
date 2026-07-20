@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "amuxd"
-version = "0.2.26"
+version = "0.2.27"
 dependencies = [
  "aes-gcm",
  "agent-client-protocol",
@@ -10270,7 +10270,7 @@ dependencies = [
 
 [[package]]
 name = "teamclaw"
-version = "0.2.26"
+version = "0.2.27"
 dependencies = [
  "aes-gcm",
  "anyhow",
