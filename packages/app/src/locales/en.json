@@ -300,12 +300,20 @@
     "generatingComponents": "Generating... ({{count}} components)",
     "thinking": "Thinking...",
     "thinkingProcess": "Thinking Process",
+    "process": "Process",
+    "replyToPrefix": "Reply to",
+    "you": "You",
+    "someone": "Someone",
     "messagesQueued": "{{count}} messages queued",
     "showMore": "Show more",
     "showLess": "Show less",
     "streamingBar": {
       "streamingActive": "Replying",
-      "waitingApproval": "Waiting for your approval…"
+      "waitingApproval": "Waiting for your approval…",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "enlarge": "Enlarge",
+      "restore": "Restore"
     },
     "permissionCard": {
       "requestExecuteCommand": "requests to execute a command",
@@ -319,6 +327,7 @@
       "waitingExternalPathApproval": "Confirmation is required before accessing a path outside the workspace",
       "childSessionWaitingApproval": "A child session is waiting for your approval",
       "toolInvocationWaitingApproval": "A tool call is waiting for your approval",
+      "waitingForApproval": "Waiting for {{name}} to approve",
       "queuePosition": "{{current}} / {{total}}",
       "approvalSectionAria": "Permission approval",
       "approve": "Allow"
@@ -449,7 +458,7 @@
     "outgoing": {
       "humanMentionInstruction": "This message also mentions human {{name}}"
     },
-    "inputPlaceholderQueue": "Type to queue message...",
+    "inputPlaceholderContinue": "Continue typing...",
     "newSession": "New Session",
     "refreshMessages": "Refresh messages",
     "startingAgent": "Starting agent...",

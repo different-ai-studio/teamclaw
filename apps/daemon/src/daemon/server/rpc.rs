@@ -539,14 +539,18 @@ impl DaemonServer {
                                     &sender_actor_id,
                                 )
                                 .await;
+                                let requester = (!sender_actor_id.is_empty())
+                                    .then(|| sender_actor_id.clone());
                                 let send_res = self
                                     .agents
                                     .lock()
                                     .await
-                                    .send_prompt(
+                                    .send_prompt_with_requester(
                                         agent_id,
                                         &prompt.text,
                                         prompt.attachment_urls.clone(),
+                                        requester,
+                                        None,
                                     )
                                     .await;
                                 if let Err(e) = send_res {
@@ -672,11 +676,19 @@ impl DaemonServer {
                     .unwrap_or_default();
                 self.prepare_remote_tool_context_for_turn(agent_id, &session_id, &sender_actor_id)
                     .await;
+                let requester =
+                    (!sender_actor_id.is_empty()).then(|| sender_actor_id.clone());
                 let send_res = self
                     .agents
                     .lock()
                     .await
-                    .send_prompt(agent_id, &prompt.text, prompt.attachment_urls.clone())
+                    .send_prompt_with_requester(
+                        agent_id,
+                        &prompt.text,
+                        prompt.attachment_urls.clone(),
+                        requester,
+                        None,
+                    )
                     .await;
                 match send_res {
                     Ok(_drained) => {

@@ -1,3 +1,4 @@
+import { canCurrentMemberActOnPermission } from "@/lib/teamclaw/handle-acp-permission-request";
 import { replyAcpPermission } from "@/lib/teamclaw/reply-acp-permission";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 
@@ -17,6 +18,8 @@ export async function flushSessionPendingPermissions(sessionId: string): Promise
     for (const req of Object.values(entry.pendingPermissionsByRequestId)) {
       const requestId = req.requestId?.trim() ?? "";
       if (!requestId) continue;
+      // Bystander-stamped requests must not be auto-granted via fullAccess flush.
+      if (!canCurrentMemberActOnPermission(req)) continue;
       pending.push({
         sessionId: entry.sessionId,
         actorId: entry.actorId,

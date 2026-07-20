@@ -1,5 +1,8 @@
 import * as React from "react";
-import { collectAcpStreamingPermissions } from "@/lib/teamclaw/acp-permission-entries";
+import {
+  collectAcpBystanderWaitingPermissions,
+  collectAcpStreamingPermissions,
+} from "@/lib/teamclaw/acp-permission-entries";
 import { useSessionPermissionMode } from "@/lib/session-permission-mode";
 import { useSessionStore } from "@/stores/session";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
@@ -18,6 +21,11 @@ export function usePendingPermissionsQueue() {
   const acpStreamingPermissions = React.useMemo(() => {
     const streamByKey = useV2StreamingStore.getState().byKey;
     return collectAcpStreamingPermissions(activeSessionId, streamByKey);
+  }, [activeSessionId, streamRevision]);
+
+  const waitingPermissions = React.useMemo(() => {
+    const streamByKey = useV2StreamingStore.getState().byKey;
+    return collectAcpBystanderWaitingPermissions(activeSessionId, streamByKey);
   }, [activeSessionId, streamRevision]);
 
   const baseVisiblePermissions = React.useMemo(
@@ -49,6 +57,10 @@ export function usePendingPermissionsQueue() {
 
   const currentEntry = visiblePermissions[0] ?? null;
   const queuedCount = visiblePermissions.length;
+  const waitingEntry = waitingPermissions[0] ?? null;
+  const waitingRequesterActorId =
+    (waitingEntry?.permission.metadata?.requester_actor_id as string | undefined)?.trim() ||
+    null;
 
   const onReplyStart = React.useCallback((permissionId: string) => {
     setDismissedIds((current) =>
@@ -66,6 +78,7 @@ export function usePendingPermissionsQueue() {
     visiblePermissions,
     currentEntry,
     queuedCount,
+    waitingRequesterActorId,
     onReplyStart,
     onReplyRollback,
   };

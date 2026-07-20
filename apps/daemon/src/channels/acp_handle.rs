@@ -441,7 +441,7 @@ impl AmuxdAcpHandle {
             let (turn, _again) = mgr
                 .checkout_turn_for_acp(&outcome.real_acp_sid)
                 .map_err(|e| AcpError::Send(e.to_string()))?;
-            mgr.send_prompt_raw(&turn.agent_id, &prompt, vec![])
+            mgr.send_prompt_raw(&turn.agent_id, &prompt, vec![], None, None)
                 .await
                 .map_err(|e| AcpError::Send(e.to_string()))?;
             (turn.agent_id, turn.event_rx)

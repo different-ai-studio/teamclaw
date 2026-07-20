@@ -54,6 +54,10 @@ pub enum AcpCommand {
         acp_session_id: String,
         text: String,
         attachment_urls: Vec<String>,
+        /// Human actor that started this turn; stamped onto PermissionRequest params.
+        requester_actor_id: Option<String>,
+        /// User message id that triggered this turn; stamped onto AgentReply emits.
+        reply_to_message_id: Option<String>,
     },
     /// Cancel the current turn for a bound session.
     Cancel { acp_session_id: String },
@@ -163,10 +167,21 @@ enum PermissionResolution {
     Granted { option_id: Option<String> },
 }
 
+/// Stamp the collab turn invoker onto PermissionRequest params (wire format).
+fn stamp_requester_actor_id(params: &mut HashMap<String, String>, requester: Option<&str>) {
+    if let Some(id) = requester.filter(|s| !s.is_empty()) {
+        params.insert("requester_actor_id".to_string(), id.to_string());
+    }
+}
+
 struct SessionRoute {
     event_tx: mpsc::Sender<AcpEventFrame>,
     is_gateway: bool,
     pending_permissions: HashMap<String, oneshot::Sender<PermissionResolution>>,
+    /// Human actor id for the in-flight collab turn (PermissionRequest stamp).
+    turn_requester_actor_id: Option<String>,
+    /// User message id for the in-flight turn (AgentReply `reply_to_message_id`).
+    turn_reply_to_message_id: Option<String>,
     tool_progress_deduper: RefCell<ToolProgressDeduper>,
     /// Count of `session_notification` handlers currently between "entered"
     /// and "finished pushing their events onto `event_tx`". The ACP crate
@@ -410,7 +425,17 @@ impl acp::Client for AmuxClient {
                 route.event_tx.clone()
             };
 
-            let permission_params = tool_call_params(args.tool_call.fields.raw_input.as_ref());
+            let mut permission_params =
+                tool_call_params(args.tool_call.fields.raw_input.as_ref());
+            {
+                let guard = self.registry.borrow();
+                if let Some(route) = guard.resolve_event_route(&session_id) {
+                    stamp_requester_actor_id(
+                        &mut permission_params,
+                        route.turn_requester_actor_id.as_deref(),
+                    );
+                }
+            }
             let _ = event_tx
                 .send(AcpEventFrame::new(
                     session_id.clone(),
@@ -524,17 +549,21 @@ impl acp::Client for AmuxClient {
                     r.event_tx.clone(),
                     r.notif_inflight.clone(),
                     r.notif_finished.clone(),
+                    r.turn_reply_to_message_id.clone(),
                 )
             })
         };
-        if let Some((event_tx, inflight, finished)) = route {
+        if let Some((event_tx, inflight, finished, turn_reply_to)) = route {
             let _inflight_guard = NotifInflightGuard::new(inflight, finished);
             for event in &events {
                 super::agent_trace::log_acp_event(&session_id, event);
             }
             for event in events {
                 let _ = event_tx
-                    .send(AcpEventFrame::new(session_id.clone(), event))
+                    .send(
+                        AcpEventFrame::new(session_id.clone(), event)
+                            .with_reply_to(turn_reply_to.clone()),
+                    )
                     .await;
             }
         } else {
@@ -926,7 +955,8 @@ mod spawn_path_tests {
 // ---------------------------------------------------------------------------
 
 struct ActiveSession {
-    prompt_tx: mpsc::Sender<(String, Vec<String>)>,
+    /// Prompt jobs: text, attachments, optional turn requester, optional reply_to.
+    prompt_tx: mpsc::Sender<(String, Vec<String>, Option<String>, Option<String>)>,
 }
 
 fn build_acp_process_command(
@@ -1169,6 +1199,8 @@ async fn attach_acp_session_on_conn(
             event_tx: event_tx.clone(),
             is_gateway,
             pending_permissions: HashMap::new(),
+            turn_requester_actor_id: None,
+            turn_reply_to_message_id: None,
             tool_progress_deduper: RefCell::new(ToolProgressDeduper::default()),
             notif_inflight: Rc::new(Cell::new(0)),
             notif_finished: Rc::new(Cell::new(0)),
@@ -1234,7 +1266,7 @@ fn spawn_prompt_worker(
     session_id: acp::SessionId,
     event_tx: mpsc::Sender<AcpEventFrame>,
     registry: Rc<RefCell<SessionRegistry>>,
-    mut prompt_rx: mpsc::Receiver<(String, Vec<String>)>,
+    mut prompt_rx: mpsc::Receiver<(String, Vec<String>, Option<String>, Option<String>)>,
 ) {
     let acp_session_key = session_id.to_string();
     tokio::task::spawn_local(async move {
@@ -1251,7 +1283,20 @@ fn spawn_prompt_worker(
             .and_then(|v| v.parse::<u64>().ok())
             .map(Duration::from_secs)
             .unwrap_or_else(|| Duration::from_secs(90));
-        while let Some((text, attachment_urls)) = prompt_rx.recv().await {
+        while let Some((text, attachment_urls, requester_actor_id, reply_to_message_id)) =
+            prompt_rx.recv().await
+        {
+            // Bind collab turn stamps to THIS worker iteration only — never at
+            // Prompt enqueue time, or a queued second prompt would overwrite
+            // the in-flight turn's stamp.
+            let turn_reply_to = reply_to_message_id.filter(|id| !id.is_empty());
+            if let Some(route) = registry.borrow_mut().resolve_event_route_mut(&acp_session_key)
+            {
+                route.turn_requester_actor_id =
+                    requester_actor_id.filter(|id| !id.is_empty());
+                route.turn_reply_to_message_id = turn_reply_to.clone();
+            }
+
             let attachment_count = attachment_urls.len();
             super::agent_trace::log_prompt_begin(&acp_session_key, &text, attachment_count);
             let turn_started = Instant::now();
@@ -1267,7 +1312,10 @@ fn spawn_prompt_worker(
             };
             super::agent_trace::log_acp_event(&acp_session_key, &status_active);
             let _ = event_tx
-                .send(AcpEventFrame::new(acp_session_key.clone(), status_active))
+                .send(
+                    AcpEventFrame::new(acp_session_key.clone(), status_active)
+                        .with_reply_to(turn_reply_to.clone()),
+                )
                 .await;
 
             let mut blocks: Vec<acp::ContentBlock> = vec![text.into()];
@@ -1342,8 +1390,17 @@ fn spawn_prompt_worker(
             };
             super::agent_trace::log_acp_event(&acp_session_key, &status_idle);
             let _ = event_tx
-                .send(AcpEventFrame::new(acp_session_key.clone(), status_idle))
+                .send(
+                    AcpEventFrame::new(acp_session_key.clone(), status_idle)
+                        .with_reply_to(turn_reply_to.clone()),
+                )
                 .await;
+
+            // Clear collab turn stamps so they cannot leak into the next turn.
+            if let Some(route) = registry.borrow_mut().resolve_event_route_mut(&acp_session_key) {
+                route.turn_requester_actor_id = None;
+                route.turn_reply_to_message_id = None;
+            }
 
             let elapsed_ms = turn_started.elapsed().as_millis() as u64;
             if stalled {
@@ -1543,7 +1600,7 @@ async fn run_acp_host(
                                 if !initial_prompt.is_empty() {
                                     let _ = active
                                         .prompt_tx
-                                        .send((initial_prompt, Vec::new()))
+                                        .send((initial_prompt, Vec::new(), None, None))
                                         .await;
                                 }
                                 continue;
@@ -1567,7 +1624,8 @@ async fn run_acp_host(
                             Ok(meta) => {
                                 let acp_sid = meta.acp_session_id.clone();
                                 let session_id = acp::SessionId::new(acp_sid.clone());
-                                let (prompt_tx, prompt_rx) = mpsc::channel::<(String, Vec<String>)>(64);
+                                let (prompt_tx, prompt_rx) =
+                                    mpsc::channel::<(String, Vec<String>, Option<String>, Option<String>)>(64);
                                 spawn_prompt_worker(
                                     conn.clone(),
                                     session_id,
@@ -1579,7 +1637,10 @@ async fn run_acp_host(
                                 report_startup(&startup_reporter, Ok(meta));
                                 if !initial_prompt.is_empty() {
                                     if let Some(active) = active_sessions.get(&acp_sid) {
-                                        let _ = active.prompt_tx.send((initial_prompt, Vec::new())).await;
+                                        let _ = active
+                                            .prompt_tx
+                                            .send((initial_prompt, Vec::new(), None, None))
+                                            .await;
                                     }
                                 }
                             }
@@ -1597,9 +1658,20 @@ async fn run_acp_host(
                             }
                         }
                     }
-                    AcpCommand::Prompt { acp_session_id, text, attachment_urls } => {
+                    AcpCommand::Prompt {
+                        acp_session_id,
+                        text,
+                        attachment_urls,
+                        requester_actor_id,
+                        reply_to_message_id,
+                    } => {
                         if let Some(active) = active_sessions.get(&acp_session_id) {
-                            if active.prompt_tx.send((text, attachment_urls)).await.is_err() {
+                            if active
+                                .prompt_tx
+                                .send((text, attachment_urls, requester_actor_id, reply_to_message_id))
+                                .await
+                                .is_err()
+                            {
                                 if let Some(route) = registry.borrow().sessions.get(&acp_session_id) {
                                     emit_acp_error(
                                         &route.event_tx,
@@ -2297,6 +2369,25 @@ mod tests {
     }
 
     #[test]
+    fn stamps_requester_actor_id_when_present() {
+        let mut params = HashMap::from([("command".to_string(), "ls".to_string())]);
+        stamp_requester_actor_id(&mut params, Some("actor-a"));
+        assert_eq!(
+            params.get("requester_actor_id").map(String::as_str),
+            Some("actor-a")
+        );
+        assert_eq!(params.get("command").map(String::as_str), Some("ls"));
+    }
+
+    #[test]
+    fn stamp_requester_skips_empty() {
+        let mut params = HashMap::new();
+        stamp_requester_actor_id(&mut params, Some(""));
+        stamp_requester_actor_id(&mut params, None);
+        assert!(!params.contains_key("requester_actor_id"));
+    }
+
+    #[test]
     fn detach_session_prunes_child_to_root_aliases() {
         let (event_tx, _rx) = mpsc::channel(1);
         let mut reg = SessionRegistry::default();
@@ -2306,6 +2397,8 @@ mod tests {
                 event_tx,
                 is_gateway: false,
                 pending_permissions: HashMap::new(),
+                turn_requester_actor_id: None,
+                turn_reply_to_message_id: None,
                 tool_progress_deduper: RefCell::new(ToolProgressDeduper::default()),
                 notif_inflight: Rc::new(Cell::new(0)),
                 notif_finished: Rc::new(Cell::new(0)),

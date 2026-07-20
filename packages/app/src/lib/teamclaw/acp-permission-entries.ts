@@ -1,6 +1,8 @@
 import type { PendingPermissionEntry } from "@/stores/session-types";
 import type { StreamingPermissionRequest } from "@/stores/v2-streaming-store";
 import { shouldAutoAllowSessionPermissions } from "@/lib/session-permission-mode";
+import { canCurrentMemberActOnPermission } from "@/lib/teamclaw/handle-acp-permission-request";
+import { useCurrentTeamStore } from "@/stores/current-team";
 
 function inferPermissionType(toolName: string): string {
   const n = toolName.toLowerCase();
@@ -25,6 +27,8 @@ export function buildPendingEntryFromAcpPermission(
     req.params.cmd ??
     req.description ??
     req.toolName;
+  const requesterActorId =
+    req.requesterActorId?.trim() || req.params.requester_actor_id?.trim() || "";
 
   return {
     permission: {
@@ -35,6 +39,7 @@ export function buildPendingEntryFromAcpPermission(
       metadata: {
         ...req.params,
         _acp_agent_actor_id: agentActorId,
+        ...(requesterActorId ? { requester_actor_id: requesterActorId } : {}),
       },
       always: [],
     },
@@ -46,26 +51,59 @@ export function buildPendingEntryFromAcpPermission(
   };
 }
 
-export function collectAcpStreamingPermissions(
-  activeSessionId: string | null,
-  byKey: Record<
-    string,
-    {
-      sessionId: string;
-      actorId: string;
-      pendingPermissionsByRequestId: Record<string, StreamingPermissionRequest>;
-    }
-  >,
-): PendingPermissionEntry[] {
-  if (!activeSessionId) return [];
-  if (shouldAutoAllowSessionPermissions(activeSessionId)) return [];
-  const out: PendingPermissionEntry[] = [];
+type StreamKeyEntry = {
+  sessionId: string;
+  actorId: string;
+  pendingPermissionsByRequestId: Record<string, StreamingPermissionRequest>;
+};
+
+function forEachPendingInSession(
+  activeSessionId: string,
+  byKey: Record<string, StreamKeyEntry>,
+  visit: (entry: StreamKeyEntry, pending: StreamingPermissionRequest) => void,
+): void {
   for (const entry of Object.values(byKey)) {
     if (entry.sessionId !== activeSessionId) continue;
     for (const pending of Object.values(entry.pendingPermissionsByRequestId)) {
       if (!pending.requestId?.trim()) continue;
-      out.push(buildPendingEntryFromAcpPermission(entry.sessionId, entry.actorId, pending));
+      visit(entry, pending);
     }
   }
+}
+
+/** Interactive Allow/Deny queue — excludes bystander-stamped requests. */
+export function collectAcpStreamingPermissions(
+  activeSessionId: string | null,
+  byKey: Record<string, StreamKeyEntry>,
+): PendingPermissionEntry[] {
+  if (!activeSessionId) return [];
+  if (shouldAutoAllowSessionPermissions(activeSessionId)) return [];
+  const me = useCurrentTeamStore.getState().currentMember?.id ?? null;
+  const out: PendingPermissionEntry[] = [];
+  forEachPendingInSession(activeSessionId, byKey, (entry, pending) => {
+    if (!canCurrentMemberActOnPermission(pending, me)) return;
+    out.push(buildPendingEntryFromAcpPermission(entry.sessionId, entry.actorId, pending));
+  });
+  return out;
+}
+
+/**
+ * Pending permissions stamped for another member — used for the read-only
+ * “等待 XXX 批准” banner (Phase 2.5). Legacy empty requester is excluded.
+ */
+export function collectAcpBystanderWaitingPermissions(
+  activeSessionId: string | null,
+  byKey: Record<string, StreamKeyEntry>,
+): PendingPermissionEntry[] {
+  if (!activeSessionId) return [];
+  const me = useCurrentTeamStore.getState().currentMember?.id ?? null;
+  const out: PendingPermissionEntry[] = [];
+  forEachPendingInSession(activeSessionId, byKey, (entry, pending) => {
+    const requester =
+      pending.requesterActorId?.trim() || pending.params?.requester_actor_id?.trim() || "";
+    if (!requester) return;
+    if (canCurrentMemberActOnPermission(pending, me)) return;
+    out.push(buildPendingEntryFromAcpPermission(entry.sessionId, entry.actorId, pending));
+  });
   return out;
 }

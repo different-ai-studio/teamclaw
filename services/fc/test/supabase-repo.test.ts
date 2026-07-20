@@ -672,6 +672,7 @@ test("removeTeamActor still succeeds when LiteLLM key deletion fails", async () 
 
   const rpc = rpcCalls.find((c) => c.name === "remove_team_actor");
   assert.ok(rpc, "expected remove_team_actor RPC call");
+  assert.equal(rpc.schema, "amux", "must call amux.remove_team_actor explicitly");
 });
 
 test("removeTeamActor deletes the actor's LiteLLM key exactly once with the deterministic key value", async () => {
@@ -979,14 +980,14 @@ function fakeSupabase({
   onUpsert = null,
   upsertData = null,
 } = {}) {
-  return {
+  const client: any = {
     auth: auth ?? {
       async getUser() {
         return { data: { user: null }, error: null };
       },
     },
-    async rpc(name, args) {
-      rpcCalls.push({ name, args });
+    async rpc(name, args, schema = null) {
+      rpcCalls.push(schema ? { name, args, schema } : { name, args });
       if (onRpc) onRpc(name, args);
       return { data: rpcData[name] ?? [], error: rpcErrors[name] ?? null };
     },
@@ -997,7 +998,18 @@ function fakeSupabase({
         upsertData,
       });
     },
+    schema(name) {
+      return {
+        rpc(rpcName, args) {
+          return client.rpc(rpcName, args, name);
+        },
+        from(table) {
+          return client.from(table);
+        },
+      };
+    },
   };
+  return client;
 }
 
 function createTableQuery(table: any, calls: any, data: any, error: any, hooks: any = {}) {

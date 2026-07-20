@@ -302,12 +302,43 @@ impl CloudApiBackend {
         let Some(path) = self.persist_path.as_ref() else {
             return;
         };
-        let cfg = CloudApiConfig {
-            url: self.cfg.url.clone(),
-            refresh_token: refresh_token.to_string(),
-            team_id: self.cfg.team_id.clone(),
-            actor_id: self.cfg.actor_id.clone(),
+        // Never recreate a file removed by `amuxd clear`, and never let a
+        // still-running stale process overwrite credentials written by a later
+        // `amuxd init`. Only the process whose routing identity still matches
+        // the current file is allowed to rotate that file's token.
+        if !path.exists() {
+            tracing::warn!(
+                path = %path.display(),
+                "skipping rotated refresh_token persistence because backend.toml was removed"
+            );
+            return;
+        }
+        let mut cfg = match crate::provider_config::ProviderConfig::load_from_path(path) {
+            Ok(crate::provider_config::ProviderConfig::CloudApi(cfg)) => cfg,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    path = %path.display(),
+                    "skipping rotated refresh_token persistence because backend.toml is unreadable"
+                );
+                return;
+            }
         };
+        if cfg.url != self.cfg.url
+            || cfg.team_id != self.cfg.team_id
+            || cfg.actor_id != self.cfg.actor_id
+        {
+            tracing::warn!(
+                path = %path.display(),
+                running_team_id = %self.cfg.team_id,
+                running_actor_id = %self.cfg.actor_id,
+                disk_team_id = %cfg.team_id,
+                disk_actor_id = %cfg.actor_id,
+                "skipping rotated refresh_token persistence because daemon identity was rebound"
+            );
+            return;
+        }
+        cfg.refresh_token = refresh_token.to_string();
         if let Err(e) = crate::provider_config::ProviderConfig::save_cloud_api(path, &cfg) {
             tracing::warn!(
                 error = %e,
@@ -1285,6 +1316,7 @@ impl Backend for CloudApiBackend {
         metadata_json: &str,
         model: &str,
         turn_id: &str,
+        reply_to_message_id: &str,
         sequence: u64,
     ) -> BackendResult<()> {
         self.insert_message_impl(
@@ -1297,6 +1329,7 @@ impl Backend for CloudApiBackend {
             metadata_json,
             model,
             turn_id,
+            reply_to_message_id,
             sequence,
         )
         .await
@@ -1329,6 +1362,7 @@ impl CloudAgentRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_config::ProviderConfig;
 
     #[test]
     fn bootstrap_mqtt_prefers_canonical_ws_url_over_tcp_url() {
@@ -1508,7 +1542,10 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let backend_path = dir.path().join("backend.toml");
-        let backend = CloudApiBackend::with_persist_path(config(&server), backend_path.clone());
+        let initial_config = config(&server);
+        ProviderConfig::save_cloud_api(&backend_path, &initial_config).unwrap();
+        let backend =
+            CloudApiBackend::with_persist_path(initial_config, backend_path.clone());
 
         assert_eq!(backend.access_token().await.unwrap(), "at-1");
 
@@ -1522,6 +1559,35 @@ mod tests {
         // Next call (cache expired) must refresh using the rotated token.
         assert_eq!(backend.access_token().await.unwrap(), "at-2");
         // wiremock `.expect(1)` on both mocks is verified on server drop.
+    }
+
+    #[tokio::test]
+    async fn stale_backend_does_not_overwrite_rebound_identity_when_token_rotates() {
+        let server = MockServer::start().await;
+        mount_refresh(&server).await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let backend_path = dir.path().join("backend.toml");
+        let old_config = config(&server);
+        ProviderConfig::save_cloud_api(&backend_path, &old_config).unwrap();
+
+        // The running backend captures the old identity. A later `amuxd init`
+        // replaces the file with a newly bound actor before the old process
+        // refreshes its token.
+        let backend = CloudApiBackend::with_persist_path(old_config, backend_path.clone());
+        let rebound = CloudApiConfig {
+            url: server.uri(),
+            refresh_token: "new-binding-refresh".to_string(),
+            team_id: "team-2".to_string(),
+            actor_id: "agent-2".to_string(),
+        };
+        ProviderConfig::save_cloud_api(&backend_path, &rebound).unwrap();
+        let expected = std::fs::read_to_string(&backend_path).unwrap();
+
+        assert_eq!(backend.access_token().await.unwrap(), "access-token");
+
+        let actual = std::fs::read_to_string(&backend_path).unwrap();
+        assert_eq!(actual, expected, "stale daemon must not restore its old identity");
     }
 
     #[tokio::test]

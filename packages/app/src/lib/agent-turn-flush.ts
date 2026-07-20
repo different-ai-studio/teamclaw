@@ -20,7 +20,7 @@ export function buildAgentReplyMessageRow(
     sessionId: reply.sessionId,
     turnId: reply.turnId || null,
     senderActorId: reply.senderActorId || null,
-    replyToMessageId: null,
+    replyToMessageId: reply.replyToMessageId?.trim() || null,
     kind: "agent_reply",
     content: reply.content,
     metadataJson: reply.metadataJson || null,
@@ -94,7 +94,10 @@ export function bumpPreviewFromAgentReply(
   });
 }
 
-/** Shared post-persist commit: store, cache, release stream, session preview. */
+/** Shared post-persist commit: store, cache, release stream, session preview.
+ * UI handoff order: put AGENT_REPLY (with partsJson) into the message store
+ * before releasing the live stream, so ChatMessage can show「处理过程」
+ * without a blank gap after the Composer dock closes. */
 export function commitFlushedAgentReply(
   sessionId: string,
   actorId: string,

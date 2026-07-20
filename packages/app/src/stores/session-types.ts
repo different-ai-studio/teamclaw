@@ -171,6 +171,10 @@ export interface Message {
   sendAttempt?: number;
   /** Mirrors `OutboxRow.last_error` — shown in tooltip on failed bubble. */
   sendError?: string;
+  /** User message this agent reply is responding to (quote / jump target). */
+  replyToMessageId?: string | null;
+  /** ACP turn correlation id when available (debug / grouping). */
+  turnId?: string | null;
 }
 
 export interface PlanEntry {

@@ -87,6 +87,12 @@ pub struct RuntimeHandle {
     /// queued as silent). Used by Task 9 catch-up logic to replay missed
     /// messages on session reopen.
     pub last_processed_message_id: Option<String>,
+    /// User `messages.id` that triggered the in-flight ACP turn. Stamped onto
+    /// AgentReply emits as `reply_to_message_id` so clients can quote-jump.
+    /// Bound when the prompt worker starts the turn (via AcpEventFrame), not at
+    /// enqueue time — so queued prompts cannot overwrite an earlier turn.
+    /// Cleared on Active→Idle.
+    pub pending_reply_to_message_id: Option<String>,
     /// Human member actor whose client receives remote-tool RPC for this runtime.
     pub remote_tool_member_id: String,
     /// Gateway runtimes auto-allow ACP tool permissions; collab runtimes do not.
@@ -131,6 +137,7 @@ impl RuntimeHandle {
             instruction_delivery: InstructionDelivery::BufferedInject,
             backend_runtime_row_id: None,
             last_processed_message_id: None,
+            pending_reply_to_message_id: None,
             available_models: Vec::new(),
             remote_tool_member_id: String::new(),
             is_gateway: false,
@@ -192,12 +199,16 @@ impl RuntimeHandle {
         &self,
         text: &str,
         attachment_urls: Vec<String>,
+        requester_actor_id: Option<String>,
+        reply_to_message_id: Option<String>,
     ) -> crate::error::Result<()> {
         if let Some(ref tx) = self.cmd_tx {
             tx.send(AcpCommand::Prompt {
                 acp_session_id: self.acp_session_id.clone(),
                 text: text.to_string(),
                 attachment_urls,
+                requester_actor_id,
+                reply_to_message_id,
             })
             .await
             .map_err(|_| crate::error::AmuxError::Agent("ACP command channel closed".into()))
@@ -346,6 +357,7 @@ impl RuntimeHandle {
             instruction_delivery: InstructionDelivery::BufferedInject,
             backend_runtime_row_id: None,
             last_processed_message_id: None,
+            pending_reply_to_message_id: None,
             available_models: Vec::new(),
             remote_tool_member_id: String::new(),
             is_gateway: false,

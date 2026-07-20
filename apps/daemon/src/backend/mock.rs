@@ -70,6 +70,7 @@ pub struct RecordedMessageInsert {
     pub metadata_json: String,
     pub model: String,
     pub turn_id: String,
+    pub reply_to_message_id: String,
     pub sequence: u64,
 }
 
@@ -660,6 +661,7 @@ impl Backend for MockBackend {
         metadata_json: &str,
         model: &str,
         turn_id: &str,
+        reply_to_message_id: &str,
         sequence: u64,
     ) -> BackendResult<()> {
         self.state
@@ -676,6 +678,7 @@ impl Backend for MockBackend {
                 metadata_json: metadata_json.to_string(),
                 model: model.to_string(),
                 turn_id: turn_id.to_string(),
+                reply_to_message_id: reply_to_message_id.to_string(),
                 sequence,
             });
         Ok(())
@@ -841,12 +844,12 @@ mod tests {
     async fn insert_message_records_each_call_with_metadata() {
         let (be, state) = dyn_backend();
         be.insert_message(
-            "msg-1", "team-x", "sess-1", "actor-y", "text", "hi", "{}", "model-z", "turn-1", 42,
+            "msg-1", "team-x", "sess-1", "actor-y", "text", "hi", "{}", "model-z", "turn-1", "user-1", 42,
         )
         .await
         .unwrap();
         be.insert_message(
-            "msg-2", "team-x", "sess-1", "actor-y", "text", "again", "{}", "", "", 43,
+            "msg-2", "team-x", "sess-1", "actor-y", "text", "again", "{}", "", "", "", 43,
         )
         .await
         .unwrap();
@@ -855,10 +858,12 @@ mod tests {
         assert_eq!(snap.messages_inserted[0].id, "msg-1");
         assert_eq!(snap.messages_inserted[0].content, "hi");
         assert_eq!(snap.messages_inserted[0].model, "model-z");
+        assert_eq!(snap.messages_inserted[0].reply_to_message_id, "user-1");
         assert_eq!(snap.messages_inserted[0].sequence, 42);
         assert_eq!(snap.messages_inserted[1].id, "msg-2");
         assert_eq!(snap.messages_inserted[1].content, "again");
         assert!(snap.messages_inserted[1].model.is_empty());
+        assert!(snap.messages_inserted[1].reply_to_message_id.is_empty());
     }
 
     #[tokio::test]
